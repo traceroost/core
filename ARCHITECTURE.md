@@ -1121,6 +1121,11 @@ no transport — the engines have no network path at all — and nothing they pr
 | `src/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
 | `src/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
 | `src/database/attributionRepository.ts` | SQLite cache — a commit's attribution never changes once computed |
+| `src/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed` — a cohort is measured only once its window fully elapses |
+| `src/turnover/survival.ts` | One `git blame HEAD` per file, bucketed by originating commit; proportional surviving-AI-lines estimate |
+| `src/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
+| `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
+| `src/database/turnoverRepository.ts` | One row per repo; recompute skipped when `HEAD` is unmoved |
 
 Confidence is the honest part: **certain** (trailer, or a session lists the file and the commit
 lands in that session's own span), **probable** (session lists the file, commit within the

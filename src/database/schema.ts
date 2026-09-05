@@ -120,4 +120,13 @@ CREATE TABLE IF NOT EXISTS commit_attribution (
   computed_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
   PRIMARY KEY (repo_root, sha)
 );
+
+-- Cohort turnover report (AL 06), one row per repository. Recomputed only when HEAD has moved —
+-- the row records the HEAD sha it was computed at. Holds counts and a rate; nothing reversible.
+CREATE TABLE IF NOT EXISTS cohort_turnover (
+  repo_root     TEXT PRIMARY KEY,
+  head_sha      TEXT NOT NULL,
+  report_json   TEXT NOT NULL,
+  computed_at   INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
 `
