@@ -1121,6 +1121,21 @@ is **not** in the payload — the service derives identity from the bearer token
   `… Leave Team`.
 - **Standalone server** — `GET/POST /api/team`, dispatched through the same `panelController`.
 
+### The free/paid boundary (AL 09)
+
+**Free is my machine. Paid is everyone's** — structural, not administrative. A local install
+cannot see other machines, so there is no flag to patch out and no fork that recovers Pro. The
+full statement, and the four things the free tier will never do (no feature removed to force an
+upgrade, no quotas, no trial, no free self-hostable team server), is in
+[`docs/pricing-boundary.md`](docs/pricing-boundary.md) — the source of the pricing-page copy,
+pinned by a test.
+
+**The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
+machine that has the repo. `agentlens cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
+and `agentlens://cohort?repo=<hash>&merged=…&window=…`. `src/team/resolveRepoHash.ts` re-derives
+repo hashes for local clones only — it is not an oracle, and a deep link for an unknown repo
+makes no request.
+
 ### The free outcome metric (AL 05–07)
 
 `src/attribution/` and `src/turnover/` are **free forever, local, single-developer**. They have
