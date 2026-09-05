@@ -10,6 +10,7 @@ import { classifySessionOutcome, type GitOutcome } from './gitOutcome'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
 import { handleTeamMessage } from './team/panelController'
+import { buildPayloadPreviewText } from './team/payloadPreview'
 
 function isExportFormat(value: unknown): value is ExportFormat {
   return value === 'json' || value === 'csv' || value === 'markdown'
@@ -79,6 +80,7 @@ export class DashboardPanel {
           post: (m) => { void this.panel.webview.postMessage(m) },
           openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
           recentSessions: () => this.repo.listSessions({ limit: 25 }),
+          buildPayloadPreview: (session) => buildPayloadPreviewText(session),
           onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse('https://app.agentlens.dev')) },
         })
         return

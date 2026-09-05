@@ -84,14 +84,14 @@ from. Ordering it after the SaaS spine is a sequencing choice, not a dependency.
 ### Phase 5 — The action layer
 
 Where a number becomes a change: instruction-file coverage, pooled suggestions,
-repeat-work clusters, and the measured before/after. This is what the product is
+recurring tasks, and the measured before/after. This is what the product is
 actually for.
 
 | Repo | Plan |
 |---|---|
 | AL | [08 — Instruction telemetry and the apply loop](08-instruction-telemetry-and-apply-loop.md) |
 | SA | 10 — Instructions and effectiveness |
-| SA | 11 — Repeat work and clusters |
+| SA | 11 — Repeat work and recurring tasks |
 | SA | 12 — Action detail and apply |
 
 ### Phase 6 — Retention and commercial close-out

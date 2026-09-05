@@ -132,7 +132,7 @@ anything.
 3. `src/forward/buildSuggestionEvents.ts` — from `instruction_applied` and
    `instruction_dismissed`, plus a `surfaced` event when the Advisor renders one.
 4. `standalone/cli.ts` — `advise --apply`, `advise --list`, and the
-   `agentlens cluster --repo … --id …` hand-off from the team view.
+   `agentlens task --repo … --id …` hand-off from the team view.
 5. URI handler for `agentlens://advise?id=…` with strict parameter validation.
 6. Extend the marker test from AL 03: set `suggestedText`, `evidence` and `title`
    to recognisable strings and assert none appears in any built record.
@@ -149,8 +149,8 @@ anything.
 
 ## Notes
 
-Cluster naming is the same shape of problem: a runbook candidate is found from
+Naming a **recurring task** is the same shape of problem: one is found from
 file-hash sets and tool-call counts, but what the job *is* lives in the prompts.
-So a cluster is unnamed until a member types a name in the app, or until this
+So it stays unnamed until a member types a name in the app, or until this
 hand-off opens it locally and drafts one. Ship the hand-off; do not try to derive
 a name server-side.
