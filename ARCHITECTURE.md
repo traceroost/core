@@ -1080,7 +1080,11 @@ lead see cross-developer aggregates. It is built against two rules:
 | `src/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
 | `src/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
 | `src/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
-| `src/team/payloadPreview.ts` | Card → `--explain-payload` text, for the panel's "Show the exact payload" |
+| `src/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard` |
+| `src/team/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
+| `src/forward/queue.ts` | `~/.agentlens/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600 |
+| `src/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
+| `src/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
 `agentlens --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`

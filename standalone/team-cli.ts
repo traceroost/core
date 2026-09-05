@@ -7,6 +7,7 @@
 
 import { linkInteractive, linkViaDevice, leave } from '../src/team/link'
 import { getTeamStatus } from '../src/team/status'
+import { getQueueStats } from '../src/forward/currentQueueStats'
 import { SENT, NEVER_SENT, whoSeesWhat, LEAVE_HINT } from '../src/team/privacy'
 import { loadCredentials } from '../src/team/credentials'
 import { teamEndpoint } from '../src/team/config'
@@ -61,7 +62,7 @@ async function runLink(args: string[]): Promise<number> {
 }
 
 function runStatus(): number {
-  const status = getTeamStatus()
+  const status = getTeamStatus(getQueueStats())
   if (!status.linked) {
     console.log('Not linked. AgentLens is working locally and sending nothing anywhere.')
     console.log('Run `agentlens team link` to join a team.')
