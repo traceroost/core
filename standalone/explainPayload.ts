@@ -10,9 +10,7 @@
  */
 
 import { execFileSync } from 'child_process'
-import { summarizeSpans } from '../src/spanSummarizer'
-import { LogReader } from '../src/logReader'
-import { computeOneShotStats } from '../src/oneShotRate'
+import { loadAllSessions } from './sessionLoader'
 import { calcTokenCostUsd } from '../src/pricing'
 import { classifySessionOutcome } from '../src/gitOutcome'
 import { readServiceConfig, ensureInstallId } from '../src/serviceConfig'
@@ -23,11 +21,7 @@ import { assertValidRollupPayload } from '../src/forward/validate'
 import { stableStringify } from '../src/forward/preview'
 import { ForwardQueue } from '../src/forward/queue'
 import { SENT, NEVER_SENT } from '../src/team/privacy'
-import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
 
 export interface ExplainOptions {
   last?: boolean
@@ -36,34 +30,6 @@ export interface ExplainOptions {
   all?: boolean
   /** `--dry-run`: same output, framed as "would send" for a live session. */
   dryRun?: boolean
-}
-
-function loadAllSessions(): SessionSummaryCard[] {
-  const dataDir = process.env.DATA_DIR ?? path.join(os.homedir(), '.agentlens')
-  const sessions: SessionSummaryCard[] = []
-
-  try {
-    const raw = fs.readFileSync(path.join(dataDir, 'spans.json'), 'utf-8')
-    const spans = JSON.parse(raw) as Span[]
-    sessions.push(...summarizeSpans(spans).sessions)
-  } catch { /* no OTEL spans persisted */ }
-
-  try {
-    const reader = new LogReader()
-    for (const file of reader.collectFileMeta()) {
-      if (file.agentKey === 'opencode') continue
-      try {
-        for (const { card } of reader.parseFile(file.filePath, file.agentKey)) {
-          card.oneShotStats = computeOneShotStats(card)
-          sessions.push(card)
-        }
-      } catch { /* skip bad file */ }
-    }
-  } catch { /* no logs */ }
-
-  return sessions
-    .filter(s => s.startTime)
-    .sort((a, b) => Date.parse(b.startTime) - Date.parse(a.startTime))
 }
 
 function selectSessions(all: SessionSummaryCard[], opts: ExplainOptions): SessionSummaryCard[] {

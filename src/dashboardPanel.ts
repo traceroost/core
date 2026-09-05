@@ -12,6 +12,8 @@ import { temperLoopSignalSeverity } from './loopDetector'
 import { handleTeamMessage } from './team/panelController'
 import { buildPayloadPreviewText } from './team/payloadPreview'
 import { buildLocalTurnoverReport } from './turnover/localReport'
+import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './team/instructionTelemetry'
+import { drainForwardQueueSoon } from './forward/scheduler'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {
@@ -60,6 +62,11 @@ export class DashboardPanel {
 
   static switchToTab(tab: string) {
     DashboardPanel.currentPanel?.panel.webview.postMessage({ type: 'switchTab', tab })
+  }
+
+  /** Post an arbitrary message to this panel's webview (deep-link handlers). */
+  postToWebview(message: Record<string, unknown>) {
+    void this.panel.webview.postMessage(message)
   }
 
   static sendFilter(agentFilter?: string, sessionLimit?: number) {
@@ -208,11 +215,13 @@ export class DashboardPanel {
           const records = this.instructionRepo.getApplied(workspace)
           this.panel.webview.postMessage({ type: 'appliedSuggestions', records })
           this.panel.webview.postMessage({ type: 'instructionApplied', id })
+          this.emitInstructionTelemetry(workspace)
         } catch (err) {
           vscode.window.showErrorMessage(`AgentLens: Failed to apply suggestion — ${err}`)
         }
       } else if (msg.type === 'dismissInstructionSuggestion' && msg.id && msg.workspace && this.instructionRepo) {
         this.instructionRepo.recordDismissed(msg.id as string, msg.workspace as string)
+        this.emitInstructionTelemetry(msg.workspace as string)
       } else if (msg.type === 'removeInstructionSuggestion' && msg.id && msg.workspace && this.instructionRepo) {
         const { id, workspace } = msg as { id: string; workspace: string }
         const applied = this.instructionRepo.getApplied(workspace).find(a => a.id === id)
@@ -224,6 +233,7 @@ export class DashboardPanel {
           this.instructionRepo.removeApplied(id)
           const records = this.instructionRepo.getApplied(workspace)
           this.panel.webview.postMessage({ type: 'appliedSuggestions', records })
+          this.emitInstructionTelemetry(workspace)
         }
       }
     }, null, this.disposables)
@@ -237,6 +247,28 @@ export class DashboardPanel {
     // shown, open on it — it is the free tier's activation event. Computed off the activation
     // path so it never blocks the panel.
     void this.maybeRouteToOutcomes()
+  }
+
+  /** Builds an instruction-telemetry rollup for `workspace` and queues it — a hard no-op unless
+   *  a team is linked. Called after any apply / dismiss / revert so the pooled evidence stays
+   *  current (AL 08). */
+  private emitInstructionTelemetry(workspace: string): void {
+    if (!this.instructionRepo) return
+    const applied = this.instructionRepo.getApplied(workspace)
+    const dismissedIds = this.instructionRepo.getDismissedIds(workspace)
+    const ledger: SuggestionLedger = {
+      applied: applied.map(a => ({
+        id: a.id,
+        atIso: a.appliedAt || new Date().toISOString(),
+        card: { id: a.id, category: a.category as 'context' | 'behavior' | 'prompting' },
+      })),
+      dismissed: dismissedIds.map(id => ({ id, atIso: new Date().toISOString() })),
+      reverted: [],
+    }
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? workspace
+    void maybeEnqueueInstructionTelemetry(wsRoot, this.repo.listSessions(), ledger)
+      .then(enqueued => { if (enqueued) drainForwardQueueSoon() })
+      .catch(() => { /* telemetry is best-effort */ })
   }
 
   private async maybeRouteToOutcomes(): Promise<void> {

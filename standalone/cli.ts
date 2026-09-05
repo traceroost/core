@@ -19,6 +19,11 @@ async function main() {
     process.exitCode = await runTeamCli(args.slice(1))
     return
   }
+  if (args[0] === 'advise' || args[0] === 'cluster') {
+    const { runAdviseCli } = await import('./adviseCli.js')
+    process.exitCode = await runAdviseCli(args[0] === 'cluster' ? args : args.slice(1))
+    return
+  }
   const { parseExplainFlags, runExplainPayload } = await import('./explainPayload.js')
   const explain = parseExplainFlags(args)
   if (explain) {

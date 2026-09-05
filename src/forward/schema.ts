@@ -165,6 +165,64 @@ export interface TurnoverSample {
   ai_lines_surviving: number
 }
 
+// ── AL 08 additions — instruction telemetry ─────────────────────────────────
+// Same rules: booleans, counts, enums, hashes and timestamps only. No new field shape.
+
+export type InstructionFileKind = 'claude_md' | 'agents_md' | 'copilot_instructions' | 'other'
+
+export interface InstructionFileState {
+  repo_hash: Sha256
+  present: boolean
+  kind: InstructionFileKind
+  path_hash?: Sha256
+  /** Answers "did this change" and nothing more. */
+  content_hash?: Sha256
+  line_count?: number
+  last_modified?: Iso8601
+}
+
+export interface FileFootprint {
+  repo_hash: Sha256
+  file_hash: Sha256
+  sessions_read: number
+  sessions_total: number
+  /** Read within the first three turns. */
+  early_reads?: number
+  /** The file's own token size, for the rediscovery-cost arithmetic. */
+  token_size?: number
+  /** The substring check `getHotFileSuggestions` already performs — computed locally, the
+   *  service receives the answer, never the inputs. */
+  covered_by_instructions?: boolean
+}
+
+export type SuggestionCategory = 'context' | 'behavior' | 'prompting'
+export type SuggestionPriority = 'high' | 'medium' | 'low'
+export type SuggestionAction = 'surfaced' | 'applied' | 'dismissed' | 'reverted'
+
+export interface SuggestionBaseline {
+  cost_avg?: number
+  turns_avg?: number
+  error_rate?: number
+  loop_rate?: number
+  insufficient?: boolean
+}
+
+export interface SuggestionEvent {
+  repo_hash: Sha256
+  /** Hash of the existing `SuggestionCard.id` — the prose title/evidence/text never leave. */
+  suggestion_id: Sha256
+  category: SuggestionCategory
+  priority: SuggestionPriority
+  target_agents?: WireAgent[]
+  action: SuggestionAction
+  at: Iso8601
+  baseline?: SuggestionBaseline
+}
+
+export function toWireTargetAgent(agent: string): WireAgent {
+  return toWireAgent(agent === 'claude_code' || agent === 'copilot' || agent === 'codex' || agent === 'opencode' ? agent : agent.replace(/-/g, '_'))
+}
+
 /**
  * The complete request body a linked machine may POST to `/api/ingest`. `install_id` and
  * `member_id` are NOT here — the service derives them from the bearer token, so a client cannot
@@ -176,6 +234,9 @@ export interface RollupPayload {
   session?: SessionRollup
   commits?: CommitRecord[]
   turnover?: TurnoverSample[]
+  instruction_files?: InstructionFileState[]
+  file_footprints?: FileFootprint[]
+  suggestion_events?: SuggestionEvent[]
 }
 
 // ── Schema-drift guard (shared by the test and any build step) ───────────────
