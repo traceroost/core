@@ -1037,6 +1037,21 @@ function getHtml(): string {
         getState: function() { return null; },
         setState: function() {},
         postMessage: function(msg) {
+          if (msg.type && msg.type.indexOf('team') === 0) {
+            fetch('/api/team', {
+              method: msg.type === 'getTeamStatus' ? 'GET' : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: msg.type === 'getTeamStatus' ? undefined : JSON.stringify(msg),
+            }).then(function(r) { return r.json(); }).then(function(data) {
+              (data.messages || []).forEach(function(m) {
+                if (m.type === 'teamLinkUrl' && m.url) { window.open(m.url, '_blank'); }
+                window.dispatchEvent(new MessageEvent('message', { data: m }));
+              });
+            }).catch(function() {
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'teamActionResult', ok: false, error: 'request failed' } }));
+            });
+            return;
+          }
           if (msg.type === 'confirmClear') {
             if (confirm('Clear all AgentLens data? OTEL session data is deleted permanently. AgentLens log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
               fetch('/api/clear', { method: 'POST' });
@@ -1583,6 +1598,36 @@ const uiServer = http.createServer((req, res) => {
     const summary = buildSessionSummary()
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(stripTimelines(summary)))
+    return
+  }
+
+  // ── Team (AgentLens Pro) — AL 01 ───────────────────────────────────────────
+  // GET returns the local status (no network). POST runs an action (link/leave/explain).
+  // Both reply with an array of webview messages the polyfill re-dispatches.
+  if (url === '/api/team' && (req.method === 'GET' || req.method === 'POST')) {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', async () => {
+      const { handleTeamMessage } = require('../src/team/panelController') as typeof import('../src/team/panelController')
+      const outbox: Record<string, unknown>[] = []
+      const msg = req.method === 'GET'
+        ? { type: 'getTeamStatus' }
+        : (() => { try { return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type: string } } catch { return { type: 'getTeamStatus' } } })()
+      try {
+        await handleTeamMessage(msg, {
+          post: (m) => outbox.push(m),
+          openExternal: (u) => {
+            const cmd = process.platform === 'darwin' ? `open "${u}"` : process.platform === 'win32' ? `start "" "${u}"` : `xdg-open "${u}"`
+            exec(cmd, () => { /* URL is also delivered as a teamLinkUrl message */ })
+          },
+          recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
+        })
+      } catch (e) {
+        outbox.push({ type: 'teamActionResult', ok: false, error: String(e) })
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ messages: outbox }))
+    })
     return
   }
 

@@ -9,6 +9,7 @@ import { serializeExport, exportFileExtension, type ExportFormat } from './expor
 import { classifySessionOutcome, type GitOutcome } from './gitOutcome'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
+import { handleTeamMessage } from './team/panelController'
 
 function isExportFormat(value: unknown): value is ExportFormat {
   return value === 'json' || value === 'csv' || value === 'markdown'
@@ -73,6 +74,15 @@ export class DashboardPanel {
     this.panel.webview.html = this.getHtml()
 
     this.panel.webview.onDidReceiveMessage(async msg => {
+      if (typeof msg.type === 'string' && msg.type.startsWith('team')) {
+        await handleTeamMessage(msg, {
+          post: (m) => { void this.panel.webview.postMessage(m) },
+          openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
+          recentSessions: () => this.repo.listSessions({ limit: 25 }),
+          onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse('https://app.agentlens.dev')) },
+        })
+        return
+      }
       if (msg.type === 'loadSessionDetail' && msg.sessionId) {
         const timeline = this.repo.loadSessionTimeline(msg.sessionId as string)
         this.panel.webview.postMessage({ type: 'sessionDetail', sessionId: msg.sessionId, timeline })

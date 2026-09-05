@@ -20,6 +20,7 @@ AgentLens is a VS Code extension that receives OpenTelemetry (OTLP) telemetry fr
 12. [Auto-Configuration](#12-auto-configuration)
 13. [Background Service Mode](#13-background-service-mode)
 14. [Build Pipeline](#14-build-pipeline)
+15. [AgentLens Pro — team link](#15-agentlens-pro--team-link)
 
 ---
 
@@ -1045,6 +1046,52 @@ editor IntelliSense and can be run manually via `tsc -p standalone/tsconfig.json
 isn't currently wired into `pnpm run compile`/`check-types`, so a `standalone`-only type error
 won't fail CI today. Pre-existing gap, not introduced by the background-service feature, but
 worth knowing about since it's the one part of the codebase `check-types` doesn't actually cover.
+
+---
+
+## 15. AgentLens Pro — team link
+
+Everything in `src/team/` is the **client half of AgentLens Pro** — an optional layer that lets a
+lead see cross-developer aggregates. It is built against two rules:
+
+1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
+   AgentLens service — no version ping, no "do you have a team" check. `getTeamStatus()` and
+   `loadCredentials()` touch local disk only. The wire format (AL 02) has no free-text field, so
+   there is nothing for source code to travel in.
+2. **The free/paid line is single-player vs. multiplayer.** Everything about *my machine, my
+   commits, my repositories* is free and ungimped. Paid is *everyone's* — aggregation a local
+   install genuinely cannot do. Nothing local is gated behind Pro.
+
+### Module map
+
+| Module | Responsibility |
+|---|---|
+| `src/team/config.ts` | The one list of every URL the client can contact; `TeamCredentials` shape |
+| `src/team/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
+| `src/team/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
+| `src/team/credentials.ts` | `~/.agentlens/team.json`, mode 0600, keychain-ready via `CredentialStore` |
+| `src/team/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
+| `src/team/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
+| `src/team/status.ts` | `getTeamStatus()` — local-only status for the panel, dot and CLI |
+| `src/team/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
+| `src/team/panelController.ts` | Transport-agnostic handler for `team*` webview messages |
+
+### Surfaces
+
+- **Team panel** (`media/src/panels/TeamPanel.tsx`) — a slide-in beside Settings, opened from a
+  new tab-bar icon carrying a state dot (grey unlinked / green reporting / amber queued or
+  degraded). The unlinked state is what almost every install shows forever; it states plainly
+  that nothing is sent and offers `Show the exact payload` *before* linking.
+- **CLI** — `agentlens team <link|status|leave> [--device]` (`standalone/team-cli.ts`).
+- **Command palette** — `AgentLens: Link This Machine to a Team`, `… Team Link Status`,
+  `… Leave Team`.
+- **Standalone server** — `GET/POST /api/team`, dispatched through the same `panelController`.
+
+### Leaving
+
+`leave()` deletes the local credential and stops forwarding **before** it attempts the
+server-side revoke. A developer who decides to leave while offline still leaves. This is a
+design requirement, not a courtesy.
 
 ---
 

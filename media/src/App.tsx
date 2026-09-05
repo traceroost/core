@@ -27,6 +27,7 @@ import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl } from './tabs/Settings'
+import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus } from './panels/TeamPanel'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -401,6 +402,14 @@ export function App() {
         dismissedIds.value = new Set((msg as unknown as {ids: string[]}).ids)
       } else if (msg.type === 'reconfigureOtelResult' && msg.results) {
         otelReconfigureResult.value = msg.results
+      } else if (msg.type === 'teamStatus') {
+        teamStatus.value = (msg as unknown as { status: typeof teamStatus.value }).status
+        teamBusy.value = null
+      } else if (msg.type === 'teamPayloadPreview') {
+        teamPayloadPreview.value = (msg as unknown as { preview: typeof teamPayloadPreview.value }).preview
+      } else if (msg.type === 'teamActionResult') {
+        teamBusy.value = null
+        requestTeamStatus()
       } else if (msg.type === 'instructionApplied') {
         // Re-request applied list after successful apply — handled by appliedSuggestions message
       } else if (msg.type === 'searchResults' && msg.sessions != null) {
@@ -422,6 +431,11 @@ export function App() {
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
   }, [])
+
+  // Ask once, on mount, so the tab-bar state dot is honest immediately. This is answered from
+  // local data only — an unlinked install makes no request as a result of this.
+  useEffect(() => { requestTeamStatus() }, [])
+  void teamOpen.value
 
   const tab = normalizeTabId(activeTab.value)
   const showFilterBars = tab !== 'help' && tab !== 'pricing'
@@ -446,6 +460,7 @@ export function App() {
         </button>
         {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
         <div style="margin-left:auto;display:flex;align-items:center;border-left:1px solid var(--border);padding-left:2px">
+          <TeamButton />
           <BellButton />
           <GearButton />
           <PricingButton />
@@ -460,6 +475,7 @@ export function App() {
       </div>
 
       <ConfigPanel />
+      <TeamPanel />
       <img id="mascot-img" src="" alt="AgentLens mascot" style="display:none" />
     </>
   )
