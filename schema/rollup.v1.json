@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agentlens.dev/schema/rollup.v1.json",
+  "title": "AgentLens rollup, version 1",
+  "description": "The complete wire format between a linked machine and the AgentLens Pro ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. See docs/decisions/0003-what-we-can-and-cannot-see.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repo_key_fp"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "repo_key_fp": { "$ref": "#/$defs/hash" },
+    "session": { "$ref": "#/$defs/session" },
+    "commits": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/commit" }
+    },
+    "turnover": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/turnover" }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "agent": { "type": "string", "enum": ["claude-code", "copilot", "codex", "cursor", "other"] },
+    "attribution": { "type": "string", "enum": ["certain", "probable", "unknown"] },
+    "outcome": {
+      "type": "string",
+      "enum": ["merged", "abandoned", "in-progress", "reverted", "unknown"]
+    },
+    "loop_signal": {
+      "type": "string",
+      "enum": [
+        "context-flooding",
+        "repeated-edit",
+        "retry-loop",
+        "tool-failure-cascade",
+        "no-progress",
+        "oscillation",
+        "runaway-cost",
+        "instruction-conflict",
+        "context-thrash"
+      ]
+    },
+    "count": { "type": "integer", "minimum": 0, "maximum": 100000000 },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "agent", "repo_hash", "started_at", "duration_ms"],
+      "properties": {
+        "session_id": { "type": "string", "format": "uuid" },
+        "agent": { "$ref": "#/$defs/agent" },
+        "models": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["model", "calls"],
+            "properties": {
+              "model": { "type": "string", "pattern": "^[A-Za-z0-9._:@/-]{1,80}$" },
+              "calls": { "$ref": "#/$defs/count" }
+            }
+          }
+        },
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "branch_hash": { "$ref": "#/$defs/hash" },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "duration_ms": { "$ref": "#/$defs/count" },
+        "turns": { "$ref": "#/$defs/count" },
+        "tokens_in": { "$ref": "#/$defs/count" },
+        "tokens_out": { "$ref": "#/$defs/count" },
+        "cost_usd": { "type": "number", "minimum": 0, "maximum": 100000 },
+        "tool_calls": {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "patternProperties": { "^[a-z_]{1,40}$": { "$ref": "#/$defs/count" } }
+        },
+        "errors": { "$ref": "#/$defs/count" },
+        "file_hashes": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": { "$ref": "#/$defs/hash" }
+        },
+        "one_shot": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "files_edited": { "$ref": "#/$defs/count" },
+            "files_first_pass": { "$ref": "#/$defs/count" }
+          }
+        },
+        "loop_signals": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["signal", "severity"],
+            "properties": {
+              "signal": { "$ref": "#/$defs/loop_signal" },
+              "severity": { "type": "integer", "minimum": 1, "maximum": 3 }
+            }
+          }
+        },
+        "outcome": { "$ref": "#/$defs/outcome" }
+      }
+    },
+    "commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_hash", "repo_hash", "authored_at", "lines_added", "lines_removed"],
+      "properties": {
+        "commit_hash": { "$ref": "#/$defs/hash" },
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "authored_at": { "$ref": "#/$defs/timestamp" },
+        "lines_added": { "$ref": "#/$defs/count" },
+        "lines_removed": { "$ref": "#/$defs/count" },
+        "ai_lines": { "$ref": "#/$defs/count" },
+        "attribution": { "$ref": "#/$defs/attribution" }
+      }
+    },
+    "turnover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_hash", "window_days", "ai_lines_authored", "ai_lines_surviving"],
+      "properties": {
+        "commit_hash": { "$ref": "#/$defs/hash" },
+        "window_days": { "type": "integer", "enum": [30, 90] },
+        "ai_lines_authored": { "$ref": "#/$defs/count" },
+        "ai_lines_surviving": { "$ref": "#/$defs/count" }
+      }
+    }
+  }
+}

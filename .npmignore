@@ -6,6 +6,7 @@ media/demo.gif
 .vscode-test/**
 .github/**
 .staged-issues/**
+.staged-feature/**
 demo/**
 src/**
 media/src/**

@@ -26,7 +26,7 @@ import { detectInstructionFiles, appendSuggestion } from '../src/instructionFile
 import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
-import { readServiceConfig, ensureAuthToken, isRunningFromNpx } from '../src/serviceConfig'
+import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx } from '../src/serviceConfig'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
 
 // `agentlens service install` persists its port/host/data-dir choices to
@@ -34,7 +34,7 @@ import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, 
 // ad-hoc `npx`/`node standalone/server.js` run share one config story. Env vars still win when
 // set, matching this server's behavior before the config file existed. ensureAuthToken generates
 // and persists a bearer token the first time this runs with none set yet.
-const fileConfig = ensureAuthToken(readServiceConfig())
+const fileConfig = ensureInstallId(ensureAuthToken(readServiceConfig()))
 
 const OTLP_PORT  = parseInt(process.env.OTLP_PORT  ?? String(fileConfig.otlpPort))
 const UI_PORT    = parseInt(process.env.UI_PORT    ?? String(fileConfig.uiPort))
