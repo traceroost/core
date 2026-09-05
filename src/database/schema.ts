@@ -103,4 +103,21 @@ CREATE TABLE IF NOT EXISTS instruction_dismissed (
 );
 
 CREATE INDEX IF NOT EXISTS idx_instruction_dismissed_workspace ON instruction_dismissed (workspace);
+
+-- AI authorship attribution cache (AL 05). A commit's attribution never changes once computed,
+-- so this is written once per commit for the life of the install. Keyed by repo_root + sha.
+-- Holds only counts and an enum — never commit message text, never blame output.
+CREATE TABLE IF NOT EXISTS commit_attribution (
+  repo_root      TEXT NOT NULL,
+  sha            TEXT NOT NULL,
+  authored_at    TEXT NOT NULL,
+  lines_added    INTEGER NOT NULL DEFAULT 0,
+  lines_removed  INTEGER NOT NULL DEFAULT 0,
+  ai_lines       INTEGER NOT NULL DEFAULT 0,
+  attribution    TEXT NOT NULL DEFAULT 'unknown',
+  session_ids    TEXT NOT NULL DEFAULT '[]',
+  is_merge       INTEGER NOT NULL DEFAULT 0,
+  computed_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  PRIMARY KEY (repo_root, sha)
+);
 `
