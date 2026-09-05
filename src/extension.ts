@@ -435,7 +435,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('agentLens.openDashboard', () => {
       vscode.commands.executeCommand('workbench.view.extension.agent-lens')
-      DashboardPanel.show(context, repo, provider, instructionRepo)
+      DashboardPanel.show(context, repo, provider, instructionRepo, agentLensDb?.raw)
     })
   )
 
