@@ -366,6 +366,14 @@ export class LogReader {
     const timeline: TimelineEntry[] = []
     let idx = 0
     let initiator: 'user' | 'agent' | 'api' = 'user'
+    // Claude Code persists one assistant response as one line per content block,
+    // and every line repeats the same `message.id` and the same `message.usage`
+    // (a text block plus N tool_use blocks is the common agent shape). Only the
+    // first line of each message id bills tokens/turns; the later lines' content
+    // blocks still parse below for tools/files. dedupeByUuid can't catch this —
+    // those lines carry *different* top-level uuids. Lines without an id (older
+    // transcript formats) keep the per-line behaviour.
+    const billedMessageIds = new Set<string>()
 
     for (const line of lines) {
       let entry: Record<string, unknown>
@@ -402,8 +410,11 @@ export class LogReader {
         const rawUsage = msg?.['usage'] as Record<string, unknown> | undefined
         if (rawUsage?.['speed'] === 'fast') hasFastMode = true
         const usage = rawUsage as Record<string, number> | undefined
+        const messageId = typeof msg?.['id'] === 'string' ? (msg['id'] as string) : ''
+        const firstLineOfMessage = messageId === '' || !billedMessageIds.has(messageId)
         let msgTotalInput = 0, msgCacheRead = 0, msgCacheCreate = 0, msgOutput = 0
-        if (usage) {
+        if (usage && firstLineOfMessage) {
+          if (messageId !== '') billedMessageIds.add(messageId)
           const inp  = usage['input_tokens']                ?? 0
           const cr   = usage['cache_read_input_tokens']     ?? 0
           const cc   = usage['cache_creation_input_tokens'] ?? 0
