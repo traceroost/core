@@ -27,14 +27,14 @@ jobs:
           PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_SIGNATURES_TOKEN }}
         with:
           path-to-signatures: signatures/cla.json
-          path-to-document: https://github.com/RogerReed/agentlens/blob/main/.github/CLA.md
+          path-to-document: https://github.com/traceroost/core/blob/main/.github/CLA.md
           # Dedicated, unprotected branch for signature storage — main requires PRs, so the
           # action's own commit of the signature record can't land there directly.
           branch: cla-signatures
           allowlist: RogerReed
           custom-notsigned-prcomment: |
             Thanks for this contribution! Before it can be merged, please read the
-            [Contributor License Agreement](https://github.com/RogerReed/agentlens/blob/main/.github/CLA.md)
+            [Contributor License Agreement](https://github.com/traceroost/core/blob/main/.github/CLA.md)
             and sign it by commenting on this pull request with:
 
             > I have read the CLA Document and I hereby sign the CLA

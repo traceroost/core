@@ -18,7 +18,7 @@ the PR.
 
 ## Reporting bugs
 
-Open an issue at <https://github.com/rogerreed/agentlens/issues> and use the bug report template. Include:
+Open an issue at <https://github.com/traceroost/core/issues> and use the bug report template. Include:
 
 - The agent you were using (Copilot, Claude Code, Codex)
 - Whether you're using the VS Code extension or standalone mode
@@ -28,7 +28,7 @@ Open an issue at <https://github.com/rogerreed/agentlens/issues> and use the bug
 ## Development setup
 
 ```bash
-git clone https://github.com/rogerreed/agentlens
+git clone https://github.com/traceroost/core
 cd agentlens
 pnpm install
 ```
