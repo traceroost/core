@@ -133,7 +133,7 @@ export function Pricing() {
       <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--vscode-panel-border);font-size:11px;color:var(--muted);line-height:1.7">
         Full sourcing detail, known gaps, and per-model notes:{' '}
         <a
-          href="https://github.com/RogerReed/agentlens/blob/main/PRICING_SOURCES.md"
+          href="https://github.com/traceroost/core/blob/main/PRICING_SOURCES.md"
           target="_blank" rel="noopener noreferrer"
           style="color:inherit;text-decoration:underline;text-underline-offset:2px"
         >PRICING_SOURCES.md</a>.

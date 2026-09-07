@@ -250,7 +250,7 @@ function ConfigSection() {
         </tbody>
       </table>
       <p style="font-size:12px;color:var(--muted);margin:8px 0 0">Start a short <a href="#gl-session">session</a> and check whether a session card appears in the sidebar to confirm data is arriving.</p>
-      <p style="font-size:12px;color:var(--muted);margin:8px 0 6px">If configuration is missing or stale, use <strong>Configure OTEL</strong> in Settings, or review the <a href="https://github.com/RogerReed/agentlens/tree/main/scripts" target="_blank" rel="noreferrer">configuration scripts in the repository</a>.</p>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 6px">If configuration is missing or stale, use <strong>Configure OTEL</strong> in Settings, or review the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">configuration scripts in the repository</a>.</p>
       <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`# macOS / Linux — make executable (once), then run:
 chmod +x scripts/configure-agents.sh
 ./scripts/configure-agents.sh             # all agents
@@ -269,7 +269,7 @@ chmod +x scripts/configure-agents.sh
   ) : (
     <div style="margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--warning,#ffb74d);border-radius:4px;padding:10px 14px">
       <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:var(--foreground)">Not seeing any detailed OTEL data?</p>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">AgentLens automatically configures all supported agents on startup/activation, including Codex's <code style={codeStyle}>[otel]</code> section. It only rewrites a file when a required setting is missing or differs, so this is silent after the first successful run. Works in VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro, and other VS Code-family IDEs. After configuration, restart each <a href="#gl-agent">agent</a> once so it reads the new settings. Changed an agent's OTEL settings yourself? Use the <strong>Configure OTEL</strong> button in Settings (gear icon), or review the <a href="https://github.com/RogerReed/agentlens/tree/main/scripts" target="_blank" rel="noreferrer">repository scripts</a>. Disable auto-configuration entirely via the <code style={codeStyle}>agentLens.autoConfigureAgents</code> setting.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">AgentLens automatically configures all supported agents on startup/activation, including Codex's <code style={codeStyle}>[otel]</code> section. It only rewrites a file when a required setting is missing or differs, so this is silent after the first successful run. Works in VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro, and other VS Code-family IDEs. After configuration, restart each <a href="#gl-agent">agent</a> once so it reads the new settings. Changed an agent's OTEL settings yourself? Use the <strong>Configure OTEL</strong> button in Settings (gear icon), or review the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">repository scripts</a>. Disable auto-configuration entirely via the <code style={codeStyle}>agentLens.autoConfigureAgents</code> setting.</p>
       <p style="font-size:11px;color:var(--muted);margin:0 0 6px">Config is read at startup — restart after AgentLens activates:</p>
       <table style="font-size:11px;border-collapse:collapse;width:100%">
         <tbody style="color:var(--muted)">
@@ -396,7 +396,7 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
         output, <code style={codeStyle}>stop</code>/<code style={codeStyle}>start</code>/<code style={codeStyle}>restart</code> control
         it, and <code style={codeStyle}>uninstall</code> removes it — your data in{' '}
         <code style={codeStyle}>~/.agentlens</code> is untouched either way. See{' '}
-        <a href="https://github.com/RogerReed/agentlens#background-service-macos--windows--linux" target="_blank" rel="noreferrer">the README</a> for
+        <a href="https://github.com/traceroost/core#background-service-macos--windows--linux" target="_blank" rel="noreferrer">the README</a> for
         the full command reference and custom port/data-dir options.
       </p>
       <p style="font-size:12px;color:var(--muted);margin:0;background:var(--panel-bg);border-radius:3px;padding:8px 10px">
