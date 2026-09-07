@@ -1,6 +1,6 @@
 <h1><img src="media/mascot.png" alt="AgentLens logo" width="48" align="center" /> AgentLens</h1>
 
-> **TraceRoost rebrand in progress**
+> **Note:** AgentLens is transitioning to TraceRoost.
 >
 > AgentLens is transitioning to TraceRoost because several unrelated projects already use the AgentLens name. During the transition, release identifiers such as `agentlens-dashboard`, `agentlens.agentlens-dashboard`, and `agentlens/agentlens` remain unchanged. The rebrand will be completed in a future release.
 
