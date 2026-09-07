@@ -2,6 +2,19 @@
 
 All notable changes to AgentLens are documented here.
 
+## [0.15.4] — 2026-09-07
+
+### Fixed
+
+- **Claude Code sessions with multi-block assistant responses over-counted tokens, turns, and cost** — Claude Code persists one assistant message as one JSONL line per content block (a text block plus N `tool_use` blocks — the common agent shape), and every one of those lines repeats the same `message.id` and the same `message.usage`. AgentLens billed each line independently, so a response split across four blocks counted its usage (and its turn) four times, inflating session cost and token totals for essentially every agentic Claude session. Usage is now reconciled to a single snapshot per message identity — greatest `output_tokens`, since Claude's output count is cumulative within a request, with later records winning ties — while every content block still parses for tool, file, and timeline data. Affected sessions re-cost themselves on the next log rescan, no manual action needed (#239)
+
+### Changed
+
+- **Sessions conversation bar is ~35% wider** — the colored left-edge bar marking rows that belong to the same split conversation went from 4px to 5px (6px to 8px when that conversation is isolated), making it easier to spot and a larger click target for the click-to-isolate gesture. Cosmetic; no behavior change (#238)
+- **Repository and documentation links now point to `traceroost/core`** — the repository, issue, CLA, README, and in-app documentation links moved to the new GitHub location for the in-progress TraceRoost rebrand. The npm package (`agentlens-dashboard`), VS Code publisher, Open VSX identity, and Docker image are unchanged, and tagged releases still publish to the existing AgentLens destinations — no user-facing product change (#240)
+
+---
+
 ## [0.15.3] — 2026-09-01
 
 ### Fixed
