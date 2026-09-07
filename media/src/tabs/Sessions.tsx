@@ -404,7 +404,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
             gesture, same spot) to clear it, same as the banner's "×" but without needing to look
             away to find it. A currently-active bar renders wider as a visible "you are here." */}
         <td
-          style={`padding:0;width:${isIsolatedToThisGroup ? 6 : 4}px${conversation ? ';cursor:pointer' : ''}`}
+          style={`padding:0;width:${isIsolatedToThisGroup ? 8 : 5}px${conversation ? ';cursor:pointer' : ''}`}
           title={conversation
             ? isIsolatedToThisGroup
               ? `Part ${conversation.index} of ${conversation.total} — showing just this conversation. Click again to clear.`
@@ -422,7 +422,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
             }
           } : undefined}
         >
-          <div style={`width:${isIsolatedToThisGroup ? 6 : 4}px;height:100%;min-height:20px;background:${conversation ? conversation.color : 'transparent'}`} />
+          <div style={`width:${isIsolatedToThisGroup ? 8 : 5}px;height:100%;min-height:20px;background:${conversation ? conversation.color : 'transparent'}`} />
         </td>
 
         {/* Chevron */}
@@ -556,7 +556,7 @@ export function Sessions() {
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
-            <th style="width:4px;padding:0" title="A colored bar marks sessions that are really one conversation split into multiple cards by a long gap between them." />
+            <th style="width:5px;padding:0" title="A colored bar marks sessions that are really one conversation split into multiple cards by a long gap between them." />
             <th style="width:16px;padding:3px 4px 3px 8px" />
             <th style={'width:10px;padding:3px 4px;' + thSort} onClick={() => onSortClick('source')} title="Sort by agent">{sortArrow('source')}</th>
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('start_time')}>Time{sortArrow('start_time')}</th>
