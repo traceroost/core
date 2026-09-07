@@ -60,4 +60,23 @@ suite('LogReader — Claude multi-block message usage', () => {
     assert.strictEqual(card.cacheReadTokens, 1000, 'cacheReadTokens must be billed once')
     assert.strictEqual(card.turns, 1, 'turns must count the message once')
   })
+  test('retains growing output and content while counting equal distinct messages', () => {
+    const filePath = path.join(tmpDir, 'growing.jsonl')
+    const blocks = multiBlockMessage('growing')
+    blocks[0].message.usage.output_tokens = 3
+    // Give each line an independent usage snapshot.
+    blocks[1].message.usage = { ...blocks[1].message.usage, output_tokens: 2055 }
+    blocks[2].message.usage = { ...blocks[2].message.usage, output_tokens: 3 }
+    writeJsonl(filePath, [
+      { type: 'user', cwd: '/workspace', timestamp: '2026-01-01T00:00:00.000Z', message: { content: 'fix' } },
+      ...blocks,
+      ...multiBlockMessage('distinct'),
+    ])
+    const card = new LogReader().parseFile(filePath, 'claude')[0].card
+    assert.strictEqual(card.outputTokens, 2105)
+    assert.strictEqual(card.inputTokens, 2200)
+    assert.strictEqual(card.turns, 2)
+    assert.strictEqual(card.totalToolCalls, 2)
+  })
+
 })
