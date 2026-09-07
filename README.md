@@ -1,7 +1,10 @@
 <h1><img src="media/mascot.png" alt="AgentLens logo" width="48" align="center" /> AgentLens</h1>
 
+> [!IMPORTANT]
+> **AgentLens is transitioning to TraceRoost.** The project is moving away from the crowded "AgentLens" name because several unrelated projects already use it. During the transition, release identifiers such as `agentlens-dashboard`, `agentlens.agentlens-dashboard`, and `agentlens/agentlens` remain unchanged. The rebrand will be completed in a future release.
+
 [![CI](https://github.com/traceroost/core/actions/workflows/ci.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/RogerReed/agentlens)](LICENSE)
+[![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
 
 ![AgentLens dashboard showing OTEL traces, session monitoring, and agent observability charts](media/demo.gif)
 
