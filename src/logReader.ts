@@ -1,3 +1,4 @@
+import { claudeUsageLines } from './claudeUsageLines'
 /**
  * Reads local session logs for Claude Code, Codex, Copilot CLI, and
  * Copilot Chat (VS Code sidebar), and synthesises SessionSummaryCard records.
@@ -366,8 +367,9 @@ export class LogReader {
     const timeline: TimelineEntry[] = []
     let idx = 0
     let initiator: 'user' | 'agent' | 'api' = 'user'
+    const usageLines = claudeUsageLines(lines)
 
-    for (const line of lines) {
+    for (const [lineIndex, line] of lines.entries()) {
       let entry: Record<string, unknown>
       try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
 
@@ -403,7 +405,7 @@ export class LogReader {
         if (rawUsage?.['speed'] === 'fast') hasFastMode = true
         const usage = rawUsage as Record<string, number> | undefined
         let msgTotalInput = 0, msgCacheRead = 0, msgCacheCreate = 0, msgOutput = 0
-        if (usage) {
+        if (usage && usageLines.has(lineIndex)) {
           const inp  = usage['input_tokens']                ?? 0
           const cr   = usage['cache_read_input_tokens']     ?? 0
           const cc   = usage['cache_creation_input_tokens'] ?? 0
