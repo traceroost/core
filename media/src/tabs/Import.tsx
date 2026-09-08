@@ -74,7 +74,7 @@ export function Import() {
         const text = e.target?.result as string
         const data = JSON.parse(text)
         if (!Array.isArray(data)) throw new Error('Expected a JSON array — is this a TraceRoost export file?')
-        if (data.length === 0) throw new Error('The file contains no sessions')
+        if (data.length === 0) throw new Error('The file contains no traces')
 
         const sessions: ParsedSession[] = data.map((item: unknown, i: number) => {
           if (typeof item !== 'object' || item === null) throw new Error(`Item ${i + 1} is not an object`)
@@ -202,7 +202,7 @@ export function Import() {
 
           <div class="import-preview-stats">
             <span class="import-preview-count">{preview.sessions.length}</span>
-            <span class="import-preview-count-label"> sessions</span>
+            <span class="import-preview-count-label"> traces</span>
             {dateRange && <span class="import-preview-dates">{dateRange}</span>}
           </div>
 
@@ -218,7 +218,7 @@ export function Import() {
             ))}
           </div>
 
-          <p class="import-dedup-note">Sessions already in your database will be skipped.</p>
+          <p class="import-dedup-note">Traces already in your database will be skipped.</p>
 
           {isLarge && (
             <div class="import-large-warning">
@@ -262,7 +262,7 @@ export function Import() {
           <div class="import-done-icon">✓</div>
           <p class="import-done-title">Import complete</p>
           <p class="import-done-detail">
-            {doneState.imported} session{doneState.imported !== 1 ? 's' : ''} imported
+            {doneState.imported} trace{doneState.imported !== 1 ? 's' : ''} imported
             {doneState.skipped > 0 ? `, ${doneState.skipped} already existed` : ''}
             {doneState.failed > 0 ? `, ${doneState.failed} failed to write` : ''}
           </p>

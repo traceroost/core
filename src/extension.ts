@@ -116,7 +116,7 @@ export async function activate(context: vscode.ExtensionContext) {
     store = new SessionStore(context)
   } catch (err) {
     outputChannel.appendLine(`Failed to initialize session store: ${err}`)
-    vscode.window.showErrorMessage('TraceRoost: Failed to initialize session store.')
+    vscode.window.showErrorMessage('TraceRoost: Failed to initialize trace store.')
     return
   }
 
@@ -370,7 +370,7 @@ export async function activate(context: vscode.ExtensionContext) {
     setImmediate(() => startBatchedLoad!())
     logReaderTimer = setInterval(runLogScan, 30_000)
     context.subscriptions.push({ dispose: () => clearInterval(logReaderTimer) })
-    outputChannel.appendLine('TraceRoost: log ingestion enabled — scanning local session logs')
+    outputChannel.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')
   }
 
   if (collectorFailed) {
@@ -415,7 +415,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const toMb = (b: number) => (b / 1_048_576).toFixed(1)
       const dateRange = lifetime.totalSessions > 0
         ? `${new Date(lifetime.oldestSessionMs).toISOString().slice(0, 10)} → ${new Date(lifetime.newestSessionMs).toISOString().slice(0, 10)}`
-        : 'no sessions'
+        : 'no traces'
       const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
       const msg = [
         `Database:  ${toMb(dbBytes)} MB  (${lifetime.totalSessions} sessions, ${dateRange})`,
@@ -485,7 +485,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const baseUri = workspaceFolder ? workspaceFolder.uri : context.globalStorageUri
     const writtenFiles = await exporter(spans, baseUri)
     if (writtenFiles.length === 0) {
-      vscode.window.showInformationMessage('TraceRoost: No session data to export')
+      vscode.window.showInformationMessage('TraceRoost: No trace data to export')
       return
     }
     vscode.window.showInformationMessage(`TraceRoost: Exported to: ${writtenFiles.join(', ')}`)

@@ -588,7 +588,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
                 ? 'background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600'
                 : 'background:transparent;color:var(--muted)',
             ].join(';')}
-            title={p.ms ? `Last ${p.label}` : 'All recorded sessions'}
+            title={p.ms ? `Last ${p.label}` : 'All recorded traces'}
           >{p.label}</button>
         ))}
       </div>
@@ -773,7 +773,7 @@ function SearchFilterBar() {
     <div style="display:flex;flex-direction:column;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
       {evIds !== null && (
         <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#4fc3f711;border-bottom:1px solid #4fc3f733">
-          <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} session{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
+          <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
           {evidenceSessionPrompt.value && (
             <span
               style="font-size:10px;color:#4fc3f7;opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
@@ -783,13 +783,13 @@ function SearchFilterBar() {
           <button
             onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}
             style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:#4fc3f7;cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
-          >Show all sessions</button>
+          >Show all traces</button>
         </div>
       )}
       <div style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap">
       <input
         type="text"
-        placeholder="Filter sessions…"
+        placeholder="Filter traces…"
         value={text}
         onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
         style="flex:1;min-width:100px;max-width:200px;padding:3px 7px;font-size:11px;background:var(--vscode-input-background,#3c3c3c);color:var(--vscode-input-foreground,#ccc);border:1px solid var(--vscode-input-border,#555);border-radius:3px;outline:none"
@@ -797,13 +797,13 @@ function SearchFilterBar() {
       <WorkspaceDropdown />
       <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">From</span>
       <FilterPills
-        options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all sessions' : o.value === 'user' ? 'Human-typed prompts only' : o.value === 'agent' ? 'Agent-spawned sub-tasks only' : 'Non-interactive claude -p calls only' }))}
+        options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : o.value === 'agent' ? 'Agent-spawned sub-tasks only' : 'Non-interactive claude -p calls only' }))}
         value={iFilter}
         onChange={v => { initiatorFilter.value = v }}
       />
       <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Source</span>
       <FilterPills
-        options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry sessions only' : 'Log-file sessions only' }))}
+        options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry traces only' : 'Log-file traces only' }))}
         value={dsFilter}
         onChange={v => { dataSourceFilter.value = v }}
       />
