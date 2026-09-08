@@ -6,6 +6,8 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Changed
 
+- **The dashboard's "Session" concept is now "Trace"** — the Sessions tab is **Traces**, the per-row "Trace" sub-tab is **Waterfall**, and the glossary is rewritten around it. One prompt-to-response cycle is a trace; this matches how OpenTelemetry names the same thing. Internal identifiers, the database, the HTTP API, and the MCP tool names are unchanged.
+- **Traces list now defaults to 25 per page** (was 50); still adjustable to 50/100/250/500 in Settings.
 - **AgentLens is now TraceRoost.** Several unrelated projects already use the AgentLens name. This release completes the rename across the whole project:
   - npm package `traceroost` (was `agentlens-dashboard`); CLI `traceroost`; Docker image `traceroost/traceroost`.
   - The VS Code extension publishes under **two** marketplace listings during the transition: the new `traceroost.traceroost`, and — so existing users keep auto-updating into the rebranded extension — the current `agentlens.agentlens-dashboard`. Both are the same build.
