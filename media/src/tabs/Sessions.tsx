@@ -472,7 +472,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
         </td>
 
         {/* Tokens */}
-        <td style="padding:4px 6px;text-align:right;white-space:nowrap;font-size:10px;color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in session detail for actual context window size.' : undefined}>
+        <td style="padding:4px 6px;text-align:right;white-space:nowrap;font-size:10px;color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in trace detail for actual context window size.' : undefined}>
           {formatCompact(sess.inputTokens + sess.outputTokens)}
         </td>
 

@@ -1251,7 +1251,7 @@ function getHtml(): string {
     <!-- ── Sidebar (live session monitor) ────────────────────────────────── -->
     <div id="sa-sidebar" class="sa-collapsed">
       <div style="flex-shrink:0;padding:7px 10px;border-bottom:1px solid var(--vscode-panel-border)" title="Updates live as the current agent trace progresses">
-        <span style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--vscode-descriptionForeground);font-weight:600">Live &middot; Current Session Activity</span>
+        <span style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--vscode-descriptionForeground);font-weight:600">Live &middot; Current Trace Activity</span>
       </div>
       <div style="flex:1;overflow-y:auto;padding:8px 8px 8px;font-family:var(--vscode-font-family);color:var(--vscode-foreground)">
         <!-- Status row -->
