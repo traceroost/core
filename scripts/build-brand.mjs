@@ -39,8 +39,17 @@ write('wordmark-on-dark.svg', wordmark.split(INK).join(PAPER))
 // Single-ink typography (roost stops being teal); the roost bar stays teal.
 write('wordmark-mono.svg', recolorPaths(wordmark, TEAL, INK))
 // Theme-adaptive: mark + ground + "trace" inherit currentColor, the roost bar
-// and "roost" keep the teal. Used inline in the dashboard header (Wordmark.tsx).
+// and "roost" keep the teal.
 write('wordmark-currentcolor.svg', wordmark.split(INK).join('currentColor'))
+
+// Text-only lockup (no bird), lifted from the letters group of wordmark.svg.
+// Used inline in the dashboard header (Wordmark.tsx).
+const letters = wordmark.match(/<g transform="translate\(99\.4,0\)">[\s\S]*?<\/g><\/g>/)[0]
+const textSvg = (body) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -1 214 34">` +
+  `<g transform="translate(-99.4,-25.5)">${body}</g></svg>`
+write('wordmark-text.svg', textSvg(letters))
+write('wordmark-text-currentcolor.svg', textSvg(letters.split(INK).join('currentColor')))
 
 const mark = read('mark.svg')
 write('mark-on-dark.svg', mark.split(INK).join(PAPER))
