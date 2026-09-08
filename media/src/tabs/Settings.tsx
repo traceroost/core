@@ -130,6 +130,21 @@ export function SessionsPageSizeControl() {
   )
 }
 
+// Compact version for the paging rows (filter bar + table footer) so the page
+// size is changeable without opening Settings. Same signal as the control above.
+export function PageSizeSelect() {
+  return (
+    <select
+      value={sessionsPageSize.value}
+      onChange={e => setSessionsPageSize(Number((e.target as HTMLSelectElement).value))}
+      title="Traces per page"
+      style="padding:1px 4px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--vscode-dropdown-background,var(--card-bg));color:var(--fg);cursor:pointer"
+    >
+      {SESSIONS_PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}/page</option>)}
+    </select>
+  )
+}
+
 export function IngestionToggles() {
   const otelOn = enableOtelIngestion.value
   const logOn = enableLogIngestion.value

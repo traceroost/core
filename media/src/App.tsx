@@ -11,7 +11,7 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, availableWorkspaces, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  sessionsPage, getSessionsPagination,
+  sessionsPage, getSessionsPagination, SESSIONS_PAGE_SIZE_OPTIONS,
 } from './state'
 import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, WorkspaceFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome } from './types'
 import { Wordmark } from './Wordmark'
@@ -27,7 +27,7 @@ import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
-import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl } from './tabs/Settings'
+import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -657,21 +657,25 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         ><IconRefresh /></button>
       )}
 
-      {/* Session paging — same controls, same styling, same signal as the table's own footer in
-          Sessions.tsx, just also reachable without scrolling down first. */}
-      {showPaging && sessTotalPages > 1 && (
+      {/* Trace paging — same controls, same styling, same signal as the table's own footer in
+          Sessions.tsx, just also reachable without scrolling down first. The page-size select
+          shows once there's more than the smallest page worth of traces, even at one page. */}
+      {showPaging && sessionCount > SESSIONS_PAGE_SIZE_OPTIONS[0] && (
         <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
-          <button
-            onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
-            disabled={sessPage === 0}
-            style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
-          >‹ Prev</button>
-          <span>Page {sessPage + 1} of {sessTotalPages}</span>
-          <button
-            onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
-            disabled={sessPage >= sessTotalPages - 1}
-            style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
-          >Next ›</button>
+          <PageSizeSelect />
+          {sessTotalPages > 1 && <>
+            <button
+              onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
+              disabled={sessPage === 0}
+              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
+            >‹ Prev</button>
+            <span>Page {sessPage + 1} of {sessTotalPages}</span>
+            <button
+              onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
+              disabled={sessPage >= sessTotalPages - 1}
+              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
+            >Next ›</button>
+          </>}
         </span>
       )}
     </div>

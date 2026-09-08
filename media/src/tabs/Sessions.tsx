@@ -4,9 +4,10 @@ import {
   focusedSessionId, vscode, ignoredInsightKeys,
   sessionSortKey, sessionSortDir, type SortKey,
   workspaceFilter, shortWorkspaceName, goToHelp,
-  sessionsPage, getSessionsPagination,
+  sessionsPage, getSessionsPagination, SESSIONS_PAGE_SIZE_OPTIONS as PAGE_SIZE_OPTIONS,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
 } from '../state'
+import { PageSizeSelect } from './Settings'
 import {
   getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
   getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor,
@@ -576,20 +577,23 @@ export function Sessions() {
       </div>
       <div style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         {window.__VERSION__ && <span>TraceRoost v{window.__VERSION__}</span>}
-        {totalPages > 1 && (
+        {sessions.length > PAGE_SIZE_OPTIONS[0] && (
           <span style="display:flex;align-items:center;gap:8px">
-            <span>Showing {rangeStart}–{rangeEnd} of {sessions.length}</span>
-            <button
-              onClick={() => sessionsPage.value = Math.max(0, page - 1)}
-              disabled={page === 0}
-              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page === 0 ? 'default' : 'pointer'};opacity:${page === 0 ? 0.4 : 1}`}
-            >‹ Prev</button>
-            <span>Page {page + 1} of {totalPages}</span>
-            <button
-              onClick={() => sessionsPage.value = Math.min(totalPages - 1, page + 1)}
-              disabled={page >= totalPages - 1}
-              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page >= totalPages - 1 ? 'default' : 'pointer'};opacity:${page >= totalPages - 1 ? 0.4 : 1}`}
-            >Next ›</button>
+            {totalPages > 1 && <span>Showing {rangeStart}–{rangeEnd} of {sessions.length}</span>}
+            <PageSizeSelect />
+            {totalPages > 1 && <>
+              <button
+                onClick={() => sessionsPage.value = Math.max(0, page - 1)}
+                disabled={page === 0}
+                style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page === 0 ? 'default' : 'pointer'};opacity:${page === 0 ? 0.4 : 1}`}
+              >‹ Prev</button>
+              <span>Page {page + 1} of {totalPages}</span>
+              <button
+                onClick={() => sessionsPage.value = Math.min(totalPages - 1, page + 1)}
+                disabled={page >= totalPages - 1}
+                style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page >= totalPages - 1 ? 'default' : 'pointer'};opacity:${page >= totalPages - 1 ? 0.4 : 1}`}
+              >Next ›</button>
+            </>}
           </span>
         )}
       </div>
