@@ -61,7 +61,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         }, 300)
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(
-          'Clear all TraceRoost data? OTEL session data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
+          'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
           { modal: true },
           'Clear All'
         )
@@ -354,7 +354,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
   <div class="sb-body">
 
-    <div class="sb-live-header" title="Updates live as the current agent session progresses">Live &middot; Current Session Activity</div>
+    <div class="sb-live-header" title="Updates live as the current agent trace progresses">Live &middot; Current Trace Activity</div>
 
     <!-- Status row -->
     <div class="sb-card" style="margin-bottom:6px">
@@ -428,7 +428,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
     <!-- Empty state (shown by render() when currentSession is null) -->
     <div id="sb-empty" class="sb-muted" style="text-align:center;padding:24px 0;font-size:11px;display:none">
-      No sessions recorded yet
+      No traces recorded yet
     </div>
 
     <!-- Open dashboard -->
@@ -438,7 +438,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
   <!-- Footer -->
   <div class="sb-footer">
-    <span><span id="sb-session-count">0</span> sessions stored</span>
+    <span><span id="sb-session-count">0</span> traces stored</span>
   </div>
 
   <script>var __SIDEBAR_INIT__ = ${initData};</script>

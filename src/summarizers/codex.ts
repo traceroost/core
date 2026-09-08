@@ -307,7 +307,7 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
       : 0
     const userRequest = normalizeUserRequest(
       userPromptText, promptLength,
-      promptSpan ? '[prompt unavailable]' : '[session in progress]',
+      promptSpan ? '[prompt unavailable]' : '[trace in progress]',
     )
 
     const lastLlmEntry = [...timeline].reverse().find(e => e.type === 'llm')

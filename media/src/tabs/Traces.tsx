@@ -354,7 +354,7 @@ function SessionBlock({ sess, sessIdx, sessNum, totalCount, isFirst }: {
           <span dangerouslySetInnerHTML={{ __html: getAgentDotHtml(sess.source) }} />{' '}
           <span style="font-size:10px;color:var(--muted);margin-right:4px">#{sessNum}</span>
           <span style="font-size:10px;color:var(--muted)">{sessionTime}</span>{' '}
-          {sess.userRequest && sess.userRequest !== '[prompt unavailable]' && sess.userRequest !== '[session in progress]'
+          {sess.userRequest && sess.userRequest !== '[prompt unavailable]' && sess.userRequest !== '[trace in progress]'
             ? <>"{sess.userRequest.slice(0, 100)}{isLongPrompt ? '…' : ''}"</>
             : <span style="color:var(--muted);font-style:italic">{sess.userRequest || '[no prompt]'}</span>
           }

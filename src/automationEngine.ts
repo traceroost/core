@@ -202,7 +202,7 @@ function evaluateAutomation(cfg: AutomationConfig, session: SessionSummaryCard, 
 
 function buildPrompt(cfg: AutomationConfig, session: SessionSummaryCard, timeline: TimelineEntry[], evaluation: AutomationEvaluation): string {
   const evidenceBlock = `Triggering evidence:
-- Session: ${(session.userRequest ?? '').slice(0, 70) || '(session in progress)'}
+- Session: ${(session.userRequest ?? '').slice(0, 70) || '(trace in progress)'}
 - Signal: ${evaluation.evidence}
 - Threshold: ${evaluation.threshold.toLocaleString()} ${evaluation.unit}
 `
@@ -316,7 +316,7 @@ export function checkAutomationTriggers(
         automationId: cfg.id,
         label: evaluation.stage === 'hard_stop' ? cfg.label + ' Hard Stop' : cfg.label,
         sessionId: session.sessionId,
-        sessionTitle: (session.userRequest ?? '').slice(0, 70) || '(session in progress)',
+        sessionTitle: (session.userRequest ?? '').slice(0, 70) || '(trace in progress)',
         agent: session.source ?? 'generic',
         prompt,
         evidence: evaluation.evidence,

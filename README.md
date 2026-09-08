@@ -292,7 +292,7 @@ exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = "json"
 trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = "json" } }
 ```
 
-`log_user_prompt = true` includes your typed prompt; without it sessions show `[session in progress]`. `exporter` sends log events; `trace_exporter` sends trace spans. Both point at the same endpoint. If `config.toml` already has an `[otel]` section, add only the missing keys.
+`log_user_prompt = true` includes your typed prompt; without it sessions show `[trace in progress]`. `exporter` sends log events; `trace_exporter` sends trace spans. Both point at the same endpoint. If `config.toml` already has an `[otel]` section, add only the missing keys.
 
 ## Local Mode Options
 

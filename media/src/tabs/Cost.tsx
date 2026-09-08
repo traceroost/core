@@ -37,7 +37,7 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
   const isHourly = rows.length > 0 && rows[0].day.length > 10
 
   if (rows.length === 0) {
-    return <div class="empty-state" style="margin-bottom:16px">No historical data yet — sessions will appear here as they are recorded.</div>
+    return <div class="empty-state" style="margin-bottom:16px">No historical data yet — traces will appear here as they are recorded.</div>
   }
 
   const W = 600, H = 190
@@ -390,10 +390,10 @@ export function CostBarChart({ sessions, mode }: { sessions: SessionSummaryCard[
   return (
     <div style="margin-bottom:16px">
       <canvas ref={canvasRef} style="width:100%;height:230px;display:block;cursor:pointer"
-        onClick={handleClick} title="Click a bar to open that session" />
+        onClick={handleClick} title="Click a bar to open that trace" />
       {excludedCount > 0 && (
         <div style="font-size:10px;color:var(--muted);text-align:right;margin-top:2px">
-          {excludedCount} session{excludedCount === 1 ? '' : 's'} excluded — model unrecognized
+          {excludedCount} trace{excludedCount === 1 ? '' : 's'} excluded — model unrecognized
         </div>
       )}
     </div>
@@ -425,7 +425,7 @@ export function Cost() {
     return (
       <div id="cost-content">
         {disclaimer}
-        <div class="empty-state">{hasAny ? 'No sessions match the active filters.' : 'No sessions recorded yet.'}</div>
+        <div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div>
       </div>
     )
   }
@@ -475,7 +475,7 @@ export function Cost() {
             </div>
             <div style="margin-top:5px;font-size:10px;color:var(--muted);line-height:1.5">
               Sessions before Jun 1, 2026 were billed per request — use Annual plan (request) for those.
-              Copilot Chat log sessions with no token data will show $0 in token mode regardless of billing period.
+              Copilot Chat log traces with no token data will show $0 in token mode regardless of billing period.
             </div>
           </div>
         )}
@@ -505,10 +505,10 @@ export function Cost() {
           <div style="margin-bottom:24px">
             <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted)">30-DAY TOKEN &amp; COST HISTORY</h3>
             <HistoryChart rows={filteredStats} />
-            <div style="font-size:10px;color:var(--muted);margin-top:4px">Click a bar to filter the session table to that day. Click again to clear.</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px">Click a bar to filter the trace table to that day. Click again to clear.</div>
             {lifetime && lifetime.totalSessions > 0 && (
               <div style="display:flex;gap:20px;font-size:11px;color:var(--muted);flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--vscode-panel-border)">
-                <span>{lifetime.totalSessions} total sessions</span>
+                <span>{lifetime.totalSessions} total traces</span>
                 <span>{formatCompact(lifetime.totalTokens)} total tokens</span>
                 <span style="color:var(--foreground)">~{'$' + lifetime.totalCostUsd.toFixed(2)} estimated lifetime cost</span>
                 {lifetime.oldestSessionMs > 0 && (
@@ -530,7 +530,7 @@ export function Cost() {
         <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead>
             <tr style="border-bottom:1px solid var(--vscode-panel-border);color:var(--muted);text-align:left">
-              <th style="padding:4px 8px;min-width:130px">Session</th>
+              <th style="padding:4px 8px;min-width:130px">Trace</th>
               <th style="padding:4px 8px">Model</th>
               <th style="padding:4px 8px;text-align:right">Turns</th>
               <th style="padding:4px 8px;text-align:right">Input tok</th>
@@ -622,7 +622,7 @@ export function Cost() {
       {/* Footer note */}
       <div style="margin-top:16px;font-size:10px;color:var(--muted);line-height:1.6">
         {mode === 'token'
-          ? 'Token-based AI Credits: effective Jun 1, 2026. Per-turn chart uses input+output only; session totals include cache tokens.'
+          ? 'Token-based AI Credits: effective Jun 1, 2026. Per-turn chart uses input+output only; trace totals include cache tokens.'
           : 'Annual plan request-based: for annual-plan holders staying on request billing after Jun 1, 2026. Multipliers are significantly higher on this plan post-June.'}
         {codexSessions.length > 0 && ' Codex sessions use token-based pricing regardless of the Copilot billing model selected above.'}
         {claudeSessions.length > 0 && ' Claude sessions use Anthropic API token-based pricing regardless of the Copilot billing model selected above.'}
@@ -637,9 +637,9 @@ export function Cost() {
             Copilot
           </span>
           <ul style="margin:4px 0 0;padding-left:18px">
-            <li>Long-context surcharges are not applied — GPT-5.4 (prompts &gt;272K tokens) and Gemini 2.5 Pro / 3.1 Pro (prompts &gt;200K tokens) have higher rates above those thresholds, which require per-prompt token counts not available in session telemetry.</li>
+            <li>Long-context surcharges are not applied — GPT-5.4 (prompts &gt;272K tokens) and Gemini 2.5 Pro / 3.1 Pro (prompts &gt;200K tokens) have higher rates above those thresholds, which require per-prompt token counts not available in trace telemetry.</li>
             <li>Models not in the rate table are shown as <strong>~$?</strong> — this can happen when GitHub releases a new model after the last rate update, or when the model ID in telemetry doesn't match the published name.</li>
-            <li>Request-based cost uses session turn count as a proxy for billable prompts, which may not match exactly for all session shapes.</li>
+            <li>Request-based cost uses trace turn count as a proxy for billable prompts, which may not match exactly for all trace shapes.</li>
           </ul>
         </div>
         <div style="margin-top:12px">
@@ -660,9 +660,9 @@ export function Cost() {
           </span>
           <ul style="margin:4px 0 0;padding-left:18px">
             <li>Cache write TTL cannot be determined from telemetry. Claude Code uses 5-minute prompt caches by default (1.25× input rate); if 1-hour caches are active (2× input rate), cost will be underestimated by ~37%.</li>
-            <li>Fast mode (<code>/fast</code>): Opus fast-mode requests are billed at $30 input / $150 output per MTok — 6× the standard Opus rate. The model ID in telemetry does not indicate fast mode, so fast-mode sessions are costed at the standard Opus rate and will be significantly underestimated.</li>
-            <li>Opus 4.7 tokenizer change (from Apr 16, 2026) generates up to 35% more tokens for the same text. Per-token prices are unchanged; sessions before and after this date are not directly cost-comparable.</li>
-            <li>Models not in the rate table are shown as <strong>~$?</strong>. Older Claude models (claude-3-5-sonnet, claude-3-opus, etc.) may appear in imported historical sessions.</li>
+            <li>Fast mode (<code>/fast</code>): Opus fast-mode requests are billed at $30 input / $150 output per MTok — 6× the standard Opus rate. The model ID in telemetry does not indicate fast mode, so fast-mode traces are costed at the standard Opus rate and will be significantly underestimated.</li>
+            <li>Opus 4.7 tokenizer change (from Apr 16, 2026) generates up to 35% more tokens for the same text. Per-token prices are unchanged; traces before and after this date are not directly cost-comparable.</li>
+            <li>Models not in the rate table are shown as <strong>~$?</strong>. Older Claude models (claude-3-5-sonnet, claude-3-opus, etc.) may appear in imported historical traces.</li>
           </ul>
         </div>
       </div>

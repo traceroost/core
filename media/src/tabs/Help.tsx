@@ -357,7 +357,7 @@ log_user_prompt = true
 exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = "json" } }
 trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = "json" } }`}</pre>
       <p style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6">
-        <strong>log_user_prompt=true</strong> includes your typed prompt; without it sessions show <code style={codeStyle}>[session in progress]</code>.{' '}
+        <strong>log_user_prompt=true</strong> includes your typed prompt; without it sessions show <code style={codeStyle}>[trace in progress]</code>.{' '}
         <code style={codeStyle}>exporter</code> sends log events; <code style={codeStyle}>trace_exporter</code> sends <a href="#gl-span">trace spans</a>. Both point at the same endpoint.
       </p>
     </div>
@@ -443,7 +443,7 @@ function AgentOtelSection() {
             <dt class="glossary-term">OpenCode</dt>
             <dd class="glossary-def" style="display:block">
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>Local SQLite database at <code style={codeStyle}>~/.local/share/opencode/opencode.db</code> (Linux/Mac) or <code style={codeStyle}>%APPDATA%\opencode\opencode.db</code> (Windows). No OTEL support. TraceRoost reads the database directly using WASM SQLite, merging the WAL file at read time. Override the path with the <code style={codeStyle}>OPENCODE_DATA_DIR</code> environment variable.</p>
-              <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Session ID, workspace directory, model name, timestamps, all token counts (input, output, cache read/write), user request (last user message in the session), tool call names and inputs/outputs, file paths accessed by tools, and a full per-turn timeline of LLM calls and tool calls.</p>
+              <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Session ID, workspace directory, model name, timestamps, all token counts (input, output, cache read/write), user request (last user message in the trace), tool call names and inputs/outputs, file paths accessed by tools, and a full per-turn timeline of LLM calls and tool calls.</p>
               <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>OTEL traces, time-to-first-token, per-tool execution timing, streaming speed, and loop detection signals. Sessions show a <strong>Log</strong> badge and a blue info banner in the Overview tab noting these limitations.</p>
             </dd>
           </div>
@@ -777,7 +777,7 @@ function SettingsSection() {
             <dd class="glossary-def" style="display:block">Fires when peak input tokens for a session reaches the per-agent threshold. Defaults: Claude Code 170K, Copilot 108K, Codex 340K. Adjust per agent or raise the shared baseline.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Too Many Turns Per Session <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Too Many Turns Per Trace <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when the LLM turn count reaches the per-agent threshold. High turn counts often indicate scope creep or a task that should be split. Default: 200 turns (adjustable per agent).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
@@ -785,7 +785,7 @@ function SettingsSection() {
             <dd class="glossary-def" style="display:block">Fires when the error count in a session reaches the per-agent threshold. A spike usually means the agent is stuck in a failure loop. Default: 5 errors (adjustable per agent).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Long Active Session <span style="font-size:10px;font-weight:400;color:var(--muted)">(info)</span></dt>
+            <dt class="glossary-term">Long Active Trace <span style="font-size:10px;font-weight:400;color:var(--muted)">(info)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when active LLM/tool compute time exceeds the per-agent threshold. Idle time (waiting for you to respond) does not count. Default: 60 minutes (adjustable per agent).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">

@@ -51,7 +51,7 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
       <div style={`display:flex;align-items:center;gap:6px;margin-bottom:10px`}>
         <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${color}`} />
         <span style="font-weight:600;font-size:13px">{label}</span>
-        <span style="font-size:11px;color:var(--muted);margin-left:auto">{s.sessions} session{s.sessions !== 1 ? 's' : ''}</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto">{s.sessions} trace{s.sessions !== 1 ? 's' : ''}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
         <div><span style="color:var(--muted)">LLM calls</span> <strong>{s.totalLlm}</strong></div>
@@ -62,7 +62,7 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
         <div><span style="color:var(--muted)">Avg dur</span> <strong>{formatMs(s.avgDuration)}</strong></div>
         {s.avgTtft > 0 && <div><span style="color:var(--muted)">Avg TTFT</span> <strong>{formatMs(s.avgTtft)}</strong></div>}
         {s.oneShotRate !== null && (
-          <div data-tip="Files edited exactly once vs. files that needed a retry, across all sessions in this view. Edit-pass count, not a signal the code actually worked.">
+          <div data-tip="Files edited exactly once vs. files that needed a retry, across all traces in this view. Edit-pass count, not a signal the code actually worked.">
             <span style="color:var(--muted)">One-shot</span> <strong>{Math.round(s.oneShotRate * 100)}%</strong>
           </div>
         )}
@@ -95,7 +95,7 @@ export function Analytics() {
   if (sessions.length === 0) {
     return (
       <div id="analytics-content">
-        <div class="empty-state">{hasAny ? 'No sessions match the active filters.' : 'No sessions recorded yet.'}</div>
+        <div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div>
       </div>
     )
   }
