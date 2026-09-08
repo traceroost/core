@@ -8,7 +8,7 @@ The sidebar gives you a compact live view. For the full experience, open the **e
 | **Analytics** | Aggregate charts across all sessions: per-agent breakdown (token totals, cache rates, one-shot rate, top tools), Estimated Cost (bar chart + daily total line, day-grouped cost table, model breakdown), Token Usage Per Session, and Context Growth |
 | **Advisor** | Project-scoped suggestions for improving your agent instruction file — detects hot files the agent rediscovers each session, behavioral loop patterns, high turn counts, and open-ended prompt habits. Each suggestion includes ready-to-copy instruction text and an inquiry prompt to paste directly into your agent. Also includes an efficiency scatter plot and hot files table. Select a project from the workspace filter for tailored suggestions. |
 | **Export** | Export recorded sessions — full (includes prompt text) or redacted — as JSON, CSV, or Markdown, from the full SQLite session history |
-| **Import** | Preview and import sessions from a previously exported AgentLens JSON file |
+| **Import** | Preview and import sessions from a previously exported TraceRoost JSON file |
 | **Help** | Overview, setup instructions, agent OTEL data shapes, Insights reference, loop signal documentation, and glossary |
 
 Two icons in the top-right of the tab bar handle alerting and configuration without cluttering the tabs themselves:

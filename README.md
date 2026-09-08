@@ -1,17 +1,24 @@
-<h1><img src="media/mascot.png" alt="AgentLens logo" width="48" align="center" /> AgentLens</h1>
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="media/brand/wordmark-on-dark.svg">
+    <img src="media/brand/wordmark.svg" alt="TraceRoost" height="40">
+  </picture>
+</h1>
 
-> **Note:** AgentLens is transitioning to TraceRoost.
+> **Note:** AgentLens is now **TraceRoost**. Several unrelated projects already use the AgentLens name.
 >
-> AgentLens is transitioning to TraceRoost because several unrelated projects already use the AgentLens name. During the transition, release identifiers such as `agentlens-dashboard`, `agentlens.agentlens-dashboard`, and `agentlens/agentlens` remain unchanged. The rebrand will be completed in a future release.
+> This release moves the whole project to the new name: the extension is published as `traceroost.traceroost-dashboard`, the npm package as `traceroost-dashboard`, and the Docker image as `traceroost/traceroost`. The previous `agentlens-dashboard` package is frozen on the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch for critical fixes only.
+>
+> **Upgrading from AgentLens:** this is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name. After updating, re-run `npx traceroost-dashboard@latest service install` if you use the background service, and let auto-config rewrite your agents' OTEL settings on the next start (or use **Configure OTEL** in Settings). Session history stored under the old `~/.agentlens` directory is not migrated automatically; point `--data-dir` at it if you need it.
 
 [![CI](https://github.com/traceroost/core/actions/workflows/ci.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
 
-![AgentLens dashboard showing OTEL traces, session monitoring, and agent observability charts](media/demo.gif)
+![TraceRoost dashboard showing OTEL traces, session monitoring, and agent observability charts](media/demo.gif)
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. Nothing leaves your machine.
 
-AgentLens receives **OpenTelemetry traces** from Copilot, Claude Code, and Codex in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local session files** each agent writes automatically — including OpenCode's **SQLite database** — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
+TraceRoost receives **OpenTelemetry traces** from Copilot, Claude Code, and Codex in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local session files** each agent writes automatically — including OpenCode's **SQLite database** — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
 
 Two things it does that a usage dashboard doesn't:
 
@@ -26,26 +33,26 @@ The fastest way to get started — run directly on your machine with no install 
 
 ```bash
 # One-off — the @latest tag forces a fresh fetch (see note below)
-npx agentlens-dashboard@latest
-bunx agentlens-dashboard@latest
+npx traceroost-dashboard@latest
+bunx traceroost-dashboard@latest
 
 # Or install globally and run by command name
-npm install -g agentlens-dashboard@latest
-agentlens
+npm install -g traceroost-dashboard@latest
+traceroost
 ```
 
 Open <http://localhost:3000> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
 
-> **Always include `@latest`.** A bare `npx agentlens-dashboard` (or `bunx`) re-runs whatever
+> **Always include `@latest`.** A bare `npx traceroost-dashboard` (or `bunx`) re-runs whatever
 > version npx cached the first time you ran it — it does **not** check npm for a newer release, so
 > you can silently stay on an old version for weeks. `@latest` forces npx to resolve against the
 > registry. If a bare run already cached an old copy, clear it with `rm -rf ~/.npm/_npx` (npx) or
 > `npm cache clean --force`. A global install (`npm install -g`) has the same trap — re-run it with
-> `@latest`, or `npm update -g agentlens-dashboard`, to move forward.
+> `@latest`, or `npm update -g traceroost-dashboard`, to move forward.
 
 > **Log file ingestion** reads local session files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, and OpenCode's SQLite database at `~/.local/share/opencode/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
 >
-> **Running this in a terminal only lasts until you close it.** If AgentLens isn't running when an agent sends OTEL data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
+> **Running this in a terminal only lasts until you close it.** If TraceRoost isn't running when an agent sends OTEL data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
 
 ### VS Code Extension (OTEL and log files)
 
@@ -53,9 +60,9 @@ The extension receives OTEL traces in real time **and** reads local session log 
 
 Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
 
-1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)**
-2. Open the **AgentLens** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
-3. AgentLens auto-configures OTEL telemetry for Copilot, Claude Code, and Codex — restart any running agent sessions to start streaming traces
+1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=traceroost.traceroost-dashboard)**
+2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
+3. TraceRoost auto-configures OTEL telemetry for Copilot, Claude Code, and Codex — restart any running agent sessions to start streaming traces
 4. Past session history loads automatically from local log files — no extra setup needed
 
 ### Docker (OTEL only)
@@ -64,17 +71,17 @@ Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install fro
 
 ```bash
 # Ephemeral — data cleared on container stop (always pulls latest)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 agentlens/agentlens
+docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost
 
 # Persistent — data survives restarts (macOS/Linux)
 docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 \
-  -v ~/.agentlens:/data \
-  agentlens/agentlens
+  -v ~/.traceroost:/data \
+  traceroost/traceroost
 
 # Persistent — data survives restarts (Windows)
 docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 `
-  -v "$env:USERPROFILE\.agentlens:/data" `
-  agentlens/agentlens
+  -v "$env:USERPROFILE\.traceroost:/data" `
+  traceroost/traceroost
 ```
 
 Open <http://localhost:3000> after the container starts.
@@ -108,12 +115,12 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 - **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and five loop/malfunction patterns with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for turns, errors, active time, repeat tool calls, and estimated daily cost — per-agent or shared
 - **Export** — Export filtered sessions as JSON, CSV, or Markdown (full or redacted); respects the active agent, source, time range, and text filters
-- **Import** — Import sessions from a previous AgentLens JSON export; drag-drop or file-pick, shows a preview with session count by source and date range, imports with live progress and automatic deduplication (existing sessions are skipped)
+- **Import** — Import sessions from a previous TraceRoost JSON export; drag-drop or file-pick, shows a preview with session count by source and date range, imports with live progress and automatic deduplication (existing sessions are skipped)
 - **MCP Server** — Exposes your own session history to Claude Code (or any MCP-compatible agent) so it can query its recent work, cost, and recurring file/loop patterns before starting a task, instead of you checking the dashboard yourself. Runs by default on port `4316`; see the in-app Help tab's Agent Integration section for setup
 
 ## Data Sources
 
-AgentLens collects data from two independent sources per agent. Each session row shows a badge — **OTEL** or **Log** — indicating where its data came from. If both capture the same session, OTEL always wins and the badge upgrades automatically.
+TraceRoost collects data from two independent sources per agent. Each session row shows a badge — **OTEL** or **Log** — indicating where its data came from. If both capture the same session, OTEL always wins and the badge upgrades automatically.
 
 ### OpenTelemetry traces (primary source)
 
@@ -123,7 +130,7 @@ See [Manual Configuration](#manual-configuration) for the specific settings each
 
 ### Log file ingestion (fallback source, VS Code-family IDEs and native process only)
 
-AgentLens also reads the local session files that Claude Code, Codex, Copilot CLI, and Copilot Chat write automatically to your home directory. This requires no configuration and backfills session history that predates OTEL setup. Log-sourced sessions show a **Log** badge. **Not available in Docker mode** — the container cannot access host log directories without explicit volume mounts for every agent path.
+TraceRoost also reads the local session files that Claude Code, Codex, Copilot CLI, and Copilot Chat write automatically to your home directory. This requires no configuration and backfills session history that predates OTEL setup. Log-sourced sessions show a **Log** badge. **Not available in Docker mode** — the container cannot access host log directories without explicit volume mounts for every agent path.
 
 | Agent | Log file location (Mac/Linux) | Windows |
 | --- | --- | --- |
@@ -141,9 +148,9 @@ Loading is incremental and runs in the background, sorted newest-first so recent
 
 **What log data does not include:** time-to-first-token, per-tool execution timing, streaming speed, loop detection signals, or structured error telemetry. Enable OTEL for those. OpenCode sessions show a blue info banner in the Session Overview noting that OTEL traces and TTFT are not available.
 
-To disable log ingestion: set `agentLens.enableLogIngestion` to `false` in VS Code settings.
+To disable log ingestion: set `traceRoost.enableLogIngestion` to `false` in VS Code settings.
 
-**Clear All Data** (Settings) only deletes AgentLens' own stored copy — it never touches these source log files, and log-sourced sessions will simply be re-read on the next scan. AgentLens has no way to delete the log files themselves; do that directly at the paths above if you want them gone.
+**Clear All Data** (Settings) only deletes TraceRoost' own stored copy — it never touches these source log files, and log-sourced sessions will simply be re-read on the next scan. TraceRoost has no way to delete the log files themselves; do that directly at the paths above if you want them gone.
 
 ## Cost Estimation
 
@@ -181,7 +188,7 @@ Exports draw from the full SQLite session history, not just the active window, s
 
 ### Import
 
-The **Import** tab loads sessions from a previous AgentLens **JSON** export file into the current installation — useful for migrating data to a new machine, sharing session history across team members, or restoring a local backup. CSV and Markdown exports are one-way (for external consumption) and can't be imported back.
+The **Import** tab loads sessions from a previous TraceRoost **JSON** export file into the current installation — useful for migrating data to a new machine, sharing session history across team members, or restoring a local backup. CSV and Markdown exports are one-way (for external consumption) and can't be imported back.
 
 1. Open the **Import** tab in the dashboard
 2. Drag-and-drop an `export_sessions_*.json` file onto the drop zone, or click **Choose file**
@@ -215,7 +222,7 @@ Each signal includes a specific recommended action and a **Copy for {Agent}** bu
 
 ## Manual Configuration
 
-The VS Code extension and the standalone (`npx`) server both auto-configure Copilot, Claude Code, and Codex on every startup — it's idempotent, so it only rewrites a config file when something is actually missing or different, and does nothing on subsequent starts once already configured. The extension shows a one-time notification (and logs to the Output panel) only when it actually changes something; disable it with the `agentLens.autoConfigureAgents` setting if you'd rather manage agent config yourself. If you change an agent's OTEL settings by hand later and want AgentLens to reapply its own values, use the **Configure OTEL** button in the Settings panel (gear icon) instead of waiting for the next restart. Docker mode runs the same auto-configure code, but it writes to the *container's* filesystem, not your host machine, so it has no effect on your host agents unless you volume-mount their config paths in — use the setup scripts below instead. Replace `4318` with your custom port if you changed `agentLens.otlpPort`.
+The VS Code extension and the standalone (`npx`) server both auto-configure Copilot, Claude Code, and Codex on every startup — it's idempotent, so it only rewrites a config file when something is actually missing or different, and does nothing on subsequent starts once already configured. The extension shows a one-time notification (and logs to the Output panel) only when it actually changes something; disable it with the `traceRoost.autoConfigureAgents` setting if you'd rather manage agent config yourself. If you change an agent's OTEL settings by hand later and want TraceRoost to reapply its own values, use the **Configure OTEL** button in the Settings panel (gear icon) instead of waiting for the next restart. Docker mode runs the same auto-configure code, but it writes to the *container's* filesystem, not your host machine, so it has no effect on your host agents unless you volume-mount their config paths in — use the setup scripts below instead. Replace `4318` with your custom port if you changed `traceRoost.otlpPort`.
 
 ### GitHub Copilot
 
@@ -289,7 +296,7 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
 
 ## Local Mode Options
 
-AgentLens runs as a local web server outside VS Code — useful for CI, remote machines, or when you prefer a browser tab over the VS Code sidebar.
+TraceRoost runs as a local web server outside VS Code — useful for CI, remote machines, or when you prefer a browser tab over the VS Code sidebar.
 
 ### Native process (recommended for local use)
 
@@ -302,44 +309,44 @@ Environment variables:
 | `OTLP_PORT` | `4318` | OTLP HTTP receiver port |
 | `UI_PORT` | `3000` | Dashboard port |
 | `MCP_PORT` | `4316` | MCP endpoint for Claude Code and other MCP-compatible agents |
-| `DATA_DIR` | `~/.agentlens` | Directory for persistent span data |
+| `DATA_DIR` | `~/.traceroost` | Directory for persistent span data |
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access |
-| `AGENTLENS_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
+| `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
 
 The local server uses the same port as the VS Code extension — only one can run at a time. To run both simultaneously, use different ports:
 
 ```bash
-OTLP_PORT=4319 UI_PORT=3001 bunx agentlens-dashboard@latest
+OTLP_PORT=4319 UI_PORT=3001 bunx traceroost-dashboard@latest
 ```
 
 ### Background Service (macOS / Windows / Linux)
 
-> **If AgentLens isn't running, incoming OTEL data has nowhere to go and is lost** — agents don't
+> **If TraceRoost isn't running, incoming OTEL data has nowhere to go and is lost** — agents don't
 > queue or retry failed exports. A terminal you forgot to reopen, a closed laptop lid, or a reboot
-> all mean a gap in your session history. Running AgentLens as a background service avoids this:
+> all mean a gap in your session history. Running TraceRoost as a background service avoids this:
 > it starts automatically and keeps running without a terminal open.
 
 ```bash
-# One command — works whether or not agentlens-dashboard is already installed globally
-npx agentlens-dashboard@latest service install
+# One command — works whether or not traceroost-dashboard is already installed globally
+npx traceroost-dashboard@latest service install
 
-agentlens service status      # check whether it's running and reachable
-agentlens service logs        # print the service's log file
-agentlens service logs --follow
-agentlens service stop        # stop it
-agentlens service start       # start it again
-agentlens service update      # upgrade to the latest version and restart on it
-agentlens service uninstall   # remove it (your data in ~/.agentlens is untouched)
+traceroost service status      # check whether it's running and reachable
+traceroost service logs        # print the service's log file
+traceroost service logs --follow
+traceroost service stop        # stop it
+traceroost service start       # start it again
+traceroost service update      # upgrade to the latest version and restart on it
+traceroost service uninstall   # remove it (your data in ~/.traceroost is untouched)
 ```
 
-`service install` fetches the latest `agentlens-dashboard` from npm before it writes the service
+`service install` fetches the latest `traceroost-dashboard` from npm before it writes the service
 definition, so re-running it is also how you upgrade. If that download can't happen (offline, npm
 registry unreachable), it prints a clear notice that the new version couldn't be downloaded and
 installs the service on whichever version is already present rather than failing.
 
 > **Once installed, the running service does not otherwise auto-update.** It keeps running whatever
-> version is installed until you run `agentlens service update` (or re-run `service install`) —
-> either one pulls the latest `agentlens-dashboard` from npm and restarts the service on it.
+> version is installed until you run `traceroost service update` (or re-run `service install`) —
+> either one pulls the latest `traceroost-dashboard` from npm and restarts the service on it.
 
 `service install` uses whichever OS-native mechanism fits your platform, all installed per-user
 with no admin/root privileges required:
@@ -351,15 +358,15 @@ with no admin/root privileges required:
 | Windows | Scheduled Task at logon — starts when you log in. (Windows has no simple no-admin equivalent to launchd/systemd's crash-restart; a true Windows Service is a heavier install requiring elevation and wasn't worth the extra friction for a per-user local tool) |
 
 Ports and data directory can be customized at install time, and are remembered across
-restarts in `~/.agentlens/config.json`:
+restarts in `~/.traceroost/config.json`:
 
 ```bash
-agentlens service install --ui-port 3001 --otlp-port 4319 --data-dir ~/agentlens-data
+traceroost service install --ui-port 3001 --otlp-port 4319 --data-dir ~/traceroost-data
 ```
 
 Since `npx` always runs from a temporary cache with no stable path to launch from, running
-`service install` under `npx` installs `agentlens-dashboard` globally first (equivalent to
-`npm install -g agentlens-dashboard@latest`) so the service definition has something fixed to
+`service install` under `npx` installs `traceroost-dashboard` globally first (equivalent to
+`npm install -g traceroost-dashboard@latest`) so the service definition has something fixed to
 point at.
 
 ### Docker (OTEL only)
@@ -371,15 +378,15 @@ Quick-start commands are in [Getting Started](#docker-otel-only). Additional opt
 **LAN-accessible** — exposes the dashboard to other devices on your network:
 
 ```bash
-docker run --pull=always -p 3000:3000 -p 4318:4318 -v ~/.agentlens:/data agentlens/agentlens
+docker run --pull=always -p 3000:3000 -p 4318:4318 -v ~/.traceroost:/data traceroost/traceroost
 ```
 
 **Custom ports** — if `4318` is already in use by the VS Code extension:
 
 ```bash
 docker run --pull=always -p 127.0.0.1:3001:3000 -p 127.0.0.1:4319:4318 \
-  -v ~/.agentlens:/data \
-  agentlens/agentlens
+  -v ~/.traceroost:/data \
+  traceroost/traceroost
 ```
 
 Then point your agents at `http://localhost:4319` and open <http://localhost:3001>.
@@ -395,7 +402,7 @@ pnpm run local
 
 ## Automation Prompts File
 
-When an automation threshold is crossed, AgentLens can write the generated prompt to a markdown file. To act on it automatically, configure your agent to watch or include that file as an input — for example, by pointing Claude Code at it via a hook or referencing it in a system prompt. Without that wiring, the file serves as a persistent, reviewable log you can paste from manually. For simpler workflows, leave **Write prompts file** off and use the **Copy Prompt** notification button instead.
+When an automation threshold is crossed, TraceRoost can write the generated prompt to a markdown file. To act on it automatically, configure your agent to watch or include that file as an input — for example, by pointing Claude Code at it via a hook or referencing it in a system prompt. Without that wiring, the file serves as a persistent, reviewable log you can paste from manually. For simpler workflows, leave **Write prompts file** off and use the **Copy Prompt** notification button instead.
 
 ### How it works
 
@@ -403,9 +410,9 @@ When **Write prompts file** is enabled for an automation rule, each trigger appe
 
 | Agent | File written |
 | --- | --- |
-| Claude Code | `agentlens-prompts-claude.md` |
-| GitHub Copilot | `agentlens-prompts-copilot.md` |
-| Codex | `agentlens-prompts-codex.md` |
+| Claude Code | `traceroost-prompts-claude.md` |
+| GitHub Copilot | `traceroost-prompts-copilot.md` |
+| Codex | `traceroost-prompts-codex.md` |
 
 In the VS Code extension, files are written to the workspace root. In local mode, files are written to the directory where the server is running.
 
@@ -414,7 +421,7 @@ Each entry uses this format:
 ```markdown
 ## 2026-05-21 14:30:22 — Loop Breaker
 
-[AgentLens Automation: Loop Breaker]
+[TraceRoost Automation: Loop Breaker]
 
 ...generated prompt...
 
@@ -425,30 +432,30 @@ When **Write prompts file** is off (default), triggering an automation shows a n
 
 ## VS Code Commands
 
-Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for **AgentLens**:
+Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for **TraceRoost**:
 
 | Command | Description |
 | ------- | ----------- |
-| `AgentLens: Open Dashboard` | Open the full dashboard in an editor panel |
-| `AgentLens: Export OTEL Data` | Write session data to JSON files in your workspace root (also available in the **Export** dashboard tab) |
-| `AgentLens: Export OTEL Data (Redacted)` | Same, with prompt text, tool inputs, tool results, and PII replaced with `[redacted]` |
-| `AgentLens: Show Storage Stats` | Report local database size, blob storage size, session count, date range, and current retention setting to the Output panel |
+| `TraceRoost: Open Dashboard` | Open the full dashboard in an editor panel |
+| `TraceRoost: Export OTEL Data` | Write session data to JSON files in your workspace root (also available in the **Export** dashboard tab) |
+| `TraceRoost: Export OTEL Data (Redacted)` | Same, with prompt text, tool inputs, tool results, and PII replaced with `[redacted]` |
+| `TraceRoost: Show Storage Stats` | Report local database size, blob storage size, session count, date range, and current retention setting to the Output panel |
 
 ## Extension Settings
 
 | Setting | Default | Description |
 | ------- | ------- | ----------- |
-| `agentLens.otlpPort` | `4318` | Local port for the OTLP trace receiver |
-| `agentLens.enableOtelIngestion` | `true` | Accept incoming OTEL span data. The OTLP server keeps listening on `agentLens.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
-| `agentLens.enableLogIngestion` | `true` | Read local session log files from Claude Code, Codex, and Copilot CLI. Disable if you only want OTEL data. |
-| `agentLens.autoConfigureAgents` | `true` | Automatically write OTEL telemetry settings into Claude Code's, Codex's, and Copilot's own configuration on every activation. Disabling leaves your agents' configuration untouched — use the **Configure OTEL** button in Settings for a one-off manual apply, or configure OTEL manually (see [Manual Configuration](#manual-configuration)). |
-| `agentLens.enableMcpServer` | `true` | Start the AgentLens MCP server so Claude Code and other MCP-compatible agents can query your session history. |
-| `agentLens.mcpPort` | `4316` | Local port for the AgentLens MCP server (when `agentLens.enableMcpServer` is true) |
-| `agentLens.sessionRetentionDays` | `90` | How many days to keep session history in the local database |
+| `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver |
+| `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTEL span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
+| `traceRoost.enableLogIngestion` | `true` | Read local session log files from Claude Code, Codex, and Copilot CLI. Disable if you only want OTEL data. |
+| `traceRoost.autoConfigureAgents` | `true` | Automatically write OTEL telemetry settings into Claude Code's, Codex's, and Copilot's own configuration on every activation. Disabling leaves your agents' configuration untouched — use the **Configure OTEL** button in Settings for a one-off manual apply, or configure OTEL manually (see [Manual Configuration](#manual-configuration)). |
+| `traceRoost.enableMcpServer` | `true` | Start the TraceRoost MCP server so Claude Code and other MCP-compatible agents can query your session history. |
+| `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (when `traceRoost.enableMcpServer` is true) |
+| `traceRoost.sessionRetentionDays` | `90` | How many days to keep session history in the local database |
 
 ## Agent Data Formats
 
-AgentLens collects data from two sources per agent and normalizes both into a shared session model. The **Log** badge indicates log-file data; **OTEL** indicates telemetry data. When both are present for the same session, OTEL wins.
+TraceRoost collects data from two sources per agent and normalizes both into a shared session model. The **Log** badge indicates log-file data; **OTEL** indicates telemetry data. When both are present for the same session, OTEL wins.
 
 ### Claude Code
 
@@ -497,7 +504,7 @@ Not in logs: input tokens per turn (estimated from shutdown totals), TTFT, cache
 
 **SQLite database (automatic, no OTEL setup needed)** — `~/.local/share/opencode/opencode.db`
 
-OpenCode stores all session data in a local SQLite database. AgentLens reads this directly — no agent configuration or OTEL setup is required. The database uses WAL (Write-Ahead Log) mode; AgentLens merges the WAL at read time so sessions are visible immediately after each run.
+OpenCode stores all session data in a local SQLite database. TraceRoost reads this directly — no agent configuration or OTEL setup is required. The database uses WAL (Write-Ahead Log) mode; TraceRoost merges the WAL at read time so sessions are visible immediately after each run.
 
 Available from the database: session ID, user prompt (last user message), model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names and inputs/outputs, file paths accessed by tools.
 
@@ -507,7 +514,7 @@ Override the default database location with the `OPENCODE_DATA_DIR` environment 
 
 ---
 
-> **Note:** Agent observability is evolving rapidly. All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. AgentLens will be updated as richer data becomes available.
+> **Note:** Agent observability is evolving rapidly. All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
 
 ## Additional Features
 
@@ -517,7 +524,7 @@ Override the default database location with the `OPENCODE_DATA_DIR` environment 
 
 ## AI Usage Disclosure
 
-AgentLens was built primarily with [Claude](https://www.anthropic.com/claude). Thank you to Anthropic for building tools that make projects like this possible.
+TraceRoost was built primarily with [Claude](https://www.anthropic.com/claude). Thank you to Anthropic for building tools that make projects like this possible.
 
 ## License
 
@@ -525,4 +532,4 @@ MIT
 
 ## Disclaimer
 
-AgentLens is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); or OpenAI, LLC (Codex CLI). All product names, trademarks, and registered trademarks are the property of their respective owners. AgentLens interacts with these products solely through their publicly documented OpenTelemetry telemetry interfaces.
+TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); or OpenAI, LLC (Codex CLI). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products solely through their publicly documented OpenTelemetry telemetry interfaces.

@@ -211,7 +211,7 @@ export function Export() {
         <p class="export-replay-desc">
           These exports contain aggregated session summaries — token counts, tool usage,
           cost estimates, file changes, and efficiency signals. They are useful for
-          cost analysis, sharing with teammates, and offline review. Use the <strong>Import</strong> tab to bring exported files back into AgentLens on any machine.
+          cost analysis, sharing with teammates, and offline review. Use the <strong>Import</strong> tab to bring exported files back into TraceRoost on any machine.
         </p>
       </div>
     </div>

@@ -50,18 +50,18 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     }
     webviewView.webview.html = this.getHtml(webviewView.webview)
 
-    vscode.commands.executeCommand('agentLens.openDashboard')
+    vscode.commands.executeCommand('traceRoost.openDashboard')
 
     const msgDisposable = webviewView.webview.onDidReceiveMessage(async msg => {
       if (msg.type === 'openDashboardTab') {
-        vscode.commands.executeCommand('agentLens.openDashboard')
+        vscode.commands.executeCommand('traceRoost.openDashboard')
         setTimeout(() => {
           const { DashboardPanel } = require('./dashboardPanel')
           DashboardPanel.switchToTab(msg.tab ?? 'sessions')
         }, 300)
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(
-          'Clear all AgentLens data? OTEL session data is deleted permanently. AgentLens log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
+          'Clear all TraceRoost data? OTEL session data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
           { modal: true },
           'Clear All'
         )
@@ -69,7 +69,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
           this.cachedTimelineSessionId = null
           this.cachedTimelineTurns = 0
           this.cachedTurnInputTokens = []
-          vscode.commands.executeCommand('agentLens.clearSessions')
+          vscode.commands.executeCommand('traceRoost.clearSessions')
         }
       }
     })

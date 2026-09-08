@@ -7,7 +7,7 @@ function sendConfig(key: string, value: boolean) {
   }
 }
 
-const CLEAR_ALL_CONFIRM_TEXT = 'Clear all AgentLens data? OTEL session data is deleted permanently. AgentLens log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).'
+const CLEAR_ALL_CONFIRM_TEXT = 'Clear all TraceRoost data? OTEL session data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).'
 
 export function sendConfirmClear() {
   if (vscode) {
@@ -200,7 +200,7 @@ export function OtelReconfigureButton() {
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Configure OTEL</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-        Re-applies AgentLens's OTEL settings to Claude Code, Codex, and Copilot. AgentLens already does this automatically on startup — use this if you changed one of those agent's telemetry settings yourself and want to point it back at AgentLens.
+        Re-applies TraceRoost's OTEL settings to Claude Code, Codex, and Copilot. TraceRoost already does this automatically on startup — use this if you changed one of those agent's telemetry settings yourself and want to point it back at TraceRoost.
       </div>
       <button
         onClick={run}

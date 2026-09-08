@@ -61,7 +61,7 @@ function makeCard(overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCa
 
 function makeStorageUri(tag = 'test'): vscode.Uri {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('vscode').Uri.file(`/tmp/agentlens-${tag}`)
+  return require('vscode').Uri.file(`/tmp/traceroost-${tag}`)
 }
 
 function queryInt(db: SqlDb, sql: string): number {

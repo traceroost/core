@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Redacts personal data from AgentLens span exports before sharing in a GitHub issue.
+ * Redacts personal data from TraceRoost span exports before sharing in a GitHub issue.
  *
  * What is redacted:
  *   - user.email, user.id, user.account_id, user.account_uuid   → [REDACTED_*]
@@ -26,7 +26,7 @@ const inputIdx       = args.indexOf('--input')
 const outputIdx      = args.indexOf('--output')
 const redactContent  = args.includes('--redact-content')
 
-const inputFile  = inputIdx  >= 0 ? args[inputIdx  + 1] : path.join(os.homedir(), '.agentlens', 'spans.json')
+const inputFile  = inputIdx  >= 0 ? args[inputIdx  + 1] : path.join(os.homedir(), '.traceroost', 'spans.json')
 const outputFile = outputIdx >= 0 ? args[outputIdx + 1] : null
 
 // ── Redaction config ──────────────────────────────────────────────────────────

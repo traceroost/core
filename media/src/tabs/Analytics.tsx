@@ -239,7 +239,7 @@ export function Analytics() {
                   const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
                   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
                   const a = document.createElement('a')
-                  a.href = url; a.download = 'agentlens-cost.csv'; a.click()
+                  a.href = url; a.download = 'traceroost-cost.csv'; a.click()
                   URL.revokeObjectURL(url)
                 }}
                 style="font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"

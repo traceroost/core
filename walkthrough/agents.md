@@ -1,4 +1,4 @@
-AgentLens ran a built-in OTEL receiver and wrote telemetry config for each agent it detected:
+TraceRoost ran a built-in OTEL receiver and wrote telemetry config for each agent it detected:
 
 ## OpenTelemetry (primary — real-time, richest data)
 
@@ -14,7 +14,7 @@ OTEL gives you real-time span timing, time-to-first-token, loop detection, file 
 
 ## Log files (fallback — history, no extra setup)
 
-AgentLens also loaded session history from local log files each agent writes automatically:
+TraceRoost also loaded session history from local log files each agent writes automatically:
 
 | Agent | What was loaded |
 | --- | --- |

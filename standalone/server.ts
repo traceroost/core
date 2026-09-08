@@ -1,5 +1,5 @@
 /**
- * AgentLens standalone server — runs the dashboard outside VS Code.
+ * TraceRoost standalone server — runs the dashboard outside VS Code.
  *
  * Three HTTP servers:
  *   OTLP_PORT (default 4318) — receives OTLP traces/logs from agents
@@ -29,8 +29,8 @@ import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, isRunningFromNpx } from '../src/serviceConfig'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
 
-// `agentlens service install` persists its port/host/data-dir choices to
-// ~/.agentlens/config.json (see src/serviceConfig.ts) so a background-service install and an
+// `traceroost service install` persists its port/host/data-dir choices to
+// ~/.traceroost/config.json (see src/serviceConfig.ts) so a background-service install and an
 // ad-hoc `npx`/`node standalone/server.js` run share one config story. Env vars still win when
 // set, matching this server's behavior before the config file existed. ensureAuthToken generates
 // and persists a bearer token the first time this runs with none set yet.
@@ -46,7 +46,7 @@ const AUTH_TOKEN = fileConfig.authToken
 // once bindHost is exposed beyond loopback, a token must actually be in place (it always will
 // be, barring a disk-write failure in ensureAuthToken) before any server is allowed to listen.
 if (!isLoopbackHost(BIND_HOST) && !AUTH_TOKEN) {
-  console.error(`[AgentLens] Refusing to start: BIND_HOST=${BIND_HOST} exposes AgentLens beyond localhost, but no auth token could be generated or persisted (check that the data directory is writable). Fix that, or set BIND_HOST back to 127.0.0.1.`)
+  console.error(`[TraceRoost] Refusing to start: BIND_HOST=${BIND_HOST} exposes TraceRoost beyond localhost, but no auth token could be generated or persisted (check that the data directory is writable). Fix that, or set BIND_HOST back to 127.0.0.1.`)
   process.exit(1)
 }
 // OTLP and MCP only require the token once bound beyond loopback, so today's default setup and
@@ -54,17 +54,17 @@ if (!isLoopbackHost(BIND_HOST) && !AUTH_TOKEN) {
 // server (below) always requires it — the CLI hands the token to the browser on open.
 const REQUIRE_TOKEN_EVERYWHERE = !isLoopbackHost(BIND_HOST)
 if (REQUIRE_TOKEN_EVERYWHERE) {
-  console.log('[AgentLens] BIND_HOST is not loopback — OTLP and MCP now require Authorization: Bearer <token> (or ?token=) too. Configure agents accordingly.')
+  console.log('[TraceRoost] BIND_HOST is not loopback — OTLP and MCP now require Authorization: Bearer <token> (or ?token=) too. Configure agents accordingly.')
 }
-const parsedMaxSpans = parseInt(process.env.AGENTLENS_MAX_SPANS ?? '', 10)
+const parsedMaxSpans = parseInt(process.env.TRACEROOST_MAX_SPANS ?? '', 10)
 const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxSpans
 
 const PACKAGE_VERSION: string = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version
-console.log(`[AgentLens] Version         ${PACKAGE_VERSION}`)
+console.log(`[TraceRoost] Version         ${PACKAGE_VERSION}`)
 if (isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) {
-  // A bare `npx agentlens-dashboard` re-runs npx's cached copy without checking npm, so the version
+  // A bare `npx traceroost-dashboard` re-runs npx's cached copy without checking npm, so the version
   // above can be an old release even right after a publish. Surface that at the moment it's on screen.
-  console.log('[AgentLens] Launched via npx — if this isn\'t the version you expect, npx served a cached copy. Re-run as `npx agentlens-dashboard@latest` (or clear it with `rm -rf ~/.npm/_npx`).')
+  console.log('[TraceRoost] Launched via npx — if this isn\'t the version you expect, npx served a cached copy. Re-run as `npx traceroost-dashboard@latest` (or clear it with `rm -rf ~/.npm/_npx`).')
 }
 
 const mediaDir  = path.join(__dirname, '..', 'media')
@@ -90,16 +90,16 @@ try {
     if (size > MAX_LOADABLE_BYTES) {
       const backupFile = `${DATA_FILE}.bak`
       fs.renameSync(DATA_FILE, backupFile)
-      console.warn(`[AgentLens] ${DATA_FILE} was ${(size / 1024 / 1024).toFixed(0)}MB — too large to load safely. Moved it to ${backupFile} and starting fresh.`)
+      console.warn(`[TraceRoost] ${DATA_FILE} was ${(size / 1024 / 1024).toFixed(0)}MB — too large to load safely. Moved it to ${backupFile} and starting fresh.`)
     } else {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8')
       spans = JSON.parse(raw) as Span[]
       const dropped = pruneSpans(spans, MAX_SPANS)
-      console.log(`[AgentLens] Loaded ${spans.length} spans from ${DATA_FILE}${dropped ? ` (dropped ${dropped} oldest to respect the ${MAX_SPANS}-span cap)` : ''}`)
+      console.log(`[TraceRoost] Loaded ${spans.length} spans from ${DATA_FILE}${dropped ? ` (dropped ${dropped} oldest to respect the ${MAX_SPANS}-span cap)` : ''}`)
     }
   }
 } catch (e) {
-  console.warn('[AgentLens] Could not load persisted data:', e)
+  console.warn('[TraceRoost] Could not load persisted data:', e)
 }
 
 function saveSpansNow(): boolean {
@@ -111,16 +111,16 @@ function saveSpansNow(): boolean {
       const keep = Math.floor(spans.length / 2)
       const dropped = spans.length - keep
       spans.splice(0, dropped)
-      console.warn(`[AgentLens] Save failed (spans array too large to serialize) — dropped oldest ${dropped} spans and retrying`)
+      console.warn(`[TraceRoost] Save failed (spans array too large to serialize) — dropped oldest ${dropped} spans and retrying`)
       try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(spans))
         return true
       } catch (e2) {
-        console.warn('[AgentLens] Could not save data after emergency prune:', e2)
+        console.warn('[TraceRoost] Could not save data after emergency prune:', e2)
         return false
       }
     }
-    console.warn('[AgentLens] Could not save data:', e)
+    console.warn('[TraceRoost] Could not save data:', e)
     return false
   }
 }
@@ -136,7 +136,7 @@ function addSpan(span: Span) {
   if (span.receivedAt === undefined) span.receivedAt = Date.now()
   spans.push(span)
   const dropped = pruneSpans(spans, MAX_SPANS)
-  if (dropped > 0) console.warn(`[AgentLens] Pruned ${dropped} oldest spans to stay under the ${MAX_SPANS}-span cap`)
+  if (dropped > 0) console.warn(`[TraceRoost] Pruned ${dropped} oldest spans to stay under the ${MAX_SPANS}-span cap`)
 }
 
 // ── Log file sessions ─────────────────────────────────────────────────────────
@@ -237,7 +237,7 @@ async function startLogIngestion() {
   // Watch log directories for file-system events so updates appear immediately,
   // without waiting for the next poll interval.
   setupLogWatcher()
-  console.log('[AgentLens] Log ingestion enabled — scanning local session files')
+  console.log('[TraceRoost] Log ingestion enabled — scanning local session files')
 
   const AGENT_KEY_LABEL: Record<string, string> = {
     claude:               'Claude Code',
@@ -302,7 +302,7 @@ async function startLogIngestion() {
     .sort((a, b) => b.count - a.count)
     .map(v => `  ${v.label.padEnd(20)} ${String(v.count).padStart(4)}  (${v.dir})`)
     .join('\n')
-  console.log(`[AgentLens] Loaded ${total} sessions from local logs:\n${lines}`)
+  console.log(`[TraceRoost] Loaded ${total} sessions from local logs:\n${lines}`)
   // Push loaded sessions to any SSE clients that connected before the scan finished.
   pushUpdate()
 }
@@ -393,7 +393,7 @@ function processTraces(payload: unknown, collectorPath = '/v1/traces'): { count:
     let attrs = toAttrs(s.attributes)
     if (isCodexWebsocketTraceSpan(s.name, attrs)) continue
     if (agent === 'unknown') agent = agentLabelFromSpanName(s.name)
-    attrs = [...attrs, { key: '_agentlens.collector_path', value: { stringValue: collectorPath } }]
+    attrs = [...attrs, { key: '_traceroost.collector_path', value: { stringValue: collectorPath } }]
     addSpan({
       traceId: s.traceId,
       spanId: s.spanId,
@@ -458,7 +458,7 @@ function processLogs(payload: unknown, collectorPath = '/v1/logs'): number {
               : endNs
           }
         }
-        addSpan({ traceId, spanId, name: spanName, startTime, endTime, attributes: [...attrs, { key: '_agentlens.collector_path', value: { stringValue: collectorPath } }], status: undefined })
+        addSpan({ traceId, spanId, name: spanName, startTime, endTime, attributes: [...attrs, { key: '_traceroost.collector_path', value: { stringValue: collectorPath } }], status: undefined })
         n++
       }
     }
@@ -623,7 +623,7 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
 
 function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
   let summary: ReturnType<typeof summarizeSpans> | null = null
-  try { summary = summarizeSpans(spans) } catch (e) { console.warn('[AgentLens] summarizeSpans error:', e) }
+  try { summary = summarizeSpans(spans) } catch (e) { console.warn('[TraceRoost] summarizeSpans error:', e) }
 
   // Merge log-sourced sessions; OTEL wins on ID collision.
   if (logSessions.size > 0) {
@@ -686,13 +686,13 @@ function getHtml(): string {
     // which is the only other writer of this key.
     (function () {
       try {
-        var t = localStorage.getItem('agentlens-theme');
+        var t = localStorage.getItem('traceroost-theme');
         if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
       } catch (e) { /* localStorage unavailable — falls back to system preference below */ }
     })();
   </script>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AgentLens</title>
+  <title>TraceRoost</title>
   <link rel="icon" href="/mascot.png" type="image/png">
   <link rel="stylesheet" href="/dashboard.css">
   <style>
@@ -847,7 +847,7 @@ function getHtml(): string {
 </head>
 <body>
   <script>
-    console.log('[AgentLens] HTML received', Date.now());
+    console.log('[TraceRoost] HTML received', Date.now());
     window.__INITIAL_TOOL_CALLS__ = {};
     window.__INITIAL_SESSION_SUMMARY__ = ${sessionSummaryJson};
     window.__MASCOT_URI__ = '/help-mascot.png';
@@ -913,7 +913,7 @@ function getHtml(): string {
       return String(text).replace(/\\|/g, '\\\\|');
     }
     function toMarkdown(sessions) {
-      var parts = ['# AgentLens Session Export', '', sessions.length + ' session' + (sessions.length === 1 ? '' : 's') + ', exported ' + new Date().toISOString(), ''];
+      var parts = ['# TraceRoost Session Export', '', sessions.length + ' session' + (sessions.length === 1 ? '' : 's') + ', exported ' + new Date().toISOString(), ''];
       sessions.forEach(function(s) {
         parts.push('## ' + (s.model || 'unknown model') + ' — ' + (s.startTime || 'unknown time'));
         parts.push('');
@@ -1038,7 +1038,7 @@ function getHtml(): string {
         setState: function() {},
         postMessage: function(msg) {
           if (msg.type === 'confirmClear') {
-            if (confirm('Clear all AgentLens data? OTEL session data is deleted permanently. AgentLens log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
+            if (confirm('Clear all TraceRoost data? OTEL session data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
               fetch('/api/clear', { method: 'POST' });
               window.dispatchEvent(new MessageEvent('message', { data: { type: 'clearAll' } }));
             }
@@ -1063,7 +1063,7 @@ function getHtml(): string {
                 body: JSON.stringify({ agent: msg.agent, label: msg.label, prompt: autoFull })
               }).then(function() {
                 var slug = msg.agent === 'claude_code' ? 'claude' : msg.agent === 'codex' ? 'codex' : 'copilot';
-                showToast('Prompt written to agentlens-prompts-' + slug + '.md');
+                showToast('Prompt written to traceroost-prompts-' + slug + '.md');
               }).catch(function() {
                 showActionNotification(autoLabel, autoFull, '#f6a623', autoPreview, viewAutomations, 30000);
               });
@@ -1121,7 +1121,7 @@ function getHtml(): string {
             URL.revokeObjectURL(url);
             showToast('Downloaded ' + filename);
           } else if (msg.type === 'openSidebar' || msg.type === 'closeSidebar') {
-            window.dispatchEvent(new CustomEvent('agentlens:sidebar', { detail: { open: msg.type === 'openSidebar' } }));
+            window.dispatchEvent(new CustomEvent('traceroost:sidebar', { detail: { open: msg.type === 'openSidebar' } }));
           } else if (msg.type === 'searchSessions' && msg.query) {
             var q = msg.query;
             var filtered = __latestSessions__.filter(function(s) {
@@ -1178,7 +1178,7 @@ function getHtml(): string {
                   data: { type: 'sessionDetail', sessionId: msg.sessionId, timeline: data.timeline || [] }
                 }));
               })
-              .catch(function(e) { console.warn('[AgentLens] timeline fetch failed', e); });
+              .catch(function(e) { console.warn('[TraceRoost] timeline fetch failed', e); });
           } else if (msg.type === 'getGitOutcome' && msg.sessionId) {
             fetch('/api/git-outcome', {
               method: 'POST',
@@ -1197,7 +1197,7 @@ function getHtml(): string {
                   data: { type: 'gitOutcome', sessionId: data.sessionId, outcome: data.outcome, riskSignals: data.riskSignals, temperedLoopSignals: data.temperedLoopSignals }
                 }));
               })
-              .catch(function(e) { console.warn('[AgentLens] git outcome fetch failed', e); });
+              .catch(function(e) { console.warn('[TraceRoost] git outcome fetch failed', e); });
           } else if (msg.type === 'reconfigureOtel') {
             fetch('/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'reconfigureOtel' }) })
               .then(function(r) { return r.json(); })
@@ -1218,7 +1218,7 @@ function getHtml(): string {
     var _pollTimer = null;
     function _startPolling() {
       if (_pollTimer) return;
-      console.warn('[AgentLens] SSE unavailable — falling back to polling');
+      console.warn('[TraceRoost] SSE unavailable — falling back to polling');
       _pollTimer = setInterval(function() {
         fetch('/api/summary')
           .then(function(r) { return r.json(); })
@@ -1227,12 +1227,12 @@ function getHtml(): string {
               data: { type: 'update', sessionSummary: summary }
             }));
           })
-          .catch(function(e) { console.warn('[AgentLens] poll failed', e); });
+          .catch(function(e) { console.warn('[TraceRoost] poll failed', e); });
       }, 2000);
     }
     var _es = new EventSource('/events');
     _es.onopen = function() {
-      console.log('[AgentLens] SSE connected', Date.now());
+      console.log('[TraceRoost] SSE connected', Date.now());
       _sseOk = true;
       if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     };
@@ -1345,9 +1345,9 @@ function getHtml(): string {
   </div>
 
   <script>
-    console.log('[AgentLens] Inline setup done', Date.now());
+    console.log('[TraceRoost] Inline setup done', Date.now());
     window.onerror = function(msg, src, line, col, err) {
-      console.error('[AgentLens] JS error:', msg, src + ':' + line + ':' + col, err);
+      console.error('[TraceRoost] JS error:', msg, src + ':' + line + ':' + col, err);
       var app = document.getElementById('app');
       if (app) {
         app.style.cssText = 'padding:20px;color:red;font-family:monospace;white-space:pre-wrap';
@@ -1356,12 +1356,12 @@ function getHtml(): string {
     };
   </script>
 
-  <script src="/dashboard.js" onload="console.log('[AgentLens] dashboard.js loaded', Date.now())"></script>
+  <script src="/dashboard.js" onload="console.log('[TraceRoost] dashboard.js loaded', Date.now())"></script>
 
   <script>
     // Sidebar collapse driven by dashboard toggle
     var _sidebarEl = document.getElementById('sa-sidebar');
-    window.addEventListener('agentlens:sidebar', function(e) {
+    window.addEventListener('traceroost:sidebar', function(e) {
       _sidebarEl.classList.toggle('sa-collapsed', !e.detail.open);
     });
 </script>
@@ -1388,7 +1388,7 @@ const uiServer = http.createServer((req, res) => {
   }
   const url = (req.url ?? '/').split('?')[0]
 
-  // Unauthenticated liveness probe — `agentlens service status` and the Dockerfile HEALTHCHECK
+  // Unauthenticated liveness probe — `traceroost service status` and the Dockerfile HEALTHCHECK
   // both poll this and need a plain 200, not a 401.
   if (url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ status: 'ok' })); return
@@ -1396,7 +1396,7 @@ const uiServer = http.createServer((req, res) => {
 
   if (!isAuthorized(req, AUTH_TOKEN)) {
     res.writeHead(401, { 'Content-Type': 'text/plain' })
-    res.end('Unauthorized — open the dashboard via the URL AgentLens printed at startup (it includes an access token).')
+    res.end('Unauthorized — open the dashboard via the URL TraceRoost printed at startup (it includes an access token).')
     return
   }
   // First request authenticated via ?token= or an Authorization header rather than an existing
@@ -1458,7 +1458,7 @@ const uiServer = http.createServer((req, res) => {
     spans = []
     logSessions.clear()
     logReader.clearFileState()
-    try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[AgentLens] Could not clear data file:', e) }
+    try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
     pushUpdate()          // send cleared state to clients immediately
     res.writeHead(200); res.end()
     // Re-ingest after the response is sent so the client sees the cleared state first.
@@ -1474,17 +1474,17 @@ const uiServer = http.createServer((req, res) => {
         const { agent, label, prompt } = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { agent: string; label: string; prompt: string }
         const agentSlug = agent === 'claude_code' ? 'claude' : agent === 'codex' ? 'codex' : 'copilot'
         const agentName = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'Copilot'
-        const filename = `agentlens-prompts-${agentSlug}.md`
+        const filename = `traceroost-prompts-${agentSlug}.md`
         const filePath = path.join(process.cwd(), filename)
         const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
         const entry = `## ${timestamp} — ${label}\n\n${prompt}\n\n---\n\n`
         let existing = ''
         try { existing = fs.readFileSync(filePath, 'utf-8') } catch { /* new file */ }
-        const content = existing ? existing + entry : `# AgentLens Prompts — ${agentName}\n\n${entry}`
+        const content = existing ? existing + entry : `# TraceRoost Prompts — ${agentName}\n\n${entry}`
         fs.writeFileSync(filePath, content, 'utf-8')
-        console.log(`[AgentLens] Prompt written to ${filePath}`)
+        console.log(`[TraceRoost] Prompt written to ${filePath}`)
       } catch (e) {
-        console.warn('[AgentLens] write-prompts-file error:', e)
+        console.warn('[TraceRoost] write-prompts-file error:', e)
       }
       res.writeHead(200); res.end()
     })
@@ -1541,7 +1541,7 @@ const uiServer = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ ok: true }))
       } catch (e) {
-        console.warn('[AgentLens] /api/instructions/apply error:', e)
+        console.warn('[TraceRoost] /api/instructions/apply error:', e)
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: String(e) }))
       }
@@ -1557,7 +1557,7 @@ const uiServer = http.createServer((req, res) => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type?: string }
         if (body.type === 'clearAll') {
           spans = []
-          try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[AgentLens] Could not clear data file:', e) }
+          try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
           pushUpdate()
         } else if (body.type === 'reconfigureOtel') {
           const [claudeCode, codex, copilotResults] = await Promise.all([
@@ -1573,7 +1573,7 @@ const uiServer = http.createServer((req, res) => {
           res.end(JSON.stringify({ claudeCode, codex, copilot }))
           return
         }
-      } catch (e) { console.warn('[AgentLens] Malformed /action body:', e) }
+      } catch (e) { console.warn('[TraceRoost] Malformed /action body:', e) }
       res.writeHead(200); res.end()
     })
     return
@@ -1627,7 +1627,7 @@ const uiServer = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals }))
       } catch (e) {
-        console.warn('[AgentLens] Malformed /api/git-outcome body:', e)
+        console.warn('[TraceRoost] Malformed /api/git-outcome body:', e)
         res.writeHead(400); res.end()
       }
     })
@@ -1660,9 +1660,9 @@ const otlpServer = http.createServer((req, res) => {
   }
   // Unauthenticated identify probe (the VS Code extension uses this to detect a standalone
   // server already running before starting its own collector) — same reasoning as /health above.
-  if (req.method === 'GET' && req.url === '/agentlens/standalone') {
+  if (req.method === 'GET' && req.url === '/traceroost/standalone') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ agentlens: true, kind: 'standalone' }))
+    res.end(JSON.stringify({ traceroost: true, kind: 'standalone' }))
     return
   }
   if (REQUIRE_TOKEN_EVERYWHERE && !isAuthorized(req, AUTH_TOKEN)) {
@@ -1677,19 +1677,19 @@ const otlpServer = http.createServer((req, res) => {
       const kind = classifyOtlpPayload(payload)
       if (req.url === '/v1/traces' || kind === 'traces') {
         const { count, agent } = processTraces(payload, req.url ?? '/v1/traces')
-        if (count > 0) console.log(`[AgentLens] Ingested ${count} span${count !== 1 ? 's' : ''} (${agent})`)
+        if (count > 0) console.log(`[TraceRoost] Ingested ${count} span${count !== 1 ? 's' : ''} (${agent})`)
       } else if (req.url === '/v1/logs' || kind === 'logs') {
         const n = processLogs(payload, req.url ?? '/v1/logs')
-        if (n > 0) console.log(`[AgentLens] ${n} log event${n !== 1 ? 's' : ''} ingested`)
+        if (n > 0) console.log(`[TraceRoost] ${n} log event${n !== 1 ? 's' : ''} ingested`)
       } else if (kind === 'metrics' || req.url === '/v1/metrics') {
-        // Metrics are accepted so OTLP exporters do not retry, but AgentLens does not display them.
+        // Metrics are accepted so OTLP exporters do not retry, but TraceRoost does not display them.
       } else {
-        console.warn(`[AgentLens] ignored POST ${req.url ?? '/'}: unrecognized OTLP JSON payload`)
+        console.warn(`[TraceRoost] ignored POST ${req.url ?? '/'}: unrecognized OTLP JSON payload`)
       }
       pushUpdate()
       scheduleSave()
     } catch (e) {
-      console.error('[AgentLens] Parse error:', e)
+      console.error('[TraceRoost] Parse error:', e)
     }
     res.writeHead(200); res.end()
   })
@@ -1699,10 +1699,10 @@ const otlpServer = http.createServer((req, res) => {
 
 otlpServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[AgentLens] Port ${OTLP_PORT} (OTLP) already in use — stop the process using it or set OTLP_PORT=<other> to use a different port.`)
+    console.error(`[TraceRoost] Port ${OTLP_PORT} (OTLP) already in use — stop the process using it or set OTLP_PORT=<other> to use a different port.`)
     process.exit(1)
   }
-  console.error('[AgentLens] OTLP server error:', err)
+  console.error('[TraceRoost] OTLP server error:', err)
 })
 
 // Auto-configure Claude Code, Codex, and Copilot to point at this collector
@@ -1712,42 +1712,42 @@ Promise.all([
   autoConfigureCopilotStandalone(OTLP_PORT),
 ]).then(([claudeResult, codexResult, copilotResults]) => {
   if (claudeResult.error) {
-    console.warn(`[AgentLens] Could not auto-configure Claude Code: ${claudeResult.error}`)
+    console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
   } else if (claudeResult.changed) {
-    console.log(`[AgentLens] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
+    console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
   }
   if (codexResult.error) {
-    console.warn(`[AgentLens] Could not auto-configure Codex: ${codexResult.error}`)
+    console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
   } else if (codexResult.changed) {
-    console.log(`[AgentLens] Codex configured — restart Codex in your terminal to activate tracing`)
+    console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
   }
   const copilotChanged = copilotResults.filter(r => r.changed)
   const copilotErrors  = copilotResults.filter(r => r.error)
   if (copilotChanged.length > 0) {
-    console.log(`[AgentLens] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
+    console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
   }
   for (const r of copilotErrors) {
-    console.warn(`[AgentLens] Could not auto-configure Copilot: ${r.error}`)
+    console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
   }
-}).catch(e => console.warn('[AgentLens] Auto-configure error:', e))
+}).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
 
 otlpServer.listen(OTLP_PORT, BIND_HOST, () => {
-  console.log(`[AgentLens] OTLP receiver → http://localhost:${OTLP_PORT}`)
+  console.log(`[TraceRoost] OTLP receiver → http://localhost:${OTLP_PORT}`)
 })
 
 uiServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[AgentLens] Port ${UI_PORT} (UI) already in use — set UI_PORT=<other> to use a different port.`)
+    console.error(`[TraceRoost] Port ${UI_PORT} (UI) already in use — set UI_PORT=<other> to use a different port.`)
     process.exit(1)
   }
-  console.error('[AgentLens] UI server error:', err)
+  console.error('[TraceRoost] UI server error:', err)
 })
 
 uiServer.listen(UI_PORT, BIND_HOST, () => {
   const plainUrl = `http://localhost:${UI_PORT}`
   const url = `${plainUrl}/?token=${AUTH_TOKEN}`
-  console.log(`[AgentLens] Dashboard      → ${url}`)
-  console.log(`[AgentLens] MCP server     → http://localhost:${MCP_PORT}/mcp`)
+  console.log(`[TraceRoost] Dashboard      → ${url}`)
+  console.log(`[TraceRoost] MCP server     → http://localhost:${MCP_PORT}/mcp`)
 
   // Auto-open browser — includes the access token so the browser gets its auth cookie on
   // first load; the printed URL above is the fallback if auto-open fails or you're opening on
@@ -1766,7 +1766,7 @@ uiServer.listen(UI_PORT, BIND_HOST, () => {
 function shutdown() {
   if (saveTimer) clearTimeout(saveTimer)
   if (saveSpansNow()) {
-    console.log(`\n[AgentLens] Saved ${spans.length} spans to ${DATA_FILE}`)
+    console.log(`\n[TraceRoost] Saved ${spans.length} spans to ${DATA_FILE}`)
   }
   process.exit(0)
 }

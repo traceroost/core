@@ -120,7 +120,7 @@ function validMetricValue(metric: AgentProfileMetric, value: unknown): number | 
 export function getAgentProfiles(): AgentThresholdProfiles {
   const defaults = cloneDefaultProfiles()
   try {
-    const stored = localStorage.getItem('agentLens.agentProfiles')
+    const stored = localStorage.getItem('traceRoost.agentProfiles')
     if (!stored) return defaults
     const saved = JSON.parse(stored) as Partial<Record<AgentSource, Partial<Record<AgentProfileMetric, number>>>>
     for (const source of AGENT_ORDER) {
@@ -146,12 +146,12 @@ export function saveAgentProfiles(profiles: AgentThresholdProfiles): void {
         payload[source]![metric] = profiles[source][metric]
       }
     }
-    localStorage.setItem('agentLens.agentProfiles', JSON.stringify(payload))
+    localStorage.setItem('traceRoost.agentProfiles', JSON.stringify(payload))
   } catch { /* ignore */ }
 }
 
 export function resetAgentProfiles(): AgentThresholdProfiles {
-  try { localStorage.removeItem('agentLens.agentProfiles') } catch { /* ignore */ }
+  try { localStorage.removeItem('traceRoost.agentProfiles') } catch { /* ignore */ }
   return cloneDefaultProfiles()
 }
 

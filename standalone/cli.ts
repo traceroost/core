@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// AgentLens standalone server — run with: npx agentlens-dashboard@latest  |  bunx agentlens-dashboard@latest  |  node standalone/cli.js
-// (use the @latest tag — a bare `npx agentlens-dashboard` re-runs npx's cached copy without checking npm for a newer release)
-// `agentlens service <install|uninstall|start|stop|restart|status|logs>` manages running this
+// TraceRoost standalone server — run with: npx traceroost-dashboard@latest  |  bunx traceroost-dashboard@latest  |  node standalone/cli.js
+// (use the @latest tag — a bare `npx traceroost-dashboard` re-runs npx's cached copy without checking npm for a newer release)
+// `traceroost service <install|uninstall|start|stop|restart|status|logs>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
 
 async function main() {

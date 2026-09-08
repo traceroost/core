@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generate deterministic AgentLens fixture data.
+ * Generate deterministic TraceRoost fixture data.
  *
  * These fixtures use the same span shape as demo/capture.ts writes, so they can be:
  * - validated directly through summarizeSpans
@@ -377,7 +377,7 @@ function claudeLoopRegression() {
       errorMessage: 'docker daemon unavailable',
       attributes: [
         attr('tool_name', 'Bash'),
-        attr('tool_input', JSON.stringify({ command: 'docker build -t agentlens-fixture .' })),
+        attr('tool_input', JSON.stringify({ command: 'docker build -t traceroost-fixture .' })),
         attr('duration_ms', 900),
       ],
     }))

@@ -1,4 +1,4 @@
-// Browser-side type definitions for AgentLens dashboard
+// Browser-side type definitions for TraceRoost dashboard
 // These mirror the backend types from src/types.ts and src/summarizers/summarizerTypes.ts
 
 export interface Span {

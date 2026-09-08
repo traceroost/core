@@ -1,6 +1,6 @@
-# AgentLens Architecture
+# TraceRoost Architecture
 
-AgentLens is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local session files and databases (including OpenCode's SQLite database), persists everything to a local SQLite database, summarises it into per-session cards, and visualises it in a sidebar and a full dashboard.
+TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local session files and databases (including OpenCode's SQLite database), persists everything to a local SQLite database, summarises it into per-session cards, and visualises it in a sidebar and a full dashboard.
 
 ---
 
@@ -48,7 +48,7 @@ graph TB
         STO[SessionStore<br/>5-min rolling span window]
         SUM[SpanSummarizer]
         WRI[DatabaseWriter]
-        DB[(SQLite<br/>agentlens.db)]
+        DB[(SQLite<br/>traceroost.db)]
         REPO[SessionRepository<br/>DB + live window]
         MCP[McpServer<br/>HTTP :4316/mcp]
         SID[SidebarPanel<br/>webview]
@@ -100,9 +100,9 @@ sequenceDiagram
     participant CFG as autoConfig
 
     VS->>EXT: activate(context)
-    EXT->>EXT: createOutputChannel('AgentLens')
+    EXT->>EXT: createOutputChannel('TraceRoost')
     EXT->>DB: openDatabase(globalStorageUri, extensionUri)
-    Note over DB: Loads/creates agentlens.db<br/>Applies schema + migrations<br/>(cost_usd column guard)
+    Note over DB: Loads/creates traceroost.db<br/>Applies schema + migrations<br/>(cost_usd column guard)
     EXT->>STO: new SessionStore(context)
     EXT->>REPO: new SessionRepository(reader, writer, store)
     EXT->>REPO: migrateGlobalStateToSqlite()
@@ -117,7 +117,7 @@ sequenceDiagram
         COL-->>EXT: error — detect owner (plugin/standalone/foreign)
         EXT->>EXT: poll last-write.json every 2s<br/>reload DB snapshot on change
     end
-    alt agentLens.enableLogIngestion = true (default)
+    alt traceRoost.enableLogIngestion = true (default)
         EXT->>LR: new LogReader(log)
         Note over EXT: setImmediate → defer off activation stack
         EXT->>LR: collectFileMeta() → all session files sorted newest-first
@@ -140,9 +140,9 @@ sequenceDiagram
         EXT->>CFG: autoConfigureClaudeCode(port)
         EXT->>CFG: autoConfigureCodex(port)
     end
-    EXT->>VS: registerWebviewViewProvider('agentLens.dashboard')
-    EXT->>VS: registerCommand('agentLens.openDashboard')<br/>registerCommand('agentLens.clearSessions')<br/>registerCommand('agentLens.showStorageStats')<br/>registerCommand('agentLens.exportData')<br/>registerCommand('agentLens.dumpSpanAttrs')
-    EXT->>VS: createStatusBarItem → 'agentLens.openDashboard'
+    EXT->>VS: registerWebviewViewProvider('traceRoost.dashboard')
+    EXT->>VS: registerCommand('traceRoost.openDashboard')<br/>registerCommand('traceRoost.clearSessions')<br/>registerCommand('traceRoost.showStorageStats')<br/>registerCommand('traceRoost.exportData')<br/>registerCommand('traceRoost.dumpSpanAttrs')
+    EXT->>VS: createStatusBarItem → 'traceRoost.openDashboard'
 ```
 
 ---
@@ -207,7 +207,7 @@ A parallel, network-free ingestion path that reads session files written to disk
 | Copilot Chat (VS Code-family, older) | JSON (snapshot) | `workspaceStorage/<hash>/chatSessions/<uuid>.json` | — |
 | OpenCode | SQLite database (WAL mode) | `~/.local/share/opencode/opencode.db` (Linux/Mac) | `OPENCODE_DATA_DIR` (comma-separated data dirs) |
 
-`workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. AgentLens scans all known VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro — via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude.
+`workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. TraceRoost scans all known VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro — via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude.
 
 ### Copilot Chat — delta log format (`.jsonl`)
 
@@ -227,7 +227,7 @@ Older VS Code Copilot Chat versions wrote the full session state as a single JSO
 
 ### OpenCode — SQLite database
 
-OpenCode stores all session data in a local SQLite database (`opencode.db`) using WAL (Write-Ahead Log) mode. AgentLens reads the database directly using `sql.js` (WASM SQLite), merging the WAL file at read time so in-progress sessions are visible immediately.
+OpenCode stores all session data in a local SQLite database (`opencode.db`) using WAL (Write-Ahead Log) mode. TraceRoost reads the database directly using `sql.js` (WASM SQLite), merging the WAL file at read time so in-progress sessions are visible immediately.
 
 **WAL merge:** `opencode.db-wal` can be larger than the main database file when sessions are active. `_mergeWal()` parses the 32-byte WAL header (magic, page size, salt pair), iterates frames of size `24 + pageSize`, applies frames whose salt matches the database header, and returns a merged in-memory buffer for `sql.js` to open. The WAL mtime is checked alongside the database mtime so new sessions trigger a rescan.
 
@@ -245,7 +245,7 @@ OpenCode stores all session data in a local SQLite database (`opencode.db`) usin
 
 ```mermaid
 flowchart TD
-    ACT[Extension activate] --> EN{agentLens.enableLogIngestion?}
+    ACT[Extension activate] --> EN{traceRoost.enableLogIngestion?}
     EN -- false --> SKIP[Skip log ingestion]
     EN -- true --> IMM[setImmediate — defer off activation stack]
     IMM --> COL[collectFileMeta<br/>Stat all session files → sort newest-first<br/>Build jsonlIds Set per chatSessions dir<br/>to skip .json files with .jsonl siblings]
@@ -298,7 +298,7 @@ A minimal HTTP/1.1 server (Node `http` module) that handles three routes and mai
 ```mermaid
 graph LR
     subgraph HTTP Routes
-        R1["GET /agentlens/plugin<br/>→ {agentlens:true, kind:'plugin'}"]
+        R1["GET /traceroost/plugin<br/>→ {traceroost:true, kind:'plugin'}"]
         R2["POST /v1/traces<br/>max body: 50 MB"]
         R3["POST /v1/logs<br/>max body: 50 MB"]
         R4["POST /v1/metrics"]
@@ -512,7 +512,7 @@ Large string fields (`responseText`, `thinking`, `toolInput`, `fullResult`, `old
 graph TD
     subgraph srcdb["src/database/"]
         SCH[schema.ts<br/>SCHEMA_SQL - CREATE TABLE statements]
-        DBT[db.ts<br/>AgentLensDb - opens DB, applies<br/>schema + migrations, save/dispose]
+        DBT[db.ts<br/>TraceRoostDb - opens DB, applies<br/>schema + migrations, save/dispose]
         WRI[writer.ts<br/>DatabaseWriter - enqueue/drain/clearAll<br/>Computes cost_usd at write time]
         REA[reader.ts<br/>DatabaseReader - listSessions<br/>queryDailyStats · queryLifetimeStats<br/>searchSessions · queryBurnRate<br/>loadSessionTimeline · loadBlob]
         MIG[migration.ts<br/>migrateGlobalStateToSqlite<br/>One-time globalState to SQLite]
@@ -603,9 +603,9 @@ When two VS Code windows are open and one holds the OTLP collector (port 4318), 
 
 ### Storage management
 
-`agentLens.sessionRetentionDays` (default 90) controls how long sessions are kept. `runRetention` is called at activation and every 24 hours. After deleting old rows it scans `blobs/` and removes any file whose span ID is no longer in `timeline_entries`.
+`traceRoost.sessionRetentionDays` (default 90) controls how long sessions are kept. `runRetention` is called at activation and every 24 hours. After deleting old rows it scans `blobs/` and removes any file whose span ID is no longer in `timeline_entries`.
 
-`agentLens.showStorageStats` reports DB file size, blob directory size, session count, and date range to the Output channel.
+`traceRoost.showStorageStats` reports DB file size, blob directory size, session count, and date range to the Output channel.
 
 ---
 
@@ -810,7 +810,7 @@ graph LR
 
     T3[Advisor<br/>hot files · behavioral loop patterns<br/>efficiency scatter · Instructions sub-view]
     T4[Export<br/>full or redacted export<br/>format: JSON · CSV · Markdown]
-    T5[Import<br/>preview + import an AgentLens JSON export]
+    T5[Import<br/>preview + import a TraceRoost JSON export]
     T6[Help<br/>sticky TOC nav · glossary · OTEL setup]
 
     GEAR[Gear icon<br/>ConfigPanel — slide-in] --> S1[Alerts<br/>configurable threshold alerts, incl. daily cost<br/>VS Code notification with View Alerts + Copy Prompt]
@@ -930,7 +930,7 @@ flowchart TD
 
 ## 13. Background Service Mode
 
-Standalone-mode only (`agentlens service <cmd>`, dispatched from `standalone/cli.ts` before the
+Standalone-mode only (`traceroost service <cmd>`, dispatched from `standalone/cli.ts` before the
 normal server bootstrap). Lets the server outlive a closed terminal, sleep, or reboot — otherwise
 incoming OTEL data has nowhere to go while nothing is listening, and agents don't queue or retry
 failed exports, so the gap is permanent. Not applicable to the VS Code extension, which is already
@@ -943,44 +943,44 @@ the actual `fs`/`child_process` calls for their platform.
 
 ```mermaid
 flowchart TD
-    CLI["agentlens service install<br/>(standalone/cli.ts)"] --> NPX{Running via npx?}
+    CLI["traceroost service install<br/>(standalone/cli.ts)"] --> NPX{Running via npx?}
 
-    NPX -- yes --> BOOT["npm install -g agentlens-dashboard@latest<br/>(visible, not silent)"]
-    BOOT --> REEXEC[Re-invoke as the now-globally-linked<br/>`agentlens service install`]
+    NPX -- yes --> BOOT["npm install -g traceroost-dashboard@latest<br/>(visible, not silent)"]
+    BOOT --> REEXEC[Re-invoke as the now-globally-linked<br/>`traceroost service install`]
     REEXEC --> DISPATCH
 
     NPX -- no --> DISPATCH{os.platform&#40;&#41;}
 
-    DISPATCH -- darwin --> MAC["launchd LaunchAgent<br/>~/Library/LaunchAgents/com.agentlens.server.plist<br/>RunAtLoad + KeepAlive"]
-    DISPATCH -- linux --> LIN["systemd --user unit<br/>~/.config/systemd/user/agentlens.service<br/>enable --now"]
+    DISPATCH -- darwin --> MAC["launchd LaunchAgent<br/>~/Library/LaunchAgents/com.traceroost.server.plist<br/>RunAtLoad + KeepAlive"]
+    DISPATCH -- linux --> LIN["systemd --user unit<br/>~/.config/systemd/user/traceroost.service<br/>enable --now"]
     DISPATCH -- win32 --> WIN["Scheduled Task at logon<br/>+ generated run.cmd wrapper<br/>(env vars set per-task, not persisted globally)"]
 
-    MAC & LIN & WIN --> CFG[Write ~/.agentlens/config.json<br/>ports · bindHost · dataDir]
+    MAC & LIN & WIN --> CFG[Write ~/.traceroost/config.json<br/>ports · bindHost · dataDir]
     CFG --> LOG[All 3 platforms redirect stdout/stderr<br/>to dataDir/logs/service.log]
 
-    STATUS["agentlens service status"] --> PROBE["HTTP GET http://bindHost:uiPort/<br/>(same convention as the Dockerfile HEALTHCHECK)"]
+    STATUS["traceroost service status"] --> PROBE["HTTP GET http://bindHost:uiPort/<br/>(same convention as the Dockerfile HEALTHCHECK)"]
 
-    UPDATE["agentlens service update"] --> NPMLATEST["npm install -g agentlens-dashboard@latest"]
+    UPDATE["traceroost service update"] --> NPMLATEST["npm install -g traceroost-dashboard@latest"]
     NPMLATEST --> RESTART["platformService.restart&#40;&#41;<br/>(re-execs whatever now sits at the same install path)"]
 ```
 
-A global install pins a version — and so does `npx` in practice: a bare `npx agentlens-dashboard`
+A global install pins a version — and so does `npx` in practice: a bare `npx traceroost-dashboard`
 re-runs whatever npx cached without revalidating against the registry, so only `npx …@latest`
 reliably resolves the newest release (the user-facing docs say `@latest` everywhere for this
 reason). Either way a service definition points at a fixed on-disk path that only changes when
 something overwrites it. `update` is that
-"something": it shells out to `npm install -g agentlens-dashboard@latest` (overwriting the files at
+"something": it shells out to `npm install -g traceroost-dashboard@latest` (overwriting the files at
 the path already baked into the service definition) and then restarts, so no service definition
 rewrite is needed. `standalone/service/index.ts`'s `readGlobalVersion()` reads the installed
 package's `package.json` before and after so the command can report what actually changed (or that
 it was already current).
 
-`standalone/server.ts` reads `~/.agentlens/config.json` at startup as a fallback underneath the
+`standalone/server.ts` reads `~/.traceroost/config.json` at startup as a fallback underneath the
 existing `OTLP_PORT`/`UI_PORT`/`MCP_PORT`/`BIND_HOST`/`DATA_DIR` env vars (env var still wins if
 set), so an ad-hoc `npx`/`node standalone/server.js` run and a service install share one config
 story instead of diverging.
 
-`uninstall` removes the service definition only — it never touches `~/.agentlens`'s data or
+`uninstall` removes the service definition only — it never touches `~/.traceroost`'s data or
 config, matching the same separation the extension's Clear-All-Data command already keeps between
 "stop this from running" and "delete my data."
 
@@ -1051,7 +1051,7 @@ worth knowing about since it's the one part of the codebase `check-types` doesn'
 ## File Map
 
 ```text
-agentlens/
+traceroost/
 ├── src/
 │   ├── extension.ts              # Activation, commands, panels, status bar, retention
 │   ├── otlpCollector.ts          # HTTP server, Codex session synthesis
@@ -1080,7 +1080,7 @@ agentlens/
 │   ├── types.ts                  # Shared extension-host types
 │   ├── database/
 │   │   ├── schema.ts             # SCHEMA_SQL — CREATE TABLE statements + indexes
-│   │   ├── db.ts                 # AgentLensDb — open, migrate, save, dispose
+│   │   ├── db.ts                 # TraceRoostDb — open, migrate, save, dispose
 │   │   ├── writer.ts             # DatabaseWriter — enqueue/drain, blob writes, cost_usd, one_shot_stats
 │   │   ├── reader.ts             # DatabaseReader — list, search, analytics, burn rate, blobs
 │   │   ├── migration.ts          # migrateGlobalStateToSqlite (one-time)
@@ -1153,7 +1153,7 @@ agentlens/
 │   │       ├── Tools.tsx         # ToolsChart (donut + table) used by Sessions detail
 │   │       ├── Patterns.tsx      # Advisor tab — hot files, loop patterns, efficiency scatter, Instructions sub-view
 │   │       ├── Instructions.tsx  # Instruction-file suggestion cards (apply/dismiss) used by Patterns
-│   │       ├── Import.tsx        # Import tab — preview + import an AgentLens JSON export
+│   │       ├── Import.tsx        # Import tab — preview + import a TraceRoost JSON export
 │   │       ├── Alerts.tsx        # Alert config UI (incl. daily cost threshold), checkAlerts, AlertNotification type
 │   │       ├── Automation.tsx    # Automation config UI, checkAutomations, prompt building
 │   │       ├── Settings.tsx      # OTEL/log ingestion toggles, MCP toggle, reconfigure button (in gear-icon ConfigPanel)
@@ -1165,10 +1165,10 @@ agentlens/
 │   └── sidebar.js                # Compiled sidebar script
 ├── standalone/
 │   ├── server.ts                 # Standalone HTTP server (no VS Code)
-│   ├── cli.ts                    # npx entrypoint: `agentlens` / `agentlens-dashboard` — dispatches to
+│   ├── cli.ts                    # npx entrypoint: `traceroost` / `traceroost-dashboard` — dispatches to
 │   │                              #   `service` subcommand or starts the server directly
 │   └── service/
-│       ├── index.ts              # `agentlens service <cmd>` dispatch, npx-bootstrap, logs/status
+│       ├── index.ts              # `traceroost service <cmd>` dispatch, npx-bootstrap, logs/status
 │       ├── health.ts             # HTTP probe used by `service status` on all 3 platforms
 │       ├── macos.ts              # launchd install/uninstall/start/stop/restart
 │       ├── linux.ts              # systemd --user install/uninstall/start/stop/restart

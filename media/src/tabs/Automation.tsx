@@ -192,7 +192,7 @@ function getAutomationAgentThreshold(cfg: AutomationConfig, source: AgentSource)
 
 export function getAutomationConfigs(): AutomationConfig[] {
   try {
-    const stored = localStorage.getItem('agentLens.automationConfigs')
+    const stored = localStorage.getItem('traceRoost.automationConfigs')
     if (!stored) return DEFAULT_AUTOMATION_CONFIGS.map(cloneAutomationConfig)
     const saved = JSON.parse(stored) as SavedAutomationConfig[]
     return DEFAULT_AUTOMATION_CONFIGS.map(def => {
@@ -215,7 +215,7 @@ export function getAutomationConfigs(): AutomationConfig[] {
 
 function saveAutomationConfigs(configs: AutomationConfig[]): void {
   try {
-    localStorage.setItem('agentLens.automationConfigs',
+    localStorage.setItem('traceRoost.automationConfigs',
       JSON.stringify(configs.map(c => ({
         id: c.id,
         enabled: c.enabled,
@@ -504,9 +504,9 @@ export function Automation() {
         <div style="color:var(--muted)">
           Automations monitor in-progress agent sessions only — completed sessions are ignored.
           {standalone ? (
-            <> When a threshold is crossed, AgentLens shows a notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>agentlens-prompts-&#123;agent&#125;.md</code> in the current directory instead.</>
+            <> When a threshold is crossed, TraceRoost shows a notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>traceroost-prompts-&#123;agent&#125;.md</code> in the current directory instead.</>
           ) : (
-            <> When a threshold is crossed, AgentLens shows a VS Code notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>agentlens-prompts-&#123;agent&#125;.md</code> in your workspace root instead.</>
+            <> When a threshold is crossed, TraceRoost shows a VS Code notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>traceroost-prompts-&#123;agent&#125;.md</code> in your workspace root instead.</>
           )}
           {' '}All automations are <strong style="color:var(--fg)">off by default</strong> and debounce each threshold crossing.
         </div>
@@ -582,7 +582,7 @@ export function Automation() {
                   <strong>Write prompts file</strong>
                   {' — '}
                   {cfg.writePromptsFile
-                    ? 'writes prompt to agentlens-prompts-{agent}.md automatically when triggered'
+                    ? 'writes prompt to traceroost-prompts-{agent}.md automatically when triggered'
                     : 'show a Copy Prompt notification — click to copy, then paste into your agent'}
                 </span>
               </label>
@@ -605,7 +605,7 @@ export function Automation() {
         <button
           onClick={() => {
             firedSet.clear()
-            try { localStorage.removeItem('agentLens.automationConfigs') } catch { /* ignore */ }
+            try { localStorage.removeItem('traceRoost.automationConfigs') } catch { /* ignore */ }
             setConfigs(DEFAULT_AUTOMATION_CONFIGS.map(cloneAutomationConfig))
           }}
           style="font-size:11px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:3px;padding:3px 10px;cursor:pointer"

@@ -138,7 +138,7 @@ function getAlertAgentThreshold(cfg: AlertConfig, source: AgentSource): number {
 
 function getAlertConfigs(): AlertConfig[] {
   try {
-    const stored = localStorage.getItem('agentLens.alertConfigs')
+    const stored = localStorage.getItem('traceRoost.alertConfigs')
     if (!stored) return DEFAULT_CONFIGS.map(cloneAlertConfig)
     const saved = JSON.parse(stored) as SavedAlertConfig[]
     return DEFAULT_CONFIGS.map(def => {
@@ -160,7 +160,7 @@ function getAlertConfigs(): AlertConfig[] {
 
 function saveAlertConfigs(configs: AlertConfig[]): void {
   try {
-    localStorage.setItem('agentLens.alertConfigs', JSON.stringify(
+    localStorage.setItem('traceRoost.alertConfigs', JSON.stringify(
       configs.map(c => ({ id: c.id, enabled: c.enabled, threshold: c.threshold, agentThresholds: c.agentThresholds }))
     ))
   } catch { /* ignore */ }
@@ -528,7 +528,7 @@ export function Alerts() {
         </div>
         <button
           onClick={() => {
-            try { localStorage.removeItem('agentLens.alertConfigs') } catch { /* ignore */ }
+            try { localStorage.removeItem('traceRoost.alertConfigs') } catch { /* ignore */ }
             setConfigs(DEFAULT_CONFIGS.map(cloneAlertConfig))
           }}
           style="font-size:11px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:3px;padding:3px 10px;cursor:pointer"

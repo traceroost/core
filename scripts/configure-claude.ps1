@@ -1,4 +1,4 @@
-# Configure Claude Code to send OTLP telemetry to AgentLens.
+# Configure Claude Code to send OTLP telemetry to TraceRoost.
 # Safe to re-run: only the relevant env vars are updated; other settings are preserved.
 #
 # Usage:
@@ -6,14 +6,14 @@
 #   .\scripts\configure-claude.ps1 -Port 4319   # custom port
 
 param(
-    [int]$Port = $(if ($env:AGENTLENS_PORT) { [int]$env:AGENTLENS_PORT } else { 4318 })
+    [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 })
 )
 
 $ErrorActionPreference = "Stop"
 $Endpoint = "http://localhost:$Port"
 $SettingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
 
-Write-Host "Configuring Claude Code for AgentLens at $Endpoint..."
+Write-Host "Configuring Claude Code for TraceRoost at $Endpoint..."
 
 $settings = @{ env = [ordered]@{} }
 

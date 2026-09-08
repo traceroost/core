@@ -1,6 +1,6 @@
 # Demo toolchain
 
-Scripts for generating realistic AgentLens session data without a real AI agent, a real API key, or any real/sensitive data — useful for local development, screenshots, and live demos. Every scenario plays out against a single running example (a pet store app: adoption flow, inventory, checkout, pet-image uploads) so the demo tells one coherent story across scenarios and agents instead of unrelated snippets.
+Scripts for generating realistic TraceRoost session data without a real AI agent, a real API key, or any real/sensitive data — useful for local development, screenshots, and live demos. Every scenario plays out against a single running example (a pet store app: adoption flow, inventory, checkout, pet-image uploads) so the demo tells one coherent story across scenarios and agents instead of unrelated snippets.
 
 All commands assume the standalone server is running:
 
@@ -88,7 +88,7 @@ pnpm run demo -- --file /path/to/export_redacted_claude_main_20260522_152343.jso
 
 Replays a session summary export (see the dashboard's **Export** tab). Only works with **redacted JSON** exports — full-fidelity or CSV/Markdown exports aren't supported as replay input.
 
-> Session summary exports (redacted or not) can't currently reconstruct full per-turn timelines for replay — they carry the session's aggregate/summary fields, not raw OTEL span data, which AgentLens doesn't persist to disk. This is tracked as a planned enhancement.
+> Session summary exports (redacted or not) can't currently reconstruct full per-turn timelines for replay — they carry the session's aggregate/summary fields, not raw OTEL span data, which TraceRoost doesn't persist to disk. This is tracked as a planned enhancement.
 
 ## Generating and validating fixtures for tests
 

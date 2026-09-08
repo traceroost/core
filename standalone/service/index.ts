@@ -34,7 +34,7 @@ function serviceManagerName(): string {
   }
 }
 
-/** Version of the running agentlens-dashboard, read from its own package.json. Bundled output
+/** Version of the running traceroost-dashboard, read from its own package.json. Bundled output
  *  lives at <pkg>/standalone/cli.js, so `../package.json` from here; the extra `../../` fallback
  *  covers running the un-bundled source from standalone/service/. */
 function readRunningVersion(): string | undefined {
@@ -64,7 +64,7 @@ function getPlatformService(): PlatformService {
     default:
       throw new Error(
         `Background service mode isn't supported on ${os.platform()}. ` +
-        `Run the server directly instead: agentlens`
+        `Run the server directly instead: traceroost`
       )
   }
 }
@@ -105,45 +105,45 @@ function resolveInstallProgram(config: ServiceConfig): ServiceProgram {
 }
 
 function printUsage(): void {
-  console.log(`Usage: agentlens service <command>
+  console.log(`Usage: traceroost service <command>
 
 Commands:
   install [--ui-port N] [--otlp-port N] [--mcp-port N] [--bind-host H] [--data-dir DIR]
                     Install and start the background service (macOS: launchd,
                     Linux: systemd --user, Windows: Scheduled Task at logon).
-                    Fetches the latest agentlens-dashboard from npm first, so a
+                    Fetches the latest traceroost-dashboard from npm first, so a
                     re-install also upgrades; if that download fails it says so
                     and installs on the version already present.
   uninstall         Stop and remove the background service.
   start             Start the installed service.
   stop              Stop the installed service.
   restart           Restart the installed service.
-  update            Install the latest agentlens-dashboard from npm and restart
+  update            Install the latest traceroost-dashboard from npm and restart
                     the service on it. Installing a background service does NOT
                     otherwise auto-update; it keeps running whatever version was
                     installed until you run this (or re-run 'install').
   status            Check whether the service is running and reachable.
   logs [--follow]   Print (or tail) the service's log file.
 
-If AgentLens isn't running, incoming OTEL data has nowhere to go and is lost —
+If TraceRoost isn't running, incoming OTEL data has nowhere to go and is lost —
 agents don't queue or retry failed exports. Running as a background service
 avoids gaps in your session history from forgetting to start it, closing the
 terminal, or a reboot.`)
 }
 
-/** The globally-installed package directory (`<npm root -g>/agentlens-dashboard`), or undefined
+/** The globally-installed package directory (`<npm root -g>/traceroost-dashboard`), or undefined
  *  if `npm root -g` can't be run at all (npm missing / not on PATH). */
 function globalPackageDir(): string | undefined {
   try {
     const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf-8' }).trim()
-    return path.join(globalRoot, 'agentlens-dashboard')
+    return path.join(globalRoot, 'traceroost-dashboard')
   } catch {
     return undefined
   }
 }
 
 /** Resolves the global package's cli.js directly via `npm root -g`, rather than looking up
- *  `agentlens` by name on PATH — npx prepends its own cache's bin directory to PATH for its
+ *  `traceroost` by name on PATH — npx prepends its own cache's bin directory to PATH for its
  *  entire process tree (including children spawned from inside the npx-run script), so a
  *  bare-name lookup right after `npm install -g` still resolves back to the stale npx-cached
  *  copy instead of the new global one. Undefined if npm can't be run. */
@@ -177,17 +177,17 @@ interface GlobalInstallOutcome {
   downloaded: boolean
 }
 
-/** Runs `npm install -g agentlens-dashboard@latest` so the background service lands on the newest
+/** Runs `npm install -g traceroost-dashboard@latest` so the background service lands on the newest
  *  published version rather than pinning whatever copy launched it. If the download fails (offline,
  *  registry unreachable, npm missing, permissions) it prints a clear warning and reports the
  *  version already on disk so the caller can carry on with it — returns null only when the
  *  download failed *and* there is nothing installed to fall back on. */
 function ensureLatestGlobalInstall(): GlobalInstallOutcome | null {
   const previousVersion = readGlobalVersion()
-  console.log('[AgentLens] Fetching the latest agentlens-dashboard from npm:')
-  console.log('  npm install -g agentlens-dashboard@latest')
+  console.log('[TraceRoost] Fetching the latest traceroost-dashboard from npm:')
+  console.log('  npm install -g traceroost-dashboard@latest')
   try {
-    execFileSync('npm', ['install', '-g', 'agentlens-dashboard@latest'], { stdio: 'inherit' })
+    execFileSync('npm', ['install', '-g', 'traceroost-dashboard@latest'], { stdio: 'inherit' })
   } catch (e) {
     const fallback = readGlobalVersion()
     console.error(couldNotDownloadMessage(describeNpmFailure(e), fallback))
@@ -195,34 +195,34 @@ function ensureLatestGlobalInstall(): GlobalInstallOutcome | null {
   }
   const version = readGlobalVersion()
   if (previousVersion && version && previousVersion !== version) {
-    console.log(`[AgentLens] Updated v${previousVersion} → v${version}.`)
+    console.log(`[TraceRoost] Updated v${previousVersion} → v${version}.`)
   } else if (version) {
-    console.log(`[AgentLens] Up to date (v${version}).`)
+    console.log(`[TraceRoost] Up to date (v${version}).`)
   }
   return { version, previousVersion, downloaded: true }
 }
 
 /** npx runs from an ephemeral cache with no stable path a service definition can point
- *  at, so a first-time `npx agentlens-dashboard@latest service install` bootstraps a real global
+ *  at, so a first-time `npx traceroost-dashboard@latest service install` bootstraps a real global
  *  install for the user (visibly, not silently — this touches global npm state) and then
  *  re-invokes the newly-installed copy directly to continue. ensureLatestGlobalInstall() below
  *  always installs `@latest`, so this is safe even when the npx cache itself is stale. */
 function bootstrapGlobalInstall(remainingArgs: string[]): number {
   if (shouldBlockRepeatedBootstrap(process.env)) {
     console.error(
-      '[AgentLens] Still detected as running via npx after installing globally and re-invoking ' +
-      '`agentlens` — that shouldn\'t happen and looks like a bug rather than a real npx run. ' +
-      'Try running `npm install -g agentlens-dashboard@latest` yourself, then `agentlens service install` directly.'
+      '[TraceRoost] Still detected as running via npx after installing globally and re-invoking ' +
+      '`traceroost` — that shouldn\'t happen and looks like a bug rather than a real npx run. ' +
+      'Try running `npm install -g traceroost-dashboard@latest` yourself, then `traceroost service install` directly.'
     )
     return 1
   }
-  console.log('[AgentLens] Running via npx — installing agentlens-dashboard globally first, ' +
+  console.log('[TraceRoost] Running via npx — installing traceroost-dashboard globally first, ' +
     'so the background service has a stable command to launch on every start.')
   const outcome = ensureLatestGlobalInstall()
   if (!outcome) {
     console.error(
-      '[AgentLens] Can\'t install the background service without a global copy to point at, and ' +
-      'nothing is installed yet. Reconnect to npm and re-run `npx agentlens-dashboard@latest service install`.'
+      '[TraceRoost] Can\'t install the background service without a global copy to point at, and ' +
+      'nothing is installed yet. Reconnect to npm and re-run `npx traceroost-dashboard@latest service install`.'
     )
     return 1
   }
@@ -230,13 +230,13 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
   const globalCliPath = resolveGlobalCliPath()
   if (!globalCliPath || !fs.existsSync(globalCliPath)) {
     console.error(
-      `[AgentLens] Global install present, but couldn't find its cli.js at the expected path ` +
+      `[TraceRoost] Global install present, but couldn't find its cli.js at the expected path ` +
       `(${globalCliPath ?? '<npm root -g unavailable>'}). ` +
-      'Run `agentlens service install` yourself to continue — the global install should now be on your PATH.'
+      'Run `traceroost service install` yourself to continue — the global install should now be on your PATH.'
     )
     return 1
   }
-  console.log('[AgentLens] Continuing with service install...')
+  console.log('[TraceRoost] Continuing with service install...')
   try {
     execFileSync(process.execPath, [globalCliPath, 'service', 'install', ...remainingArgs], {
       stdio: 'inherit', env: childEnvForReexec(process.env),
@@ -251,7 +251,7 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
 function printLogs(program: ServiceProgram, platformService: PlatformService, follow: boolean): void {
   const logPath = platformService.logsPath(program)
   if (!fs.existsSync(logPath)) {
-    console.log(`[AgentLens] No log file yet at ${logPath} — the service may not have started.`)
+    console.log(`[TraceRoost] No log file yet at ${logPath} — the service may not have started.`)
     return
   }
   if (!follow) {
@@ -281,14 +281,14 @@ export async function runServiceCli(args: string[]): Promise<number> {
   try {
     platformService = getPlatformService()
   } catch (e) {
-    console.error(`[AgentLens] ${(e as Error).message}`)
+    console.error(`[TraceRoost] ${(e as Error).message}`)
     return 1
   }
 
   switch (subcommand) {
     case 'install': {
       const version = readRunningVersion()
-      console.log(`[AgentLens] service install${version ? ` — v${version}` : ''}`)
+      console.log(`[TraceRoost] service install${version ? ` — v${version}` : ''}`)
       const config = parseServiceInstallFlags(rest)
       // Carry the existing access token across a reinstall so bookmarked dashboard URLs keep working
       // — parseServiceInstallFlags starts from a blank token and the server would otherwise mint a
@@ -298,7 +298,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
       const program = resolveInstallProgram(config)
 
       if (safeIsInstalled(platformService)) {
-        console.log('[AgentLens] An existing background service was found — replacing it (ports/data-dir updated, access token kept).')
+        console.log('[TraceRoost] An existing background service was found — replacing it (ports/data-dir updated, access token kept).')
       }
       writeServiceConfig(config)
 
@@ -309,8 +309,8 @@ export async function runServiceCli(args: string[]): Promise<number> {
         // can leave that file orphaned — roll it back so `service status` doesn't report a
         // service that was never actually started.
         try { platformService.uninstall() } catch { /* best effort */ }
-        console.error(`[AgentLens] Couldn't register the background service with ${serviceManagerName()}: ${describeServiceManagerFailure(e, serviceManagerName())}`)
-        console.error('[AgentLens] Rolled back — nothing is left half-installed. Fix the cause above, then re-run `agentlens service install`.')
+        console.error(`[TraceRoost] Couldn't register the background service with ${serviceManagerName()}: ${describeServiceManagerFailure(e, serviceManagerName())}`)
+        console.error('[TraceRoost] Rolled back — nothing is left half-installed. Fix the cause above, then re-run `traceroost service install`.')
         return 1
       }
 
@@ -318,18 +318,18 @@ export async function runServiceCli(args: string[]): Promise<number> {
       const healthy = await waitForServiceHealth(config.uiPort, config.bindHost, 15_000)
       const fresh = readServiceConfig()  // re-read: the server persists the auth token on first start
       if (healthy) {
-        console.log(`[AgentLens] Background service is running${version ? ` (v${version})` : ''}. Open the dashboard at:`)
+        console.log(`[TraceRoost] Background service is running${version ? ` (v${version})` : ''}. Open the dashboard at:`)
         console.log(`  ${dashboardUrl(fresh)}`)
-        console.log('[AgentLens] It starts at login and restarts if it crashes. `agentlens service status` re-prints this URL; `agentlens service uninstall` removes it (your data in ~/.agentlens stays).')
+        console.log('[TraceRoost] It starts at login and restarts if it crashes. `traceroost service status` re-prints this URL; `traceroost service uninstall` removes it (your data in ~/.traceroost stays).')
       } else {
-        console.log(`[AgentLens] Service registered, but it hasn't answered a health check on port ${config.uiPort} yet.`)
-        console.log('[AgentLens] Give it a few seconds, then run `agentlens service status`. If it stays down, `agentlens service logs` has the reason.')
+        console.log(`[TraceRoost] Service registered, but it hasn't answered a health check on port ${config.uiPort} yet.`)
+        console.log('[TraceRoost] Give it a few seconds, then run `traceroost service status`. If it stays down, `traceroost service logs` has the reason.')
       }
       return 0
     }
     case 'uninstall':
       platformService.uninstall()
-      console.log('[AgentLens] Background service stopped and removed. Your data in ~/.agentlens is untouched.')
+      console.log('[TraceRoost] Background service stopped and removed. Your data in ~/.traceroost is untouched.')
       return 0
     case 'start':
       platformService.start()
@@ -341,7 +341,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
       platformService.restart()
       return 0
     case 'update': {
-      console.log(`[AgentLens] service update${readRunningVersion() ? ` — currently v${readRunningVersion()}` : ''}`)
+      console.log(`[TraceRoost] service update${readRunningVersion() ? ` — currently v${readRunningVersion()}` : ''}`)
       const outcome = ensureLatestGlobalInstall()
       if (!outcome || !outcome.downloaded) {
         // ensureLatestGlobalInstall already printed why; the service keeps running its current
@@ -350,12 +350,12 @@ export async function runServiceCli(args: string[]): Promise<number> {
       }
       const { version, previousVersion } = outcome
       if (previousVersion && version && previousVersion === version) {
-        console.log('[AgentLens] No restart needed.')
+        console.log('[TraceRoost] No restart needed.')
         return 0
       }
-      console.log('[AgentLens] Restarting the background service on the new version...')
+      console.log('[TraceRoost] Restarting the background service on the new version...')
       platformService.restart()
-      console.log('[AgentLens] Background service restarted.')
+      console.log('[TraceRoost] Background service restarted.')
       return 0
     }
     case 'status': {
@@ -364,10 +364,10 @@ export async function runServiceCli(args: string[]): Promise<number> {
       const running = await platformService.status(config.uiPort, config.bindHost)
       const installed = safeIsInstalled(platformService)
       console.log(running
-        ? `[AgentLens] Running${version ? ` (v${version})` : ''} — dashboard reachable at ${dashboardUrl(config)}`
+        ? `[TraceRoost] Running${version ? ` (v${version})` : ''} — dashboard reachable at ${dashboardUrl(config)}`
         : installed
-          ? '[AgentLens] Installed but not reachable. Run `agentlens service logs` to check for errors, or `agentlens service start`.'
-          : '[AgentLens] No background service is installed. Run `agentlens service install` to set one up.')
+          ? '[TraceRoost] Installed but not reachable. Run `traceroost service logs` to check for errors, or `traceroost service start`.'
+          : '[TraceRoost] No background service is installed. Run `traceroost service install` to set one up.')
       return running ? 0 : 1
     }
     case 'logs': {

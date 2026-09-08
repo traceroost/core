@@ -409,7 +409,7 @@ function InsufficientDataState({ workspace, count }: { workspace: string; count:
   return (
     <div style="padding:32px 24px;max-width:480px;margin:0 auto;text-align:center">
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
-        Not enough history yet — AgentLens needs at least 3 sessions
+        Not enough history yet — TraceRoost needs at least 3 sessions
         {workspace !== 'all' && <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></>}
         {' '}to detect patterns.<br />
         Current: {count} session{count !== 1 ? 's' : ''}.

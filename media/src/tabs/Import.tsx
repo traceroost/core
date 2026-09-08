@@ -73,7 +73,7 @@ export function Import() {
       try {
         const text = e.target?.result as string
         const data = JSON.parse(text)
-        if (!Array.isArray(data)) throw new Error('Expected a JSON array — is this an AgentLens export file?')
+        if (!Array.isArray(data)) throw new Error('Expected a JSON array — is this a TraceRoost export file?')
         if (data.length === 0) throw new Error('The file contains no sessions')
 
         const sessions: ParsedSession[] = data.map((item: unknown, i: number) => {
@@ -175,7 +175,7 @@ export function Import() {
           <svg class="import-drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
           </svg>
-          <p class="import-drop-primary">Drop an AgentLens export file here</p>
+          <p class="import-drop-primary">Drop a TraceRoost export file here</p>
           <p class="import-drop-secondary">or <span class="import-drop-link">click to browse</span> — accepts <code>.json</code> export files</p>
           <input ref={fileInputRef} type="file" accept=".json" style="display:none" onChange={onFileInput} />
         </div>

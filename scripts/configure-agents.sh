@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure AI agents to send OTLP telemetry to AgentLens.
+# Configure AI agents to send OTLP telemetry to TraceRoost.
 # GitHub Copilot is configured automatically by the VS Code extension; no script needed.
 #
 # Usage:
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-PORT=${AGENTLENS_PORT:-4318}
+PORT=${TRACEROOST_PORT:-4318}
 AGENT="all"
 
 while [[ $# -gt 0 ]]; do
@@ -31,7 +31,7 @@ done
 
 ENDPOINT="http://localhost:${PORT}"
 
-echo "AgentLens Agent Configuration"
+echo "TraceRoost Agent Configuration"
 echo "Endpoint: ${ENDPOINT}  |  Agent: ${AGENT}"
 echo ""
 
@@ -41,7 +41,7 @@ configure_claude() {
   echo "Configuring Claude Code..."
 
   if ! command -v python3 &>/dev/null; then
-    echo "  python3 not found — configure manually (see Help tab in AgentLens)"
+    echo "  python3 not found — configure manually (see Help tab in TraceRoost)"
     echo "  Add the following env block to ~/.claude/settings.json:"
     cat <<JSON
   {
@@ -129,7 +129,7 @@ TOML
 
 configure_copilot() {
   echo "Configuring GitHub Copilot CLI..."
-  echo "  (The Copilot VS Code extension is configured automatically by AgentLens — no script needed.)"
+  echo "  (The Copilot VS Code extension is configured automatically by TraceRoost — no script needed.)"
 
   # Detect shell profile
   local profile=""
@@ -158,7 +158,7 @@ configure_copilot() {
     return
   fi
 
-  printf "\n# AgentLens — Copilot CLI telemetry\nexport OTEL_EXPORTER_OTLP_ENDPOINT=\"${ENDPOINT}\"\nexport OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true\n" >> "$profile"
+  printf "\n# TraceRoost — Copilot CLI telemetry\nexport OTEL_EXPORTER_OTLP_ENDPOINT=\"${ENDPOINT}\"\nexport OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true\n" >> "$profile"
   echo "  Updated ${profile}"
   echo "  Run: source ${profile}, then restart Copilot CLI."
 }
@@ -184,4 +184,4 @@ case "$AGENT" in
 esac
 
 echo ""
-echo "Done. Start a short agent session and check the AgentLens dashboard to confirm data is arriving."
+echo "Done. Start a short agent session and check the TraceRoost dashboard to confirm data is arriving."

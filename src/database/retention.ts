@@ -24,9 +24,9 @@ export async function runRetention(
          AND start_time < ?`,
       [cutoffMs],
     )
-    log(`AgentLens retention: deleted sessions older than ${retentionDays} days`)
+    log(`TraceRoost retention: deleted sessions older than ${retentionDays} days`)
   } catch (err) {
-    log(`AgentLens retention: delete error — ${err}`)
+    log(`TraceRoost retention: delete error — ${err}`)
     return
   }
 
@@ -53,10 +53,10 @@ export async function runRetention(
       }
     }
     if (deleted > 0) {
-      log(`AgentLens retention: evicted ${deleted} orphaned blob file(s)`)
+      log(`TraceRoost retention: evicted ${deleted} orphaned blob file(s)`)
     }
   } catch (err) {
-    log(`AgentLens retention: blob eviction error — ${err}`)
+    log(`TraceRoost retention: blob eviction error — ${err}`)
   }
 }
 

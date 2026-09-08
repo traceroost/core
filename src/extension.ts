@@ -8,7 +8,7 @@ import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
 import { exportSpans, exportSpansRedacted } from './exportData'
-import { openDatabase, AgentLensDb } from './database/db'
+import { openDatabase, TraceRoostDb } from './database/db'
 import { DatabaseReader, openReadonlySnapshot } from './database/reader'
 import { DatabaseWriter } from './database/writer'
 import { migrateGlobalStateToSqlite } from './database/migration'
@@ -24,7 +24,7 @@ import { InstructionRepository } from './database/instructionRepository'
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
 let outputChannel: vscode.OutputChannel | undefined
-let agentLensDb: AgentLensDb | undefined
+let traceRoostDb: TraceRoostDb | undefined
 let writer: DatabaseWriter | undefined
 let repository: SessionRepository | undefined
 let logReaderTimer: ReturnType<typeof setInterval> | undefined
@@ -61,7 +61,7 @@ function probePort(port: number, probePath: string): Promise<boolean> {
       res.on('end', () => {
         try {
           const json = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>
-          resolve(json.agentlens === true)
+          resolve(json.traceroost === true)
         } catch {
           resolve(false)
         }
@@ -74,8 +74,8 @@ function probePort(port: number, probePath: string): Promise<boolean> {
 
 async function detectPortOwner(port: number): Promise<'plugin' | 'standalone' | 'foreign'> {
   const [isPlugin, isStandalone] = await Promise.all([
-    probePort(port, '/agentlens/plugin'),
-    probePort(port, '/agentlens/standalone'),
+    probePort(port, '/traceroost/plugin'),
+    probePort(port, '/traceroost/standalone'),
   ])
   if (isPlugin) return 'plugin'
   if (isStandalone) return 'standalone'
@@ -85,18 +85,18 @@ async function detectPortOwner(port: number): Promise<'plugin' | 'standalone' | 
 // ── Activate ─────────────────────────────────────────────────────────────────
 
 export async function activate(context: vscode.ExtensionContext) {
-  outputChannel = vscode.window.createOutputChannel('AgentLens')
+  outputChannel = vscode.window.createOutputChannel('TraceRoost')
   context.subscriptions.push(outputChannel)
-  outputChannel.appendLine(`AgentLens activating… (v${context.extension.packageJSON.version})`)
+  outputChannel.appendLine(`TraceRoost activating… (v${context.extension.packageJSON.version})`)
 
   // ── Database ────────────────────────────────────────────────────────────────
   try {
-    agentLensDb = await openDatabase(
+    traceRoostDb = await openDatabase(
       context.globalStorageUri.fsPath,
       context.extensionUri.fsPath,
     )
-    context.subscriptions.push(agentLensDb)
-    outputChannel.appendLine('AgentLens database initialized.')
+    context.subscriptions.push(traceRoostDb)
+    outputChannel.appendLine('TraceRoost database initialized.')
   } catch (err) {
     outputChannel.appendLine(`Failed to initialize database: ${err}`)
   }
@@ -106,28 +106,28 @@ export async function activate(context: vscode.ExtensionContext) {
     store = new SessionStore(context)
   } catch (err) {
     outputChannel.appendLine(`Failed to initialize session store: ${err}`)
-    vscode.window.showErrorMessage('AgentLens: Failed to initialize session store.')
+    vscode.window.showErrorMessage('TraceRoost: Failed to initialize session store.')
     return
   }
 
   // ── Writer + reader + repository ─────────────────────────────────────────────
-  if (agentLensDb) {
+  if (traceRoostDb) {
     const log = (msg: string) => outputChannel!.appendLine(msg)
-    writer = new DatabaseWriter(agentLensDb.raw, context.globalStorageUri, log)
-    const reader = new DatabaseReader(agentLensDb.raw, context.globalStorageUri)
+    writer = new DatabaseWriter(traceRoostDb.raw, context.globalStorageUri, log)
+    const reader = new DatabaseReader(traceRoostDb.raw, context.globalStorageUri)
     repository = new SessionRepository(reader, writer, store)
 
     // Run one-time migration before registering the onUpdate subscriber.
     await migrateGlobalStateToSqlite(context, writer, log)
 
     // Initial retention run on activation.
-    const retentionDays = vscode.workspace.getConfiguration('agentLens').get<number>('sessionRetentionDays', 90)
-    await runRetention(agentLensDb.raw, retentionDays, agentLensDb.blobsDir, log)
+    const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
+    await runRetention(traceRoostDb.raw, retentionDays, traceRoostDb.blobsDir, log)
 
     // Periodic retention: once per 24 hours while the extension is active.
     const retentionTimer = setInterval(() => {
-      const days = vscode.workspace.getConfiguration('agentLens').get<number>('sessionRetentionDays', 90)
-      void runRetention(agentLensDb!.raw, days, agentLensDb!.blobsDir, log)
+      const days = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
+      void runRetention(traceRoostDb!.raw, days, traceRoostDb!.blobsDir, log)
     }, 24 * 60 * 60 * 1000)
     context.subscriptions.push({ dispose: () => clearInterval(retentionTimer) })
 
@@ -142,9 +142,9 @@ export async function activate(context: vscode.ExtensionContext) {
           writer.enqueue(card, workspace)
           // After drain, save DB to disk and write the cross-window signal.
           void writer.drain().then(() => {
-            agentLensDb?.save()
+            traceRoostDb?.save()
             writeLastWriteSignal(context.globalStorageUri)
-          }).catch(err => console.error('[AgentLens] writer.drain error:', err))
+          }).catch(err => console.error('[TraceRoost] writer.drain error:', err))
         }
       })
     )
@@ -152,26 +152,26 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // ── Collector ────────────────────────────────────────────────────────────────
-  const agentLensCfg = vscode.workspace.getConfiguration('agentLens')
-  const port = agentLensCfg.get<number>('otlpPort', 4318)
+  const traceRoostCfg = vscode.workspace.getConfiguration('traceRoost')
+  const port = traceRoostCfg.get<number>('otlpPort', 4318)
   collector = new OtlpCollector(port, store, outputChannel)
   let collectorFailed = false
   try {
     await collector.start()
-    collector.setIngestionEnabled(agentLensCfg.get<boolean>('enableOtelIngestion', true))
+    collector.setIngestionEnabled(traceRoostCfg.get<boolean>('enableOtelIngestion', true))
   } catch (err) {
     collectorFailed = true
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
       const owner = await detectPortOwner(port)
       if (owner === 'standalone') {
-        outputChannel.appendLine(`Port ${port} is in use by the AgentLens standalone server — change agentLens.otlpPort`)
+        outputChannel.appendLine(`Port ${port} is in use by the TraceRoost standalone server — change traceRoost.otlpPort`)
         vscode.window.showErrorMessage(
-          `AgentLens: Port ${port} is already in use by the AgentLens standalone server. Change the agentLens.otlpPort setting to use a different port.`
+          `TraceRoost: Port ${port} is already in use by the TraceRoost standalone server. Change the traceRoost.otlpPort setting to use a different port.`
         )
       } else if (owner === 'foreign') {
-        outputChannel.appendLine(`Port ${port} is in use by an unknown process — change agentLens.otlpPort`)
+        outputChannel.appendLine(`Port ${port} is in use by an unknown process — change traceRoost.otlpPort`)
         vscode.window.showErrorMessage(
-          `AgentLens: Port ${port} is already in use by another application. Change the agentLens.otlpPort setting to use a different port.`
+          `TraceRoost: Port ${port} is already in use by another application. Change the traceRoost.otlpPort setting to use a different port.`
         )
       }
     } else {
@@ -181,7 +181,7 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // ── Auto-configure agents ────────────────────────────────────────────────────
-  const autoConfigureAgents = agentLensCfg.get<boolean>('autoConfigureAgents', true)
+  const autoConfigureAgents = traceRoostCfg.get<boolean>('autoConfigureAgents', true)
   const [copilotResult, claudeResult, codexResult] = autoConfigureAgents
     ? await Promise.all([
         autoConfigureCopilot(port),
@@ -193,19 +193,19 @@ export async function activate(context: vscode.ExtensionContext) {
   if (copilotResult.error) {
     outputChannel.appendLine(`Auto-configure Copilot failed: ${copilotResult.error}`)
     vscode.window.showWarningMessage(
-      `AgentLens: Could not auto-configure Copilot OTel. Manually set github.copilot.chat.otel.enabled=true and otlpEndpoint to http://localhost:${port}`
+      `TraceRoost: Could not auto-configure Copilot OTel. Manually set github.copilot.chat.otel.enabled=true and otlpEndpoint to http://localhost:${port}`
     )
   }
   if (claudeResult.error) {
     outputChannel.appendLine(`Auto-configure Claude Code failed: ${claudeResult.error}`)
     vscode.window.showWarningMessage(
-      `AgentLens: Could not auto-configure Claude Code. Manually add CLAUDE_CODE_ENABLE_TELEMETRY=1 and OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:${port} to ~/.claude/settings.json env block.`
+      `TraceRoost: Could not auto-configure Claude Code. Manually add CLAUDE_CODE_ENABLE_TELEMETRY=1 and OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:${port} to ~/.claude/settings.json env block.`
     )
   }
   if (codexResult.error) {
     outputChannel.appendLine(`Auto-configure Codex failed: ${codexResult.error}`)
     vscode.window.showWarningMessage(
-      `AgentLens: Could not auto-configure Codex. Manually add [otel] exporter = { otlp-http = { endpoint = "http://localhost:${port}" } } to ~/.codex/config.toml`
+      `TraceRoost: Could not auto-configure Codex. Manually add [otel] exporter = { otlp-http = { endpoint = "http://localhost:${port}" } } to ~/.codex/config.toml`
     )
   }
 
@@ -216,7 +216,7 @@ export async function activate(context: vscode.ExtensionContext) {
   if (configuredAgents.length > 0) {
     outputChannel.appendLine(`Auto-configured OTEL telemetry for: ${configuredAgents.join(', ')}`)
     vscode.window.showInformationMessage(
-      `AgentLens configured OTEL telemetry for ${configuredAgents.join(', ')} — restart the agent(s) to start streaming traces. Disable via the agentLens.autoConfigureAgents setting.`
+      `TraceRoost configured OTEL telemetry for ${configuredAgents.join(', ')} — restart the agent(s) to start streaming traces. Disable via the traceRoost.autoConfigureAgents setting.`
     )
   }
 
@@ -225,11 +225,11 @@ export async function activate(context: vscode.ExtensionContext) {
   const provider = new SidebarPanel(repo, context.extensionUri)
 
   // ── Log ingestion ─────────────────────────────────────────────────────────
-  const enableLogIngestion = vscode.workspace.getConfiguration('agentLens').get<boolean>('enableLogIngestion', true)
+  const enableLogIngestion = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableLogIngestion', true)
   let logReader: LogReader | undefined
   let startBatchedLoad: ((onAllDone?: () => void) => void) | undefined
   if (enableLogIngestion && writer) {
-    logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: agentLensDb?.sqlFactory })
+    logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
     const lr = logReader  // non-null alias for use inside closures
     const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString() ?? ''
 
@@ -244,11 +244,11 @@ export async function activate(context: vscode.ExtensionContext) {
         writer!.enqueue(card, workspace || ws)
       }
       void writer!.drain().then(() => {
-        agentLensDb?.save()
+        traceRoostDb?.save()
         provider.refresh()
         DashboardPanel.currentPanel?.update()
         writeLastWriteSignal(context.globalStorageUri)
-      }).catch(err => outputChannel!.appendLine(`[AgentLens] log ingestion drain error: ${err}`))
+      }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
     }
 
     // Initial load: collect file metadata sorted newest-first, then process in two
@@ -266,7 +266,7 @@ export async function activate(context: vscode.ExtensionContext) {
       try {
         allFiles = lr.collectFileMeta()
       } catch (err) {
-        outputChannel!.appendLine(`[AgentLens] log ingestion collect error: ${err}`)
+        outputChannel!.appendLine(`[TraceRoost] log ingestion collect error: ${err}`)
         onAllDone?.()
         return
       }
@@ -308,9 +308,9 @@ export async function activate(context: vscode.ExtensionContext) {
           }
           if (written > 0) {
             void writer!.drain().then(() => {
-              agentLensDb?.save()
+              traceRoostDb?.save()
               provider.refresh()
-            }).catch(err => outputChannel!.appendLine(`[AgentLens] log ingestion drain error: ${err}`))
+            }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
           }
           const next = idx + batchSize
           if (next < files.length) {
@@ -349,7 +349,7 @@ export async function activate(context: vscode.ExtensionContext) {
               .sort((a, b) => b[1] - a[1])
               .map(([k, n]) => `${AGENT_KEY_LABEL[k] ?? k}: ${n}`)
               .join(', ')
-            outputChannel!.appendLine(`[AgentLens] Loaded ${total} sessions from local logs (${breakdown})`)
+            outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
           }
           onAllDone?.()
         })
@@ -360,7 +360,7 @@ export async function activate(context: vscode.ExtensionContext) {
     setImmediate(() => startBatchedLoad!())
     logReaderTimer = setInterval(runLogScan, 30_000)
     context.subscriptions.push({ dispose: () => clearInterval(logReaderTimer) })
-    outputChannel.appendLine('AgentLens: log ingestion enabled — scanning local session logs')
+    outputChannel.appendLine('TraceRoost: log ingestion enabled — scanning local session logs')
   }
 
   if (collectorFailed) {
@@ -377,7 +377,7 @@ export async function activate(context: vscode.ExtensionContext) {
           context.extensionUri.fsPath,
         )
         if (snapshotReader && store) {
-          const snapshotWriter = writer ?? new DatabaseWriter(agentLensDb!.raw, context.globalStorageUri, () => {})
+          const snapshotWriter = writer ?? new DatabaseWriter(traceRoostDb!.raw, context.globalStorageUri, () => {})
           repository = new SessionRepository(snapshotReader, snapshotWriter, store)
           provider.setRepository(repository)
           DashboardPanel.setRepository(repository)
@@ -389,50 +389,50 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('agentLens.dashboard', provider)
+    vscode.window.registerWebviewViewProvider('traceRoost.dashboard', provider)
   )
 
   // ── Commands ─────────────────────────────────────────────────────────────────
   context.subscriptions.push(
-    vscode.commands.registerCommand('agentLens.showStorageStats', () => {
-      if (!agentLensDb || !repository) {
-        vscode.window.showInformationMessage('AgentLens: database not available')
+    vscode.commands.registerCommand('traceRoost.showStorageStats', () => {
+      if (!traceRoostDb || !repository) {
+        vscode.window.showInformationMessage('TraceRoost: database not available')
         return
       }
-      const dbPath = path.join(context.globalStorageUri.fsPath, 'agentlens.db')
-      const { dbBytes, blobBytes, blobCount } = repository.getStorageStats(dbPath, agentLensDb.blobsDir)
+      const dbPath = path.join(context.globalStorageUri.fsPath, 'traceroost.db')
+      const { dbBytes, blobBytes, blobCount } = repository.getStorageStats(dbPath, traceRoostDb.blobsDir)
       const lifetime = repository.queryLifetimeStats()
       const toMb = (b: number) => (b / 1_048_576).toFixed(1)
       const dateRange = lifetime.totalSessions > 0
         ? `${new Date(lifetime.oldestSessionMs).toISOString().slice(0, 10)} → ${new Date(lifetime.newestSessionMs).toISOString().slice(0, 10)}`
         : 'no sessions'
-      const retentionDays = vscode.workspace.getConfiguration('agentLens').get<number>('sessionRetentionDays', 90)
+      const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
       const msg = [
         `Database:  ${toMb(dbBytes)} MB  (${lifetime.totalSessions} sessions, ${dateRange})`,
         `Blobs:     ${toMb(blobBytes)} MB  (${blobCount} files)`,
         `Total:     ${toMb(dbBytes + blobBytes)} MB`,
         `Retention: ${retentionDays} days`,
       ].join('\n')
-      outputChannel!.appendLine('\nAgentLens storage stats:\n' + msg)
+      outputChannel!.appendLine('\nTraceRoost storage stats:\n' + msg)
       outputChannel!.show(true)
-      vscode.window.showInformationMessage(`AgentLens storage: ${toMb(dbBytes + blobBytes)} MB total — see Output panel for details.`)
+      vscode.window.showInformationMessage(`TraceRoost storage: ${toMb(dbBytes + blobBytes)} MB total — see Output panel for details.`)
     })
   )
 
-  const instructionRepo = agentLensDb ? new InstructionRepository(agentLensDb.raw) : undefined
+  const instructionRepo = traceRoostDb ? new InstructionRepository(traceRoostDb.raw) : undefined
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('agentLens.openDashboard', () => {
-      vscode.commands.executeCommand('workbench.view.extension.agent-lens')
+    vscode.commands.registerCommand('traceRoost.openDashboard', () => {
+      vscode.commands.executeCommand('workbench.view.extension.traceroost')
       DashboardPanel.show(context, repo, provider, instructionRepo)
     })
   )
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('agentLens.dumpSpanAttrs', () => {
+    vscode.commands.registerCommand('traceRoost.dumpSpanAttrs', () => {
       const spans = store!.getSpans()
       outputChannel!.clear()
-      outputChannel!.appendLine('=== AgentLens span attribute dump ===')
+      outputChannel!.appendLine('=== TraceRoost span attribute dump ===')
       outputChannel!.appendLine(`Total spans in window: ${spans.length}`)
       outputChannel!.appendLine('')
 
@@ -465,7 +465,7 @@ export async function activate(context: vscode.ExtensionContext) {
       for (const s of claudeSpans) dumpSpan(s)
 
       outputChannel!.show(true)
-      vscode.window.showInformationMessage(`AgentLens: dumped ${codexByType.size} Codex span types + ${claudeSpans.length} Claude spans`)
+      vscode.window.showInformationMessage(`TraceRoost: dumped ${codexByType.size} Codex span types + ${claudeSpans.length} Claude spans`)
     })
   )
 
@@ -475,10 +475,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const baseUri = workspaceFolder ? workspaceFolder.uri : context.globalStorageUri
     const writtenFiles = await exporter(spans, baseUri)
     if (writtenFiles.length === 0) {
-      vscode.window.showInformationMessage('AgentLens: No session data to export')
+      vscode.window.showInformationMessage('TraceRoost: No session data to export')
       return
     }
-    vscode.window.showInformationMessage(`AgentLens: Exported to: ${writtenFiles.join(', ')}`)
+    vscode.window.showInformationMessage(`TraceRoost: Exported to: ${writtenFiles.join(', ')}`)
     for (const fname of writtenFiles) {
       const uri = vscode.Uri.joinPath(baseUri, fname)
       const doc = await vscode.workspace.openTextDocument(uri)
@@ -487,19 +487,19 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('agentLens.exportData', () => runExport(exportSpans))
+    vscode.commands.registerCommand('traceRoost.exportData', () => runExport(exportSpans))
   )
   context.subscriptions.push(
-    vscode.commands.registerCommand('agentLens.exportDataRedacted', () => runExport(exportSpansRedacted))
+    vscode.commands.registerCommand('traceRoost.exportDataRedacted', () => runExport(exportSpansRedacted))
   )
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('agentLens.clearSessions', () => {
+    vscode.commands.registerCommand('traceRoost.clearSessions', () => {
       if (!repository || !writer) return
       // Clear DB and live span window
       repository.clearAll()
       store?.clear()
-      agentLensDb?.save()
+      traceRoostDb?.save()
       // Re-ingest from local log files so log-sourced sessions reappear immediately
       // Refresh both panels to show the cleared state before re-ingestion starts.
       provider.refresh()
@@ -521,11 +521,11 @@ export async function activate(context: vscode.ExtensionContext) {
   // ── Reactive configuration changes ──────────────────────────────────────────
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
-      const cfg = vscode.workspace.getConfiguration('agentLens')
-      if (e.affectsConfiguration('agentLens.enableOtelIngestion') && collector) {
+      const cfg = vscode.workspace.getConfiguration('traceRoost')
+      if (e.affectsConfiguration('traceRoost.enableOtelIngestion') && collector) {
         collector.setIngestionEnabled(cfg.get<boolean>('enableOtelIngestion', true))
       }
-      if (e.affectsConfiguration('agentLens.enableLogIngestion')) {
+      if (e.affectsConfiguration('traceRoost.enableLogIngestion')) {
         const enabled = cfg.get<boolean>('enableLogIngestion', true)
         if (!enabled) {
           clearInterval(logReaderTimer)
@@ -536,8 +536,8 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       }
       if (
-        e.affectsConfiguration('agentLens.enableOtelIngestion') ||
-        e.affectsConfiguration('agentLens.enableLogIngestion')
+        e.affectsConfiguration('traceRoost.enableOtelIngestion') ||
+        e.affectsConfiguration('traceRoost.enableLogIngestion')
       ) {
         DashboardPanel.currentPanel?.update()
       }
@@ -545,29 +545,29 @@ export async function activate(context: vscode.ExtensionContext) {
   )
 
   // ── MCP server ───────────────────────────────────────────────────────────────
-  const enableMcp = vscode.workspace.getConfiguration('agentLens').get<boolean>('enableMcpServer', true)
+  const enableMcp = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableMcpServer', true)
   if (enableMcp) {
-    const mcpPort = vscode.workspace.getConfiguration('agentLens').get<number>('mcpPort', 4316)
+    const mcpPort = vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
     const mcpServer = startMcpHttpServer(
       { getSessions: () => repository?.listSessions() ?? [],
         getTimeline: (id) => repository?.loadSessionTimeline(id) ?? [] },
       mcpPort,
     )
     context.subscriptions.push({ dispose: () => mcpServer.close() })
-    outputChannel.appendLine(`AgentLens MCP server → http://127.0.0.1:${mcpPort}/mcp`)
+    outputChannel.appendLine(`TraceRoost MCP server → http://127.0.0.1:${mcpPort}/mcp`)
   }
 
   // ── Status bar ───────────────────────────────────────────────────────────────
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
-  statusBar.command = 'agentLens.openDashboard'
-  statusBar.tooltip = 'Open AgentLens Dashboard'
+  statusBar.command = 'traceRoost.openDashboard'
+  statusBar.tooltip = 'Open TraceRoost Dashboard'
   context.subscriptions.push(statusBar)
 
   function updateStatusBar() {
     if (collectorFailed) {
-      statusBar.text = '$(graph) AgentLens — syncing'
+      statusBar.text = '$(graph) TraceRoost — syncing'
     } else {
-      statusBar.text = '$(graph) AgentLens'
+      statusBar.text = '$(graph) TraceRoost'
     }
     statusBar.color = undefined
     statusBar.backgroundColor = undefined
@@ -578,10 +578,10 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(store.onUpdate(updateStatusBar))
 
   if (collectorFailed) {
-    outputChannel.appendLine('AgentLens syncing — collector already running in another window')
+    outputChannel.appendLine('TraceRoost syncing — collector already running in another window')
   } else {
-    vscode.window.showInformationMessage(`AgentLens active — listening on port ${port}`)
-    outputChannel.appendLine(`AgentLens active — OTLP collector listening on port ${port}`)
+    vscode.window.showInformationMessage(`TraceRoost active — listening on port ${port}`)
+    outputChannel.appendLine(`TraceRoost active — OTLP collector listening on port ${port}`)
   }
   outputChannel.show(true)
 
@@ -610,9 +610,9 @@ async function notifySetupRequired(
 ) {
   if (!copilotChanged && !claudeChanged && !codexChanged) { return }
 
-  const isFirstInstall = !context.globalState.get<string>('agentLens.installedVersion')
+  const isFirstInstall = !context.globalState.get<string>('traceRoost.installedVersion')
   if (isFirstInstall) {
-    context.globalState.update('agentLens.installedVersion', context.extension.packageJSON.version)
+    context.globalState.update('traceRoost.installedVersion', context.extension.packageJSON.version)
   }
 
   const parts: string[] = []
@@ -620,7 +620,7 @@ async function notifySetupRequired(
   const cliAgents = [claudeChanged && 'Claude', codexChanged && 'Codex'].filter(Boolean).join(' and ')
   if (cliAgents) { parts.push(`Restart ${cliAgents} in your terminal to activate CLI tracing.`) }
 
-  const message = `AgentLens: Telemetry configured. ${parts.join(' ')}`
+  const message = `TraceRoost: Telemetry configured. ${parts.join(' ')}`
   const actions = copilotChanged ? ['Reload VS Code'] : []
 
   const action = await vscode.window.showInformationMessage(message, ...actions)

@@ -4,7 +4,7 @@
  * Local git only, on-demand (called per session when its detail view is opened, not eagerly for
  * every loaded session — see .staged-issues/03-git-outcome-correlation.md for why). Classifies
  * each changed file by comparing its content immediately before the session started against its
- * content right now, using git history as the source of truth rather than AgentLens's own
+ * content right now, using git history as the source of truth rather than TraceRoost's own
  * recorded diff snippets (which only capture partial before/after strings, not full file content).
  */
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * AgentLens demo replay script
+ * TraceRoost demo replay script
  *
  * Sends realistic OTLP telemetry to the standalone server so every dashboard
  * tab has interesting data to show — no real AI agent required. Every scenario
@@ -1676,8 +1676,8 @@ async function main() {
 
   const alive = await checkServer()
   if (!alive) {
-    err(`Cannot reach http://127.0.0.1:${PORT} — start an AgentLens collector first:`)
-    err('  VS Code extension: open any workspace with AgentLens installed')
+    err(`Cannot reach http://127.0.0.1:${PORT} — start a TraceRoost collector first:`)
+    err('  VS Code extension: open any workspace with TraceRoost installed')
     err('  Standalone server: pnpm run local')
     process.exit(1)
   }
@@ -1688,7 +1688,7 @@ async function main() {
       const fp = path.resolve(FILE)
       // Export files are historical — send instantly unless the user asked for pacing with --speed
       await replayFile(fp, path.basename(fp), !hasSpeed)
-      log('Done. Open the AgentLens sidebar or dashboard to see the replayed session.')
+      log('Done. Open the TraceRoost sidebar or dashboard to see the replayed session.')
       return
     }
     if (FIXTURE === 'agent-matrix') {

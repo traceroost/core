@@ -4,7 +4,7 @@ import { esc } from '../utils'
 // ── Data ──────────────────────────────────────────────────────────────────────
 
 const TERMS: [string, string][] = [
-  ['Agent Loop / Malfunction', 'A behavioral pattern in which an AI agent is stuck, oscillating, or spiraling into unproductive work. AgentLens detects five patterns: Tool Call Deadlock, State Corruption Spiral, Hallucination Amplification Loop, Ambiguous Success / Escalating Scope, and Infinite Loop — Context Accumulation.'],
+  ['Agent Loop / Malfunction', 'A behavioral pattern in which an AI agent is stuck, oscillating, or spiraling into unproductive work. TraceRoost detects five patterns: Tool Call Deadlock, State Corruption Spiral, Hallucination Amplification Loop, Ambiguous Success / Escalating Scope, and Infinite Loop — Context Accumulation.'],
   ['Agent',                  'The AI coding assistant (e.g. GitHub Copilot, Claude Code, Codex) that receives your prompt, reasons about the task, and decides which tools to use. It manages the workflow, breaks down tasks, and may call the underlying LLM multiple times per session to complete a single request. The agent is the orchestrator; the LLM is the engine it drives.'],
   ['Avg Input/Call',         'Average number of input tokens sent to the language model per LLM call. Lower means leaner prompts. Under 10K is lean; 10-30K is normal; 30K+ suggests large instruction files, verbose tool definitions, or accumulated context bloat.'],
   ['Avg Turns/Session',      'Average number of LLM round-trips per session. Lower is more efficient. 1-3 turns is typical for simple tasks; 5+ may indicate the agent is struggling or the prompt needs more specifics.'],
@@ -15,7 +15,7 @@ const TERMS: [string, string][] = [
   ['Context',                'The content sent to the model on a given LLM call: system instructions, conversation history, tool definitions, and the current prompt. Must fit within the context window. Every token costs money — agents that read large files or accumulate long conversation histories use more context per call, driving up cost.'],
   ['Context Bloat',          'An efficiency insight triggered when input tokens grow significantly across turns within a session.'],
   ['Context Window',         'The maximum number of tokens an LLM can process in a single request, counting both input and output tokens combined. For example, Claude Sonnet has a 200K token context window. This is a hard per-call limit set by the model architecture — not the same as context, which is what actually fills that window on a given call.'],
-  ['Conversation',           'The real, continuous back-and-forth a user had with an agent — as distinct from Session, which is what AgentLens actually shows for it. Claude Code, Codex, and Copilot Chat (VS Code) each write one log file per work session on disk, but a single file can span multiple genuinely separate conversations if a long idle gap (30+ minutes) separates them; AgentLens splits that file into one session card per conversation rather than one entry with a misleading multi-hour (or multi-day) duration. Sessions split from the same file are marked with a matching colored bar in the Sessions tab — click it to isolate just that conversation. Only Claude Code, Codex, and Copilot Chat (VS Code) can produce a multi-session conversation; Copilot CLI and legacy imported sessions are always exactly one session.'],
+  ['Conversation',           'The real, continuous back-and-forth a user had with an agent — as distinct from Session, which is what TraceRoost actually shows for it. Claude Code, Codex, and Copilot Chat (VS Code) each write one log file per work session on disk, but a single file can span multiple genuinely separate conversations if a long idle gap (30+ minutes) separates them; TraceRoost splits that file into one session card per conversation rather than one entry with a misleading multi-hour (or multi-day) duration. Sessions split from the same file are marked with a matching colored bar in the Sessions tab — click it to isolate just that conversation. Only Claude Code, Codex, and Copilot Chat (VS Code) can produce a multi-session conversation; Copilot CLI and legacy imported sessions are always exactly one session.'],
   ['Files Changed',          'Unique files that were created or modified by the agent during the current data collection period.'],
   ['Git Outcome',            'Compares each file a session changed against local git history to classify what happened to the work afterward: Committed (survived and is in a commit), Reverted (back to its pre-session content), Uncommitted (still sitting in the working tree), or Unknown. Computed on demand when a session\'s Files sub-tab is opened. Needs direct access to the local git repo, so it works in both the VS Code extension and standalone (native process) mode — not available in Docker mode.'],
   ['Input Tokens',           'The number of tokens sent to the language model in a request, including system instructions, conversation history, tool definitions, and the user prompt. In the Sessions list, the Tokens column shows total input across all turns — because each turn re-sends the full conversation history, this grows with session length. Use Peak ctx/turn (visible in the session detail) to see the actual context window size per call.'],
@@ -23,24 +23,24 @@ const TERMS: [string, string][] = [
   ['LLM',                    'Large Language Model. The underlying AI model (e.g. GPT-4o, Claude Sonnet) that generates text, answers questions, or produces code. The agent sends requests to the LLM as needed; the model itself does not manage tools or workflow. It is the engine that generates language and code for the agent to act on.'],
   ['LLM Call',               'A single request-response cycle to the language model. One session typically includes multiple LLM calls as the agent iterates.'],
   ['One-Shot Rate',          'The percentage of files edited during a session that needed only one edit pass to reach their final state, versus files that needed retries (2+ edit passes). A proxy for correction effort, not a signal that the resulting code actually worked. Needs at least 2 edited files to show a rate; shown in the Sessions tab\'s Files sub-tab and aggregated per-agent in Analytics.'],
-  ['OTLP',                   'OpenTelemetry Protocol — the standard format used to collect and transmit telemetry from AI agents to this extension. AgentLens accepts trace spans and log-derived events.'],
+  ['OTLP',                   'OpenTelemetry Protocol — the standard format used to collect and transmit telemetry from AI agents to this extension. TraceRoost accepts trace spans and log-derived events.'],
   ['Outcome',                'How a session concluded: "text" means the agent responded with a text answer; "tool" means the last action was a tool call.'],
   ['Output Tokens',          'The number of tokens generated by the language model in its response, including reasoning, tool call instructions, and final answers.'],
-  ['Output Ratio',           'Percentage of total tokens that are output (generated by the model). In cached agentic coding sessions this can be naturally tiny, so AgentLens no longer uses it as a standalone alert.'],
+  ['Output Ratio',           'Percentage of total tokens that are output (generated by the model). In cached agentic coding sessions this can be naturally tiny, so TraceRoost no longer uses it as a standalone alert.'],
   ['Prompt',                 'The text you type into the AI chat to request work. Each prompt initiates a new session.'],
   ['Request',                'The user-visible message sent to the agent in a single prompt. In OTEL terms, the request anchor differs by agent: Copilot uses invoke_agent, Claude uses claude_code.interaction, and Codex is normalized from prompt log events.'],
-  ['Session',                'A single prompt-to-response cycle. Starts when you send a prompt and ends when the agent delivers its final response. AgentLens normalizes different Copilot, Claude, and Codex OTEL shapes into this shared model. For Claude Code, Codex, and Copilot Chat (VS Code), one on-disk log file can produce more than one session if a long idle gap separates two real conversations within it — see Conversation.'],
-  ['Span',                   'A single timed operation recorded by OpenTelemetry. AgentLens displays true trace spans and normalized log events with a span-like name, duration, and attributes.'],
+  ['Session',                'A single prompt-to-response cycle. Starts when you send a prompt and ends when the agent delivers its final response. TraceRoost normalizes different Copilot, Claude, and Codex OTEL shapes into this shared model. For Claude Code, Codex, and Copilot Chat (VS Code), one on-disk log file can produce more than one session if a long idle gap separates two real conversations within it — see Conversation.'],
+  ['Span',                   'A single timed operation recorded by OpenTelemetry. TraceRoost displays true trace spans and normalized log events with a span-like name, duration, and attributes.'],
   ['Span ID',                'A unique identifier for a single span within a trace. Used to establish parent-child relationships between operations.'],
   ['Sparkline',              'A small inline chart shown below summary cards, depicting the trend of a metric over recent time buckets.'],
   ['Tokens',                 'The fundamental unit language models use to process text. Roughly 1 token ≈ 4 characters or ¾ of a word.'],
   ['Tool Call',              'A single invocation of a tool by the agent — e.g., reading a file, running a search, or executing a terminal command.'],
   ['Tool Definition Overhead', 'An efficiency insight triggered when a large fraction of input tokens is consumed by tool definition schemas rather than actual content.'],
-  ['Trace',                  'A group of related spans sharing a Trace ID. Copilot and Claude usually map a trace to a session; Codex log events can require AgentLens to group records by conversation, session, thread, or turn attributes.'],
+  ['Trace',                  'A group of related spans sharing a Trace ID. Copilot and Claude usually map a trace to a session; Codex log events can require TraceRoost to group records by conversation, session, thread, or turn attributes.'],
   ['Trace ID',               'A unique identifier linking all spans belonging to the same session/request.'],
   ['Turn',                   'One LLM call within a session. A multi-turn session involves the agent calling the LLM, executing tools, then calling the LLM again.'],
   ['TTFT',                   'Time to First Token — the latency between sending a prompt and receiving the first token of the response.'],
-  ['Waterfall',              'A span visualization where operations are displayed as horizontal bars on a time axis, with nesting depth shown by indentation. Used in OpenTelemetry tooling; AgentLens surfaces span timing data through the Traces tab instead.'],
+  ['Waterfall',              'A span visualization where operations are displayed as horizontal bars on a time axis, with nesting depth shown by indentation. Used in OpenTelemetry tooling; TraceRoost surfaces span timing data through the Traces tab instead.'],
 ]
 
 const HELP_SECTIONS = {
@@ -177,13 +177,13 @@ function OverviewSection() {
     <div class="help-section" id="help-overview">
       {mascotSrc && (
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <img src={esc(mascotSrc)} alt="AgentLens mascot" style={{ maxWidth: '65%', height: 'auto', display: 'block', margin: '0 auto' }} />
+          <img src={esc(mascotSrc)} alt="TraceRoost mascot" style={{ maxWidth: '65%', height: 'auto', display: 'block', margin: '0 auto' }} />
           <p style={{ textAlign: 'center', fontStyle: 'italic', color: 'var(--muted)', marginTop: 8, marginBottom: 0 }}>Watching your agents so you don't have to.</p>
         </div>
       )}
       <div style="margin:0 0 16px;background:var(--hover);border:1px solid var(--border);border-left:4px solid var(--warning,#ffb74d);border-radius:6px;padding:12px 16px">
         <p style="font-size:13px;font-weight:700;margin:0 0 8px;color:var(--foreground)">Important: OTEL captures richer data than log-only history</p>
-        <p style="font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.75">OpenTelemetry capture is live collection. AgentLens must be running while your agent session runs to collect full OTEL spans, timing, tool payloads, and richer turn-level context. If AgentLens was not running (or OTEL was not configured yet), AgentLens can still backfill from local logs/databases, but those sessions are less detailed.</p>
+        <p style="font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.75">OpenTelemetry capture is live collection. TraceRoost must be running while your agent session runs to collect full OTEL spans, timing, tool payloads, and richer turn-level context. If TraceRoost was not running (or OTEL was not configured yet), TraceRoost can still backfill from local logs/databases, but those sessions are less detailed.</p>
         <ul style="margin:0 0 10px 18px;padding:0;font-size:12px;color:var(--muted);line-height:1.75">
           <li>
             <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid #90a4ae;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:#90a4ae">Log</span>
@@ -202,8 +202,8 @@ function OverviewSection() {
       </div>
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
-        <p><strong>AgentLens</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> sessions more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, with no data leaving your machine. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local session files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, session cost estimates, human-readable summaries, and actionable insights in real time.</p>
-        <p style="font-size:13px;margin:10px 0 4px"><strong>AgentLens detects eight loop / malfunction patterns</strong> — each with a ready-to-paste correction prompt (see <a href="#help-loops">Loop Detection</a> below for details):</p>
+        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> sessions more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, with no data leaving your machine. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local session files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, session cost estimates, human-readable summaries, and actionable insights in real time.</p>
+        <p style="font-size:13px;margin:10px 0 4px"><strong>TraceRoost detects eight loop / malfunction patterns</strong> — each with a ready-to-paste correction prompt (see <a href="#help-loops">Loop Detection</a> below for details):</p>
         <ul style="margin:0 0 0 18px;padding:0;font-size:13px;color:var(--muted);line-height:1.75">
           <li><a href="#help-tool-deadlock">Tool Call Deadlock</a> — the same tool call repeated 5+ times</li>
           <li><a href="#help-state-spiral">State Corruption Spiral</a> — a file edited then reverted, oscillating</li>
@@ -231,7 +231,7 @@ function ConfigSection() {
   const callout = standalone ? (
     <div style="margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--warning,#ffb74d);border-radius:4px;padding:10px 14px">
       <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:var(--foreground)">Not seeing any detailed OTEL data?</p>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 6px">AgentLens attempts to configure OTEL automatically when the standalone server starts. The VS Code-family extension does the same when it activates.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 6px">TraceRoost attempts to configure OTEL automatically when the standalone server starts. The VS Code-family extension does the same when it activates.</p>
       <p style="font-size:12px;color:var(--muted);margin:0 0 6px">Configuration is read at startup — restart each <a href="#gl-agent">agent</a> after making changes:</p>
       <table style="font-size:12px;border-collapse:collapse;width:100%">
         <tbody style="color:var(--muted)">
@@ -264,13 +264,13 @@ chmod +x scripts/configure-agents.sh
 .\\scripts\\configure-agents.ps1 -Agent claude
 .\\scripts\\configure-agents.ps1 -Agent codex
 .\\scripts\\configure-agents.ps1 -Agent copilot`}</pre>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 0">Prefer not to run the script? Use <strong>Configure OTEL</strong> in Settings to re-apply it manually. Check the server terminal or AgentLens Output channel for configuration messages. If the server itself isn't running, data has nowhere to go — see <a href="#help-config">Run as a Background Service</a> below to keep it running automatically.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 0">Prefer not to run the script? Use <strong>Configure OTEL</strong> in Settings to re-apply it manually. Check the server terminal or TraceRoost Output channel for configuration messages. If the server itself isn't running, data has nowhere to go — see <a href="#help-config">Run as a Background Service</a> below to keep it running automatically.</p>
     </div>
   ) : (
     <div style="margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--warning,#ffb74d);border-radius:4px;padding:10px 14px">
       <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:var(--foreground)">Not seeing any detailed OTEL data?</p>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">AgentLens automatically configures all supported agents on startup/activation, including Codex's <code style={codeStyle}>[otel]</code> section. It only rewrites a file when a required setting is missing or differs, so this is silent after the first successful run. Works in VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro, and other VS Code-family IDEs. After configuration, restart each <a href="#gl-agent">agent</a> once so it reads the new settings. Changed an agent's OTEL settings yourself? Use the <strong>Configure OTEL</strong> button in Settings (gear icon), or review the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">repository scripts</a>. Disable auto-configuration entirely via the <code style={codeStyle}>agentLens.autoConfigureAgents</code> setting.</p>
-      <p style="font-size:11px;color:var(--muted);margin:0 0 6px">Config is read at startup — restart after AgentLens activates:</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">TraceRoost automatically configures all supported agents on startup/activation, including Codex's <code style={codeStyle}>[otel]</code> section. It only rewrites a file when a required setting is missing or differs, so this is silent after the first successful run. Works in VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro, and other VS Code-family IDEs. After configuration, restart each <a href="#gl-agent">agent</a> once so it reads the new settings. Changed an agent's OTEL settings yourself? Use the <strong>Configure OTEL</strong> button in Settings (gear icon), or review the <a href="https://github.com/traceroost/core/tree/main/scripts" target="_blank" rel="noreferrer">repository scripts</a>. Disable auto-configuration entirely via the <code style={codeStyle}>traceRoost.autoConfigureAgents</code> setting.</p>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 6px">Config is read at startup — restart after TraceRoost activates:</p>
       <table style="font-size:11px;border-collapse:collapse;width:100%">
         <tbody style="color:var(--muted)">
           <tr style="border-bottom:1px solid var(--border)">
@@ -291,13 +291,13 @@ chmod +x scripts/configure-agents.sh
           </tr>
         </tbody>
       </table>
-      <p style="font-size:11px;color:var(--muted);margin:8px 0 0">Open the <em>AgentLens</em> output channel (<em>View → Output → AgentLens</em>) to confirm spans are arriving.</p>
-      <p style="font-size:11px;color:var(--muted);margin:6px 0 0"><strong style="color:var(--fg)">OpenCode:</strong> No configuration needed. AgentLens reads OpenCode's local SQLite database automatically from <code style={codeStyle}>~/.local/share/opencode/</code> — sessions appear as <strong>Log</strong> badge entries without any OTEL setup.</p>
+      <p style="font-size:11px;color:var(--muted);margin:8px 0 0">Open the <em>TraceRoost</em> output channel (<em>View → Output → TraceRoost</em>) to confirm spans are arriving.</p>
+      <p style="font-size:11px;color:var(--muted);margin:6px 0 0"><strong style="color:var(--fg)">OpenCode:</strong> No configuration needed. TraceRoost reads OpenCode's local SQLite database automatically from <code style={codeStyle}>~/.local/share/opencode/</code> — sessions appear as <strong>Log</strong> badge entries without any OTEL setup.</p>
     </div>
   )
 
   const portNote = (
-    <p style={mutedP}>Manual configuration — replace <code style={codeStyle}>4318</code> with your custom port if you changed <em>agentLens.otlpPort</em>.</p>
+    <p style={mutedP}>Manual configuration — replace <code style={codeStyle}>4318</code> with your custom port if you changed <em>traceRoost.otlpPort</em>.</p>
   )
 
   const copilotSection = (
@@ -375,14 +375,14 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
     <div style="margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--accent,#42a5f5);border-radius:4px;padding:10px 14px">
       <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:var(--foreground)">Run as a Background Service</p>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
-        If AgentLens isn't running, incoming OTEL data has nowhere to go and is lost — agents don't queue
+        If TraceRoost isn't running, incoming OTEL data has nowhere to go and is lost — agents don't queue
         or retry failed exports. Running it in a terminal only lasts until that terminal closes, so a forgotten
         window, a closed laptop lid, or a reboot means a gap in your session history. Installing it as a
         background service keeps it running automatically instead:
       </p>
-      <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`npx agentlens-dashboard@latest service install`}</pre>
+      <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`npx traceroost-dashboard@latest service install`}</pre>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
-        Works as a single command whether or not <code style={codeStyle}>agentlens-dashboard</code> is
+        Works as a single command whether or not <code style={codeStyle}>traceroost-dashboard</code> is
         already installed — if it's running via <code style={codeStyle}>npx</code>, which has no stable
         location to launch from later, it installs the package globally first (visibly, printing what
         it's doing) and then continues. On macOS this registers a <code style={codeStyle}>launchd</code> LaunchAgent,
@@ -391,19 +391,19 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
         (and immediately on install) and restarts itself if it crashes.
       </p>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
-        <code style={codeStyle}>agentlens service status</code> checks whether it's running,{' '}
+        <code style={codeStyle}>traceroost service status</code> checks whether it's running,{' '}
         <code style={codeStyle}>logs</code> (or <code style={codeStyle}>logs --follow</code>) shows its
         output, <code style={codeStyle}>stop</code>/<code style={codeStyle}>start</code>/<code style={codeStyle}>restart</code> control
         it, and <code style={codeStyle}>uninstall</code> removes it — your data in{' '}
-        <code style={codeStyle}>~/.agentlens</code> is untouched either way. See{' '}
+        <code style={codeStyle}>~/.traceroost</code> is untouched either way. See{' '}
         <a href="https://github.com/traceroost/core#background-service-macos--windows--linux" target="_blank" rel="noreferrer">the README</a> for
         the full command reference and custom port/data-dir options.
       </p>
       <p style="font-size:12px;color:var(--muted);margin:0;background:var(--panel-bg);border-radius:3px;padding:8px 10px">
         <strong style="color:var(--fg)">The background service does not auto-update.</strong> It keeps
         running whatever version was installed until you run{' '}
-        <code style={codeStyle}>agentlens service update</code>, which installs the latest{' '}
-        <code style={codeStyle}>agentlens-dashboard</code> from npm and restarts the service on it.
+        <code style={codeStyle}>traceroost service update</code>, which installs the latest{' '}
+        <code style={codeStyle}>traceroost-dashboard</code> from npm and restarts the service on it.
       </p>
     </div>
   ) : null
@@ -427,7 +427,7 @@ function AgentOtelSection() {
     <div class="help-section" id="help-otel">
       <h3 class="help-heading">{HELP_SECTIONS.otel.heading}</h3>
       <div class="help-overview-body">
-        <p>AgentLens normalizes three different <a href="#gl-otlp">OTEL</a> shapes into one dashboard model. The shared model is a prompt-to-response <a href="#gl-session">session</a> with <a href="#gl-turn">LLM turns</a>, <a href="#gl-tool-call">tool calls</a>, <a href="#gl-tokens">token</a> usage, timing, errors, and files, but the raw data arrives differently for each agent.</p>
+        <p>TraceRoost normalizes three different <a href="#gl-otlp">OTEL</a> shapes into one dashboard model. The shared model is a prompt-to-response <a href="#gl-session">session</a> with <a href="#gl-turn">LLM turns</a>, <a href="#gl-tool-call">tool calls</a>, <a href="#gl-tokens">token</a> usage, timing, errors, and files, but the raw data arrives differently for each agent.</p>
         <div class="glossary">
           {AGENT_OTEL_SHAPES.map(row => (
             <div class="glossary-item" style="flex-direction:column;gap:6px">
@@ -446,7 +446,7 @@ function AgentOtelSection() {
           <div class="glossary-item" style="flex-direction:column;gap:6px">
             <dt class="glossary-term">OpenCode</dt>
             <dd class="glossary-def" style="display:block">
-              <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>Local SQLite database at <code style={codeStyle}>~/.local/share/opencode/opencode.db</code> (Linux/Mac) or <code style={codeStyle}>%APPDATA%\opencode\opencode.db</code> (Windows). No OTEL support. AgentLens reads the database directly using WASM SQLite, merging the WAL file at read time. Override the path with the <code style={codeStyle}>OPENCODE_DATA_DIR</code> environment variable.</p>
+              <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>Local SQLite database at <code style={codeStyle}>~/.local/share/opencode/opencode.db</code> (Linux/Mac) or <code style={codeStyle}>%APPDATA%\opencode\opencode.db</code> (Windows). No OTEL support. TraceRoost reads the database directly using WASM SQLite, merging the WAL file at read time. Override the path with the <code style={codeStyle}>OPENCODE_DATA_DIR</code> environment variable.</p>
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Session ID, workspace directory, model name, timestamps, all token counts (input, output, cache read/write), user request (last user message in the session), tool call names and inputs/outputs, file paths accessed by tools, and a full per-turn timeline of LLM calls and tool calls.</p>
               <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>OTEL traces, time-to-first-token, per-tool execution timing, streaming speed, and loop detection signals. Sessions show a <strong>Log</strong> badge and a blue info banner in the Overview tab noting these limitations.</p>
             </dd>
@@ -463,7 +463,7 @@ function SessionsSection() {
       <h3 class="help-heading">{HELP_SECTIONS.sessions.heading}</h3>
       <div class="help-overview-body">
         <p>The Sessions tab shows all recorded sessions as a sortable table — timestamp, prompt, model, tokens, duration, and estimated cost per row. Use the filter bar to search by text, filter by agent, data source (OTEL / Log), or initiator (User / Agent / API), set a time range, or cap the number of rows shown. The Reset button clears all active filters back to defaults.</p>
-        <p>Claude Code, Codex, and Copilot Chat (VS Code) each write one log file per work session on disk — but a single file can span multiple genuinely separate <a href="#gl-conversation">conversations</a> if a long idle gap (30+ minutes) separates them, so AgentLens splits it into one session card per conversation rather than showing one entry with a misleading multi-hour (or multi-day) duration. A colored bar on the left edge of a row marks sessions that came from the same original conversation — same color means same conversation, split apart by time. Hover the bar for its position (e.g. "Part 2 of 5"), or click it to isolate just that conversation's sessions — a banner appears above the filter bar naming the conversation's first prompt, with a <strong>Show all sessions</strong> button to clear it (or click the same bar again — the active bar renders slightly wider). Only sessions still visible under the active filters are colored; if a filter hides a sibling, the remaining row isn't colored — nothing implies a hidden sibling exists.</p>
+        <p>Claude Code, Codex, and Copilot Chat (VS Code) each write one log file per work session on disk — but a single file can span multiple genuinely separate <a href="#gl-conversation">conversations</a> if a long idle gap (30+ minutes) separates them, so TraceRoost splits it into one session card per conversation rather than showing one entry with a misleading multi-hour (or multi-day) duration. A colored bar on the left edge of a row marks sessions that came from the same original conversation — same color means same conversation, split apart by time. Hover the bar for its position (e.g. "Part 2 of 5"), or click it to isolate just that conversation's sessions — a banner appears above the filter bar naming the conversation's first prompt, with a <strong>Show all sessions</strong> button to clear it (or click the same bar again — the active bar renders slightly wider). Only sessions still visible under the active filters are colored; if a filter hides a sibling, the remaining row isn't colored — nothing implies a hidden sibling exists.</p>
         <p>Click any row to expand it in-place. Five sub-tabs appear beneath the row:</p>
 
         <h4 style={subHeadStyle}>Sub-tabs</h4>
@@ -645,7 +645,7 @@ function PatternsSection() {
         <p>The Advisor tab analyzes your session history to surface actionable improvements for your agent instruction file. All panels respect the shared filter bar — select a specific project from the workspace filter for suggestions tailored to that project's files and behavior. With no project selected, only patterns universal across all workspaces surface.</p>
 
         <h4 style={subHeadStyle}>Instructions File</h4>
-        <p style={mutedP}>AgentLens scans session patterns and generates specific, ready-to-copy suggestions for improving your instruction file (CLAUDE.md, AGENTS.md, .github/copilot-instructions.md, or similar). Suggestions are grouped by type:</p>
+        <p style={mutedP}>TraceRoost scans session patterns and generates specific, ready-to-copy suggestions for improving your instruction file (CLAUDE.md, AGENTS.md, .github/copilot-instructions.md, or similar). Suggestions are grouped by type:</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Hot file context</dt>
@@ -668,7 +668,7 @@ function PatternsSection() {
             <dd class="glossary-def" style="display:block">Triggered when a significant share of sessions exceed 1.5× the average turn count, indicating missing upfront context. Works for all agent types including Copilot.</dd>
           </div>
         </div>
-        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>AgentLens never edits your instruction file itself</strong> — nothing here writes to disk; every suggestion is copy-and-paste only, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it).</p>
+        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost never edits your instruction file itself</strong> — nothing here writes to disk; every suggestion is copy-and-paste only, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it).</p>
 
         <h4 style={subHeadStyle}>Efficiency Map</h4>
         <p style={mutedP}>A scatter plot where each dot is one session. Right = more expensive. Up = more LLM calls. Color = cache hit rate (green ≥60%, orange 20–60%, red &lt;20%). Click a dot to navigate to that session. The table below shows the top 10 sessions sorted by the active column — click any column header to re-sort.</p>
@@ -690,17 +690,17 @@ function CostSection() {
       <h3 class="help-heading">{HELP_SECTIONS.costs.heading}</h3>
       <div class="help-overview-body">
 
-        <h4 style={subHeadStyle}>Why AgentLens costs look higher than your subscription</h4>
-        <p>AgentLens calculates every session's cost using the published <strong>API metered rates</strong> — the per-token prices a developer pays when calling the Anthropic, OpenAI, or GitHub Copilot APIs directly. These are real public rates, not estimates.</p>
-        <p>If you use Claude Code on a <strong>Claude Pro or Max plan</strong>, or Copilot on a subscription plan, the cost AgentLens shows is the <em>API-equivalent value</em> of the compute you consumed — not what appears on your credit card. Subscription plans bundle a large monthly compute allowance at a flat rate that works out to roughly <strong>15–30× cheaper per token</strong> than paying metered API rates with the same dollar amount.</p>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:0">Think of it like a cell plan: you pay $50/month for unlimited data, but if you counted each byte at the retail pay-as-you-go rate, the number would look enormous. AgentLens shows you the pay-as-you-go equivalent — which tells you how much compute you're consuming and which sessions are expensive, even when you're not paying per token.</p>
+        <h4 style={subHeadStyle}>Why TraceRoost costs look higher than your subscription</h4>
+        <p>TraceRoost calculates every session's cost using the published <strong>API metered rates</strong> — the per-token prices a developer pays when calling the Anthropic, OpenAI, or GitHub Copilot APIs directly. These are real public rates, not estimates.</p>
+        <p>If you use Claude Code on a <strong>Claude Pro or Max plan</strong>, or Copilot on a subscription plan, the cost TraceRoost shows is the <em>API-equivalent value</em> of the compute you consumed — not what appears on your credit card. Subscription plans bundle a large monthly compute allowance at a flat rate that works out to roughly <strong>15–30× cheaper per token</strong> than paying metered API rates with the same dollar amount.</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:0">Think of it like a cell plan: you pay $50/month for unlimited data, but if you counted each byte at the retail pay-as-you-go rate, the number would look enormous. TraceRoost shows you the pay-as-you-go equivalent — which tells you how much compute you're consuming and which sessions are expensive, even when you're not paying per token.</p>
 
         <h4 style={subHeadStyle}>What the cost number is still useful for on a subscription</h4>
         <ul style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.8;margin-bottom:0">
           <li><strong style="color:var(--fg)">Relative cost</strong> — session A used 10× more compute than session B, regardless of billing model</li>
           <li><strong style="color:var(--fg)">Budget draw-down</strong> — identify which sessions eat through your monthly allowance fastest</li>
           <li><strong style="color:var(--fg)">Model comparison</strong> — see whether a cheaper model would give equivalent results for your typical session shape</li>
-          <li><strong style="color:var(--fg)">Overage warning</strong> — once you hit your included limit, additional usage is billed at metered rates; the AgentLens number tells you what that would cost</li>
+          <li><strong style="color:var(--fg)">Overage warning</strong> — once you hit your included limit, additional usage is billed at metered rates; the TraceRoost number tells you what that would cost</li>
           <li><strong style="color:var(--fg)">Prompt efficiency</strong> — context bloat and repeated reads show up as real cost differences even when you aren't paying per token</li>
         </ul>
 
@@ -715,10 +715,10 @@ function CostSection() {
             <tr><td style={tdBold}>Claude Pro</td><td style={tdStyle}>$20/month</td><td style={tdStyle}>Large bundled compute allowance shared between claude.ai and Claude Code CLI; resets on a rolling cycle</td></tr>
             <tr><td style={tdBold}>Claude Max 5×</td><td style={tdStyle}>$100/month</td><td style={tdStyle}>~5× the Pro allowance</td></tr>
             <tr><td style={tdBold}>Claude Max 20×</td><td style={tdStyle}>$200/month</td><td style={tdStyle}>~20× the Pro allowance</td></tr>
-            <tr><td style={tdBold}>API (no plan)</td><td style={tdStyle}>Pay-per-token</td><td style={tdStyle}>Billed exactly at published Anthropic rates — AgentLens cost = your actual charge</td></tr>
+            <tr><td style={tdBold}>API (no plan)</td><td style={tdStyle}>Pay-per-token</td><td style={tdStyle}>Billed exactly at published Anthropic rates — TraceRoost cost = your actual charge</td></tr>
           </tbody>
         </table>
-        <p style={mutedP}>Claude Code CLI draws from the same compute pool as claude.ai. At published rates (e.g. claude-sonnet-4-6: $3.00 input / $15.00 output per million tokens), $20/month buys roughly 6–7M input tokens — but a Pro subscriber can typically use far more than that within the plan. When you exhaust your monthly allowance, additional usage is billed at standard API rates. Subscribers billed via the Anthropic API directly (not a claude.ai plan) see costs that match AgentLens exactly.</p>
+        <p style={mutedP}>Claude Code CLI draws from the same compute pool as claude.ai. At published rates (e.g. claude-sonnet-4-6: $3.00 input / $15.00 output per million tokens), $20/month buys roughly 6–7M input tokens — but a Pro subscriber can typically use far more than that within the plan. When you exhaust your monthly allowance, additional usage is billed at standard API rates. Subscribers billed via the Anthropic API directly (not a claude.ai plan) see costs that match TraceRoost exactly.</p>
 
         <h4 style={subHeadStyle}>GitHub Copilot — AI Credits model (from June 2026)</h4>
         <table style={tblStyle}>
@@ -734,10 +734,10 @@ function CostSection() {
             <tr><td style={tdBold}>Copilot Max</td><td style={tdStyle}>Enterprise</td><td style={tdStyle}>20,000 credits</td><td style={tdStyle}>$0.01/credit</td></tr>
           </tbody>
         </table>
-        <p style={mutedP}>1 AI Credit = $0.01. Some models are <strong>included</strong> (zero credits — they show as $0.00 in AgentLens). Premium models consume credits from your monthly allowance; usage above the allowance is charged at the overage rate. Code completions and Next Edit Suggestions are free and not tracked by AgentLens. The AgentLens cost for a Copilot session divided by $0.01 gives the credit count consumed. Copilot switched from a request-multiplier model to token-based AI Credits in June 2026; AgentLens auto-detects which billing model applies based on the session date.</p>
+        <p style={mutedP}>1 AI Credit = $0.01. Some models are <strong>included</strong> (zero credits — they show as $0.00 in TraceRoost). Premium models consume credits from your monthly allowance; usage above the allowance is charged at the overage rate. Code completions and Next Edit Suggestions are free and not tracked by TraceRoost. The TraceRoost cost for a Copilot session divided by $0.01 gives the credit count consumed. Copilot switched from a request-multiplier model to token-based AI Credits in June 2026; TraceRoost auto-detects which billing model applies based on the session date.</p>
 
         <h4 style={subHeadStyle}>Codex CLI — API billing only</h4>
-        <p style={mutedP}>Codex CLI is billed entirely through the OpenAI API at metered token rates. <strong>ChatGPT Plus and ChatGPT Pro are separate products</strong> covering the web app only — they do not reduce or offset Codex CLI API costs. The AgentLens cost shown for Codex sessions is exactly what OpenAI charges, making it the most directly actionable of the three: there is no subscription discount to account for.</p>
+        <p style={mutedP}>Codex CLI is billed entirely through the OpenAI API at metered token rates. <strong>ChatGPT Plus and ChatGPT Pro are separate products</strong> covering the web app only — they do not reduce or offset Codex CLI API costs. The TraceRoost cost shown for Codex sessions is exactly what OpenAI charges, making it the most directly actionable of the three: there is no subscription discount to account for.</p>
         <table style={tblStyle}>
           <thead><tr>
             <th style={thStyle}>Model</th>
@@ -803,7 +803,7 @@ function SettingsSection() {
         </div>
 
         <h4 id="help-automation" style={subHeadStyle}>Automation</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Automations watch live sessions and fire a correction prompt when a session crosses a threshold — but AgentLens never sends that prompt to the agent process itself; nothing pushes it in without something on the agent's side asking for it. There are three ways it reaches you, per automation, controlled by its <strong>Write prompts file</strong> toggle in Settings, plus an always-on MCP path: by default, a notification appears (VS Code warning notification, or an in-page notification in standalone/npx mode) with a <strong>Copy Prompt</strong> button — you copy it and paste it into the agent yourself. With <strong>Write prompts file</strong> enabled instead, AgentLens appends the prompt to <code style={codeStyle}>agentlens-prompts-&#123;agent&#125;.md</code> in the workspace root rather than showing a notification; nothing reads that file back to the agent automatically — it only helps if you (or an instruction you've added to CLAUDE.md/AGENTS.md) has the agent check it. Third, the MCP tool <code style={codeStyle}>check_automation_triggers</code> (see <a href="#help-mcp">MCP</a>) lets an agent poll for its own triggers directly — but it always evaluates against AgentLens's default thresholds, not any per-agent customization made here in Settings, since that customization lives only in the dashboard's browser storage. Each automation shown below can still be enabled per-agent with independent thresholds for Claude Code, Copilot, and Codex for the notification/file delivery paths.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Automations watch live sessions and fire a correction prompt when a session crosses a threshold — but TraceRoost never sends that prompt to the agent process itself; nothing pushes it in without something on the agent's side asking for it. There are three ways it reaches you, per automation, controlled by its <strong>Write prompts file</strong> toggle in Settings, plus an always-on MCP path: by default, a notification appears (VS Code warning notification, or an in-page notification in standalone/npx mode) with a <strong>Copy Prompt</strong> button — you copy it and paste it into the agent yourself. With <strong>Write prompts file</strong> enabled instead, TraceRoost appends the prompt to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> in the workspace root rather than showing a notification; nothing reads that file back to the agent automatically — it only helps if you (or an instruction you've added to CLAUDE.md/AGENTS.md) has the agent check it. Third, the MCP tool <code style={codeStyle}>check_automation_triggers</code> (see <a href="#help-mcp">MCP</a>) lets an agent poll for its own triggers directly — but it always evaluates against TraceRoost's default thresholds, not any per-agent customization made here in Settings, since that customization lives only in the dashboard's browser storage. Each automation shown below can still be enabled per-agent with independent thresholds for Claude Code, Copilot, and Codex for the notification/file delivery paths.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Context Compaction</dt>
@@ -824,7 +824,7 @@ function SettingsSection() {
         </div>
 
         <h4 id="help-clear-all" style={subHeadStyle}>Clear All Data</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">This button only deletes what AgentLens itself has stored — its local database/cache of parsed sessions. It does <strong>not</strong> touch the source files it read those sessions from: OTEL-captured sessions are removed permanently, but log-sourced sessions (Claude Code, Codex, Copilot JSONL logs, OpenCode's SQLite database) are re-read from those local log files and will reappear on the next scan. AgentLens currently has no feature to delete the underlying log files themselves — if you want those gone too, remove or rotate them yourself outside AgentLens (e.g. in <code style={codeStyle}>~/.claude/</code>, <code style={codeStyle}>~/.codex/</code>, <code style={codeStyle}>~/.copilot/</code>).</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">This button only deletes what TraceRoost itself has stored — its local database/cache of parsed sessions. It does <strong>not</strong> touch the source files it read those sessions from: OTEL-captured sessions are removed permanently, but log-sourced sessions (Claude Code, Codex, Copilot JSONL logs, OpenCode's SQLite database) are re-read from those local log files and will reappear on the next scan. TraceRoost currently has no feature to delete the underlying log files themselves — if you want those gone too, remove or rotate them yourself outside TraceRoost (e.g. in <code style={codeStyle}>~/.claude/</code>, <code style={codeStyle}>~/.codex/</code>, <code style={codeStyle}>~/.copilot/</code>).</p>
       </div>
     </div>
   )
@@ -833,8 +833,8 @@ function SettingsSection() {
 function McpSection() {
   const standalone = window.__STANDALONE__ === true
   const mcpUrl = 'http://localhost:4316/mcp'
-  const settingsJson = JSON.stringify({ mcpServers: { agentlens: { url: mcpUrl } } }, null, 2)
-  const claudeMd = `# AgentLens MCP
+  const settingsJson = JSON.stringify({ mcpServers: { traceroost: { url: mcpUrl } } }, null, 2)
+  const claudeMd = `# TraceRoost MCP
 Before any task: call get_recent_sessions (recent work + cost) and get_workspace_patterns (hot files, recurring issues).
 Only use find_relevant_context if your task closely matches past prompts by keyword — skip it for novel tasks.`
 
@@ -842,24 +842,24 @@ Only use find_relevant_context if your task closely matches past prompts by keyw
     <div class="help-section" id="help-mcp">
       <h3 class="help-heading">{HELP_SECTIONS.mcp.heading}</h3>
       <div class="help-overview-body">
-        <p>AgentLens runs an MCP server that gives Claude Code direct access to your session history. Instead of checking the dashboard yourself, Claude can query its own past work — loading the files it usually needs before making its first tool call, estimating what a task will cost, and flagging patterns that have caused problems before.</p>
+        <p>TraceRoost runs an MCP server that gives Claude Code direct access to your session history. Instead of checking the dashboard yourself, Claude can query its own past work — loading the files it usually needs before making its first tool call, estimating what a task will cost, and flagging patterns that have caused problems before.</p>
 
         <h4 style={subHeadStyle}>Step 1 — Confirm the MCP server is running</h4>
         <p style={mutedP}>
           {standalone
             ? <>The standalone server starts a dedicated MCP server on port 4316 automatically — no extra setup needed. Endpoint: <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a>.</>
-            : <>The VS Code extension starts an MCP server on port 4316 by default when AgentLens activates. To disable it, set <code style={codeStyle}>agentLens.enableMcpServer</code> to <code style={codeStyle}>false</code> in VS Code settings. To change the port, set <code style={codeStyle}>agentLens.mcpPort</code>.</>
+            : <>The VS Code extension starts an MCP server on port 4316 by default when TraceRoost activates. To disable it, set <code style={codeStyle}>traceRoost.enableMcpServer</code> to <code style={codeStyle}>false</code> in VS Code settings. To change the port, set <code style={codeStyle}>traceRoost.mcpPort</code>.</>
           }
         </p>
-        <p style={mutedP}>Verify it's up by opening <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a> in a browser — you should see <code style={codeStyle}>{`{"status":"ok","server":"agentlens-mcp",...}`}</code>. If the page doesn't load, the server isn't running.</p>
+        <p style={mutedP}>Verify it's up by opening <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a> in a browser — you should see <code style={codeStyle}>{`{"status":"ok","server":"traceroost-mcp",...}`}</code>. If the page doesn't load, the server isn't running.</p>
 
         <h4 style={subHeadStyle}>Step 2 — Configure Claude Code</h4>
         <p style={mutedP}>Add the following to <code style={codeStyle}>~/.claude/settings.json</code> (create the file if it doesn't exist):</p>
         <pre style={preStyle}>{settingsJson}</pre>
-        <p style={mutedP}>If you use the VS Code extension, the <code style={codeStyle}>contributes.mcpServers</code> entry in AgentLens's manifest may configure this automatically — check your Claude Code MCP settings to confirm.</p>
+        <p style={mutedP}>If you use the VS Code extension, the <code style={codeStyle}>contributes.mcpServers</code> entry in TraceRoost's manifest may configure this automatically — check your Claude Code MCP settings to confirm.</p>
 
         <h4 style={subHeadStyle}>Step 3 — Add to CLAUDE.md (optional but recommended)</h4>
-        <p style={mutedP}>Add a block like this to your project's <code style={codeStyle}>CLAUDE.md</code> so Claude automatically uses AgentLens at the start of each session. The block is intentionally brief — every line in CLAUDE.md is loaded into the context window on every call, so keeping it short avoids unnecessary token spend.</p>
+        <p style={mutedP}>Add a block like this to your project's <code style={codeStyle}>CLAUDE.md</code> so Claude automatically uses TraceRoost at the start of each session. The block is intentionally brief — every line in CLAUDE.md is loaded into the context window on every call, so keeping it short avoids unnecessary token spend.</p>
         <pre style={preStyle}>{claudeMd}</pre>
 
         <h4 style={subHeadStyle}>Available tools</h4>
@@ -890,30 +890,30 @@ Only use find_relevant_context if your task closely matches past prompts by keyw
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>check_automation_triggers</code></dt>
-            <dd class="glossary-def" style="display:block">Checks the four built-in automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up — see <a href="#help-automation">Automation</a> above) against the workspace's current in-progress, recently-active session(s), and returns any that are currently triggered with ready-to-use correction prompt text. Uses AgentLens's default thresholds only, not per-agent customization made in Settings. Read-only and safe to call repeatedly — a given trigger is only returned once until its underlying condition changes, so an agent can poll this periodically during a long task as a self-check. Requires <code style={codeStyle}>workspace</code> (absolute path).</dd>
+            <dd class="glossary-def" style="display:block">Checks the four built-in automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up — see <a href="#help-automation">Automation</a> above) against the workspace's current in-progress, recently-active session(s), and returns any that are currently triggered with ready-to-use correction prompt text. Uses TraceRoost's default thresholds only, not per-agent customization made in Settings. Read-only and safe to call repeatedly — a given trigger is only returned once until its underlying condition changes, so an agent can poll this periodically during a long task as a self-check. Requires <code style={codeStyle}>workspace</code> (absolute path).</dd>
           </div>
         </div>
 
         <h4 style={subHeadStyle}>Example prompts</h4>
         <pre style={preStyle}>{`# Always useful — run these before any task:
-Use agentlens get_recent_sessions to see what was worked on recently.
-Use agentlens get_workspace_patterns to see recurring problems and known traps.
+Use traceroost get_recent_sessions to see what was worked on recently.
+Use traceroost get_workspace_patterns to see recurring problems and known traps.
 
 # Worth running when task keywords match established workflows:
-Use agentlens find_relevant_context with task="add OAuth to the auth module"
+Use traceroost find_relevant_context with task="add OAuth to the auth module"
 to see what files similar sessions touched and what they typically cost.
 (Skip this for new feature work — keyword matching won't find good matches.)
 
 # To check efficiency trends over time:
-Use agentlens get_efficiency_report to see if sessions are getting more or
+Use traceroost get_efficiency_report to see if sessions are getting more or
 less expensive, and which loop signals keep recurring.
 
 # Before starting work — check for open Advisor suggestions:
-Use agentlens get_instruction_suggestions with workspace="/absolute/path/to/project"
+Use traceroost get_instruction_suggestions with workspace="/absolute/path/to/project"
 to see pending instruction-file suggestions before beginning work.
 
 # Periodically during a long task — self-check for stuck-agent patterns:
-Use agentlens check_automation_triggers with workspace="/absolute/path/to/project"
+Use traceroost check_automation_triggers with workspace="/absolute/path/to/project"
 and follow any correction prompt it returns before continuing.`}</pre>
 
       </div>
@@ -938,7 +938,7 @@ function ExportSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Format: JSON</dt>
-            <dd class="glossary-def" style="display:block">Full-fidelity structured export. The only format the Import tab reads back in — use this if you plan to bring the data into AgentLens on another machine.</dd>
+            <dd class="glossary-def" style="display:block">Full-fidelity structured export. The only format the Import tab reads back in — use this if you plan to bring the data into TraceRoost on another machine.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Format: CSV</dt>
@@ -960,7 +960,7 @@ function ImportSection() {
     <div class="help-section" id="help-import">
       <h3 class="help-heading">{HELP_SECTIONS.import.heading}</h3>
       <div class="help-overview-body">
-        <p>The Import tab loads sessions from a previous AgentLens <strong>JSON</strong> export back into the current installation — useful for migrating to a new machine, sharing session history with a teammate, or restoring a backup. Works the same way in both the VS Code extension and standalone server.</p>
+        <p>The Import tab loads sessions from a previous TraceRoost <strong>JSON</strong> export back into the current installation — useful for migrating to a new machine, sharing session history with a teammate, or restoring a backup. Works the same way in both the VS Code extension and standalone server.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Loading a file</dt>
@@ -1001,7 +1001,7 @@ function BadgesSection() {
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:#ffffff;border-color:#ffffff`}>OTEL</span>
           </dt>
-          <dd class="glossary-def">Full OpenTelemetry telemetry — timing, TTFT, span waterfall, loop signals. Requires the agent to be configured to export traces to AgentLens.</dd>
+          <dd class="glossary-def">Full OpenTelemetry telemetry — timing, TTFT, span waterfall, loop signals. Requires the agent to be configured to export traces to TraceRoost.</dd>
         </div>
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
@@ -1074,7 +1074,7 @@ export function Help() {
         <BadgesSection />
         <GlossarySection />
         <p style="font-size:11px;color:var(--muted);margin-top:24px;padding-top:12px;border-top:1px solid var(--border);line-height:1.6">
-          <strong>Disclaimer:</strong> AgentLens is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); or OpenAI, LLC (Codex / Codex CLI). All product names, trademarks, and registered trademarks are the property of their respective owners. AgentLens interacts with these products solely through their publicly documented OpenTelemetry telemetry interfaces.
+          <strong>Disclaimer:</strong> TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); or OpenAI, LLC (Codex / Codex CLI). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products solely through their publicly documented OpenTelemetry telemetry interfaces.
         </p>
       </div>
     </div>

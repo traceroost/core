@@ -42,7 +42,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            agentlens/agentlens
+            traceroost/traceroost
             ghcr.io/${{ github.repository }}
           tags: |
             type=semver,pattern={{version}}

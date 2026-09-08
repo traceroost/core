@@ -20,18 +20,18 @@ RUN node esbuild.js --production
 FROM node:24-alpine
 WORKDIR /app
 
-RUN addgroup -S agentlens && adduser -S agentlens -G agentlens
+RUN addgroup -S traceroost && adduser -S traceroost -G traceroost
 
-COPY --from=builder --chown=agentlens:agentlens /app/standalone/server.js ./standalone/server.js
-COPY --from=builder --chown=agentlens:agentlens /app/media/dashboard.js   ./media/dashboard.js
-COPY --from=builder --chown=agentlens:agentlens /app/media/dashboard.css  ./media/dashboard.css
-COPY --from=builder --chown=agentlens:agentlens /app/media/help-mascot.png ./media/help-mascot.png
-COPY --from=builder --chown=agentlens:agentlens /app/media/mascot.png     ./media/mascot.png
+COPY --from=builder --chown=traceroost:traceroost /app/standalone/server.js ./standalone/server.js
+COPY --from=builder --chown=traceroost:traceroost /app/media/dashboard.js   ./media/dashboard.js
+COPY --from=builder --chown=traceroost:traceroost /app/media/dashboard.css  ./media/dashboard.css
+COPY --from=builder --chown=traceroost:traceroost /app/media/help-mascot.png ./media/help-mascot.png
+COPY --from=builder --chown=traceroost:traceroost /app/media/mascot.png     ./media/mascot.png
 
-RUN mkdir -p /data && chown agentlens:agentlens /data
+RUN mkdir -p /data && chown traceroost:traceroost /data
 VOLUME ["/data"]
 
-USER agentlens
+USER traceroost
 
 ENV OTLP_PORT=4318 \
     UI_PORT=3000 \

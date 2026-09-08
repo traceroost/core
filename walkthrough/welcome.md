@@ -1,4 +1,4 @@
-AgentLens gives you local observability into your AI agent sessions — see what GitHub Copilot, Claude Code, and Codex are doing, how efficiently, and when they get stuck. No data leaves your machine.
+TraceRoost gives you local observability into your AI agent sessions — see what GitHub Copilot, Claude Code, and Codex are doing, how efficiently, and when they get stuck. No data leaves your machine.
 
 ## Two data sources, one dashboard
 
@@ -15,4 +15,4 @@ AgentLens gives you local observability into your AI agent sessions — see what
 - **Efficiency recommendations** with one-click actions
 - **Cost estimates** per session and per day
 
-Click **AgentLens** in the Activity Bar (the icon on the left) to open the sidebar panel.
+Click **TraceRoost** in the Activity Bar (the icon on the left) to open the sidebar panel.

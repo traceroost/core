@@ -122,7 +122,7 @@ sessions; don't expect to re-verify them.
 
 **Known gaps:**
 
-- **Copilot code review multiplier**: not currently modeled in `pricing.ts` — AgentLens doesn't
+- **Copilot code review multiplier**: not currently modeled in `pricing.ts` — TraceRoost doesn't
   distinguish code-review-triggered requests from regular premium requests.
 - `gpt-4o`, `gpt-4o-mini` are no longer listed on the current AI Credits pricing page at all (paid
   or included). Kept in `RATES` at their legacy rate for historical/legacy sessions; treat as
@@ -249,8 +249,8 @@ Claude Opus 4.7 and later Opus models, Claude Fable 5 / 5.1, Claude Mythos 5 / 5
 **Known gaps:**
 
 - **Cache write TTL**: Anthropic supports 5-minute and 1-hour cache TTLs at different rates (1.25x and 2x base input price respectively; cache reads are 0.1x base input). The `cache_creation_tokens` field in telemetry does not distinguish between them. Claude Code CLI uses 5-minute caches by default, so the 5-minute rate is used. If 1-hour caches are in use, cost will be underestimated by roughly 37%.
-- **Fast mode (`/fast`)**: When fast mode is active, `usage.speed` is `"fast"` in the local JSONL log. AgentLens reads this and appends `-fast` to the stored model ID (e.g. `claude-opus-4-7-fast`) so the correct rate is applied. See the fast-mode note under the rate table above for current per-model status.
-  **This detection is log-only.** The OTEL fields Claude Code CLI exports on `claude_code.llm_request` spans (listed above — model, input/output/cache tokens, ttft_ms, stop_reason) don't include a speed/fast-mode attribute at all, so `src/summarizers/claude.ts` (the OTEL ingestion path) has nothing to key off — every OTEL-ingested session is priced at the standard rate regardless of whether fast mode was active. This is an upstream telemetry gap (Claude Code doesn't emit fast-mode status via OTEL), not a missed read on AgentLens's side — re-check if Anthropic ever adds a speed-equivalent OTEL attribute. Sessions ingested from the local log file (rather than OTEL) are unaffected.
+- **Fast mode (`/fast`)**: When fast mode is active, `usage.speed` is `"fast"` in the local JSONL log. TraceRoost reads this and appends `-fast` to the stored model ID (e.g. `claude-opus-4-7-fast`) so the correct rate is applied. See the fast-mode note under the rate table above for current per-model status.
+  **This detection is log-only.** The OTEL fields Claude Code CLI exports on `claude_code.llm_request` spans (listed above — model, input/output/cache tokens, ttft_ms, stop_reason) don't include a speed/fast-mode attribute at all, so `src/summarizers/claude.ts` (the OTEL ingestion path) has nothing to key off — every OTEL-ingested session is priced at the standard rate regardless of whether fast mode was active. This is an upstream telemetry gap (Claude Code doesn't emit fast-mode status via OTEL), not a missed read on TraceRoost's side — re-check if Anthropic ever adds a speed-equivalent OTEL attribute. Sessions ingested from the local log file (rather than OTEL) are unaffected.
 - **Data residency multiplier**: `inference_geo: "us"` (Opus 4.6, Sonnet 4.6, and later models) applies a 1.1x multiplier to all token pricing categories. Not currently modeled — cost is underestimated by ~10% for sessions pinned to US-only inference.
 - **Deprecated models**: Models older than claude-opus-4 (e.g. claude-3-5-sonnet, claude-3-opus) may appear in historical sessions. Add them to `RATES` in `pricing.ts` if encountered; missing models show as `~$?`.
 
@@ -372,7 +372,7 @@ OpenCode uses token-based pricing for third-party models (routed through its pro
 - `deepseek-v4-flash-free`, `mimo-v2.5-free`, `hy3-free`, `laguna-s-2.1-free`, `ling-3.0-tiny-free`, `nemotron-3-ultra-free`, `nemotron-3.5-lightning-free` — added 2026-08-12, exact ID slugs confirmed from the Zen docs (previously withheld pending confirmation)
 - `ling-3.0-flash-fin-free`, `muse-spark-1.2-contributor-free` — added 2026-09-01. `muse-spark-1.2-contributor-free`'s slug was flagged unconfirmed last pass and is now confirmed on the page. `ling-3.0-flash-fin-free` is new this pass and looks like a rename of `ling-3.0-tiny-free` (which is gone from the page) — the old key is kept anyway, see Known gaps.
 
-**Model ID in OpenCode SQLite:** Stored as JSON `{"id":"<model-id>","providerID":"opencode"}` in the `model` column of the `session` table. AgentLens extracts the `id` field and normalizes it for rate lookup.
+**Model ID in OpenCode SQLite:** Stored as JSON `{"id":"<model-id>","providerID":"opencode"}` in the `model` column of the `session` table. TraceRoost extracts the `id` field and normalizes it for rate lookup.
 
 **Known gaps:**
 
@@ -388,8 +388,8 @@ OpenCode uses token-based pricing for third-party models (routed through its pro
   is almost certainly the rename. Both keys are in `RATES` now ($0), so a session on either resolves.
 - **"Muse Spark 1.2 Contributor Free"** — flagged last pass with an unconfirmed slug; the page now
   shows `muse-spark-1.2-contributor-free`, which is added to `RATES` this pass.
-- OpenCode Zen also lists 40+ paid third-party models (GPT, Claude, Gemini, Grok, DeepSeek, Qwen, MiniMax, GLM, Kimi families) not covered here — those are billed by the underlying provider at standard rates; AgentLens applies the provider's published rates for those models automatically via the existing per-provider entries in `RATES` (not OpenCode-specific ones).
-- Other models used through OpenCode (e.g. Anthropic, OpenAI, or Google models routed via OpenCode's provider abstraction) are billed by the underlying provider at their standard rates. AgentLens applies the provider's published rates for those models automatically.
+- OpenCode Zen also lists 40+ paid third-party models (GPT, Claude, Gemini, Grok, DeepSeek, Qwen, MiniMax, GLM, Kimi families) not covered here — those are billed by the underlying provider at standard rates; TraceRoost applies the provider's published rates for those models automatically via the existing per-provider entries in `RATES` (not OpenCode-specific ones).
+- Other models used through OpenCode (e.g. Anthropic, OpenAI, or Google models routed via OpenCode's provider abstraction) are billed by the underlying provider at their standard rates. TraceRoost applies the provider's published rates for those models automatically.
 
 ---
 

@@ -8,8 +8,8 @@
  * src/instructionAdvisor.ts / media/src/tabs/Instructions.tsx split follows the same pattern).
  *
  * Known simplification vs. the webview version: there is no server-side equivalent of the
- * per-user threshold customization stored in the browser's localStorage (agentLens.automationConfigs,
- * agentLens.agentProfiles) — this always evaluates against the same defaults shown in the
+ * per-user threshold customization stored in the browser's localStorage (traceRoost.automationConfigs,
+ * traceRoost.agentProfiles) — this always evaluates against the same defaults shown in the
  * Settings panel until a user changes them there. Fired-trigger dedup is in-memory only and
  * resets on server restart.
  */

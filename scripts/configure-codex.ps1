@@ -1,4 +1,4 @@
-# Configure Codex to send OTLP telemetry to AgentLens.
+# Configure Codex to send OTLP telemetry to TraceRoost.
 # Safe to re-run: if an [otel] section already exists, the script exits without changes.
 #
 # Usage:
@@ -6,14 +6,14 @@
 #   .\scripts\configure-codex.ps1 -Port 4319   # custom port
 
 param(
-    [int]$Port = $(if ($env:AGENTLENS_PORT) { [int]$env:AGENTLENS_PORT } else { 4318 })
+    [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 })
 )
 
 $ErrorActionPreference = "Stop"
 $Endpoint = "http://localhost:$Port"
 $ConfigPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 
-Write-Host "Configuring Codex for AgentLens at $Endpoint..."
+Write-Host "Configuring Codex for TraceRoost at $Endpoint..."
 
 if ((Test-Path $ConfigPath) -and (Select-String -Path $ConfigPath -Pattern '^\[otel\]' -Quiet)) {
     Write-Host ""

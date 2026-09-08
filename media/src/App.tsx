@@ -41,7 +41,7 @@ const TABS = [
   { id: 'analytics',  label: 'Analytics',  title: 'Aggregate charts and metrics: token/cost trends, agent comparison, tool distribution, and active insights.' },
   { id: 'patterns',   label: 'Advisor',    title: 'Cross-session behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
   { id: 'export',     label: 'Export',     title: 'Export raw or redacted session data as JSON files.' },
-  { id: 'import',     label: 'Import',     title: 'Import session data from an AgentLens export file.' },
+  { id: 'import',     label: 'Import',     title: 'Import session data from a TraceRoost export file.' },
 ]
 
 function ActivePanel() {
@@ -263,7 +263,7 @@ function PricingButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
-      title="Pricing — full rate table AgentLens uses to estimate cost"
+      title="Pricing — full rate table TraceRoost uses to estimate cost"
       onClick={() => { activeTab.value = 'pricing' }}
     ><IconDollar /></button>
   )
@@ -431,14 +431,14 @@ export function App() {
       <div class="tabs">
         <button
           class="sidebar-toggle-btn"
-          title={sidebarOpen.value ? 'Close AgentLens sidebar' : 'Open AgentLens sidebar'}
+          title={sidebarOpen.value ? 'Close TraceRoost sidebar' : 'Open TraceRoost sidebar'}
           onClick={() => {
             const opening = !sidebarOpen.value
             sidebarOpen.value = opening
             if (vscode) {
               vscode.postMessage({ type: opening ? 'openSidebar' : 'closeSidebar' })
             } else {
-              window.dispatchEvent(new CustomEvent('agentlens:sidebar', { detail: { open: opening } }))
+              window.dispatchEvent(new CustomEvent('traceroost:sidebar', { detail: { open: opening } }))
             }
           }}
         >
@@ -460,7 +460,7 @@ export function App() {
       </div>
 
       <ConfigPanel />
-      <img id="mascot-img" src="" alt="AgentLens mascot" style="display:none" />
+      <img id="mascot-img" src="" alt="TraceRoost mascot" style="display:none" />
     </>
   )
 }

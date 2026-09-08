@@ -1,10 +1,10 @@
-# Contributing to AgentLens
+# Contributing to TraceRoost
 
 Thank you for your interest in contributing.
 
 ## Project scope
 
-AgentLens the local agent — everything in this repo — is MIT-licensed and stays that way. Features
+TraceRoost the local agent — everything in this repo — is MIT-licensed and stays that way. Features
 that make it more useful for a single developer watching their own sessions belong here, and PRs
 for them are welcome.
 
@@ -22,18 +22,18 @@ Open an issue at <https://github.com/traceroost/core/issues> and use the bug rep
 
 - The agent you were using (Copilot, Claude Code, Codex)
 - Whether you're using the VS Code extension or standalone mode
-- The AgentLens version (visible in the sidebar footer)
-- Relevant output from the **AgentLens** output channel (*View → Output → AgentLens*)
+- The TraceRoost version (visible in the sidebar footer)
+- Relevant output from the **TraceRoost** output channel (*View → Output → TraceRoost*)
 
 ## Development setup
 
 ```bash
 git clone https://github.com/traceroost/core
-cd agentlens
+cd traceroost
 pnpm install
 ```
 
-**Run in VS Code:** Press `F5` to open a VS Code Extension Development Host with AgentLens loaded.
+**Run in VS Code:** Press `F5` to open a VS Code Extension Development Host with TraceRoost loaded.
 
 **Run standalone:** `pnpm run local` — starts the OTLP collector on port `4318` and the dashboard UI on port `3000`.
 

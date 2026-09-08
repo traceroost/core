@@ -1,7 +1,7 @@
 /** Same convention as the Dockerfile's HEALTHCHECK (`wget -qO- http://localhost:3000/health`) —
  *  any 200 from the UI port's unauthenticated /health route means the server is up. Used for
- *  `agentlens service status` across all three platforms instead of parsing
- *  launchctl/systemctl/schtasks output, which is more meaningful ("is AgentLens actually
+ *  `traceroost service status` across all three platforms instead of parsing
+ *  launchctl/systemctl/schtasks output, which is more meaningful ("is TraceRoost actually
  *  reachable") and avoids three different fragile text-parsing paths. /health (rather than /)
  *  is required now that / requires the auth token — see src/httpSecurity.ts. */
 export async function probeServiceHealth(uiPort: number, bindHost: string): Promise<boolean> {

@@ -68,9 +68,9 @@ export class OtlpCollector {
         const body = Buffer.concat(chunks).toString('utf-8')
         const bodyLen = body.length
         
-        if (req.method === 'GET' && req.url === '/agentlens/plugin') {
+        if (req.method === 'GET' && req.url === '/traceroost/plugin') {
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ agentlens: true, kind: 'plugin' }))
+          res.end(JSON.stringify({ traceroost: true, kind: 'plugin' }))
           return
         }
 
@@ -586,7 +586,7 @@ export class OtlpCollector {
           name: span.name,
           startTime: span.startTimeUnixNano as string,
           endTime: span.endTimeUnixNano as string,
-          attributes: this.setStringAttr(attrs, '_agentlens.collector_path', collectorPath),
+          attributes: this.setStringAttr(attrs, '_traceroost.collector_path', collectorPath),
           status: span.status as { code: number; message?: string } | undefined
         })
         count++

@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Configure GitHub Copilot CLI to send OTLP telemetry to AgentLens.
+# Configure GitHub Copilot CLI to send OTLP telemetry to TraceRoost.
 # Adds environment variable exports to your shell profile.
 #
-# The GitHub Copilot VS Code extension is configured automatically by AgentLens;
+# The GitHub Copilot VS Code extension is configured automatically by TraceRoost;
 # this script only handles the Copilot CLI (the `copilot` command).
 #
 # Usage:
 #   ./scripts/configure-copilot.sh          # uses port 4318 (default)
 #   ./scripts/configure-copilot.sh 4319     # custom port
-#   AGENTLENS_PORT=4319 ./scripts/configure-copilot.sh
+#   TRACEROOST_PORT=4319 ./scripts/configure-copilot.sh
 
 set -euo pipefail
 
-PORT=${1:-${AGENTLENS_PORT:-4318}}
+PORT=${1:-${TRACEROOST_PORT:-4318}}
 ENDPOINT="http://localhost:${PORT}"
 
-echo "Configuring GitHub Copilot CLI for AgentLens at ${ENDPOINT}..."
+echo "Configuring GitHub Copilot CLI for TraceRoost at ${ENDPOINT}..."
 
 # Detect shell profile
 if [ -n "${BASH_VERSION:-}" ] && [ -f "$HOME/.bashrc" ]; then
@@ -49,7 +49,7 @@ if grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT' "$PROFILE" 2>/dev/null; then
 fi
 
 # Append the exports
-printf "\n# AgentLens — Copilot CLI telemetry\nexport OTEL_EXPORTER_OTLP_ENDPOINT=\"${ENDPOINT}\"\nexport OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true\n" >> "$PROFILE"
+printf "\n# TraceRoost — Copilot CLI telemetry\nexport OTEL_EXPORTER_OTLP_ENDPOINT=\"${ENDPOINT}\"\nexport OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true\n" >> "$PROFILE"
 
 echo "  Updated ${PROFILE}"
 echo ""

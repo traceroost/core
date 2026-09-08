@@ -575,7 +575,7 @@ export function Sessions() {
       </table>
       </div>
       <div style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        {window.__VERSION__ && <span>AgentLens v{window.__VERSION__}</span>}
+        {window.__VERSION__ && <span>TraceRoost v{window.__VERSION__}</span>}
         {totalPages > 1 && (
           <span style="display:flex;align-items:center;gap:8px">
             <span>Showing {rangeStart}–{rangeEnd} of {sessions.length}</span>

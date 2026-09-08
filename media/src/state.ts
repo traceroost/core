@@ -168,7 +168,7 @@ export function setVscode(api: VsCodeApi): void { vscode = api }
 
 export type ThemePreference = 'system' | 'dark' | 'light'
 
-const THEME_STORAGE_KEY = 'agentlens-theme'
+const THEME_STORAGE_KEY = 'traceroost-theme'
 
 function readStoredTheme(): ThemePreference {
   try {
@@ -210,7 +210,7 @@ export function setThemePreference(pref: ThemePreference): void {
 // every other threshold in this project; adjustable in Settings for anyone who wants it larger.
 export const SESSIONS_PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500] as const
 const DEFAULT_SESSIONS_PAGE_SIZE = 50
-const SESSIONS_PAGE_SIZE_STORAGE_KEY = 'agentlens-sessions-page-size'
+const SESSIONS_PAGE_SIZE_STORAGE_KEY = 'traceroost-sessions-page-size'
 
 function readStoredSessionsPageSize(): number {
   try {
