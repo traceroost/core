@@ -356,7 +356,7 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
       '--- Trace context ---',
     ]
     if (session) {
-      lines.push('Session ID: ' + session.sessionId)
+      lines.push('Trace ID: ' + session.sessionId)
       lines.push(sessionTimestamp + ' · ' + getAgentSourceLabel(session.source))
       if (session.userRequest && session.userRequest !== '[trace in progress]')
         lines.push('Task: "' + session.userRequest + '"')

@@ -92,7 +92,7 @@ export class DashboardPanel {
         )
         this.panel.webview.postMessage({ type: 'blobContent', spanId: msg.spanId, field: msg.field, content })
       } else if (msg.type === 'askAI' && msg.prompt) {
-        const prompt = `The following efficiency issue was detected in my AI coding session. Help me fix it:\n\n${msg.prompt}`
+        const prompt = `The following efficiency issue was detected in my AI coding trace. Help me fix it:\n\n${msg.prompt}`
         openAIChat(prompt, msg.agent)
       } else if (msg.type === 'alert' && msg.label) {
         handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider)
@@ -127,7 +127,7 @@ export class DashboardPanel {
         vscode.commands.executeCommand('workbench.action.closeSidebar')
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(
-          'Clear all TraceRoost data? OTEL session data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
+          'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
           { modal: true },
           'Clear All'
         )
@@ -539,7 +539,7 @@ async function writeAutomationPrompt(agent: string, label: string, fullPrompt: s
 
 async function handleAutomation(msg: { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; sessionId?: string; prompt: string }): Promise<void> {
   const agentLabel = msg.agent === 'claude_code' ? 'Claude' : msg.agent === 'copilot' ? 'Copilot' : msg.agent === 'codex' ? 'Codex' : 'AI'
-  const sessionLine = msg.sessionId ? `Session ID: ${msg.sessionId}\n` : ''
+  const sessionLine = msg.sessionId ? `Trace ID: ${msg.sessionId}\n` : ''
   const fullPrompt = `[${msg.label}]\n\n${sessionLine}${msg.prompt}`
   if (msg.writePromptsFile) {
     const filename = await writeAutomationPrompt(msg.agent, msg.label, fullPrompt)

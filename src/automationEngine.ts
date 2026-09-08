@@ -202,7 +202,7 @@ function evaluateAutomation(cfg: AutomationConfig, session: SessionSummaryCard, 
 
 function buildPrompt(cfg: AutomationConfig, session: SessionSummaryCard, timeline: TimelineEntry[], evaluation: AutomationEvaluation): string {
   const evidenceBlock = `Triggering evidence:
-- Session: ${(session.userRequest ?? '').slice(0, 70) || '(trace in progress)'}
+- Trace: ${(session.userRequest ?? '').slice(0, 70) || '(trace in progress)'}
 - Signal: ${evaluation.evidence}
 - Threshold: ${evaluation.threshold.toLocaleString()} ${evaluation.unit}
 `

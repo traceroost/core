@@ -324,7 +324,7 @@ export function FlowCanvas({ sess, height = 520 }: { sess: SessionSummaryCard; h
         ctx.fillStyle = muted
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillText('No timeline data for this session', rect.width / 2, rect.height / 2)
+        ctx.fillText('No timeline data for this trace', rect.width / 2, rect.height / 2)
         return
       }
 
@@ -707,7 +707,7 @@ export function Flow() {
   const selectedIdx = focusedIdx >= 0 ? focusedIdx : manualIdx
 
   if (sessions.length === 0) {
-    return <div id="flow-content"><div class="empty-state">No agent sessions recorded — start a Copilot, Claude, or Codex session</div></div>
+    return <div id="flow-content"><div class="empty-state">No agent traces recorded — start a Copilot, Claude, or Codex run</div></div>
   }
 
   const allSessions = sessions.map(sess => {
@@ -796,13 +796,13 @@ export function Flow() {
             class="flow-btn"
             disabled={clampedIdx <= 0}
             onClick={() => { setManualIdx(Math.max(0, clampedIdx - 1)); setSearchText(''); setSearchOpen(false) }}
-            title="Previous session"
+            title="Previous trace"
           >‹</button>
           <button
             class="flow-btn"
             disabled={clampedIdx >= allSessions.length - 1}
             onClick={() => { setManualIdx(Math.min(allSessions.length - 1, clampedIdx + 1)); setSearchText(''); setSearchOpen(false) }}
-            title="Next session"
+            title="Next trace"
           >›</button>
         </div>
       </div>
