@@ -237,7 +237,7 @@ async function startLogIngestion() {
   // Watch log directories for file-system events so updates appear immediately,
   // without waiting for the next poll interval.
   setupLogWatcher()
-  console.log('[TraceRoost] Log ingestion enabled — scanning local session files')
+  console.log('[TraceRoost] Log ingestion enabled — scanning local trace logs')
 
   const AGENT_KEY_LABEL: Record<string, string> = {
     claude:               'Claude Code',
@@ -302,7 +302,7 @@ async function startLogIngestion() {
     .sort((a, b) => b.count - a.count)
     .map(v => `  ${v.label.padEnd(20)} ${String(v.count).padStart(4)}  (${v.dir})`)
     .join('\n')
-  console.log(`[TraceRoost] Loaded ${total} sessions from local logs:\n${lines}`)
+  console.log(`[TraceRoost] Loaded ${total} traces from local logs:\n${lines}`)
   // Push loaded sessions to any SSE clients that connected before the scan finished.
   pushUpdate()
 }
@@ -1037,7 +1037,7 @@ function getHtml(): string {
         setState: function() {},
         postMessage: function(msg) {
           if (msg.type === 'confirmClear') {
-            if (confirm('Clear all TraceRoost data? OTEL session data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
+            if (confirm('Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
               fetch('/api/clear', { method: 'POST' });
               window.dispatchEvent(new MessageEvent('message', { data: { type: 'clearAll' } }));
             }
@@ -1152,7 +1152,7 @@ function getHtml(): string {
           } else if (msg.type === 'alert' && msg.label) {
             var alertColor = msg.severity === 'error' ? '#f44747' : msg.severity === 'info' ? '#4fc3f7' : '#f6a623';
             var alertPrompt = [
-              "An alert was triggered in my AI coding session. Please explain what's happening and how I should respond.",
+              "An alert was triggered in my AI coding trace. Please explain what's happening and how I should respond.",
               '',
               'Alert: ' + msg.label,
             ].concat(msg.detail ? ['Detail: ' + msg.detail] : []).join('\\n');
@@ -1250,7 +1250,7 @@ function getHtml(): string {
   <div id="sa-wrap">
     <!-- ── Sidebar (live session monitor) ────────────────────────────────── -->
     <div id="sa-sidebar" class="sa-collapsed">
-      <div style="flex-shrink:0;padding:7px 10px;border-bottom:1px solid var(--vscode-panel-border)" title="Updates live as the current agent session progresses">
+      <div style="flex-shrink:0;padding:7px 10px;border-bottom:1px solid var(--vscode-panel-border)" title="Updates live as the current agent trace progresses">
         <span style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--vscode-descriptionForeground);font-weight:600">Live &middot; Current Session Activity</span>
       </div>
       <div style="flex:1;overflow-y:auto;padding:8px 8px 8px;font-family:var(--vscode-font-family);color:var(--vscode-foreground)">
@@ -1325,7 +1325,7 @@ function getHtml(): string {
 
         <!-- Empty state (shown by render() when currentSession is null) -->
         <div id="sb-empty" class="sb-muted" style="text-align:center;padding:24px 0;font-size:11px;display:none">
-          No sessions recorded yet
+          No traces recorded yet
         </div>
 
 
@@ -1333,7 +1333,7 @@ function getHtml(): string {
 
       <!-- Footer -->
       <div class="sb-footer">
-        <span><span id="sb-session-count">0</span> sessions stored</span>
+        <span><span id="sb-session-count">0</span> traces stored</span>
       </div>
     </div>
 

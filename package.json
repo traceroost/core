@@ -97,7 +97,7 @@
       {
         "id": "traceroost.gettingStarted",
         "title": "Get Started with TraceRoost",
-        "description": "Observe and debug your AI agent sessions in real time.",
+        "description": "Observe and debug your AI agent traces in real time.",
         "steps": [
           {
             "id": "traceroost.welcome",
@@ -113,14 +113,14 @@
           {
             "id": "traceroost.autoConfig",
             "title": "Agents Are Ready",
-            "description": "TraceRoost automatically configured your agents to send telemetry to the local collector. Restart any running sessions to start collecting traces. Past session history is already loading from local log files — no restart needed to see it.",
+            "description": "TraceRoost automatically configured your agents to send telemetry to the local collector. Restart any running agents to start collecting traces. Past trace history is already loading from local log files — no restart needed to see it.",
             "media": {
               "markdown": "walkthrough/agents.md"
             }
           },
           {
             "id": "traceroost.startSession",
-            "title": "Start an Agent Session",
+            "title": "Start an Agent Run",
             "description": "Run Copilot, Claude Code, or Codex and the dashboard will populate in real time.",
             "media": {
               "markdown": "walkthrough/session.md"
@@ -140,7 +140,7 @@
           {
             "id": "traceroost.loopDetection",
             "title": "Detect Loops and Inefficiencies",
-            "description": "The Sessions tab surfaces five failure patterns per session — deadlocks, error spirals, context accumulation, and more. The Advisor tab analyzes patterns across sessions to generate specific suggestions for improving your agent instruction file.",
+            "description": "The Traces tab surfaces five failure patterns per trace — deadlocks, error spirals, context accumulation, and more. The Advisor tab analyzes patterns across traces to generate specific suggestions for improving your agent instruction file.",
             "media": {
               "markdown": "walkthrough/loops.md"
             }
@@ -159,7 +159,7 @@
         "traceRoost.autoConfigureAgents": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically write OTEL telemetry settings into Claude Code's (~/.claude/settings.json), Codex's (~/.codex/config.toml), and GitHub Copilot's own configuration so they send session data to TraceRoost. Runs on every activation but only rewrites a file when something's actually missing, so it's silent after the first successful run (shows a notification only when it changes something). Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab), or rely on traceRoost.enableLogIngestion alone. Codex and Copilot CLI sessions have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
+          "description": "Automatically write OTEL telemetry settings into Claude Code's (~/.claude/settings.json), Codex's (~/.codex/config.toml), and GitHub Copilot's own configuration so they send trace data to TraceRoost. Runs on every activation but only rewrites a file when something's actually missing, so it's silent after the first successful run (shows a notification only when it changes something). Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab), or rely on traceRoost.enableLogIngestion alone. Codex and Copilot CLI traces have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
         },
         "traceRoost.enableOtelIngestion": {
           "type": "boolean",
@@ -169,12 +169,12 @@
         "traceRoost.enableLogIngestion": {
           "type": "boolean",
           "default": true,
-          "description": "Read local session logs for Claude Code, Codex, and Copilot CLI as a data source. Log data has lower fidelity than OTEL — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. Log and OTEL sessions are shown as separate entries rather than merged. Loading is done incrementally in the background and will not block the UI."
+          "description": "Read local trace logs for Claude Code, Codex, and Copilot CLI as a data source. Log data has lower fidelity than OTEL — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. Log and OTEL traces are shown as separate entries rather than merged. Loading is done incrementally in the background and will not block the UI."
         },
         "traceRoost.enableMcpServer": {
           "type": "boolean",
           "default": true,
-          "description": "Start the TraceRoost MCP server so Claude Code can query your session history. The server listens on traceRoost.mcpPort (default 4316). See the TraceRoost Help tab → Agent Integration for setup instructions."
+          "description": "Start the TraceRoost MCP server so Claude Code can query your trace history. The server listens on traceRoost.mcpPort (default 4316). See the TraceRoost Help tab → Agent Integration for setup instructions."
         },
         "traceRoost.mcpPort": {
           "type": "number",
@@ -184,7 +184,7 @@
         "traceRoost.sessionRetentionDays": {
           "type": "number",
           "default": 90,
-          "description": "How many days to keep session history in the local database. Older sessions (and their blob files) are deleted automatically on activation and every 24 hours."
+          "description": "How many days to keep trace history in the local database. Older traces (and their blob files) are deleted automatically on activation and every 24 hours."
         }
       }
     },
