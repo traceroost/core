@@ -338,7 +338,7 @@ export function Analytics() {
       <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
 
       {/* Token usage per session */}
-      <SectionHead title="TOKEN USAGE PER SESSION" />
+      <SectionHead title="TOKEN USAGE PER TRACE" />
       <div style="display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--muted)">
         <span><span style="display:inline-block;width:10px;height:3px;background:#FFB74D;border-radius:1px;vertical-align:middle" /> Input tokens</span>
         <span><span style="display:inline-block;width:10px;height:3px;background:#81C784;border-radius:1px;vertical-align:middle" /> Output tokens</span>

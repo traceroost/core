@@ -521,11 +521,11 @@ export function Cost() {
       })()}
 
       {/* Per-session cost bar chart */}
-      <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted)">ESTIMATED COST PER SESSION</h3>
+      <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted)">ESTIMATED COST PER TRACE</h3>
       <CostBarChart sessions={pricedSessions} mode={mode} />
 
       {/* Session cost table */}
-      <h3 style="margin:24px 0 8px;font-size:13px;color:var(--muted)">SESSION COST TABLE</h3>
+      <h3 style="margin:24px 0 8px;font-size:13px;color:var(--muted)">TRACE COST TABLE</h3>
       <div class="h-scroll-hint">
         <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead>

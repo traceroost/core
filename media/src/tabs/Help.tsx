@@ -620,7 +620,7 @@ function AnalyticsSection() {
             <dd class="glossary-def" style="display:block">A bar chart of daily spend with a green total-per-day overlay line and inline date labels at day boundaries. Below the chart: a day-grouped cost table (date → agent → model) and a model breakdown table. The <strong>↓ CSV</strong> button exports the cost data.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
-            <dt class="glossary-term">Token Usage Per Session</dt>
+            <dt class="glossary-term">Token Usage Per Trace</dt>
             <dd class="glossary-def" style="display:block">Slim horizontal bars, one per trace, ordered oldest to newest. Each bar is colored by agent. Useful for spotting runaway traces at a glance.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">

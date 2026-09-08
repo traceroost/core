@@ -507,7 +507,7 @@ function SuggestionCardView({
               activeTab.value = 'sessions'
             }}
             style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap"
-            title="View the sessions that triggered this suggestion"
+            title="View the traces that triggered this suggestion"
           >View traces ↗</button>
         </div>
       </div>
