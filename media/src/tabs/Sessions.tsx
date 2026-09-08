@@ -23,7 +23,7 @@ import type { SessionSummaryCard, FileOutcome } from '../types'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
-type Section = 'overview' | 'trace' | 'files' | 'flow' | 'tools'
+type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 
 const OUTCOME_META: Record<FileOutcome, { icon: string; color: string; label: string }> = {
   productive: { icon: '✓', color: 'var(--vscode-charts-green,#81c784)', label: 'Committed' },
@@ -120,7 +120,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
     <div style="border-top:1px solid var(--border)" onClick={e => e.stopPropagation()}>
       <div style="display:flex;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         {navBtn('overview', 'Overview')}
-        {navBtn('trace', `Trace${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
+        {navBtn('waterfall', `Waterfall${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
         {navBtn('flow', `Flow${sess.totalLlmCalls > 0 ? ' (' + sess.totalLlmCalls + ')' : ''}`)}
         {navBtn('tools', `Tools${sess.totalToolCalls > 0 ? ' (' + sess.totalToolCalls + ')' : ''}`)}
         {navBtn('files', `Files${sess.filesChanged.length > 0 ? ' (' + sess.filesChanged.length + ')' : ''}`)}
@@ -215,7 +215,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
           </div>
         )}
 
-        {section === 'trace' && (
+        {section === 'waterfall' && (
           <div>
             {steps.length === 0
               ? (timelines[sess.sessionId] !== undefined

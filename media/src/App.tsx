@@ -36,12 +36,15 @@ const sidebarOpen = signal(window.__STANDALONE__ !== true)
 const configOpen = signal(false)
 const bellOpen = signal(false)
 
+// `id` stays 'sessions' — it's an internal routing key, not shown anywhere. The
+// user-facing vocabulary is "Trace" (one prompt-to-response cycle); see the
+// glossary in Help.tsx.
 const TABS = [
-  { id: 'sessions',   label: 'Sessions',   title: 'Session list with expand-in-place detail — trace, files, cost, and flagged issues for each session.' },
+  { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail — waterfall, files, cost, and flagged issues for each trace.' },
   { id: 'analytics',  label: 'Analytics',  title: 'Aggregate charts and metrics: token/cost trends, agent comparison, tool distribution, and active insights.' },
-  { id: 'patterns',   label: 'Advisor',    title: 'Cross-session behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
-  { id: 'export',     label: 'Export',     title: 'Export raw or redacted session data as JSON files.' },
-  { id: 'import',     label: 'Import',     title: 'Import session data from a TraceRoost export file.' },
+  { id: 'patterns',   label: 'Advisor',    title: 'Cross-trace behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
+  { id: 'export',     label: 'Export',     title: 'Export raw or redacted trace data as JSON files.' },
+  { id: 'import',     label: 'Import',     title: 'Import trace data from a TraceRoost export file.' },
 ]
 
 function ActivePanel() {
