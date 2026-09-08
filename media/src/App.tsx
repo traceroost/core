@@ -434,7 +434,7 @@ export function App() {
     <>
       <div class="tabs">
         <span class="tr-wordmark" title="TraceRoost">
-          <Wordmark height={15} />
+          <Wordmark size={15} />
         </span>
         <button
           class="sidebar-toggle-btn"
