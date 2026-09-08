@@ -1,6 +1,23 @@
 # Changelog
 
-All notable changes to AgentLens are documented here.
+All notable changes to TraceRoost (formerly AgentLens) are documented here.
+
+## [Unreleased]
+
+### Changed
+
+- **AgentLens is now TraceRoost.** Several unrelated projects already use the AgentLens name. This release completes the rename across the whole project:
+  - Extension published as `traceroost.traceroost-dashboard`; npm package `traceroost-dashboard`; CLIs `traceroost` / `traceroost-dashboard`; Docker image `traceroost/traceroost`.
+  - VS Code settings moved from `agentLens.*` to `traceRoost.*`; commands from `agentLens.*` to `traceRoost.*`; the activity-bar view container is now **TraceRoost**.
+  - Background service label is `com.traceroost.server`; the local data directory is `~/.traceroost`; environment variables are `TRACEROOST_PORT` / `TRACEROOST_MAX_SPANS`; the Claude Code stop-hook marker is `~/.traceroost/pending-prompt.txt`.
+  - New brand assets: `media/brand/` (wordmark + mark, with on-dark / mono / current-colour variants), regenerated activity-bar icon and marketplace icon, and a theme-adaptive inline mark in the dashboard.
+- **Upgrading from AgentLens is a clean break — no automatic migration.** After updating:
+  - Re-run `npx traceroost-dashboard@latest service install` if you use the background service (the old `com.agentlens.server` service can be removed with `agentlens service uninstall` beforehand).
+  - Let auto-config rewrite your agents' OTEL settings on their next start, or click **Configure OTEL** in Settings. Old `agentLens.*` settings values are not carried over.
+  - Session history under the old `~/.agentlens` directory is not moved; pass `--data-dir ~/.agentlens` if you need it, or copy its contents into `~/.traceroost`.
+- The `agentlens-dashboard` package continues to receive critical fixes from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch.
+
+---
 
 ## [0.15.4] — 2026-09-07
 

@@ -8,6 +8,28 @@ not automatic on every merge — a release can bundle just one merged PR or seve
 accumulated since the last one. Check what's landed since the last tag before assuming scope:
 `git log <last-tag>..HEAD --oneline` (or `git tag --list | tail -5` to find the last tag).
 
+## Two release lines
+
+- **`main` — TraceRoost.** Publishes `traceroost.traceroost-dashboard` (VS Code Marketplace +
+  Open VSX), `traceroost-dashboard` (npm), and `traceroost/traceroost` (Docker Hub). This is the
+  active line.
+- **`agentlens` branch — AgentLens (frozen).** Still publishes `agentlens.agentlens-dashboard` /
+  `agentlens-dashboard` / `agentlens/agentlens` for critical fixes only. Cut those releases from
+  the `agentlens` branch with the same steps below; nothing there needs re-provisioning.
+
+**Before the first TraceRoost release from `main`, these must exist for the `traceroost` identity
+(one-time, done by the account owner — the workflow itself needs no change):**
+
+- npm package `traceroost-dashboard` with a **Trusted Publisher** pointing at `traceroost/core` +
+  workflow `release.yml` (see `npm-trusted-publisher-rebrand` — the config takes a few minutes to
+  propagate).
+- VS Code Marketplace publisher `traceroost`, with `VSCE_PAT` updated to a token for it.
+- Open VSX namespace `traceroost`, with `OVSX_PAT` updated.
+- Docker Hub repo `traceroost/traceroost`, with `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` updated.
+
+Until all four are in place, do the `main` commit + changelog but **do not push the tag** — the
+publish jobs will fail partway and leave the release half-done.
+
 ## Steps
 
 1. `git checkout main && git pull` — confirm a clean working tree and that everything you intend
