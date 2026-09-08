@@ -7,7 +7,7 @@ function sendConfig(key: string, value: boolean) {
   }
 }
 
-const CLEAR_ALL_CONFIRM_TEXT = 'Clear all TraceRoost data? OTEL session data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).'
+const CLEAR_ALL_CONFIRM_TEXT = 'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).'
 
 export function sendConfirmClear() {
   if (vscode) {
@@ -118,7 +118,7 @@ export function SessionsPageSizeControl() {
   return (
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:2px">Sessions per page</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">How many sessions the Sessions tab renders at once, with paging for the rest.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">How many traces the Traces tab renders at once, with paging for the rest.</div>
       <select
         value={current}
         onChange={e => setSessionsPageSize(Number((e.target as HTMLSelectElement).value))}
@@ -145,13 +145,13 @@ export function IngestionToggles() {
         onChange={v => sendConfig('enableOtelIngestion', v)}
       />
       <ToggleRow
-        label="Read session logs"
+        label="Read trace logs"
         description="Scans local Claude Code, Codex, and Copilot log files."
         checked={logOn}
         onChange={v => sendConfig('enableLogIngestion', v)}
       />
       <div style="padding-top:10px;margin-top:4px;border-top:1px solid var(--border)">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Permanently deletes all stored sessions. Log-sourced sessions rebuild from local log files on next scan.</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Permanently deletes all stored traces. Log-sourced traces rebuild from local log files on next scan.</div>
         <button
           onClick={sendConfirmClear}
           style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--vscode-testing-iconFailed,#f44);border-radius:3px;background:transparent;color:var(--vscode-testing-iconFailed,#f44)"
