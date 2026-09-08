@@ -374,7 +374,6 @@ export class DashboardPanel {
     const summary = this.repo.store_.getSummary()
     const cssUri = this.getWebviewUri('dashboard.css')
     const jsUri = this.getWebviewUri('dashboard.js')
-    const mascotUri = this.getWebviewUri('help-mascot.png')
     const nonce = getNonce()
 
     const sessions = this.repo.listSessions()
@@ -388,7 +387,6 @@ export class DashboardPanel {
     const initialData = `<script nonce="${nonce}">
         window.__INITIAL_TOOL_CALLS__ = ${safeJsonForScript(summary.toolCalls)};
         window.__INITIAL_SESSION_SUMMARY__ = ${safeJsonForScript(sessionSummary)};
-        window.__MASCOT_URI__ = ${safeJsonForScript(mascotUri.toString())};
         window.__VERSION__ = ${safeJsonForScript(this.context.extension.packageJSON.version)};
         window.__MCP_ENABLED__ = ${mcpEnabled};
         window.__MCP_PORT__ = ${mcpPort};

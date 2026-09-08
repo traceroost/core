@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { esc } from '../utils'
+import { BrandMark } from '../BrandMark'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -172,15 +172,12 @@ function Toc() {
 }
 
 function OverviewSection() {
-  const mascotSrc = window.__MASCOT_URI__ ?? ''
   return (
     <div class="help-section" id="help-overview">
-      {mascotSrc && (
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <img src={esc(mascotSrc)} alt="TraceRoost mascot" style={{ maxWidth: '65%', height: 'auto', display: 'block', margin: '0 auto' }} />
-          <p style={{ textAlign: 'center', fontStyle: 'italic', color: 'var(--muted)', marginTop: 8, marginBottom: 0 }}>Watching your agents so you don't have to.</p>
-        </div>
-      )}
+      <div style={{ textAlign: 'center', marginBottom: 16, color: 'var(--fg)' }}>
+        <BrandMark size={132} style={{ display: 'block', margin: '0 auto' }} />
+        <p style={{ textAlign: 'center', fontStyle: 'italic', color: 'var(--muted)', marginTop: 8, marginBottom: 0 }}>Watching your agents so you don't have to.</p>
+      </div>
       <div style="margin:0 0 16px;background:var(--hover);border:1px solid var(--border);border-left:4px solid var(--warning,#ffb74d);border-radius:6px;padding:12px 16px">
         <p style="font-size:13px;font-weight:700;margin:0 0 8px;color:var(--foreground)">Important: OTEL captures richer data than log-only history</p>
         <p style="font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.75">OpenTelemetry capture is live collection. TraceRoost must be running while your agent session runs to collect full OTEL spans, timing, tool payloads, and richer turn-level context. If TraceRoost was not running (or OTEL was not configured yet), TraceRoost can still backfill from local logs/databases, but those sessions are less detailed.</p>

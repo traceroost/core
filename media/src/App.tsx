@@ -460,7 +460,6 @@ export function App() {
       </div>
 
       <ConfigPanel />
-      <img id="mascot-img" src="" alt="TraceRoost mascot" style="display:none" />
     </>
   )
 }

@@ -850,7 +850,6 @@ function getHtml(): string {
     console.log('[TraceRoost] HTML received', Date.now());
     window.__INITIAL_TOOL_CALLS__ = {};
     window.__INITIAL_SESSION_SUMMARY__ = ${sessionSummaryJson};
-    window.__MASCOT_URI__ = '/help-mascot.png';
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(PACKAGE_VERSION)};
 

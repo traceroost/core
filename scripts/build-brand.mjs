@@ -42,6 +42,10 @@ write('wordmark-mono.svg', recolorPaths(wordmark, TEAL, INK))
 const mark = read('mark.svg')
 write('mark-on-dark.svg', mark.split(INK).join(PAPER))
 write('mark-mono.svg', mark.split(TEAL).join(INK))
+// Theme-adaptive: bird + ground inherit the host text colour, roost bar stays
+// teal. Used inline in the webview so one asset works in every VS Code theme
+// and in the standalone light/dark modes.
+write('mark-currentcolor.svg', mark.split(INK).join('currentColor'))
 
 // App icons: rounded-square lockups at 128, mark centred via mark-small.
 const markSmallBody = read('mark-small.svg')
@@ -75,13 +79,6 @@ const marketplace = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 51
 console.log('raster:')
 await sharp(Buffer.from(marketplace)).png().toFile(join(media, 'mascot.png'))
 console.log('  media/mascot.png (512, marketplace)')
-
-// Help-page mascot: light + dark, rendered from the full mark.
-await sharp(Buffer.from(mark.split(INK).join(PAPER))).resize({ height: 320 }).png()
-  .toFile(join(media, 'help-mascot-dark.png'))
-await sharp(Buffer.from(mark)).resize({ height: 320 }).png()
-  .toFile(join(media, 'help-mascot-light.png'))
-console.log('  media/help-mascot-light.png, media/help-mascot-dark.png')
 
 // Standalone favicon.
 writeFileSync(join(media, 'favicon.svg'), iconAt(NIGHT, PAPER) + '\n')

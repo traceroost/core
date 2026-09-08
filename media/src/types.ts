@@ -247,7 +247,6 @@ declare global {
     acquireVsCodeApi(): VsCodeApi
     __INITIAL_TOOL_CALLS__?: Record<string, number>
     __INITIAL_SESSION_SUMMARY__?: FullSummary | null
-    __MASCOT_URI__?: string
     __STANDALONE__?: boolean
     __VERSION__?: string
   }
