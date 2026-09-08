@@ -20,12 +20,16 @@ accumulated since the last one. Check what's landed since the last tag before as
 **Before the first TraceRoost release from `main`, these must exist for the `traceroost` identity
 (one-time, done by the account owner — the workflow itself needs no change):**
 
+All publish credentials for the TraceRoost identity use a **`TR_` prefix** so they never collide
+with the AgentLens secrets the `agentlens` branch still reads (`VSCE_PAT`, `OVSX_PAT`,
+`DOCKERHUB_*`). Add these as repo secrets:
+
 - npm package `traceroost-dashboard` with a **Trusted Publisher** pointing at `traceroost/core` +
-  workflow `release.yml` (see `npm-trusted-publisher-rebrand` — the config takes a few minutes to
-  propagate).
-- VS Code Marketplace publisher `traceroost`, with `VSCE_PAT` updated to a token for it.
-- Open VSX namespace `traceroost`, with `OVSX_PAT` updated.
-- Docker Hub repo `traceroost/traceroost`, with `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` updated.
+  workflow `release.yml` (no secret — OIDC; see `npm-trusted-publisher-rebrand`, the config takes a
+  few minutes to propagate).
+- VS Code Marketplace publisher `traceroost` → secret `TR_VSCE_PAT`.
+- Open VSX namespace `traceroost` → secret `TR_OVSX_PAT`.
+- Docker Hub repo `traceroost/traceroost` → secrets `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN`.
 
 Until all four are in place, do the `main` commit + changelog but **do not push the tag** — the
 publish jobs will fail partway and leave the release half-done.

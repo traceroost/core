@@ -61,8 +61,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     env:
-      VSCE_PAT: ${{ secrets.VSCE_PAT }}
-      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      # TR_-prefixed so the TraceRoost identity's tokens never collide with the
+      # AgentLens ones the `agentlens` branch still uses. The tool-facing env var
+      # names (VSCE_PAT / OVSX_PAT) stay — vsce and ovsx read those.
+      VSCE_PAT: ${{ secrets.TR_VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.TR_OVSX_PAT }}
 
     steps:
       - uses: actions/download-artifact@v4
