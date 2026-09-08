@@ -176,7 +176,7 @@ function OverviewSection() {
     <div class="help-section" id="help-overview">
       <div style={{ textAlign: 'center', marginBottom: 16, color: 'var(--fg)' }}>
         <BrandMark size={132} style={{ display: 'block', margin: '0 auto' }} />
-        <p style={{ textAlign: 'center', fontStyle: 'italic', color: 'var(--muted)', marginTop: 8, marginBottom: 0 }}>Watching your agents so you don't have to.</p>
+        <p style={{ textAlign: 'center', fontStyle: 'italic', color: 'var(--muted)', marginTop: 8, marginBottom: 0 }}>A high perch over every agent run.</p>
       </div>
       <div style="margin:0 0 16px;background:var(--hover);border:1px solid var(--border);border-left:4px solid var(--warning,#ffb74d);border-radius:6px;padding:12px 16px">
         <p style="font-size:13px;font-weight:700;margin:0 0 8px;color:var(--foreground)">Important: OTEL captures richer data than log-only history</p>

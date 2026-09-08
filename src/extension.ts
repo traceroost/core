@@ -89,6 +89,16 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(outputChannel)
   outputChannel.appendLine(`TraceRoost activating… (v${context.extension.packageJSON.version})`)
 
+  // ── Duplicate-install guard ─────────────────────────────────────────────────
+  // During the AgentLens → TraceRoost transition the same build ships under two
+  // marketplace ids: `traceroost.traceroost` (the new listing) and
+  // `agentlens.agentlens-dashboard` (the old listing, so existing users keep
+  // updating). If both are installed they'd register the same commands, the same
+  // `traceroost` view container, and two collectors fighting over the OTLP/MCP
+  // ports. The old copy stands down; the new one keeps running and asks the user
+  // to remove the duplicate.
+  if (await handleDuplicateInstall(context)) { return }
+
   // ── Database ────────────────────────────────────────────────────────────────
   try {
     traceRoostDb = await openDatabase(
@@ -627,6 +637,61 @@ async function notifySetupRequired(
   if (action === 'Reload VS Code') {
     vscode.commands.executeCommand('workbench.action.reloadWindow')
   }
+}
+
+// ── Duplicate-install guard ───────────────────────────────────────────────────
+
+const SIBLING_ID: Record<string, string> = {
+  'traceroost.traceroost': 'agentlens.agentlens-dashboard',
+  'agentlens.agentlens-dashboard': 'traceroost.traceroost',
+}
+
+/**
+ * Returns true when this activation should bail out — i.e. this is the old
+ * `agentlens.agentlens-dashboard` copy and the new `traceroost.traceroost` is
+ * also installed. When it's the other way round (we're the new one, the old one
+ * is also present) we run normally but nudge the user once to uninstall the old
+ * listing.
+ */
+async function handleDuplicateInstall(context: vscode.ExtensionContext): Promise<boolean> {
+  const selfId = context.extension.id.toLowerCase()
+  const siblingId = SIBLING_ID[selfId]
+  if (!siblingId || !vscode.extensions.getExtension(siblingId)) { return false }
+
+  const showOldExtension = () =>
+    void vscode.commands.executeCommand(
+      'workbench.extensions.search', '@installed agentlens.agentlens-dashboard',
+    )
+
+  if (selfId === 'agentlens.agentlens-dashboard') {
+    outputChannel?.appendLine(
+      'Standing down: traceroost.traceroost is installed and handles everything. ' +
+      'This listing (agentlens.agentlens-dashboard) can be uninstalled.',
+    )
+    const notifiedKey = 'traceRoost.duplicateNotice'
+    if (!context.globalState.get<boolean>(notifiedKey)) {
+      void context.globalState.update(notifiedKey, true)
+      void vscode.window.showInformationMessage(
+        'AgentLens and TraceRoost are the same extension. TraceRoost is now active — ' +
+        'you can uninstall "AgentLens" (agentlens.agentlens-dashboard).',
+        'Show Extension',
+      ).then(pick => { if (pick === 'Show Extension') { showOldExtension() } })
+    }
+    return true
+  }
+
+  // We are traceroost.traceroost and the old listing is also installed.
+  const notifiedKey = 'traceRoost.duplicateNotice'
+  if (!context.globalState.get<boolean>(notifiedKey)) {
+    void context.globalState.update(notifiedKey, true)
+    void vscode.window.showWarningMessage(
+      'Both TraceRoost and the older AgentLens extension are installed — they are the same ' +
+      'extension. Uninstall "AgentLens" (agentlens.agentlens-dashboard) to avoid duplicate ' +
+      'views and port conflicts.',
+      'Show Extension',
+    ).then(pick => { if (pick === 'Show Extension') { showOldExtension() } })
+  }
+  return false
 }
 
 // ── Deactivate ────────────────────────────────────────────────────────────────
