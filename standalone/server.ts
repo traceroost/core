@@ -62,9 +62,9 @@ const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxS
 const PACKAGE_VERSION: string = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version
 console.log(`[TraceRoost] Version         ${PACKAGE_VERSION}`)
 if (isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) {
-  // A bare `npx traceroost-dashboard` re-runs npx's cached copy without checking npm, so the version
+  // A bare `npx traceroost` re-runs npx's cached copy without checking npm, so the version
   // above can be an old release even right after a publish. Surface that at the moment it's on screen.
-  console.log('[TraceRoost] Launched via npx — if this isn\'t the version you expect, npx served a cached copy. Re-run as `npx traceroost-dashboard@latest` (or clear it with `rm -rf ~/.npm/_npx`).')
+  console.log('[TraceRoost] Launched via npx — if this isn\'t the version you expect, npx served a cached copy. Re-run as `npx traceroost@latest` (or clear it with `rm -rf ~/.npm/_npx`).')
 }
 
 const mediaDir  = path.join(__dirname, '..', 'media')

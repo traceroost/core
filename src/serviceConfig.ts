@@ -152,7 +152,7 @@ export function childEnvForReexec(parentEnv: NodeJS.ProcessEnv): NodeJS.ProcessE
 
 // ── `service install` / `service update` npm-fetch messaging ────────────────
 //
-// `service install` and `service update` shell out to `npm install -g traceroost-dashboard@latest`
+// `service install` and `service update` shell out to `npm install -g traceroost@latest`
 // so the background service always lands on the newest published version rather than pinning
 // whatever copy happened to launch it. When that download can't happen (offline, npm registry
 // unreachable, npm missing, a permissions error) the service still starts on whatever version is
@@ -183,11 +183,11 @@ export function describeServiceManagerFailure(err: unknown, tool = 'the service 
   return e.message ? e.message.split('\n')[0] : 'unknown error'
 }
 
-/** Warning shown when the latest traceroost-dashboard can't be fetched. `fallbackVersion` is the
+/** Warning shown when the latest traceroost can't be fetched. `fallbackVersion` is the
  *  version already on disk that the service will run instead (undefined if there is none). Not
  *  fatal on its own — callers that truly have nothing to fall back on report that separately. */
 export function couldNotDownloadMessage(reason: string, fallbackVersion: string | undefined): string {
-  const head = `[TraceRoost] Couldn't download the latest traceroost-dashboard from npm: ${reason}.`
+  const head = `[TraceRoost] Couldn't download the latest traceroost from npm: ${reason}.`
   const tail = fallbackVersion
     ? `Keeping the version already installed (v${fallbackVersion}) — run \`traceroost service update\` later to retry.`
     : 'Nothing is installed to fall back on.'

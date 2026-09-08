@@ -56,39 +56,85 @@ jobs:
           files: '*.vsix'
           generate_release_notes: true
 
+  # Publishes the extension under two identities during the AgentLens -> TraceRoost
+  # transition:
+  #   - traceroost.traceroost           — the new identity (TR_-prefixed secrets)
+  #   - agentlens.agentlens-dashboard    — the existing marketplace listing, so
+  #                                        current users auto-update into the
+  #                                        rebranded extension (reuses the
+  #                                        AgentLens publisher's PAT)
+  # The VSIX manifest bakes in publisher + name, so each identity is packaged
+  # separately from a patched package.json. Every displayName / icon / contributes
+  # entry is identical — only the id differs. To stop the compat publish, remove
+  # the VSCE_PAT / OVSX_PAT repo secrets (the steps self-skip when unset) or drop
+  # the second matrix entry.
   publish-vsce:
     needs: package
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - identity: traceroost
+            publisher: traceroost
+            name: traceroost
+            vsce_pat: TR_VSCE_PAT
+            ovsx_pat: TR_OVSX_PAT
+          - identity: agentlens-compat
+            publisher: agentlens
+            name: agentlens-dashboard
+            vsce_pat: VSCE_PAT
+            ovsx_pat: OVSX_PAT
     env:
-      # TR_-prefixed so the TraceRoost identity's tokens never collide with the
-      # AgentLens ones the `agentlens` branch still uses. The tool-facing env var
-      # names (VSCE_PAT / OVSX_PAT) stay — vsce and ovsx read those.
-      VSCE_PAT: ${{ secrets.TR_VSCE_PAT }}
-      OVSX_PAT: ${{ secrets.TR_OVSX_PAT }}
+      VSCE_PAT: ${{ secrets[matrix.vsce_pat] }}
+      OVSX_PAT: ${{ secrets[matrix.ovsx_pat] }}
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
-          name: vsix-package
+          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set publish identity (${{ matrix.publisher }}.${{ matrix.name }})
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            p.name = process.env.PKG_NAME;
+            p.publisher = process.env.PKG_PUBLISHER;
+            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
+          '
+        env:
+          PKG_NAME: ${{ matrix.name }}
+          PKG_PUBLISHER: ${{ matrix.publisher }}
 
       - name: Install vsce
         run: npm install -g @vscode/vsce
+
+      - name: Package VSIX
+        run: vsce package --no-dependencies -o ${{ matrix.identity }}.vsix
 
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
         run: |
           set +e
-          vsce publish --packagePath *.vsix > /tmp/vsce_out.txt 2>&1
+          vsce publish --packagePath ${{ matrix.identity }}.vsix > out.txt 2>&1
           EXIT=$?
           set -e
-          cat /tmp/vsce_out.txt
-          if [ $EXIT -ne 0 ] && grep -q "already exists" /tmp/vsce_out.txt; then
+          cat out.txt
+          if [ $EXIT -ne 0 ] && grep -q "already exists" out.txt; then
             echo "Version already published to VS Code Marketplace — skipping"
             exit 0
           fi
@@ -98,7 +144,16 @@ jobs:
         if: env.OVSX_PAT != ''
         run: |
           npm install -g ovsx
-          ovsx publish *.vsix
+          set +e
+          ovsx publish ${{ matrix.identity }}.vsix > out.txt 2>&1
+          EXIT=$?
+          set -e
+          cat out.txt
+          if [ $EXIT -ne 0 ] && grep -qiE "already (exists|published)" out.txt; then
+            echo "Version already published to Open VSX — skipping"
+            exit 0
+          fi
+          exit $EXIT
 
   publish-npm:
     needs: package

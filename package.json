@@ -1,5 +1,5 @@
 {
-  "name": "traceroost-dashboard",
+  "name": "traceroost",
   "displayName": "TraceRoost - Agentic AI Monitoring & Observability",
   "description": "Agentic AI monitoring and observability — OTEL traces and local log file ingestion for Copilot, Claude Code, Codex, and OpenCode. VS Code extension, npx, and Docker.",
   "version": "0.15.4",
@@ -197,8 +197,7 @@
     }
   },
   "bin": {
-    "traceroost": "./standalone/cli.js",
-    "traceroost-dashboard": "./standalone/cli.js"
+    "traceroost": "./standalone/cli.js"
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",

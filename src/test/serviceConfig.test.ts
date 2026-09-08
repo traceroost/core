@@ -151,7 +151,7 @@ suite('serviceConfig', () => {
     })
 
     test('returns false for a normal global-install path and user-agent', () => {
-      assert.strictEqual(isRunningFromNpx('npm/10.0.0 node/v24', '/usr/local/lib/node_modules/traceroost-dashboard/standalone/cli.js'), false)
+      assert.strictEqual(isRunningFromNpx('npm/10.0.0 node/v24', '/usr/local/lib/node_modules/traceroost/standalone/cli.js'), false)
     })
   })
 
@@ -192,13 +192,13 @@ suite('serviceConfig', () => {
     test('embeds the node path, cli path, ports, and log path', () => {
       const program: ServiceProgram = {
         nodePath: '/usr/local/bin/node',
-        cliPath: '/usr/local/lib/node_modules/traceroost-dashboard/standalone/cli.js',
+        cliPath: '/usr/local/lib/node_modules/traceroost/standalone/cli.js',
         config: defaultServiceConfig('/Users/test'),
       }
       const plist = generateLaunchdPlist(program)
       assert.ok(plist.includes(`<string>${launchdLabel()}</string>`))
       assert.ok(plist.includes('<string>/usr/local/bin/node</string>'))
-      assert.ok(plist.includes('<string>/usr/local/lib/node_modules/traceroost-dashboard/standalone/cli.js</string>'))
+      assert.ok(plist.includes('<string>/usr/local/lib/node_modules/traceroost/standalone/cli.js</string>'))
       assert.ok(plist.includes('<key>RunAtLoad</key>'))
       assert.ok(plist.includes('<key>KeepAlive</key>'))
       assert.ok(plist.includes('<string>3000</string>'))
@@ -210,11 +210,11 @@ suite('serviceConfig', () => {
     test('embeds ExecStart, Restart policy, env vars, and log redirection', () => {
       const program: ServiceProgram = {
         nodePath: '/usr/bin/node',
-        cliPath: '/usr/lib/node_modules/traceroost-dashboard/standalone/cli.js',
+        cliPath: '/usr/lib/node_modules/traceroost/standalone/cli.js',
         config: defaultServiceConfig('/home/test'),
       }
       const unit = generateSystemdUnit(program)
-      assert.ok(unit.includes('ExecStart=/usr/bin/node /usr/lib/node_modules/traceroost-dashboard/standalone/cli.js'))
+      assert.ok(unit.includes('ExecStart=/usr/bin/node /usr/lib/node_modules/traceroost/standalone/cli.js'))
       assert.ok(unit.includes('Restart=on-failure'))
       assert.ok(unit.includes('Environment=UI_PORT=3000'))
       assert.ok(unit.includes(`StandardOutput=append:${serviceLogPath(program.config)}`))
@@ -226,7 +226,7 @@ suite('serviceConfig', () => {
     test('sets env vars and appends node output to the log file', () => {
       const program: ServiceProgram = {
         nodePath: 'C:\\Program Files\\nodejs\\node.exe',
-        cliPath: 'C:\\Users\\test\\AppData\\Roaming\\npm\\node_modules\\traceroost-dashboard\\standalone\\cli.js',
+        cliPath: 'C:\\Users\\test\\AppData\\Roaming\\npm\\node_modules\\traceroost\\standalone\\cli.js',
         config: defaultServiceConfig('C:\\Users\\test'),
       }
       const script = generateWindowsWrapperScript(program)

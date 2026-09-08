@@ -945,7 +945,7 @@ the actual `fs`/`child_process` calls for their platform.
 flowchart TD
     CLI["traceroost service install<br/>(standalone/cli.ts)"] --> NPX{Running via npx?}
 
-    NPX -- yes --> BOOT["npm install -g traceroost-dashboard@latest<br/>(visible, not silent)"]
+    NPX -- yes --> BOOT["npm install -g traceroost@latest<br/>(visible, not silent)"]
     BOOT --> REEXEC[Re-invoke as the now-globally-linked<br/>`traceroost service install`]
     REEXEC --> DISPATCH
 
@@ -960,16 +960,16 @@ flowchart TD
 
     STATUS["traceroost service status"] --> PROBE["HTTP GET http://bindHost:uiPort/<br/>(same convention as the Dockerfile HEALTHCHECK)"]
 
-    UPDATE["traceroost service update"] --> NPMLATEST["npm install -g traceroost-dashboard@latest"]
+    UPDATE["traceroost service update"] --> NPMLATEST["npm install -g traceroost@latest"]
     NPMLATEST --> RESTART["platformService.restart&#40;&#41;<br/>(re-execs whatever now sits at the same install path)"]
 ```
 
-A global install pins a version — and so does `npx` in practice: a bare `npx traceroost-dashboard`
+A global install pins a version — and so does `npx` in practice: a bare `npx traceroost`
 re-runs whatever npx cached without revalidating against the registry, so only `npx …@latest`
 reliably resolves the newest release (the user-facing docs say `@latest` everywhere for this
 reason). Either way a service definition points at a fixed on-disk path that only changes when
 something overwrites it. `update` is that
-"something": it shells out to `npm install -g traceroost-dashboard@latest` (overwriting the files at
+"something": it shells out to `npm install -g traceroost@latest` (overwriting the files at
 the path already baked into the service definition) and then restarts, so no service definition
 rewrite is needed. `standalone/service/index.ts`'s `readGlobalVersion()` reads the installed
 package's `package.json` before and after so the command can report what actually changed (or that
@@ -1165,7 +1165,7 @@ traceroost/
 │   └── sidebar.js                # Compiled sidebar script
 ├── standalone/
 │   ├── server.ts                 # Standalone HTTP server (no VS Code)
-│   ├── cli.ts                    # npx entrypoint: `traceroost` / `traceroost-dashboard` — dispatches to
+│   ├── cli.ts                    # npx entrypoint: `traceroost` / `traceroost` — dispatches to
 │   │                              #   `service` subcommand or starts the server directly
 │   └── service/
 │       ├── index.ts              # `traceroost service <cmd>` dispatch, npx-bootstrap, logs/status

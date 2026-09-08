@@ -377,9 +377,9 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
         window, a closed laptop lid, or a reboot means a gap in your session history. Installing it as a
         background service keeps it running automatically instead:
       </p>
-      <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`npx traceroost-dashboard@latest service install`}</pre>
+      <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`npx traceroost@latest service install`}</pre>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
-        Works as a single command whether or not <code style={codeStyle}>traceroost-dashboard</code> is
+        Works as a single command whether or not <code style={codeStyle}>traceroost</code> is
         already installed — if it's running via <code style={codeStyle}>npx</code>, which has no stable
         location to launch from later, it installs the package globally first (visibly, printing what
         it's doing) and then continues. On macOS this registers a <code style={codeStyle}>launchd</code> LaunchAgent,
@@ -400,7 +400,7 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
         <strong style="color:var(--fg)">The background service does not auto-update.</strong> It keeps
         running whatever version was installed until you run{' '}
         <code style={codeStyle}>traceroost service update</code>, which installs the latest{' '}
-        <code style={codeStyle}>traceroost-dashboard</code> from npm and restarts the service on it.
+        <code style={codeStyle}>traceroost</code> from npm and restarts the service on it.
       </p>
     </div>
   ) : null

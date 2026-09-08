@@ -7,9 +7,9 @@
 
 > **Note:** AgentLens is now **TraceRoost**. Several unrelated projects already use the AgentLens name.
 >
-> This release moves the whole project to the new name: the extension is published as `traceroost.traceroost-dashboard`, the npm package as `traceroost-dashboard`, and the Docker image as `traceroost/traceroost`. The previous `agentlens-dashboard` package is frozen on the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch for critical fixes only.
+> This release moves the whole project to the new name: the extension is published as `traceroost.traceroost`, the npm package as `traceroost`, and the Docker image as `traceroost/traceroost`. The previous `agentlens-dashboard` package is frozen on the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch for critical fixes only.
 >
-> **Upgrading from AgentLens:** this is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name. After updating, re-run `npx traceroost-dashboard@latest service install` if you use the background service, and let auto-config rewrite your agents' OTEL settings on the next start (or use **Configure OTEL** in Settings). Session history stored under the old `~/.agentlens` directory is not migrated automatically; point `--data-dir` at it if you need it.
+> **Upgrading from AgentLens:** this is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name. After updating, re-run `npx traceroost@latest service install` if you use the background service, and let auto-config rewrite your agents' OTEL settings on the next start (or use **Configure OTEL** in Settings). Session history stored under the old `~/.agentlens` directory is not migrated automatically; point `--data-dir` at it if you need it.
 
 [![CI](https://github.com/traceroost/core/actions/workflows/ci.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
@@ -33,22 +33,22 @@ The fastest way to get started — run directly on your machine with no install 
 
 ```bash
 # One-off — the @latest tag forces a fresh fetch (see note below)
-npx traceroost-dashboard@latest
-bunx traceroost-dashboard@latest
+npx traceroost@latest
+bunx traceroost@latest
 
 # Or install globally and run by command name
-npm install -g traceroost-dashboard@latest
+npm install -g traceroost@latest
 traceroost
 ```
 
 Open <http://localhost:3000> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
 
-> **Always include `@latest`.** A bare `npx traceroost-dashboard` (or `bunx`) re-runs whatever
+> **Always include `@latest`.** A bare `npx traceroost` (or `bunx`) re-runs whatever
 > version npx cached the first time you ran it — it does **not** check npm for a newer release, so
 > you can silently stay on an old version for weeks. `@latest` forces npx to resolve against the
 > registry. If a bare run already cached an old copy, clear it with `rm -rf ~/.npm/_npx` (npx) or
 > `npm cache clean --force`. A global install (`npm install -g`) has the same trap — re-run it with
-> `@latest`, or `npm update -g traceroost-dashboard`, to move forward.
+> `@latest`, or `npm update -g traceroost`, to move forward.
 
 > **Log file ingestion** reads local session files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, and OpenCode's SQLite database at `~/.local/share/opencode/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
 >
@@ -60,7 +60,7 @@ The extension receives OTEL traces in real time **and** reads local session log 
 
 Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
 
-1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=traceroost.traceroost-dashboard)**
+1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=traceroost.traceroost)**
 2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
 3. TraceRoost auto-configures OTEL telemetry for Copilot, Claude Code, and Codex — restart any running agent sessions to start streaming traces
 4. Past session history loads automatically from local log files — no extra setup needed
@@ -316,7 +316,7 @@ Environment variables:
 The local server uses the same port as the VS Code extension — only one can run at a time. To run both simultaneously, use different ports:
 
 ```bash
-OTLP_PORT=4319 UI_PORT=3001 bunx traceroost-dashboard@latest
+OTLP_PORT=4319 UI_PORT=3001 bunx traceroost@latest
 ```
 
 ### Background Service (macOS / Windows / Linux)
@@ -327,8 +327,8 @@ OTLP_PORT=4319 UI_PORT=3001 bunx traceroost-dashboard@latest
 > it starts automatically and keeps running without a terminal open.
 
 ```bash
-# One command — works whether or not traceroost-dashboard is already installed globally
-npx traceroost-dashboard@latest service install
+# One command — works whether or not traceroost is already installed globally
+npx traceroost@latest service install
 
 traceroost service status      # check whether it's running and reachable
 traceroost service logs        # print the service's log file
@@ -339,14 +339,14 @@ traceroost service update      # upgrade to the latest version and restart on it
 traceroost service uninstall   # remove it (your data in ~/.traceroost is untouched)
 ```
 
-`service install` fetches the latest `traceroost-dashboard` from npm before it writes the service
+`service install` fetches the latest `traceroost` from npm before it writes the service
 definition, so re-running it is also how you upgrade. If that download can't happen (offline, npm
 registry unreachable), it prints a clear notice that the new version couldn't be downloaded and
 installs the service on whichever version is already present rather than failing.
 
 > **Once installed, the running service does not otherwise auto-update.** It keeps running whatever
 > version is installed until you run `traceroost service update` (or re-run `service install`) —
-> either one pulls the latest `traceroost-dashboard` from npm and restarts the service on it.
+> either one pulls the latest `traceroost` from npm and restarts the service on it.
 
 `service install` uses whichever OS-native mechanism fits your platform, all installed per-user
 with no admin/root privileges required:
@@ -365,8 +365,8 @@ traceroost service install --ui-port 3001 --otlp-port 4319 --data-dir ~/traceroo
 ```
 
 Since `npx` always runs from a temporary cache with no stable path to launch from, running
-`service install` under `npx` installs `traceroost-dashboard` globally first (equivalent to
-`npm install -g traceroost-dashboard@latest`) so the service definition has something fixed to
+`service install` under `npx` installs `traceroost` globally first (equivalent to
+`npm install -g traceroost@latest`) so the service definition has something fixed to
 point at.
 
 ### Docker (OTEL only)

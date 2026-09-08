@@ -34,7 +34,7 @@ function serviceManagerName(): string {
   }
 }
 
-/** Version of the running traceroost-dashboard, read from its own package.json. Bundled output
+/** Version of the running traceroost, read from its own package.json. Bundled output
  *  lives at <pkg>/standalone/cli.js, so `../package.json` from here; the extra `../../` fallback
  *  covers running the un-bundled source from standalone/service/. */
 function readRunningVersion(): string | undefined {
@@ -111,14 +111,14 @@ Commands:
   install [--ui-port N] [--otlp-port N] [--mcp-port N] [--bind-host H] [--data-dir DIR]
                     Install and start the background service (macOS: launchd,
                     Linux: systemd --user, Windows: Scheduled Task at logon).
-                    Fetches the latest traceroost-dashboard from npm first, so a
+                    Fetches the latest traceroost from npm first, so a
                     re-install also upgrades; if that download fails it says so
                     and installs on the version already present.
   uninstall         Stop and remove the background service.
   start             Start the installed service.
   stop              Stop the installed service.
   restart           Restart the installed service.
-  update            Install the latest traceroost-dashboard from npm and restart
+  update            Install the latest traceroost from npm and restart
                     the service on it. Installing a background service does NOT
                     otherwise auto-update; it keeps running whatever version was
                     installed until you run this (or re-run 'install').
@@ -131,12 +131,12 @@ avoids gaps in your session history from forgetting to start it, closing the
 terminal, or a reboot.`)
 }
 
-/** The globally-installed package directory (`<npm root -g>/traceroost-dashboard`), or undefined
+/** The globally-installed package directory (`<npm root -g>/traceroost`), or undefined
  *  if `npm root -g` can't be run at all (npm missing / not on PATH). */
 function globalPackageDir(): string | undefined {
   try {
     const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf-8' }).trim()
-    return path.join(globalRoot, 'traceroost-dashboard')
+    return path.join(globalRoot, 'traceroost')
   } catch {
     return undefined
   }
@@ -177,17 +177,17 @@ interface GlobalInstallOutcome {
   downloaded: boolean
 }
 
-/** Runs `npm install -g traceroost-dashboard@latest` so the background service lands on the newest
+/** Runs `npm install -g traceroost@latest` so the background service lands on the newest
  *  published version rather than pinning whatever copy launched it. If the download fails (offline,
  *  registry unreachable, npm missing, permissions) it prints a clear warning and reports the
  *  version already on disk so the caller can carry on with it — returns null only when the
  *  download failed *and* there is nothing installed to fall back on. */
 function ensureLatestGlobalInstall(): GlobalInstallOutcome | null {
   const previousVersion = readGlobalVersion()
-  console.log('[TraceRoost] Fetching the latest traceroost-dashboard from npm:')
-  console.log('  npm install -g traceroost-dashboard@latest')
+  console.log('[TraceRoost] Fetching the latest traceroost from npm:')
+  console.log('  npm install -g traceroost@latest')
   try {
-    execFileSync('npm', ['install', '-g', 'traceroost-dashboard@latest'], { stdio: 'inherit' })
+    execFileSync('npm', ['install', '-g', 'traceroost@latest'], { stdio: 'inherit' })
   } catch (e) {
     const fallback = readGlobalVersion()
     console.error(couldNotDownloadMessage(describeNpmFailure(e), fallback))
@@ -203,7 +203,7 @@ function ensureLatestGlobalInstall(): GlobalInstallOutcome | null {
 }
 
 /** npx runs from an ephemeral cache with no stable path a service definition can point
- *  at, so a first-time `npx traceroost-dashboard@latest service install` bootstraps a real global
+ *  at, so a first-time `npx traceroost@latest service install` bootstraps a real global
  *  install for the user (visibly, not silently — this touches global npm state) and then
  *  re-invokes the newly-installed copy directly to continue. ensureLatestGlobalInstall() below
  *  always installs `@latest`, so this is safe even when the npx cache itself is stale. */
@@ -212,17 +212,17 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
     console.error(
       '[TraceRoost] Still detected as running via npx after installing globally and re-invoking ' +
       '`traceroost` — that shouldn\'t happen and looks like a bug rather than a real npx run. ' +
-      'Try running `npm install -g traceroost-dashboard@latest` yourself, then `traceroost service install` directly.'
+      'Try running `npm install -g traceroost@latest` yourself, then `traceroost service install` directly.'
     )
     return 1
   }
-  console.log('[TraceRoost] Running via npx — installing traceroost-dashboard globally first, ' +
+  console.log('[TraceRoost] Running via npx — installing traceroost globally first, ' +
     'so the background service has a stable command to launch on every start.')
   const outcome = ensureLatestGlobalInstall()
   if (!outcome) {
     console.error(
       '[TraceRoost] Can\'t install the background service without a global copy to point at, and ' +
-      'nothing is installed yet. Reconnect to npm and re-run `npx traceroost-dashboard@latest service install`.'
+      'nothing is installed yet. Reconnect to npm and re-run `npx traceroost@latest service install`.'
     )
     return 1
   }
