@@ -1,6 +1,8 @@
 # TraceRoost Architecture
 
-TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local session files and databases (including OpenCode's SQLite database), persists everything to a local SQLite database, summarises it into per-session cards, and visualises it in a sidebar and a full dashboard.
+TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
+
+> **Naming:** the UI calls one prompt-to-response run a **Trace** (the Traces tab, the Waterfall sub-tab). The codebase predates that and still says `session` throughout — `SessionSummaryCard`, `sessions` table, `session_id`, `listSessions`, the `get_recent_sessions` MCP tool, etc. Read "session" as "trace" everywhere below; the two are the same thing.
 
 ---
 
@@ -781,9 +783,9 @@ graph TD
 
 - `agentFilteredSessions` — all in-memory sessions filtered by agent pill, data source, and workspace dropdown. No limit applied. This is the root filter — all downstream computeds derive from it, so the workspace filter automatically scopes every tab.
 - `availableWorkspaces` — sorted list of unique workspace paths from all loaded sessions. Drives the workspace dropdown options.
-- `displaySessions` — `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Sessions table.
+- `displaySessions` — `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Traces table.
 - `rangedSessions` — for bounded presets (7d/30d/…): merges `rangedSearchResults` (DB) with in-memory sessions that fall in the window. For "All": returns `agentFilteredSessions` directly.
-- `filteredSessions` — `rangedSessions` with text filter and sort applied. Used by Sessions table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (ESTIMATED COST, TOKEN USAGE PER SESSION, CONTEXT GROWTH) source from `rangedSessions` directly.
+- `filteredSessions` — `rangedSessions` with text filter and sort applied. Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (ESTIMATED COST, TOKEN USAGE PER TRACE, CONTEXT GROWTH) source from `rangedSessions` directly.
 
 **Workspace field flow:** `workspace` is stored in the `sessions` SQLite table (always present, `NOT NULL`). `project_path` is an optional secondary path some OTEL exporters populate. Both are mapped by `DatabaseReader.listSessions` into `SessionSummaryCard`. For OTEL-sourced sessions, `workspace` is stamped onto the card by `DatabaseWriter.enqueue` (the summarizers produce `workspace: ''` as a placeholder). For log-sourced sessions, `_buildCard` receives and records the workspace at parse time.
 
@@ -797,12 +799,12 @@ graph LR
 
     T1[Sessions<br/>sortable table — all columns<br/>OTEL/Log source badge per row<br/>expand-in-place detail panel]
     T1 --> D1[Overview sub-tab<br/>stat tiles · burn rate · InsightCards]
-    T1 --> D2[Trace sub-tab<br/>waterfall — LLM calls + tool calls<br/>lazy timeline · blob expand]
+    T1 --> D2[Waterfall sub-tab<br/>waterfall — LLM calls + tool calls<br/>lazy timeline · blob expand]
     T1 --> D3[Flow sub-tab<br/>turn-to-tool semantic graph<br/>canvas · lazy timelines]
     T1 --> D4[Tools sub-tab<br/>donut chart + call table]
     T1 --> D5[Files sub-tab<br/>files changed · open in editor<br/>one-shot/retry-rate summary<br/>git outcome banner + per-file badges]
 
-    T2[Analytics<br/>ESTIMATED COST · AGENT BREAKDOWN<br/>TOKEN USAGE PER SESSION · CONTEXT GROWTH]
+    T2[Analytics<br/>ESTIMATED COST · AGENT BREAKDOWN<br/>TOKEN USAGE PER TRACE · CONTEXT GROWTH]
     T2 --> A1[CostBarChart — per-session bars<br/>daily total overlay · pricing mode toggle<br/>CSV export download button]
     T2 --> A2[AgentCard ×3 — per-agent stat tiles<br/>incl. One-shot rate tile]
     T2 --> A3[SessionTokenChart — input/output bars<br/>day boundary highlights]
@@ -817,7 +819,7 @@ graph LR
     GEAR --> S2[Automation<br/>loop breaker · turn wrap-up<br/>error cascade · context compaction]
 ```
 
-**Chart data isolation:** Analytics charts (`CostBarChart`, `SessionTokenChart`, `ContextGrowthChart`) source from `rangedSessions` (always newest-first by time) so the Sessions table sort key has no effect on their order.
+**Chart data isolation:** Analytics charts (`CostBarChart`, `SessionTokenChart`, `ContextGrowthChart`) source from `rangedSessions` (always newest-first by time) so the Traces table sort key has no effect on their order.
 
 ### DashboardPanel ↔ Webview message protocol
 
@@ -1141,7 +1143,7 @@ traceroost/
 │   │   │   └── export.css        # Export tab card layout
 │   │   └── tabs/
 │   │       ├── Sessions.tsx      # Sortable session table, expand-in-place detail panel
-│   │       │                     #   sub-tabs: Overview (InsightCards) · Trace · Flow · Tools ·
+│   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
 │   │       ├── Analytics.tsx     # ESTIMATED COST · AGENT BREAKDOWN (incl. one-shot rate) · TOKEN USAGE · CONTEXT GROWTH
 │   │       ├── Insights.tsx      # InsightCard component + generateInsights; clipboard copy icon
