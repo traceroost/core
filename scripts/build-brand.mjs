@@ -38,6 +38,9 @@ const wordmark = read('wordmark.svg')
 write('wordmark-on-dark.svg', wordmark.split(INK).join(PAPER))
 // Single-ink typography (roost stops being teal); the roost bar stays teal.
 write('wordmark-mono.svg', recolorPaths(wordmark, TEAL, INK))
+// Theme-adaptive: mark + ground + "trace" inherit currentColor, the roost bar
+// and "roost" keep the teal. Used inline in the dashboard header (Wordmark.tsx).
+write('wordmark-currentcolor.svg', wordmark.split(INK).join('currentColor'))
 
 const mark = read('mark.svg')
 write('mark-on-dark.svg', mark.split(INK).join(PAPER))

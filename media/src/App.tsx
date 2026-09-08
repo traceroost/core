@@ -14,6 +14,7 @@ import {
   sessionsPage, getSessionsPagination,
 } from './state'
 import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, WorkspaceFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome } from './types'
+import { Wordmark } from './Wordmark'
 
 // Tab components
 import { Sessions } from './tabs/Sessions'
@@ -432,6 +433,9 @@ export function App() {
   return (
     <>
       <div class="tabs">
+        <span class="tr-wordmark" title="TraceRoost">
+          <Wordmark height={17} />
+        </span>
         <button
           class="sidebar-toggle-btn"
           title={sidebarOpen.value ? 'Close TraceRoost sidebar' : 'Open TraceRoost sidebar'}
