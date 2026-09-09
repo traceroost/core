@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * AgentLens capture — records real OTLP telemetry from a live agent session
+ * TraceRoost capture — records real OTLP telemetry from a live agent session
  * and saves it as a fixture file for deterministic demo replay.
  *
  * Works with: Claude Code, Codex (via standalone server on port 4318)

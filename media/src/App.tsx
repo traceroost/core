@@ -11,9 +11,10 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, availableWorkspaces, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  sessionsPage, getSessionsPagination,
+  sessionsPage, getSessionsPagination, SESSIONS_PAGE_SIZE_OPTIONS,
 } from './state'
 import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, WorkspaceFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome } from './types'
+import { Wordmark } from './Wordmark'
 
 // Tab components
 import { Sessions } from './tabs/Sessions'
@@ -26,7 +27,7 @@ import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
-import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl } from './tabs/Settings'
+import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -36,12 +37,15 @@ const sidebarOpen = signal(window.__STANDALONE__ !== true)
 const configOpen = signal(false)
 const bellOpen = signal(false)
 
+// `id` stays 'sessions' — it's an internal routing key, not shown anywhere. The
+// user-facing vocabulary is "Trace" (one prompt-to-response cycle); see the
+// glossary in Help.tsx.
 const TABS = [
-  { id: 'sessions',   label: 'Sessions',   title: 'Session list with expand-in-place detail — trace, files, cost, and flagged issues for each session.' },
+  { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail — waterfall, files, cost, and flagged issues for each trace.' },
   { id: 'analytics',  label: 'Analytics',  title: 'Aggregate charts and metrics: token/cost trends, agent comparison, tool distribution, and active insights.' },
-  { id: 'patterns',   label: 'Advisor',    title: 'Cross-session behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
-  { id: 'export',     label: 'Export',     title: 'Export raw or redacted session data as JSON files.' },
-  { id: 'import',     label: 'Import',     title: 'Import session data from an AgentLens export file.' },
+  { id: 'patterns',   label: 'Advisor',    title: 'Cross-trace behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
+  { id: 'export',     label: 'Export',     title: 'Export raw or redacted trace data as JSON files.' },
+  { id: 'import',     label: 'Import',     title: 'Import trace data from a TraceRoost export file.' },
 ]
 
 function ActivePanel() {
@@ -263,7 +267,7 @@ function PricingButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
-      title="Pricing — full rate table AgentLens uses to estimate cost"
+      title="Pricing — full rate table TraceRoost uses to estimate cost"
       onClick={() => { activeTab.value = 'pricing' }}
     ><IconDollar /></button>
   )
@@ -429,16 +433,19 @@ export function App() {
   return (
     <>
       <div class="tabs">
+        <span class="tr-wordmark" title="TraceRoost">
+          <Wordmark size={15} />
+        </span>
         <button
           class="sidebar-toggle-btn"
-          title={sidebarOpen.value ? 'Close AgentLens sidebar' : 'Open AgentLens sidebar'}
+          title={sidebarOpen.value ? 'Close TraceRoost sidebar' : 'Open TraceRoost sidebar'}
           onClick={() => {
             const opening = !sidebarOpen.value
             sidebarOpen.value = opening
             if (vscode) {
               vscode.postMessage({ type: opening ? 'openSidebar' : 'closeSidebar' })
             } else {
-              window.dispatchEvent(new CustomEvent('agentlens:sidebar', { detail: { open: opening } }))
+              window.dispatchEvent(new CustomEvent('traceroost:sidebar', { detail: { open: opening } }))
             }
           }}
         >
@@ -460,7 +467,6 @@ export function App() {
       </div>
 
       <ConfigPanel />
-      <img id="mascot-img" src="" alt="AgentLens mascot" style="display:none" />
     </>
   )
 }
@@ -586,7 +592,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
                 ? 'background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600'
                 : 'background:transparent;color:var(--muted)',
             ].join(';')}
-            title={p.ms ? `Last ${p.label}` : 'All recorded sessions'}
+            title={p.ms ? `Last ${p.label}` : 'All recorded traces'}
           >{p.label}</button>
         ))}
       </div>
@@ -651,21 +657,25 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         ><IconRefresh /></button>
       )}
 
-      {/* Session paging — same controls, same styling, same signal as the table's own footer in
-          Sessions.tsx, just also reachable without scrolling down first. */}
-      {showPaging && sessTotalPages > 1 && (
+      {/* Trace paging — same controls, same styling, same signal as the table's own footer in
+          Sessions.tsx, just also reachable without scrolling down first. The page-size select
+          shows once there's more than the smallest page worth of traces, even at one page. */}
+      {showPaging && sessionCount > SESSIONS_PAGE_SIZE_OPTIONS[0] && (
         <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
-          <button
-            onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
-            disabled={sessPage === 0}
-            style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
-          >‹ Prev</button>
-          <span>Page {sessPage + 1} of {sessTotalPages}</span>
-          <button
-            onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
-            disabled={sessPage >= sessTotalPages - 1}
-            style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
-          >Next ›</button>
+          <PageSizeSelect />
+          {sessTotalPages > 1 && <>
+            <button
+              onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
+              disabled={sessPage === 0}
+              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
+            >‹ Prev</button>
+            <span>Page {sessPage + 1} of {sessTotalPages}</span>
+            <button
+              onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
+              disabled={sessPage >= sessTotalPages - 1}
+              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
+            >Next ›</button>
+          </>}
         </span>
       )}
     </div>
@@ -771,7 +781,7 @@ function SearchFilterBar() {
     <div style="display:flex;flex-direction:column;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
       {evIds !== null && (
         <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#4fc3f711;border-bottom:1px solid #4fc3f733">
-          <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} session{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
+          <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
           {evidenceSessionPrompt.value && (
             <span
               style="font-size:10px;color:#4fc3f7;opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
@@ -781,13 +791,13 @@ function SearchFilterBar() {
           <button
             onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}
             style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:#4fc3f7;cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
-          >Show all sessions</button>
+          >Show all traces</button>
         </div>
       )}
       <div style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap">
       <input
         type="text"
-        placeholder="Filter sessions…"
+        placeholder="Filter traces…"
         value={text}
         onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
         style="flex:1;min-width:100px;max-width:200px;padding:3px 7px;font-size:11px;background:var(--vscode-input-background,#3c3c3c);color:var(--vscode-input-foreground,#ccc);border:1px solid var(--vscode-input-border,#555);border-radius:3px;outline:none"
@@ -795,13 +805,13 @@ function SearchFilterBar() {
       <WorkspaceDropdown />
       <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">From</span>
       <FilterPills
-        options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all sessions' : o.value === 'user' ? 'Human-typed prompts only' : o.value === 'agent' ? 'Agent-spawned sub-tasks only' : 'Non-interactive claude -p calls only' }))}
+        options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : o.value === 'agent' ? 'Agent-spawned sub-tasks only' : 'Non-interactive claude -p calls only' }))}
         value={iFilter}
         onChange={v => { initiatorFilter.value = v }}
       />
       <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Source</span>
       <FilterPills
-        options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry sessions only' : 'Log-file sessions only' }))}
+        options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry traces only' : 'Log-file traces only' }))}
         value={dsFilter}
         onChange={v => { dataSourceFilter.value = v }}
       />

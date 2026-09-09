@@ -24,10 +24,10 @@ export interface ServiceConfig {
 }
 
 // `baseHome` defaults to the real home directory in production; tests pass a temp directory
-// so these never touch the developer's actual ~/.agentlens.
+// so these never touch the developer's actual ~/.traceroost.
 
 export function defaultDataDir(baseHome: string = os.homedir()): string {
-  return path.join(baseHome, '.agentlens')
+  return path.join(baseHome, '.traceroost')
 }
 
 export function defaultServiceConfig(baseHome?: string): ServiceConfig {
@@ -129,7 +129,7 @@ export function isRunningFromNpx(userAgent: string | undefined, scriptPath: stri
 // ── npx-bootstrap re-exec guard ──────────────────────────────────────────────
 //
 // `child_process.execFileSync` inherits the parent's environment by default. Without this,
-// re-invoking `agentlens service install` after the global-install bootstrap would still carry
+// re-invoking `traceroost service install` after the global-install bootstrap would still carry
 // the original npm_config_user_agent (containing "npx/...") into the child — isRunningFromNpx
 // would see that stale value and bootstrap again, forever, even though the child is by then
 // correctly running from the global install. childEnvForReexec strips it (so the child's own
@@ -137,7 +137,7 @@ export function isRunningFromNpx(userAgent: string | undefined, scriptPath: stri
 // marker so any *other* undiscovered path to the same failure mode fails loudly instead of
 // looping.
 
-export const REEXEC_GUARD_ENV = 'AGENTLENS_SERVICE_BOOTSTRAPPED'
+export const REEXEC_GUARD_ENV = 'TRACEROOST_SERVICE_BOOTSTRAPPED'
 
 export function shouldBlockRepeatedBootstrap(env: NodeJS.ProcessEnv): boolean {
   return env[REEXEC_GUARD_ENV] === '1'
@@ -152,7 +152,7 @@ export function childEnvForReexec(parentEnv: NodeJS.ProcessEnv): NodeJS.ProcessE
 
 // ── `service install` / `service update` npm-fetch messaging ────────────────
 //
-// `service install` and `service update` shell out to `npm install -g agentlens-dashboard@latest`
+// `service install` and `service update` shell out to `npm install -g traceroost@latest`
 // so the background service always lands on the newest published version rather than pinning
 // whatever copy happened to launch it. When that download can't happen (offline, npm registry
 // unreachable, npm missing, a permissions error) the service still starts on whatever version is
@@ -183,15 +183,15 @@ export function describeServiceManagerFailure(err: unknown, tool = 'the service 
   return e.message ? e.message.split('\n')[0] : 'unknown error'
 }
 
-/** Warning shown when the latest agentlens-dashboard can't be fetched. `fallbackVersion` is the
+/** Warning shown when the latest package can't be fetched. `fallbackVersion` is the
  *  version already on disk that the service will run instead (undefined if there is none). Not
  *  fatal on its own — callers that truly have nothing to fall back on report that separately. */
-export function couldNotDownloadMessage(reason: string, fallbackVersion: string | undefined): string {
-  const head = `[AgentLens] Couldn't download the latest agentlens-dashboard from npm: ${reason}.`
+export function couldNotDownloadMessage(reason: string, fallbackVersion: string | undefined, packageName = 'traceroost'): string {
+  const head = `[TraceRoost] Couldn't download the latest ${packageName} from npm: ${reason}.`
   const tail = fallbackVersion
-    ? `Keeping the version already installed (v${fallbackVersion}) — run \`agentlens service update\` later to retry.`
+    ? `Keeping the version already installed (v${fallbackVersion}) — run \`traceroost service update\` later to retry.`
     : 'Nothing is installed to fall back on.'
-  return `${head}\n[AgentLens] ${tail}`
+  return `${head}\n[TraceRoost] ${tail}`
 }
 
 // ── Service-definition generators (pure string builders) ────────────────────
@@ -202,7 +202,7 @@ export interface ServiceProgram {
   config: ServiceConfig
 }
 
-const LAUNCHD_LABEL = 'com.agentlens.server'
+const LAUNCHD_LABEL = 'com.traceroost.server'
 
 export function launchdLabel(): string {
   return LAUNCHD_LABEL
@@ -243,12 +243,12 @@ ${envEntry('DATA_DIR', config.dataDir)}
 `
 }
 
-export const SYSTEMD_UNIT_NAME = 'agentlens.service'
+export const SYSTEMD_UNIT_NAME = 'traceroost.service'
 
 export function generateSystemdUnit({ nodePath, cliPath, config }: ServiceProgram): string {
   const logPath = serviceLogPath(config)
   return `[Unit]
-Description=AgentLens background service
+Description=TraceRoost background service
 After=network.target
 
 [Service]
@@ -268,7 +268,7 @@ WantedBy=default.target
 `
 }
 
-export const WINDOWS_TASK_NAME = 'AgentLens'
+export const WINDOWS_TASK_NAME = 'TraceRoost'
 
 /** Windows Scheduled Tasks have no simple way to set per-task environment variables,
  *  so the task points at this wrapper .cmd instead of node.exe directly — it sets the

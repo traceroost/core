@@ -3,8 +3,8 @@ import { summarizeSpans } from '../spanSummarizer'
 import { DatabaseWriter } from './writer'
 import type { Span } from '../types'
 
-const MIGRATION_VERSION_KEY = 'agentLens.dbMigrationVersion'
-const SPANS_KEY = 'agentLens.spans'
+const MIGRATION_VERSION_KEY = 'traceRoost.dbMigrationVersion'
+const SPANS_KEY = 'traceRoost.spans'
 const CURRENT_VERSION = 1
 
 /**
@@ -29,7 +29,7 @@ export async function migrateGlobalStateToSqlite(
     return
   }
 
-  log(`AgentLens migration: migrating ${spans.length} spans from globalState to SQLite…`)
+  log(`TraceRoost migration: migrating ${spans.length} spans from globalState to SQLite…`)
 
   const { sessions } = summarizeSpans(spans)
   const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.toString() ?? ''
@@ -41,11 +41,11 @@ export async function migrateGlobalStateToSqlite(
   try {
     await writer.drain()
   } catch (err) {
-    log(`AgentLens migration: write error — globalState NOT cleared: ${err}`)
+    log(`TraceRoost migration: write error — globalState NOT cleared: ${err}`)
     return
   }
 
   await context.globalState.update(SPANS_KEY, [])
   await context.globalState.update(MIGRATION_VERSION_KEY, CURRENT_VERSION)
-  log(`AgentLens migration: migrated ${sessions.length} sessions; globalState cleared.`)
+  log(`TraceRoost migration: migrated ${sessions.length} sessions; globalState cleared.`)
 }

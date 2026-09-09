@@ -159,7 +159,7 @@ suite('LogReader — Claude Code session splitting (integration)', () => {
   let tmpDir: string
 
   setup(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-claude-split-'))
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-claude-split-'))
   })
 
   teardown(() => {

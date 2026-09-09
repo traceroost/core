@@ -50,7 +50,7 @@ function BgSummaryBlock({ bgSpans }: { bgSpans: BackgroundSpanSummary[] }) {
       </div>
       {open && (
         <div class="sw-bg-body">
-          <div class="sw-bg-note">Automatic LLM calls that ran alongside this prompt. These are not part of your agent session but still consume tokens.</div>
+          <div class="sw-bg-note">Automatic LLM calls that ran alongside this prompt. These are not part of your agent trace but still consume tokens.</div>
           {purposes.map(purpose => (
             <div key={purpose} class="sw-bg-item">
               <div class="sw-bg-item-header">
@@ -354,7 +354,7 @@ function SessionBlock({ sess, sessIdx, sessNum, totalCount, isFirst }: {
           <span dangerouslySetInnerHTML={{ __html: getAgentDotHtml(sess.source) }} />{' '}
           <span style="font-size:10px;color:var(--muted);margin-right:4px">#{sessNum}</span>
           <span style="font-size:10px;color:var(--muted)">{sessionTime}</span>{' '}
-          {sess.userRequest && sess.userRequest !== '[prompt unavailable]' && sess.userRequest !== '[session in progress]'
+          {sess.userRequest && sess.userRequest !== '[prompt unavailable]' && sess.userRequest !== '[trace in progress]'
             ? <>"{sess.userRequest.slice(0, 100)}{isLongPrompt ? '…' : ''}"</>
             : <span style="color:var(--muted);font-style:italic">{sess.userRequest || '[no prompt]'}</span>
           }
@@ -416,7 +416,7 @@ function DayGroup({ label, sessions, startNum, focusedId }: {
       >
         <span style="font-size:10px;color:var(--muted)">{collapsed ? '▶' : '▼'}</span>
         <span style="font-size:12px;font-weight:600;color:var(--foreground)">{label}</span>
-        <span style="font-size:10px;color:var(--muted)">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
+        <span style="font-size:10px;color:var(--muted)">{sessions.length} trace{sessions.length !== 1 ? 's' : ''}</span>
       </div>
       {!collapsed && sessions.map((sess, idx) => (
         <SessionBlock
@@ -446,7 +446,7 @@ export function Traces() {
   }, [focusedId])
 
   if (!summary?.sessions?.length) {
-    return <div id="summary-traces-content"><div class="empty-state">{hasAny ? 'No sessions match the active filters.' : 'No sessions recorded yet.'}</div></div>
+    return <div id="summary-traces-content"><div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div></div>
   }
 
   const sessionsToShow = [...base].reverse()
@@ -469,14 +469,14 @@ export function Traces() {
   return (
     <div id="summary-traces-content">
       <div class="tab-stats">
-        <div><strong class="tab-stat-val">{sessionsToShow.length}</strong> sessions</div>
+        <div><strong class="tab-stat-val">{sessionsToShow.length}</strong> traces</div>
         <div><strong class="tab-stat-val">{totalLlmCalls}</strong> LLM calls</div>
         <div><strong class="tab-stat-val">{totalToolCalls}</strong> tool calls</div>
         <div><strong class="tab-stat-val">{formatCompact(totalTokens)}</strong> tokens</div>
       </div>
       <div class="waterfall">
         {sessionsToShow.length === 0 && (
-          <div class="empty-state">No sessions in this time range</div>
+          <div class="empty-state">No traces in this time range</div>
         )}
         {(() => {
           let offset = 1

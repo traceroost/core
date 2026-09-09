@@ -316,8 +316,8 @@ export function buildClaudeSessions(
     const hasData = totalLlmCalls > 0 || inputTokens > 0 || timeline.length > 0
     const userRequest = normalizeUserRequest(
       rawPrompt, promptLength,
-      hasData ? '[prompt redacted]' : '[session in progress]',
-      hasData ? 'prompt redacted' : 'session in progress',
+      hasData ? '[prompt redacted]' : '[trace in progress]',
+      hasData ? 'prompt redacted' : 'trace in progress',
     )
 
     // Note is computed AFTER enrichment — if enrichment found files, filesChanged.size > 0

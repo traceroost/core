@@ -32,10 +32,10 @@ function commitAll(message: string, isoDate: string): void {
 
 suite('gitOutcome', () => {
   setup(() => {
-    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-gitoutcome-'))
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-gitoutcome-'))
     git(['init', '-q'])
-    git(['config', 'user.email', 'test@agentlens.local'])
-    git(['config', 'user.name', 'AgentLens Test'])
+    git(['config', 'user.email', 'test@traceroost.local'])
+    git(['config', 'user.name', 'TraceRoost Test'])
     fileCounter++
   })
 
@@ -111,7 +111,7 @@ suite('gitOutcome', () => {
   })
 
   test('returns null for a workspace that is not a git repo', async () => {
-    const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-not-a-repo-'))
+    const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-not-a-repo-'))
     try {
       const result = await classifySessionOutcome(notARepo, ['whatever.txt'], '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')
       assert.strictEqual(result, null)

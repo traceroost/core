@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Configure Claude Code to send OTLP telemetry to AgentLens.
+# Configure Claude Code to send OTLP telemetry to TraceRoost.
 # Safe to re-run: only the relevant env vars are updated; other settings are preserved.
 #
 # Usage:
 #   ./scripts/configure-claude.sh          # uses port 4318 (default)
 #   ./scripts/configure-claude.sh 4319     # custom port
-#   AGENTLENS_PORT=4319 ./scripts/configure-claude.sh
+#   TRACEROOST_PORT=4319 ./scripts/configure-claude.sh
 
 set -euo pipefail
 
-PORT=${1:-${AGENTLENS_PORT:-4318}}
+PORT=${1:-${TRACEROOST_PORT:-4318}}
 ENDPOINT="http://localhost:${PORT}"
 
-echo "Configuring Claude Code for AgentLens at ${ENDPOINT}..."
+echo "Configuring Claude Code for TraceRoost at ${ENDPOINT}..."
 
 if ! command -v python3 &>/dev/null; then
   echo ""

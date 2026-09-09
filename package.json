@@ -1,9 +1,9 @@
 {
-  "name": "agentlens-dashboard",
-  "displayName": "AgentLens - Agentic AI Monitoring & Observability",
+  "name": "traceroost",
+  "displayName": "TraceRoost - Agentic AI Monitoring & Observability",
   "description": "Agentic AI monitoring and observability — OTEL traces and local log file ingestion for Copilot, Claude Code, Codex, and OpenCode. VS Code extension, npx, and Docker.",
   "version": "0.15.4",
-  "publisher": "agentlens",
+  "publisher": "traceroost",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -46,101 +46,101 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "agent-lens",
-          "title": "AgentLens",
+          "id": "traceroost",
+          "title": "TraceRoost",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "agent-lens": [
+      "traceroost": [
         {
-          "id": "agentLens.dashboard",
-          "name": "AgentLens",
+          "id": "traceRoost.dashboard",
+          "name": "TraceRoost",
           "type": "webview"
         }
       ]
     },
     "commands": [
       {
-        "command": "agentLens.openDashboard",
-        "title": "AgentLens: Open Dashboard",
+        "command": "traceRoost.openDashboard",
+        "title": "TraceRoost: Open Dashboard",
         "icon": "$(graph)"
       },
       {
-        "command": "agentLens.exportData",
-        "title": "AgentLens: Export OTEL Data"
+        "command": "traceRoost.exportData",
+        "title": "TraceRoost: Export OTEL Data"
       },
       {
-        "command": "agentLens.exportDataRedacted",
-        "title": "AgentLens: Export OTEL Data (Redacted)"
+        "command": "traceRoost.exportDataRedacted",
+        "title": "TraceRoost: Export OTEL Data (Redacted)"
       },
       {
-        "command": "agentLens.dumpSpanAttrs",
-        "title": "AgentLens: Dump Span Attributes"
+        "command": "traceRoost.dumpSpanAttrs",
+        "title": "TraceRoost: Dump Span Attributes"
       },
       {
-        "command": "agentLens.showStorageStats",
-        "title": "AgentLens: Show Storage Stats"
+        "command": "traceRoost.showStorageStats",
+        "title": "TraceRoost: Show Storage Stats"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "agentLens.openDashboard",
-          "when": "view == agentLens.dashboard",
+          "command": "traceRoost.openDashboard",
+          "when": "view == traceRoost.dashboard",
           "group": "navigation"
         }
       ]
     },
     "walkthroughs": [
       {
-        "id": "agentlens.gettingStarted",
-        "title": "Get Started with AgentLens",
-        "description": "Observe and debug your AI agent sessions in real time.",
+        "id": "traceroost.gettingStarted",
+        "title": "Get Started with TraceRoost",
+        "description": "Observe and debug your AI agent traces in real time.",
         "steps": [
           {
-            "id": "agentlens.welcome",
-            "title": "What is AgentLens?",
-            "description": "AgentLens gives you a live observability dashboard for GitHub Copilot, Claude Code, and Codex — token usage, latency, file changes, and loop detection.\n\n[Open AgentLens Sidebar](command:workbench.view.extension.agent-lens)",
+            "id": "traceroost.welcome",
+            "title": "What is TraceRoost?",
+            "description": "TraceRoost gives you a live observability dashboard for GitHub Copilot, Claude Code, and Codex — token usage, latency, file changes, and loop detection.\n\n[Open TraceRoost Sidebar](command:workbench.view.extension.traceroost)",
             "media": {
               "markdown": "walkthrough/welcome.md"
             },
             "completionEvents": [
-              "onView:agentLens.dashboard"
+              "onView:traceRoost.dashboard"
             ]
           },
           {
-            "id": "agentlens.autoConfig",
+            "id": "traceroost.autoConfig",
             "title": "Agents Are Ready",
-            "description": "AgentLens automatically configured your agents to send telemetry to the local collector. Restart any running sessions to start collecting traces. Past session history is already loading from local log files — no restart needed to see it.",
+            "description": "TraceRoost automatically configured your agents to send telemetry to the local collector. Restart any running agents to start collecting traces. Past trace history is already loading from local log files — no restart needed to see it.",
             "media": {
               "markdown": "walkthrough/agents.md"
             }
           },
           {
-            "id": "agentlens.startSession",
-            "title": "Start an Agent Session",
+            "id": "traceroost.startSession",
+            "title": "Start an Agent Run",
             "description": "Run Copilot, Claude Code, or Codex and the dashboard will populate in real time.",
             "media": {
               "markdown": "walkthrough/session.md"
             }
           },
           {
-            "id": "agentlens.openDashboard",
+            "id": "traceroost.openDashboard",
             "title": "Open the Full Dashboard",
-            "description": "The sidebar shows a live summary. Open the full dashboard in an editor panel for traces, diffs, alerts, cost estimation, export, and more.\n\n[Open Dashboard](command:agentLens.openDashboard)",
+            "description": "The sidebar shows a live summary. Open the full dashboard in an editor panel for traces, diffs, alerts, cost estimation, export, and more.\n\n[Open Dashboard](command:traceRoost.openDashboard)",
             "media": {
               "markdown": "walkthrough/dashboard.md"
             },
             "completionEvents": [
-              "onCommand:agentLens.openDashboard"
+              "onCommand:traceRoost.openDashboard"
             ]
           },
           {
-            "id": "agentlens.loopDetection",
+            "id": "traceroost.loopDetection",
             "title": "Detect Loops and Inefficiencies",
-            "description": "The Sessions tab surfaces five failure patterns per session — deadlocks, error spirals, context accumulation, and more. The Advisor tab analyzes patterns across sessions to generate specific suggestions for improving your agent instruction file.",
+            "description": "The Traces tab surfaces five failure patterns per trace — deadlocks, error spirals, context accumulation, and more. The Advisor tab analyzes patterns across traces to generate specific suggestions for improving your agent instruction file.",
             "media": {
               "markdown": "walkthrough/loops.md"
             }
@@ -149,56 +149,55 @@
       }
     ],
     "configuration": {
-      "title": "AgentLens",
+      "title": "TraceRoost",
       "properties": {
-        "agentLens.otlpPort": {
+        "traceRoost.otlpPort": {
           "type": "number",
           "default": 4318,
           "description": "Local port for OTLP trace receiver"
         },
-        "agentLens.autoConfigureAgents": {
+        "traceRoost.autoConfigureAgents": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically write OTEL telemetry settings into Claude Code's (~/.claude/settings.json), Codex's (~/.codex/config.toml), and GitHub Copilot's own configuration so they send session data to AgentLens. Runs on every activation but only rewrites a file when something's actually missing, so it's silent after the first successful run (shows a notification only when it changes something). Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab), or rely on agentLens.enableLogIngestion alone. Codex and Copilot CLI sessions have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
+          "description": "Automatically write OTEL telemetry settings into Claude Code's (~/.claude/settings.json), Codex's (~/.codex/config.toml), and GitHub Copilot's own configuration so they send trace data to TraceRoost. Runs on every activation but only rewrites a file when something's actually missing, so it's silent after the first successful run (shows a notification only when it changes something). Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab), or rely on traceRoost.enableLogIngestion alone. Codex and Copilot CLI traces have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
         },
-        "agentLens.enableOtelIngestion": {
+        "traceRoost.enableOtelIngestion": {
           "type": "boolean",
           "default": true,
-          "description": "Accept incoming OTEL span data. The OTLP server keeps listening on agentLens.otlpPort regardless; disabling this silently drops received payloads without storing them."
+          "description": "Accept incoming OTEL span data. The OTLP server keeps listening on traceRoost.otlpPort regardless; disabling this silently drops received payloads without storing them."
         },
-        "agentLens.enableLogIngestion": {
+        "traceRoost.enableLogIngestion": {
           "type": "boolean",
           "default": true,
-          "description": "Read local session logs for Claude Code, Codex, and Copilot CLI as a data source. Log data has lower fidelity than OTEL — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. Log and OTEL sessions are shown as separate entries rather than merged. Loading is done incrementally in the background and will not block the UI."
+          "description": "Read local trace logs for Claude Code, Codex, and Copilot CLI as a data source. Log data has lower fidelity than OTEL — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. Log and OTEL traces are shown as separate entries rather than merged. Loading is done incrementally in the background and will not block the UI."
         },
-        "agentLens.enableMcpServer": {
+        "traceRoost.enableMcpServer": {
           "type": "boolean",
           "default": true,
-          "description": "Start the AgentLens MCP server so Claude Code can query your session history. The server listens on agentLens.mcpPort (default 4316). See the AgentLens Help tab → Agent Integration for setup instructions."
+          "description": "Start the TraceRoost MCP server so Claude Code can query your trace history. The server listens on traceRoost.mcpPort (default 4316). See the TraceRoost Help tab → Agent Integration for setup instructions."
         },
-        "agentLens.mcpPort": {
+        "traceRoost.mcpPort": {
           "type": "number",
           "default": 4316,
-          "description": "Local port for the AgentLens MCP server (when agentLens.enableMcpServer is true). Configure Claude Code to connect with: { \"mcpServers\": { \"agentlens\": { \"url\": \"http://localhost:4316/mcp\" } } }"
+          "description": "Local port for the TraceRoost MCP server (when traceRoost.enableMcpServer is true). Configure Claude Code to connect with: { \"mcpServers\": { \"traceroost\": { \"url\": \"http://localhost:4316/mcp\" } } }"
         },
-        "agentLens.sessionRetentionDays": {
+        "traceRoost.sessionRetentionDays": {
           "type": "number",
           "default": 90,
-          "description": "How many days to keep session history in the local database. Older sessions (and their blob files) are deleted automatically on activation and every 24 hours."
+          "description": "How many days to keep trace history in the local database. Older traces (and their blob files) are deleted automatically on activation and every 24 hours."
         }
       }
     },
     "mcpServers": {
-      "agentlens": {
-        "label": "AgentLens",
+      "traceroost": {
+        "label": "TraceRoost",
         "type": "http",
         "url": "http://localhost:4316/mcp"
       }
     }
   },
   "bin": {
-    "agentlens": "./standalone/cli.js",
-    "agentlens-dashboard": "./standalone/cli.js"
+    "traceroost": "./standalone/cli.js"
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",
@@ -213,7 +212,7 @@
     "capture:list": "node demo/run-ts.js demo/capture.ts --list",
     "fixtures:generate": "node demo/generate-fixtures.js",
     "fixtures:validate": "pnpm run compile-tests && node demo/validate-fixtures.js",
-    "fixtures:check": "node demo/generate-fixtures.js --dir /tmp/agentlens-fixtures && pnpm run compile-tests && node demo/validate-fixtures.js --dir /tmp/agentlens-fixtures",
+    "fixtures:check": "node demo/generate-fixtures.js --dir /tmp/traceroost-fixtures && pnpm run compile-tests && node demo/validate-fixtures.js --dir /tmp/traceroost-fixtures",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
@@ -237,6 +236,7 @@
     "mocha": "^10.8.2",
     "npm-run-all": "^4.1.5",
     "playwright": "^1.60.0",
+    "sharp": "^0.35.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.2"
   },

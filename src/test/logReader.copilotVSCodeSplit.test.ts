@@ -64,7 +64,7 @@ suite('splitCopilotVSCodeLinesOnPromptGaps', () => {
 suite('LogReader — Copilot VS Code chat session splitting (integration)', () => {
   let tmpDir: string
 
-  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-copilot-vscode-split-')) })
+  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-copilot-vscode-split-')) })
   teardown(() => { fs.rmSync(tmpDir, { recursive: true, force: true }) })
 
   test('a normal short session produces exactly one result with the unsuffixed session id', () => {

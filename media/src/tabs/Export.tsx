@@ -86,7 +86,7 @@ export function Export() {
   const sessions = filteredSessions.value
   const empty = sessions.length === 0
   const trueTotal = isAllTime ? sessions.length : (rangedSearchResults.value?.totalCount ?? sessions.length)
-  const scopeLabel = `${trueTotal} session${trueTotal === 1 ? '' : 's'} matching your current filters`
+  const scopeLabel = `${trueTotal} trace${trueTotal === 1 ? '' : 's'} matching your current filters`
 
   useEffect(() => {
     if (!pending) return
@@ -146,7 +146,7 @@ export function Export() {
 
         <div class="export-card">
           <div class="export-card-header">
-            <span class="export-card-title">Export Session Data</span>
+            <span class="export-card-title">Export Trace Data</span>
             <span class="export-card-badge export-badge-raw">Full</span>
           </div>
           <p class="export-card-desc">
@@ -161,7 +161,7 @@ export function Export() {
             <li>Duration, errors, outcome, loop signals</li>
           </ul>
           <div class="export-card-warning">Keep private — includes prompt text.</div>
-          <div class="export-card-scope">{empty ? 'No sessions match your current filters' : scopeLabel}</div>
+          <div class="export-card-scope">{empty ? 'No traces match your current filters' : scopeLabel}</div>
           <div class="export-card-actions">
             <FormatSelect value={rawFormat} onChange={setRawFormat} />
             <button
@@ -169,14 +169,14 @@ export function Export() {
               onClick={doExport}
               disabled={empty || preparingRaw}
             >
-              {rawDone ? '✓ Exported' : preparingRaw ? 'Preparing…' : 'Export Session Data'}
+              {rawDone ? '✓ Exported' : preparingRaw ? 'Preparing…' : 'Export Trace Data'}
             </button>
           </div>
         </div>
 
         <div class="export-card export-card-redacted">
           <div class="export-card-header">
-            <span class="export-card-title">Export Session Data (Redacted)</span>
+            <span class="export-card-title">Export Trace Data (Redacted)</span>
             <span class="export-card-badge export-badge-redacted">Safer to share</span>
           </div>
           <p class="export-card-desc">
@@ -191,7 +191,7 @@ export function Export() {
             <li>✓ Duration, errors, outcome, loop signals</li>
           </ul>
           <div class="export-card-safe">Safer to share — no prompt text or file paths.</div>
-          <div class="export-card-scope">{empty ? 'No sessions match your current filters' : scopeLabel}</div>
+          <div class="export-card-scope">{empty ? 'No traces match your current filters' : scopeLabel}</div>
           <div class="export-card-actions">
             <FormatSelect value={redactedFormat} onChange={setRedactedFormat} />
             <button
@@ -199,7 +199,7 @@ export function Export() {
               onClick={doRedacted}
               disabled={empty || preparingRedacted}
             >
-              {redactedDone ? '✓ Exported' : preparingRedacted ? 'Preparing…' : 'Export Session Data (Redacted)'}
+              {redactedDone ? '✓ Exported' : preparingRedacted ? 'Preparing…' : 'Export Trace Data (Redacted)'}
             </button>
           </div>
         </div>
@@ -207,11 +207,11 @@ export function Export() {
       </div>
 
       <div class="export-replay-box">
-        <div class="export-replay-title">About session data exports</div>
+        <div class="export-replay-title">About trace data exports</div>
         <p class="export-replay-desc">
-          These exports contain aggregated session summaries — token counts, tool usage,
+          These exports contain aggregated trace summaries — token counts, tool usage,
           cost estimates, file changes, and efficiency signals. They are useful for
-          cost analysis, sharing with teammates, and offline review. Use the <strong>Import</strong> tab to bring exported files back into AgentLens on any machine.
+          cost analysis, sharing with teammates, and offline review. Use the <strong>Import</strong> tab to bring exported files back into TraceRoost on any machine.
         </p>
       </div>
     </div>

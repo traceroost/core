@@ -521,9 +521,9 @@ suite('detectErrorRecurrence', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       timeline: [
-        makeErrorTool('bash', 'ENOENT: /tmp/agentlens-abc123/build.log not found at 2026-01-01T10:00:00.000Z'),
-        makeErrorTool('bash', 'ENOENT: /tmp/agentlens-xyz789/build.log not found at 2026-01-01T10:05:12.500Z'),
-        makeErrorTool('bash', 'ENOENT: /tmp/agentlens-qqq111/build.log not found at 2026-01-01T10:11:47.100Z'),
+        makeErrorTool('bash', 'ENOENT: /tmp/traceroost-abc123/build.log not found at 2026-01-01T10:00:00.000Z'),
+        makeErrorTool('bash', 'ENOENT: /tmp/traceroost-xyz789/build.log not found at 2026-01-01T10:05:12.500Z'),
+        makeErrorTool('bash', 'ENOENT: /tmp/traceroost-qqq111/build.log not found at 2026-01-01T10:11:47.100Z'),
       ],
     })
     detectErrorRecurrence(session, signals)

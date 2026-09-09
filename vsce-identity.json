@@ -1,0 +1,5 @@
+{
+  "_note": "Marketplace identity for the VS Code extension, deliberately kept out of package.json (which carries the npm identity, `traceroost`). release.yml patches these into package.json's `name`/`publisher` right before `vsce package`, so builds keep publishing to the existing agentlens.agentlens-dashboard listing and installed extensions update in place. See runbooks/RELEASING.md.",
+  "publisher": "agentlens",
+  "name": "agentlens-dashboard"
+}

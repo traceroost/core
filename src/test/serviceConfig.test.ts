@@ -14,19 +14,19 @@ import {
 } from '../serviceConfig'
 
 function tmpHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-service-test-'))
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-service-test-'))
 }
 
 suite('serviceConfig', () => {
   suite('defaultServiceConfig', () => {
-    test('defaults to the standard ports and ~/.agentlens under the given home dir', () => {
+    test('defaults to the standard ports and ~/.traceroost under the given home dir', () => {
       const home = tmpHome()
       const config = defaultServiceConfig(home)
       assert.strictEqual(config.uiPort, 3000)
       assert.strictEqual(config.otlpPort, 4318)
       assert.strictEqual(config.mcpPort, 4316)
       assert.strictEqual(config.bindHost, '127.0.0.1')
-      assert.strictEqual(config.dataDir, path.join(home, '.agentlens'))
+      assert.strictEqual(config.dataDir, path.join(home, '.traceroost'))
     })
   })
 
@@ -110,13 +110,13 @@ suite('serviceConfig', () => {
     test('parses all recognized flags', () => {
       const config = parseServiceInstallFlags([
         '--ui-port', '3001', '--otlp-port', '4319', '--mcp-port', '4317',
-        '--bind-host', '0.0.0.0', '--data-dir', '/tmp/agentlens-data',
+        '--bind-host', '0.0.0.0', '--data-dir', '/tmp/traceroost-data',
       ])
       assert.strictEqual(config.uiPort, 3001)
       assert.strictEqual(config.otlpPort, 4319)
       assert.strictEqual(config.mcpPort, 4317)
       assert.strictEqual(config.bindHost, '0.0.0.0')
-      assert.strictEqual(config.dataDir, '/tmp/agentlens-data')
+      assert.strictEqual(config.dataDir, '/tmp/traceroost-data')
     })
 
     test('falls back to defaults for any flag not passed', () => {
@@ -147,11 +147,11 @@ suite('serviceConfig', () => {
     })
 
     test('detects npx via a _npx cache path when the user-agent is missing', () => {
-      assert.strictEqual(isRunningFromNpx(undefined, '/Users/x/.npm/_npx/abc123/node_modules/.bin/agentlens'), true)
+      assert.strictEqual(isRunningFromNpx(undefined, '/Users/x/.npm/_npx/abc123/node_modules/.bin/traceroost'), true)
     })
 
     test('returns false for a normal global-install path and user-agent', () => {
-      assert.strictEqual(isRunningFromNpx('npm/10.0.0 node/v24', '/usr/local/lib/node_modules/agentlens-dashboard/standalone/cli.js'), false)
+      assert.strictEqual(isRunningFromNpx('npm/10.0.0 node/v24', '/usr/local/lib/node_modules/traceroost/standalone/cli.js'), false)
     })
   })
 
@@ -179,12 +179,12 @@ suite('serviceConfig', () => {
 
     test('regression: without stripping, a naive re-exec would loop forever detecting npx again', () => {
       // This is the exact bug: execFileSync inherits the parent env by default, so re-invoking
-      // `agentlens service install` without childEnvForReexec would carry the stale npx user-agent
+      // `traceroost service install` without childEnvForReexec would carry the stale npx user-agent
       // straight through, and isRunningFromNpx would trigger another bootstrap indefinitely.
       const parentEnv = { npm_config_user_agent: 'npm/10.0.0 node/v24 npx/10.0.0' }
-      assert.strictEqual(isRunningFromNpx(parentEnv.npm_config_user_agent, '/usr/local/bin/agentlens'), true)
+      assert.strictEqual(isRunningFromNpx(parentEnv.npm_config_user_agent, '/usr/local/bin/traceroost'), true)
       const fixedChildEnv = childEnvForReexec(parentEnv)
-      assert.strictEqual(isRunningFromNpx(fixedChildEnv.npm_config_user_agent, '/usr/local/bin/agentlens'), false)
+      assert.strictEqual(isRunningFromNpx(fixedChildEnv.npm_config_user_agent, '/usr/local/bin/traceroost'), false)
     })
   })
 
@@ -192,13 +192,13 @@ suite('serviceConfig', () => {
     test('embeds the node path, cli path, ports, and log path', () => {
       const program: ServiceProgram = {
         nodePath: '/usr/local/bin/node',
-        cliPath: '/usr/local/lib/node_modules/agentlens-dashboard/standalone/cli.js',
+        cliPath: '/usr/local/lib/node_modules/traceroost/standalone/cli.js',
         config: defaultServiceConfig('/Users/test'),
       }
       const plist = generateLaunchdPlist(program)
       assert.ok(plist.includes(`<string>${launchdLabel()}</string>`))
       assert.ok(plist.includes('<string>/usr/local/bin/node</string>'))
-      assert.ok(plist.includes('<string>/usr/local/lib/node_modules/agentlens-dashboard/standalone/cli.js</string>'))
+      assert.ok(plist.includes('<string>/usr/local/lib/node_modules/traceroost/standalone/cli.js</string>'))
       assert.ok(plist.includes('<key>RunAtLoad</key>'))
       assert.ok(plist.includes('<key>KeepAlive</key>'))
       assert.ok(plist.includes('<string>3000</string>'))
@@ -210,11 +210,11 @@ suite('serviceConfig', () => {
     test('embeds ExecStart, Restart policy, env vars, and log redirection', () => {
       const program: ServiceProgram = {
         nodePath: '/usr/bin/node',
-        cliPath: '/usr/lib/node_modules/agentlens-dashboard/standalone/cli.js',
+        cliPath: '/usr/lib/node_modules/traceroost/standalone/cli.js',
         config: defaultServiceConfig('/home/test'),
       }
       const unit = generateSystemdUnit(program)
-      assert.ok(unit.includes('ExecStart=/usr/bin/node /usr/lib/node_modules/agentlens-dashboard/standalone/cli.js'))
+      assert.ok(unit.includes('ExecStart=/usr/bin/node /usr/lib/node_modules/traceroost/standalone/cli.js'))
       assert.ok(unit.includes('Restart=on-failure'))
       assert.ok(unit.includes('Environment=UI_PORT=3000'))
       assert.ok(unit.includes(`StandardOutput=append:${serviceLogPath(program.config)}`))
@@ -226,7 +226,7 @@ suite('serviceConfig', () => {
     test('sets env vars and appends node output to the log file', () => {
       const program: ServiceProgram = {
         nodePath: 'C:\\Program Files\\nodejs\\node.exe',
-        cliPath: 'C:\\Users\\test\\AppData\\Roaming\\npm\\node_modules\\agentlens-dashboard\\standalone\\cli.js',
+        cliPath: 'C:\\Users\\test\\AppData\\Roaming\\npm\\node_modules\\traceroost\\standalone\\cli.js',
         config: defaultServiceConfig('C:\\Users\\test'),
       }
       const script = generateWindowsWrapperScript(program)
@@ -238,9 +238,9 @@ suite('serviceConfig', () => {
 
   suite('service names', () => {
     test('exposes stable identifiers used by the platform install/uninstall commands', () => {
-      assert.strictEqual(launchdLabel(), 'com.agentlens.server')
-      assert.strictEqual(SYSTEMD_UNIT_NAME, 'agentlens.service')
-      assert.strictEqual(WINDOWS_TASK_NAME, 'AgentLens')
+      assert.strictEqual(launchdLabel(), 'com.traceroost.server')
+      assert.strictEqual(SYSTEMD_UNIT_NAME, 'traceroost.service')
+      assert.strictEqual(WINDOWS_TASK_NAME, 'TraceRoost')
     })
   })
 
@@ -316,8 +316,8 @@ suite('serviceConfig', () => {
       const msg = couldNotDownloadMessage('npm exited with code 1', '0.14.0')
       assert.ok(msg.includes('npm exited with code 1'))
       assert.ok(msg.includes('v0.14.0'))
-      assert.ok(msg.includes('agentlens service update'))
-      assert.ok(msg.startsWith('[AgentLens]'))
+      assert.ok(msg.includes('traceroost service update'))
+      assert.ok(msg.startsWith('[TraceRoost]'))
     })
 
     test('says there is nothing to fall back on when no version is installed', () => {

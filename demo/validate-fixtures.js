@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Validate generated or captured AgentLens fixtures against app summarization logic.
+ * Validate generated or captured TraceRoost fixtures against app summarization logic.
  *
  * This intentionally runs without the UI. Use demo/replay.ts --fixture <name> when
  * you want to stream the same fixture through the standalone dashboard.

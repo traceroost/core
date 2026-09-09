@@ -1,4 +1,4 @@
-# Configure AI agents to send OTLP telemetry to AgentLens.
+# Configure AI agents to send OTLP telemetry to TraceRoost.
 # GitHub Copilot is configured automatically by the VS Code extension; no script needed.
 #
 # Usage:
@@ -12,13 +12,13 @@ param(
     [ValidateSet("all", "claude", "codex", "copilot")]
     # all = Claude + Codex + Copilot CLI
     [string]$Agent = "all",
-    [int]$Port = $(if ($env:AGENTLENS_PORT) { [int]$env:AGENTLENS_PORT } else { 4318 })
+    [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 })
 )
 
 $ErrorActionPreference = "Stop"
 $Endpoint = "http://localhost:$Port"
 
-Write-Host "AgentLens Agent Configuration"
+Write-Host "TraceRoost Agent Configuration"
 Write-Host "Endpoint: $Endpoint  |  Agent: $Agent"
 Write-Host ""
 
@@ -100,7 +100,7 @@ trace_exporter = { otlp-http = { endpoint = "$Endpoint", protocol = "json" } }
 
 function Configure-Copilot {
     Write-Host "Configuring GitHub Copilot CLI..."
-    Write-Host "  (The Copilot VS Code extension is configured automatically by AgentLens — no script needed.)"
+    Write-Host "  (The Copilot VS Code extension is configured automatically by TraceRoost — no script needed.)"
 
     $existing = [System.Environment]::GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", "User")
     if ($existing) {
@@ -133,4 +133,4 @@ switch ($Agent) {
 }
 
 Write-Host ""
-Write-Host "Done. Start a short agent session and check the AgentLens dashboard to confirm data is arriving."
+Write-Host "Done. Start a short agent session and check the TraceRoost dashboard to confirm data is arriving."

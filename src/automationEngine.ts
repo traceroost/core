@@ -8,8 +8,8 @@
  * src/instructionAdvisor.ts / media/src/tabs/Instructions.tsx split follows the same pattern).
  *
  * Known simplification vs. the webview version: there is no server-side equivalent of the
- * per-user threshold customization stored in the browser's localStorage (agentLens.automationConfigs,
- * agentLens.agentProfiles) — this always evaluates against the same defaults shown in the
+ * per-user threshold customization stored in the browser's localStorage (traceRoost.automationConfigs,
+ * traceRoost.agentProfiles) — this always evaluates against the same defaults shown in the
  * Settings panel until a user changes them there. Fired-trigger dedup is in-memory only and
  * resets on server restart.
  */
@@ -202,7 +202,7 @@ function evaluateAutomation(cfg: AutomationConfig, session: SessionSummaryCard, 
 
 function buildPrompt(cfg: AutomationConfig, session: SessionSummaryCard, timeline: TimelineEntry[], evaluation: AutomationEvaluation): string {
   const evidenceBlock = `Triggering evidence:
-- Session: ${(session.userRequest ?? '').slice(0, 70) || '(session in progress)'}
+- Trace: ${(session.userRequest ?? '').slice(0, 70) || '(trace in progress)'}
 - Signal: ${evaluation.evidence}
 - Threshold: ${evaluation.threshold.toLocaleString()} ${evaluation.unit}
 `
@@ -316,7 +316,7 @@ export function checkAutomationTriggers(
         automationId: cfg.id,
         label: evaluation.stage === 'hard_stop' ? cfg.label + ' Hard Stop' : cfg.label,
         sessionId: session.sessionId,
-        sessionTitle: (session.userRequest ?? '').slice(0, 70) || '(session in progress)',
+        sessionTitle: (session.userRequest ?? '').slice(0, 70) || '(trace in progress)',
         agent: session.source ?? 'generic',
         prompt,
         evidence: evaluation.evidence,

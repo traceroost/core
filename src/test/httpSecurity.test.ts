@@ -37,7 +37,7 @@ suite('httpSecurity', () => {
     })
 
     test('allows the configured bindHost itself when it is not loopback', () => {
-      assert.strictEqual(isAllowedHostHeader('agentlens.internal:3000', 'agentlens.internal'), true)
+      assert.strictEqual(isAllowedHostHeader('traceroost.internal:3000', 'traceroost.internal'), true)
     })
 
     test('rejects an attacker-controlled hostname (DNS-rebinding scenario)', () => {
@@ -61,7 +61,7 @@ suite('httpSecurity', () => {
       assert.strictEqual(extractToken(req({ url: '/?token=xyz789' })), 'xyz789')
     })
 
-    test('reads the agentlens_token cookie', () => {
+    test('reads the traceroost_token cookie', () => {
       assert.strictEqual(extractToken(req({ cookie: `${AUTH_COOKIE_NAME}=cookieval` })), 'cookieval')
     })
 

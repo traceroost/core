@@ -1,6 +1,26 @@
 # Changelog
 
-All notable changes to AgentLens are documented here.
+All notable changes to TraceRoost (formerly AgentLens) are documented here.
+
+## [Unreleased]
+
+### Changed
+
+- **The dashboard's "Session" concept is now "Trace"** — the Sessions tab is **Traces**, the per-row "Trace" sub-tab is **Waterfall**, and the glossary is rewritten around it. One prompt-to-response cycle is a trace; this matches how OpenTelemetry names the same thing. Internal identifiers, the database, the HTTP API, and the MCP tool names are unchanged.
+- **Traces list now defaults to 25 per page** (was 50); still adjustable to 50/100/250/500 in Settings.
+- **AgentLens is now TraceRoost.** Several unrelated projects already use the AgentLens name. This release completes the rename across the whole project:
+  - npm package `traceroost` (was `agentlens-dashboard`); CLI `traceroost`; Docker image `traceroost/traceroost`.
+  - **The VS Code extension keeps its marketplace id (`agentlens.agentlens-dashboard`)** — only the display name changes — so installed copies update in place with nothing to reinstall.
+  - VS Code settings and commands moved from `agentLens.*` to `traceRoost.*`; the activity-bar view container is now **TraceRoost**.
+  - Background service label is `com.traceroost.server`; the local data directory is `~/.traceroost`; environment variables are `TRACEROOST_PORT` / `TRACEROOST_MAX_SPANS`; the Claude Code stop-hook marker is `~/.traceroost/pending-prompt.txt`.
+  - New brand assets: `media/brand/` (wordmark + mark, with on-dark / mono / current-colour variants), regenerated activity-bar icon and marketplace icon, and a theme-adaptive inline mark in the dashboard.
+- **Upgrading from AgentLens is a clean break — no automatic migration.** After updating:
+  - Re-run `npx traceroost@latest service install` if you use the background service (remove the old service first with `agentlens service uninstall`).
+  - Let auto-config rewrite your agents' OTEL settings on their next start, or click **Configure OTEL** in Settings. Old `agentLens.*` settings values are not carried over.
+  - Session history under the old `~/.agentlens` directory is not moved; pass `--data-dir ~/.agentlens` if you need it, or copy its contents into `~/.traceroost`.
+- The old `agentlens-dashboard` npm package and `agentlens/agentlens` Docker image are **deprecated**. They receive security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch, until they are archived.
+
+---
 
 ## [0.15.4] — 2026-09-07
 

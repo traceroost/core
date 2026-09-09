@@ -1002,7 +1002,7 @@ suite('SpanSummarizer', () => {
       const codexSessions = result.sessions.filter(s => s.source === 'codex')
       assert.strictEqual(codexSessions.length, 1)
       assert.strictEqual(codexSessions[0].traceId, 'codex:thread-123:turn-abc')
-      assert.strictEqual(codexSessions[0].userRequest, '[session in progress]')
+      assert.strictEqual(codexSessions[0].userRequest, '[trace in progress]')
       assert.strictEqual(codexSessions[0].totalLlmCalls, 1)
     })
 

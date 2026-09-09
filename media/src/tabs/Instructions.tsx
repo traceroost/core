@@ -110,9 +110,9 @@ function getHotFileSuggestions(sessions: SessionSummaryCard[], existingText: str
       id: makeId('hot_file', file),
       category: 'context',
       title: `Add ${basename} to instruction file`,
-      evidence: `Touched in ${ids.length} of ${sessions.length} sessions (${pct(ids.length, sessions.length)}%). Each agent discovery adds ~2–3 turns.`,
+      evidence: `Touched in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%). Each agent discovery adds ~2–3 turns.`,
       suggestedText: `Always read \`${file}\` before editing ${subsystem} — it is frequently needed context.`,
-      inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` appears in ${pct(ids.length, sessions.length)}% of my agent sessions, but the agent discovers it from scratch each time rather than reading it proactively. What would you recommend I add to my instruction file to ensure it's loaded at the start of relevant tasks?`,
+      inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` appears in ${pct(ids.length, sessions.length)}% of my agent traces, but the agent discovers it from scratch each time rather than reading it proactively. What would you recommend I add to my instruction file to ensure it's loaded at the start of relevant tasks?`,
       targetAgents: ['claude_code', 'codex'],
       priority: ids.length / sessions.length >= 0.4 ? 'high' : 'medium',
       evidenceSessions: ids,
@@ -148,9 +148,9 @@ function getFrontLoadedDiscoverySuggestions(sessions: SessionSummaryCard[], exis
       id: makeId('discovery', file),
       category: 'context',
       title: `Load ${basename} before starting`,
-      evidence: `Read without modification in ${ids.length} of ${sessions.length} sessions (${pct(ids.length, sessions.length)}%). Mentioning it upfront eliminates agent discovery turns.`,
+      evidence: `Read without modification in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%). Mentioning it upfront eliminates agent discovery turns.`,
       suggestedText: `Before starting any task, read \`${file}\` — it is consistently needed as reference and is never modified directly.`,
-      inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` is read in ${pct(ids.length, sessions.length)}% of sessions as reference material and is never directly modified — the agent rediscovers it from scratch each time. What would you recommend I add to my instruction file to ensure it's loaded before starting any task?`,
+      inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` is read in ${pct(ids.length, sessions.length)}% of traces as reference material and is never directly modified — the agent rediscovers it from scratch each time. What would you recommend I add to my instruction file to ensure it's loaded before starting any task?`,
       targetAgents: ['claude_code', 'codex'],
       priority: 'high',
       evidenceSessions: ids,
@@ -174,15 +174,15 @@ const LOOP_TEXT: Record<string, string> = {
 
 const LOOP_INQUIRY: Record<string, (count: number, total: number) => string> = {
   exact_tool_repeat: (count, total) =>
-    `I've noticed that in ${count} of ${total} sessions you re-read files you had already read without modifying them, triggering repeat tool calls. What instruction would you recommend I add to your instruction file to prevent unnecessary re-reads?`,
+    `I've noticed that in ${count} of ${total} traces you re-read files you had already read without modifying them, triggering repeat tool calls. What instruction would you recommend I add to your instruction file to prevent unnecessary re-reads?`,
   edit_revert_cycle: (count, total) =>
-    `I've noticed that in ${count} of ${total} sessions you made an edit and then reverted it — oscillating between states. What instruction would you recommend I add to your instruction file to prevent this kind of back-and-forth?`,
+    `I've noticed that in ${count} of ${total} traces you made an edit and then reverted it — oscillating between states. What instruction would you recommend I add to your instruction file to prevent this kind of back-and-forth?`,
   error_recurrence: (count, total) =>
-    `I've noticed that in ${count} of ${total} sessions you retried the same failing operation multiple times without verifying the root cause first. What instruction would you recommend I add to your instruction file to make you pause and verify before a third attempt?`,
+    `I've noticed that in ${count} of ${total} traces you retried the same failing operation multiple times without verifying the root cause first. What instruction would you recommend I add to your instruction file to make you pause and verify before a third attempt?`,
   runaway_steps: (count, total) =>
-    `I've noticed that in ${count} of ${total} sessions tasks ran for many steps without a clear stopping condition. What instruction would you recommend I add to your instruction file to keep tasks bounded and prevent runaway execution?`,
+    `I've noticed that in ${count} of ${total} traces tasks ran for many steps without a clear stopping condition. What instruction would you recommend I add to your instruction file to keep tasks bounded and prevent runaway execution?`,
   token_runaway: (count, total) =>
-    `I've noticed that in ${count} of ${total} sessions context grew very large without producing a final result. What instruction would you recommend I add to your instruction file to prompt you to stop and summarize when context becomes unwieldy?`,
+    `I've noticed that in ${count} of ${total} traces context grew very large without producing a final result. What instruction would you recommend I add to your instruction file to prompt you to stop and summarize when context becomes unwieldy?`,
 }
 
 function getLoopSuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
@@ -206,9 +206,9 @@ function getLoopSuggestions(sessions: SessionSummaryCard[], existingText: string
       id: makeId('loop', type),
       category: 'behavior',
       title: `Prevent ${type.replace(/_/g, ' ')} loops`,
-      evidence: `Signal "${type}" detected in ${ids.length} of ${sessions.length} sessions (${pct(ids.length, sessions.length)}%).`,
+      evidence: `Signal "${type}" detected in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%).`,
       suggestedText: text,
-      inquiryText: INQUIRY_PREAMBLE + (LOOP_INQUIRY[type]?.(ids.length, sessions.length) ?? `I've noticed "${type.replace(/_/g, ' ')}" signals in ${ids.length} of ${sessions.length} sessions. What instruction would you recommend I add to my instruction file to prevent this pattern?`),
+      inquiryText: INQUIRY_PREAMBLE + (LOOP_INQUIRY[type]?.(ids.length, sessions.length) ?? `I've noticed "${type.replace(/_/g, ' ')}" signals in ${ids.length} of ${sessions.length} traces. What instruction would you recommend I add to my instruction file to prevent this pattern?`),
       targetAgents: ['claude_code', 'codex'],
       priority: ids.length / sessions.length >= 0.4 ? 'high' : 'medium',
       evidenceSessions: ids,
@@ -250,14 +250,14 @@ function getScopeSuggestions(sessions: SessionSummaryCard[], existingText: strin
     id: 'prompting:scope',
     category: 'prompting',
     title: 'Add scope prompting guidance',
-    evidence: `Sessions with open-ended language run ${ratio}× avg ${unit} (${matching.length} of ${sessions.length} sessions).`,
+    evidence: `Traces with open-ended language run ${ratio}× avg ${unit} (${matching.length} of ${sessions.length} traces).`,
     suggestedText: [
       'Prompting guidance:',
       '- Always name the specific file and function. Don\'t say "refactor" — say "refactor [function] in [file]".',
       '- State the exact error message when reporting a bug, not just that something is broken.',
-      '- One task at a time. Multi-part prompts ("fix X, then also do Y") should be split into separate sessions.',
+      '- One task at a time. Multi-part prompts ("fix X, then also do Y") should be split into separate traces.',
     ].join('\n'),
-    inquiryText: INQUIRY_PREAMBLE + `I've noticed that prompts using open-ended language like "refactor" or "fix the bug" run at ${ratio}× the average ${unit} compared to more scoped prompts — across ${matching.length} of ${sessions.length} sessions. What guidance would you recommend I add to my instruction file to encourage more targeted, scoped prompts from users?`,
+    inquiryText: INQUIRY_PREAMBLE + `I've noticed that prompts using open-ended language like "refactor" or "fix the bug" run at ${ratio}× the average ${unit} compared to more scoped prompts — across ${matching.length} of ${sessions.length} traces. What guidance would you recommend I add to my instruction file to encourage more targeted, scoped prompts from users?`,
     targetAgents: ['claude_code', 'copilot', 'codex'],
     priority: 'medium',
     evidenceSessions: matching.map(s => s.sessionId),
@@ -277,14 +277,14 @@ function getHighTurnSuggestions(sessions: SessionSummaryCard[], existingText: st
     id: 'behavior:high_turns',
     category: 'behavior',
     title: 'Reduce back-and-forth with clearer upfront context',
-    evidence: `${high.length} of ${withTurns.length} sessions (${pct(high.length, withTurns.length)}%) exceed 1.5× avg turn count (avg: ${avg.toFixed(0)} turns). High turn counts often indicate missing context or ambiguous scope.`,
+    evidence: `${high.length} of ${withTurns.length} traces (${pct(high.length, withTurns.length)}%) exceed 1.5× avg turn count (avg: ${avg.toFixed(0)} turns). High turn counts often indicate missing context or ambiguous scope.`,
     suggestedText: [
       'Before starting a task:',
       '- State what you want done, what files are involved, and what "done" looks like.',
       '- Include any constraints upfront (libraries to use, patterns to follow, things to avoid).',
       '- Paste relevant error messages or code snippets rather than describing them.',
     ].join('\n'),
-    inquiryText: INQUIRY_PREAMBLE + `I've noticed that ${high.length} of ${withTurns.length} sessions have turn counts more than 1.5× the average of ${avg.toFixed(0)} turns. This often signals that context or scope wasn't established clearly at the start. What would you recommend I add to my instruction file to prompt users to provide clearer upfront information before starting a task?`,
+    inquiryText: INQUIRY_PREAMBLE + `I've noticed that ${high.length} of ${withTurns.length} traces have turn counts more than 1.5× the average of ${avg.toFixed(0)} turns. This often signals that context or scope wasn't established clearly at the start. What would you recommend I add to my instruction file to prompt users to provide clearer upfront information before starting a task?`,
     targetAgents: ['claude_code', 'copilot', 'codex'],
     priority: 'medium',
     evidenceSessions: high.map(s => s.sessionId),
@@ -309,9 +309,9 @@ function getToolDisciplineSuggestions(sessions: SessionSummaryCard[], existingTe
     id: 'behavior:tool_discipline',
     category: 'behavior',
     title: 'Prefer file-read tool over terminal for inspection',
-    evidence: `Terminal calls exceed file-read 3× in ${heavy.length} of ${sessions.length} sessions (${pct(heavy.length, sessions.length)}%).`,
+    evidence: `Terminal calls exceed file-read 3× in ${heavy.length} of ${sessions.length} traces (${pct(heavy.length, sessions.length)}%).`,
     suggestedText: 'Prefer the dedicated file-read tool over running shell commands to inspect files. Use the terminal only for operations that cannot be done with a dedicated tool. Do not use cat, head, or tail to read file contents.',
-    inquiryText: INQUIRY_PREAMBLE + `I've noticed that in ${heavy.length} of ${sessions.length} sessions, Bash/terminal commands are used more than 3× as often as the file-reading tool to inspect file contents — cat, head, and similar shell commands instead of reading files directly. What instruction would you recommend I add to my instruction file to prevent this?`,
+    inquiryText: INQUIRY_PREAMBLE + `I've noticed that in ${heavy.length} of ${sessions.length} traces, Bash/terminal commands are used more than 3× as often as the file-reading tool to inspect file contents — cat, head, and similar shell commands instead of reading files directly. What instruction would you recommend I add to my instruction file to prevent this?`,
     targetAgents: ['claude_code', 'copilot', 'codex'],
     priority: 'low',
     evidenceSessions: heavy.map(s => s.sessionId),
@@ -409,10 +409,10 @@ function InsufficientDataState({ workspace, count }: { workspace: string; count:
   return (
     <div style="padding:32px 24px;max-width:480px;margin:0 auto;text-align:center">
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
-        Not enough history yet — AgentLens needs at least 3 sessions
+        Not enough history yet — TraceRoost needs at least 3 sessions
         {workspace !== 'all' && <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></>}
         {' '}to detect patterns.<br />
-        Current: {count} session{count !== 1 ? 's' : ''}.
+        Current: {count} trace{count !== 1 ? "s" : ""}.
       </div>
     </div>
   )
@@ -507,8 +507,8 @@ function SuggestionCardView({
               activeTab.value = 'sessions'
             }}
             style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap"
-            title="View the sessions that triggered this suggestion"
-          >View sessions ↗</button>
+            title="View the traces that triggered this suggestion"
+          >View traces ↗</button>
         </div>
       </div>
     </div>
@@ -744,7 +744,7 @@ export function Instructions() {
         {pendingSuggestions.length === 0 && applied.length === 0 && diag && (
           <div style="padding:16px 0">
             <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:12px">
-              No patterns detected yet in <strong style="color:var(--fg)">{wsSessions.length} sessions</strong>.
+              No patterns detected yet in <strong style="color:var(--fg)">{wsSessions.length} traces</strong>.
             </div>
             <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:11px;color:var(--muted)">
               <div style="font-weight:600;color:var(--fg);margin-bottom:6px">Data available</div>
@@ -763,7 +763,7 @@ export function Instructions() {
                 <span style="color:var(--fg)">{diag.loopSignalTypes}</span>
                 <span>Bash-heavy sessions</span>
                 <span style="color:var(--fg)">{diag.bashHeavy}</span>
-                <span>Avg turns per session</span>
+                <span>Avg turns per trace</span>
                 <span style="color:var(--fg)">{diag.avgTurns > 0 ? diag.avgTurns.toFixed(1) : 'no data'}</span>
                 <span>High-turn sessions</span>
                 <span style="color:var(--fg)">{diag.highTurnCount} / {diag.sessionCount}{diag.avgTurns > 0 ? ` (need ≥15% and avg ≥8)` : ''}</span>

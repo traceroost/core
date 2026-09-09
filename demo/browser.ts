@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * AgentLens browser demo — opens a headed Chromium window and runs the replay
+ * TraceRoost browser demo — opens a headed Chromium window and runs the replay
  * script in parallel so the dashboard populates live in front of you.
  *
  * Prerequisites:

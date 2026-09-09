@@ -112,7 +112,7 @@ export function Tools() {
   const sessions = rangedSessions.value
 
   if (sessions.length === 0) {
-    return <div id="tools-content"><div class="empty-state">No agent sessions recorded — start a Copilot, Claude, or Codex session</div></div>
+    return <div id="tools-content"><div class="empty-state">No agent traces recorded — start a Copilot, Claude, or Codex run</div></div>
   }
 
   return (

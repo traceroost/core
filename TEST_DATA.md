@@ -1,6 +1,6 @@
-# AgentLens Test Data Strategy
+# TraceRoost Test Data Strategy
 
-AgentLens uses three categories of test data. Each category is intended to detect a different class of parser, summarizer, and dashboard regression.
+TraceRoost uses three categories of test data. Each category is intended to detect a different class of parser, summarizer, and dashboard regression.
 
 ## 1. Synthetic Golden Fixtures
 
@@ -9,7 +9,7 @@ Synthetic fixtures are deterministic and suitable for source control. They shoul
 - Claude Code: `claude_code.interaction`, `claude_code.llm_request`, `claude_code.tool`, tool errors, missing/available file paths.
 - GitHub Copilot: `invoke_agent`, `chat/*`, `execute_tool/*`, edits, tool results, TTFT, cache tokens.
 - Codex: `codex.user_prompt`, `codex.sse_event`, `codex.tool_decision`, `codex.tool_result`, raw tool trace spans joined by `otel.trace_id`, startup/background spans.
-- Stress cases: repeated tool calls, error recurrence, large token growth, prompt redaction, and in-progress sessions.
+- Stress cases: repeated tool calls, error recurrence, large token growth, prompt redaction, and in-progress traces.
 
 Fixture maintenance commands:
 
@@ -41,7 +41,7 @@ The agent should be run in a separate terminal with a fixed prompt. Capture must
 
 Capture procedure:
 
-1. Stop any VS Code AgentLens collector or standalone server already using the OTLP port.
+1. Stop any VS Code TraceRoost collector or standalone server already using the OTLP port.
 2. Start `pnpm run standalone` and wait for `OTLP receiver -> http://127.0.0.1:4318`.
 3. Restart the agent terminal after standalone configures OTEL. Existing Claude/Codex processes keep their old telemetry settings.
 4. Start `pnpm run capture -- <fixture-name> --duration 180 --clear`.
@@ -51,7 +51,7 @@ Capture procedure:
 
 Each agent/scenario pair should produce one clean fixture. For Codex captures, the `[otel]` configuration must include `log_user_prompt`, `exporter`, and `trace_exporter`.
 
-Copilot telemetry flows through the VS Code extension rather than the standalone collector. Copilot captures require running the extension, performing the scenario in VS Code, and exporting session data with `AgentLens: Export Session Data`. A small redacted Copilot export should be retained as a manual regression fixture or converted to the fixture span format.
+Copilot telemetry flows through the VS Code extension rather than the standalone collector. Copilot captures require running the extension, performing the scenario in VS Code, and exporting via the dashboard **Export** tab (or the `TraceRoost: Export OTEL Data` command). A small redacted Copilot export should be retained as a manual regression fixture or converted to the fixture span format.
 
 ## 3. Application-Build Simulations
 
@@ -77,4 +77,4 @@ Each run should preserve:
 - The exact prompt.
 - Any redaction notes.
 
-The purpose of this strategy is not to benchmark agent quality. The purpose is to preserve telemetry contracts so AgentLens continues to group sessions, trace waterfalls, summaries, tokens, files, and loop signals correctly as agent telemetry evolves.
+The purpose of this strategy is not to benchmark agent quality. The purpose is to preserve telemetry contracts so TraceRoost continues to group traces, span waterfalls, summaries, tokens, files, and loop signals correctly as agent telemetry evolves.

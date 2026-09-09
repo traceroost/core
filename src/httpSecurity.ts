@@ -7,7 +7,7 @@
  *     hostname to resolve to 127.0.0.1 still sends its own hostname as the Host header, not
  *     "localhost" — the browser doesn't rewrite it).
  *   - Bearer-token auth: a token generated at first run (`ensureAuthToken` in serviceConfig.ts),
- *     checked via `Authorization: Bearer`, a `?token=` query param, or an `agentlens_token`
+ *     checked via `Authorization: Bearer`, a `?token=` query param, or an `traceroost_token`
  *     cookie. Enforced everywhere on the UI server (the CLI hands the token to the browser when
  *     it opens the dashboard); on OTLP/MCP it only activates once BIND_HOST is non-loopback,
  *     so today's default loopback setup and existing agent auto-configuration keep working
@@ -38,7 +38,7 @@ export function isAllowedHostHeader(hostHeader: string | undefined, bindHost: st
   return isLoopbackHost(hostname) || hostname === bindHost
 }
 
-export const AUTH_COOKIE_NAME = 'agentlens_token'
+export const AUTH_COOKIE_NAME = 'traceroost_token'
 
 export function authCookieHeader(token: string): string {
   return `${AUTH_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`

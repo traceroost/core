@@ -27,8 +27,8 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.TR_DOCKERHUB_USERNAME }}
+          password: ${{ secrets.TR_DOCKERHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -42,7 +42,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            agentlens/agentlens
+            traceroost/traceroost
             ghcr.io/${{ github.repository }}
           tags: |
             type=semver,pattern={{version}}

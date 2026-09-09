@@ -14,7 +14,7 @@ suite('LogReader — Claude Code edit details', () => {
   let tmpDir: string
 
   setup(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-claude-log-'))
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-claude-log-'))
   })
 
   teardown(() => {

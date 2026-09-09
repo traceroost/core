@@ -70,7 +70,7 @@ export const DEFAULT_AUTOMATION_CONFIGS: AutomationConfig[] = [
     id: 'context_compaction',
     label: 'Context Compaction',
     severity: 'warning',
-    description: 'When a session reaches the configured peak input-token threshold for that agent, prompt the agent to summarize and compact its context.',
+    description: 'When a trace reaches the configured peak input-token threshold for that agent, prompt the agent to summarize and compact its context.',
     enabled: false,
     writePromptsFile: false,
     threshold: 140000,
@@ -97,7 +97,7 @@ export const DEFAULT_AUTOMATION_CONFIGS: AutomationConfig[] = [
     id: 'error_cascade',
     label: 'Error Cascade Stop',
     severity: 'critical',
-    description: 'When a session hits its agent-specific consecutive-error streak, prompt the agent to stop, diagnose the root cause, and change strategy. A hard-stop backstop fires at 8 consecutive errors.',
+    description: 'When a trace hits its agent-specific consecutive-error streak, prompt the agent to stop, diagnose the root cause, and change strategy. A hard-stop backstop fires at 8 consecutive errors.',
     enabled: false,
     writePromptsFile: false,
     threshold: 3,
@@ -110,7 +110,7 @@ export const DEFAULT_AUTOMATION_CONFIGS: AutomationConfig[] = [
     id: 'high_turns',
     label: 'Turn Limit Wrap-up',
     severity: 'warning',
-    description: 'When a session reaches its agent-specific turn threshold, prompt the agent to summarize progress, merge check-in details, and work toward a stopping point.',
+    description: 'When a trace reaches its agent-specific turn threshold, prompt the agent to summarize progress, merge check-in details, and work toward a stopping point.',
     enabled: false,
     writePromptsFile: false,
     threshold: 120,
@@ -192,7 +192,7 @@ function getAutomationAgentThreshold(cfg: AutomationConfig, source: AgentSource)
 
 export function getAutomationConfigs(): AutomationConfig[] {
   try {
-    const stored = localStorage.getItem('agentLens.automationConfigs')
+    const stored = localStorage.getItem('traceRoost.automationConfigs')
     if (!stored) return DEFAULT_AUTOMATION_CONFIGS.map(cloneAutomationConfig)
     const saved = JSON.parse(stored) as SavedAutomationConfig[]
     return DEFAULT_AUTOMATION_CONFIGS.map(def => {
@@ -215,7 +215,7 @@ export function getAutomationConfigs(): AutomationConfig[] {
 
 function saveAutomationConfigs(configs: AutomationConfig[]): void {
   try {
-    localStorage.setItem('agentLens.automationConfigs',
+    localStorage.setItem('traceRoost.automationConfigs',
       JSON.stringify(configs.map(c => ({
         id: c.id,
         enabled: c.enabled,
@@ -427,7 +427,7 @@ export function checkAutomations(sessions: SessionSummaryCard[]): AutomationTrig
           label: evaluation.stage === 'hard_stop' ? cfg.label + ' Hard Stop' : cfg.label,
           writePromptsFile: cfg.writePromptsFile,
           agent: session.source ?? 'generic',
-          sessionTitle: (session.userRequest ?? '').slice(0, 70) || '(session in progress)',
+          sessionTitle: (session.userRequest ?? '').slice(0, 70) || '(trace in progress)',
           sessionId: session.sessionId,
           prompt: body,
         })
@@ -504,9 +504,9 @@ export function Automation() {
         <div style="color:var(--muted)">
           Automations monitor in-progress agent sessions only — completed sessions are ignored.
           {standalone ? (
-            <> When a threshold is crossed, AgentLens shows a notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>agentlens-prompts-&#123;agent&#125;.md</code> in the current directory instead.</>
+            <> When a threshold is crossed, TraceRoost shows a notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>traceroost-prompts-&#123;agent&#125;.md</code> in the current directory instead.</>
           ) : (
-            <> When a threshold is crossed, AgentLens shows a VS Code notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>agentlens-prompts-&#123;agent&#125;.md</code> in your workspace root instead.</>
+            <> When a threshold is crossed, TraceRoost shows a VS Code notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>traceroost-prompts-&#123;agent&#125;.md</code> in your workspace root instead.</>
           )}
           {' '}All automations are <strong style="color:var(--fg)">off by default</strong> and debounce each threshold crossing.
         </div>
@@ -582,7 +582,7 @@ export function Automation() {
                   <strong>Write prompts file</strong>
                   {' — '}
                   {cfg.writePromptsFile
-                    ? 'writes prompt to agentlens-prompts-{agent}.md automatically when triggered'
+                    ? 'writes prompt to traceroost-prompts-{agent}.md automatically when triggered'
                     : 'show a Copy Prompt notification — click to copy, then paste into your agent'}
                 </span>
               </label>
@@ -605,7 +605,7 @@ export function Automation() {
         <button
           onClick={() => {
             firedSet.clear()
-            try { localStorage.removeItem('agentLens.automationConfigs') } catch { /* ignore */ }
+            try { localStorage.removeItem('traceRoost.automationConfigs') } catch { /* ignore */ }
             setConfigs(DEFAULT_AUTOMATION_CONFIGS.map(cloneAutomationConfig))
           }}
           style="font-size:11px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:3px;padding:3px 10px;cursor:pointer"

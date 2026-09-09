@@ -462,7 +462,7 @@ export function openReadonlySnapshot(
   storageUri: vscode.Uri,
   extensionPath: string,
 ): DatabaseReader | null {
-  const dbPath = path.join(storagePath, 'agentlens.db')
+  const dbPath = path.join(storagePath, 'traceroost.db')
   try {
     // sql.js has no bundled types; require is intentional (no ESM build available)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -471,7 +471,7 @@ export function openReadonlySnapshot(
     const db = new SQL.Database(fileBuffer)
     return new DatabaseReader(db, storageUri)
   } catch (e) {
-    console.warn('[AgentLens] Could not open database:', e)
+    console.warn('[TraceRoost] Could not open database:', e)
     return null
   }
 }

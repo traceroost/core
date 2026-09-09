@@ -25,13 +25,13 @@ async function openDb(): Promise<SqlDb> {
 }
 
 function makeStorageUri(): vscode.Uri {
-  return { scheme: 'file', path: '/tmp/agentlens-migration-test', fsPath: '/tmp/agentlens-migration-test' } as unknown as vscode.Uri
+  return { scheme: 'file', path: '/tmp/traceroost-migration-test', fsPath: '/tmp/traceroost-migration-test' } as unknown as vscode.Uri
 }
 
 function makeMockContext(spans: Span[] = [], migrationVersion = 0): vscode.ExtensionContext {
   const state: Record<string, unknown> = {
-    'agentLens.spans': spans,
-    'agentLens.dbMigrationVersion': migrationVersion,
+    'traceRoost.spans': spans,
+    'traceRoost.dbMigrationVersion': migrationVersion,
   }
   return {
     globalState: {
@@ -69,7 +69,7 @@ suite('migrateGlobalStateToSqlite', () => {
     const w = new DatabaseWriter(db, makeStorageUri(), () => {})
     await migrateGlobalStateToSqlite(ctx, w, () => {})
     assert.strictEqual(countRows(db, 'sessions'), 0)
-    assert.strictEqual(ctx.globalState.get('agentLens.dbMigrationVersion'), 1)
+    assert.strictEqual(ctx.globalState.get('traceRoost.dbMigrationVersion'), 1)
     db.close()
   })
 
@@ -87,7 +87,7 @@ suite('migrateGlobalStateToSqlite', () => {
     const ctx = makeMockContext([makeSpan('trace-2')])
     const w = new DatabaseWriter(db, makeStorageUri(), () => {})
     await migrateGlobalStateToSqlite(ctx, w, () => {})
-    assert.deepStrictEqual(ctx.globalState.get('agentLens.spans'), [])
+    assert.deepStrictEqual(ctx.globalState.get('traceRoost.spans'), [])
     db.close()
   })
 

@@ -4,9 +4,10 @@ import {
   focusedSessionId, vscode, ignoredInsightKeys,
   sessionSortKey, sessionSortDir, type SortKey,
   workspaceFilter, shortWorkspaceName, goToHelp,
-  sessionsPage, getSessionsPagination,
+  sessionsPage, getSessionsPagination, SESSIONS_PAGE_SIZE_OPTIONS as PAGE_SIZE_OPTIONS,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
 } from '../state'
+import { PageSizeSelect } from './Settings'
 import {
   getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
   getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor,
@@ -23,7 +24,7 @@ import type { SessionSummaryCard, FileOutcome } from '../types'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
-type Section = 'overview' | 'trace' | 'files' | 'flow' | 'tools'
+type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 
 const OUTCOME_META: Record<FileOutcome, { icon: string; color: string; label: string }> = {
   productive: { icon: '✓', color: 'var(--vscode-charts-green,#81c784)', label: 'Committed' },
@@ -120,7 +121,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
     <div style="border-top:1px solid var(--border)" onClick={e => e.stopPropagation()}>
       <div style="display:flex;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         {navBtn('overview', 'Overview')}
-        {navBtn('trace', `Trace${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
+        {navBtn('waterfall', `Waterfall${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
         {navBtn('flow', `Flow${sess.totalLlmCalls > 0 ? ' (' + sess.totalLlmCalls + ')' : ''}`)}
         {navBtn('tools', `Tools${sess.totalToolCalls > 0 ? ' (' + sess.totalToolCalls + ')' : ''}`)}
         {navBtn('files', `Files${sess.filesChanged.length > 0 ? ' (' + sess.filesChanged.length + ')' : ''}`)}
@@ -138,7 +139,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               if (isCopilot && sess.outputTokens === 0 && sess.turns > 0) {
                 return (
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorWarning-foreground,#cca700);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
-                    <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only session — no token data</span>
+                    <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only trace — no token data</span>
                     {' — '}
                     VS Code Copilot Chat did not record token counts in this era. Token counts and cost estimates are unavailable and cannot be recovered.
                   </div>
@@ -147,7 +148,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               if (isOpenCode) {
                 return (
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
-                    <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">OpenCode SQLite session</span>
+                    <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">OpenCode SQLite trace</span>
                     {' — '}
                     Token counts, tools, and files sourced from OpenCode&apos;s local database. OTEL traces and TTFT are not available for OpenCode.
                   </div>
@@ -159,7 +160,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               if (isCopilot) parts.push('tool details')
               return (
                 <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorWarning-foreground,#cca700);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
-                  <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only session</span>
+                  <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only trace</span>
                   {' — '}
                   {parts.join(', ')} not available from local logs.{' '}
                   <a onClick={() => goToHelp('help-config')} style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
@@ -173,7 +174,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               ? <PromptBlock text={sess.userRequest} />
               : sess.turns === 0
                 ? <div style="margin-bottom:10px;font-size:11px;color:var(--muted);font-style:italic">Waiting for first turn…</div>
-                : <div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Prompt not captured for this session</div>
+                : <div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Prompt not captured for this trace</div>
             }
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;margin-bottom:10px">
               {[
@@ -215,13 +216,13 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
           </div>
         )}
 
-        {section === 'trace' && (
+        {section === 'waterfall' && (
           <div>
             {steps.length === 0
               ? (timelines[sess.sessionId] !== undefined
                   ? (
                     <div class="empty-state" style="padding:12px 0">
-                      No trace data for this session
+                      No span data for this trace
                       {sess.dataSource === 'log' && <LogIngestionNote feature="trace" />}
                     </div>
                   )
@@ -284,7 +285,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   })()}
                   {gitOutcome && (
                     <div
-                      data-tip="Estimated from local git history: compares each file's content right before this session against its content now. Not available without a local git repo, and doesn't cover files git can't see (e.g. gitignored)."
+                      data-tip="Estimated from local git history: compares each file's content right before this trace against its content now. Not available without a local git repo, and doesn't cover files git can't see (e.g. gitignored)."
                       style={`display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:2px;font-size:11px;color:${OUTCOME_META[gitOutcome.overall].color};cursor:help`}
                     >
                       <span>{OUTCOME_META[gitOutcome.overall].icon}</span>
@@ -408,7 +409,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
           title={conversation
             ? isIsolatedToThisGroup
               ? `Part ${conversation.index} of ${conversation.total} — showing just this conversation. Click again to clear.`
-              : `Part ${conversation.index} of ${conversation.total} of the same conversation — split into separate sessions by a long gap. Click to show just this conversation.`
+              : `Part ${conversation.index} of ${conversation.total} of the same conversation — split into separate rows by a long gap. Click to show just this conversation.`
             : undefined}
           onClick={conversation ? (e: MouseEvent) => {
             e.stopPropagation()
@@ -472,7 +473,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
         </td>
 
         {/* Tokens */}
-        <td style="padding:4px 6px;text-align:right;white-space:nowrap;font-size:10px;color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in session detail for actual context window size.' : undefined}>
+        <td style="padding:4px 6px;text-align:right;white-space:nowrap;font-size:10px;color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in trace detail for actual context window size.' : undefined}>
           {formatCompact(sess.inputTokens + sess.outputTokens)}
         </td>
 
@@ -515,7 +516,7 @@ export function Sessions() {
   if (sessions.length === 0) {
     return (
       <div id="sessions-content">
-        <div class="empty-state">{hasAny ? 'No sessions match the active filters.' : 'No sessions recorded yet.'}</div>
+        <div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div>
       </div>
     )
   }
@@ -556,13 +557,13 @@ export function Sessions() {
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
-            <th style="width:5px;padding:0" title="A colored bar marks sessions that are really one conversation split into multiple cards by a long gap between them." />
+            <th style="width:5px;padding:0" title="A colored bar marks traces that are really one conversation split into multiple rows by a long gap between them." />
             <th style="width:16px;padding:3px 4px 3px 8px" />
             <th style={'width:10px;padding:3px 4px;' + thSort} onClick={() => onSortClick('source')} title="Sort by agent">{sortArrow('source')}</th>
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('start_time')}>Time{sortArrow('start_time')}</th>
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('prompt')}>Prompt{sortArrow('prompt')}</th>
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('model')}>Model{sortArrow('model')}</th>
-            <th style={'text-align:right;' + thSort} onClick={() => onSortClick('total_tokens')} title="Total tokens across all turns (fresh input + cache reads + output). For multi-turn sessions this accumulates across every turn and can far exceed a single context window.">Tokens{sortArrow('total_tokens')}</th>
+            <th style={'text-align:right;' + thSort} onClick={() => onSortClick('total_tokens')} title="Total tokens across all turns (fresh input + cache reads + output). For multi-turn traces this accumulates across every turn and can far exceed a single context window.">Tokens{sortArrow('total_tokens')}</th>
             <th style={'text-align:right;' + thSort} onClick={() => onSortClick('duration_ms')}>Duration{sortArrow('duration_ms')}</th>
             <th style={'text-align:right;padding:3px 8px 3px 6px;' + thSort} onClick={() => onSortClick('cost')}>Cost{sortArrow('cost')}</th>
           </tr>
@@ -575,21 +576,24 @@ export function Sessions() {
       </table>
       </div>
       <div style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        {window.__VERSION__ && <span>AgentLens v{window.__VERSION__}</span>}
-        {totalPages > 1 && (
+        {window.__VERSION__ && <span title="TraceRoost version">v{window.__VERSION__}</span>}
+        {sessions.length > PAGE_SIZE_OPTIONS[0] && (
           <span style="display:flex;align-items:center;gap:8px">
-            <span>Showing {rangeStart}–{rangeEnd} of {sessions.length}</span>
-            <button
-              onClick={() => sessionsPage.value = Math.max(0, page - 1)}
-              disabled={page === 0}
-              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page === 0 ? 'default' : 'pointer'};opacity:${page === 0 ? 0.4 : 1}`}
-            >‹ Prev</button>
-            <span>Page {page + 1} of {totalPages}</span>
-            <button
-              onClick={() => sessionsPage.value = Math.min(totalPages - 1, page + 1)}
-              disabled={page >= totalPages - 1}
-              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page >= totalPages - 1 ? 'default' : 'pointer'};opacity:${page >= totalPages - 1 ? 0.4 : 1}`}
-            >Next ›</button>
+            {totalPages > 1 && <span>Showing {rangeStart}–{rangeEnd} of {sessions.length}</span>}
+            <PageSizeSelect />
+            {totalPages > 1 && <>
+              <button
+                onClick={() => sessionsPage.value = Math.max(0, page - 1)}
+                disabled={page === 0}
+                style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page === 0 ? 'default' : 'pointer'};opacity:${page === 0 ? 0.4 : 1}`}
+              >‹ Prev</button>
+              <span>Page {page + 1} of {totalPages}</span>
+              <button
+                onClick={() => sessionsPage.value = Math.min(totalPages - 1, page + 1)}
+                disabled={page >= totalPages - 1}
+                style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page >= totalPages - 1 ? 'default' : 'pointer'};opacity:${page >= totalPages - 1 ? 0.4 : 1}`}
+              >Next ›</button>
+            </>}
           </span>
         )}
       </div>
