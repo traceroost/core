@@ -183,11 +183,11 @@ export function describeServiceManagerFailure(err: unknown, tool = 'the service 
   return e.message ? e.message.split('\n')[0] : 'unknown error'
 }
 
-/** Warning shown when the latest traceroost can't be fetched. `fallbackVersion` is the
+/** Warning shown when the latest package can't be fetched. `fallbackVersion` is the
  *  version already on disk that the service will run instead (undefined if there is none). Not
  *  fatal on its own — callers that truly have nothing to fall back on report that separately. */
-export function couldNotDownloadMessage(reason: string, fallbackVersion: string | undefined): string {
-  const head = `[TraceRoost] Couldn't download the latest traceroost from npm: ${reason}.`
+export function couldNotDownloadMessage(reason: string, fallbackVersion: string | undefined, packageName = 'traceroost'): string {
+  const head = `[TraceRoost] Couldn't download the latest ${packageName} from npm: ${reason}.`
   const tail = fallbackVersion
     ? `Keeping the version already installed (v${fallbackVersion}) — run \`traceroost service update\` later to retry.`
     : 'Nothing is installed to fall back on.'

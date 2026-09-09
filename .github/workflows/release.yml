@@ -38,6 +38,23 @@ jobs:
       - name: Unit tests
         run: pnpm run test:unit
 
+      # package.json carries the npm identity (`traceroost`). The VS Code
+      # Marketplace identity lives in vsce-identity.json and is patched in here,
+      # for the VSIX build only — so the extension keeps publishing to the
+      # existing agentlens.agentlens-dashboard listing (installs update in place)
+      # while npm gets the new name. This checkout is discarded after the job.
+      - name: Set VS Code Marketplace identity
+        run: |
+          node -e '
+            const fs = require("fs");
+            const id = JSON.parse(fs.readFileSync("vsce-identity.json", "utf8"));
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            p.name = id.name;
+            p.publisher = id.publisher;
+            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
+            console.log(`vsce identity: ${id.publisher}.${id.name}`);
+          '
+
       - name: Install vsce
         run: pnpm add -g @vscode/vsce
 
@@ -56,81 +73,34 @@ jobs:
           files: '*.vsix'
           generate_release_notes: true
 
-  # Publishes the extension under two identities during the AgentLens -> TraceRoost
-  # transition:
-  #   - traceroost.traceroost           — the new identity (TR_-prefixed secrets)
-  #   - agentlens.agentlens-dashboard    — the existing marketplace listing, so
-  #                                        current users auto-update into the
-  #                                        rebranded extension (reuses the
-  #                                        AgentLens publisher's PAT)
-  # The VSIX manifest bakes in publisher + name, so each identity is packaged
-  # separately from a patched package.json. Every displayName / icon / contributes
-  # entry is identical — only the id differs. To stop the compat publish, remove
-  # the VSCE_PAT / OVSX_PAT repo secrets (the steps self-skip when unset) or drop
-  # the second matrix entry.
+  # Publishes the pre-built VSIX from the `package` job (which already stamped it
+  # with the vsce-identity.json marketplace id — agentlens.agentlens-dashboard).
+  # Existing installs update in place; there is one marketplace listing.
   publish-vsce:
     needs: package
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - identity: traceroost
-            publisher: traceroost
-            name: traceroost
-            vsce_pat: TR_VSCE_PAT
-            ovsx_pat: TR_OVSX_PAT
-          - identity: agentlens-compat
-            publisher: agentlens
-            name: agentlens-dashboard
-            vsce_pat: VSCE_PAT
-            ovsx_pat: OVSX_PAT
     env:
-      VSCE_PAT: ${{ secrets[matrix.vsce_pat] }}
-      OVSX_PAT: ${{ secrets[matrix.ovsx_pat] }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Download VSIX
+        uses: actions/download-artifact@v4
         with:
-          version: 10
+          name: vsix-package
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Set publish identity (${{ matrix.publisher }}.${{ matrix.name }})
-        run: |
-          node -e '
-            const fs = require("fs");
-            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            p.name = process.env.PKG_NAME;
-            p.publisher = process.env.PKG_PUBLISHER;
-            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
-          '
-        env:
-          PKG_NAME: ${{ matrix.name }}
-          PKG_PUBLISHER: ${{ matrix.publisher }}
-
-      - name: Install vsce
-        run: npm install -g @vscode/vsce
-
-      - name: Package VSIX
-        run: vsce package --no-dependencies -o ${{ matrix.identity }}.vsix
 
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
         run: |
+          npm install -g @vscode/vsce
           set +e
-          vsce publish --packagePath ${{ matrix.identity }}.vsix > out.txt 2>&1
+          vsce publish --packagePath *.vsix > out.txt 2>&1
           EXIT=$?
           set -e
           cat out.txt
@@ -145,7 +115,7 @@ jobs:
         run: |
           npm install -g ovsx
           set +e
-          ovsx publish ${{ matrix.identity }}.vsix > out.txt 2>&1
+          ovsx publish *.vsix > out.txt 2>&1
           EXIT=$?
           set -e
           cat out.txt

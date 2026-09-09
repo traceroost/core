@@ -10,7 +10,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **Traces list now defaults to 25 per page** (was 50); still adjustable to 50/100/250/500 in Settings.
 - **AgentLens is now TraceRoost.** Several unrelated projects already use the AgentLens name. This release completes the rename across the whole project:
   - npm package `traceroost` (was `agentlens-dashboard`); CLI `traceroost`; Docker image `traceroost/traceroost`.
-  - The VS Code extension publishes under **two** marketplace listings during the transition: the new `traceroost.traceroost`, and — so existing users keep auto-updating into the rebranded extension — the current `agentlens.agentlens-dashboard`. Both are the same build.
+  - **The VS Code extension keeps its marketplace id (`agentlens.agentlens-dashboard`)** — only the display name changes — so installed copies update in place with nothing to reinstall.
   - VS Code settings and commands moved from `agentLens.*` to `traceRoost.*`; the activity-bar view container is now **TraceRoost**.
   - Background service label is `com.traceroost.server`; the local data directory is `~/.traceroost`; environment variables are `TRACEROOST_PORT` / `TRACEROOST_MAX_SPANS`; the Claude Code stop-hook marker is `~/.traceroost/pending-prompt.txt`.
   - New brand assets: `media/brand/` (wordmark + mark, with on-dark / mono / current-colour variants), regenerated activity-bar icon and marketplace icon, and a theme-adaptive inline mark in the dashboard.

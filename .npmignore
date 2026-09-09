@@ -31,3 +31,4 @@ pnpm-lock.yaml
 **/*.map
 **/*.ts
 **/.vscode-test.*
+vsce-identity.json

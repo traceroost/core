@@ -34,17 +34,28 @@ function serviceManagerName(): string {
   }
 }
 
-/** Version of the running traceroost, read from its own package.json. Bundled output
- *  lives at <pkg>/standalone/cli.js, so `../package.json` from here; the extra `../../` fallback
- *  covers running the un-bundled source from standalone/service/. */
-function readRunningVersion(): string | undefined {
+/** The running copy's own package.json (name + version). Bundled output lives at
+ *  <pkg>/standalone/cli.js, so `../package.json` from here; the extra `../../` fallback covers
+ *  running the un-bundled source from standalone/service/. */
+function readRunningManifest(): { name?: string; version?: string } {
   for (const rel of [['..', 'package.json'], ['..', '..', 'package.json']]) {
     try {
-      return JSON.parse(fs.readFileSync(path.join(__dirname, ...rel), 'utf-8')).version as string
+      const m = JSON.parse(fs.readFileSync(path.join(__dirname, ...rel), 'utf-8'))
+      return { name: m.name as string, version: m.version as string }
     } catch { /* try the next candidate */ }
   }
-  return undefined
+  return {}
 }
+
+function readRunningVersion(): string | undefined {
+  return readRunningManifest().version
+}
+
+/** The npm package name this copy was published as — `traceroost`, or `agentlens-dashboard` for
+ *  an install still on the pre-rebrand package. `service install` / `service update` stay within
+ *  whichever package launched them; a deliberate move to `traceroost` is a one-time re-run of
+ *  `npx traceroost@latest service install`. */
+const SELF_PACKAGE_NAME = readRunningManifest().name || 'traceroost'
 
 /** `platformService.isInstalled()` can itself shell out (schtasks on Windows); never let a probe
  *  failure derail the actual install. */
@@ -131,12 +142,12 @@ avoids gaps in your session history from forgetting to start it, closing the
 terminal, or a reboot.`)
 }
 
-/** The globally-installed package directory (`<npm root -g>/traceroost`), or undefined
+/** The globally-installed package directory (`<npm root -g>/<self package name>`), or undefined
  *  if `npm root -g` can't be run at all (npm missing / not on PATH). */
 function globalPackageDir(): string | undefined {
   try {
     const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf-8' }).trim()
-    return path.join(globalRoot, 'traceroost')
+    return path.join(globalRoot, SELF_PACKAGE_NAME)
   } catch {
     return undefined
   }
@@ -177,20 +188,21 @@ interface GlobalInstallOutcome {
   downloaded: boolean
 }
 
-/** Runs `npm install -g traceroost@latest` so the background service lands on the newest
+/** Runs `npm install -g <self package name>@latest` so the background service lands on the newest
  *  published version rather than pinning whatever copy launched it. If the download fails (offline,
  *  registry unreachable, npm missing, permissions) it prints a clear warning and reports the
  *  version already on disk so the caller can carry on with it — returns null only when the
  *  download failed *and* there is nothing installed to fall back on. */
 function ensureLatestGlobalInstall(): GlobalInstallOutcome | null {
   const previousVersion = readGlobalVersion()
-  console.log('[TraceRoost] Fetching the latest traceroost from npm:')
-  console.log('  npm install -g traceroost@latest')
+  const spec = `${SELF_PACKAGE_NAME}@latest`
+  console.log(`[TraceRoost] Fetching the latest ${SELF_PACKAGE_NAME} from npm:`)
+  console.log(`  npm install -g ${spec}`)
   try {
-    execFileSync('npm', ['install', '-g', 'traceroost@latest'], { stdio: 'inherit' })
+    execFileSync('npm', ['install', '-g', spec], { stdio: 'inherit' })
   } catch (e) {
     const fallback = readGlobalVersion()
-    console.error(couldNotDownloadMessage(describeNpmFailure(e), fallback))
+    console.error(couldNotDownloadMessage(describeNpmFailure(e), fallback, SELF_PACKAGE_NAME))
     return fallback ? { version: fallback, previousVersion, downloaded: false } : null
   }
   const version = readGlobalVersion()

@@ -8,40 +8,57 @@ not automatic on every merge — a release can bundle just one merged PR or seve
 accumulated since the last one. Check what's landed since the last tag before assuming scope:
 `git log <last-tag>..HEAD --oneline` (or `git tag --list | tail -5` to find the last tag).
 
-## Two release lines
+## What one tag push publishes
 
-- **`main` — TraceRoost (active).** One tag push publishes:
-  - npm `traceroost` (OIDC trusted publishing)
-  - Docker `traceroost/traceroost` + `ghcr.io/traceroost/core`
-  - the VS Code extension under **two** marketplace identities (`release.yml`'s `publish-vsce`
-    matrix): `traceroost.traceroost` (the new listing) and `agentlens.agentlens-dashboard` (the
-    existing listing, so current users auto-update into the rebranded build). Same VSIX, packaged
-    twice from a patched `package.json`.
-- **`agentlens` branch — deprecated line.** Existing `agentlens-dashboard` (npm) and
-  `agentlens/agentlens` (Docker) only. **Security fixes only, no feature work**, until archived.
-  Cut those from the `agentlens` branch with the steps below; it still has its own `release.yml`
-  driven by the unprefixed `VSCE_PAT` / `OVSX_PAT` / `DOCKERHUB_*` secrets. (The extension itself
-  no longer needs a release from this branch — `main`'s compat publish covers the
-  `agentlens.agentlens-dashboard` listing.)
+| Artifact | Identity | Where the identity comes from | Secrets |
+| --- | --- | --- | --- |
+| npm | `traceroost` | `package.json` `name` | none (OIDC trusted publishing) |
+| Docker | `traceroost/traceroost` + `ghcr.io/traceroost/core` | `docker.yml` | `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` (Docker Hub); `GITHUB_TOKEN` (ghcr) |
+| VS Code Marketplace + Open VSX | **`agentlens.agentlens-dashboard`** | `vsce-identity.json` — the `package` job patches `name`/`publisher` into `package.json` for the VSIX build only | `VSCE_PAT` / `OVSX_PAT` (the existing AgentLens publisher tokens) |
 
-### One-time provisioning for the `traceroost` identity
+**Why the extension keeps the old id:** the marketplace id is sticky infrastructure users never
+re-type; the displayName is already "TraceRoost". Keeping `agentlens.agentlens-dashboard` means
+every installed AgentLens extension updates in place — no reinstall, no "both installed" conflict.
+`package.json` still carries the npm identity (`traceroost`); the two are decoupled via
+`vsce-identity.json`.
 
-The `traceroost` publish credentials are **`TR_`-prefixed** so they never collide with the
-AgentLens secrets the `agentlens` branch still reads. Add as repo secrets:
+### One-time provisioning
 
-| Target | Set up | Secret(s) |
-| --- | --- | --- |
-| npm `traceroost` | Trusted Publisher → `traceroost/core` + `release.yml` (see `npm-trusted-publisher-rebrand`; propagation takes a few minutes) | none (OIDC) |
-| VS Code Marketplace publisher `traceroost` | create publisher | `TR_VSCE_PAT` |
-| Open VSX namespace `traceroost` | claim namespace | `TR_OVSX_PAT` |
-| Docker Hub `traceroost/traceroost` | create repo | `TR_DOCKERHUB_USERNAME`, `TR_DOCKERHUB_TOKEN` |
+| Target | Set up |
+| --- | --- |
+| npm `traceroost` | Trusted Publisher → `traceroost/core` + `release.yml` (see `npm-trusted-publisher-rebrand`; config takes a few minutes to propagate) |
+| Docker Hub `traceroost/traceroost` | create the repo under the `traceroost` account; add `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` repo secrets |
+| VS Code / Open VSX | nothing new — `VSCE_PAT` / `OVSX_PAT` already exist for publisher `agentlens` |
 
-The compat publish to `agentlens.agentlens-dashboard` reuses the **existing** `VSCE_PAT` /
-`OVSX_PAT` (same publisher = same token). Its steps self-skip if those secrets are absent, so
-deleting them (or the second matrix entry) is how you retire the compat listing later.
+`TR_VSCE_PAT` / `TR_OVSX_PAT` are **not used** right now. They exist for the eventual extension
+cutover (below).
 
-Until the four `TR_*` targets exist, do the `main` commit + changelog but **do not push the tag** —
-the publish jobs fail partway and leave the release half-done.
+Until npm's trusted publisher and the Docker Hub repo exist, do the `main` commit + changelog but
+**do not push the tag** — those publish jobs fail and leave the release half-done.
+
+## The `agentlens` branch
+
+Cut from `main` @ v0.15.4. It's a **security-only** line for anyone who can't move: publishes
+`agentlens-dashboard` (npm) and `agentlens/agentlens` (Docker) via its own copy of `release.yml`
+driven by the unprefixed secrets. No feature work; archive it once the population there is
+negligible. It does **not** publish the extension — `main` handles the `agentlens.agentlens-dashboard`
+listing.
+
+## Future one-time task: extension id cutover
+
+When the TraceRoost brand is established and you want the marketplace URL to say `traceroost` too:
+
+1. Create VS Code Marketplace publisher `traceroost` + claim Open VSX namespace `traceroost`; add
+   `TR_VSCE_PAT` / `TR_OVSX_PAT` repo secrets.
+2. Restore `publish-vsce` to a two-identity matrix (git history has it) — leg `agentlens` +
+   leg `traceroost`, each gated on its PAT.
+3. Cut one release: it publishes `traceroost.traceroost` alongside `agentlens.agentlens-dashboard`.
+4. In the marketplace publisher portal, mark `agentlens.agentlens-dashboard` **deprecated** with
+   `traceroost.traceroost` as the replacement — VS Code then shows every user of it a
+   "publisher recommends TraceRoost — Install" prompt.
+5. After the population moves, stop publishing to `agentlens.agentlens-dashboard` (drop the matrix
+   leg); the deprecated listing stays up as a redirect. Keep `handleDuplicateInstall` in
+   `extension.ts` for the transition window.
 
 ## Steps
 
