@@ -38,11 +38,14 @@ Until npm's trusted publisher and the Docker Hub repo exist, do the `main` commi
 
 ## The `agentlens` branch
 
-Cut from `main` @ v0.15.4. It's a **security-only** line for anyone who can't move: publishes
-`agentlens-dashboard` (npm) and `agentlens/agentlens` (Docker) via its own copy of `release.yml`
-driven by the unprefixed secrets. No feature work; archive it once the population there is
-negligible. It does **not** publish the extension — `main` handles the `agentlens.agentlens-dashboard`
-listing.
+Cut from `main` @ v0.15.4. Its `release.yml` publishes **only** the frozen `agentlens-dashboard`
+npm package and `agentlens/agentlens` Docker image (via the unprefixed `DOCKERHUB_*` secrets and
+its own OIDC trusted publisher) — the `publish-vsce` job is removed, since `main` publishes the
+`agentlens.agentlens-dashboard` extension listing.
+
+Intended use: **one final release** — bump its version (e.g. `0.15.5`), add a CHANGELOG entry and
+an in-app / `npm deprecate` "AgentLens is now TraceRoost — switch to `traceroost` / `traceroost/traceroost`"
+notice, tag it, then leave the branch dormant. Not for ongoing work.
 
 ## Future one-time task: extension id cutover
 
