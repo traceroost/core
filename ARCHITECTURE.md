@@ -1080,6 +1080,18 @@ lead see cross-developer aggregates. It is built against two rules:
 | `src/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
 | `src/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
 | `src/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
+| `src/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders (AL 08) — prose fields structurally unreachable |
+| `src/team/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
+| `src/team/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.agentlens/instruction-ledger.json`) |
+
+**The split that makes AL 08 genuinely Pro:** the cloud finds the pattern (some file is read in
+62% of sessions by four of six developers), the machine writes the text (which file, and the
+sentence). `getHotFileSuggestions` already fires at 40% over *one* person's sessions; pooling
+raises it to "four of you do, and none of your instruction files mention it," which no local
+install can reach. The local Advisor is free and unchanged. `suggestedText` / `evidence` /
+`title` never leave the machine — only `suggestion_id` (hashed), the enums, and the numeric
+baseline. Apply loop: `agentlens advise --apply <id>` regenerates with real paths, appends,
+captures a baseline; `agentlens://advise?id=…` is the editor deep link.
 | `src/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard` |
 | `src/team/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
 | `src/forward/queue.ts` | `~/.agentlens/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600 |

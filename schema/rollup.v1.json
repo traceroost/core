@@ -19,6 +19,21 @@
       "type": "array",
       "maxItems": 500,
       "items": { "$ref": "#/$defs/turnover" }
+    },
+    "instruction_files": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/instruction_file" }
+    },
+    "file_footprints": {
+      "type": "array",
+      "maxItems": 300,
+      "items": { "$ref": "#/$defs/file_footprint" }
+    },
+    "suggestion_events": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/suggestion_event" }
     }
   },
   "$defs": {
@@ -135,6 +150,63 @@
         "window_days": { "type": "integer", "enum": [30, 90] },
         "ai_lines_authored": { "$ref": "#/$defs/count" },
         "ai_lines_surviving": { "$ref": "#/$defs/count" }
+      }
+    },
+    "instruction_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_hash", "present", "kind"],
+      "properties": {
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "present": { "type": "boolean" },
+        "kind": { "type": "string", "enum": ["claude_md", "agents_md", "copilot_instructions", "other"] },
+        "path_hash": { "$ref": "#/$defs/hash" },
+        "content_hash": { "$ref": "#/$defs/hash" },
+        "line_count": { "$ref": "#/$defs/count" },
+        "last_modified": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "file_footprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_hash", "file_hash", "sessions_read", "sessions_total"],
+      "properties": {
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "file_hash": { "$ref": "#/$defs/hash" },
+        "sessions_read": { "$ref": "#/$defs/count" },
+        "sessions_total": { "$ref": "#/$defs/count" },
+        "early_reads": { "$ref": "#/$defs/count" },
+        "token_size": { "$ref": "#/$defs/count" },
+        "covered_by_instructions": { "type": "boolean" }
+      }
+    },
+    "suggestion_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_hash", "suggestion_id", "category", "priority", "action", "at"],
+      "properties": {
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "suggestion_id": { "$ref": "#/$defs/hash" },
+        "category": { "type": "string", "enum": ["context", "behavior", "prompting"] },
+        "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+        "target_agents": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/agent" }
+        },
+        "action": { "type": "string", "enum": ["surfaced", "applied", "dismissed", "reverted"] },
+        "at": { "$ref": "#/$defs/timestamp" },
+        "baseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cost_avg": { "type": "number", "minimum": 0, "maximum": 100000 },
+            "turns_avg": { "type": "number", "minimum": 0, "maximum": 100000 },
+            "error_rate": { "type": "number", "minimum": 0, "maximum": 100000 },
+            "loop_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "insufficient": { "type": "boolean" }
+          }
+        }
       }
     }
   }

@@ -25,6 +25,7 @@ import { getTeamStatus } from './team/status'
 import { SENT, NEVER_SENT } from './team/privacy'
 import { getQueueStats } from './forward/currentQueueStats'
 import { maybeEnqueueSession } from './team/enqueueSession'
+import { maybeEnqueueInstructionTelemetry, EMPTY_LEDGER } from './team/instructionTelemetry'
 import { startForwardScheduler, type ForwardScheduler } from './forward/scheduler'
 
 let collector: OtlpCollector | undefined
@@ -156,6 +157,11 @@ export async function activate(context: vscode.ExtensionContext) {
           // no-op unless a team is linked. The actual network send happens later, on a timer.
           void maybeEnqueueSession({ ...card, workspace: card.workspace || workspace }, m => outputChannel?.appendLine(m))
             .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
+          if (workspace) {
+            void maybeEnqueueInstructionTelemetry(workspace, repository!.listSessions(), EMPTY_LEDGER)
+              .then(enq => { if (enq) forwardScheduler?.drainSoon() })
+              .catch(() => { /* best-effort */ })
+          }
         }
       })
     )
@@ -440,6 +446,7 @@ export async function activate(context: vscode.ExtensionContext) {
   )
 
   registerTeamCommands(context)
+  registerUriHandler(context, repo)
 
   context.subscriptions.push(
     vscode.commands.registerCommand('agentLens.dumpSpanAttrs', () => {
@@ -669,6 +676,39 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
       )
       forwardScheduler?.syncToLinkState()
       DashboardPanel.currentPanel?.update()
+    }),
+  )
+}
+
+// ── Deep links (AL 08) ──────────────────────────────────────────────────────
+//
+// `agentlens://advise?id=<hashed-or-raw-suggestion-id>`. A link from an untrusted source can
+// only cause a local view change — never a network call, never a write. Parameters are
+// validated for shape before use. AL 09 registers `agentlens://cohort?...` on the same handler.
+
+const HASH_RE = /^[a-f0-9]{64}$/
+
+function registerUriHandler(context: vscode.ExtensionContext, _repo: SessionRepository): void {
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      handleUri(uri: vscode.Uri) {
+        const params = new URLSearchParams(uri.query)
+        const kind = uri.path.replace(/^\//, '') || uri.authority
+        if (kind === 'advise') {
+          const id = (params.get('id') ?? '').trim()
+          if (!HASH_RE.test(id) && !/^[a-z0-9:_]{1,120}$/i.test(id)) {
+            vscode.window.showWarningMessage('AgentLens: that advise link is malformed.')
+            return
+          }
+          vscode.commands.executeCommand('agentLens.openDashboard')
+          setTimeout(() => {
+            DashboardPanel.switchToTab('patterns')
+            DashboardPanel.currentPanel?.postToWebview({ type: 'focusSuggestion', id })
+          }, 250)
+          return
+        }
+        vscode.window.showWarningMessage(`AgentLens: unrecognised link ${uri.toString()}`)
+      },
     }),
   )
 }
