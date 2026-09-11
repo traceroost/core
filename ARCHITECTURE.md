@@ -1126,6 +1126,14 @@ no transport — the engines have no network path at all — and nothing they pr
 | `src/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
 | `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
 | `src/database/turnoverRepository.ts` | One row per repo; recompute skipped when `HEAD` is unmoved |
+| `src/turnover/localReport.ts` | Per-repo report assembly for the free **Outcomes** tab |
+| `media/src/tabs/Outcomes.tsx` | The activation-event tab — `InsufficientData` panels are first-class; one Pro line, in the cohort footer only |
+
+The **Outcomes** tab is free forever, without qualification — it is the free tier's activation
+event and therefore the distribution channel. First-run routing (`DashboardPanel`) opens on it
+when a cohort is measurable and it has never been shown. Nothing in it is disabled, blurred,
+watermarked or upsell-gated; the share affordance omits the repository name unless the user
+opts in.
 
 Confidence is the honest part: **certain** (trailer, or a session lists the file and the commit
 lands in that session's own span), **probable** (session lists the file, commit within the

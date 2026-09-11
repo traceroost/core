@@ -1056,6 +1056,14 @@ function getHtml(): string {
             });
             return;
           }
+          if (msg.type === 'getOutcomes') {
+            fetch('/api/outcomes').then(function(r) { return r.json(); }).then(function(report) {
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'outcomesReport', report: report } }));
+            }).catch(function() {
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'outcomesReport', report: { repos: [], hasMeasurableCohort: false, generatedAt: '' } } }));
+            });
+            return;
+          }
           if (msg.type === 'confirmClear') {
             if (confirm('Clear all AgentLens data? OTEL session data is deleted permanently. AgentLens log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
               fetch('/api/clear', { method: 'POST' });
@@ -1602,6 +1610,22 @@ const uiServer = http.createServer((req, res) => {
     const summary = buildSessionSummary()
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(stripTimelines(summary)))
+    return
+  }
+
+  // Outcomes (AL 07) — free, local, no network. Computed from git history + session records.
+  if (req.method === 'GET' && url === '/api/outcomes') {
+    void (async () => {
+      const { buildLocalTurnoverReport } = require('../src/turnover/localReport') as typeof import('../src/turnover/localReport')
+      try {
+        const report = await buildLocalTurnoverReport(buildSessionSummary()?.sessions ?? [])
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(report))
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ repos: [], hasMeasurableCohort: false, generatedAt: new Date().toISOString(), error: String(e) }))
+      }
+    })()
     return
   }
 

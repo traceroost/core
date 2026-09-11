@@ -11,6 +11,13 @@ import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
 import { handleTeamMessage } from './team/panelController'
 import { buildPayloadPreviewText } from './team/payloadPreview'
+import { buildLocalTurnoverReport } from './turnover/localReport'
+
+/** The sql.js surface the turnover report needs for its caches. */
+export interface TurnoverDb {
+  exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  run(sql: string, params?: unknown[]): void
+}
 
 function isExportFormat(value: unknown): value is ExportFormat {
   return value === 'json' || value === 'csv' || value === 'markdown'
@@ -25,7 +32,7 @@ export class DashboardPanel {
   // isn't computed eagerly for every loaded session.
   private gitOutcomeCache = new Map<string, GitOutcome | null>()
 
-  static show(context: vscode.ExtensionContext, repo: SessionRepository, sidebarProvider?: SidebarPanel, instructionRepo?: InstructionRepository) {
+  static show(context: vscode.ExtensionContext, repo: SessionRepository, sidebarProvider?: SidebarPanel, instructionRepo?: InstructionRepository, rawDb?: TurnoverDb) {
     if (DashboardPanel.currentPanel) {
       DashboardPanel.currentPanel.panel.reveal()
       DashboardPanel.currentPanel.update()
@@ -41,7 +48,7 @@ export class DashboardPanel {
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       }
     )
-    DashboardPanel.currentPanel = new DashboardPanel(panel, context, repo, sidebarProvider, instructionRepo)
+    DashboardPanel.currentPanel = new DashboardPanel(panel, context, repo, sidebarProvider, instructionRepo, rawDb)
   }
 
   static setRepository(repo: SessionRepository) {
@@ -69,6 +76,7 @@ export class DashboardPanel {
     private repo: SessionRepository,
     private sidebarProvider?: SidebarPanel,
     private instructionRepo?: InstructionRepository,
+    private rawDb?: TurnoverDb,
   ) {
     this.panel = panel
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables)
@@ -83,6 +91,15 @@ export class DashboardPanel {
           buildPayloadPreview: (session) => buildPayloadPreviewText(session),
           onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse('https://app.agentlens.dev')) },
         })
+        return
+      }
+      if (msg.type === 'getOutcomes') {
+        try {
+          const report = await buildLocalTurnoverReport(this.repo.listSessions(), { db: this.rawDb })
+          this.panel.webview.postMessage({ type: 'outcomesReport', report })
+        } catch (err) {
+          this.panel.webview.postMessage({ type: 'outcomesReport', report: { repos: [], hasMeasurableCohort: false, generatedAt: new Date().toISOString(), error: String(err) } })
+        }
         return
       }
       if (msg.type === 'loadSessionDetail' && msg.sessionId) {
@@ -215,6 +232,24 @@ export class DashboardPanel {
     this.disposables.push(pushDisposable)
     const interval = setInterval(() => this.update(), 10000)
     this.disposables.push({ dispose: () => clearInterval(interval) })
+
+    // First-run routing (AL 07): if a turnover cohort is measurable and Outcomes has never been
+    // shown, open on it — it is the free tier's activation event. Computed off the activation
+    // path so it never blocks the panel.
+    void this.maybeRouteToOutcomes()
+  }
+
+  private async maybeRouteToOutcomes(): Promise<void> {
+    const SHOWN_KEY = 'agentLens.outcomesFirstRunShown'
+    if (this.context.globalState.get<boolean>(SHOWN_KEY)) return
+    try {
+      const report = await buildLocalTurnoverReport(this.repo.listSessions(), { db: this.rawDb })
+      if (report.hasMeasurableCohort) {
+        await this.context.globalState.update(SHOWN_KEY, true)
+        this.panel.webview.postMessage({ type: 'outcomesReport', report })
+        this.panel.webview.postMessage({ type: 'switchTab', tab: 'outcomes' })
+      }
+    } catch { /* first-run nicety only */ }
   }
 
   private scheduleUpdate() {
