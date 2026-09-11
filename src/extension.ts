@@ -27,6 +27,7 @@ import { getQueueStats } from './forward/currentQueueStats'
 import { maybeEnqueueSession } from './team/enqueueSession'
 import { maybeEnqueueInstructionTelemetry, EMPTY_LEDGER } from './team/instructionTelemetry'
 import { startForwardScheduler, type ForwardScheduler } from './forward/scheduler'
+import { resolveRepoHash } from './team/resolveRepoHash'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -680,20 +681,24 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
   )
 }
 
-// ── Deep links (AL 08) ──────────────────────────────────────────────────────
+// ── Deep links (AL 08 / AL 09) ──────────────────────────────────────────────
 //
-// `agentlens://advise?id=<hashed-or-raw-suggestion-id>`. A link from an untrusted source can
-// only cause a local view change — never a network call, never a write. Parameters are
-// validated for shape before use. AL 09 registers `agentlens://cohort?...` on the same handler.
+// `agentlens://advise?id=<hashed-or-raw-suggestion-id>` and
+// `agentlens://cohort?repo=<hash>&merged=<YYYY-MM>&window=<30|90>`. A link from an untrusted
+// source can only cause a local view change — never a network call, never a write. Every
+// parameter is validated for shape before use, and the cohort hand-off resolves hashes only
+// for repositories on this machine (it is not an oracle for testing hashes against).
 
 const HASH_RE = /^[a-f0-9]{64}$/
+const MONTH_RE = /^\d{4}-\d{2}$/
 
-function registerUriHandler(context: vscode.ExtensionContext, _repo: SessionRepository): void {
+function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepository): void {
   context.subscriptions.push(
     vscode.window.registerUriHandler({
       handleUri(uri: vscode.Uri) {
         const params = new URLSearchParams(uri.query)
         const kind = uri.path.replace(/^\//, '') || uri.authority
+
         if (kind === 'advise') {
           const id = (params.get('id') ?? '').trim()
           if (!HASH_RE.test(id) && !/^[a-z0-9:_]{1,120}$/i.test(id)) {
@@ -707,6 +712,34 @@ function registerUriHandler(context: vscode.ExtensionContext, _repo: SessionRepo
           }, 250)
           return
         }
+
+        if (kind === 'cohort') {
+          const repoHash = (params.get('repo') ?? '').trim()
+          const merged = (params.get('merged') ?? '').trim()
+          const window = (params.get('window') ?? '90').trim()
+          if (!HASH_RE.test(repoHash) || !MONTH_RE.test(merged) || (window !== '30' && window !== '90')) {
+            vscode.window.showWarningMessage('AgentLens: that cohort link is malformed.')
+            return
+          }
+          void (async () => {
+            const workspaces = [
+              ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
+              ...new Set(repo.listSessions().map(s => s.workspace).filter(Boolean)),
+            ]
+            const root = await resolveRepoHash(repoHash, workspaces)
+            if (!root) {
+              vscode.window.showInformationMessage('AgentLens: that cohort is for a repository this machine does not have. Nothing was requested.')
+              return
+            }
+            vscode.commands.executeCommand('agentLens.openDashboard')
+            setTimeout(() => {
+              DashboardPanel.switchToTab('outcomes')
+              DashboardPanel.currentPanel?.postToWebview({ type: 'focusCohort', repoRoot: root, merged, windowDays: Number(window) })
+            }, 250)
+          })()
+          return
+        }
+
         vscode.window.showWarningMessage(`AgentLens: unrecognised link ${uri.toString()}`)
       },
     }),
