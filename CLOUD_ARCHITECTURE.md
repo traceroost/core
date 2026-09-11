@@ -8,7 +8,10 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 
 | Doc | Covers |
 | --- | --- |
+| [CLOUD_FEATURES.md](CLOUD_FEATURES.md) | What each merged slice actually does, feature by feature |
 | [ARCHITECTURE.md §15](ARCHITECTURE.md#15-agentlens-pro--team-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines |
+| [`src/cloud/README.md`](src/cloud/README.md) | Why this code lives in one directory, and under a different license |
+| [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
 | [`docs/wire-schema.md`](docs/wire-schema.md) | The exact wire contract, and how to verify the privacy claim yourself |
 | [`docs/pricing-boundary.md`](docs/pricing-boundary.md) | The free/paid line, word-for-word with the pricing page |
 | [`.staged-feature/README.md`](.staged-feature/README.md) | The phased plan this was built against, and the companion closed-source service repo (`alsaas`) |

@@ -9,5 +9,11 @@
         "dist": true // set this to false to include "dist" folder in search results
     },
     // Turn off tsc task auto detection since we have the necessary tasks as npm scripts
-    "typescript.tsc.autoDetect": "off"
+    "typescript.tsc.autoDetect": "off",
+    "chat.tools.terminal.autoApprove": {
+        "/^git show review/pr-239:src/logReader\\.ts \\| sed -n '1,280p'; printf '\\\\n--- usage parser ---\\\\n'; git show review/pr-239:src/claudeUsageLines\\.ts \\| sed -n '1,220p'$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

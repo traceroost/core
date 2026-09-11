@@ -521,7 +521,8 @@ AgentLens was built primarily with [Claude](https://www.anthropic.com/claude). T
 
 ## License
 
-MIT
+MIT, except the `src/cloud/`, `media/src/cloud/`, and `standalone/cloud/`
+directories (the Pro/cloud team feature) — see [NOTICE.md](NOTICE.md).
 
 ## Disclaimer
 
