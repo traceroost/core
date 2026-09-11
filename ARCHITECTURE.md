@@ -1077,7 +1077,15 @@ lead see cross-developer aggregates. It is built against two rules:
 | `src/team/panelController.ts` | Transport-agnostic handler for `team*` webview messages |
 | `src/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
 | `src/forward/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
+| `src/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
+| `src/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
+| `src/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
+| `src/team/payloadPreview.ts` | Card → `--explain-payload` text, for the panel's "Show the exact payload" |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
+
+`agentlens --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
+(`standalone/explainPayload.ts`) print the exact bytes for a real session, stable-key-ordered,
+on a free install with no team. A test asserts the printed JSON equals the queued JSON (AL 04).
 
 The wire contract (AL 02) is owned **here**, in the client the sceptic already trusts, and the
 service validates against the identical document. `src/forward/` is a closed island: every field

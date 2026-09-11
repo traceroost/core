@@ -29,7 +29,7 @@ export interface TeamPanelDeps {
    * Absent in builds before AL 03 — the panel then shows an honest "not yet available" note
    * rather than a fake sample.
    */
-  buildPayloadPreview?: (session: SessionSummaryCard) => string
+  buildPayloadPreview?: (session: SessionSummaryCard) => string | Promise<string>
   /** Called when the user clicks "Open team view". */
   onOpenTeamView?: () => void
 }
@@ -52,7 +52,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
       }
       const label = `${session.source} · ${new Date(session.startTime).toLocaleString()}`
       const text = deps.buildPayloadPreview
-        ? deps.buildPayloadPreview(session)
+        ? await deps.buildPayloadPreview(session)
         : 'The exact-payload preview arrives with the rollup builder in the next AgentLens update.\n' +
           'Until then: nothing is sent, so there is nothing to preview.'
       deps.post({ type: 'teamPayloadPreview', preview: { text, sessionLabel: label } })

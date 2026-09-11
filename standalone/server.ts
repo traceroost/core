@@ -1609,6 +1609,7 @@ const uiServer = http.createServer((req, res) => {
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', async () => {
       const { handleTeamMessage } = require('../src/team/panelController') as typeof import('../src/team/panelController')
+      const { buildPayloadPreviewText } = require('../src/team/payloadPreview') as typeof import('../src/team/payloadPreview')
       const outbox: Record<string, unknown>[] = []
       const msg = req.method === 'GET'
         ? { type: 'getTeamStatus' }
@@ -1621,6 +1622,7 @@ const uiServer = http.createServer((req, res) => {
             exec(cmd, () => { /* URL is also delivered as a teamLinkUrl message */ })
           },
           recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
+          buildPayloadPreview: (session) => buildPayloadPreviewText(session),
         })
       } catch (e) {
         outbox.push({ type: 'teamActionResult', ok: false, error: String(e) })

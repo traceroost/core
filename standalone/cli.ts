@@ -19,6 +19,12 @@ async function main() {
     process.exitCode = await runTeamCli(args.slice(1))
     return
   }
+  const { parseExplainFlags, runExplainPayload } = await import('./explainPayload.js')
+  const explain = parseExplainFlags(args)
+  if (explain) {
+    process.exitCode = await runExplainPayload(explain)
+    return
+  }
   await import('./server.js')
 }
 
