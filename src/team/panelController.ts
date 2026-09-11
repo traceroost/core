@@ -8,6 +8,8 @@
 
 import { getTeamStatus, type QueueStats } from './status'
 import { linkInteractive, linkViaDevice, leave } from './link'
+import { getQueueStats } from '../forward/currentQueueStats'
+import { syncForwardSchedulerToLinkState } from '../forward/scheduler'
 import type { SessionSummaryCard } from '../summarizers/summarizerTypes'
 
 export interface TeamMessage {
@@ -35,7 +37,8 @@ export interface TeamPanelDeps {
 }
 
 function pushStatus(deps: TeamPanelDeps): void {
-  deps.post({ type: 'teamStatus', status: getTeamStatus(deps.queueStats?.()) })
+  const stats = deps.queueStats?.() ?? getQueueStats()
+  deps.post({ type: 'teamStatus', status: getTeamStatus(stats) })
 }
 
 export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): Promise<void> {
@@ -65,6 +68,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
           onUrl: (url) => deps.post({ type: 'teamLinkUrl', url }),
           openUrl: (url) => deps.openExternal(url),
         })
+        syncForwardSchedulerToLinkState()
         deps.post({ type: 'teamActionResult', action: 'link', ok: true })
       } catch (err) {
         deps.post({ type: 'teamActionResult', action: 'link', ok: false, error: (err as Error).message })
@@ -88,6 +92,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
 
     case 'teamLeave': {
       const res = await leave()
+      syncForwardSchedulerToLinkState()
       deps.post({ type: 'teamActionResult', action: 'leave', ok: true, serverRevoked: res.serverRevoked })
       pushStatus(deps)
       return

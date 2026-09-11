@@ -23,6 +23,9 @@ import { InstructionRepository } from './database/instructionRepository'
 import { linkInteractive, leave } from './team/link'
 import { getTeamStatus } from './team/status'
 import { SENT, NEVER_SENT } from './team/privacy'
+import { getQueueStats } from './forward/currentQueueStats'
+import { maybeEnqueueSession } from './team/enqueueSession'
+import { startForwardScheduler, type ForwardScheduler } from './forward/scheduler'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -32,6 +35,7 @@ let writer: DatabaseWriter | undefined
 let repository: SessionRepository | undefined
 let logReaderTimer: ReturnType<typeof setInterval> | undefined
 let runLogScanFn: (() => void) | undefined
+let forwardScheduler: ForwardScheduler | undefined
 
 // ── Cross-window sync ────────────────────────────────────────────────────────
 
@@ -148,6 +152,10 @@ export async function activate(context: vscode.ExtensionContext) {
             agentLensDb?.save()
             writeLastWriteSignal(context.globalStorageUri)
           }).catch(err => console.error('[AgentLens] writer.drain error:', err))
+          // Pro: build a rollup for this session and append it to the forwarding queue. A hard
+          // no-op unless a team is linked. The actual network send happens later, on a timer.
+          void maybeEnqueueSession({ ...card, workspace: card.workspace || workspace }, m => outputChannel?.appendLine(m))
+            .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
         }
       })
     )
@@ -562,6 +570,17 @@ export async function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine(`AgentLens MCP server → http://127.0.0.1:${mcpPort}/mcp`)
   }
 
+  // ── Pro: forwarding scheduler ───────────────────────────────────────────────
+  // No timer runs unless a team is linked; `syncToLinkState` starts/stops it after link/leave.
+  forwardScheduler = startForwardScheduler({
+    notify: (message, kind) => {
+      if (kind === 'warning') vscode.window.showWarningMessage(message)
+      else vscode.window.showInformationMessage(message)
+    },
+    log: (msg) => outputChannel?.appendLine(msg),
+  })
+  context.subscriptions.push({ dispose: () => forwardScheduler?.dispose() })
+
   // ── Status bar ───────────────────────────────────────────────────────────────
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
   statusBar.command = 'agentLens.openDashboard'
@@ -617,13 +636,14 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
           () => linkInteractive({ openUrl: (url: string) => { void vscode.env.openExternal(vscode.Uri.parse(url)) } }),
         )
         vscode.window.showInformationMessage(`AgentLens: linked to ${result.orgName} as ${result.role}.`)
+        forwardScheduler?.syncToLinkState()
         DashboardPanel.currentPanel?.update()
       } catch (err) {
         vscode.window.showErrorMessage(`AgentLens: link failed — ${(err as Error).message}. Nothing was changed.`)
       }
     }),
     vscode.commands.registerCommand('agentLens.teamStatus', () => {
-      const s = getTeamStatus()
+      const s = getTeamStatus(getQueueStats())
       vscode.window.showInformationMessage(
         s.linked
           ? `AgentLens Pro: linked to ${s.orgName} as ${s.role}. Queue depth ${s.queueDepth ?? 0}, last rollup ${s.lastRollupAt ?? 'none yet'}.`
@@ -647,6 +667,7 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
           ? 'AgentLens: unlinked. This machine has stopped forwarding.'
           : 'AgentLens: unlinked locally. Could not reach the server to revoke the token — it will be revoked on next contact, or by a lead from the roster.',
       )
+      forwardScheduler?.syncToLinkState()
       DashboardPanel.currentPanel?.update()
     }),
   )

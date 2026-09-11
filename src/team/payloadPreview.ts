@@ -1,6 +1,6 @@
 /**
- * Bridges a local `SessionSummaryCard` to the `--explain-payload` text (AL 03), for the Team
- * panel's "Show the exact payload" button.
+ * Bridges a local `SessionSummaryCard` to a built `RollupPayload` and its `--explain-payload`
+ * text (AL 03 / AL 04).
  *
  * This lives in `src/team/`, not `src/forward/` — `src/forward/` is a closed island that must
  * not import `SessionSummaryCard`. Here is where the card is read, field by field, into the
@@ -15,6 +15,7 @@ import { deriveRepoKey } from '../forward/repoKey'
 import { sessionRollupPayload, type SessionRollupInput } from '../forward/buildSessionRollup'
 import { assertValidRollupPayload } from '../forward/validate'
 import { renderPayloadPreview } from '../forward/preview'
+import type { RollupPayload } from '../forward/schema'
 import { loadCredentials } from './credentials'
 import type { SessionSummaryCard } from '../summarizers/summarizerTypes'
 
@@ -52,15 +53,25 @@ async function currentBranch(cwd: string): Promise<string> {
   }
 }
 
-export async function buildPayloadPreviewText(card: SessionSummaryCard): Promise<string> {
+export type PayloadForCard =
+  | { ok: true; payload: RollupPayload }
+  | { ok: false; reason: 'not-a-repo' | 'shallow-clone' | 'no-root-commit' }
+
+/**
+ * Builds the exact `RollupPayload` for one session, or reports why it can't. Used by both the
+ * panel's payload preview and the forwarding queue — so what the panel shows is byte-identical
+ * to what is enqueued.
+ *
+ * When no team is linked, hashes are derived under a placeholder org salt so the preview is
+ * representative; nothing is ever sent.
+ */
+export async function buildPayloadForCard(card: SessionSummaryCard): Promise<PayloadForCard> {
   const creds = loadCredentials()
   const orgId = creds?.orgId ?? 'unlinked-preview'
   const workspace = card.workspace || card.projectPath || process.cwd()
 
   const rk = await deriveRepoKey(workspace, orgId)
-  if (!rk.ok) {
-    return `This session's repository can't be keyed (${rk.reason}). It would be reported without repository grouping — never with a fake hash.`
-  }
+  if (!rk.ok) return { ok: false, reason: rk.reason }
 
   const cost = calcTokenCostUsd(
     Math.max(0, card.inputTokens - card.cacheReadTokens - (card.cacheCreateTokens ?? 0)),
@@ -77,5 +88,13 @@ export async function buildPayloadPreviewText(card: SessionSummaryCard): Promise
     outcome: outcome?.overall,
   })
   assertValidRollupPayload(payload)
-  return renderPayloadPreview(payload, { linked: creds !== null })
+  return { ok: true, payload }
+}
+
+export async function buildPayloadPreviewText(card: SessionSummaryCard): Promise<string> {
+  const result = await buildPayloadForCard(card)
+  if (!result.ok) {
+    return `This session's repository can't be keyed (${result.reason}). It would be reported without repository grouping — never with a fake hash.`
+  }
+  return renderPayloadPreview(result.payload, { linked: loadCredentials() !== null })
 }

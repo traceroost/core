@@ -27,6 +27,8 @@ import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx } from '../src/serviceConfig'
+import { maybeEnqueueSession } from '../src/team/enqueueSession'
+import { startForwardScheduler, drainForwardQueueSoon } from '../src/forward/scheduler'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
 
 // `agentlens service install` persists its port/host/data-dir choices to
@@ -203,6 +205,8 @@ function runLogScan() {
     card.oneShotStats = computeOneShotStats(card)
     logSessions.set(card.sessionId, card)
     changed = true
+    // Pro: enqueue this session for forwarding. Hard no-op unless a team is linked.
+    void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
   }
   if (changed) pushUpdate()
 }
@@ -1806,6 +1810,9 @@ uiServer.listen(UI_PORT, BIND_HOST, () => {
 
   // Start log ingestion after the server is ready
   startLogIngestion()
+
+  // Pro: forwarding scheduler. No timer runs unless a team is linked.
+  startForwardScheduler({ log: (msg) => console.log(msg) })
 })
 
 // ── Graceful shutdown — flush data before exit ────────────────────────────────

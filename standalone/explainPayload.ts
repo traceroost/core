@@ -21,6 +21,7 @@ import { deriveRepoKey } from '../src/forward/repoKey'
 import { sessionRollupPayload, type SessionRollupInput } from '../src/forward/buildSessionRollup'
 import { assertValidRollupPayload } from '../src/forward/validate'
 import { stableStringify } from '../src/forward/preview'
+import { ForwardQueue } from '../src/forward/queue'
 import { SENT, NEVER_SENT } from '../src/team/privacy'
 import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
@@ -110,6 +111,25 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
   const creds = loadCredentials()
   const orgId = creds?.orgId ?? 'unlinked-preview'
   ensureInstallId(readServiceConfig())
+
+  // `--all` dumps the forwarding queue when it has anything in it — the exact bytes pending
+  // right now — falling back to a preview built from all local sessions when it is empty.
+  if (opts.all) {
+    const queued = new ForwardQueue().list()
+    if (queued.length > 0) {
+      console.log(`# --explain-payload --all — ${queued.length} rollup(s) currently queued for the next send.`)
+      console.log('# Sent:       ' + SENT.join('; '))
+      console.log('# Never sent: ' + NEVER_SENT.join('; '))
+      console.log('')
+      for (const item of queued) {
+        console.log(`# queued ${new Date(item.enqueuedAt).toISOString()} · key ${item.key} · attempts ${item.attempts}`)
+        console.log(stableStringify(item.payload))
+        console.log('')
+      }
+      return 0
+    }
+    console.log('# The forwarding queue is empty. Showing a preview built from local sessions instead.\n')
+  }
 
   const all = loadAllSessions()
   if (all.length === 0) {
