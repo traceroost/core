@@ -21,6 +21,13 @@ export interface ServiceConfig {
    *  and persists one on first run — kept out of `defaultServiceConfig` so that function stays
    *  pure and deterministic for tests. */
   authToken: string
+  /** Stable per-machine identifier for AgentLens Pro (AL 02). A UUID generated once, at first
+   *  run, and persisted here beside the auth token — present from schema version 1 even before
+   *  anything reads it, so a later team link never needs a schema change plus a backfill.
+   *  Empty until `ensureInstallId` generates one, same rationale as `authToken`. It is NOT sent
+   *  in the rollup body — the service derives the install from the bearer token — but it keys
+   *  the client's own forwarding queue and `--explain-payload` output. */
+  installId: string
 }
 
 // `baseHome` defaults to the real home directory in production; tests pass a temp directory
@@ -38,6 +45,7 @@ export function defaultServiceConfig(baseHome?: string): ServiceConfig {
     bindHost: '127.0.0.1',
     dataDir: defaultDataDir(baseHome),
     authToken: '',
+    installId: '',
   }
 }
 
@@ -82,6 +90,22 @@ export function ensureAuthToken(config: ServiceConfig, baseHome?: string): Servi
   return withToken
 }
 
+/** Returns `config` unchanged if it already carries an `installId`; otherwise generates a UUID,
+ *  persists it, and returns the updated config. Independent of `ensureAuthToken` so an install
+ *  that predates this field picks one up on its next startup. */
+export function ensureInstallId(config: ServiceConfig, baseHome?: string): ServiceConfig {
+  if (config.installId) return config
+  const withId = { ...config, installId: crypto.randomUUID() }
+  writeServiceConfig(withId, baseHome)
+  return withId
+}
+
+/** The stable per-machine install id, generating and persisting one on first call. The single
+ *  entry point every other module uses. */
+export function getInstallId(baseHome?: string): string {
+  return ensureInstallId(readServiceConfig(baseHome), baseHome).installId
+}
+
 export function serviceLogPath(config: ServiceConfig): string {
   return path.join(config.dataDir, 'logs', 'service.log')
 }
@@ -105,7 +129,7 @@ export function parseServiceInstallFlags(args: string[]): ServiceConfig {
     const value = args[i + 1]
     if (value === undefined) { continue }
     i++
-    if (key === 'bindHost' || key === 'dataDir' || key === 'authToken') {
+    if (key === 'bindHost' || key === 'dataDir' || key === 'authToken' || key === 'installId') {
       config[key] = value
     } else {
       const n = parseInt(value, 10)

@@ -1075,6 +1075,16 @@ lead see cross-developer aggregates. It is built against two rules:
 | `src/team/status.ts` | `getTeamStatus()` — local-only status for the panel, dot and CLI |
 | `src/team/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
 | `src/team/panelController.ts` | Transport-agnostic handler for `team*` webview messages |
+| `src/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
+| `src/forward/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
+| `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
+
+The wire contract (AL 02) is owned **here**, in the client the sceptic already trusts, and the
+service validates against the identical document. `src/forward/` is a closed island: every field
+is a number, an enum, a hash or a timestamp, and a CI test walks `schema/rollup.v1.json` to fail
+the build if any string is left unconstrained. See [`docs/wire-schema.md`](docs/wire-schema.md).
+`install_id` lives in `~/.agentlens/config.json` (`src/serviceConfig.ts` `ensureInstallId`) and
+is **not** in the payload — the service derives identity from the bearer token.
 
 ### Surfaces
 
