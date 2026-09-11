@@ -27,8 +27,8 @@ import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx } from '../src/serviceConfig'
-import { maybeEnqueueSession } from '../src/team/enqueueSession'
-import { startForwardScheduler, drainForwardQueueSoon } from '../src/forward/scheduler'
+import { maybeEnqueueSession } from '../src/cloud/team/enqueueSession'
+import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forward/scheduler'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
 
 // `agentlens service install` persists its port/host/data-dir choices to
@@ -1616,7 +1616,7 @@ const uiServer = http.createServer((req, res) => {
   // Outcomes (AL 07) — free, local, no network. Computed from git history + session records.
   if (req.method === 'GET' && url === '/api/outcomes') {
     void (async () => {
-      const { buildLocalTurnoverReport } = require('../src/turnover/localReport') as typeof import('../src/turnover/localReport')
+      const { buildLocalTurnoverReport } = require('../src/cloud/turnover/localReport') as typeof import('../src/cloud/turnover/localReport')
       try {
         const report = await buildLocalTurnoverReport(buildSessionSummary()?.sessions ?? [])
         res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -1636,8 +1636,8 @@ const uiServer = http.createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', async () => {
-      const { handleTeamMessage } = require('../src/team/panelController') as typeof import('../src/team/panelController')
-      const { buildPayloadPreviewText } = require('../src/team/payloadPreview') as typeof import('../src/team/payloadPreview')
+      const { handleTeamMessage } = require('../src/cloud/team/panelController') as typeof import('../src/cloud/team/panelController')
+      const { buildPayloadPreviewText } = require('../src/cloud/team/payloadPreview') as typeof import('../src/cloud/team/payloadPreview')
       const outbox: Record<string, unknown>[] = []
       const msg = req.method === 'GET'
         ? { type: 'getTeamStatus' }

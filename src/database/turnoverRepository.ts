@@ -4,7 +4,7 @@
  * rate are stored.
  */
 
-import type { TurnoverReport } from '../turnover'
+import type { TurnoverReport } from '../cloud/turnover'
 
 interface WriteableDb {
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>

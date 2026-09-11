@@ -33,15 +33,15 @@ repository a skeptical developer already trusts.
 ```mermaid
 graph TB
     subgraph Machine["Developer machine — this repo"]
-        PANEL["Team panel (webview)<br/>media/src/panels/TeamPanel.tsx"]
+        PANEL["Team panel (webview)<br/>media/src/cloud/panels/TeamPanel.tsx"]
         CLI["CLI<br/>agentlens team link / status / leave"]
-        LINK["src/team/link.ts<br/>PKCE + device flow"]
-        CRED["src/team/credentials.ts<br/>~/.agentlens/team.json (0600)"]
-        ENQ["src/team/enqueueSession.ts<br/>session close -> rollup"]
-        SCHEMA["src/forward/schema.ts + buildSessionRollup.ts<br/>hash everything, no free text"]
-        QUEUE["src/forward/queue.ts<br/>~/.agentlens/forward-queue.jsonl"]
-        SCHED["src/forward/scheduler.ts<br/>timer, only while linked"]
-        SEND["src/forward/sender.ts<br/>drainQueue — backoff, batch, dedupe"]
+        LINK["src/cloud/team/link.ts<br/>PKCE + device flow"]
+        CRED["src/cloud/team/credentials.ts<br/>~/.agentlens/team.json (0600)"]
+        ENQ["src/cloud/team/enqueueSession.ts<br/>session close -> rollup"]
+        SCHEMA["src/cloud/forward/schema.ts + buildSessionRollup.ts<br/>hash everything, no free text"]
+        QUEUE["src/cloud/forward/queue.ts<br/>~/.agentlens/forward-queue.jsonl"]
+        SCHED["src/cloud/forward/scheduler.ts<br/>timer, only while linked"]
+        SEND["src/cloud/forward/sender.ts<br/>drainQueue — backoff, batch, dedupe"]
         LOCAL[("Local SQLite<br/>sessions, spans, attribution, turnover")]
     end
 
@@ -68,12 +68,12 @@ graph TB
 **Reading the diagram:** everything left of the repo boundary ships in this npm package / VSIX
 and is inspectable by anyone. Nothing crosses to the right unless `credentials.ts` has a saved
 credential — `ENQ`, `SCHED`, and `SEND` all check that first and return before touching disk or
-network otherwise. `--explain-payload` (`standalone/explainPayload.ts`) prints exactly what
+network otherwise. `--explain-payload` (`standalone/cloud/explainPayload.ts`) prints exactly what
 `SCHEMA` would build for a real session, so the claim above is checkable without a team at all.
 
 ## The free tier: fully local, no such diagram needed for privacy — but here's the pipeline
 
-`src/attribution/` and `src/turnover/` have no network path in their dependency graph at all —
+`src/cloud/attribution/` and `src/cloud/turnover/` have no network path in their dependency graph at all —
 not gated, not disabled, structurally absent. This is the engine behind the **Outcomes** tab and
 is free forever.
 
@@ -89,7 +89,7 @@ graph LR
     SURV --> COMP["turnover/index.ts<br/>computeTurnover()"]
     COMP --> TDB[("turnoverRepository<br/>one row per repo")]
     TDB --> REPORT["turnover/localReport.ts"]
-    REPORT --> TAB["Outcomes tab<br/>media/src/tabs/Outcomes.tsx"]
+    REPORT --> TAB["Outcomes tab<br/>media/src/cloud/tabs/Outcomes.tsx"]
 ```
 
 `computeTurnover()` returns `TurnoverResult | InsufficientData` — never a bare percentage without
@@ -104,12 +104,12 @@ the denominator rather than guessed at.
 | Surface | Entry point | Notes |
 | --- | --- | --- |
 | VS Code command palette | `AgentLens: Link This Machine to a Team` / `… Team Link Status` / `… Leave Team` | `registerTeamCommands` in `src/extension.ts` |
-| VS Code webview | Team panel, a slide-in beside Settings | `media/src/panels/TeamPanel.tsx` + `src/team/panelController.ts` |
-| Dashboard tab (free) | **Outcomes** | `media/src/tabs/Outcomes.tsx`; opens automatically on first measurable cohort |
-| CLI | `agentlens team <link\|status\|leave> [--device]` | `standalone/team-cli.ts` |
-| CLI | `agentlens --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/explainPayload.ts` |
-| CLI | `agentlens advise --apply <id>` | `standalone/adviseCli.ts` — regenerates instruction text with real paths, appends, captures a baseline |
-| CLI | `agentlens cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo |
+| VS Code webview | Team panel, a slide-in beside Settings | `media/src/cloud/panels/TeamPanel.tsx` + `src/cloud/team/panelController.ts` |
+| Dashboard tab (free) | **Outcomes** | `media/src/cloud/tabs/Outcomes.tsx`; opens automatically on first measurable cohort |
+| CLI | `agentlens team <link\|status\|leave> [--device]` | `standalone/cloud/team-cli.ts` |
+| CLI | `agentlens --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` |
+| CLI | `agentlens advise --apply <id>` | `standalone/cloud/adviseCli.ts` — regenerates instruction text with real paths, appends, captures a baseline |
+| CLI | `agentlens cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/cloud/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo |
 | Standalone HTTP | `GET/POST /api/team` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview |
 | Deep links | `agentlens://advise?id=…`, `agentlens://cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source |
 
@@ -117,15 +117,15 @@ the denominator rather than guessed at.
 
 1. A session closes; `SessionStore` writes the `SessionSummaryCard` to local SQLite — unchanged
    from the free path.
-2. `maybeEnqueueSession` (`src/team/enqueueSession.ts`) checks `loadCredentials()`. Unlinked →
+2. `maybeEnqueueSession` (`src/cloud/team/enqueueSession.ts`) checks `loadCredentials()`. Unlinked →
    returns immediately, nothing else in this list runs.
-3. Linked → `buildPayloadForCard` (`src/team/payloadPreview.ts`) turns the card into a
+3. Linked → `buildPayloadForCard` (`src/cloud/team/payloadPreview.ts`) turns the card into a
    `RollupPayload` via `buildSessionRollup.ts`: every field is a hash, enum, count, or timestamp;
    `repoKey.ts` derives the repository identifier from the local clone's root commit (HKDF/HMAC),
    never the repo name or path.
 4. `ForwardQueue.enqueue()` appends it to `~/.agentlens/forward-queue.jsonl` (0600) if the
    idempotency key isn't already queued.
-5. On its own timer — started only while linked — `drainQueue()` (`src/forward/sender.ts`) sends
+5. On its own timer — started only while linked — `drainQueue()` (`src/cloud/forward/sender.ts`) sends
    eligible items in batches, refreshing the access token on a 401, backing off with jitter on
    failure, dropping (never retrying) a 400 the schema rejects, and stopping entirely with one
    notice if membership was revoked (403).
@@ -144,5 +144,5 @@ the server-side token revoke is even attempted, so leaving while offline still w
   screen.
 - `src/test/team/pricingBoundary.test.ts` pins `docs/pricing-boundary.md` against the shipped
   copy so the pricing page and the repo can't drift apart.
-- `standalone/explainPayload.ts` + its test assert the printed `--explain-payload` JSON equals
+- `standalone/cloud/explainPayload.ts` + its test assert the printed `--explain-payload` JSON equals
   what actually gets queued — the transparency claim is enforced, not just documented.

@@ -6,7 +6,7 @@ request against the identical document.
 
 - **Machine-readable:** [`schema/rollup.v1.json`](../schema/rollup.v1.json) — JSON Schema
   (draft-07), committed to this repository and shipped in the npm package and the VSIX.
-- **TypeScript form:** [`src/forward/schema.ts`](../src/forward/schema.ts) — the same contract as
+- **TypeScript form:** [`src/cloud/forward/schema.ts`](../src/cloud/forward/schema.ts) — the same contract as
   hand-written types, with the enum mappings the builder uses.
 - **Published copy:** the service serves the byte-identical file at
   `https://app.agentlens.dev/api/ingest/schema`.
@@ -33,7 +33,7 @@ To verify for yourself:
 `install_id` and `member_id` are **not** in the request body. The service derives them from the
 bearer token, so a client cannot claim to be another member. The repository key is never
 transmitted, logged, or written to disk — it is derived on demand from your own clone
-([`src/forward/repoKey.ts`](../src/forward/repoKey.ts)) and held only for the duration of a
+([`src/cloud/forward/repoKey.ts`](../src/cloud/forward/repoKey.ts)) and held only for the duration of a
 build.
 
 Grounding: `alsaas/docs/decisions/0003-what-we-can-and-cannot-see.md`.

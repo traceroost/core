@@ -27,8 +27,8 @@ import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl } from './tabs/Settings'
-import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus } from './panels/TeamPanel'
-import { Outcomes, outcomesReport, outcomesLoading } from './tabs/Outcomes'
+import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus } from './cloud/panels/TeamPanel'
+import { Outcomes, outcomesReport, outcomesLoading } from './cloud/tabs/Outcomes'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it

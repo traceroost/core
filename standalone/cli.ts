@@ -15,21 +15,21 @@ async function main() {
     return
   }
   if (args[0] === 'team') {
-    const { runTeamCli } = await import('./team-cli.js')
+    const { runTeamCli } = await import('./cloud/team-cli.js')
     process.exitCode = await runTeamCli(args.slice(1))
     return
   }
   if (args[0] === 'advise' || args[0] === 'cluster') {
-    const { runAdviseCli } = await import('./adviseCli.js')
+    const { runAdviseCli } = await import('./cloud/adviseCli.js')
     process.exitCode = await runAdviseCli(args[0] === 'cluster' ? args : args.slice(1))
     return
   }
   if (args[0] === 'cohort') {
-    const { runCohortCli } = await import('./cohortCli.js')
+    const { runCohortCli } = await import('./cloud/cohortCli.js')
     process.exitCode = await runCohortCli(args.slice(1))
     return
   }
-  const { parseExplainFlags, runExplainPayload } = await import('./explainPayload.js')
+  const { parseExplainFlags, runExplainPayload } = await import('./cloud/explainPayload.js')
   const explain = parseExplainFlags(args)
   if (explain) {
     process.exitCode = await runExplainPayload(explain)

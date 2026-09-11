@@ -9,11 +9,11 @@ import { serializeExport, exportFileExtension, type ExportFormat } from './expor
 import { classifySessionOutcome, type GitOutcome } from './gitOutcome'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
-import { handleTeamMessage } from './team/panelController'
-import { buildPayloadPreviewText } from './team/payloadPreview'
-import { buildLocalTurnoverReport } from './turnover/localReport'
-import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './team/instructionTelemetry'
-import { drainForwardQueueSoon } from './forward/scheduler'
+import { handleTeamMessage } from './cloud/team/panelController'
+import { buildPayloadPreviewText } from './cloud/team/payloadPreview'
+import { buildLocalTurnoverReport } from './cloud/turnover/localReport'
+import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/team/instructionTelemetry'
+import { drainForwardQueueSoon } from './cloud/forward/scheduler'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {

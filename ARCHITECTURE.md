@@ -1051,7 +1051,7 @@ worth knowing about since it's the one part of the codebase `check-types` doesn'
 
 ## 15. AgentLens Pro — team link
 
-Everything in `src/team/` is the **client half of AgentLens Pro** — an optional layer that lets a
+Everything in `src/cloud/team/` is the **client half of AgentLens Pro** — an optional layer that lets a
 lead see cross-developer aggregates. It is built against two rules:
 
 1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
@@ -1066,23 +1066,23 @@ lead see cross-developer aggregates. It is built against two rules:
 
 | Module | Responsibility |
 |---|---|
-| `src/team/config.ts` | The one list of every URL the client can contact; `TeamCredentials` shape |
-| `src/team/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
-| `src/team/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
-| `src/team/credentials.ts` | `~/.agentlens/team.json`, mode 0600, keychain-ready via `CredentialStore` |
-| `src/team/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
-| `src/team/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
-| `src/team/status.ts` | `getTeamStatus()` — local-only status for the panel, dot and CLI |
-| `src/team/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
-| `src/team/panelController.ts` | Transport-agnostic handler for `team*` webview messages |
-| `src/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
-| `src/forward/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
-| `src/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
-| `src/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
-| `src/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
-| `src/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders (AL 08) — prose fields structurally unreachable |
-| `src/team/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
-| `src/team/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.agentlens/instruction-ledger.json`) |
+| `src/cloud/team/config.ts` | The one list of every URL the client can contact; `TeamCredentials` shape |
+| `src/cloud/team/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
+| `src/cloud/team/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
+| `src/cloud/team/credentials.ts` | `~/.agentlens/team.json`, mode 0600, keychain-ready via `CredentialStore` |
+| `src/cloud/team/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
+| `src/cloud/team/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
+| `src/cloud/team/status.ts` | `getTeamStatus()` — local-only status for the panel, dot and CLI |
+| `src/cloud/team/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
+| `src/cloud/team/panelController.ts` | Transport-agnostic handler for `team*` webview messages |
+| `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
+| `src/cloud/forward/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
+| `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
+| `src/cloud/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
+| `src/cloud/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
+| `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders (AL 08) — prose fields structurally unreachable |
+| `src/cloud/team/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
+| `src/cloud/team/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.agentlens/instruction-ledger.json`) |
 
 **The split that makes AL 08 genuinely Pro:** the cloud finds the pattern (some file is read in
 62% of sessions by four of six developers), the machine writes the text (which file, and the
@@ -1092,19 +1092,19 @@ install can reach. The local Advisor is free and unchanged. `suggestedText` / `e
 `title` never leave the machine — only `suggestion_id` (hashed), the enums, and the numeric
 baseline. Apply loop: `agentlens advise --apply <id>` regenerates with real paths, appends,
 captures a baseline; `agentlens://advise?id=…` is the editor deep link.
-| `src/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard` |
-| `src/team/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
-| `src/forward/queue.ts` | `~/.agentlens/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600 |
-| `src/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
-| `src/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave |
+| `src/cloud/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard` |
+| `src/cloud/team/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
+| `src/cloud/forward/queue.ts` | `~/.agentlens/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600 |
+| `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
+| `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
 `agentlens --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
-(`standalone/explainPayload.ts`) print the exact bytes for a real session, stable-key-ordered,
+(`standalone/cloud/explainPayload.ts`) print the exact bytes for a real session, stable-key-ordered,
 on a free install with no team. A test asserts the printed JSON equals the queued JSON (AL 04).
 
 The wire contract (AL 02) is owned **here**, in the client the sceptic already trusts, and the
-service validates against the identical document. `src/forward/` is a closed island: every field
+service validates against the identical document. `src/cloud/forward/` is a closed island: every field
 is a number, an enum, a hash or a timestamp, and a CI test walks `schema/rollup.v1.json` to fail
 the build if any string is left unconstrained. See [`docs/wire-schema.md`](docs/wire-schema.md).
 `install_id` lives in `~/.agentlens/config.json` (`src/serviceConfig.ts` `ensureInstallId`) and
@@ -1112,11 +1112,11 @@ is **not** in the payload — the service derives identity from the bearer token
 
 ### Surfaces
 
-- **Team panel** (`media/src/panels/TeamPanel.tsx`) — a slide-in beside Settings, opened from a
+- **Team panel** (`media/src/cloud/panels/TeamPanel.tsx`) — a slide-in beside Settings, opened from a
   new tab-bar icon carrying a state dot (grey unlinked / green reporting / amber queued or
   degraded). The unlinked state is what almost every install shows forever; it states plainly
   that nothing is sent and offers `Show the exact payload` *before* linking.
-- **CLI** — `agentlens team <link|status|leave> [--device]` (`standalone/team-cli.ts`).
+- **CLI** — `agentlens team <link|status|leave> [--device]` (`standalone/cloud/team-cli.ts`).
 - **Command palette** — `AgentLens: Link This Machine to a Team`, `… Team Link Status`,
   `… Leave Team`.
 - **Standalone server** — `GET/POST /api/team`, dispatched through the same `panelController`.
@@ -1132,29 +1132,29 @@ pinned by a test.
 
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
 machine that has the repo. `agentlens cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
-and `agentlens://cohort?repo=<hash>&merged=…&window=…`. `src/team/resolveRepoHash.ts` re-derives
+and `agentlens://cohort?repo=<hash>&merged=…&window=…`. `src/cloud/team/resolveRepoHash.ts` re-derives
 repo hashes for local clones only — it is not an oracle, and a deep link for an unknown repo
 makes no request.
 
 ### The free outcome metric (AL 05–07)
 
-`src/attribution/` and `src/turnover/` are **free forever, local, single-developer**. They have
+`src/cloud/attribution/` and `src/cloud/turnover/` are **free forever, local, single-developer**. They have
 no transport — the engines have no network path at all — and nothing they produce is gated.
 
 | Module | Responsibility |
 |---|---|
-| `src/attribution/commitScan.ts` | `git log --numstat` for a repo/window; detects an agent trailer, then discards the message |
-| `src/attribution/sessionJoin.ts` | Candidate-session lookup (workspace in repo, span ends ≤ commit within a 72h lookback) |
-| `src/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
-| `src/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
+| `src/cloud/attribution/commitScan.ts` | `git log --numstat` for a repo/window; detects an agent trailer, then discards the message |
+| `src/cloud/attribution/sessionJoin.ts` | Candidate-session lookup (workspace in repo, span ends ≤ commit within a 72h lookback) |
+| `src/cloud/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
+| `src/cloud/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
 | `src/database/attributionRepository.ts` | SQLite cache — a commit's attribution never changes once computed |
-| `src/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed` — a cohort is measured only once its window fully elapses |
-| `src/turnover/survival.ts` | One `git blame HEAD` per file, bucketed by originating commit; proportional surviving-AI-lines estimate |
-| `src/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
-| `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
+| `src/cloud/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed` — a cohort is measured only once its window fully elapses |
+| `src/cloud/turnover/survival.ts` | One `git blame HEAD` per file, bucketed by originating commit; proportional surviving-AI-lines estimate |
+| `src/cloud/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
+| `src/cloud/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
 | `src/database/turnoverRepository.ts` | One row per repo; recompute skipped when `HEAD` is unmoved |
-| `src/turnover/localReport.ts` | Per-repo report assembly for the free **Outcomes** tab |
-| `media/src/tabs/Outcomes.tsx` | The activation-event tab — `InsufficientData` panels are first-class; one Pro line, in the cohort footer only |
+| `src/cloud/turnover/localReport.ts` | Per-repo report assembly for the free **Outcomes** tab |
+| `media/src/cloud/tabs/Outcomes.tsx` | The activation-event tab — `InsufficientData` panels are first-class; one Pro line, in the cohort footer only |
 
 The **Outcomes** tab is free forever, without qualification — it is the free tier's activation
 event and therefore the distribution channel. First-run routing (`DashboardPanel`) opens on it
