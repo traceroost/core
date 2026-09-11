@@ -20,6 +20,9 @@ import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
 import { startMcpHttpServer } from './mcpServer'
 import { InstructionRepository } from './database/instructionRepository'
+import { linkInteractive, leave } from './team/link'
+import { getTeamStatus } from './team/status'
+import { SENT, NEVER_SENT } from './team/privacy'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -428,6 +431,8 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   )
 
+  registerTeamCommands(context)
+
   context.subscriptions.push(
     vscode.commands.registerCommand('agentLens.dumpSpanAttrs', () => {
       const spans = store!.getSpans()
@@ -586,6 +591,65 @@ export async function activate(context: vscode.ExtensionContext) {
   outputChannel.show(true)
 
   notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
+}
+
+// ── Team (AgentLens Pro) commands ────────────────────────────────────────────
+//
+// Every capability here is inert until a team is explicitly linked. Registering the commands
+// does nothing on its own — `getTeamStatus()` and `loadCredentials()` touch only local disk.
+
+function registerTeamCommands(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentLens.teamLink', async () => {
+      if (getTeamStatus().linked) {
+        vscode.window.showInformationMessage('AgentLens: this machine is already linked. Run "AgentLens: Leave Team" first to re-link.')
+        return
+      }
+      const proceed = await vscode.window.showInformationMessage(
+        'Link this machine to an AgentLens Pro team?\n\nSent: ' + SENT.join('; ') + '.\n\nNever sent: ' + NEVER_SENT.join('; ') + '.',
+        { modal: true },
+        'Open browser to link',
+      )
+      if (proceed !== 'Open browser to link') return
+      try {
+        const result = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'AgentLens: waiting for browser approval…' },
+          () => linkInteractive({ openUrl: (url: string) => { void vscode.env.openExternal(vscode.Uri.parse(url)) } }),
+        )
+        vscode.window.showInformationMessage(`AgentLens: linked to ${result.orgName} as ${result.role}.`)
+        DashboardPanel.currentPanel?.update()
+      } catch (err) {
+        vscode.window.showErrorMessage(`AgentLens: link failed — ${(err as Error).message}. Nothing was changed.`)
+      }
+    }),
+    vscode.commands.registerCommand('agentLens.teamStatus', () => {
+      const s = getTeamStatus()
+      vscode.window.showInformationMessage(
+        s.linked
+          ? `AgentLens Pro: linked to ${s.orgName} as ${s.role}. Queue depth ${s.queueDepth ?? 0}, last rollup ${s.lastRollupAt ?? 'none yet'}.`
+          : 'AgentLens Pro: not linked. AgentLens is working locally and sending nothing anywhere.',
+      )
+    }),
+    vscode.commands.registerCommand('agentLens.teamLeave', async () => {
+      if (!getTeamStatus().linked) {
+        vscode.window.showInformationMessage('AgentLens: this machine is not linked.')
+        return
+      }
+      const confirm = await vscode.window.showWarningMessage(
+        'Leave the AgentLens Pro team? The local credential is deleted and this machine stops forwarding immediately.',
+        { modal: true },
+        'Leave team',
+      )
+      if (confirm !== 'Leave team') return
+      const res = await leave()
+      vscode.window.showInformationMessage(
+        res.serverRevoked
+          ? 'AgentLens: unlinked. This machine has stopped forwarding.'
+          : 'AgentLens: unlinked locally. Could not reach the server to revoke the token — it will be revoked on next contact, or by a lead from the roster.',
+      )
+      DashboardPanel.currentPanel?.update()
+    }),
+  )
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

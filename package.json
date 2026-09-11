@@ -82,6 +82,18 @@
       {
         "command": "agentLens.showStorageStats",
         "title": "AgentLens: Show Storage Stats"
+      },
+      {
+        "command": "agentLens.teamLink",
+        "title": "AgentLens: Link This Machine to a Team (Pro)"
+      },
+      {
+        "command": "agentLens.teamStatus",
+        "title": "AgentLens: Team Link Status (Pro)"
+      },
+      {
+        "command": "agentLens.teamLeave",
+        "title": "AgentLens: Leave Team (Pro)"
       }
     ],
     "menus": {
