@@ -1109,6 +1109,24 @@ is **not** in the payload — the service derives identity from the bearer token
   `… Leave Team`.
 - **Standalone server** — `GET/POST /api/team`, dispatched through the same `panelController`.
 
+### The free outcome metric (AL 05–07)
+
+`src/attribution/` and `src/turnover/` are **free forever, local, single-developer**. They have
+no transport — the engines have no network path at all — and nothing they produce is gated.
+
+| Module | Responsibility |
+|---|---|
+| `src/attribution/commitScan.ts` | `git log --numstat` for a repo/window; detects an agent trailer, then discards the message |
+| `src/attribution/sessionJoin.ts` | Candidate-session lookup (workspace in repo, span ends ≤ commit within a 72h lookback) |
+| `src/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
+| `src/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
+| `src/database/attributionRepository.ts` | SQLite cache — a commit's attribution never changes once computed |
+
+Confidence is the honest part: **certain** (trailer, or a session lists the file and the commit
+lands in that session's own span), **probable** (session lists the file, commit within the
+lookback window), **unknown** (no record — most commits on a real repo). Commit messages and
+blame output stay in memory: neither is ever written to the database or a log.
+
 ### Leaving
 
 `leave()` deletes the local credential and stops forwarding **before** it attempts the
