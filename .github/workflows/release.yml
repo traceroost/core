@@ -38,6 +38,23 @@ jobs:
       - name: Unit tests
         run: pnpm run test:unit
 
+      # package.json carries the npm identity (`traceroost`). The VS Code
+      # Marketplace identity lives in vsce-identity.json and is patched in here,
+      # for the VSIX build only — so the extension keeps publishing to the
+      # existing agentlens.agentlens-dashboard listing (installs update in place)
+      # while npm gets the new name. This checkout is discarded after the job.
+      - name: Set VS Code Marketplace identity
+        run: |
+          node -e '
+            const fs = require("fs");
+            const id = JSON.parse(fs.readFileSync("vsce-identity.json", "utf8"));
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            p.name = id.name;
+            p.publisher = id.publisher;
+            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
+            console.log(`vsce identity: ${id.publisher}.${id.name}`);
+          '
+
       - name: Install vsce
         run: pnpm add -g @vscode/vsce
 
@@ -56,6 +73,9 @@ jobs:
           files: '*.vsix'
           generate_release_notes: true
 
+  # Publishes the pre-built VSIX from the `package` job (which already stamped it
+  # with the vsce-identity.json marketplace id — agentlens.agentlens-dashboard).
+  # Existing installs update in place; there is one marketplace listing.
   publish-vsce:
     needs: package
     runs-on: ubuntu-latest
@@ -65,7 +85,8 @@ jobs:
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download VSIX
+        uses: actions/download-artifact@v4
         with:
           name: vsix-package
 
@@ -74,18 +95,16 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install vsce
-        run: npm install -g @vscode/vsce
-
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
         run: |
+          npm install -g @vscode/vsce
           set +e
-          vsce publish --packagePath *.vsix > /tmp/vsce_out.txt 2>&1
+          vsce publish --packagePath *.vsix > out.txt 2>&1
           EXIT=$?
           set -e
-          cat /tmp/vsce_out.txt
-          if [ $EXIT -ne 0 ] && grep -q "already exists" /tmp/vsce_out.txt; then
+          cat out.txt
+          if [ $EXIT -ne 0 ] && grep -q "already exists" out.txt; then
             echo "Version already published to VS Code Marketplace — skipping"
             exit 0
           fi
@@ -95,7 +114,16 @@ jobs:
         if: env.OVSX_PAT != ''
         run: |
           npm install -g ovsx
-          ovsx publish *.vsix
+          set +e
+          ovsx publish *.vsix > out.txt 2>&1
+          EXIT=$?
+          set -e
+          cat out.txt
+          if [ $EXIT -ne 0 ] && grep -qiE "already (exists|published)" out.txt; then
+            echo "Version already published to Open VSX — skipping"
+            exit 0
+          fi
+          exit $EXIT
 
   publish-npm:
     needs: package

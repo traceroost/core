@@ -57,7 +57,7 @@ function countTimeline(db: SqlDb): number {
 suite('runRetention', () => {
   test('deletes sessions older than cutoff, keeps newer ones', async () => {
     const db = await openDb()
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-ret-'))
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-ret-'))
     const storageUri = makeStorageUri(tmpDir)
     const writer = new DatabaseWriter(db, storageUri, () => {})
     const blobsDir = path.join(tmpDir, 'blobs')
@@ -82,7 +82,7 @@ suite('runRetention', () => {
 
   test('cascade: deleted sessions timeline_entries are gone', async () => {
     const db = await openDb()
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-ret2-'))
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-ret2-'))
     const storageUri = makeStorageUri(tmpDir)
     const writer = new DatabaseWriter(db, storageUri, () => {})
     const blobsDir = path.join(tmpDir, 'blobs')
@@ -105,7 +105,7 @@ suite('runRetention', () => {
 
   test('blob eviction deletes files with no corresponding span_id', async () => {
     const db = await openDb()
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-ret3-'))
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-ret3-'))
     const blobsDir = path.join(tmpDir, 'blobs')
     fs.mkdirSync(blobsDir, { recursive: true })
 
@@ -119,7 +119,7 @@ suite('runRetention', () => {
 
   test('blob eviction keeps files for existing span_ids', async () => {
     const db = await openDb()
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-ret4-'))
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-ret4-'))
     const storageUri = makeStorageUri(tmpDir)
     const blobsDir = path.join(tmpDir, 'blobs')
     fs.mkdirSync(blobsDir, { recursive: true })

@@ -19,3 +19,4 @@ pnpm-lock.yaml
 **/*.ts
 **/.vscode-test.*
 media/demo.gif
+vsce-identity.json

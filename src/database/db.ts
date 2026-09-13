@@ -15,15 +15,15 @@ export interface SqlJsStatic {
 }
 type InitSqlJs = (config?: { locateFile?: (file: string) => string }) => Promise<SqlJsStatic>
 
-const DB_FILENAME = 'agentlens.db'
+const DB_FILENAME = 'traceroost.db'
 const BLOBS_DIR = 'blobs'
 
 /**
- * Opens (or creates) the AgentLens SQLite database at storagePath/agentlens.db
+ * Opens (or creates) the TraceRoost SQLite database at storagePath/traceroost.db
  * and applies the schema. The extensionPath is needed to locate the sql.js
  * WASM binary, which is copied to dist/ during the build.
  */
-export async function openDatabase(storagePath: string, extensionPath: string): Promise<AgentLensDb> {
+export async function openDatabase(storagePath: string, extensionPath: string): Promise<TraceRoostDb> {
   // sql.js is loaded dynamically to keep it out of the main extension bundle.
   // Require by path so the packaged extension can resolve it from dist/.
   const initSqlJs = require(path.join(extensionPath, 'dist', 'sql-wasm.js')) as InitSqlJs
@@ -46,10 +46,10 @@ export async function openDatabase(storagePath: string, extensionPath: string): 
 
   ensureBlobsDir(storagePath)
 
-  return new AgentLensDb(db, SQL, dbPath, path.join(storagePath, BLOBS_DIR))
+  return new TraceRoostDb(db, SQL, dbPath, path.join(storagePath, BLOBS_DIR))
 }
 
-export class AgentLensDb {
+export class TraceRoostDb {
   constructor(
     private readonly db: SqlDatabase,
     readonly sqlFactory: SqlJsStatic,

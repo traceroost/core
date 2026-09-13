@@ -55,22 +55,22 @@ function summarizeTakeaways(insights: Insight[]): InsightTakeaways {
 // ── Why-this-matters tooltips (shown on ⓘ next to Recommendation label) ──────
 
 const HELP_WHY: Record<string, string> = {
-  'help-context-bloat':        'Every LLM turn receives the full conversation so far. Each extra token in context multiplies cost across every remaining turn — a 10K growth in one session can mean 50K+ extra tokens billed.',
-  'help-large-context':        'Instruction files are sent on every LLM call in every session. 10,000 extra tokens in CLAUDE.md = 10,000 extra tokens per call, forever, regardless of task size.',
-  'help-files-repeated':       'Each re-read appends the full file to context again. Re-reading a 500-line file 4 times wastes ~2,000 tokens on every subsequent call in that session.',
+  'help-context-bloat':        'Every LLM turn receives the full conversation so far. Each extra token in context multiplies cost across every remaining turn — a 10K growth in one trace can mean 50K+ extra tokens billed.',
+  'help-large-context':        'Instruction files are sent on every LLM call in every trace. 10,000 extra tokens in CLAUDE.md = 10,000 extra tokens per call, forever, regardless of task size.',
+  'help-files-repeated':       'Each re-read appends the full file to context again. Re-reading a 500-line file 4 times wastes ~2,000 tokens on every subsequent call in that trace.',
   'help-high-turns':           'Each additional LLM call costs tokens and time. Iterative discovery is ~10× more expensive than providing the same context upfront in the initial prompt.',
   'help-duplicate-searches':   'Repeated searches append identical results to context without progress. The growing context also makes the model more likely to repeat the search again.',
   'help-tool-failures':        'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
-  'help-large-results':        'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that session — not just the call that read it.',
+  'help-large-results':        'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
   'help-tool-overhead':        'Every LLM call includes all tool JSON schemas. 70+ tools = 8,000–15,000 overhead tokens per call that cannot be reduced by shortening your prompt.',
-  'help-cache-rate':           'Cached tokens cost roughly 10× less than fresh tokens. Going from 0% to 60% cache hit rate cuts session cost by 80–90% with no change to model behavior.',
-  'help-tool-deadlock':        'The agent is burning tokens repeating identical calls with zero progress. This loop runs until the context limit is hit — entire session cost with nothing accomplished.',
+  'help-cache-rate':           'Cached tokens cost roughly 10× less than fresh tokens. Going from 0% to 60% cache hit rate cuts trace cost by 80–90% with no change to model behavior.',
+  'help-tool-deadlock':        'The agent is burning tokens repeating identical calls with zero progress. This loop runs until the context limit is hit — entire trace cost with nothing accomplished.',
   'help-state-spiral':         'Conflicting constraints cause the agent to undo its own work. Each oscillation adds both the edit and the revert to context, accelerating cost with each cycle.',
   'help-hallucination':        'Each failed fix attempt adds the error to context, which anchors the model further from the real solution — the longer it runs, the harder it self-corrects.',
-  'help-runaway-steps':        'Scope creep compounds: each extra step the agent takes grows context for all future steps. 90-step sessions can cost 10–20× a well-scoped 5-step equivalent.',
+  'help-runaway-steps':        'Scope creep compounds: each extra step the agent takes grows context for all future steps. 90-step traces can cost 10–20× a well-scoped 5-step equivalent.',
   'help-context-accumulation': 'Input tokens are growing while output shrinks — cost per call is compounding with diminishing returns. Continuing will likely hit the context limit with nothing saved.',
   'help-chronic-tool-unreliability': 'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
-  'help-context-flooding-risk': 'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that session — not just the call that read it.',
+  'help-context-flooding-risk': 'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
   'help-malformed-tool-call':  'A rejected call means the round-trip to the model happened for nothing — no result, just an error to recover from. Unlike a runtime failure, this is unambiguously the agent\'s call not matching what the tool expected.',
 }
 
@@ -102,7 +102,7 @@ export function generateInsights(
         insights.push({
           severity: 'warning', category: 'efficiency', sessionIdx: idx,
           helpId: 'help-context-bloat',
-          title: '[Session ' + globalNum + '] Context grew ' + growthPct.toFixed(0) + '%',
+          title: '[Trace ' + globalNum + '] Context grew ' + growthPct.toFixed(0) + '%',
           detail: 'Input tokens grew from ' + first.toLocaleString() + ' to ' + last.toLocaleString()
             + ' (+' + growth.toLocaleString() + ' tokens) across ' + llmEntries.length + ' LLM calls'
             + (reqSnippet ? ' for "' + reqSnippet + '"' : '') + '.',
@@ -126,7 +126,7 @@ export function generateInsights(
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-files-repeated',
-        title: '[Session ' + globalNum + '] Files read multiple times',
+        title: '[Trace ' + globalNum + '] Files read multiple times',
         detail: repeats.map(f => f + ' (' + fileReads[f] + '×)').join(', ') + '.',
         action: repeats.length === 1
           ? 'The agent read ' + topFile + ' ' + fileReads[topFile] + ' times. '
@@ -144,10 +144,10 @@ export function generateInsights(
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-high-turns',
-        title: '[Session ' + globalNum + '] ' + sess.totalLlmCalls + ' LLM calls',
+        title: '[Trace ' + globalNum + '] ' + sess.totalLlmCalls + ' LLM calls',
         detail: '"' + reqSnippet + '" required ' + sess.totalLlmCalls + ' LLM calls and '
           + sess.totalToolCalls + ' tool calls' + (topTools ? ' (' + topTools + ')' : '') + '.',
-        action: 'For a ' + sess.totalLlmCalls + '-turn session, break the task into smaller pieces with '
+        action: 'For ' + sess.totalLlmCalls + '-turn trace, break the task into smaller pieces with '
           + 'explicit stopping conditions. Provide specific file paths and line numbers so the agent '
           + 'spends turns doing instead of exploring.',
       })
@@ -159,7 +159,7 @@ export function generateInsights(
       insights.push({
         severity: 'warning', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-large-context',
-        title: '[Session ' + globalNum + '] Starts with ' + (firstLlm.inputTokens ?? 0).toLocaleString() + ' input tokens',
+        title: '[Trace ' + globalNum + '] Starts with ' + (firstLlm.inputTokens ?? 0).toLocaleString() + ' input tokens',
         detail: 'The very first LLM call already has ' + (firstLlm.inputTokens ?? 0).toLocaleString()
           + ' tokens before any tool results are added.',
         action: 'Audit your instruction files — ' + (firstLlm.inputTokens ?? 0).toLocaleString()
@@ -184,7 +184,7 @@ export function generateInsights(
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-duplicate-searches',
-        title: '[Session ' + globalNum + '] Duplicate searches',
+        title: '[Trace ' + globalNum + '] Duplicate searches',
         detail: dupes.length + ' search pattern(s) repeated: ' + examples.join(', ') + '.',
         action: 'These repeated searches suggest the agent was uncertain where to look. '
           + 'Include directory names or specific file paths in your prompt — e.g. '
@@ -213,7 +213,7 @@ export function generateInsights(
         severity: ('loop-' + sig.severity) as Insight['severity'],
         category: 'loop', sessionIdx: idx,
         helpId: loopHelpIds[sig.type],
-        title: '[Session ' + globalNum + '] ' + sig.patternName + ' — ' + sig.evidence,
+        title: '[Trace ' + globalNum + '] ' + sig.patternName + ' — ' + sig.evidence,
         detail: examplesText.trim(),
         action: sig.action ?? sig.evidence,
         _loopType: sig.type,
@@ -245,9 +245,9 @@ export function generateInsights(
       insights.push({
         severity: 'warning', category: 'efficiency',
         helpId: 'help-files-repeated',
-        title: troubleFiles.length + ' file(s) appear in most sessions with errors or loops',
+        title: troubleFiles.length + ' file(s) appear in most traces with errors or loops',
         detail: troubleFiles.map(([f, v]) =>
-          (f.split('/').pop() || f) + ': ' + v.problems + '/' + v.total + ' sessions had issues'
+          (f.split('/').pop() || f) + ': ' + v.problems + '/' + v.total + ' traces had issues'
         ).join('\n'),
         action: 'These files appear frequently alongside agent difficulties: ' + names.join(', ') + '. '
           + 'They may have conflicting constraints, be poorly documented for the agent, or be referenced '
@@ -270,7 +270,7 @@ export function generateInsights(
           helpId: 'help-cache-rate',
           title: 'Cache hit rate declining — ' + (avgOlder * 100).toFixed(0) + '% → ' + (avgRecent * 100).toFixed(0) + '%',
           detail: 'Average cache hit rate dropped ' + (drop * 100).toFixed(0)
-            + '% over your last ' + recentN + ' sessions.',
+            + '% over your last ' + recentN + ' traces.',
           action: 'Cache hit rate drops when the stable prefix of your prompts changes. '
             + 'Recent changes to your instruction files (CLAUDE.md, .agent.md, system prompt) '
             + 'may be invalidating cached context. Keep static content at the top of prompts '
@@ -317,8 +317,8 @@ export function generateInsights(
 export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgnored: boolean; sessions: SessionSummaryCard[] }) {
   const icon = ins.severity.startsWith('loop') ? '↺' : ins.severity === 'warning' ? '⚠' : 'ℹ'
   const session = ins.sessionIdx !== undefined ? sessions[ins.sessionIdx] : undefined
-  const titleSessionMatch = ins.title.match(/^\[Session\s+\d+\]\s*(.*)$/)
-  const insightTitle = titleSessionMatch ? titleSessionMatch[1] : ins.title
+  const titleTraceMatch = ins.title.match(/^\[Trace\s+\d+\]\s*(.*)$/)
+  const insightTitle = titleTraceMatch ? titleTraceMatch[1] : ins.title
   const sessionAgentColor = session ? getAgentColor(session.source) : ''
   const sessionTimestamp = session ? formatSessionTime(session) : ''
   const sessionPrompt = session?.userRequest || ''
@@ -326,7 +326,7 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
 
   function buildAiPrompt(): string {
     const lines: string[] = [ins.title, '']
-    if (session?.userRequest && session.userRequest !== '[session in progress]') {
+    if (session?.userRequest && session.userRequest !== '[trace in progress]') {
       lines.push('Task: "' + session.userRequest + '"', '')
     }
     if (ins.detail) lines.push(ins.detail, '')
@@ -340,7 +340,7 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
       const errors = session.timeline.filter(e => e.isError && e.errorMessage).slice(0, 3)
       if (errors.length > 0)
         lines.push('Error messages:\n' + errors.map(e => '  - ' + (e.errorMessage ?? '').slice(0, 120)).join('\n'), '')
-      lines.push('Session stats: ' + session.totalLlmCalls + ' LLM calls, '
+      lines.push('Trace stats: ' + session.totalLlmCalls + ' LLM calls, '
         + session.totalToolCalls + ' tool calls, '
         + (session.cacheHitRate * 100).toFixed(0) + '% cache hit rate', '')
     }
@@ -350,23 +350,23 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
 
   function buildClipboardPrompt(): string {
     const lines: string[] = [
-      "I'm using an AI coding agent and the following issue was detected in my session.",
+      "I'm using an AI coding agent and the following issue was detected in my trace.",
       'Please explain what\'s happening and suggest specific improvements to my workflow or prompt.',
       '',
-      '--- Session context ---',
+      '--- Trace context ---',
     ]
     if (session) {
-      lines.push('Session ID: ' + session.sessionId)
+      lines.push('Trace ID: ' + session.sessionId)
       lines.push(sessionTimestamp + ' · ' + getAgentSourceLabel(session.source))
-      if (session.userRequest && session.userRequest !== '[session in progress]')
+      if (session.userRequest && session.userRequest !== '[trace in progress]')
         lines.push('Task: "' + session.userRequest + '"')
     } else {
-      lines.push('Across sessions')
+      lines.push('Across traces')
     }
     lines.push('', '--- Insight ---', insightTitle)
     if (ins.detail) lines.push('', ins.detail)
     if (session) {
-      lines.push('', '--- Session data ---')
+      lines.push('', '--- Trace data ---')
       const topTools = Object.entries(session.toolCounts ?? {})
         .sort((a, b) => b[1] - a[1]).slice(0, 5)
         .map(([t, n]) => t + ' ×' + n).join(', ')
@@ -448,7 +448,7 @@ export function Insights() {
   const hasAny = (sessionSummary.value?.sessions?.length ?? 0) > 0
 
   if (!allSessions.length) {
-    return <div id="insights-content"><div class="empty-state">{hasAny ? 'No sessions match the active filters.' : 'No sessions recorded yet.'}</div></div>
+    return <div id="insights-content"><div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div></div>
   }
 
   const displaySummary = buildDisplaySummary(allSessions)
@@ -526,19 +526,19 @@ export function Insights() {
       {active.length > 0 ? (
         <>
           <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
-            {active.length} insight{active.length !== 1 ? 's' : ''}, newest sessions first
+            {active.length} insight{active.length !== 1 ? 's' : ''}, newest traces first
           </div>
           {active.map(ins => <InsightCard key={ins.title} ins={ins} isIgnored={false} sessions={sessions} />)}
         </>
       ) : ignoredList.length > 0 ? (
         <div class="insight-card insight-success">
           <div class="insight-header"><span class="insight-icon">✓</span><span class="insight-title">All {scopeLabel} addressed or ignored</span></div>
-          <div class="insight-detail">New ones will appear as your session data changes.</div>
+          <div class="insight-detail">New ones will appear as your trace data changes.</div>
         </div>
       ) : (
         <div class="insight-card insight-success">
           <div class="insight-header"><span class="insight-icon">✓</span><span class="insight-title">No {scopeLabel} detected</span></div>
-          <div class="insight-detail">Token usage, cache rates, and session patterns look reasonable.</div>
+          <div class="insight-detail">Token usage, cache rates, and trace patterns look reasonable.</div>
         </div>
       )}
 

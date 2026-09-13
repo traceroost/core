@@ -26,3 +26,4 @@ TEST_DATA.md
 # OS / editor
 .DS_Store
 .vscode/
+vsce-identity.json

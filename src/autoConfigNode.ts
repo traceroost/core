@@ -72,9 +72,9 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
   }
 }
 
-const AGENTLENS_HOOK_MARKER = '.agentlens/pending-prompt.txt'
-const AGENTLENS_HOOK_COMMAND =
-  'f=$HOME/.agentlens/pending-prompt.txt; [ -f "$f" ] && cat "$f" && rm "$f"'
+const TRACEROOST_HOOK_MARKER = '.traceroost/pending-prompt.txt'
+const TRACEROOST_HOOK_COMMAND =
+  'f=$HOME/.traceroost/pending-prompt.txt; [ -f "$f" ] && cat "$f" && rm "$f"'
 
 export async function autoConfigureClaudeCode(port: number): Promise<ConfigResult> {
   const settingsPath = path.join(os.homedir(), '.claude', 'settings.json')
@@ -126,10 +126,10 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
     const hooks = (settings.hooks as Record<string, HookEntry[]> | undefined) ?? {}
     const stopHooks: HookEntry[] = hooks['Stop'] ?? []
     const hookAlreadyPresent = stopHooks.some(entry =>
-      entry.hooks?.some(h => h.command?.includes(AGENTLENS_HOOK_MARKER))
+      entry.hooks?.some(h => h.command?.includes(TRACEROOST_HOOK_MARKER))
     )
     if (!hookAlreadyPresent) {
-      stopHooks.push({ matcher: '', hooks: [{ type: 'command', command: AGENTLENS_HOOK_COMMAND }] })
+      stopHooks.push({ matcher: '', hooks: [{ type: 'command', command: TRACEROOST_HOOK_COMMAND }] })
       hooks['Stop'] = stopHooks
       settings.hooks = hooks
       changed = true

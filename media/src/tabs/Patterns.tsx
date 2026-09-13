@@ -45,7 +45,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
       cacheHitRate: s.cacheHitRate ?? 0,
     }))
 
-  if (points.length === 0) return <div class="empty-state" style="padding:20px">No sessions with turn data yet.</div>
+  if (points.length === 0) return <div class="empty-state" style="padding:20px">No traces with turn data yet.</div>
 
   const axisPoints = points
 
@@ -81,10 +81,10 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
   return (
     <div>
       <div style="margin-bottom:8px;padding:8px 10px;font-size:11px;color:var(--muted);line-height:1.6;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-        Each dot is one session. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more model calls. <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth — start there. <strong style="color:#81c784">Green</strong> = model reused cached context between calls (efficient). <strong style="color:#f44747">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
+        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more model calls. <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth — start there. <strong style="color:#81c784">Green</strong> = model reused cached context between calls (efficient). <strong style="color:#f44747">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
       </div>
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
-        <span style="font-size:10px;color:var(--muted)">{points.length} session{points.length !== 1 ? 's' : ''}{filter.trim() ? ' matching filter' : ''}</span>
+        <span style="font-size:10px;color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
         <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)">
           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#81c784" /> cache ≥60%
           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f6a623;margin-left:6px" /> 20–60%
@@ -160,7 +160,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
         })()}
       </div>
 
-      {sortedMatches.length > 0 && <div style="margin-top:8px;font-size:10px;color:var(--muted)">Top {sortedMatches.length} sessions</div>}
+      {sortedMatches.length > 0 && <div style="margin-top:8px;font-size:10px;color:var(--muted)">Top {sortedMatches.length} traces</div>}
       {sortedMatches.length > 0 && (() => {
         const thStyle = (col: MatchSort) =>
           `padding:4px 8px 4px 0;color:${sort.col === col ? 'var(--fg)' : 'var(--muted)'};font-weight:500;white-space:nowrap;cursor:pointer;user-select:none;font-size:11px`
@@ -185,7 +185,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
                     <td style="padding:4px 8px 4px 0;white-space:nowrap;font-size:10px;font-variant-numeric:tabular-nums">
                       <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${agentDotColor(p.s.source)};margin-right:5px;flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(p.s.source)} />
                       <span style="color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px"
-                        title="Open in Sessions tab"
+                        title="Open in Traces tab"
                         onClick={() => { activeTab.value = 'sessions'; focusedSessionId.value = p.s.sessionId }}
                       >{formatSessionTime(p.s)}</span>
                     </td>
@@ -241,7 +241,7 @@ function ClaudeMdTips({ sessions }: { sessions: SessionSummaryCard[] }) {
   for (const { file, pct } of hotFiles) {
     suggestions.push({
       key: file,
-      text: `"${basename(file)}" appears in ${pct}% of sessions — add a reference so the agent finds it without searching.`,
+      text: `"${basename(file)}" appears in ${pct}% of traces — add a reference so the agent finds it without searching.`,
       copy: `# ${basename(file)} (${file})`,
     })
   }
@@ -253,7 +253,7 @@ function ClaudeMdTips({ sessions }: { sessions: SessionSummaryCard[] }) {
       : type.replace(/_/g, ' ')
     suggestions.push({
       key: 'signals',
-      text: `"${label}" appeared in ${count} sessions — add scope guidance to prevent open-ended tasks.`,
+      text: `"${label}" appeared in ${count} traces — add scope guidance to prevent open-ended tasks.`,
       copy: `# Scope guidance\nKeep tasks narrowly scoped. Name specific files and functions. Define a stopping condition.`,
     })
   }
@@ -267,7 +267,7 @@ function ClaudeMdTips({ sessions }: { sessions: SessionSummaryCard[] }) {
   }
 
   if (suggestions.length === 0) {
-    return <div class="empty-state" style="padding:20px">No strong recommendations yet — patterns will emerge with more sessions.</div>
+    return <div class="empty-state" style="padding:20px">No strong recommendations yet — patterns will emerge with more traces.</div>
   }
 
   return (
@@ -299,7 +299,7 @@ function CostTrend({ sessions }: { sessions: SessionSummaryCard[] }) {
   const days = [...dayMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
 
   if (days.length < 2) return (
-    <div class="empty-state" style="padding:20px">Not enough data — trend appears after 2+ days of sessions.</div>
+    <div class="empty-state" style="padding:20px">Not enough data — trend appears after 2+ days of traces.</div>
   )
 
   const W = 560, H = 140, PAD = { top: 12, right: 16, bottom: 28, left: 52 }
@@ -371,12 +371,12 @@ function HotFiles({ sessions }: { sessions: SessionSummaryCard[] }) {
   if (rows.length === 0) return <div class="empty-state">No file access data yet.</div>
 
   const tip = mode === 'read'
-    ? <><strong style="color:var(--fg)">Read-heavy files</strong> are loaded into the agent's context window every session — the context window is the block of text sent to the model on each call, and every token in it costs money. Files read frequently mean the agent is spending tokens re-loading content it already needed last time. Documenting their purpose in your instructions file lets the agent orient itself without reading the whole file. Large files are especially costly — splitting them into smaller focused modules reduces how much fills the context window per session.</>
+    ? <><strong style="color:var(--fg)">Read-heavy files</strong> are loaded into the agent&apos;s context window every trace — the context window is the block of text sent to the model on each call, and every token in it costs money. Files read frequently mean the agent is spending tokens re-loading content it already needed last time. Documenting their purpose in your instructions file lets the agent orient itself without reading the whole file. Large files are especially costly — splitting them into smaller focused modules reduces how much fills the context window per trace.</>
     : mode === 'changed'
     ? <><strong style="color:var(--fg)">Frequently changed files</strong> are your highest-churn surface area — the agent reads them into its context window, edits them, then often re-reads them to verify. Add guidance in your instructions file: what conventions to follow, what tests to run after edits, and what parts should not be modified without a specific reason. Clear constraints reduce back-and-forth and prevent the agent from undoing its own prior work.</>
     : mode === 'written'
-    ? <><strong style="color:var(--fg)">Written files</strong> are those the agent replaced wholesale — using the Write or create_file tool rather than an incremental edit. High session counts here mean the agent repeatedly regenerated the same file from scratch. If a file appears in Written across many sessions, consider whether its structure is stable enough to edit incrementally, or whether its repeated re-creation signals unclear or conflicting instructions.</>
-    : <><strong style="color:var(--fg)">Hot files</strong> are loaded into the agent's context window most often across sessions — every read costs tokens. Files with high Read counts are candidates for documentation in your instructions file so the agent doesn't need to re-read them raw. Files with high Changed counts are high-churn; add constraints and testing requirements. Large files that appear here are strong candidates for splitting into smaller focused modules to keep context window usage lean.</>
+    ? <><strong style="color:var(--fg)">Written files</strong> are those the agent replaced wholesale — using the Write or create_file tool rather than an incremental edit. High trace counts here mean the agent repeatedly regenerated the same file from scratch. If a file appears in Written across many traces, consider whether its structure is stable enough to edit incrementally, or whether its repeated re-creation signals unclear or conflicting instructions.</>
+    : <><strong style="color:var(--fg)">Hot files</strong> are loaded into the agent&apos;s context window most often across traces — every read costs tokens. Files with high Read counts are candidates for documentation in your instructions file so the agent doesn't need to re-read them raw. Files with high Changed counts are high-churn; add constraints and testing requirements. Large files that appear here are strong candidates for splitting into smaller focused modules to keep context window usage lean.</>
 
   return (
     <div>
@@ -395,10 +395,10 @@ function HotFiles({ sessions }: { sessions: SessionSummaryCard[] }) {
           <thead>
             <tr style="border-bottom:1px solid var(--border)">
               <th style="text-align:left;padding:4px 8px 4px 0;color:var(--muted);font-weight:500">File</th>
-              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap">Sessions</th>
-              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap" title="Sessions where the agent read this file">Read</th>
-              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap" title="Sessions where the agent modified this file">Changed</th>
-              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap" title="Sessions where the agent fully wrote or created this file">Written</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap">Traces</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap" title="Traces where the agent read this file">Read</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap" title="Traces where the agent modified this file">Changed</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap" title="Traces where the agent fully wrote or created this file">Written</th>
               <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:500;white-space:nowrap">Last seen</th>
             </tr>
           </thead>
@@ -429,7 +429,7 @@ export function Patterns() {
   const sessions = filteredSessions.value
 
   if (sessions.length === 0) {
-    return <div class="empty-state">No sessions recorded yet — patterns will appear once you have session history.</div>
+    return <div class="empty-state">No traces recorded yet — patterns will appear once you have trace history.</div>
   }
 
   const divider = <div style="border-top:1px solid var(--border);margin:16px 0 8px" />

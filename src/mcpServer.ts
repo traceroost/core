@@ -1,5 +1,5 @@
 /**
- * AgentLens MCP server — exposes session history to Claude Code and other
+ * TraceRoost MCP server — exposes session history to Claude Code and other
  * MCP-compatible agents so they can query their own past work.
  *
  * Tools:
@@ -53,7 +53,7 @@ const TOOLS = [
   {
     name: 'get_recent_sessions',
     description:
-      'Returns recent AgentLens session summaries — cost, turns, model, prompt excerpt, ' +
+      'Returns recent TraceRoost session summaries — cost, turns, model, prompt excerpt, ' +
       'top tools used, loop signals. Use this to orient yourself to what has been worked ' +
       'on recently before starting a new task.',
     inputSchema: {
@@ -144,7 +144,7 @@ const TOOLS = [
       'Checks the four built-in stuck-agent automations (Context Compaction, Loop Breaker, ' +
       'Error Cascade Stop, Turn Limit Wrap-up) against the workspace\'s current in-progress, ' +
       'recently-active session(s), and returns any that are currently triggered with ready-to-use ' +
-      'correction prompt text. Evaluated against AgentLens\'s default thresholds, not any ' +
+      'correction prompt text. Evaluated against TraceRoost\'s default thresholds, not any ' +
       'per-user customization made in the Settings panel (that lives only in the dashboard\'s ' +
       'browser storage, not reachable from MCP). Read-only — safe to call repeatedly; a trigger ' +
       'is only returned once per session until its underlying condition changes, so calling this ' +
@@ -473,7 +473,7 @@ export interface McpServerOptions {
 
 export function createMcpServer(opts: McpServerOptions): Server {
   const server = new Server(
-    { name: 'agentlens', version: '1.0.0' },
+    { name: 'traceroost', version: '1.0.0' },
     { capabilities: { tools: {} } },
   )
 
@@ -535,7 +535,7 @@ export function handleMcpRequest(
   // Simple GET health check so opening the URL in a browser gives a clear response.
   if (req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ status: 'ok', server: 'agentlens-mcp', transport: 'streamable-http', endpoint: req.url }))
+    res.end(JSON.stringify({ status: 'ok', server: 'traceroost-mcp', transport: 'streamable-http', endpoint: req.url }))
     return
   }
 
@@ -588,7 +588,7 @@ export function startMcpHttpServer(
   })
   httpServer.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`[AgentLens] Port ${port} (MCP) already in use — stop the process using it or set MCP_PORT=<other> to use a different port.`)
+      console.error(`[TraceRoost] Port ${port} (MCP) already in use — stop the process using it or set MCP_PORT=<other> to use a different port.`)
       process.exit(1)
     }
     throw err

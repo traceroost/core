@@ -168,7 +168,7 @@ export function setVscode(api: VsCodeApi): void { vscode = api }
 
 export type ThemePreference = 'system' | 'dark' | 'light'
 
-const THEME_STORAGE_KEY = 'agentlens-theme'
+const THEME_STORAGE_KEY = 'traceroost-theme'
 
 function readStoredTheme(): ThemePreference {
   try {
@@ -202,15 +202,15 @@ export function setThemePreference(pref: ThemePreference): void {
 // ── Sessions table pagination (both VS Code and standalone — no built-in equivalent to defer to
 //    in either context, unlike theme) ──────────────────────────────────────────
 
-// Rendering every matching session as its own live component with no cap was the mechanism behind
+// Rendering every matching trace as its own live component with no cap was the mechanism behind
 // .staged-issues/session-list-scaling.md — fine at hundreds, unbounded past that, and the one time
-// range ("All") most likely to be selected had no cap at all. 50 is picked as a reasonable
-// default — enough to browse a full day or two of normal usage on one page without constant
-// clicking, small enough to keep the DOM light — not a measured number, same honesty standard as
-// every other threshold in this project; adjustable in Settings for anyone who wants it larger.
+// range ("All") most likely to be selected had no cap at all. 25 is picked as a reasonable
+// default — enough to browse recent activity on one page without constant clicking, small enough
+// to keep the DOM light — not a measured number, same honesty standard as every other threshold
+// in this project; adjustable in Settings for anyone who wants it larger.
 export const SESSIONS_PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500] as const
-const DEFAULT_SESSIONS_PAGE_SIZE = 50
-const SESSIONS_PAGE_SIZE_STORAGE_KEY = 'agentlens-sessions-page-size'
+const DEFAULT_SESSIONS_PAGE_SIZE = 25
+const SESSIONS_PAGE_SIZE_STORAGE_KEY = 'traceroost-sessions-page-size'
 
 function readStoredSessionsPageSize(): number {
   try {

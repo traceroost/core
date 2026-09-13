@@ -1,6 +1,6 @@
-# AgentLens Individual Contributor License Agreement
+# TraceRoost Individual Contributor License Agreement
 
-Thank you for your interest in contributing to AgentLens ("the Project"), maintained by Roger Reed
+Thank you for your interest in contributing to TraceRoost ("the Project"), maintained by Roger Reed
 ("the Maintainer"). This is a short agreement covering the rights you grant when you contribute.
 It does not change your rights to use your own contribution however you like elsewhere — it only
 grants the Maintainer additional rights to use it, alongside the rights everyone already gets under

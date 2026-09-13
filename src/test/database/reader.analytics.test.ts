@@ -25,7 +25,7 @@ async function openDb(): Promise<SqlDb> {
 }
 
 function makeStorageUri(): vscode.Uri {
-  return { scheme: 'file', path: '/tmp/agentlens-analytics-test', fsPath: '/tmp/agentlens-analytics-test' } as unknown as vscode.Uri
+  return { scheme: 'file', path: '/tmp/traceroost-analytics-test', fsPath: '/tmp/traceroost-analytics-test' } as unknown as vscode.Uri
 }
 
 function makeCard(overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCard {

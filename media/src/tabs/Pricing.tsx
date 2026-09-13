@@ -96,7 +96,7 @@ export function Pricing() {
   return (
     <div id="pricing-content" style="padding:16px;max-width:960px">
       <div style="font-size:11px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--warning,#ffb74d);border-radius:4px;padding:8px 10px;margin-bottom:20px;line-height:1.6;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-        <span><strong style="color:var(--fg)">Estimates only</strong> — this is the exact rate table AgentLens uses to estimate cost, nothing hidden or approximated for display. Actual billing may differ; see each vendor's own invoice.</span>
+        <span><strong style="color:var(--fg)">Estimates only</strong> — this is the exact rate table TraceRoost uses to estimate cost, nothing hidden or approximated for display. Actual billing may differ; see each vendor's own invoice.</span>
         <span style="white-space:nowrap">Rates last updated: {PRICING_LAST_UPDATED}</span>
       </div>
 

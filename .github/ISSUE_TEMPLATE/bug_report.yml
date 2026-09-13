@@ -71,7 +71,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: AgentLens version
+      label: TraceRoost version
       placeholder: "e.g. 0.1.0  (Help tab → About, or check package.json)"
     validations:
       required: false
@@ -85,8 +85,8 @@ body:
 
         **Export a redacted copy in one step:**
 
-        **VS Code extension:** Open the **Export** tab in the AgentLens dashboard and click **Export Redacted**.
-        Alternatively, run **`AgentLens: Export OTEL Data (Redacted)`** from the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`).
+        **VS Code extension:** Open the **Export** tab in the TraceRoost dashboard and click **Export Redacted**.
+        Alternatively, run **`TraceRoost: Export OTEL Data (Redacted)`** from the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`).
         One or more `export_redacted_*.json` files will be written to your workspace root.
 
         **Standalone server:** Open the **Export** tab in the dashboard at `http://localhost:3000` and click **Export Redacted** to download the file.
