@@ -1,7 +1,7 @@
-# Configure GitHub Copilot CLI to send OTLP telemetry to AgentLens.
+# Configure GitHub Copilot CLI to send OTLP telemetry to TraceRoost.
 # Sets user-level environment variables that persist across sessions.
 #
-# The GitHub Copilot VS Code extension is configured automatically by AgentLens;
+# The GitHub Copilot VS Code extension is configured automatically by TraceRoost;
 # this script only handles the Copilot CLI (the `copilot` command).
 #
 # Usage:
@@ -9,13 +9,13 @@
 #   .\scripts\configure-copilot.ps1 -Port 4319   # custom port
 
 param(
-    [int]$Port = $(if ($env:AGENTLENS_PORT) { [int]$env:AGENTLENS_PORT } else { 4318 })
+    [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 })
 )
 
 $ErrorActionPreference = "Stop"
 $Endpoint = "http://localhost:$Port"
 
-Write-Host "Configuring GitHub Copilot CLI for AgentLens at $Endpoint..."
+Write-Host "Configuring GitHub Copilot CLI for TraceRoost at $Endpoint..."
 
 $existing = [System.Environment]::GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", "User")
 

@@ -172,7 +172,7 @@ export function getDailyCostUsd(sessions: SessionSummaryCard[], dayKey: string):
 
 export function sessionDisplayName(session: SessionSummaryCard): string {
   const req = (session.userRequest ?? '').trim()
-  if (!req || req === '[session in progress]') return '[session in progress]'
+  if (!req || req === '[trace in progress]') return '[trace in progress]'
   return req.length > 70 ? req.slice(0, 70) + '...' : req
 }
 

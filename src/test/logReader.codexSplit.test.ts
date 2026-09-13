@@ -127,7 +127,7 @@ suite('splitCodexLinesOnPromptGaps', () => {
 suite('LogReader — Codex session splitting (integration)', () => {
   let tmpDir: string
 
-  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-codex-split-')) })
+  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-codex-split-')) })
   teardown(() => { fs.rmSync(tmpDir, { recursive: true, force: true }) })
 
   test('a normal short session produces exactly one result with the unsuffixed session id', () => {

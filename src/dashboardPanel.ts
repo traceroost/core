@@ -30,8 +30,8 @@ export class DashboardPanel {
       return
     }
     const panel = vscode.window.createWebviewPanel(
-      'agentLens.fullDashboard',
-      'AgentLens Dashboard',
+      'traceRoost.fullDashboard',
+      'TraceRoost Dashboard',
       vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -92,7 +92,7 @@ export class DashboardPanel {
         )
         this.panel.webview.postMessage({ type: 'blobContent', spanId: msg.spanId, field: msg.field, content })
       } else if (msg.type === 'askAI' && msg.prompt) {
-        const prompt = `The following efficiency issue was detected in my AI coding session. Help me fix it:\n\n${msg.prompt}`
+        const prompt = `The following efficiency issue was detected in my AI coding trace. Help me fix it:\n\n${msg.prompt}`
         openAIChat(prompt, msg.agent)
       } else if (msg.type === 'alert' && msg.label) {
         handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider)
@@ -122,22 +122,22 @@ export class DashboardPanel {
         const format = isExportFormat(msg.format) ? msg.format : 'json'
         void this.exportSessions(redact, ids, format)
       } else if (msg.type === 'openSidebar') {
-        vscode.commands.executeCommand('workbench.view.extension.agent-lens')
+        vscode.commands.executeCommand('workbench.view.extension.traceroost')
       } else if (msg.type === 'closeSidebar') {
         vscode.commands.executeCommand('workbench.action.closeSidebar')
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(
-          'Clear all AgentLens data? OTEL session data is deleted permanently. AgentLens log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
+          'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
           { modal: true },
           'Clear All'
         )
         if (answer === 'Clear All') {
-          vscode.commands.executeCommand('agentLens.clearSessions')
+          vscode.commands.executeCommand('traceRoost.clearSessions')
         }
       } else if (msg.type === 'setVsCodeConfig' && typeof msg.key === 'string') {
-        void vscode.workspace.getConfiguration('agentLens').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
+        void vscode.workspace.getConfiguration('traceRoost').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
       } else if (msg.type === 'reconfigureOtel') {
-        const port = vscode.workspace.getConfiguration('agentLens').get<number>('otlpPort', 4318)
+        const port = vscode.workspace.getConfiguration('traceRoost').get<number>('otlpPort', 4318)
         const [copilot, claudeCode, codex] = await Promise.all([
           autoConfigureCopilot(port),
           autoConfigureClaudeCode(port),
@@ -180,7 +180,7 @@ export class DashboardPanel {
           this.panel.webview.postMessage({ type: 'appliedSuggestions', records })
           this.panel.webview.postMessage({ type: 'instructionApplied', id })
         } catch (err) {
-          vscode.window.showErrorMessage(`AgentLens: Failed to apply suggestion — ${err}`)
+          vscode.window.showErrorMessage(`TraceRoost: Failed to apply suggestion — ${err}`)
         }
       } else if (msg.type === 'dismissInstructionSuggestion' && msg.id && msg.workspace && this.instructionRepo) {
         this.instructionRepo.recordDismissed(msg.id as string, msg.workspace as string)
@@ -232,7 +232,7 @@ export class DashboardPanel {
       ? this.repo.queryBurnRate(activeSession.sessionId)
       : null
 
-    const cfg = vscode.workspace.getConfiguration('agentLens')
+    const cfg = vscode.workspace.getConfiguration('traceRoost')
     this.panel.webview.postMessage({
       type: 'update',
       summary,
@@ -304,7 +304,7 @@ export class DashboardPanel {
     const all = this.repo.listSessions()
     const sessions = ids ? all.filter(s => ids.has(s.sessionId)) : all
     if (sessions.length === 0) {
-      vscode.window.showInformationMessage('AgentLens: No session data to export')
+      vscode.window.showInformationMessage('TraceRoost: No session data to export')
       return
     }
 
@@ -352,7 +352,7 @@ export class DashboardPanel {
     const fileUri = vscode.Uri.joinPath(baseUri, filename)
 
     await vscode.workspace.fs.writeFile(fileUri, Buffer.from(serializeExport(exportable, format)))
-    vscode.window.showInformationMessage(`AgentLens: Exported ${sessions.length} sessions to ${filename}`)
+    vscode.window.showInformationMessage(`TraceRoost: Exported ${sessions.length} sessions to ${filename}`)
     const doc = await vscode.workspace.openTextDocument(fileUri)
     vscode.window.showTextDocument(doc, { preview: false })
   }
@@ -374,7 +374,6 @@ export class DashboardPanel {
     const summary = this.repo.store_.getSummary()
     const cssUri = this.getWebviewUri('dashboard.css')
     const jsUri = this.getWebviewUri('dashboard.js')
-    const mascotUri = this.getWebviewUri('help-mascot.png')
     const nonce = getNonce()
 
     const sessions = this.repo.listSessions()
@@ -382,13 +381,12 @@ export class DashboardPanel {
       ? { sessions, backgroundSpans: [], efficiency: buildEfficiency(sessions) }
       : null
 
-    const mcpEnabled = vscode.workspace.getConfiguration('agentLens').get<boolean>('enableMcpServer', true)
-    const mcpPort    = vscode.workspace.getConfiguration('agentLens').get<number>('mcpPort', 4316)
+    const mcpEnabled = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableMcpServer', true)
+    const mcpPort    = vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
 
     const initialData = `<script nonce="${nonce}">
         window.__INITIAL_TOOL_CALLS__ = ${safeJsonForScript(summary.toolCalls)};
         window.__INITIAL_SESSION_SUMMARY__ = ${safeJsonForScript(sessionSummary)};
-        window.__MASCOT_URI__ = ${safeJsonForScript(mascotUri.toString())};
         window.__VERSION__ = ${safeJsonForScript(this.context.extension.packageJSON.version)};
         window.__MCP_ENABLED__ = ${mcpEnabled};
         window.__MCP_PORT__ = ${mcpPort};
@@ -500,7 +498,7 @@ async function handleAlertNotification(
       DashboardPanel.switchToTab('alerts')
     } else if (action === 'Copy Prompt') {
       vscode.env.clipboard.writeText(clipboardPrompt).then(() => {
-        vscode.window.showInformationMessage('AgentLens: Alert prompt copied — paste into your AI chat.')
+        vscode.window.showInformationMessage('TraceRoost: Alert prompt copied — paste into your AI chat.')
       })
     }
   })
@@ -514,16 +512,16 @@ async function openAIChat(prompt: string, agent?: string): Promise<void> {
   }
   await vscode.env.clipboard.writeText(prompt)
   const label = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'AI'
-  vscode.window.showInformationMessage(`AgentLens: Prompt copied — paste into your ${label} session.`)
+  vscode.window.showInformationMessage(`TraceRoost: Prompt copied — paste into your ${label} session.`)
 }
 
 async function writeAutomationPrompt(agent: string, label: string, fullPrompt: string): Promise<string | undefined> {
   const agentSlug = agent === 'claude_code' ? 'claude' : agent === 'codex' ? 'codex' : 'copilot'
   const agentName = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'Copilot'
-  const filename = `agentlens-prompts-${agentSlug}.md`
+  const filename = `traceroost-prompts-${agentSlug}.md`
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]
   if (!workspaceFolder) {
-    vscode.window.showWarningMessage('AgentLens: No workspace folder open — cannot write prompts file.')
+    vscode.window.showWarningMessage('TraceRoost: No workspace folder open — cannot write prompts file.')
     return undefined
   }
   const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filename)
@@ -541,7 +539,7 @@ async function writeAutomationPrompt(agent: string, label: string, fullPrompt: s
 
 async function handleAutomation(msg: { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; sessionId?: string; prompt: string }): Promise<void> {
   const agentLabel = msg.agent === 'claude_code' ? 'Claude' : msg.agent === 'copilot' ? 'Copilot' : msg.agent === 'codex' ? 'Codex' : 'AI'
-  const sessionLine = msg.sessionId ? `Session ID: ${msg.sessionId}\n` : ''
+  const sessionLine = msg.sessionId ? `Trace ID: ${msg.sessionId}\n` : ''
   const fullPrompt = `[${msg.label}]\n\n${sessionLine}${msg.prompt}`
   if (msg.writePromptsFile) {
     const filename = await writeAutomationPrompt(msg.agent, msg.label, fullPrompt)
@@ -559,7 +557,7 @@ async function handleAutomation(msg: { label: string; writePromptsFile: boolean;
   )
   if (action === 'Copy Prompt') {
     await vscode.env.clipboard.writeText(fullPrompt)
-    vscode.window.showInformationMessage(`AgentLens: Prompt copied — paste into your ${agentLabel} session.`)
+    vscode.window.showInformationMessage(`TraceRoost: Prompt copied — paste into your ${agentLabel} session.`)
   }
 }
 

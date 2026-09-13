@@ -1,4 +1,4 @@
-// Browser-side type definitions for AgentLens dashboard
+// Browser-side type definitions for TraceRoost dashboard
 // These mirror the backend types from src/types.ts and src/summarizers/summarizerTypes.ts
 
 export interface Span {
@@ -247,7 +247,6 @@ declare global {
     acquireVsCodeApi(): VsCodeApi
     __INITIAL_TOOL_CALLS__?: Record<string, number>
     __INITIAL_SESSION_SUMMARY__?: FullSummary | null
-    __MASCOT_URI__?: string
     __STANDALONE__?: boolean
     __VERSION__?: string
   }

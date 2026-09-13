@@ -84,7 +84,7 @@ function makeEdit(filePath: string, newString: string): TimelineEntry {
 }
 
 function tmpWorkspace(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-risk-test-'))
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-risk-test-'))
 }
 
 // ── detectFailedCheckSubmission ─────────────────────────────────────────────

@@ -15,7 +15,7 @@ export async function exportSpans(spans: Span[], baseUri: vscode.Uri, prefix = '
     const agent = traceAgent[span.traceId]
     if (!agent) { continue }
     const attrs: SpanAttribute[] = Array.isArray(span.attributes) ? span.attributes : []
-    const rawPath = attrs.find((a: SpanAttribute) => a.key === '_agentlens.collector_path')?.value?.stringValue || ''
+    const rawPath = attrs.find((a: SpanAttribute) => a.key === '_traceroost.collector_path')?.value?.stringValue || ''
     const endpoint = rawPath ? rawPath.replace(/^\//, '').replace(/\//g, '-') : 'main'
     const key = `${endpoint}__${agent}`
     if (!groups[key]) { groups[key] = [] }

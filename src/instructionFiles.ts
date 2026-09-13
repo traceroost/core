@@ -63,7 +63,7 @@ export function appendSuggestion(filePath: string, text: string, label: string):
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
   }
-  const marker = `<!-- AgentLens suggestion applied ${new Date().toISOString().slice(0, 10)} id:${label} -->`
+  const marker = `<!-- TraceRoost suggestion applied ${new Date().toISOString().slice(0, 10)} id:${label} -->`
   const block = `\n\n${marker}\n${text}\n`
   fs.appendFileSync(filePath, block, 'utf8')
 }
@@ -76,7 +76,7 @@ export function removeSuggestion(filePath: string, label: string): boolean {
 
   // Match the comment marker line + everything until (not including) the next marker or EOF
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const re = new RegExp(`\\n\\n<!-- AgentLens suggestion applied [\\d-]+ id:${escaped} -->\\n[\\s\\S]*?(?=\\n\\n<!-- AgentLens|$)`, 'g')
+  const re = new RegExp(`\\n\\n<!-- TraceRoost suggestion applied [\\d-]+ id:${escaped} -->\\n[\\s\\S]*?(?=\\n\\n<!-- TraceRoost|$)`, 'g')
   const updated = content.replace(re, '')
   if (updated === content) return false
   fs.writeFileSync(filePath, updated, 'utf8')

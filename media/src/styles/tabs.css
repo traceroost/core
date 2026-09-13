@@ -84,3 +84,16 @@
 }
 .tab-dropdown-item:hover { color: var(--fg); background: var(--hover); }
 .tab-dropdown-item.active { color: var(--accent); font-weight: 600; }
+
+/* Brand wordmark at the left of the tab bar. currentColor-driven (see Wordmark.tsx),
+   so it tracks the VS Code theme and the standalone light/dark toggle automatically. */
+.tr-wordmark {
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 6px;
+  margin-right: 2px;
+  border-right: 1px solid var(--border);
+  align-self: stretch;
+  flex-shrink: 0;
+}
+@media (max-width: 560px) { .tr-wordmark { display: none; } }

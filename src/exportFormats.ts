@@ -102,7 +102,7 @@ function mdEscape(text: string): string {
 
 export function toMarkdown(sessions: ExportableSession[]): string {
   const parts: string[] = [
-    `# AgentLens Session Export`,
+    `# TraceRoost Session Export`,
     ``,
     `${sessions.length} session${sessions.length === 1 ? '' : 's'}, exported ${new Date().toISOString()}`,
     ``,

@@ -123,7 +123,7 @@ export function summarizeSpans(spans: Span[]) {
       startTime: sorted[0].startTime,
       endTime: sorted[sorted.length - 1].endTime,
       attributes: [
-        { key: 'copilot_chat.user_request', value: { stringValue: '[session in progress]' } },
+        { key: 'copilot_chat.user_request', value: { stringValue: '[trace in progress]' } },
         { key: 'gen_ai.usage.input_tokens', value: { intValue: totalInput } },
         { key: 'gen_ai.usage.output_tokens', value: { intValue: totalOutput } },
         { key: 'gen_ai.usage.cache_read.input_tokens', value: { intValue: totalCacheRead } },

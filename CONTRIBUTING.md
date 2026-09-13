@@ -1,15 +1,15 @@
-# Contributing to AgentLens
+# Contributing to TraceRoost
 
 Thank you for your interest in contributing.
 
 ## Project scope
 
-AgentLens the local agent — everything in this repo — is MIT-licensed and stays that way. Features
-that make it more useful for a single developer watching their own sessions belong here, and PRs
+TraceRoost the local agent — everything in this repo — is MIT-licensed and stays that way. Features
+that make it more useful for a single developer watching their own agent traces belong here, and PRs
 for them are welcome.
 
 A few features are out of scope for this repo, reserved for a separate, source-available team
-server built on top of the local agent: cross-machine session aggregation, SSO/SCIM, RBAC,
+server built on top of the local agent: cross-machine trace aggregation, SSO/SCIM, RBAC,
 multi-team rollup views, extended retention and audit export, and license-key issuance. That's the
 boundary that funds the project's continued development — not a hedge against contributions, and
 not a signal that those features are unwanted in general. If you'd like to work on something in
@@ -22,18 +22,18 @@ Open an issue at <https://github.com/traceroost/core/issues> and use the bug rep
 
 - The agent you were using (Copilot, Claude Code, Codex)
 - Whether you're using the VS Code extension or standalone mode
-- The AgentLens version (visible in the sidebar footer)
-- Relevant output from the **AgentLens** output channel (*View → Output → AgentLens*)
+- The TraceRoost version (visible in the Traces tab footer)
+- Relevant output from the **TraceRoost** output channel (*View → Output → TraceRoost*)
 
 ## Development setup
 
 ```bash
 git clone https://github.com/traceroost/core
-cd agentlens
+cd core
 pnpm install
 ```
 
-**Run in VS Code:** Press `F5` to open a VS Code Extension Development Host with AgentLens loaded.
+**Run in VS Code:** Press `F5` to open a VS Code Extension Development Host with TraceRoost loaded.
 
 **Run standalone:** `pnpm run local` — starts the OTLP collector on port `4318` and the dashboard UI on port `3000`.
 
@@ -53,7 +53,7 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 | `src/` | VS Code extension host code (Node.js, no DOM) |
 | `media/src/` | Dashboard webview (Preact, browser) |
 | `standalone/server.ts` | Standalone HTTP server |
-| `src/summarizers/` | Per-agent span → session summarizers |
+| `src/summarizers/` | Per-agent span → trace summarizers |
 | `src/otlpCollector.ts` | OTLP/HTTP ingestion for the VS Code extension |
 
 ## Branching and commit conventions
@@ -81,4 +81,4 @@ external service needed. PRs can't be merged until it's signed.
 
 ## Demo data and fixtures
 
-See [DEMO.md](DEMO.md) for generating synthetic demo sessions, capturing real telemetry as a fixture, and the redaction step required before committing any fixture file.
+See [DEMO.md](DEMO.md) for generating synthetic demo traces, capturing real telemetry as a fixture, and the redaction step required before committing any fixture file.
