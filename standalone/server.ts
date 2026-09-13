@@ -1040,7 +1040,7 @@ function getHtml(): string {
         getState: function() { return null; },
         setState: function() {},
         postMessage: function(msg) {
-          if (msg.type && msg.type.indexOf('team') === 0) {
+          if (msg.type && (msg.type === 'getTeamStatus' || msg.type.indexOf('team') === 0)) {
             fetch('/api/team', {
               method: msg.type === 'getTeamStatus' ? 'GET' : 'POST',
               headers: { 'Content-Type': 'application/json' },

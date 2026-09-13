@@ -90,7 +90,7 @@ export class DashboardPanel {
     this.panel.webview.html = this.getHtml()
 
     this.panel.webview.onDidReceiveMessage(async msg => {
-      if (typeof msg.type === 'string' && msg.type.startsWith('team')) {
+      if (typeof msg.type === 'string' && (msg.type === 'getTeamStatus' || msg.type.startsWith('team'))) {
         await handleTeamMessage(msg, {
           post: (m) => { void this.panel.webview.postMessage(m) },
           openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
