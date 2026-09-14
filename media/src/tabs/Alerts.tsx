@@ -230,7 +230,7 @@ function evaluateAlert(
       return {
         triggered: true,
         key: worst.session.traceId || worst.session.sessionId,
-        detail: over.length + ' session(s) reached threshold. Worst: ' + worst.session.totalLlmCalls
+        detail: over.length + ' trace(s) reached threshold. Worst: ' + worst.session.totalLlmCalls
           + ' turns vs ' + worst.profile.label + ' alert ' + worst.profile.turnAlert
           + ' — "' + sessionDisplayName(worst.session) + '"',
       }
@@ -257,7 +257,7 @@ function evaluateAlert(
       return {
         triggered: true,
         key: longest.session.traceId || longest.session.sessionId,
-        detail: long.length + ' session(s) exceeded threshold. Longest active compute: ' + formatMs(longest.activeMs)
+        detail: long.length + ' trace(s) exceeded threshold. Longest active compute: ' + formatMs(longest.activeMs)
           + ' vs ' + longest.profile.label + ' alert ' + longest.profile.activeMinutesAlert + 'min',
       }
     }
@@ -423,7 +423,7 @@ export function Alerts() {
       </div>
       {!hasSessions ? (
         <div style="background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:14px">
-          <strong>No agent sessions recorded</strong>
+          <strong>No agent traces recorded</strong>
           <span style="color:var(--muted);font-size:12px;margin-left:8px">alert configuration is available below</span>
         </div>
       ) : triggeredCount > 0 ? (
@@ -431,7 +431,7 @@ export function Alerts() {
           <span style="font-size:18px">⚠</span>
           <div>
             <strong class="err">{triggeredCount} alert{triggeredCount > 1 ? 's' : ''} triggered</strong>
-            <span style="color:var(--muted);font-size:12px;margin-left:8px">based on your displayed sessions</span>
+            <span style="color:var(--muted);font-size:12px;margin-left:8px">based on your displayed traces</span>
           </div>
         </div>
       ) : (
@@ -439,7 +439,7 @@ export function Alerts() {
           <span style="font-size:18px;color:#81c784">✓</span>
           <div>
             <strong style="color:#81c784">All clear</strong>
-            <span style="color:var(--muted);font-size:12px;margin-left:8px">no alerts triggered for current sessions</span>
+            <span style="color:var(--muted);font-size:12px;margin-left:8px">no alerts triggered for current traces</span>
           </div>
         </div>
       )}

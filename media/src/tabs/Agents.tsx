@@ -67,11 +67,11 @@ function AgentCol({ label, accent, stats }: { label: string; accent: string; sta
         <strong style="font-size:13px">{label}</strong>
       </div>
       {stats.sessions === 0 ? (
-        <div class="empty-state" style="font-size:12px;padding:12px 0">No agent sessions recorded — start a {label} session</div>
+        <div class="empty-state" style="font-size:12px;padding:12px 0">No agent traces recorded — start a {label} session</div>
       ) : (
         <>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-            <KV k="Sessions" v={stats.sessions} accent={accent} />
+            <KV k="Traces" v={stats.sessions} accent={accent} />
             <KV k="LLM Calls" v={stats.totalLlm} accent={accent} />
             <KV k="Input Tokens" v={formatCompact(stats.totalInput)} accent={accent} />
             <KV k="Output Tokens" v={formatCompact(stats.totalOutput)} accent={accent} />
@@ -112,7 +112,7 @@ export function Agents() {
         return ms >= (range.since ?? 0) && ms <= (range.until ?? Date.now())
       })
   if (!allSessions.length) {
-    return <div id="agents-content"><div class="empty-state">No agent sessions recorded — start a Copilot, Claude, Codex, or OpenCode session</div></div>
+    return <div id="agents-content"><div class="empty-state">No agent traces recorded — start a Copilot, Claude, Codex, or OpenCode session</div></div>
   }
 
   const copStats = computeStats(allSessions.filter(s => s.source === 'copilot'))
