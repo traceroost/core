@@ -34,114 +34,44 @@ npx traceroost@latest service install    # runs from now on, no terminal needed
 traceroost service uninstall             # remove it later
 ```
 
-See [Getting Started](#getting-started) below for the VS Code extension and Docker options.
+See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker options.
 
-<details>
-<summary><strong>Jump to:</strong> Getting Started · Features · Data Sources · Cost · Export/Import · Malfunction Detection · Manual Configuration · Local Mode Options</summary>
-
-- [Getting Started](#getting-started) — local, VS Code, or Docker, in one command
-- [Upgrading from AgentLens](#upgrading-from-agentlens)
 - [Features](#features)
-- [Data Sources](#data-sources) — OTEL vs. log files, and what each agent gives you
+- [Data Sources](#data-sources)
+  - [OpenTelemetry traces (primary source)](#opentelemetry-traces-primary-source)
+  - [Log file ingestion (fallback source, VS Code-family IDEs and native process only)](#log-file-ingestion-fallback-source-vs-code-family-ides-and-native-process-only)
+  - [What each agent gives you, source by source](#what-each-agent-gives-you-source-by-source)
+    - [Claude Code](#claude-code)
+    - [Codex CLI](#codex-cli)
+    - [GitHub Copilot](#github-copilot)
+    - [OpenCode](#opencode)
 - [Cost Estimation](#cost-estimation)
 - [Exporting and Importing Trace Data](#exporting-and-importing-trace-data)
-- [Recommendations & Malfunction Detection](#recommendations--malfunction-detection)
-- [Manual Configuration](#manual-configuration) — per-agent OTEL setup, if auto-config isn't enough
-- [Local Mode Options](#local-mode-options) — native process, background service, Docker, from source
+  - [Export](#export)
+  - [Import](#import)
+- [Recommendations \& Malfunction Detection](#recommendations--malfunction-detection)
+- [Ways to Run](#ways-to-run)
+  - [Local (OTEL and log files)](#local-otel-and-log-files)
+  - [VS Code Extension (OTEL and log files)](#vs-code-extension-otel-and-log-files)
+  - [Docker (OTEL only)](#docker-otel-only)
+    - [Configuring Agents for Local / Docker](#configuring-agents-for-local--docker)
+- [Upgrading from AgentLens](#upgrading-from-agentlens)
+- [Manual Configuration](#manual-configuration)
+  - [GitHub Copilot](#github-copilot-1)
+  - [Claude Code](#claude-code-1)
+  - [Codex](#codex)
+- [Local Mode Options](#local-mode-options)
+  - [Native process (recommended for local use)](#native-process-recommended-for-local-use)
+  - [Background Service (macOS / Windows / Linux)](#background-service-macos--windows--linux)
+  - [Docker (OTEL only)](#docker-otel-only-1)
+  - [Node.js (from source)](#nodejs-from-source)
 - [Automation Prompts File](#automation-prompts-file)
+  - [How it works](#how-it-works)
 - [VS Code Commands](#vs-code-commands)
 - [Extension Settings](#extension-settings)
-
-</details>
-
-## Getting Started
-
-### Local (OTEL and log files)
-
-The fastest way to get started — run directly on your machine with no install required. Because it runs natively it has full access to your local log files.
-
-```bash
-# One-off — the @latest tag forces a fresh fetch (see note below)
-npx traceroost@latest
-bunx traceroost@latest
-
-# Or install globally and run by command name
-npm install -g traceroost@latest
-traceroost
-```
-
-Open <http://localhost:3000> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
-
-> **Always include `@latest`.** A bare `npx traceroost` (or `bunx`) re-runs whatever
-> version npx cached the first time you ran it — it does **not** check npm for a newer release, so
-> you can silently stay on an old version for weeks. `@latest` forces npx to resolve against the
-> registry. If a bare run already cached an old copy, clear it with `rm -rf ~/.npm/_npx` (npx) or
-> `npm cache clean --force`. A global install (`npm install -g`) has the same trap — re-run it with
-> `@latest`, or `npm update -g traceroost`, to move forward.
-
-> **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, and OpenCode's SQLite database at `~/.local/share/opencode/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
->
-> **Running this in a terminal only lasts until you close it.** If TraceRoost isn't running when an agent sends OTEL data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
-
-### VS Code Extension (OTEL and log files)
-
-The extension receives OTEL traces in real time **and** reads local log files, so you get both live telemetry and full trace history automatically.
-
-Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
-
-1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=traceroost.traceroost)**
-2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
-3. TraceRoost auto-configures OTEL telemetry for Copilot, Claude Code, and Codex — restart any running agents to start streaming traces
-4. Past trace history loads automatically from local log files — no extra setup needed
-
-### Docker (OTEL only)
-
-> **Note:** Docker cannot read local log files from your host machine without explicit volume mounts for each agent directory. Docker mode receives OTEL traces only — log file ingestion is not available. Use the local option above if you need log file history.
-
-```bash
-# Ephemeral — data cleared on container stop (always pulls latest)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost
-
-# Persistent — data survives restarts (macOS/Linux)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 \
-  -v ~/.traceroost:/data \
-  traceroost/traceroost
-
-# Persistent — data survives restarts (Windows)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 `
-  -v "$env:USERPROFILE\.traceroost:/data" `
-  traceroost/traceroost
-```
-
-Open <http://localhost:3000> after the container starts.
-
-#### Configuring Agents for Local / Docker
-
-Use the included setup scripts to configure agents automatically, or see [Manual Configuration](#manual-configuration) for the manual steps.
-
-```bash
-# macOS / Linux
-chmod +x scripts/configure-agents.sh
-./scripts/configure-agents.sh
-```
-
-```powershell
-# Windows (PowerShell)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-.\scripts\configure-agents.ps1
-```
-
-## Upgrading from AgentLens
-
-Several unrelated projects already use the AgentLens name, so this release renames the whole project: the npm package is `traceroost` and the Docker image is `traceroost/traceroost`. The **VS Code extension keeps its marketplace id** (`agentlens.agentlens-dashboard`) — only the display name changes — so **installed AgentLens extensions update in place**, nothing to reinstall. The old `agentlens-dashboard` npm package and `agentlens/agentlens` image get security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch.
-
-**If you use npx, Docker, or the background service**, this is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name:
-
-1. Remove the old service: `agentlens service uninstall`
-2. Install the new one: `npx traceroost@latest service install`
-3. Let auto-config rewrite your agents' OTEL settings on the next start (or use **Configure OTEL** in Settings)
-
-Trace history stored under the old `~/.agentlens` directory is not migrated automatically — point `--data-dir` at it if you need it.
+- [AI Usage Disclosure](#ai-usage-disclosure)
+- [License](#license)
+- [Disclaimer](#disclaimer)
 
 ## Features
 
@@ -318,6 +248,95 @@ The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categori
 
 Each signal includes a specific recommended action and a **Copy for {Agent}** button that copies the recommendation prompt to your clipboard so you can paste it into your agent. Use the **Ignore** button to dismiss signals that represent intentional behavior.
 
+## Ways to Run
+
+### Local (OTEL and log files)
+
+The fastest way to get started — run directly on your machine with no install required. Because it runs natively it has full access to your local log files.
+
+```bash
+# One-off — the @latest tag forces a fresh fetch (see note below)
+npx traceroost@latest
+bunx traceroost@latest
+
+# Or install globally and run by command name
+npm install -g traceroost@latest
+traceroost
+```
+
+Open <http://localhost:3000> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
+
+> **Always include `@latest`.** A bare `npx traceroost` (or `bunx`) re-runs whatever
+> version npx cached the first time you ran it — it does **not** check npm for a newer release, so
+> you can silently stay on an old version for weeks. `@latest` forces npx to resolve against the
+> registry. If a bare run already cached an old copy, clear it with `rm -rf ~/.npm/_npx` (npx) or
+> `npm cache clean --force`. A global install (`npm install -g`) has the same trap — re-run it with
+> `@latest`, or `npm update -g traceroost`, to move forward.
+
+> **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, and OpenCode's SQLite database at `~/.local/share/opencode/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
+>
+> **Running this in a terminal only lasts until you close it.** If TraceRoost isn't running when an agent sends OTEL data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
+
+### VS Code Extension (OTEL and log files)
+
+The extension receives OTEL traces in real time **and** reads local log files, so you get both live telemetry and full trace history automatically.
+
+Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
+
+1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=traceroost.traceroost)**
+2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
+3. TraceRoost auto-configures OTEL telemetry for Copilot, Claude Code, and Codex — restart any running agents to start streaming traces
+4. Past trace history loads automatically from local log files — no extra setup needed
+
+### Docker (OTEL only)
+
+> **Note:** Docker cannot read local log files from your host machine without explicit volume mounts for each agent directory. Docker mode receives OTEL traces only — log file ingestion is not available. Use the local option above if you need log file history.
+
+```bash
+# Ephemeral — data cleared on container stop (always pulls latest)
+docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost
+
+# Persistent — data survives restarts (macOS/Linux)
+docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 \
+  -v ~/.traceroost:/data \
+  traceroost/traceroost
+
+# Persistent — data survives restarts (Windows)
+docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 `
+  -v "$env:USERPROFILE\.traceroost:/data" `
+  traceroost/traceroost
+```
+
+Open <http://localhost:3000> after the container starts.
+
+#### Configuring Agents for Local / Docker
+
+Use the included setup scripts to configure agents automatically, or see [Manual Configuration](#manual-configuration) for the manual steps.
+
+```bash
+# macOS / Linux
+chmod +x scripts/configure-agents.sh
+./scripts/configure-agents.sh
+```
+
+```powershell
+# Windows (PowerShell)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.\scripts\configure-agents.ps1
+```
+
+## Upgrading from AgentLens
+
+Several unrelated projects already use the AgentLens name, so this release renames the whole project: the npm package is `traceroost` and the Docker image is `traceroost/traceroost`. The **VS Code extension keeps its marketplace id** (`agentlens.agentlens-dashboard`) — only the display name changes — so **installed AgentLens extensions update in place**, nothing to reinstall. The old `agentlens-dashboard` npm package and `agentlens/agentlens` image get security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch.
+
+**If you use npx, Docker, or the background service**, this is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name:
+
+1. Remove the old service: `agentlens service uninstall`
+2. Install the new one: `npx traceroost@latest service install`
+3. Let auto-config rewrite your agents' OTEL settings on the next start (or use **Configure OTEL** in Settings)
+
+Trace history stored under the old `~/.agentlens` directory is not migrated automatically — point `--data-dir` at it if you need it.
+
 ## Manual Configuration
 
 The VS Code extension and the standalone (`npx`) server both auto-configure Copilot, Claude Code, and Codex on every startup, so you shouldn't need any of this by default. It's here for when you do:
@@ -403,7 +422,7 @@ TraceRoost runs as a local web server outside VS Code — useful for CI, remote 
 
 ### Native process (recommended for local use)
 
-Runs directly on your machine — no Docker required. Gives the server full access to the local filesystem, which is required for log file ingestion. Quick-start commands are in [Getting Started](#local-otel-and-log-files) above.
+Runs directly on your machine — no Docker required. Gives the server full access to the local filesystem, which is required for log file ingestion. Quick-start commands are in [Ways to Run](#local-otel-and-log-files) above.
 
 Environment variables:
 
@@ -476,7 +495,7 @@ point at.
 
 > **Log file ingestion is not available in Docker mode.** The container is isolated from the host filesystem. Use the native process option above if you need local log-file history.
 
-Quick-start commands are in [Getting Started](#docker-otel-only). Additional options:
+Quick-start commands are in [Ways to Run](#docker-otel-only). Additional options:
 
 **LAN-accessible** — exposes the dashboard to other devices on your network:
 
