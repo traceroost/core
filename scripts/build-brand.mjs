@@ -92,6 +92,18 @@ console.log('raster:')
 await sharp(Buffer.from(marketplace)).png().toFile(join(media, 'mascot.png'))
 console.log('  media/mascot.png (512, marketplace)')
 
+// README hero wordmark. The VS Code Marketplace/Open VSX packager (vsce) rejects README
+// images referencing SVG (a marketplace-wide policy, not something this project can opt out
+// of), so the light/dark wordmark used at the top of README.md has to be a raster — 3x the
+// 321x97 viewBox for retina sharpness at the ~40px display height, transparent background.
+const wordmarkPngWidth = 963
+const wordmarkPngHeight = Math.round(wordmarkPngWidth * (97 / 321))
+await sharp(Buffer.from(wordmark)).resize(wordmarkPngWidth, wordmarkPngHeight).png().toFile(join(brand, 'wordmark.png'))
+console.log('  media/brand/wordmark.png (README hero, light)')
+const wordmarkOnDark = read('wordmark-on-dark.svg')
+await sharp(Buffer.from(wordmarkOnDark)).resize(wordmarkPngWidth, wordmarkPngHeight).png().toFile(join(brand, 'wordmark-on-dark.png'))
+console.log('  media/brand/wordmark-on-dark.png (README hero, dark)')
+
 // Standalone favicon.
 writeFileSync(join(media, 'favicon.svg'), iconAt(NIGHT, PAPER) + '\n')
 console.log('  media/favicon.svg')

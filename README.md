@@ -1,7 +1,7 @@
 <h1>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="media/brand/wordmark-on-dark.svg">
-    <img src="media/brand/wordmark.svg" alt="TraceRoost" height="40">
+    <source media="(prefers-color-scheme: dark)" srcset="media/brand/wordmark-on-dark.png">
+    <img src="media/brand/wordmark.png" alt="TraceRoost" height="40">
   </picture>
 </h1>
 
