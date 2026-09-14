@@ -4,7 +4,7 @@ import { BrandMark } from '../BrandMark'
 // ── Data ──────────────────────────────────────────────────────────────────────
 
 const TERMS: [string, string][] = [
-  ['Agent Loop / Malfunction', 'A behavioral pattern in which an AI agent is stuck, oscillating, or spiraling into unproductive work. TraceRoost detects five patterns: Tool Call Deadlock, State Corruption Spiral, Hallucination Amplification Loop, Ambiguous Success / Escalating Scope, and Infinite Loop — Context Accumulation.'],
+  ['Agent Loop / Malfunction', 'A behavioral pattern in which an AI agent is stuck, oscillating, or spiraling into unproductive work. See the Overview and Loop Detection sections above for the full, current list — kept in one place so it can\'t drift out of date here.'],
   ['Agent',                  'The AI coding assistant (e.g. GitHub Copilot, Claude Code, Codex) that receives your prompt, reasons about the task, and decides which tools to use. It manages the workflow, breaks down tasks, and may call the underlying LLM multiple times per trace to complete a single request. The agent is the orchestrator; the LLM is the engine it drives.'],
   ['Avg Input/Call',         'Average number of input tokens sent to the language model per LLM call. Lower means leaner prompts. Under 10K is lean; 10-30K is normal; 30K+ suggests large instruction files, verbose tool definitions, or accumulated context bloat.'],
   ['Avg Turns/Trace',        'Average number of LLM round-trips per trace. Lower is more efficient. 1-3 turns is typical for simple tasks; 5+ may indicate the agent is struggling or the prompt needs more specifics.'],
@@ -199,7 +199,7 @@ function OverviewSection() {
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
         <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, with no data leaving your machine. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
-        <p style="font-size:13px;margin:10px 0 4px"><strong>TraceRoost detects eight loop / malfunction patterns</strong> — each with a ready-to-paste correction prompt (see <a href="#help-loops">Loop Detection</a> below for details):</p>
+        <p style="font-size:13px;margin:10px 0 4px"><strong>TraceRoost detects ten loop / malfunction patterns</strong> — each with a ready-to-paste correction prompt (see <a href="#help-loops">Loop Detection</a> below for details):</p>
         <ul style="margin:0 0 0 18px;padding:0;font-size:13px;color:var(--muted);line-height:1.75">
           <li><a href="#help-tool-deadlock">Tool Call Deadlock</a> — the same tool call repeated 5+ times</li>
           <li><a href="#help-state-spiral">State Corruption Spiral</a> — a file edited then reverted, oscillating</li>
@@ -209,6 +209,8 @@ function OverviewSection() {
           <li><a href="#help-chronic-tool-unreliability">Chronic Tool Unreliability</a> — an unusually high share of tool calls failing</li>
           <li><a href="#help-context-flooding-risk">Context Flooding Risk</a> — a tool result too large for the model to use well</li>
           <li><a href="#help-malformed-tool-call">Malformed Tool Call</a> — the agent's own harness rejected a call before it ran</li>
+          <li><a href="#help-fabricated-dependency">Fabricated Dependency</a> — an edit imports a package that doesn't exist in the project</li>
+          <li><a href="#help-unverified-submission">Unverified Submission</a> — the session ended right after a failed test/build, with no fix attempt</li>
         </ul>
       </div>
     </div>
@@ -596,6 +598,18 @@ function SessionsSection() {
             example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">Invalid tool call: missing required parameter "path"</code>`}
             steps={`<li>If this recurs, the agent may be working from an outdated or incorrect idea of what tools are available.</li><li>Check whether a tool definition changed recently.</li>`}
             impact="Each rejected call is a full round-trip to the model that produced nothing but an error to recover from."
+          />
+          <LoopBlock id="help-fabricated-dependency" title="Fabricated Dependency"
+            why="An edit imports a package that isn't declared in the project's manifest (package.json, requirements.txt) and doesn't resolve on disk — a likely hallucinated dependency that will fail at install or runtime. Checked once the edit is complete, not mid-session like the signals above."
+            example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code> — no such package in package.json or node_modules.`}
+            steps={`<li>Verify the package actually exists and is spelled correctly before asking the agent to use it.</li><li>Add it to the manifest yourself if it's intentional (e.g. you're about to run the install).</li>`}
+            impact="Catching this before install/runtime avoids a confusing failure several steps later that looks unrelated to the actual cause."
+          />
+          <LoopBlock id="help-unverified-submission" title="Unverified Submission"
+            why="The last test/build check run in the session reported a failure, with no further fix attempt before the session ended. Precision-good, recall-poor by design: only the last tool call is checked, so a failing check followed by more edits (a real fix attempt) does not trigger this."
+            example="Session ends immediately after `pnpm test` prints 3 failing specs — no edits follow."
+            steps={`<li>Ask the agent to re-run the check and confirm it passes before considering the task done.</li><li>Review the failure yourself before accepting the change.</li>`}
+            impact="Catches work that looks finished but silently failed its own validation step."
           />
         </div>
         <p style="margin-top:16px;font-size:12px;color:var(--muted)">Loop signals appear in the Insights panel inside the <strong>Overview</strong> sub-tab of each trace, sorted by severity. Use the <strong>Loops</strong> filter pill to view only malfunction signals. Use <strong>Ignore</strong> to dismiss a signal if it was intentional behavior.</p>
