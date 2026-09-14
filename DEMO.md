@@ -59,6 +59,21 @@ Note: for the plain (non-`story`) scenario matrix, `--agents` still *filters* ra
 
 Requires `npx playwright install chromium` once. The browser window stays open after replay finishes; close it manually or `Ctrl+C` the terminal.
 
+### Regenerating media/demo.gif
+
+`pnpm run demo:gif` runs the same `--tour` walkthrough above, headless, on a fully isolated instance — a scratch server, scratch `HOME`, real agent config never touched — and records it straight to `media/demo.gif`.
+
+```bash
+pnpm run demo:gif                       # writes media/demo.gif (asks first if it already exists)
+pnpm run demo:gif -- --force            # overwrite without asking
+pnpm run demo:gif -- --out /tmp/x.gif   # write elsewhere instead, for review first
+pnpm run demo:gif -- --dry-run          # run the tour, skip recording — for tuning pause lengths
+pnpm run demo:gif -- --speed 2          # faster tour -> shorter capture
+pnpm run demo:gif -- --headed           # show the browser while it records (debugging)
+```
+
+Requires `npx playwright install chromium` (once) and `ffmpeg` on `PATH` (`brew install ffmpeg` / `apt install ffmpeg`) — the conversion from the recorded video to an optimized, palette-based GIF shells out to it in two passes. See `demo/capture-gif.ts`'s header comment for why it's built this way (two independent layers keep it from ever touching the real machine's agent config, not just one).
+
 ## Capturing real agent runs as fixtures
 
 For a deterministic replay of an actual agent run (rather than synthetic data), record one with `pnpm run capture`, then replay it later:
