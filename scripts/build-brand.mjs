@@ -23,6 +23,12 @@ const INK = '#12141A'       // near-black brand ink
 const PAPER = '#E8ECEF'     // off-white, used as ink on dark
 const TEAL = '#0FBFA6'      // roost accent
 const NIGHT = '#0B0D12'     // icon dark background
+// Neutral mid-grey — a deliberate compromise for the one spot (README, rendered on both a
+// white npm/GitHub-light page and the VS Code Marketplace's dark theme by whichever picks
+// the <img> fallback) that can't pick a background to design against. Chosen so contrast
+// against pure white and against NIGHT comes out roughly balanced — passable on both,
+// ideal on neither.
+const MID = '#76797F'
 
 const read = (p) => readFileSync(join(brand, p), 'utf8')
 const write = (p, s) => { writeFileSync(join(brand, p), s.trimEnd() + '\n'); console.log('  media/brand/' + p) }
@@ -36,6 +42,8 @@ console.log('brand SVGs:')
 const wordmark = read('wordmark.svg')
 // Light text -> paper text, for dark backgrounds.
 write('wordmark-on-dark.svg', wordmark.split(INK).join(PAPER))
+// Mid-grey text/bird, roost bar stays teal — the "works passably anywhere" compromise.
+write('wordmark-mid.svg', wordmark.split(INK).join(MID))
 // Single-ink typography (roost stops being teal); the roost bar stays teal.
 write('wordmark-mono.svg', recolorPaths(wordmark, TEAL, INK))
 // Theme-adaptive: mark + ground + "trace" inherit currentColor, the roost bar
@@ -92,6 +100,18 @@ console.log('raster:')
 await sharp(Buffer.from(marketplace)).png().toFile(join(media, 'mascot.png'))
 console.log('  media/mascot.png (512, marketplace)')
 
+// Raster: marketplace icon, color variant. Same layout as the mono one above, but keeps
+// mark-small.svg's own two colors (ink bird, teal roost bar) instead of recoloring to one,
+// on white instead of dark — this is what package.json's "icon" (the extension listing's
+// actual icon) points at; mascot.png above stays as-is for the standalone server favicon.
+const marketplaceColor = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
+  `<rect width="512" height="512" fill="#FFFFFF"/>` +
+  `<g transform="translate(71.4,77.9) scale(0.19232)">` +
+  markSmallBody +
+  `</g></svg>`
+await sharp(Buffer.from(marketplaceColor)).png().toFile(join(media, 'mascot-color.png'))
+console.log('  media/mascot-color.png (512, marketplace, color)')
+
 // README hero wordmark. The VS Code Marketplace/Open VSX packager (vsce) rejects README
 // images referencing SVG (a marketplace-wide policy, not something this project can opt out
 // of), so the light/dark wordmark used at the top of README.md has to be a raster — 3x the
@@ -103,6 +123,9 @@ console.log('  media/brand/wordmark.png (README hero, light)')
 const wordmarkOnDark = read('wordmark-on-dark.svg')
 await sharp(Buffer.from(wordmarkOnDark)).resize(wordmarkPngWidth, wordmarkPngHeight).png().toFile(join(brand, 'wordmark-on-dark.png'))
 console.log('  media/brand/wordmark-on-dark.png (README hero, dark)')
+const wordmarkMid = read('wordmark-mid.svg')
+await sharp(Buffer.from(wordmarkMid)).resize(wordmarkPngWidth, wordmarkPngHeight).png().toFile(join(brand, 'wordmark-mid.png'))
+console.log('  media/brand/wordmark-mid.png (README hero, mid-grey compromise)')
 
 // Standalone favicon.
 writeFileSync(join(media, 'favicon.svg'), iconAt(NIGHT, PAPER) + '\n')
