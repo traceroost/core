@@ -12,7 +12,7 @@ COPY src/ ./src/
 COPY standalone/ ./standalone/
 COPY media/src/ ./media/src/
 COPY media/tsconfig.json ./media/
-COPY media/dashboard.css media/mascot.png ./media/
+COPY media/mascot.png ./media/
 
 RUN node esbuild.js --production
 
