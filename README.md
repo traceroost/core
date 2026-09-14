@@ -5,11 +5,7 @@
   </picture>
 </h1>
 
-> **Note:** AgentLens is now **TraceRoost**. Several unrelated projects already use the AgentLens name.
->
-> This release moves the whole project to the new name: the npm package is `traceroost` and the Docker image is `traceroost/traceroost`. The **VS Code extension keeps its marketplace id** (`agentlens.agentlens-dashboard`) — only the display name changes — so **installed AgentLens extensions update in place**, nothing to reinstall. The old `agentlens-dashboard` npm package and `agentlens/agentlens` image get security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch.
->
-> **Upgrading from AgentLens (npx / Docker / background service):** this is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name. After updating, remove the old service with `agentlens service uninstall`, then run `npx traceroost@latest service install`, and let auto-config rewrite your agents' OTEL settings on the next start (or use **Configure OTEL** in Settings). Trace history stored under the old `~/.agentlens` directory is not migrated automatically; point `--data-dir` at it if you need it.
+> **Note:** AgentLens is now **TraceRoost**. Already using AgentLens? See [Upgrading from AgentLens](#upgrading-from-agentlens).
 
 [![CI](https://github.com/traceroost/core/actions/workflows/ci.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
@@ -101,6 +97,18 @@ chmod +x scripts/configure-agents.sh
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\scripts\configure-agents.ps1
 ```
+
+## Upgrading from AgentLens
+
+Several unrelated projects already use the AgentLens name, so this release renames the whole project: the npm package is `traceroost` and the Docker image is `traceroost/traceroost`. The **VS Code extension keeps its marketplace id** (`agentlens.agentlens-dashboard`) — only the display name changes — so **installed AgentLens extensions update in place**, nothing to reinstall. The old `agentlens-dashboard` npm package and `agentlens/agentlens` image get security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch.
+
+**If you use npx, Docker, or the background service**, this is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name:
+
+1. Remove the old service: `agentlens service uninstall`
+2. Install the new one: `npx traceroost@latest service install`
+3. Let auto-config rewrite your agents' OTEL settings on the next start (or use **Configure OTEL** in Settings)
+
+Trace history stored under the old `~/.agentlens` directory is not migrated automatically — point `--data-dir` at it if you need it.
 
 ## Features
 
