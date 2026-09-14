@@ -327,9 +327,9 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 ## Upgrading from AgentLens
 
-Several unrelated projects already use the AgentLens name, so this release renames the whole project: the npm package is `traceroost` and the Docker image is `traceroost/traceroost`. The **VS Code extension keeps its marketplace id** (`agentlens.agentlens-dashboard`) — only the display name changes — so **installed AgentLens extensions update in place**, nothing to reinstall. The old `agentlens-dashboard` npm package and `agentlens/agentlens` image get security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch.
+TraceRoost was renamed from AgentLens — several unrelated projects already used that name. The npm package is `traceroost` and the Docker image is `traceroost/traceroost`. The **VS Code extension kept its marketplace id** (`agentlens.agentlens-dashboard`) — only the display name changed — so an installed AgentLens extension updates in place, nothing to reinstall. The old `agentlens-dashboard` npm package and `agentlens/agentlens` image get security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch.
 
-**If you use npx, Docker, or the background service**, this is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name:
+**Still on npx, Docker, or the background service under the old name?** Moving over is a clean break — settings, the local data directory (`~/.traceroost`, previously `~/.agentlens`), and the background service all move to the new name:
 
 1. Remove the old service: `agentlens service uninstall`
 2. Install the new one: `npx traceroost@latest service install`
