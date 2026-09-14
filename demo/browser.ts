@@ -31,8 +31,11 @@
  */
 
 import { spawn } from 'node:child_process'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import * as http from 'node:http'
+import { runTour } from './tour'
+import { waitForAuthToken } from './authToken'
 
 // ── CLI ────────────────────────────────────────────────────────────────────────
 
@@ -89,79 +92,6 @@ function startReplay(): Promise<void> {
       else reject(new Error(`replay exited with code ${code}`))
     })
   })
-}
-
-// ── Guided tab tour ────────────────────────────────────────────────────────────
-
-// The real top-level tab bar (media/src/App.tsx TABS) — sessions/analytics/patterns/
-// export/import, selected via `button[data-tab="${id}"]`. The previous list here
-// (efficiency/tokens/files/summaries/recommendations/errors/agents/timeline/traces/
-// latency/tools/automation) didn't match any current `data-tab` value, so every
-// step's isVisible() check silently failed and the tour clicked nothing at all —
-// none of those are top-level tabs; most are sections *inside* Sessions' expand-in-
-// place detail view or Analytics' scrolling page, and Automation/Alerts live in the
-// Settings (gear) panel. See tourSessionDetail() and tourSettingsPanel() below for
-// those.
-const TOUR_TABS = [
-  { id: 'sessions',  label: 'Sessions',  pauseMs: 3000 },
-  { id: 'analytics', label: 'Analytics', pauseMs: 5000 },
-  { id: 'patterns',  label: 'Advisor',   pauseMs: 5000 },
-  { id: 'export',    label: 'Export',    pauseMs: 3000 },
-  { id: 'import',    label: 'Import',    pauseMs: 3000 },
-]
-
-// Expands the most recent session (Sessions tab's expand-in-place row) and walks its
-// internal Overview/Trace/Flow/Tools/Files nav — these are plain buttons with no
-// data-tab attribute, so matched by accessible name instead. Counts like "Trace (12)"
-// are appended dynamically, hence the regex match rather than exact text.
-async function tourSessionDetail(page: import('playwright').Page, speed: number): Promise<void> {
-  const rows = page.locator('#sessions-content table tbody tr')
-  try {
-    await rows.first().waitFor({ state: 'visible', timeout: 15000 })
-  } catch {
-    log('  (no sessions rendered yet — skipping session detail walkthrough)')
-    return
-  }
-
-  log('  → expanding most recent session')
-  await rows.first().click()
-  await page.waitForTimeout(600 / speed)
-
-  const sections: Array<{ name: RegExp; label: string }> = [
-    { name: /^Overview$/, label: 'Overview' },
-    { name: /^Trace/,     label: 'Trace' },
-    { name: /^Flow/,      label: 'Flow' },
-    { name: /^Tools/,     label: 'Tools' },
-    { name: /^Files/,     label: 'Files' },
-  ]
-  const detail = page.locator('#sessions-content')
-  for (const { name, label } of sections) {
-    const btn = detail.getByRole('button', { name })
-    const visible = await btn.first().isVisible().catch(() => false)
-    if (!visible) continue
-    await btn.first().click()
-    log(`  → session detail: ${label} (2.5s)`)
-    await page.waitForTimeout(2500 / speed)
-  }
-
-  // Collapse — click the same row again
-  await rows.first().click()
-  await page.waitForTimeout(300 / speed)
-}
-
-// Automation and Alerts aren't top-level tabs — they live in the Settings panel
-// behind the gear icon (App.tsx GearButton, title is the stable selector since the
-// button has no other data-* attribute).
-async function tourSettingsPanel(page: import('playwright').Page, speed: number): Promise<void> {
-  const gear = page.getByTitle('Settings — Alerts & Automation')
-  const visible = await gear.isVisible().catch(() => false)
-  if (!visible) return
-
-  log('  → Settings panel (Alerts & Automation, 5s)')
-  await gear.click()
-  await page.waitForTimeout(5000 / speed)
-  await gear.click() // close
-  await page.waitForTimeout(300 / speed)
 }
 
 // ── Browser: launch fresh, or attach to an already-open one ────────────────────
@@ -232,7 +162,19 @@ async function main() {
   // port on. Only close it on exit when we're not managing a --cdp-reusable window.
   const keepOpenOnExit = CDP
 
-  await page.goto(`http://localhost:${UI_PORT}`)
+  // Every UI request is authenticated, unconditionally, even on loopback
+  // (src/httpSecurity.ts) — navigating without it gets a 401 page with no tab bar at all,
+  // and a --tour run then "succeeds" having silently clicked nothing. Always including it
+  // is harmless for an already-cookie-authenticated reused --cdp tab too (any one of
+  // Authorization header / ?token= / cookie matching is enough).
+  const token = await waitForAuthToken(os.homedir())
+  if (!token) {
+    err(`Could not read the auth token from ${path.join(os.homedir(), '.traceroost', 'config.json')}.`)
+    err('Is the standalone server actually the one that wrote it (same machine, same user)?')
+    process.exit(1)
+  }
+
+  await page.goto(`http://localhost:${UI_PORT}/?token=${token}`)
   await page.waitForLoadState('domcontentloaded')
   log('Browser open. Starting replay in parallel…')
 
@@ -244,30 +186,7 @@ async function main() {
   if (TOUR) {
     log('Tour mode: navigating tabs as data arrives…')
     const speed = parseFloat(SPEED) || 1
-
-    // Give the first batch of spans a moment to land before switching tabs
-    await page.waitForTimeout(3000)
-
-    for (const { id, label, pauseMs } of TOUR_TABS) {
-      const btn = page.locator(`button[data-tab="${id}"]`)
-      const visible = await btn.isVisible().catch(() => false)
-      if (!visible) continue
-
-      await btn.click()
-      log(`  → ${label} tab (${pauseMs / 1000}s)`)
-      await page.waitForTimeout(pauseMs / speed)
-
-      // Sessions: also expand a card and walk its Overview/Trace/Flow/Tools/Files
-      // detail nav — those live inside the row, not the top-level tab bar.
-      if (id === 'sessions') await tourSessionDetail(page, speed)
-
-      // Analytics is the natural point to also surface Automation/Alerts, which
-      // live in the Settings (gear) panel rather than a tab of their own.
-      if (id === 'analytics') await tourSettingsPanel(page, speed)
-    }
-
-    // Return to Sessions after the tour — the most useful default landing tab
-    await page.locator('button[data-tab="sessions"]').click().catch(() => {})
+    await runTour(page, { speed, log })
     log('Tour complete — leaving browser open for exploration')
   } else {
     log('No --tour flag. Dashboard is live — explore tabs manually.')
