@@ -41,6 +41,12 @@ const UI_PORT    = parseInt(process.env.UI_PORT    ?? String(fileConfig.uiPort))
 const MCP_PORT   = parseInt(process.env.MCP_PORT   ?? String(fileConfig.mcpPort))
 const BIND_HOST  = process.env.BIND_HOST ?? fileConfig.bindHost
 const AUTH_TOKEN = fileConfig.authToken
+// Escape hatch for anything that starts this server without wanting it to touch the real
+// machine's agent config — demo/test harnesses, CI, a second instance for screenshotting.
+// Covers both the unconditional startup call below and the manual "Configure OTEL" button
+// (POST /action { type: 'reconfigureOtel' }); unset (the default) changes nothing for a real
+// user, since nobody sets this by hand.
+const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
 
 // Turns the "BIND_HOST=0.0.0.0 ships with zero access control" footgun into a startup error:
 // once bindHost is exposed beyond loopback, a token must actually be in place (it always will
@@ -1559,6 +1565,11 @@ const uiServer = http.createServer((req, res) => {
           try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
           pushUpdate()
         } else if (body.type === 'reconfigureOtel') {
+          if (AUTOCONFIG_DISABLED) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Auto-configure is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
+            return
+          }
           const [claudeCode, codex, copilotResults] = await Promise.all([
             autoConfigureClaudeCode(OTLP_PORT),
             autoConfigureCodex(OTLP_PORT),
@@ -1705,30 +1716,34 @@ otlpServer.on('error', (err: NodeJS.ErrnoException) => {
 })
 
 // Auto-configure Claude Code, Codex, and Copilot to point at this collector
-Promise.all([
-  autoConfigureClaudeCode(OTLP_PORT),
-  autoConfigureCodex(OTLP_PORT),
-  autoConfigureCopilotStandalone(OTLP_PORT),
-]).then(([claudeResult, codexResult, copilotResults]) => {
-  if (claudeResult.error) {
-    console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
-  } else if (claudeResult.changed) {
-    console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
-  }
-  if (codexResult.error) {
-    console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
-  } else if (codexResult.changed) {
-    console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
-  }
-  const copilotChanged = copilotResults.filter(r => r.changed)
-  const copilotErrors  = copilotResults.filter(r => r.error)
-  if (copilotChanged.length > 0) {
-    console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
-  }
-  for (const r of copilotErrors) {
-    console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
-  }
-}).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
+if (AUTOCONFIG_DISABLED) {
+  console.log('[TraceRoost] Auto-configure disabled (TRACEROOST_NO_AUTOCONFIG=1) — agent config left untouched.')
+} else {
+  Promise.all([
+    autoConfigureClaudeCode(OTLP_PORT),
+    autoConfigureCodex(OTLP_PORT),
+    autoConfigureCopilotStandalone(OTLP_PORT),
+  ]).then(([claudeResult, codexResult, copilotResults]) => {
+    if (claudeResult.error) {
+      console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
+    } else if (claudeResult.changed) {
+      console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
+    }
+    if (codexResult.error) {
+      console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
+    } else if (codexResult.changed) {
+      console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
+    }
+    const copilotChanged = copilotResults.filter(r => r.changed)
+    const copilotErrors  = copilotResults.filter(r => r.error)
+    if (copilotChanged.length > 0) {
+      console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
+    }
+    for (const r of copilotErrors) {
+      console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
+    }
+  }).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
+}
 
 otlpServer.listen(OTLP_PORT, BIND_HOST, () => {
   console.log(`[TraceRoost] OTLP receiver → http://localhost:${OTLP_PORT}`)
