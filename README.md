@@ -21,6 +21,21 @@ Two things it does that a usage dashboard doesn't:
 - **Catches agents that are stuck.** Ten named loop and malfunction patterns — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--malfunction-detection)
 - **Tells you what to fix in your instructions file.** The Advisor reads across traces and suggests concrete additions to your CLAUDE.md or AGENTS.md — including hot files the agent rediscovers from scratch on every run. [More →](#features)
 
+**Quick start:**
+
+```bash
+npx traceroost@latest
+```
+
+Open <http://localhost:3000> — that's it. Running it in a terminal only lasts until you close it, though: if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry. Once you've kicked the tires, install it as a background service so nothing gets missed:
+
+```bash
+npx traceroost@latest service install    # runs from now on, no terminal needed
+traceroost service uninstall             # remove it later
+```
+
+See [Getting Started](#getting-started) below for the VS Code extension and Docker options.
+
 <details>
 <summary><strong>Jump to:</strong> Getting Started · Features · Data Sources · Cost · Export/Import · Malfunction Detection · Manual Configuration · Local Mode Options</summary>
 
