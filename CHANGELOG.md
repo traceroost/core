@@ -4,21 +4,37 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+---
+
+## [0.16.0] — 2026-09-14
+
+### Added
+
+- **Page size selector in the paging controls** — choose 25/50/100/250/500 traces per page directly from the Traces list's paging bar, without opening Settings (#241)
+
 ### Changed
 
-- **The dashboard's "Session" concept is now "Trace"** — the Sessions tab is **Traces**, the per-row "Trace" sub-tab is **Waterfall**, and the glossary is rewritten around it. One prompt-to-response cycle is a trace; this matches how OpenTelemetry names the same thing. Internal identifiers, the database, the HTTP API, and the MCP tool names are unchanged.
-- **Traces list now defaults to 25 per page** (was 50); still adjustable to 50/100/250/500 in Settings.
-- **AgentLens is now TraceRoost.** Several unrelated projects already use the AgentLens name. This release completes the rename across the whole project:
+- **The dashboard's "Session" concept is now "Trace"** — the Sessions tab is **Traces**, the per-row "Trace" sub-tab is **Waterfall**, and the glossary is rewritten around it. One prompt-to-response cycle is a trace; this matches how OpenTelemetry names the same thing. Internal identifiers, the database, the HTTP API, and the MCP tool names are unchanged (#241)
+- **Traces list now defaults to 25 per page** (was 50); still adjustable via the new page size selector above or in Settings (#241)
+- **AgentLens is now TraceRoost.** Several unrelated projects already use the AgentLens name. This release completes the rename across the whole project (#241):
   - npm package `traceroost` (was `agentlens-dashboard`); CLI `traceroost`; Docker image `traceroost/traceroost`.
   - **The VS Code extension keeps its marketplace id (`agentlens.agentlens-dashboard`)** — only the display name changes — so installed copies update in place with nothing to reinstall.
   - VS Code settings and commands moved from `agentLens.*` to `traceRoost.*`; the activity-bar view container is now **TraceRoost**.
   - Background service label is `com.traceroost.server`; the local data directory is `~/.traceroost`; environment variables are `TRACEROOST_PORT` / `TRACEROOST_MAX_SPANS`; the Claude Code stop-hook marker is `~/.traceroost/pending-prompt.txt`.
-  - New brand assets: `media/brand/` (wordmark + mark, with on-dark / mono / current-colour variants), regenerated activity-bar icon and marketplace icon, and a theme-adaptive inline mark in the dashboard.
-- **Upgrading from AgentLens is a clean break — no automatic migration.** After updating:
+  - New brand assets: `media/brand/` (wordmark + mark, with on-dark / mono / current-colour variants), regenerated activity-bar icon and marketplace icon, and a theme-adaptive **TraceRoost** wordmark in the dashboard's top tab bar, rendered as real text rather than an SVG path so it stays sharp at small sizes.
+  - The dashboard footer no longer repeats "TraceRoost" next to the version number now that the wordmark appears at the top of the page.
+  - If both the AgentLens and TraceRoost extensions end up installed side by side, a one-time notice recommends which copy to keep — a temporary aid for the transition, removed once the marketplace listing itself is eventually consolidated.
+- **Upgrading from AgentLens is a clean break — no automatic migration.** After updating (#241):
   - Re-run `npx traceroost@latest service install` if you use the background service (remove the old service first with `agentlens service uninstall`).
   - Let auto-config rewrite your agents' OTEL settings on their next start, or click **Configure OTEL** in Settings. Old `agentLens.*` settings values are not carried over.
   - Session history under the old `~/.agentlens` directory is not moved; pass `--data-dir ~/.agentlens` if you need it, or copy its contents into `~/.traceroost`.
-- The old `agentlens-dashboard` npm package and `agentlens/agentlens` Docker image are **deprecated**. They receive security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch, until they are archived.
+- The old `agentlens-dashboard` npm package and `agentlens/agentlens` Docker image are **deprecated**. They receive security fixes only, from the [`agentlens`](https://github.com/traceroost/core/tree/agentlens) branch, until they are archived (#241)
+- **README reorganized around getting started faster** — a quick-start blurb and a table of contents added near the top; sections describing what TraceRoost does (Features, Data Sources, Cost, Export/Import, Recommendations) now come right after it, ahead of installation instructions; "Getting Started" is renamed "Ways to Run"; two pairs of sections that had drifted into restating the same facts (Features/Additional Features, Data Sources/Agent Data Formats) are merged (#243, #244)
+- Added a scripted, isolated way to regenerate the README's demo GIF (`pnpm run demo:gif`) — internal dev tooling only, no user-facing product change (#242)
+
+### Fixed
+
+- **The loop/malfunction pattern count was stale in both the README and the in-app Help tab** — the README said five and Help said eight; TraceRoost has detected ten for a while, and two of them (Fabricated Dependency, Unverified Submission) were undocumented anywhere. Both now list all ten (#243)
 
 ---
 
