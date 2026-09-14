@@ -38,4 +38,4 @@ export function whoSeesWhat(perDeveloperVisibility: boolean, orgName: string): s
     : `The lead of ${orgName} sees team totals only. Your individual numbers stay yours unless the whole team turns that on.`
 }
 
-export const LEAVE_HINT = 'Unlink anytime, and instantly, with `agentlens team leave` or the Leave team button.'
+export const LEAVE_HINT = 'Unlink anytime, and instantly, with `traceroost team leave` or the Leave team button.'

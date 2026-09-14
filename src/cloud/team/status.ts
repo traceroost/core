@@ -1,6 +1,6 @@
 /**
  * The single source of truth for "what is this machine's Pro state right now" — consumed by the
- * Team panel (AL 01), the tab-bar state dot, and `agentlens team status`.
+ * Team panel (AL 01), the tab-bar state dot, and `traceroost team status`.
  *
  * It is rendered from **local data only**. An unlinked install produces a complete status object
  * without making a single request; that is what lets the panel's unlinked state exist with the

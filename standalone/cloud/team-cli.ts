@@ -1,5 +1,5 @@
 /**
- * `agentlens team <link|status|leave>` — the CLI half of AL 01.
+ * `traceroost team <link|status|leave>` — the CLI half of AL 01.
  *
  * Pure orchestration over `src/team/`. Prints the exact same SENT / NEVER_SENT list the Team
  * panel and the OAuth consent screen show, then runs the PKCE flow (or the `--device` fallback).
@@ -22,11 +22,11 @@ function printPromise(): void {
 
 async function runLink(args: string[]): Promise<number> {
   if (loadCredentials()) {
-    console.log('This machine is already linked. Run `agentlens team leave` first to re-link.')
+    console.log('This machine is already linked. Run `traceroost team leave` first to re-link.')
     return 1
   }
   const device = args.includes('--device')
-  console.log(`Linking this machine to AgentLens Pro at ${teamEndpoint()}.`)
+  console.log(`Linking this machine to TraceRoost Pro at ${teamEndpoint()}.`)
   printPromise()
   console.log(LEAVE_HINT + '\n')
 
@@ -64,8 +64,8 @@ async function runLink(args: string[]): Promise<number> {
 function runStatus(): number {
   const status = getTeamStatus(getQueueStats())
   if (!status.linked) {
-    console.log('Not linked. AgentLens is working locally and sending nothing anywhere.')
-    console.log('Run `agentlens team link` to join a team.')
+    console.log('Not linked. TraceRoost is working locally and sending nothing anywhere.')
+    console.log('Run `traceroost team link` to join a team.')
     return 0
   }
   console.log(`Linked to ${status.orgName} (${status.orgId})`)
@@ -100,7 +100,7 @@ export async function runTeamCli(args: string[]): Promise<number> {
     case 'status': return runStatus()
     case 'leave':  return runLeave()
     default:
-      console.log('Usage: agentlens team <link|status|leave> [--device]')
+      console.log('Usage: traceroost team <link|status|leave> [--device]')
       console.log('  link    Join a team (opens a browser; --device for headless machines)')
       console.log('  status  Show this machine\'s Pro state')
       console.log('  leave   Unlink this machine (local-first, works offline)')

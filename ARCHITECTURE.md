@@ -22,7 +22,7 @@ TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry f
 12. [Auto-Configuration](#12-auto-configuration)
 13. [Background Service Mode](#13-background-service-mode)
 14. [Build Pipeline](#14-build-pipeline)
-15. [AgentLens Pro — team link](#15-agentlens-pro--team-link)
+15. [TraceRoost Pro — team link](#15-traceroost-pro--team-link)
 
 ---
 
@@ -1051,13 +1051,13 @@ worth knowing about since it's the one part of the codebase `check-types` doesn'
 
 ---
 
-## 15. AgentLens Pro — team link
+## 15. TraceRoost Pro — team link
 
-Everything in `src/cloud/team/` is the **client half of AgentLens Pro** — an optional layer that lets a
+Everything in `src/cloud/team/` is the **client half of TraceRoost Pro** — an optional layer that lets a
 lead see cross-developer aggregates. It is built against two rules:
 
 1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
-   AgentLens service — no version ping, no "do you have a team" check. `getTeamStatus()` and
+   TraceRoost service — no version ping, no "do you have a team" check. `getTeamStatus()` and
    `loadCredentials()` touch local disk only. The wire format (AL 02) has no free-text field, so
    there is nothing for source code to travel in.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my machine, my
@@ -1071,7 +1071,7 @@ lead see cross-developer aggregates. It is built against two rules:
 | `src/cloud/team/config.ts` | The one list of every URL the client can contact; `TeamCredentials` shape |
 | `src/cloud/team/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
 | `src/cloud/team/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
-| `src/cloud/team/credentials.ts` | `~/.agentlens/team.json`, mode 0600, keychain-ready via `CredentialStore` |
+| `src/cloud/team/credentials.ts` | `~/.traceroost/team.json`, mode 0600, keychain-ready via `CredentialStore` |
 | `src/cloud/team/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
 | `src/cloud/team/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
 | `src/cloud/team/status.ts` | `getTeamStatus()` — local-only status for the panel, dot and CLI |
@@ -1084,7 +1084,7 @@ lead see cross-developer aggregates. It is built against two rules:
 | `src/cloud/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
 | `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders (AL 08) — prose fields structurally unreachable |
 | `src/cloud/team/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
-| `src/cloud/team/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.agentlens/instruction-ledger.json`) |
+| `src/cloud/team/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
 
 **The split that makes AL 08 genuinely Pro:** the cloud finds the pattern (some file is read in
 62% of sessions by four of six developers), the machine writes the text (which file, and the
@@ -1092,16 +1092,16 @@ sentence). `getHotFileSuggestions` already fires at 40% over *one* person's sess
 raises it to "four of you do, and none of your instruction files mention it," which no local
 install can reach. The local Advisor is free and unchanged. `suggestedText` / `evidence` /
 `title` never leave the machine — only `suggestion_id` (hashed), the enums, and the numeric
-baseline. Apply loop: `agentlens advise --apply <id>` regenerates with real paths, appends,
+baseline. Apply loop: `traceroost advise --apply <id>` regenerates with real paths, appends,
 captures a baseline; `agentlens://advise?id=…` is the editor deep link.
 | `src/cloud/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard` |
 | `src/cloud/team/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
-| `src/cloud/forward/queue.ts` | `~/.agentlens/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600 |
+| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600 |
 | `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
 | `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
-`agentlens --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
+`traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
 (`standalone/cloud/explainPayload.ts`) print the exact bytes for a real session, stable-key-ordered,
 on a free install with no team. A test asserts the printed JSON equals the queued JSON (AL 04).
 
@@ -1109,7 +1109,7 @@ The wire contract (AL 02) is owned **here**, in the client the sceptic already t
 service validates against the identical document. `src/cloud/forward/` is a closed island: every field
 is a number, an enum, a hash or a timestamp, and a CI test walks `schema/rollup.v1.json` to fail
 the build if any string is left unconstrained. See [`docs/wire-schema.md`](docs/wire-schema.md).
-`install_id` lives in `~/.agentlens/config.json` (`src/serviceConfig.ts` `ensureInstallId`) and
+`install_id` lives in `~/.traceroost/config.json` (`src/serviceConfig.ts` `ensureInstallId`) and
 is **not** in the payload — the service derives identity from the bearer token.
 
 ### Surfaces
@@ -1118,8 +1118,8 @@ is **not** in the payload — the service derives identity from the bearer token
   new tab-bar icon carrying a state dot (grey unlinked / green reporting / amber queued or
   degraded). The unlinked state is what almost every install shows forever; it states plainly
   that nothing is sent and offers `Show the exact payload` *before* linking.
-- **CLI** — `agentlens team <link|status|leave> [--device]` (`standalone/cloud/team-cli.ts`).
-- **Command palette** — `AgentLens: Link This Machine to a Team`, `… Team Link Status`,
+- **CLI** — `traceroost team <link|status|leave> [--device]` (`standalone/cloud/team-cli.ts`).
+- **Command palette** — `TraceRoost: Link This Machine to a Team`, `… Team Link Status`,
   `… Leave Team`.
 - **Standalone server** — `GET/POST /api/team`, dispatched through the same `panelController`.
 
@@ -1133,7 +1133,7 @@ upgrade, no quotas, no trial, no free self-hostable team server), is in
 pinned by a test.
 
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
-machine that has the repo. `agentlens cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
+machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
 and `agentlens://cohort?repo=<hash>&merged=…&window=…`. `src/cloud/team/resolveRepoHash.ts` re-derives
 repo hashes for local clones only — it is not an oracle, and a deep link for an unknown repo
 makes no request.

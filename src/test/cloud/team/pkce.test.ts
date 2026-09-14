@@ -35,8 +35,8 @@ suite('team/pkce', () => {
 
   test('authorize URL carries challenge, S256 method and state, and a loopback redirect', () => {
     const url = new URL(buildAuthorizeUrl({
-      authorizeEndpoint: 'https://app.agentlens.dev/oauth/authorize',
-      clientId: 'agentlens-client',
+      authorizeEndpoint: 'https://traceroost.com/oauth/authorize',
+      clientId: 'traceroost-client',
       redirectUri: 'http://127.0.0.1:51234/callback',
       scope: 'rollup.write roster.read',
       challenge: 'CHAL',

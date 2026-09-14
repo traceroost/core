@@ -140,7 +140,7 @@ function UnlinkedBody() {
     <>
       <Section title="This machine">
         <div style="font-size:12px;color:var(--fg);line-height:1.5">
-          AgentLens is working exactly as it does now. <strong>Nothing is being sent anywhere.</strong> There is
+          TraceRoost is working exactly as it does now. <strong>Nothing is being sent anywhere.</strong> There is
           no account, no telemetry and no network connection to any service.
         </div>
       </Section>
@@ -158,7 +158,7 @@ function UnlinkedBody() {
           onClick={() => { teamBusy.value = 'link'; vscode?.postMessage({ type: 'teamLink' }) }}
           style="font-size:12px;padding:6px 14px;border:none;border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer;font-weight:600"
         >{busy === 'link' ? 'Opening your browser…' : 'Link this machine'}</button>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">Opens your browser once. Headless box? Run <code>agentlens team link --device</code>.</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">Opens your browser once. Headless box? Run <code>traceroost team link --device</code>.</div>
       </Section>
     </>
   )

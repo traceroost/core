@@ -3,7 +3,7 @@
 If you're browsing the tree wondering why this exists outside the rest of
 `src/`, this is the short answer. For the deep architecture, see
 [CLOUD_ARCHITECTURE.md](../../CLOUD_ARCHITECTURE.md) and
-[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-agentlens-pro--team-link). For
+[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-pro--team-link). For
 what shipped feature-by-feature, see [CLOUD_FEATURES.md](../../CLOUD_FEATURES.md).
 
 ## What's in here

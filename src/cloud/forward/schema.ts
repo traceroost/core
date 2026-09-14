@@ -1,5 +1,5 @@
 /**
- * The AgentLens Pro wire format (AL 02) — hand-written, and deliberately NOT derived from
+ * The TraceRoost Pro wire format (AL 02) — hand-written, and deliberately NOT derived from
  * `SessionSummaryCard`.
  *
  * `SessionSummaryCard` carries `userRequest`, `timeline[].responseText`, `toolInput`,

@@ -158,7 +158,7 @@ function ShareBox({ repo }: { repo: RepoTurnover }) {
     includeLabel ? `${repo.label}: ` : '',
     `${pct(latest.turnoverRate)} of the AI-authored code I merged in ${fmtDate(latest.cohortLabel + '-01')} `,
     `has since been rewritten or reverted (${latest.aiLinesAuthored.toLocaleString()} lines, ${latest.commitCount} commits). `,
-    `Healthy benchmark: under ${pct(latest.benchmark.healthyUnder)}. — via AgentLens`,
+    `Healthy benchmark: under ${pct(latest.benchmark.healthyUnder)}. — via TraceRoost`,
   ].join('')
 
   return (
@@ -237,7 +237,7 @@ export function Outcomes() {
               {/* The wall, stated once. One Pro reference on this surface, in the cohort footer only. */}
               <div class="sub" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
                 This is your own work on your own clones. The team-wide version — everyone's turnover,
-                across people and repositories — is <a href="https://app.agentlens.dev" target="_blank" style="color:var(--accent)">AgentLens Pro</a>.
+                across people and repositories — is <a href="https://traceroost.com" target="_blank" style="color:var(--accent)">TraceRoost Pro</a>.
               </div>
             </>
           )}

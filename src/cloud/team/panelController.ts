@@ -56,7 +56,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
       const label = `${session.source} · ${new Date(session.startTime).toLocaleString()}`
       const text = deps.buildPayloadPreview
         ? await deps.buildPayloadPreview(session)
-        : 'The exact-payload preview arrives with the rollup builder in the next AgentLens update.\n' +
+        : 'The exact-payload preview arrives with the rollup builder in the next TraceRoost update.\n' +
           'Until then: nothing is sent, so there is nothing to preview.'
       deps.post({ type: 'teamPayloadPreview', preview: { text, sessionLabel: label } })
       return

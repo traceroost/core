@@ -24,17 +24,17 @@ export interface CallbackServer {
   close(): void
 }
 
-const SUCCESS_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>AgentLens</title>
+const SUCCESS_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
 <style>body{font:14px -apple-system,system-ui,sans-serif;color:#1f2328;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center;background:#f6f8fa}
 .card{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:32px 40px;text-align:center;max-width:360px}
 h1{font-size:16px;margin:0 0 8px}p{color:#656d76;margin:0}</style></head>
-<body><div class="card"><h1>Machine linked</h1><p>You can close this tab and return to AgentLens.</p></div></body></html>`
+<body><div class="card"><h1>Machine linked</h1><p>You can close this tab and return to TraceRoost.</p></div></body></html>`
 
-const ERROR_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>AgentLens</title>
+const ERROR_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
 <style>body{font:14px -apple-system,system-ui,sans-serif;color:#1f2328;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center;background:#f6f8fa}
 .card{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:32px 40px;text-align:center;max-width:360px}
 h1{font-size:16px;margin:0 0 8px}p{color:#656d76;margin:0}</style></head>
-<body><div class="card"><h1>Link failed</h1><p>Something went wrong. Return to AgentLens and try again.</p></div></body></html>`
+<body><div class="card"><h1>Link failed</h1><p>Something went wrong. Return to TraceRoost and try again.</p></div></body></html>`
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 

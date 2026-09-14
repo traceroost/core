@@ -2,9 +2,9 @@
  * A small local record of applied / dismissed / reverted Advisor suggestions (AL 08), for the
  * CLI apply loop. The VS Code extension keeps the authoritative record in SQLite
  * (`instruction_applied` / `instruction_dismissed`); this file is the CLI's equivalent so
- * `agentlens advise --apply` outside the editor still captures a baseline and can emit events.
+ * `traceroost advise --apply` outside the editor still captures a baseline and can emit events.
  *
- * `~/.agentlens/instruction-ledger.json`, keyed by workspace path.
+ * `~/.traceroost/instruction-ledger.json`, keyed by workspace path.
  */
 
 import * as fs from 'fs'
@@ -14,7 +14,7 @@ import type { SuggestionLedger } from './instructionTelemetry'
 import { EMPTY_LEDGER } from './instructionTelemetry'
 
 function ledgerPath(baseHome: string = os.homedir()): string {
-  return path.join(baseHome, '.agentlens', 'instruction-ledger.json')
+  return path.join(baseHome, '.traceroost', 'instruction-ledger.json')
 }
 
 type LedgerFile = Record<string, SuggestionLedger>

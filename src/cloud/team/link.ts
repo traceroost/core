@@ -67,7 +67,7 @@ export interface InteractiveLinkOptions {
 
 export async function linkInteractive(opts: InteractiveLinkOptions = {}): Promise<LinkResult> {
   if (loadCredentials()) {
-    throw new Error('this machine is already linked — run `agentlens team leave` first to re-link')
+    throw new Error('this machine is already linked — run `traceroost team leave` first to re-link')
   }
   const pkce = createPkcePair()
   const server = await startCallbackServer({ timeoutMs: opts.timeoutMs })
@@ -107,7 +107,7 @@ export interface DeviceLinkOptions {
 
 export async function linkViaDevice(opts: DeviceLinkOptions): Promise<LinkResult> {
   if (loadCredentials()) {
-    throw new Error('this machine is already linked — run `agentlens team leave` first to re-link')
+    throw new Error('this machine is already linked — run `traceroost team leave` first to re-link')
   }
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)))
   const start = await startDeviceFlow(hostnameLabel())

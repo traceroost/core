@@ -96,7 +96,7 @@ export class DashboardPanel {
           openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
           recentSessions: () => this.repo.listSessions({ limit: 25 }),
           buildPayloadPreview: (session) => buildPayloadPreviewText(session),
-          onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse('https://app.agentlens.dev')) },
+          onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse('https://traceroost.com')) },
         })
         return
       }
@@ -272,7 +272,7 @@ export class DashboardPanel {
   }
 
   private async maybeRouteToOutcomes(): Promise<void> {
-    const SHOWN_KEY = 'agentLens.outcomesFirstRunShown'
+    const SHOWN_KEY = 'traceRoost.outcomesFirstRunShown'
     if (this.context.globalState.get<boolean>(SHOWN_KEY)) return
     try {
       const report = await buildLocalTurnoverReport(this.repo.listSessions(), { db: this.rawDb })

@@ -1,5 +1,5 @@
 /**
- * `agentlens advise <--list|--apply <id>> [--repo <path>]` and `agentlens cluster --repo <hash|name> --id <id>` (AL 08).
+ * `traceroost advise <--list|--apply <id>> [--repo <path>]` and `traceroost cluster --repo <hash|name> --id <id>` (AL 08).
  *
  * The local Advisor is free and unchanged. What this adds is the apply loop: regenerate a
  * suggestion with real paths, show the drafted line, append it to the instruction file, capture
@@ -44,7 +44,7 @@ async function runList(workspace: string): Promise<number> {
     console.log(`  why:    ${s.evidence}`)
     console.log(`  target: ${s.targetAgents.join(', ')}`)
   }
-  console.log('\nApply one with:  agentlens advise --apply <id>')
+  console.log('\nApply one with:  traceroost advise --apply <id>')
   return 0
 }
 
@@ -54,7 +54,7 @@ async function runApply(workspace: string, idOrHash: string): Promise<number> {
   const suggestions = generateSuggestions(sessions, existing)
   const card = matchSuggestion(suggestions, idOrHash)
   if (!card) {
-    console.log(`No suggestion matches "${idOrHash}" in this repo. Run \`agentlens advise --list\`.`)
+    console.log(`No suggestion matches "${idOrHash}" in this repo. Run \`traceroost advise --list\`.`)
     return 1
   }
 
@@ -83,7 +83,7 @@ function runCluster(args: string[]): number {
   console.log(
     'Cluster naming happens locally, where the prompts are. This command opens the local view:\n' +
     `  repo: ${repo ?? '(missing --repo)'}\n  cluster: ${id ?? '(missing --id)'}\n` +
-    'In the editor, run the AgentLens: Open Dashboard command and use the Advisor tab.',
+    'In the editor, run the TraceRoost: Open Dashboard command and use the Advisor tab.',
   )
   return repo && id ? 0 : 1
 }
@@ -102,7 +102,7 @@ export async function runAdviseCli(args: string[]): Promise<number> {
   if (applyId) return runApply(abs, applyId)
 
   console.log('Usage:')
-  console.log('  agentlens advise --list                 list instruction suggestions for this repo')
-  console.log('  agentlens advise --apply <id> [--repo p] draft + append a suggestion, capture a baseline')
+  console.log('  traceroost advise --list                 list instruction suggestions for this repo')
+  console.log('  traceroost advise --apply <id> [--repo p] draft + append a suggestion, capture a baseline')
   return 0
 }

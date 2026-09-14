@@ -28,7 +28,7 @@ suite('docs/pricing-boundary', () => {
   })
 
   test('names the hand-off commands', () => {
-    assert.match(DOC, /agentlens cohort --repo <hash\|name> --merged/)
+    assert.match(DOC, /traceroost cohort --repo <hash\|name> --merged/)
     assert.match(DOC, /agentlens:\/\/cohort/)
   })
 })

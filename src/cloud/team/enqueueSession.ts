@@ -24,7 +24,7 @@ export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: st
     const added = new ForwardQueue().enqueue(built.payload)
     return added ? { enqueued: true } : { enqueued: false, reason: 'duplicate' }
   } catch (err) {
-    log?.(`[AgentLens] could not enqueue session for forwarding: ${(err as Error).message}`)
+    log?.(`[TraceRoost] could not enqueue session for forwarding: ${(err as Error).message}`)
     return { enqueued: false, reason: 'error' }
   }
 }

@@ -84,16 +84,16 @@
         "title": "TraceRoost: Show Storage Stats"
       },
       {
-        "command": "agentLens.teamLink",
-        "title": "AgentLens: Link This Machine to a Team (Pro)"
+        "command": "traceRoost.teamLink",
+        "title": "TraceRoost: Link This Machine to a Team (Pro)"
       },
       {
-        "command": "agentLens.teamStatus",
-        "title": "AgentLens: Team Link Status (Pro)"
+        "command": "traceRoost.teamStatus",
+        "title": "TraceRoost: Team Link Status (Pro)"
       },
       {
-        "command": "agentLens.teamLeave",
-        "title": "AgentLens: Leave Team (Pro)"
+        "command": "traceRoost.teamLeave",
+        "title": "TraceRoost: Leave Team (Pro)"
       }
     ],
     "menus": {

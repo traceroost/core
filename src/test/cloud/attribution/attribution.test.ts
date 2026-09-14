@@ -42,7 +42,7 @@ suite('attribution', () => {
   })
   teardown(() => { fs.rmSync(repo, { recursive: true, force: true }) })
 
-  test('first run on a repo with no AgentLens history: 0 coverage, no crash', async () => {
+  test('first run on a repo with no TraceRoost history: 0 coverage, no crash', async () => {
     write('src/a.ts', 20, 'a')
     commit('add a', at(0))
     const res = await attributeRepository(repo, { sessions: [] })

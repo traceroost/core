@@ -1,5 +1,5 @@
 /**
- * `agentlens cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]` (AL 09).
+ * `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]` (AL 09).
  *
  * The hand-off: the hosted service holds counts, not code, so "turnover is 31%, show me an
  * example" cannot be answered there — but it can be answered here, on a machine that has the
@@ -41,7 +41,7 @@ export async function runCohortCli(args: string[]): Promise<number> {
   const window = (valueAfter(args, '--window') ?? '90').trim()
 
   if (!repoArg || !MONTH_RE.test(merged) || (window !== '30' && window !== '90')) {
-    console.log('Usage: agentlens cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]')
+    console.log('Usage: traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]')
     return 1
   }
 

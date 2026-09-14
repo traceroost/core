@@ -1628,7 +1628,7 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
-  // ── Team (AgentLens Pro) — AL 01 ───────────────────────────────────────────
+  // ── Team (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
   // GET returns the local status (no network). POST runs an action (link/leave/explain).
   // Both reply with an array of webview messages the polyfill re-dispatches.
   if (url === '/api/team' && (req.method === 'GET' || req.method === 'POST')) {

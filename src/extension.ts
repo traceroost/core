@@ -630,51 +630,51 @@ export async function activate(context: vscode.ExtensionContext) {
   notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
 }
 
-// ── Team (AgentLens Pro) commands ────────────────────────────────────────────
+// ── Team (TraceRoost Pro) commands ───────────────────────────────────────────
 //
 // Every capability here is inert until a team is explicitly linked. Registering the commands
 // does nothing on its own — `getTeamStatus()` and `loadCredentials()` touch only local disk.
 
 function registerTeamCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand('agentLens.teamLink', async () => {
+    vscode.commands.registerCommand('traceRoost.teamLink', async () => {
       if (getTeamStatus().linked) {
-        vscode.window.showInformationMessage('AgentLens: this machine is already linked. Run "AgentLens: Leave Team" first to re-link.')
+        vscode.window.showInformationMessage('TraceRoost: this machine is already linked. Run "TraceRoost: Leave Team" first to re-link.')
         return
       }
       const proceed = await vscode.window.showInformationMessage(
-        'Link this machine to an AgentLens Pro team?\n\nSent: ' + SENT.join('; ') + '.\n\nNever sent: ' + NEVER_SENT.join('; ') + '.',
+        'Link this machine to a TraceRoost Pro team?\n\nSent: ' + SENT.join('; ') + '.\n\nNever sent: ' + NEVER_SENT.join('; ') + '.',
         { modal: true },
         'Open browser to link',
       )
       if (proceed !== 'Open browser to link') return
       try {
         const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: 'AgentLens: waiting for browser approval…' },
+          { location: vscode.ProgressLocation.Notification, title: 'TraceRoost: waiting for browser approval…' },
           () => linkInteractive({ openUrl: (url: string) => { void vscode.env.openExternal(vscode.Uri.parse(url)) } }),
         )
-        vscode.window.showInformationMessage(`AgentLens: linked to ${result.orgName} as ${result.role}.`)
+        vscode.window.showInformationMessage(`TraceRoost: linked to ${result.orgName} as ${result.role}.`)
         forwardScheduler?.syncToLinkState()
         DashboardPanel.currentPanel?.update()
       } catch (err) {
-        vscode.window.showErrorMessage(`AgentLens: link failed — ${(err as Error).message}. Nothing was changed.`)
+        vscode.window.showErrorMessage(`TraceRoost: link failed — ${(err as Error).message}. Nothing was changed.`)
       }
     }),
-    vscode.commands.registerCommand('agentLens.teamStatus', () => {
+    vscode.commands.registerCommand('traceRoost.teamStatus', () => {
       const s = getTeamStatus(getQueueStats())
       vscode.window.showInformationMessage(
         s.linked
-          ? `AgentLens Pro: linked to ${s.orgName} as ${s.role}. Queue depth ${s.queueDepth ?? 0}, last rollup ${s.lastRollupAt ?? 'none yet'}.`
-          : 'AgentLens Pro: not linked. AgentLens is working locally and sending nothing anywhere.',
+          ? `TraceRoost Pro: linked to ${s.orgName} as ${s.role}. Queue depth ${s.queueDepth ?? 0}, last rollup ${s.lastRollupAt ?? 'none yet'}.`
+          : 'TraceRoost Pro: not linked. TraceRoost is working locally and sending nothing anywhere.',
       )
     }),
-    vscode.commands.registerCommand('agentLens.teamLeave', async () => {
+    vscode.commands.registerCommand('traceRoost.teamLeave', async () => {
       if (!getTeamStatus().linked) {
-        vscode.window.showInformationMessage('AgentLens: this machine is not linked.')
+        vscode.window.showInformationMessage('TraceRoost: this machine is not linked.')
         return
       }
       const confirm = await vscode.window.showWarningMessage(
-        'Leave the AgentLens Pro team? The local credential is deleted and this machine stops forwarding immediately.',
+        'Leave the TraceRoost Pro team? The local credential is deleted and this machine stops forwarding immediately.',
         { modal: true },
         'Leave team',
       )
@@ -682,8 +682,8 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
       const res = await leave()
       vscode.window.showInformationMessage(
         res.serverRevoked
-          ? 'AgentLens: unlinked. This machine has stopped forwarding.'
-          : 'AgentLens: unlinked locally. Could not reach the server to revoke the token — it will be revoked on next contact, or by a lead from the roster.',
+          ? 'TraceRoost: unlinked. This machine has stopped forwarding.'
+          : 'TraceRoost: unlinked locally. Could not reach the server to revoke the token — it will be revoked on next contact, or by a lead from the roster.',
       )
       forwardScheduler?.syncToLinkState()
       DashboardPanel.currentPanel?.update()
@@ -712,10 +712,10 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
         if (kind === 'advise') {
           const id = (params.get('id') ?? '').trim()
           if (!HASH_RE.test(id) && !/^[a-z0-9:_]{1,120}$/i.test(id)) {
-            vscode.window.showWarningMessage('AgentLens: that advise link is malformed.')
+            vscode.window.showWarningMessage('TraceRoost: that advise link is malformed.')
             return
           }
-          vscode.commands.executeCommand('agentLens.openDashboard')
+          vscode.commands.executeCommand('traceRoost.openDashboard')
           setTimeout(() => {
             DashboardPanel.switchToTab('patterns')
             DashboardPanel.currentPanel?.postToWebview({ type: 'focusSuggestion', id })
@@ -728,7 +728,7 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
           const merged = (params.get('merged') ?? '').trim()
           const window = (params.get('window') ?? '90').trim()
           if (!HASH_RE.test(repoHash) || !MONTH_RE.test(merged) || (window !== '30' && window !== '90')) {
-            vscode.window.showWarningMessage('AgentLens: that cohort link is malformed.')
+            vscode.window.showWarningMessage('TraceRoost: that cohort link is malformed.')
             return
           }
           void (async () => {
@@ -738,10 +738,10 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
             ]
             const root = await resolveRepoHash(repoHash, workspaces)
             if (!root) {
-              vscode.window.showInformationMessage('AgentLens: that cohort is for a repository this machine does not have. Nothing was requested.')
+              vscode.window.showInformationMessage('TraceRoost: that cohort is for a repository this machine does not have. Nothing was requested.')
               return
             }
-            vscode.commands.executeCommand('agentLens.openDashboard')
+            vscode.commands.executeCommand('traceRoost.openDashboard')
             setTimeout(() => {
               DashboardPanel.switchToTab('outcomes')
               DashboardPanel.currentPanel?.postToWebview({ type: 'focusCohort', repoRoot: root, merged, windowDays: Number(window) })
@@ -750,7 +750,7 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
           return
         }
 
-        vscode.window.showWarningMessage(`AgentLens: unrecognised link ${uri.toString()}`)
+        vscode.window.showWarningMessage(`TraceRoost: unrecognised link ${uri.toString()}`)
       },
     }),
   )

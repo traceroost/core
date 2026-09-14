@@ -4,7 +4,7 @@
  *
  * ```
  * root        = git rev-list --max-parents=0 HEAD   (smallest, if several)
- * repo_key    = HKDF(ikm = root, salt = org_id, info = "agentlens/v1")
+ * repo_key    = HKDF(ikm = root, salt = org_id, info = "traceroost/v1")
  *
  * repo_hash   = HMAC(repo_key, "repo")
  * branch_hash = HMAC(repo_key, "branch:" + branch)
@@ -36,7 +36,10 @@ import * as path from 'path'
 const execFileAsync = promisify(execFile)
 
 const GIT_TIMEOUT_MS = 5000
-const HKDF_INFO = 'agentlens/v1'
+// NEVER change this once a real team has linked a real repository — it's baked into every
+// repo_key/repo_hash/repo_key_fp already derived, and changing it makes every existing repo
+// look like a brand-new one to the service, silently discontinuing its cohort history.
+const HKDF_INFO = 'traceroost/v1'
 
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {

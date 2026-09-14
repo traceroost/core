@@ -2,7 +2,7 @@
 
 What `src/cloud/` actually does, feature by feature. For *how* it's built, see
 [CLOUD_ARCHITECTURE.md](CLOUD_ARCHITECTURE.md) and
-[ARCHITECTURE.md §15](ARCHITECTURE.md#15-agentlens-pro--team-link). For *why
+[ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--team-link). For *why
 it's a separate directory and license*, see
 [src/cloud/README.md](src/cloud/README.md). This is the merged result of the
 `pro/01`–`pro/09` design series (`.staged-feature/01`–`09`); "AL NN" below
@@ -23,9 +23,9 @@ cites the plan a feature shipped from.
 ## 1. Team link — join, status, leave
 
 One place to opt into everything else on this list: a Team panel (a slide-in
-beside Settings) plus three commands (`AgentLens: Link This Machine to a
+beside Settings) plus three commands (`TraceRoost: Link This Machine to a
 Team`, `… Team Link Status`, `… Leave Team`) and a matching CLI
-(`agentlens team <link|status|leave> [--device]`). Supports both an
+(`traceroost team <link|status|leave> [--device]`). Supports both an
 interactive OAuth 2.0 PKCE flow (opens a browser, catches the redirect on a
 one-shot local loopback server) and the Device Authorization Grant (RFC 8628)
 for remote/headless machines. The panel ships to every install; everything
@@ -48,7 +48,7 @@ claim in CLOUD_ARCHITECTURE.md checkable rather than just asserted.
 
 Turns a closed session, a batch of commits, or a turnover sample into the
 exact wire records the schema defines — explicit field-by-field mapping, no
-spreads, so nothing can ride along unnoticed. `agentlens --explain-payload`
+spreads, so nothing can ride along unnoticed. `traceroost --explain-payload`
 prints exactly what would be queued for a real session, stable-key-ordered,
 and works on a free install with no team linked — the transparency tool
 doesn't require the thing it's proving trustworthy.
@@ -56,7 +56,7 @@ doesn't require the thing it's proving trustworthy.
 ## 4. Forwarding queue
 
 The disk-backed, idempotent queue and sender that actually gets a rollup to
-the hosted service — `~/.agentlens/forward-queue.jsonl`, 0600, capped with
+the hosted service — `~/.traceroost/forward-queue.jsonl`, 0600, capped with
 oldest-first eviction, deduplicated on an idempotency key so a retry after an
 ambiguous failure is free. Drains on its own timer, started only while
 linked, never synchronously from a session close. Every failure mode (offline,
@@ -103,8 +103,8 @@ pool evidence across a team about which instructions actually change
 behavior. The local Advisor — detecting instruction files, suggesting edits,
 measuring a before/after baseline — stays free and unchanged; what's Pro is
 the cross-developer pooling a single install structurally cannot produce
-itself. `agentlens advise --apply <id>` regenerates instruction text with
-real local paths and captures the baseline; `agentlens cohort --repo …`
+itself. `traceroost advise --apply <id>` regenerates instruction text with
+real local paths and captures the baseline; `traceroost cohort --repo …`
 answers a team's "show me an example" request on the machine that actually
 has the repo, via a deep link, so the hosted service never needs to hold
 source.

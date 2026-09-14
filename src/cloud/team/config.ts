@@ -1,21 +1,47 @@
 /**
- * AgentLens Pro — team link configuration and credential shape.
+ * TraceRoost Pro — team link configuration and credential shape.
  *
- * Everything in `src/team/` is the *client* half of AgentLens Pro. None of it runs, makes a
- * request, or reads anything unless a team has been explicitly linked (see `credentials.ts`).
+ * Everything in `src/cloud/team/` is the *client* half of TraceRoost Pro. None of it runs, makes
+ * a request, or reads anything unless a team has been explicitly linked (see `credentials.ts`).
  * An unlinked install never touches the network — that is the invariant AL 01 exists to protect,
  * and it is enforced structurally here: `teamEndpoint()` is only ever read after `loadCredentials()`
  * has returned a non-null value.
  */
 
-/** The hosted AgentLens Pro service. Overridable for self-hosted/staging via env; there is no
- *  setting for it, because a linked machine already trusts whatever server issued its token. */
-export const DEFAULT_TEAM_ENDPOINT = 'https://app.agentlens.dev'
+/** The hosted TraceRoost Pro service's real environments — mirrors `alsaas/infra`'s Pulumi
+ *  stacks exactly (`Pulumi.test.yaml`, `Pulumi.stage.yaml`, `Pulumi.prod.yaml`). Production has
+ *  no subdomain: `alsaas`'s prod stack CNAMEs the bare apex, not `app.`. */
+export type TeamEnvironment = 'production' | 'stage' | 'test'
 
-export function teamEndpoint(): string {
-  const fromEnv = process.env.AGENTLENS_TEAM_URL?.trim()
-  return (fromEnv && stripTrailingSlash(fromEnv)) || DEFAULT_TEAM_ENDPOINT
+const TEAM_ENDPOINTS: Record<TeamEnvironment, string> = {
+  production: 'https://traceroost.com',
+  stage: 'https://stage.traceroost.com',
+  test: 'https://test.traceroost.com',
 }
+
+const DEFAULT_TEAM_ENVIRONMENT: TeamEnvironment = 'production'
+
+function isTeamEnvironment(v: string): v is TeamEnvironment {
+  return v === 'production' || v === 'stage' || v === 'test'
+}
+
+/**
+ * Resolves in order: an explicit full URL (`TRACEROOST_TEAM_URL`, for pointing at `alsaas`'s own
+ * `pnpm dev` on localhost, or any other one-off target), then a named environment
+ * (`TRACEROOST_TEAM_ENV=test|stage|production`), then production. Unset in a normal install —
+ * there is no user-facing setting for this, because a linked machine already trusts whatever
+ * server issued its token.
+ */
+export function teamEndpoint(): string {
+  const fromUrl = process.env.TRACEROOST_TEAM_URL?.trim()
+  if (fromUrl) return stripTrailingSlash(fromUrl)
+  const fromEnvName = process.env.TRACEROOST_TEAM_ENV?.trim().toLowerCase()
+  if (fromEnvName && isTeamEnvironment(fromEnvName)) return TEAM_ENDPOINTS[fromEnvName]
+  return TEAM_ENDPOINTS[DEFAULT_TEAM_ENVIRONMENT]
+}
+
+/** Back-compat export — prefer `teamEndpoint()`, which is environment-aware. */
+export const DEFAULT_TEAM_ENDPOINT = TEAM_ENDPOINTS[DEFAULT_TEAM_ENVIRONMENT]
 
 function stripTrailingSlash(u: string): string {
   return u.endsWith('/') ? u.slice(0, -1) : u
@@ -29,7 +55,9 @@ export function tokenUrl(endpoint = teamEndpoint()): string {
   return `${endpoint}/oauth/token`
 }
 export function deviceCodeUrl(endpoint = teamEndpoint()): string {
-  return `${endpoint}/oauth/device`
+  // Matches `alsaas/src/app/oauth/device/code/route.ts` — not `/oauth/device` (that path 404s;
+  // `/oauth/device` is only the browser-facing verification page).
+  return `${endpoint}/oauth/device/code`
 }
 export function revokeUrl(endpoint = teamEndpoint()): string {
   return `${endpoint}/oauth/revoke`
@@ -43,7 +71,7 @@ export function ingestUrl(endpoint = teamEndpoint()): string {
 
 /** The OAuth client id the CLI/extension identifies as. Public by design — PKCE is what
  *  secures the exchange, not a client secret (there is none). */
-export const OAUTH_CLIENT_ID = 'agentlens-client'
+export const OAUTH_CLIENT_ID = 'traceroost-client'
 
 /** Scope requested at link time. Read-only membership + write-only rollup ingest; nothing
  *  that could read another member's data or a repository. */

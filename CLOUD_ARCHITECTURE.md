@@ -1,4 +1,4 @@
-# AgentLens Pro — Cloud Architecture
+# TraceRoost Pro — Cloud Architecture
 
 This is the entry point for the **cloud / team** feature set merged onto this branch from the
 `pro/01`–`pro/09` series (`AL 01`–`AL 09` in the plan below). It indexes the deep-dive docs that
@@ -9,7 +9,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 | Doc | Covers |
 | --- | --- |
 | [CLOUD_FEATURES.md](CLOUD_FEATURES.md) | What each merged slice actually does, feature by feature |
-| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-agentlens-pro--team-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines |
+| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--team-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines |
 | [`src/cloud/README.md`](src/cloud/README.md) | Why this code lives in one directory, and under a different license |
 | [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
 | [`docs/wire-schema.md`](docs/wire-schema.md) | The exact wire contract, and how to verify the privacy claim yourself |
@@ -20,7 +20,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 ## The two rules everything below answers to
 
 1. **Privacy is a property, not a promise.** An unlinked install makes no request to any
-   AgentLens service, ever. The wire format has no free-text field — there is nothing for source
+   TraceRoost service, ever. The wire format has no free-text field — there is nothing for source
    code to travel in even if a bug tried to send it.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my* machine, *my*
    commits, *my* repositories is free and complete. Paid is cross-developer aggregation — the one
@@ -37,18 +37,18 @@ repository a skeptical developer already trusts.
 graph TB
     subgraph Machine["Developer machine — this repo"]
         PANEL["Team panel (webview)<br/>media/src/cloud/panels/TeamPanel.tsx"]
-        CLI["CLI<br/>agentlens team link / status / leave"]
+        CLI["CLI<br/>traceroost team link / status / leave"]
         LINK["src/cloud/team/link.ts<br/>PKCE + device flow"]
-        CRED["src/cloud/team/credentials.ts<br/>~/.agentlens/team.json (0600)"]
+        CRED["src/cloud/team/credentials.ts<br/>~/.traceroost/team.json (0600)"]
         ENQ["src/cloud/team/enqueueSession.ts<br/>session close -> rollup"]
         SCHEMA["src/cloud/forward/schema.ts + buildSessionRollup.ts<br/>hash everything, no free text"]
-        QUEUE["src/cloud/forward/queue.ts<br/>~/.agentlens/forward-queue.jsonl"]
+        QUEUE["src/cloud/forward/queue.ts<br/>~/.traceroost/forward-queue.jsonl"]
         SCHED["src/cloud/forward/scheduler.ts<br/>timer, only while linked"]
         SEND["src/cloud/forward/sender.ts<br/>drainQueue — backoff, batch, dedupe"]
         LOCAL[("Local SQLite<br/>sessions, spans, attribution, turnover")]
     end
 
-    subgraph Service["AgentLens Pro service — alsaas (separate repo)"]
+    subgraph Service["TraceRoost Pro service — alsaas (separate repo)"]
         OAUTH["OAuth / PKCE authorization server"]
         INGEST["POST /api/ingest<br/>validates against schema/rollup.v1.json"]
         STORE[("Rollup storage")]
@@ -106,13 +106,13 @@ the denominator rather than guessed at.
 
 | Surface | Entry point | Notes |
 | --- | --- | --- |
-| VS Code command palette | `AgentLens: Link This Machine to a Team` / `… Team Link Status` / `… Leave Team` | `registerTeamCommands` in `src/extension.ts` |
+| VS Code command palette | `TraceRoost: Link This Machine to a Team` / `… Team Link Status` / `… Leave Team` | `registerTeamCommands` in `src/extension.ts` |
 | VS Code webview | Team panel, a slide-in beside Settings | `media/src/cloud/panels/TeamPanel.tsx` + `src/cloud/team/panelController.ts` |
 | Dashboard tab (free) | **Outcomes** | `media/src/cloud/tabs/Outcomes.tsx`; opens automatically on first measurable cohort |
-| CLI | `agentlens team <link\|status\|leave> [--device]` | `standalone/cloud/team-cli.ts` |
-| CLI | `agentlens --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` |
-| CLI | `agentlens advise --apply <id>` | `standalone/cloud/adviseCli.ts` — regenerates instruction text with real paths, appends, captures a baseline |
-| CLI | `agentlens cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/cloud/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo |
+| CLI | `traceroost team <link\|status\|leave> [--device]` | `standalone/cloud/team-cli.ts` |
+| CLI | `traceroost --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` |
+| CLI | `traceroost advise --apply <id>` | `standalone/cloud/adviseCli.ts` — regenerates instruction text with real paths, appends, captures a baseline |
+| CLI | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/cloud/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo |
 | Standalone HTTP | `GET/POST /api/team` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview |
 | Deep links | `agentlens://advise?id=…`, `agentlens://cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source |
 
@@ -126,7 +126,7 @@ the denominator rather than guessed at.
    `RollupPayload` via `buildSessionRollup.ts`: every field is a hash, enum, count, or timestamp;
    `repoKey.ts` derives the repository identifier from the local clone's root commit (HKDF/HMAC),
    never the repo name or path.
-4. `ForwardQueue.enqueue()` appends it to `~/.agentlens/forward-queue.jsonl` (0600) if the
+4. `ForwardQueue.enqueue()` appends it to `~/.traceroost/forward-queue.jsonl` (0600) if the
    idempotency key isn't already queued.
 5. On its own timer — started only while linked — `drainQueue()` (`src/cloud/forward/sender.ts`) sends
    eligible items in batches, refreshing the access token on a 401, backing off with jitter on

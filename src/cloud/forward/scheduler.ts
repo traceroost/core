@@ -38,11 +38,11 @@ export function startForwardScheduler(opts: {
     try {
       const res = await drainQueue({ notify: opts.notify })
       if (res.sent > 0 || res.droppedInvalid > 0) {
-        opts.log?.(`[AgentLens] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
+        opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
       }
       if (res.stopped === 'membership-revoked') stop()
     } catch (err) {
-      opts.log?.(`[AgentLens] forwarding drain error: ${(err as Error).message}`)
+      opts.log?.(`[TraceRoost] forwarding drain error: ${(err as Error).message}`)
     } finally {
       draining = false
     }

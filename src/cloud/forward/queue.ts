@@ -5,7 +5,7 @@
  * dashboard is stale for an hour. So there is no synchronous path from a session close to the
  * network — rollups are built, appended here, and drained on a timer.
  *
- * - Stored in `~/.agentlens/forward-queue.jsonl`, one JSON object per line, user-only (0600),
+ * - Stored in `~/.traceroost/forward-queue.jsonl`, one JSON object per line, user-only (0600),
  *   surviving restarts and sleep.
  * - Idempotent on the item key (`session:<uuid>`, `commits:<fp>:<digest>`,
  *   `turnover:<fp>:<digest>`), so a retry after an ambiguous failure is free and the server
@@ -35,7 +35,7 @@ export interface QueueItem {
 export const DEFAULT_MAX_ITEMS = 5000
 
 export function queuePath(baseHome: string = os.homedir()): string {
-  return path.join(baseHome, '.agentlens', 'forward-queue.jsonl')
+  return path.join(baseHome, '.traceroost', 'forward-queue.jsonl')
 }
 
 /** Derives the idempotency key for a payload — matches `alsaas` `receiptKeys()`. */

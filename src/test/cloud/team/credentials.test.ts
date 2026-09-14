@@ -6,7 +6,7 @@ import { fileCredentialStore, credentialsPath } from '../../../cloud/team/creden
 import type { TeamCredentials } from '../../../cloud/team/config'
 
 const SAMPLE: TeamCredentials = {
-  endpoint: 'https://app.agentlens.dev',
+  endpoint: 'https://traceroost.com',
   orgId: 'org_1',
   orgName: 'Acme',
   memberId: 'mem_1',

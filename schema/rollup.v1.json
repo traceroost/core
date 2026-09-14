@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://agentlens.dev/schema/rollup.v1.json",
-  "title": "AgentLens rollup, version 1",
-  "description": "The complete wire format between a linked machine and the AgentLens Pro ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. See docs/decisions/0003-what-we-can-and-cannot-see.md.",
+  "$id": "https://traceroost.com/schema/rollup.v1.json",
+  "title": "TraceRoost rollup, version 1",
+  "description": "The complete wire format between a linked machine and the TraceRoost Pro ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. See docs/decisions/0003-what-we-can-and-cannot-see.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repo_key_fp"],

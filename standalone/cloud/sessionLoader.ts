@@ -5,15 +5,17 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import * as os from 'os'
 import { summarizeSpans } from '../../src/spanSummarizer'
 import { LogReader } from '../../src/logReader'
 import { computeOneShotStats } from '../../src/oneShotRate'
+import { defaultDataDir } from '../../src/serviceConfig'
 import type { Span } from '../../src/types'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 export function loadAllSessions(): SessionSummaryCard[] {
-  const dataDir = process.env.DATA_DIR ?? path.join(os.homedir(), '.agentlens')
+  // Was hardcoded to `~/.agentlens` — silently found zero sessions on any install created
+  // after the rebrand, since the real default data dir moved to `~/.traceroost`.
+  const dataDir = process.env.DATA_DIR ?? defaultDataDir()
   const sessions: SessionSummaryCard[] = []
 
   try {

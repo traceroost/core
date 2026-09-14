@@ -1,7 +1,7 @@
 /**
  * Storage for the linked-machine credential (AL 01).
  *
- * The credential lives in `~/.agentlens/team.json` with user-only permissions (0600). A real OS
+ * The credential lives in `~/.traceroost/team.json` with user-only permissions (0600). A real OS
  * keychain is the preferred store, but the file fallback is *always* kept — keychains are absent
  * in containers, CI and headless boxes, which is exactly where linking a machine matters. Rather
  * than pull a native dependency (`keytar` and friends drag a build toolchain into a
@@ -18,12 +18,12 @@ import * as os from 'os'
 import * as path from 'path'
 import type { TeamCredentials } from './config'
 
-export function agentlensDir(baseHome: string = os.homedir()): string {
-  return path.join(baseHome, '.agentlens')
+export function traceroostDir(baseHome: string = os.homedir()): string {
+  return path.join(baseHome, '.traceroost')
 }
 
 export function credentialsPath(baseHome?: string): string {
-  return path.join(agentlensDir(baseHome), 'team.json')
+  return path.join(traceroostDir(baseHome), 'team.json')
 }
 
 export interface CredentialStore {

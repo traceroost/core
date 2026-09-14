@@ -1,5 +1,5 @@
 /**
- * HTTP client for the AgentLens Pro OAuth + roster endpoints (AL 01).
+ * HTTP client for the TraceRoost Pro OAuth + roster endpoints (AL 01).
  *
  * Every function here is only ever reached from an explicit user action (`team link`, a token
  * refresh inside AL 04's sender, `team leave`) or from the linked Team panel refreshing itself.
@@ -59,7 +59,7 @@ async function postForm(url: string, body: Record<string, string>): Promise<Resp
 }
 
 function userAgent(): string {
-  return `agentlens-client/${clientVersion()}`
+  return `traceroost-client/${clientVersion()}`
 }
 
 let cachedVersion: string | undefined

@@ -21,7 +21,7 @@ export interface ServiceConfig {
    *  and persists one on first run — kept out of `defaultServiceConfig` so that function stays
    *  pure and deterministic for tests. */
   authToken: string
-  /** Stable per-machine identifier for AgentLens Pro (AL 02). A UUID generated once, at first
+  /** Stable per-machine identifier for TraceRoost Pro (AL 02). A UUID generated once, at first
    *  run, and persisted here beside the auth token — present from schema version 1 even before
    *  anything reads it, so a later team link never needs a schema change plus a backfill.
    *  Empty until `ensureInstallId` generates one, same rationale as `authToken`. It is NOT sent

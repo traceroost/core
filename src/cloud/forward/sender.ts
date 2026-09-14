@@ -101,7 +101,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         res = await postPayload(creds.accessToken, item, deps.baseHome).catch(() => res)
         if (res.status === 202 || res.status === 200) { succeeded.push(item.key); sent++; continue }
       } catch {
-        deps.notify?.('AgentLens: could not refresh your team credential. Rollups are queued and will send once you re-link.', 'warning')
+        deps.notify?.('TraceRoost: could not refresh your team credential. Rollups are queued and will send once you re-link.', 'warning')
         writeForwardState({ paused: true, pausedUntil: null, lastErrorAt: new Date().toISOString(), lastError: 'token refresh failed' }, deps.baseHome)
         return finish('auth-failed')
       }
@@ -111,7 +111,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       queue.clear()
       clearCredentials()
       clearForwardState(deps.baseHome)
-      deps.notify?.('AgentLens: your team membership was revoked. This machine has stopped forwarding.', 'warning')
+      deps.notify?.('TraceRoost: your team membership was revoked. This machine has stopped forwarding.', 'warning')
       return { attempted: batch.length, sent, droppedInvalid, remaining: 0, stopped: 'membership-revoked' }
     }
 
@@ -157,7 +157,7 @@ async function postPayload(accessToken: string, item: QueueItem, _baseHome?: str
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
-        'User-Agent': `agentlens-client/${clientVersion()}`,
+        'User-Agent': `traceroost-client/${clientVersion()}`,
       },
       body: JSON.stringify(item.payload),
       signal: controller.signal,

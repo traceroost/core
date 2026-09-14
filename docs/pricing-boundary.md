@@ -10,7 +10,7 @@ word for word.*
 - **Free, complete and ungimped:** every session, every trace, every analytic, the Advisor, loop
   detection, unlimited retention, and the AI-code turnover report for your own commits and your
   own repositories.
-- **Paid (AgentLens Pro):** cross-developer aggregation — the team view, team cohorts,
+- **Paid (TraceRoost Pro):** cross-developer aggregation — the team view, team cohorts,
   per-repository rollups across people, pooled instruction suggestions, and the weekly digest.
 
 This works because it is structural, not administrative. A local install *genuinely cannot* see
@@ -43,9 +43,9 @@ Each of these is a reasonable-seeming decision that would quietly break the mode
   commit message or raw commit SHA ever leaves the machine. There is no opt-in that changes
   this. The wire schema ([`schema/rollup.v1.json`](../schema/rollup.v1.json)) has no free-text
   field.
-- An unlinked install makes no request to any AgentLens service — no version ping, no "do you
+- An unlinked install makes no request to any TraceRoost service — no version ping, no "do you
   have a team" check.
-- `agentlens --explain-payload` prints the exact bytes for a real session, always. Joining a
+- `traceroost --explain-payload` prints the exact bytes for a real session, always. Joining a
   team is an explicit act; leaving is one command and takes effect immediately, even offline.
 
 ## The hand-off
@@ -54,8 +54,8 @@ The hosted service holds counts, not code, so "turnover is 31%, show me an examp
 on your machine, not theirs:
 
 ```
-agentlens cohort --repo <hash|name> --merged 2026-07
-agentlens cohort --repo <hash|name> --merged 2026-07 --window 90
+traceroost cohort --repo <hash|name> --merged 2026-07
+traceroost cohort --repo <hash|name> --merged 2026-07 --window 90
 ```
 
 Also reachable from an `agentlens://cohort?repo=<hash>&merged=<YYYY-MM>&window=<30|90>` deep link
@@ -65,6 +65,6 @@ repository this machine does not have shows a plain message and makes no request
 
 ## The acid test
 
-AgentLens should be installable *alongside* a general LLM-observability tool, not instead of one.
-If a team can run one for debugging and AgentLens for outcome tracking without feeling they are
+TraceRoost should be installable *alongside* a general LLM-observability tool, not instead of one.
+If a team can run one for debugging and TraceRoost for outcome tracking without feeling they are
 paying twice, this boundary is drawn correctly.

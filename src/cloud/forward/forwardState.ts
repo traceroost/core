@@ -27,7 +27,7 @@ const EMPTY: PersistedState = {
 }
 
 export function forwardStatePath(baseHome: string = os.homedir()): string {
-  return path.join(baseHome, '.agentlens', 'forward-state.json')
+  return path.join(baseHome, '.traceroost', 'forward-state.json')
 }
 
 export function readForwardState(baseHome?: string): PersistedState {

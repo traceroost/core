@@ -1,5 +1,5 @@
 /**
- * `agentlens --explain-payload` / `--dry-run` (AL 03).
+ * `traceroost --explain-payload` / `--dry-run` (AL 03).
  *
  * Prints the exact JSON that would be transmitted for a real session — not a synthetic example.
  * Works on a free install with no team linked (the repo key is then derived under a placeholder
