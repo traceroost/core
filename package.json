@@ -2,7 +2,7 @@
   "name": "traceroost",
   "displayName": "TraceRoost - Agentic AI Monitoring & Observability",
   "description": "Agentic AI monitoring and observability — OTEL traces and local log file ingestion for Copilot, Claude Code, Codex, and OpenCode. VS Code extension, npx, and Docker.",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "publisher": "traceroost",
   "license": "MIT",
   "repository": {

@@ -6,6 +6,14 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ---
 
+## [0.16.1] — 2026-09-14
+
+### Fixed
+
+- **README wordmark was unreadable on the VS Code Marketplace** — dark ink text against the Marketplace's dark theme, since its README renderer doesn't evaluate the `<picture>`/`<source>` dark-mode hint that works correctly on GitHub. Swapped which variant is the fallback so the Marketplace (and anywhere else that only reads the plain `<img>`) shows the light-ink version instead (#245)
+
+---
+
 ## [0.16.0] — 2026-09-14
 
 ### Added
