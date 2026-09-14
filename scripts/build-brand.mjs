@@ -104,6 +104,16 @@ const wordmarkOnDark = read('wordmark-on-dark.svg')
 await sharp(Buffer.from(wordmarkOnDark)).resize(wordmarkPngWidth, wordmarkPngHeight).png().toFile(join(brand, 'wordmark-on-dark.png'))
 console.log('  media/brand/wordmark-on-dark.png (README hero, dark)')
 
+// Bird mark alone (no wordmark text), for use anywhere a raster is needed instead of the SVG —
+// avatars, social previews, etc. 1024px on the long edge (viewBox is taller than wide), transparent.
+const markHeight = 1024
+const markWidth = Math.round(markHeight * (2080 / 2232))
+await sharp(Buffer.from(mark)).resize(markWidth, markHeight).png().toFile(join(brand, 'mark.png'))
+console.log('  media/brand/mark.png (1024, light)')
+const markOnDark = read('mark-on-dark.svg')
+await sharp(Buffer.from(markOnDark)).resize(markWidth, markHeight).png().toFile(join(brand, 'mark-on-dark.png'))
+console.log('  media/brand/mark-on-dark.png (1024, dark)')
+
 // Standalone favicon.
 writeFileSync(join(media, 'favicon.svg'), iconAt(NIGHT, PAPER) + '\n')
 console.log('  media/favicon.svg')
