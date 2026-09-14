@@ -598,7 +598,7 @@ function AppliedCard({
           </div>
 
           {!hasAfter && (
-            <div style="font-size:11px;color:var(--muted);margin-top:6px">Collecting data… (need 3 post-application sessions)</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px">Collecting data… (need 3 post-application traces)</div>
           )}
 
           {hasAfter && (
@@ -751,21 +751,21 @@ export function Instructions() {
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">
                 <span>Sources</span>
                 <span style="color:var(--fg)">{Object.entries(diag.sources).map(([k,v]) => `${k}: ${v}`).join(', ') || 'none'}</span>
-                <span>Sessions with file data</span>
+                <span>Traces with file data</span>
                 <span style={`color:${diag.withFiles > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withFiles} / {diag.sessionCount}</span>
-                <span>Sessions with cost data</span>
+                <span>Traces with cost data</span>
                 <span style={`color:${diag.withCost > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withCost} / {diag.sessionCount}</span>
-                <span>Sessions with tool counts</span>
+                <span>Traces with tool counts</span>
                 <span style={`color:${diag.withToolCounts > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withToolCounts} / {diag.sessionCount}</span>
                 <span>Most-touched file</span>
-                <span style="color:var(--fg)">{diag.topFile ? `${diag.topFile.name} (${diag.topFile.count} sessions, ${pct(diag.topFile.count, diag.sessionCount)}%)` : 'none'}</span>
+                <span style="color:var(--fg)">{diag.topFile ? `${diag.topFile.name} (${diag.topFile.count} traces, ${pct(diag.topFile.count, diag.sessionCount)}%)` : 'none'}</span>
                 <span>Loop signal types</span>
                 <span style="color:var(--fg)">{diag.loopSignalTypes}</span>
-                <span>Bash-heavy sessions</span>
+                <span>Bash-heavy traces</span>
                 <span style="color:var(--fg)">{diag.bashHeavy}</span>
                 <span>Avg turns per trace</span>
                 <span style="color:var(--fg)">{diag.avgTurns > 0 ? diag.avgTurns.toFixed(1) : 'no data'}</span>
-                <span>High-turn sessions</span>
+                <span>High-turn traces</span>
                 <span style="color:var(--fg)">{diag.highTurnCount} / {diag.sessionCount}{diag.avgTurns > 0 ? ` (need ≥15% and avg ≥8)` : ''}</span>
                 <span>Open-ended prompts</span>
                 <span style="color:var(--fg)">{diag.scopeMatches}{diag.scopeRatio !== null ? ` (${diag.scopeRatio.toFixed(2)}× avg ${diag.scopeRatioUnit}, need ≥1.4×)` : diag.scopeMatches > 0 ? ' (no cost or turn data)' : ''}</span>

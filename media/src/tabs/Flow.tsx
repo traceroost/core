@@ -741,7 +741,7 @@ export function Flow() {
         <div ref={searchRef} style="position:relative">
           <input
             type="text"
-            placeholder={`Search ${allSessions.length} sessions…`}
+            placeholder={`Search ${allSessions.length} traces…`}
             value={searchText}
             onInput={e => { setSearchText((e.target as HTMLInputElement).value); setSearchOpen(true) }}
             onFocus={() => setSearchOpen(true)}

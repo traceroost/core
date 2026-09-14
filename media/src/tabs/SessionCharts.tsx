@@ -290,9 +290,9 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
         id="context-growth-chart"
         style="width:100%;height:200px;cursor:pointer"
         onClick={handleCanvasClick}
-        title="Click a line to select that session"
+        title="Click a line to select that trace"
       />
-      {!hasData && <div class="empty-state" style="font-size:11px">No per-turn token data for these sessions. Context Growth requires sessions with per-turn input token counts — available for OTel-sourced sessions and Claude Code log sessions.</div>}
+      {!hasData && <div class="empty-state" style="font-size:11px">No per-turn token data for these traces. Context Growth requires traces with per-turn input token counts — available for OTel-sourced traces and Claude Code log traces.</div>}
       {hasData && (
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px">
           <div style="display:flex;align-items:center;gap:6px">
@@ -307,10 +307,10 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
                 title={`${s}× speed`}
               >{s === 0.5 ? '½×' : `${s}×`}</button>
             ))}
-            <button style={btnStyle} onClick={stepPrev} title="Previous session">◀</button>
-            <button style={btnStyle} onClick={stepNext} title="Next session">▶</button>
+            <button style={btnStyle} onClick={stepPrev} title="Previous trace">◀</button>
+            <button style={btnStyle} onClick={stepNext} title="Next trace">▶</button>
           </div>
-          <span style="font-size:10px;color:var(--muted)">most recent {seriesCount} of {sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
+          <span style="font-size:10px;color:var(--muted)">most recent {seriesCount} of {sessions.length} trace{sessions.length !== 1 ? 's' : ''}</span>
         </div>
       )}
       <div style="text-align:center;font-size:9px;color:var(--muted);margin-top:4px">
@@ -535,7 +535,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
   return (
     <>
       <canvas ref={canvasRef} style="width:100%;height:160px;display:block;cursor:pointer"
-        onClick={handleTokenChartClick} title="Click a bar to open that session" />
+        onClick={handleTokenChartClick} title="Click a bar to open that trace" />
       {agentSources.length > 0 && (
         <div style="display:flex;gap:10px;justify-content:center;margin-top:4px;flex-wrap:wrap">
           {agentSources.map(src => (

@@ -117,7 +117,7 @@ export function SessionsPageSizeControl() {
 
   return (
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
-      <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:2px">Sessions per page</div>
+      <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:2px">Traces per page</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px">How many traces the Traces tab renders at once, with paging for the rest.</div>
       <select
         value={current}

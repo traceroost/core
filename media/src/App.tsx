@@ -815,7 +815,7 @@ function SearchFilterBar() {
         value={dsFilter}
         onChange={v => { dataSourceFilter.value = v }}
       />
-      <span style="margin-left:auto;font-size:10px;color:var(--muted);white-space:nowrap;padding-right:2px">{filteredSessions.value.length} sessions</span>
+      <span style="margin-left:auto;font-size:10px;color:var(--muted);white-space:nowrap;padding-right:2px">{filteredSessions.value.length} trace{filteredSessions.value.length !== 1 ? 's' : ''}</span>
       </div>
     </div>
   )
