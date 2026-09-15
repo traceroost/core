@@ -438,18 +438,19 @@ function SessionRow({ sess, showWorkspace, conversation }: {
           <span dangerouslySetInnerHTML={{ __html: getInitiatorBadgeHtml(sess.initiator) }} />
         </td>
 
-        {/* Timestamp + optional workspace label */}
+        {/* Timestamp */}
         <td style="padding:4px 6px;white-space:nowrap;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums">
           {formatSessionTime(sess)}
-          {showWorkspace && sess.workspace && (
-            <span
-              title={sess.workspace}
-              style="margin-left:5px;color:var(--muted);opacity:0.55;font-size:9px;overflow:hidden;text-overflow:ellipsis;max-width:110px;display:inline-block;vertical-align:middle"
-            >
-              {shortWorkspaceName(sess.workspace)}
-            </span>
-          )}
         </td>
+
+        {showWorkspace && (
+          <td
+            style="padding:4px 6px;white-space:nowrap;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;max-width:130px"
+            title={sess.workspace}
+          >
+            {sess.workspace ? shortWorkspaceName(sess.workspace) : '—'}
+          </td>
+        )}
 
         {/* Prompt */}
         <td style="padding:4px 6px;max-width:0;width:100%">
@@ -495,7 +496,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 
       {expanded && (
         <tr style="border-bottom:1px solid var(--vscode-panel-border)">
-          <td colspan={9} style="padding:0">
+          <td colspan={showWorkspace ? 10 : 9} style="padding:0">
             <SessionDetail sess={sess} />
           </td>
         </tr>
@@ -561,6 +562,7 @@ export function Sessions() {
             <th style="width:16px;padding:3px 4px 3px 8px" />
             <th style={'width:10px;padding:3px 4px;' + thSort} onClick={() => onSortClick('source')} title="Sort by agent">{sortArrow('source')}</th>
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('start_time')}>Start Time{sortArrow('start_time')}</th>
+            {showWorkspace && <th style={thBase + ';text-align:left;color:var(--fg)'}>Project</th>}
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('prompt')}>Prompt{sortArrow('prompt')}</th>
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('model')}>Model{sortArrow('model')}</th>
             <th style={'text-align:right;' + thSort} onClick={() => onSortClick('total_tokens')} title="Total tokens across all turns (fresh input + cache reads + output). For multi-turn traces this accumulates across every turn and can far exceed a single context window.">Tokens{sortArrow('total_tokens')}</th>
