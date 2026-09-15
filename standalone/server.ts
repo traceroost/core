@@ -282,6 +282,11 @@ async function startLogIngestion() {
     card.oneShotStats = computeOneShotStats(card)
     logSessions.set(card.sessionId, card)
     countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + 1)
+    // Pro: enqueue this session for forwarding. Hard no-op unless a team is linked. Needed
+    // here, not just in runLogScan() — this loop's own file reads update the same LogReader's
+    // fileState that scan() checks, so a historical file read here first is invisible to
+    // scan() as "new" forever after (see the note above the main loop below).
+    void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
   }
 
   // Run the initial batch synchronously so logSessions is populated before the
@@ -300,6 +305,21 @@ async function startLogIngestion() {
         result.card.oneShotStats = computeOneShotStats(result.card)
         logSessions.set(result.card.sessionId, result.card)
         countByKey.set(file.agentKey, (countByKey.get(file.agentKey) ?? 0) + 1)
+        // Pro: enqueue this session for forwarding. Hard no-op unless a team is linked.
+        //
+        // This has to happen here, not only in runLogScan(): this loop calls
+        // logReader.parseFile() directly on every discovered file to build the dashboard's
+        // initial view, and parseFile() records each file's current mtime/size into the same
+        // LogReader instance's fileState that scan() (runLogScan()'s own file-change check)
+        // reads. Without this call, every session that existed before the app ever started
+        // gets marked "already seen" here, on this one-time synchronous pass — before
+        // runLogScan() ever runs for the first time — so scan() finds no delta for any of
+        // them and never enqueues them, permanently. Only files that change *again* after
+        // this point (an actively-growing session) ever reach forwarding. Confirmed directly:
+        // of 58 real local sessions, only the handful still being actively written to were
+        // ever forwarded; the other ~40+ built valid payloads fine in isolation (repo-grouped
+        // or correctly ungrouped) but were never enqueued by the running server at all.
+        void maybeEnqueueSession(result.card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
       }
     } catch { /* skip bad file */ }
   }

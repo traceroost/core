@@ -331,6 +331,17 @@ export async function activate(context: vscode.ExtensionContext) {
                 const dk = files[i].agentKey === 'copilot_vscode_json' ? 'copilot_vscode' : files[i].agentKey
                 countByKey.set(dk, (countByKey.get(dk) ?? 0) + 1)
                 written++
+                // Pro: enqueue this session for forwarding. Hard no-op unless a team is
+                // linked. Has to happen in this one-time historical load, not only wherever
+                // a live session close triggers it — lr.parseFile() above records this
+                // file's mtime/size into the same LogReader's fileState that a later
+                // incremental scan checks for "has this changed", so a historical file read
+                // here first makes it permanently invisible to that scan as "new" (see the
+                // matching fix and its longer note in standalone/server.ts).
+                void maybeEnqueueSession(
+                  { ...result.card, workspace: result.workspace || ws },
+                  m => outputChannel?.appendLine(m),
+                )
               }
             } catch { /* skip bad file */ }
           }
@@ -359,6 +370,10 @@ export async function activate(context: vscode.ExtensionContext) {
           card.loopSignals = detectLoopSignals(card)
           card.oneShotStats = computeOneShotStats(card)
           writer!.enqueue(card, workspace || ws)
+          void maybeEnqueueSession(
+            { ...card, workspace: workspace || ws },
+            m => outputChannel?.appendLine(m),
+          )
         }
         countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + ocResults.length)
       }
