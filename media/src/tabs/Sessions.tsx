@@ -560,7 +560,7 @@ export function Sessions() {
             <th style="width:5px;padding:0" title="A colored bar marks traces that are really one conversation split into multiple rows by a long gap between them." />
             <th style="width:16px;padding:3px 4px 3px 8px" />
             <th style={'width:10px;padding:3px 4px;' + thSort} onClick={() => onSortClick('source')} title="Sort by agent">{sortArrow('source')}</th>
-            <th style={'text-align:left;' + thSort} onClick={() => onSortClick('start_time')}>Time{sortArrow('start_time')}</th>
+            <th style={'text-align:left;' + thSort} onClick={() => onSortClick('start_time')}>Start Time{sortArrow('start_time')}</th>
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('prompt')}>Prompt{sortArrow('prompt')}</th>
             <th style={'text-align:left;' + thSort} onClick={() => onSortClick('model')}>Model{sortArrow('model')}</th>
             <th style={'text-align:right;' + thSort} onClick={() => onSortClick('total_tokens')} title="Total tokens across all turns (fresh input + cache reads + output). For multi-turn traces this accumulates across every turn and can far exceed a single context window.">Tokens{sortArrow('total_tokens')}</th>
