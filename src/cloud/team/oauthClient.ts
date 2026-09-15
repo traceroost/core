@@ -243,3 +243,33 @@ export async function fetchRosterSelf(accessToken: string, endpoint = teamEndpoi
     return null
   }
 }
+
+// ── This install's own trace count ──────────────────────────────────────────
+//
+// `traceroost team verify` answers "does the server have everything I see locally" — this is
+// the server-side half of that comparison. Scoped to this machine's own install by the bearer
+// token server-side (AL 02: never another install's count), same trust boundary as roster/me.
+
+export interface InstallStats {
+  sessions: number
+  lastAt: string | null
+}
+
+export async function fetchInstallStats(accessToken: string, endpoint = teamEndpoint()): Promise<InstallStats | null> {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    const res = await fetch(`${endpoint}/api/installs/me`, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': userAgent() },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer))
+    if (!res.ok) return null
+    const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    return {
+      sessions: typeof raw.sessions === 'number' ? raw.sessions : 0,
+      lastAt: typeof raw.last_at === 'string' ? raw.last_at : null,
+    }
+  } catch {
+    return null
+  }
+}
