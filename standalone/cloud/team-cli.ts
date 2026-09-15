@@ -28,7 +28,7 @@ async function runLink(args: string[]): Promise<number> {
     return 1
   }
   const device = args.includes('--device')
-  console.log(`Linking this machine to TraceRoost Pro at ${teamEndpoint()}.`)
+  console.log(`Linking this machine to TraceRoost Cloud at ${teamEndpoint()}.`)
   printPromise()
   console.log(LEAVE_HINT + '\n')
 

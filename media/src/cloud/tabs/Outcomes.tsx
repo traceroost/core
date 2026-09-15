@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
 import { vscode } from '../../state'
+import { teamStatus, requestTeamStatus } from '../panels/TeamPanel'
 
 // ── Types (mirror src/turnover/index.ts + localReport.ts) ───────────────────
 
@@ -183,6 +184,11 @@ export function Outcomes() {
   const report = outcomesReport.value
 
   useEffect(() => { if (!report) requestOutcomes() }, [])
+  // For the TraceRoost Cloud link in the footer below — resolves to whichever environment this
+  // install actually points at (test/stage/prod), same as the Team panel. Harmless to request
+  // even if the Team panel already populated it; the handler is idempotent and this tab has no
+  // other reason to know team status.
+  useEffect(() => { if (!teamStatus.value) requestTeamStatus() }, [])
 
   if (!report) {
     return <div style="padding:20px;color:var(--muted);font-size:13px">{outcomesLoading.value ? 'Reading your git history and session records — locally…' : 'Loading…'}</div>
@@ -234,10 +240,10 @@ export function Outcomes() {
               </div>
               <CohortTrend report={repo.report} />
               <ShareBox repo={repo} />
-              {/* The wall, stated once. One Pro reference on this surface, in the cohort footer only. */}
+              {/* The wall, stated once. One Cloud reference on this surface, in the cohort footer only. */}
               <div class="sub" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
                 This is your own work on your own clones. The team-wide version — everyone's turnover,
-                across people and repositories — is <a href="https://traceroost.com" target="_blank" style="color:var(--accent)">TraceRoost Pro</a>.
+                across people and repositories — is <a href={teamStatus.value?.endpoint ?? 'https://traceroost.com'} target="_blank" style="color:var(--accent)">TraceRoost Cloud</a>.
               </div>
             </>
           )}

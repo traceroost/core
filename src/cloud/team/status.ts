@@ -76,6 +76,7 @@ export function getTeamStatus(queue?: QueueStats): TeamStatus {
       linked: false,
       clientVersion: version,
       indicator: 'unlinked',
+      endpoint: resolved.endpoint,
       environment: resolved.environment,
       environmentSource: resolved.source,
       environmentEditable: resolved.source === 'selected' || resolved.source === 'default',

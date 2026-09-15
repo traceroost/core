@@ -85,15 +85,15 @@
       },
       {
         "command": "traceRoost.teamLink",
-        "title": "TraceRoost: Link This Machine to a Team (Pro)"
+        "title": "TraceRoost: Link This Machine to a Team (Cloud)"
       },
       {
         "command": "traceRoost.teamStatus",
-        "title": "TraceRoost: Team Link Status (Pro)"
+        "title": "TraceRoost: Team Link Status (Cloud)"
       },
       {
         "command": "traceRoost.teamLeave",
-        "title": "TraceRoost: Leave Team (Pro)"
+        "title": "TraceRoost: Leave Team (Cloud)"
       }
     ],
     "menus": {

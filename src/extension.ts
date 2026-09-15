@@ -658,7 +658,7 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
         return
       }
       const proceed = await vscode.window.showInformationMessage(
-        'Link this machine to a TraceRoost Pro team?\n\nSent: ' + SENT.join('; ') + '.\n\nNever sent: ' + NEVER_SENT.join('; ') + '.',
+        'Link this machine to a TraceRoost Cloud team?\n\nSent: ' + SENT.join('; ') + '.\n\nNever sent: ' + NEVER_SENT.join('; ') + '.',
         { modal: true },
         'Open browser to link',
       )
@@ -679,8 +679,8 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
       const s = getTeamStatus(getQueueStats())
       vscode.window.showInformationMessage(
         s.linked
-          ? `TraceRoost Pro: linked to ${s.orgName} as ${s.role}. Queue depth ${s.queueDepth ?? 0}, last rollup ${s.lastRollupAt ?? 'none yet'}.`
-          : 'TraceRoost Pro: not linked. TraceRoost is working locally and sending nothing anywhere.',
+          ? `TraceRoost Cloud: linked to ${s.orgName} as ${s.role}. Queue depth ${s.queueDepth ?? 0}, last trace ${s.lastRollupAt ?? 'none yet'}.`
+          : 'TraceRoost Cloud: not linked. TraceRoost is working locally and sending nothing anywhere.',
       )
     }),
     vscode.commands.registerCommand('traceRoost.teamLeave', async () => {
@@ -689,7 +689,7 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
         return
       }
       const confirm = await vscode.window.showWarningMessage(
-        'Leave the TraceRoost Pro team? The local credential is deleted and this machine stops forwarding immediately.',
+        'Leave the TraceRoost Cloud team? The local credential is deleted and this machine stops forwarding immediately.',
         { modal: true },
         'Leave team',
       )
