@@ -13,7 +13,7 @@
     "vscode": "^1.118.0",
     "node": ">=24"
   },
-  "icon": "media/mascot.png",
+  "icon": "media/mascot-color.png",
   "galleryBanner": {
     "color": "#1e1e2e",
     "theme": "dark"
