@@ -5,12 +5,19 @@
  *
  * | Failure               | Behaviour                                                            |
  * |-----------------------|---------------------------------------------------------------------|
- * | Service unreachable   | keep the item, back off, retry next tick. No UI change.            |
+ * | Service unreachable / 5xx | keep the item, back off, retry next tick. No UI change.        |
  * | 401 / token expired   | refresh once; on failure, one dismissible notice, keep queueing.  |
  * | 403 / membership gone  | stop forwarding, clear the credential, tell the developer once.   |
  * | 400 / schema rejected  | drop the record, log locally with the error, never retry.         |
- * | 429                   | back off per `Retry-After`.                                        |
+ * | 429                   | back off per `Retry-After`, stop the whole batch (the server just  |
+ * |                       | told us to).                                                       |
  * | Disk full             | stop queueing, keep working (handled in `queue.ts`).              |
+ *
+ * A service-unreachable or 5xx failure only backs off the *item* that hit it — the rest of the
+ * batch is still attempted this tick. One flaky request (a dropped connection, a cold-started
+ * server) shouldn't leave everything behind it waiting for the next 5-minute tick when it would
+ * otherwise have gone through fine. 401 (after a failed refresh), 403 and 429 are different: they
+ * say something about every subsequent request too, so those still stop the batch outright.
  *
  * There is no synchronous path from a session close to here — `drainQueue` is only ever called
  * on a timer, and only when a team is linked.
@@ -72,6 +79,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   let sent = 0
   let droppedInvalid = 0
   let refreshedThisDrain = false
+  let sawTransientFailure = false
   const succeeded: string[] = []
   const droppedKeys: string[] = []
 
@@ -80,9 +88,13 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     try {
       res = await postPayload(creds.accessToken, item, deps.baseHome)
     } catch {
+      // A network-level failure (DNS, dropped connection, our own 20s timeout) tells us nothing
+      // about the *next* item — it may hit a warm connection and succeed. Back this one off and
+      // keep going, rather than abandoning the rest of the batch on one flaky request.
       queue.recordFailure(item.key, 'service unreachable')
       writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: 'service unreachable' }, deps.baseHome)
-      return finish('offline')
+      sawTransientFailure = true
+      continue
     }
 
     if (res.status === 202 || res.status === 200) {
@@ -130,13 +142,14 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       return finish('rate-limited')
     }
 
-    // 5xx or anything else — transient. Back off.
+    // 5xx or anything else — transient, and specific to this item's request, not the service as
+    // a whole. Back off and move on to the rest of the batch.
     queue.recordFailure(item.key, `HTTP ${res.status}`)
     writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: `HTTP ${res.status}` }, deps.baseHome)
-    return finish('offline')
+    sawTransientFailure = true
   }
 
-  return finish(null)
+  return finish(sawTransientFailure ? 'offline' : null)
 
   function finish(stopped: DrainResult['stopped']): DrainResult {
     if (succeeded.length > 0) queue.remove(succeeded)

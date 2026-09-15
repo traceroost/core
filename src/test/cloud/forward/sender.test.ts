@@ -128,14 +128,32 @@ suite('forward/sender', () => {
     assert.ok((st.pausedUntil ?? 0) > Date.now())
   })
 
-  test('500 → item kept with a bumped attempt count (backoff), drain stops', async () => {
+  test('500 → both items kept with a bumped attempt count (backoff); drain reports offline but does not stop early', async () => {
     new ForwardQueue(home).enqueue(payload(ID1))
     new ForwardQueue(home).enqueue(payload(ID2))
     stubFetch(() => new Response('', { status: 500 }))
     const res = await drainQueue({ baseHome: home })
     assert.strictEqual(res.stopped, 'offline')
     assert.strictEqual(new ForwardQueue(home).depth(), 2)
-    assert.strictEqual(new ForwardQueue(home).list()[0].attempts, 1)
+    // Both items were attempted — a failure on one no longer stops the batch before the other
+    // is even tried.
+    assert.ok(new ForwardQueue(home).list().every(it => it.attempts === 1))
+  })
+
+  test('a network failure on one item does not block the rest of the batch', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    new ForwardQueue(home).enqueue(payload(ID2))
+    stubFetch((_url, init) => {
+      if (String(init?.body).includes(ID1)) throw new TypeError('fetch failed')
+      return new Response('', { status: 202 })
+    })
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.sent, 1)
+    assert.strictEqual(res.stopped, 'offline') // the ID1 failure is still surfaced
+    const remaining = new ForwardQueue(home).list()
+    assert.strictEqual(remaining.length, 1)
+    assert.strictEqual(remaining[0].key, `session:${ID1}`)
+    assert.strictEqual(remaining[0].attempts, 1)
   })
 
   test('a duplicate delivery is a no-op on the client (idempotent enqueue)', async () => {
