@@ -1,25 +1,21 @@
 import { signal } from '@preact/signals'
 import { useEffect, useState } from 'preact/hooks'
-import { vscode } from '../../state'
+import { vscode, goToHelp } from '../../state'
 
 // ── The one description of the payload promise ──────────────────────────────
 // Mirrors src/team/privacy.ts, which mirrors the OAuth consent screen. A test on the extension
 // side (src/test/team/privacy.test.ts) pins the source-of-truth copy; this is the render of it.
 const SENT = [
-  'Session, turn and tool-call counts',
-  'Token counts and cost',
-  'Model and agent names (Claude, Copilot, Codex, …)',
-  'Duration and timestamps',
-  'Hashed commit ids and hashed file ids — one-way, keyed from your own clone',
-  'Line counts (added, removed, AI-authored, surviving)',
-  'Loop- and error-signal categories (an enum and a severity, never a message)',
+  'Usage counts — traces, turns, tool calls, tokens, cost',
+  'Model and agent names, with timestamps',
+  'Hashed commit and file ids — one-way, from your own clone',
+  'Line counts: added, removed, AI-authored, surviving',
+  'Loop and error categories (never a message)',
 ]
 const NEVER_SENT = [
-  'Prompts and completions',
-  'Diffs and file contents',
-  'File names, paths and repository names',
-  'Branch names and commit messages',
-  'Raw commit SHAs',
+  'Prompts, completions, diffs and file contents',
+  'File paths, repository and branch names',
+  'Commit messages and raw commit SHAs',
 ]
 
 export type TeamIndicator = 'unlinked' | 'reporting' | 'queued' | 'degraded'
@@ -80,7 +76,7 @@ const DOT_COLOR: Record<TeamIndicator, string> = {
   unlinked: 'var(--muted)',
   reporting: '#56D364',
   queued: '#f6a623',
-  degraded: '#f6a623',
+  degraded: '#f14c4c',
 }
 
 export function requestTeamStatus(): void {
@@ -128,6 +124,10 @@ function Section({ title, children }: { title: string; children: preact.Componen
       {children}
     </div>
   )
+}
+
+function Dot({ indicator }: { indicator: TeamIndicator }) {
+  return <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${DOT_COLOR[indicator]};margin-right:6px;flex-shrink:0`} />
 }
 
 function PayloadPreview() {
@@ -205,8 +205,12 @@ function UnlinkedBody({ st }: { st: TeamStatus }) {
       <Section title="If you linked this machine to a team">
         <SentNeverSent />
         <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">
-          Your lead would see team-wide aggregates. Per-developer numbers are shown only if your team turns
-          that on — the panel will say which is true once you link. Leaving is one click, and instant.
+          Your lead sees team totals only, by default. Leaving is one click, and instant.
+        </div>
+        <div style="margin-top:8px">
+          <a onClick={() => goToHelp('help-team')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+            How the hashing works, and what Team linking does →
+          </a>
         </div>
         <PayloadPreview />
       </Section>
@@ -231,21 +235,32 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         <div style="font-size:11px;color:var(--muted);margin-top:2px">You are <strong>{st.role ?? 'a member'}</strong> · {st.email ?? `member ${short(st.memberId)}`}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">
           {st.perDeveloperVisibility
-            ? `${displayOrgName(st)} has per-developer numbers turned on — your lead sees your individual figures.`
-            : `Your lead sees team totals only. Your individual numbers stay yours unless the whole team turns that on.`}
+            ? `${displayOrgName(st)} shows individual numbers to your lead — this team turned that on.`
+            : `Your lead sees team totals only, by default. Individual numbers stay private.`}
         </div>
       </Section>
       <Section title="Status">
-        <Row k="Reporting" v={st.indicator === 'reporting' ? 'yes — up to date' : st.indicator === 'queued' ? `${st.queueDepth ?? 0} trace(s) queued` : `paused — ${st.degradedReason ?? 'last send failed'}`} />
+        <div style="display:flex;align-items:center;font-size:11px;padding:2px 0">
+          <Dot indicator={st.indicator} />
+          <span style="color:var(--fg)">
+            {st.indicator === 'reporting' ? 'Reporting — up to date'
+              : st.indicator === 'queued' ? `Queued — ${st.queueDepth ?? 0} trace(s) waiting to send`
+              : `Paused — ${st.degradedReason ?? 'last send failed'}`}
+          </span>
+        </div>
         <Row k="Last trace" v={st.lastRollupAt ? new Date(st.lastRollupAt).toLocaleString() : 'none yet'} />
-        <Row k="Queue depth" v={String(st.queueDepth ?? 0)} />
         <Row k="Environment" v={ENVIRONMENT_LABEL[st.environment]} />
         <Row k="Endpoint" v={st.endpoint ?? ''} />
-        <Row k="Client" v={`v${st.clientVersion}`} />
+        <Row k="TraceRoost version" v={`v${st.clientVersion}`} />
         <Row k="Linked" v={st.linkedAt ? new Date(st.linkedAt).toLocaleDateString() : ''} />
       </Section>
       <Section title="What is being sent">
         <SentNeverSent />
+        <div style="margin-top:8px">
+          <a onClick={() => goToHelp('help-team')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+            How the hashing works, and what Team linking does →
+          </a>
+        </div>
         <PayloadPreview />
       </Section>
       <Section title="Team view">

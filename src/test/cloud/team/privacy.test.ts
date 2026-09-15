@@ -9,23 +9,19 @@ import { SENT, NEVER_SENT } from '../../../cloud/team/privacy'
 suite('team/privacy', () => {
   test('SENT is the agreed list, verbatim', () => {
     assert.deepStrictEqual([...SENT], [
-      'Session, turn and tool-call counts',
-      'Token counts and cost',
-      'Model and agent names (Claude, Copilot, Codex, …)',
-      'Duration and timestamps',
-      'Hashed commit ids and hashed file ids — one-way, keyed from your own clone',
-      'Line counts (added, removed, AI-authored, surviving)',
-      'Loop- and error-signal categories (an enum and a severity, never a message)',
+      'Usage counts — traces, turns, tool calls, tokens, cost',
+      'Model and agent names, with timestamps',
+      'Hashed commit and file ids — one-way, from your own clone',
+      'Line counts: added, removed, AI-authored, surviving',
+      'Loop and error categories (never a message)',
     ])
   })
 
   test('NEVER_SENT is the agreed list, verbatim', () => {
     assert.deepStrictEqual([...NEVER_SENT], [
-      'Prompts and completions',
-      'Diffs and file contents',
-      'File names, paths and repository names',
-      'Branch names and commit messages',
-      'Raw commit SHAs',
+      'Prompts, completions, diffs and file contents',
+      'File paths, repository and branch names',
+      'Commit messages and raw commit SHAs',
     ])
   })
 

@@ -13,29 +13,25 @@
 
 /** What a rollup carries. Every item is a count, an enum, a hash, or a time. */
 export const SENT: readonly string[] = [
-  'Session, turn and tool-call counts',
-  'Token counts and cost',
-  'Model and agent names (Claude, Copilot, Codex, …)',
-  'Duration and timestamps',
-  'Hashed commit ids and hashed file ids — one-way, keyed from your own clone',
-  'Line counts (added, removed, AI-authored, surviving)',
-  'Loop- and error-signal categories (an enum and a severity, never a message)',
+  'Usage counts — traces, turns, tool calls, tokens, cost',
+  'Model and agent names, with timestamps',
+  'Hashed commit and file ids — one-way, from your own clone',
+  'Line counts: added, removed, AI-authored, surviving',
+  'Loop and error categories (never a message)',
 ]
 
 /** What never leaves the machine. There is no wire field that could hold it. */
 export const NEVER_SENT: readonly string[] = [
-  'Prompts and completions',
-  'Diffs and file contents',
-  'File names, paths and repository names',
-  'Branch names and commit messages',
-  'Raw commit SHAs',
+  'Prompts, completions, diffs and file contents',
+  'File paths, repository and branch names',
+  'Commit messages and raw commit SHAs',
 ]
 
 /** Rendered wherever the panel or CLI needs to name who sees the data. */
 export function whoSeesWhat(perDeveloperVisibility: boolean, orgName: string): string {
   return perDeveloperVisibility
-    ? `${orgName} has per-developer numbers turned on — the lead sees your individual figures, and the team view marks that it is on.`
-    : `The lead of ${orgName} sees team totals only. Your individual numbers stay yours unless the whole team turns that on.`
+    ? `${orgName} shows individual numbers to your lead — this team turned that on.`
+    : `Your lead sees team totals only, by default. Individual numbers stay private.`
 }
 
 export const LEAVE_HINT = 'Unlink anytime, and instantly, with `traceroost team leave` or the Leave team button.'

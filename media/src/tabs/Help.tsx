@@ -52,6 +52,7 @@ const HELP_SECTIONS = {
   costs:      { href: '#help-costs',      heading: 'Costs' },
   settings:   { href: '#help-settings',   heading: 'Settings' },
   mcp:        { href: '#help-mcp',        heading: 'MCP' },
+  team:       { href: '#help-team',       heading: 'Team' },
   export:     { href: '#help-export',     heading: 'Export' },
   import:     { href: '#help-import',     heading: 'Import' },
   badges:     { href: '#help-badges',     heading: 'Badges' },
@@ -931,6 +932,36 @@ and follow any correction prompt it returns before continuing.`}</pre>
   )
 }
 
+function TeamSection() {
+  return (
+    <div class="help-section" id="help-team">
+      <h3 class="help-heading">{HELP_SECTIONS.team.heading}</h3>
+      <div class="help-overview-body">
+        <p>TraceRoost Cloud links your machine to your team so a lead can see aggregate figures — cost, turnover, activity — across everyone's repositories, without seeing any individual's work. It's opt-in, off by default, and never required for the local dashboard to work.</p>
+
+        <h4 style={subHeadStyle}>What gets sent</h4>
+        <p style={mutedP}>Only counts, enums, hashes and timestamps — never prompts, diffs, file contents, file paths, repository or branch names, or commit messages. The exact list is shown in the Team panel and printed verbatim by <code style={codeStyle}>traceroost team --explain-payload</code>, so you never have to take this page's word for it.</p>
+
+        <h4 style={subHeadStyle}>How the hashing works</h4>
+        <p style={mutedP}>Commit ids and file ids are never sent as-is. Each one is put through a one-way hash (HMAC-SHA256), keyed by a value derived from your repository's own root commit and your organization's id. Two things follow from that:</p>
+        <div class="glossary">
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term">Cloud can't reverse it</dt>
+            <dd class="glossary-def" style="display:block">A hash can't be turned back into a file path or a commit sha — it's a one-way function. TraceRoost Cloud only ever sees an opaque token.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term">Consistent within your org, meaningless outside it</dt>
+            <dd class="glossary-def" style="display:block">The same file hashes to the same token every time within your org, so patterns like "this file keeps churning" are visible without anyone learning the file's name. Because the org id is mixed into the key, the same file hashed by a different organization produces a completely unrelated token.</dd>
+          </div>
+        </div>
+
+        <h4 style={subHeadStyle}>Linking and leaving</h4>
+        <p style={mutedP}>Linking opens your browser once, for account setup — nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; there's no server-side step and nothing to wait for.</p>
+      </div>
+    </div>
+  )
+}
+
 function ExportSection() {
   return (
     <div class="help-section" id="help-export">
@@ -1079,6 +1110,7 @@ export function Help() {
         <CostSection />
         <SettingsSection />
         <McpSection />
+        <TeamSection />
         <ExportSection />
         <ImportSection />
         <BadgesSection />
