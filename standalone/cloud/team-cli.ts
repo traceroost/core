@@ -74,7 +74,7 @@ function runStatus(): number {
   console.log(`  Linked at:     ${status.linkedAt}`)
   console.log(`  Client:        v${status.clientVersion}`)
   console.log(`  Queue depth:   ${status.queueDepth ?? 0}`)
-  console.log(`  Last rollup:   ${status.lastRollupAt ?? 'none yet'}`)
+  console.log(`  Last trace:    ${status.lastRollupAt ?? 'none yet'}`)
   console.log(`  Per-developer visibility: ${status.perDeveloperVisibility ? 'on' : 'off'}`)
   if (status.degradedReason) console.log(`  ⚠ ${status.degradedReason}`)
   return 0

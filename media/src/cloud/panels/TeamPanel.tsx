@@ -107,7 +107,7 @@ export function TeamButton() {
     : indicator === 'reporting'
       ? `Team — linked to ${displayOrgName(st)}, reporting`
       : indicator === 'queued'
-        ? `Team — linked, ${st.queueDepth ?? 0} rollup(s) queued`
+        ? `Team — linked, ${st.queueDepth ?? 0} trace(s) queued`
         : `Team — linked, last send failed`
   return (
     <div style="position:relative;display:flex;align-items:center">
@@ -236,8 +236,8 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         </div>
       </Section>
       <Section title="Status">
-        <Row k="Reporting" v={st.indicator === 'reporting' ? 'yes — up to date' : st.indicator === 'queued' ? `${st.queueDepth ?? 0} rollup(s) queued` : `paused — ${st.degradedReason ?? 'last send failed'}`} />
-        <Row k="Last rollup" v={st.lastRollupAt ? new Date(st.lastRollupAt).toLocaleString() : 'none yet'} />
+        <Row k="Reporting" v={st.indicator === 'reporting' ? 'yes — up to date' : st.indicator === 'queued' ? `${st.queueDepth ?? 0} trace(s) queued` : `paused — ${st.degradedReason ?? 'last send failed'}`} />
+        <Row k="Last trace" v={st.lastRollupAt ? new Date(st.lastRollupAt).toLocaleString() : 'none yet'} />
         <Row k="Queue depth" v={String(st.queueDepth ?? 0)} />
         <Row k="Environment" v={ENVIRONMENT_LABEL[st.environment]} />
         <Row k="Endpoint" v={st.endpoint ?? ''} />

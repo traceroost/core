@@ -83,7 +83,7 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
   if (opts.all) {
     const queued = new ForwardQueue().list()
     if (queued.length > 0) {
-      console.log(`# --explain-payload --all — ${queued.length} rollup(s) currently queued for the next send.`)
+      console.log(`# --explain-payload --all — ${queued.length} trace(s) currently queued for the next send.`)
       console.log('# Sent:       ' + SENT.join('; '))
       console.log('# Never sent: ' + NEVER_SENT.join('; '))
       console.log('')
