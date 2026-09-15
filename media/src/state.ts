@@ -67,7 +67,7 @@ export const searchResults = signal<SearchResultData | null>(null)
 
 // ── Global session text filter + sort ─────────────────────────────────────────
 
-export type SortKey = 'start_time' | 'total_tokens' | 'duration_ms' | 'errors' | 'prompt' | 'model' | 'source' | 'cost'
+export type SortKey = 'start_time' | 'total_tokens' | 'duration_ms' | 'errors' | 'prompt' | 'model' | 'source' | 'cost' | 'workspace'
 export const sessionTextFilter = signal('')
 export const sessionSortKey = signal<SortKey>('start_time')
 export const sessionSortDir = signal<'asc' | 'desc'>('desc')
@@ -370,6 +370,7 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
       case 'prompt':       cmp = (a.userRequest ?? '').localeCompare(b.userRequest ?? ''); break
       case 'model':        cmp = (a.model ?? '').localeCompare(b.model ?? ''); break
       case 'source':       cmp = (a.source ?? '').localeCompare(b.source ?? ''); break
+      case 'workspace':    cmp = a.workspace.localeCompare(b.workspace); break
       case 'cost': {
         const costA = calcSessionCost(a, 'token').totalUsd
         const costB = calcSessionCost(b, 'token').totalUsd
