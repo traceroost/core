@@ -1810,6 +1810,7 @@ const uiServer = http.createServer((req, res) => {
             exec(cmd, () => { /* URL is also delivered as a teamLinkUrl message */ })
           },
           recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
+          allLocalSessions: () => buildSessionSummary()?.sessions ?? [],
           buildPayloadPreview: (session) => buildPayloadPreviewText(session),
           onOpenTeamView: () => {
             const url = loadCredentials()?.endpoint ?? teamEndpoint()

@@ -97,6 +97,7 @@ export class DashboardPanel {
           post: (m) => { void this.panel.webview.postMessage(m) },
           openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
           recentSessions: () => this.repo.listSessions({ limit: 25 }),
+          allLocalSessions: () => this.repo.listSessions(),
           buildPayloadPreview: (session) => buildPayloadPreviewText(session),
           onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse(loadCredentials()?.endpoint ?? teamEndpoint())) },
           log: (m) => console.warn(m),

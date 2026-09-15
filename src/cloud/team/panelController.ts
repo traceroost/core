@@ -9,7 +9,8 @@
 import { getTeamStatus, type QueueStats } from './status'
 import { linkInteractive, linkViaDevice, leave, refreshOrgNameIfStale } from './link'
 import { getQueueStats } from '../forward/currentQueueStats'
-import { syncForwardSchedulerToLinkState } from '../forward/scheduler'
+import { syncForwardSchedulerToLinkState, drainForwardQueueSoon } from '../forward/scheduler'
+import { maybeEnqueueSession } from './enqueueSession'
 import { isTeamEnvironment } from './config'
 import { saveSelectedEnvironment } from './environmentSelection'
 import { isLinked } from './credentials'
@@ -27,6 +28,10 @@ export interface TeamPanelDeps {
   openExternal: (url: string) => void | Promise<void>
   /** Recent local sessions, newest first — used to build the `--explain-payload` preview. */
   recentSessions: () => SessionSummaryCard[]
+  /** Every local session this install knows about, regardless of age — used once, right after a
+   *  successful link, to back-fill the forwarding queue (see `backfillExistingSessions` below).
+   *  Absent hosts just skip the back-fill; nothing else in the panel depends on it. */
+  allLocalSessions?: () => SessionSummaryCard[]
   /** Live forwarding-queue stats (AL 04). Absent until that lands. */
   queueStats?: () => QueueStats | undefined
   /**
@@ -40,6 +45,31 @@ export interface TeamPanelDeps {
   /** Diagnostic logging — output channel (VS Code) or stdout (standalone). Optional; failures
    *  this would report are all retried automatically, so it's not load-bearing, just visibility. */
   log?: (m: string) => void
+}
+
+/**
+ * Queues every existing local session for the team that was just linked. Without this, only
+ * sessions that close *after* the link ever reach the forwarding queue — a newly linked team (or
+ * a team re-linked after switching from another) would otherwise start from zero instead of from
+ * this machine's actual history.
+ *
+ * Runs after credentials are already saved, so every payload is built (and every hash salted)
+ * with the *new* team's org id — correct regardless of which team, if any, was linked before.
+ * Fire-and-forget: enqueuing is local file I/O, not a network call, but there is no reason to
+ * make the "you're linked" response wait on hashing every local session first.
+ */
+async function backfillExistingSessions(deps: TeamPanelDeps): Promise<void> {
+  const sessions = deps.allLocalSessions?.()
+  if (!sessions || sessions.length === 0) return
+  let queued = 0
+  for (const card of sessions) {
+    const res = await maybeEnqueueSession(card, deps.log)
+    if (res.enqueued) queued++
+  }
+  if (queued > 0) {
+    deps.log?.(`[TraceRoost] queued ${queued} existing local session(s) for the newly linked team`)
+    drainForwardQueueSoon()
+  }
 }
 
 function pushStatus(deps: TeamPanelDeps): void {
@@ -83,6 +113,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
           openUrl: (url) => deps.openExternal(url),
         })
         syncForwardSchedulerToLinkState()
+        void backfillExistingSessions(deps)
         deps.post({ type: 'teamActionResult', action: 'link', ok: true })
       } catch (err) {
         deps.post({ type: 'teamActionResult', action: 'link', ok: false, error: (err as Error).message })
@@ -96,6 +127,8 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
         await linkViaDevice({
           onPrompt: (info) => deps.post({ type: 'teamDevicePrompt', ...info }),
         })
+        syncForwardSchedulerToLinkState()
+        void backfillExistingSessions(deps)
         deps.post({ type: 'teamActionResult', action: 'link', ok: true })
       } catch (err) {
         deps.post({ type: 'teamActionResult', action: 'link', ok: false, error: (err as Error).message })
