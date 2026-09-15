@@ -44,7 +44,7 @@ suite('team/link', () => {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'Acme Corp', role: 'member', per_developer_visibility: false }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'Acme Corp', role: 'member', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
       }
       if (url.endsWith('/oauth/revoke')) return new Response('{"ok":true}', { status: 200 })
       throw new Error(`unexpected fetch in test: ${url}`)
@@ -69,6 +69,7 @@ suite('team/link', () => {
     const creds = loadCredentials()
     assert.strictEqual(creds?.accessToken, 'access-1')
     assert.strictEqual(creds?.memberId, 'mem-1')
+    assert.strictEqual(creds?.email, 'dev@example.com')
     assert.strictEqual(getTeamStatus().indicator, 'reporting')
   })
 
@@ -105,9 +106,28 @@ suite('team/link', () => {
     const changed = await refreshOrgNameIfStale()
     assert.strictEqual(changed, true)
     assert.strictEqual(loadCredentials()?.orgName, 'Acme Corp')
+    assert.strictEqual(loadCredentials()?.email, 'dev@example.com')
   })
 
-  test('refreshOrgNameIfStale is a no-op once orgName already differs from orgId', async () => {
+  test('refreshOrgNameIfStale backfills email alone for a credential with a real orgName already', async () => {
+    // A credential saved before `email` existed on TeamCredentials: orgName resolved fine at
+    // the time, but there was never an email field to fill in.
+    setCredentialStore((() => {
+      let cur: TeamCredentials | null = {
+        endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'Acme Corp',
+        memberId: 'mem-1', role: 'member', perDeveloperVisibility: false,
+        accessToken: 'access-1', refreshToken: 'refresh-1',
+        accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
+      }
+      return { load: () => cur, save: (c: TeamCredentials) => { cur = c }, clear: () => { cur = null } }
+    })())
+
+    const changed = await refreshOrgNameIfStale()
+    assert.strictEqual(changed, true)
+    assert.strictEqual(loadCredentials()?.email, 'dev@example.com')
+  })
+
+  test('refreshOrgNameIfStale is a no-op once orgName and email are both already resolved', async () => {
     await linkInteractive({ openUrl: fakeBrowser(), timeoutMs: 2000 }) // orgName resolves to 'Acme Corp' here
     globalThis.fetch = (() => { throw new Error('must not be called — nothing is stale') }) as typeof fetch
     const changed = await refreshOrgNameIfStale()

@@ -39,17 +39,18 @@ function hostnameLabel(): string {
 }
 
 /**
- * Best-effort self-heal for a credential whose `orgName` never resolved at link time — the
- * roster fetch in `persistFromTokens` failed or returned no name, so `orgName` fell back to the
- * raw `orgId`, and (until this) stayed that way forever, since nothing ever retried it.
+ * Best-effort self-heal for a credential whose `orgName` never resolved at link time (fell back
+ * to the raw `orgId`) or whose `email` was never populated at all (a credential written before
+ * that field existed) — the roster fetch in `persistFromTokens` failed, returned nothing, or
+ * simply didn't exist yet server-side, and nothing retried it until this.
  *
  * Cheap to call opportunistically (every status push, see `panelController.ts`'s `pushStatus`):
- * it's a no-op the instant `orgName` differs from `orgId`, i.e. as soon as it has ever once
- * succeeded — either here or at link time.
+ * it's a no-op the instant both are resolved, i.e. as soon as it has ever once succeeded —
+ * either here or at link time.
  */
 export async function refreshOrgNameIfStale(log?: (m: string) => void): Promise<boolean> {
   const creds = loadCredentials()
-  if (!creds || creds.orgName !== creds.orgId) return false
+  if (!creds || (creds.orgName !== creds.orgId && creds.email)) return false
   const self = await fetchRosterSelf(creds.accessToken, creds.endpoint)
   if (!self?.orgName) {
     log?.('[TraceRoost] could not refresh team name (roster fetch failed or returned none) — will retry')
@@ -60,6 +61,7 @@ export async function refreshOrgNameIfStale(log?: (m: string) => void): Promise<
     orgName: self.orgName,
     role: self.role,
     perDeveloperVisibility: self.perDeveloperVisibility,
+    email: self.email || creds.email,
   })
   return true
 }
@@ -72,6 +74,7 @@ async function persistFromTokens(tokens: TokenResponse): Promise<LinkResult> {
     orgId: tokens.orgId,
     orgName: self?.orgName || tokens.orgId,
     memberId: tokens.memberId,
+    email: self?.email || undefined,
     role: self?.role ?? 'member',
     perDeveloperVisibility: self?.perDeveloperVisibility ?? false,
     accessToken: tokens.accessToken,

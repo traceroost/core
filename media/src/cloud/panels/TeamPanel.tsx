@@ -34,6 +34,7 @@ export interface TeamStatus {
   orgId?: string
   orgName?: string
   memberId?: string
+  email?: string
   role?: 'lead' | 'member'
   perDeveloperVisibility?: boolean
   linkedAt?: string
@@ -227,7 +228,7 @@ function LinkedBody({ st }: { st: TeamStatus }) {
     <>
       <Section title="Team">
         <div style="font-size:13px;font-weight:600;color:var(--fg)">{displayOrgName(st)}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">You are <strong>{st.role ?? 'a member'}</strong> · member {short(st.memberId)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">You are <strong>{st.role ?? 'a member'}</strong> · {st.email ?? `member ${short(st.memberId)}`}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">
           {st.perDeveloperVisibility
             ? `${displayOrgName(st)} has per-developer numbers turned on — your lead sees your individual figures.`

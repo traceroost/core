@@ -134,6 +134,11 @@ export interface TeamCredentials {
   orgName: string
   /** This member's id, assigned by the service at link time — never chosen locally (AL 02). */
   memberId: string
+  /** This member's own login email, cached from the link response for offline display. Reading
+   *  it back is not a roster leak — it's always this machine's own member row (AL 02). Optional:
+   *  a credential written before this field existed simply lacks it until `refreshOrgNameIfStale`
+   *  backfills it — never a reason to reject an otherwise-valid credential file. */
+  email?: string
   /** This member's role in the org, cached for offline display. The server is authoritative. */
   role: 'lead' | 'member'
   /** Whether this org lets a member see their own numbers in the team view. Display-only cache. */

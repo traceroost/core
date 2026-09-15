@@ -209,15 +209,18 @@ export async function pollDeviceFlow(deviceCode: string): Promise<DevicePollResu
 // ── Roster self-lookup ──────────────────────────────────────────────────────
 //
 // The token response gives us org_id and member_id but not the org's *name*, this member's
-// *role*, or the org's per-developer-visibility setting — all of which the linked panel states
-// as fact. `alsaas` exposes these to a bearer token at `GET /api/roster/me` once the repos are
-// reconciled; until then this degrades cleanly (the panel shows the ids and a "checking…" note
-// rather than inventing a value).
+// *role* or *email*, or the org's per-developer-visibility setting — all of which the linked
+// panel states as fact. `alsaas` exposes these to a bearer token at `GET /api/roster/me`; if
+// that ever fails (network, a token revoked mid-flight, a future server issue) this degrades
+// cleanly — the panel shows the ids and a "checking…" note rather than inventing a value.
 
 export interface RosterSelf {
   orgName: string
   role: 'lead' | 'member'
   perDeveloperVisibility: boolean
+  /** This member's own login email — reading it back is not a roster leak (AL 02): the server
+   *  scopes `/api/roster/me` to the bearer token's own member row, never another member's. */
+  email: string
 }
 
 export async function fetchRosterSelf(accessToken: string, endpoint = teamEndpoint()): Promise<RosterSelf | null> {
@@ -234,6 +237,7 @@ export async function fetchRosterSelf(accessToken: string, endpoint = teamEndpoi
       orgName: typeof raw.org_name === 'string' ? raw.org_name : '',
       role: raw.role === 'lead' ? 'lead' : 'member',
       perDeveloperVisibility: raw.per_developer_visibility === true,
+      email: typeof raw.email === 'string' ? raw.email : '',
     }
   } catch {
     return null

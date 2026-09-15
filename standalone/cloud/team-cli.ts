@@ -69,7 +69,7 @@ function runStatus(): number {
     return 0
   }
   console.log(`Linked to ${status.orgName} (${status.orgId})`)
-  console.log(`  Member:        ${status.memberId} (${status.role})`)
+  console.log(`  Member:        ${status.email ?? status.memberId} (${status.role})`)
   console.log(`  Endpoint:      ${status.endpoint}`)
   console.log(`  Linked at:     ${status.linkedAt}`)
   console.log(`  Client:        v${status.clientVersion}`)

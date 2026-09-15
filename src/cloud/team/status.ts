@@ -31,6 +31,9 @@ export interface TeamStatus {
   orgId?: string
   orgName?: string
   memberId?: string
+  /** This member's own login email — absent for a credential written before this field existed,
+   *  until `refreshOrgNameIfStale` backfills it (see `link.ts`). */
+  email?: string
   role?: 'lead' | 'member'
   perDeveloperVisibility?: boolean
   linkedAt?: string
@@ -101,6 +104,7 @@ export function getTeamStatus(queue?: QueueStats): TeamStatus {
     orgId: creds.orgId,
     orgName: creds.orgName,
     memberId: creds.memberId,
+    email: creds.email,
     role: creds.role,
     perDeveloperVisibility: creds.perDeveloperVisibility,
     linkedAt: creds.linkedAt,
