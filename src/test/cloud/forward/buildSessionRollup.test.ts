@@ -70,6 +70,24 @@ suite('forward/buildSessionRollup', () => {
     assert.deepStrictEqual(validateRollupPayload(payload), [])
   })
 
+  // A count or cost over the schema's cap (e.g. a very long, cache-heavy session, or a bad
+  // upstream number) must still be sent — clamped, not rejected. Rejecting the whole payload
+  // drops the session permanently: this build happens once per closed session with no retry
+  // path (see enqueueSession.ts's catch), unlike a queue-level send failure.
+  test('a count or cost over the schema cap is clamped, not rejected', () => {
+    const payload = sessionRollupPayload(
+      { ...BASE, durationMs: 1e12, totalLlmCalls: 1e12, inputTokens: 5e8, outputTokens: 5e8 },
+      { ...BUILD, costUsd: 999_999 },
+    )
+    assert.strictEqual(payload.session?.tokens_in, 100_000_000)
+    assert.strictEqual(payload.session?.tokens_out, 100_000_000)
+    assert.strictEqual(payload.session?.duration_ms, 100_000_000)
+    assert.strictEqual(payload.session?.turns, 100_000_000)
+    assert.strictEqual(payload.session?.models?.[0].calls, 100_000_000)
+    assert.strictEqual(payload.session?.cost_usd, 100_000)
+    assert.deepStrictEqual(validateRollupPayload(payload), [])
+  })
+
   test('tool names are normalised to the schema key form and merged', () => {
     const r = buildSessionRollup(BASE, BUILD)
     for (const k of Object.keys(r.tool_calls ?? {})) assert.match(k, /^[a-z_]{1,40}$/)

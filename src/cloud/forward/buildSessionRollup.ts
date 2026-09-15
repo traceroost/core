@@ -103,7 +103,7 @@ function perModelCalls(input: SessionRollupInput): WireModelUse[] | undefined {
   }
   // Otherwise: attribute every call to the primary model, and list any secondaries at 0.
   const primary = toWireModel(input.model || input.models?.[0] || 'other')
-  const out: WireModelUse[] = [{ model: primary, calls: Math.max(0, input.totalLlmCalls) }]
+  const out: WireModelUse[] = [{ model: primary, calls: nonNegInt(input.totalLlmCalls) }]
   for (const m of (input.models ?? []).slice(1, 16)) {
     const w = toWireModel(m)
     if (w !== primary && !out.some(e => e.model === w)) out.push({ model: w, calls: 0 })
@@ -197,11 +197,18 @@ export function sessionRollupPayload(input: SessionRollupInput, ctx: BuildContex
   }
 }
 
+// Mirrors #/$defs/count's `maximum` in schema/rollup.v1.json. A session that legitimately
+// exceeds this (or has a bad count from an upstream bug) must still be sent — clamping loses a
+// little precision on one field; letting assertValidRollupPayload reject the whole payload loses
+// the entire session, forever, with no retry path (see enqueueSession.ts's catch).
+const MAX_COUNT = 100_000_000
 function nonNegInt(n: number): number {
-  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0
+  return Number.isFinite(n) && n > 0 ? Math.min(MAX_COUNT, Math.round(n)) : 0
 }
+// Mirrors cost_usd's `maximum` in the schema, same reasoning as MAX_COUNT above.
+const MAX_COST_USD = 100_000
 function round4(n: number): number {
-  return Number.isFinite(n) ? Math.round(n * 10000) / 10000 : 0
+  return Number.isFinite(n) ? Math.min(MAX_COST_USD, Math.round(n * 10000) / 10000) : 0
 }
 function normalizeTimestamp(t: string): string {
   const d = new Date(t)
