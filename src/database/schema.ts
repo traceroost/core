@@ -1,3 +1,53 @@
+/**
+ * The three tables backing the Outcomes tab's caching (AL 05/06) — attribution, cohort turnover,
+ * and the per-file blame cache. Exported on its own, separately from SCHEMA_SQL, so the standalone
+ * server can open a small dedicated database with just these tables rather than the full
+ * sessions/timelines/instructions schema it has no other use for (it persists those as JSON, not
+ * SQLite — see standalone/db/outcomesDb.ts).
+ */
+export const OUTCOMES_SCHEMA_SQL = `
+-- AI authorship attribution cache (AL 05). A commit's attribution never changes once computed,
+-- so this is written once per commit for the life of the install. Keyed by repo_root + sha.
+-- Holds only counts and an enum — never commit message text, never blame output.
+CREATE TABLE IF NOT EXISTS commit_attribution (
+  repo_root      TEXT NOT NULL,
+  sha            TEXT NOT NULL,
+  authored_at    TEXT NOT NULL,
+  lines_added    INTEGER NOT NULL DEFAULT 0,
+  lines_removed  INTEGER NOT NULL DEFAULT 0,
+  ai_lines       INTEGER NOT NULL DEFAULT 0,
+  attribution    TEXT NOT NULL DEFAULT 'unknown',
+  session_ids    TEXT NOT NULL DEFAULT '[]',
+  is_merge       INTEGER NOT NULL DEFAULT 0,
+  computed_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  PRIMARY KEY (repo_root, sha)
+);
+
+-- Cohort turnover report (AL 06), one row per repository. Recomputed only when HEAD has moved —
+-- the row records the HEAD sha it was computed at. Holds counts and a rate; nothing reversible.
+CREATE TABLE IF NOT EXISTS cohort_turnover (
+  repo_root     TEXT PRIMARY KEY,
+  head_sha      TEXT NOT NULL,
+  report_json   TEXT NOT NULL,
+  computed_at   INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
+
+-- Per-file blame cache for the survival index (AL 06) — the expensive part of turnover is one
+-- git-blame subprocess per file at HEAD, aggregated by originating commit. A single new commit
+-- used to invalidate all of it (cohort_turnover is all-or-nothing, keyed by HEAD sha); this table
+-- makes that incremental — a file is only re-blamed when its blob_sha (content) actually changed.
+-- Holds only counts keyed by commit sha, same privacy posture as commit_attribution: never blame
+-- output, never file content.
+CREATE TABLE IF NOT EXISTS file_blame (
+  repo_root    TEXT NOT NULL,
+  file_path    TEXT NOT NULL,
+  blob_sha     TEXT NOT NULL,
+  origins_json TEXT NOT NULL,
+  computed_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  PRIMARY KEY (repo_root, file_path)
+);
+`
+
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -104,29 +154,5 @@ CREATE TABLE IF NOT EXISTS instruction_dismissed (
 
 CREATE INDEX IF NOT EXISTS idx_instruction_dismissed_workspace ON instruction_dismissed (workspace);
 
--- AI authorship attribution cache (AL 05). A commit's attribution never changes once computed,
--- so this is written once per commit for the life of the install. Keyed by repo_root + sha.
--- Holds only counts and an enum — never commit message text, never blame output.
-CREATE TABLE IF NOT EXISTS commit_attribution (
-  repo_root      TEXT NOT NULL,
-  sha            TEXT NOT NULL,
-  authored_at    TEXT NOT NULL,
-  lines_added    INTEGER NOT NULL DEFAULT 0,
-  lines_removed  INTEGER NOT NULL DEFAULT 0,
-  ai_lines       INTEGER NOT NULL DEFAULT 0,
-  attribution    TEXT NOT NULL DEFAULT 'unknown',
-  session_ids    TEXT NOT NULL DEFAULT '[]',
-  is_merge       INTEGER NOT NULL DEFAULT 0,
-  computed_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
-  PRIMARY KEY (repo_root, sha)
-);
-
--- Cohort turnover report (AL 06), one row per repository. Recomputed only when HEAD has moved —
--- the row records the HEAD sha it was computed at. Holds counts and a rate; nothing reversible.
-CREATE TABLE IF NOT EXISTS cohort_turnover (
-  repo_root     TEXT PRIMARY KEY,
-  head_sha      TEXT NOT NULL,
-  report_json   TEXT NOT NULL,
-  computed_at   INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
-);
+${OUTCOMES_SCHEMA_SQL}
 `

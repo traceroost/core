@@ -15,8 +15,16 @@
 
 import { attributeRepository, type AttributeOptions, type AttributionResult } from '../attribution'
 import { buildCohorts, isWindowElapsed, measurableAt, type Cohort } from './cohorts'
-import { buildSurvivalIndex, survivingAiLines, type SurvivalIndex } from './survival'
+import { buildSurvivalIndex, survivingAiLines, type SurvivalIndex, type FileBlameCache } from './survival'
 import { benchmarkFor, benchmarkVerdict } from './benchmarks'
+
+/** Coarse stages a caller (a progress UI) can show while a turnover report is computed. */
+export type TurnoverStage = 'attributing' | 'blaming'
+export interface TurnoverProgress {
+  stage: TurnoverStage
+  done: number
+  total: number
+}
 
 /** Below this many attributed lines a cohort's percentage swings on a single edit and reads as
  *  noise. */
@@ -56,12 +64,16 @@ export interface TurnoverReport {
   unavailable?: AttributionResult['unavailable']
 }
 
-export interface ComputeTurnoverOptions extends AttributeOptions {
+export interface ComputeTurnoverOptions extends Omit<AttributeOptions, 'onProgress'> {
   /** Which windows to compute for each cohort. Default both. */
   windows?: (30 | 90)[]
   now?: number
-  /** A prebuilt survival index (skip the blame pass — pass the persisted one when HEAD is unmoved). */
-  survivalIndex?: SurvivalIndex | null
+  /** Per-file blame cache — see `survival.ts`'s `FileBlameCache`. Without one, `buildSurvivalIndex`
+   *  re-blames every file in the tree on every call. */
+  fileBlameCache?: FileBlameCache
+  /** Stage-tagged progress across both the commit-attribution pass and the survival-index blame
+   *  pass — the two expensive parts of a turnover computation. */
+  onProgress?: (progress: TurnoverProgress) => void
 }
 
 function evaluateCohort(
@@ -118,12 +130,19 @@ function evaluateCohort(
 
 export async function computeTurnover(workspace: string, opts: ComputeTurnoverOptions = {}): Promise<TurnoverReport> {
   const now = opts.now ?? Date.now()
-  const attribution = await attributeRepository(workspace, opts)
+  const attribution = await attributeRepository(workspace, {
+    ...opts,
+    onProgress: opts.onProgress ? (done, total) => opts.onProgress!({ stage: 'attributing', done, total }) : undefined,
+  })
   if (attribution.unavailable) {
     return { repoRoot: attribution.repoRoot, headSha: null, results: [], coverage: attribution.coverage, unavailable: attribution.unavailable }
   }
 
-  const index = opts.survivalIndex ?? (await buildSurvivalIndex(attribution.repoRoot))
+  const index = await buildSurvivalIndex(
+    attribution.repoRoot,
+    opts.fileBlameCache,
+    opts.onProgress ? (done, total) => opts.onProgress!({ stage: 'blaming', done, total }) : undefined,
+  )
   if (!index) {
     return { repoRoot: attribution.repoRoot, headSha: null, results: [], coverage: attribution.coverage }
   }

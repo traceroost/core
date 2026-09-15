@@ -33,25 +33,80 @@ export interface SurvivalIndex {
   filesBlamed: number
 }
 
-export async function buildSurvivalIndex(repoRoot: string): Promise<SurvivalIndex | null> {
+/** Per-file blame cache — a file is only re-blamed when its blob sha (content) has changed since
+ *  the last call, instead of every file in the tree on every recompute. See
+ *  `database/fileBlameRepository.ts` for the SQLite-backed implementation. */
+export interface FileBlameCache {
+  get(filePath: string): { blobSha: string; origins: Record<string, number> } | undefined
+  put(filePath: string, blobSha: string, origins: Record<string, number>): void
+  /** Drops rows for files no longer present at HEAD (renamed/deleted). */
+  pruneExcept(filePaths: string[]): void
+}
+
+function parseOrigins(blameOutput: string): Record<string, number> {
+  const origins: Record<string, number> = {}
+  for (const line of blameOutput.split('\n')) {
+    const m = line.match(/^([0-9a-f]{40}) \d+ \d+/)
+    if (m) origins[m[1]] = (origins[m[1]] ?? 0) + 1
+  }
+  return origins
+}
+
+/** `git ls-tree -r HEAD -z` output is `<mode> <type> <blob-sha>\t<path>\0...` — one call gives
+ *  every file's current blob sha for free, which is exactly the cache key a per-file blame cache
+ *  needs, with no extra git process over the plain file listing this replaced. */
+function parseLsTree(output: string): Array<{ path: string; blobSha: string }> {
+  const out: Array<{ path: string; blobSha: string }> = []
+  for (const entry of output.split('\0')) {
+    if (!entry) continue
+    const tab = entry.indexOf('\t')
+    if (tab === -1) continue
+    const meta = entry.slice(0, tab).split(' ')
+    const blobSha = meta[2]
+    const path = entry.slice(tab + 1)
+    if (blobSha && path) out.push({ path, blobSha })
+  }
+  return out
+}
+
+export async function buildSurvivalIndex(
+  repoRoot: string,
+  cache?: FileBlameCache,
+  onProgress?: (blamed: number, total: number) => void,
+): Promise<SurvivalIndex | null> {
   const headSha = (await git(repoRoot, ['rev-parse', 'HEAD']))?.trim()
   if (!headSha) return null
 
-  const listing = await git(repoRoot, ['ls-files', '-z'])
+  const listing = await git(repoRoot, ['ls-tree', '-r', '-z', 'HEAD'])
   if (listing === null) return null
-  const files = listing.split('\0').filter(Boolean).slice(0, MAX_FILES)
+  const entries = parseLsTree(listing).slice(0, MAX_FILES)
 
   const bySha = new Map<string, number>()
   let filesBlamed = 0
-  for (const file of files) {
-    const out = await git(repoRoot, ['blame', '--line-porcelain', 'HEAD', '--', file], 10_000)
-    if (!out) continue
-    filesBlamed++
-    for (const line of out.split('\n')) {
-      const m = line.match(/^([0-9a-f]{40}) \d+ \d+/)
-      if (m) bySha.set(m[1], (bySha.get(m[1]) ?? 0) + 1)
+  const currentPaths: string[] = []
+
+  for (let i = 0; i < entries.length; i++) {
+    const { path: file, blobSha } = entries[i]
+    currentPaths.push(file)
+
+    const cached = cache?.get(file)
+    let origins: Record<string, number>
+    if (cached && cached.blobSha === blobSha) {
+      origins = cached.origins
+    } else {
+      const out = await git(repoRoot, ['blame', '--line-porcelain', 'HEAD', '--', file], 10_000)
+      if (out === null) { onProgress?.(i + 1, entries.length); continue }
+      filesBlamed++
+      origins = parseOrigins(out)
+      cache?.put(file, blobSha, origins)
     }
+    for (const [sha, count] of Object.entries(origins)) {
+      bySha.set(sha, (bySha.get(sha) ?? 0) + count)
+    }
+    onProgress?.(i + 1, entries.length)
   }
+
+  cache?.pruneExcept(currentPaths)
   return { bySha, headSha, filesBlamed }
 }
 

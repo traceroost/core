@@ -29,7 +29,7 @@ import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
 import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus } from './cloud/panels/TeamPanel'
-import { Outcomes, outcomesReport, outcomesLoading } from './cloud/tabs/Outcomes'
+import { Outcomes, outcomesReport, outcomesLoading, outcomesProgress } from './cloud/tabs/Outcomes'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -417,8 +417,11 @@ export function App() {
       } else if (msg.type === 'teamActionResult') {
         teamBusy.value = null
         requestTeamStatus()
+      } else if (msg.type === 'outcomesProgress') {
+        outcomesProgress.value = (msg as unknown as { progress: typeof outcomesProgress.value }).progress
       } else if (msg.type === 'outcomesReport') {
         outcomesLoading.value = false
+        outcomesProgress.value = null
         outcomesReport.value = (msg as unknown as { report: typeof outcomesReport.value }).report
       } else if (msg.type === 'instructionApplied') {
         // Re-request applied list after successful apply — handled by appliedSuggestions message

@@ -41,11 +41,24 @@ export interface LocalTurnoverReport {
   generatedAt: string
 }
 
+/** Mirrors `LocalReportProgress` (src/cloud/turnover/localReport.ts) — attribute/blame progress
+ *  for whichever repo of however many is currently being scanned. */
+export interface OutcomesProgress {
+  stage: 'attributing' | 'blaming'
+  done: number
+  total: number
+  repoLabel: string
+  repoIndex: number
+  repoTotal: number
+}
+
 export const outcomesReport = signal<LocalTurnoverReport | null>(null)
 export const outcomesLoading = signal(false)
+export const outcomesProgress = signal<OutcomesProgress | null>(null)
 
 export function requestOutcomes(): void {
   outcomesLoading.value = true
+  outcomesProgress.value = null
   vscode?.postMessage({ type: 'getOutcomes' })
 }
 
@@ -191,6 +204,19 @@ export function Outcomes() {
   useEffect(() => { if (!teamStatus.value) requestTeamStatus() }, [])
 
   if (!report) {
+    const p = outcomesProgress.value
+    if (outcomesLoading.value && p && p.total > 0) {
+      const pct = Math.round((p.done / p.total) * 100)
+      const stageLabel = p.stage === 'attributing' ? 'Matching commits to your sessions' : 'Checking which lines still survive'
+      const repoSuffix = p.repoTotal > 1 ? ` — ${p.repoLabel} (repo ${p.repoIndex} of ${p.repoTotal})` : ` — ${p.repoLabel}`
+      return (
+        <div style="padding:20px;max-width:420px">
+          <p class="import-progress-label">{stageLabel}{repoSuffix}</p>
+          <div class="import-progress-track"><div class="import-progress-fill" style={`width:${pct}%`} /></div>
+          <p class="import-progress-text">{p.done} / {p.total}</p>
+        </div>
+      )
+    }
     return <div style="padding:20px;color:var(--muted);font-size:13px">{outcomesLoading.value ? 'Reading your git history and session records — locally…' : 'Loading…'}</div>
   }
 

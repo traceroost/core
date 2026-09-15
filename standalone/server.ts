@@ -201,6 +201,7 @@ function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummary
 }
 
 let logReader = new LogReader()
+let outcomesDb: import('./db/outcomesDb').OutcomesDb | null = null
 
 // ── MCP server ────────────────────────────────────────────────────────────────
 
@@ -287,6 +288,12 @@ async function startLogIngestion() {
     const sqlFactory = await initSqlJs({ locateFile: (f: string) => path.join(sqlJsDir, f) })
     logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory })
   } catch { /* no sql.js — OpenCode falls back to JSON */ }
+
+  // Outcomes-tab caching (AL 05/06) — a separate small sqlite file, see standalone/db/outcomesDb.ts.
+  try {
+    const { openOutcomesDb } = require('./db/outcomesDb') as typeof import('./db/outcomesDb')
+    outcomesDb = await openOutcomesDb(DATA_DIR)
+  } catch { /* falls back to uncached turnover computation, same as before this existed */ }
 
   // Register the poll first so it always runs, even if no files exist yet at startup.
   setInterval(runLogScan, 5_000)
@@ -737,6 +744,17 @@ function buildUpdatePayload(): string {
 
 function pushUpdate() {
   const data = buildUpdatePayload()
+  sseClients = sseClients.filter(client => {
+    try { client.write(`data: ${data}\n\n`); return true } catch { return false }
+  })
+}
+
+/** Sends an arbitrary message to every open dashboard tab, exactly as `vscode.postMessage` would
+ *  in the extension host — the browser-side shim (`new EventSource('/events')`, see the inline
+ *  script below) re-dispatches each SSE payload as a `window` `message` event, so the same
+ *  `msg.type` switch in App.tsx handles both hosts unmodified. */
+function broadcastSse(payload: Record<string, unknown>): void {
+  const data = JSON.stringify(payload)
   sseClients = sseClients.filter(client => {
     try { client.write(`data: ${data}\n\n`); return true } catch { return false }
   })
@@ -1747,7 +1765,20 @@ const uiServer = http.createServer((req, res) => {
     void (async () => {
       const { buildLocalTurnoverReport } = require('../src/cloud/turnover/localReport') as typeof import('../src/cloud/turnover/localReport')
       try {
-        const report = await buildLocalTurnoverReport(buildSessionSummary()?.sessions ?? [])
+        let lastSent = 0
+        const report = await buildLocalTurnoverReport(buildSessionSummary()?.sessions ?? [], {
+          db: outcomesDb?.raw,
+          // Throttled the same way dashboardPanel.ts's getOutcomes handler is — a large repo
+          // reports per-file/per-commit, and broadcasting every one over SSE would flood every
+          // open dashboard tab. The final item of each stage always gets through.
+          onProgress: (p) => {
+            const now = Date.now()
+            if (now - lastSent < 100 && p.done !== p.total) return
+            lastSent = now
+            broadcastSse({ type: 'outcomesProgress', progress: p })
+          },
+        })
+        outcomesDb?.save()
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(report))
       } catch (e) {
@@ -1985,6 +2016,7 @@ function shutdown() {
   if (saveSpansNow()) {
     console.log(`\n[TraceRoost] Saved ${spans.length} spans to ${DATA_FILE}`)
   }
+  outcomesDb?.save()
   process.exit(0)
 }
 process.on('SIGINT', shutdown)

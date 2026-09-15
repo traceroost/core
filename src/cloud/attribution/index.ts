@@ -34,6 +34,9 @@ export interface AttributeOptions {
    *  user.email`. Pass `null` to attribute every author. */
   authorEmail?: string | null
   maxCommits?: number
+  /** Called after each scanned commit is attributed (cache hit or a fresh blame) — `total` is
+   *  every commit this author authored, not just the ones that needed blaming. */
+  onProgress?: (done: number, total: number) => void
 }
 
 export interface AttributionResult {
@@ -63,20 +66,24 @@ export async function attributeRepository(workspace: string, opts: AttributeOpti
   const authorEmail = opts.authorEmail === undefined ? await localGitEmail(repoRoot) : opts.authorEmail
 
   const scanned = await scanCommits(repoRoot, { sinceIso: opts.sinceIso, maxCommits: opts.maxCommits })
+  const relevant = authorEmail
+    ? scanned.filter(c => c.authorEmail.toLowerCase() === authorEmail.toLowerCase())
+    : scanned
   const sessions: AttributionSession[] = opts.sessions ?? []
 
   const out: CommitAttribution[] = []
   let attributedLines = 0
   let totalMergedLines = 0
 
-  for (const c of scanned) {
-    if (authorEmail && c.authorEmail.toLowerCase() !== authorEmail.toLowerCase()) continue
+  for (let i = 0; i < relevant.length; i++) {
+    const c = relevant[i]
     totalMergedLines += c.linesAdded
 
     const cached = cache?.get(c.sha)
     if (cached) {
       out.push(cached)
       if (cached.attribution !== 'unknown') attributedLines += cached.linesAdded
+      opts.onProgress?.(i + 1, relevant.length)
       continue
     }
 
@@ -117,6 +124,7 @@ export async function attributeRepository(workspace: string, opts: AttributeOpti
     cache?.put(rec)
     out.push(rec)
     if (rec.attribution !== 'unknown') attributedLines += rec.linesAdded
+    opts.onProgress?.(i + 1, relevant.length)
   }
 
   return {

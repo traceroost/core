@@ -9,10 +9,11 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { computeTurnoverCached } from './cached'
-import { computeTurnover, type TurnoverReport } from './'
+import { computeTurnover, type TurnoverReport, type TurnoverProgress } from './'
 import { toAttributionSessions } from '../attribution/fromSessions'
 import { AttributionRepository } from '../../database/attributionRepository'
 import { TurnoverRepository } from '../../database/turnoverRepository'
+import { FileBlameRepository } from '../../database/fileBlameRepository'
 import { repoRootOf } from '../attribution/commitScan'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
@@ -64,10 +65,19 @@ async function repoRootsFromSessions(cards: SessionSummaryCard[], max: number): 
   return roots
 }
 
+/** `TurnoverProgress` (one repo's attribute/blame passes) plus which repo of how many this is,
+ *  for a caller driving a single progress UI across the whole multi-repo report. */
+export interface LocalReportProgress extends TurnoverProgress {
+  repoLabel: string
+  repoIndex: number
+  repoTotal: number
+}
+
 export interface LocalReportOptions {
   db?: WriteableDb
   now?: number
   maxRepos?: number
+  onProgress?: (progress: LocalReportProgress) => void
 }
 
 export async function buildLocalTurnoverReport(
@@ -76,8 +86,15 @@ export async function buildLocalTurnoverReport(
 ): Promise<LocalTurnoverReport> {
   const roots = await repoRootsFromSessions(sessions, opts.maxRepos ?? 8)
   const repos: RepoTurnover[] = []
+  const repoTotal = roots.size
+  let repoIndex = 0
 
   for (const [root, group] of roots) {
+    repoIndex++
+    const repoLabel = path.basename(root) || 'repository'
+    const onProgress = opts.onProgress
+      ? (p: TurnoverProgress) => opts.onProgress!({ ...p, repoLabel, repoIndex, repoTotal })
+      : undefined
     const attributionSessions = toAttributionSessions(group)
     let report: TurnoverReport
     if (opts.db) {
@@ -85,13 +102,15 @@ export async function buildLocalTurnoverReport(
         repoRoot: root,
         turnoverRepo: new TurnoverRepository(opts.db, root),
         attributionCache: new AttributionRepository(opts.db, root),
+        fileBlameCache: new FileBlameRepository(opts.db, root),
         sessions: attributionSessions,
         now: opts.now,
+        onProgress,
       })
     } else {
-      report = await computeTurnover(root, { sessions: attributionSessions, now: opts.now })
+      report = await computeTurnover(root, { sessions: attributionSessions, now: opts.now, onProgress })
     }
-    repos.push({ label: path.basename(root) || 'repository', report })
+    repos.push({ label: repoLabel, report })
   }
 
   // Sort repos by whether they have a measured result, then by name.

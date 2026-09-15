@@ -105,7 +105,19 @@ export class DashboardPanel {
       }
       if (msg.type === 'getOutcomes') {
         try {
-          const report = await buildLocalTurnoverReport(this.repo.listSessions(), { db: this.rawDb })
+          let lastSent = 0
+          const report = await buildLocalTurnoverReport(this.repo.listSessions(), {
+            db: this.rawDb,
+            onProgress: (p) => {
+              // Throttled — a large repo reports per-file/per-commit, and posting every one of
+              // those to the webview would flood it. The final item of each stage always gets
+              // through (p.done === p.total) so the bar reaches 100% instead of stalling short.
+              const now = Date.now()
+              if (now - lastSent < 100 && p.done !== p.total) return
+              lastSent = now
+              this.panel.webview.postMessage({ type: 'outcomesProgress', progress: p })
+            },
+          })
           this.panel.webview.postMessage({ type: 'outcomesReport', report })
         } catch (err) {
           this.panel.webview.postMessage({ type: 'outcomesReport', report: { repos: [], hasMeasurableCohort: false, generatedAt: new Date().toISOString(), error: String(err) } })
