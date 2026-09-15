@@ -7,9 +7,12 @@
  */
 
 import { getTeamStatus, type QueueStats } from './status'
-import { linkInteractive, linkViaDevice, leave } from './link'
+import { linkInteractive, linkViaDevice, leave, refreshOrgNameIfStale } from './link'
 import { getQueueStats } from '../forward/currentQueueStats'
 import { syncForwardSchedulerToLinkState } from '../forward/scheduler'
+import { isTeamEnvironment } from './config'
+import { saveSelectedEnvironment } from './environmentSelection'
+import { isLinked } from './credentials'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export interface TeamMessage {
@@ -34,11 +37,22 @@ export interface TeamPanelDeps {
   buildPayloadPreview?: (session: SessionSummaryCard) => string | Promise<string>
   /** Called when the user clicks "Open team view". */
   onOpenTeamView?: () => void
+  /** Diagnostic logging — output channel (VS Code) or stdout (standalone). Optional; failures
+   *  this would report are all retried automatically, so it's not load-bearing, just visibility. */
+  log?: (m: string) => void
 }
 
 function pushStatus(deps: TeamPanelDeps): void {
   const stats = deps.queueStats?.() ?? getQueueStats()
   deps.post({ type: 'teamStatus', status: getTeamStatus(stats) })
+  // Opportunistic, cheap self-heal for a team name that never resolved at link time (see
+  // refreshOrgNameIfStale) — a no-op once it has ever succeeded. Re-pushes status only when it
+  // actually changed something, so the panel corrects itself without the user doing anything.
+  void refreshOrgNameIfStale(deps.log).then((changed) => {
+    if (!changed) return
+    const freshStats = deps.queueStats?.() ?? getQueueStats()
+    deps.post({ type: 'teamStatus', status: getTeamStatus(freshStats) })
+  })
 }
 
 export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): Promise<void> {
@@ -101,5 +115,18 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
     case 'teamOpenView':
       deps.onOpenTeamView?.()
       return
+
+    case 'teamSetEnvironment': {
+      // Only meaningful pre-link — a linked machine's endpoint comes from its credential, not
+      // this selection (see `resolveTeamEnvironment` in config.ts). Ignore rather than error:
+      // the panel shouldn't be showing an enabled picker in this state, but a stale message from
+      // a webview that hasn't re-rendered yet shouldn't corrupt anything either.
+      const env = msg.environment
+      if (!isLinked() && typeof env === 'string' && isTeamEnvironment(env)) {
+        saveSelectedEnvironment(env)
+      }
+      pushStatus(deps)
+      return
+    }
   }
 }

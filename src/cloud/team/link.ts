@@ -38,6 +38,32 @@ function hostnameLabel(): string {
   return (os.hostname() || 'unnamed machine').slice(0, 60)
 }
 
+/**
+ * Best-effort self-heal for a credential whose `orgName` never resolved at link time — the
+ * roster fetch in `persistFromTokens` failed or returned no name, so `orgName` fell back to the
+ * raw `orgId`, and (until this) stayed that way forever, since nothing ever retried it.
+ *
+ * Cheap to call opportunistically (every status push, see `panelController.ts`'s `pushStatus`):
+ * it's a no-op the instant `orgName` differs from `orgId`, i.e. as soon as it has ever once
+ * succeeded — either here or at link time.
+ */
+export async function refreshOrgNameIfStale(log?: (m: string) => void): Promise<boolean> {
+  const creds = loadCredentials()
+  if (!creds || creds.orgName !== creds.orgId) return false
+  const self = await fetchRosterSelf(creds.accessToken, creds.endpoint)
+  if (!self?.orgName) {
+    log?.('[TraceRoost] could not refresh team name (roster fetch failed or returned none) — will retry')
+    return false
+  }
+  saveCredentials({
+    ...creds,
+    orgName: self.orgName,
+    role: self.role,
+    perDeveloperVisibility: self.perDeveloperVisibility,
+  })
+  return true
+}
+
 async function persistFromTokens(tokens: TokenResponse): Promise<LinkResult> {
   // Best-effort enrichment — the panel degrades gracefully if this is unavailable.
   const self = await fetchRosterSelf(tokens.accessToken)

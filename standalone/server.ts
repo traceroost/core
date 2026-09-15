@@ -11,6 +11,7 @@ import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
 import { exec } from 'child_process'
+import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcTokenCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
@@ -29,7 +30,14 @@ import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx } from '../src/serviceConfig'
 import { maybeEnqueueSession } from '../src/cloud/team/enqueueSession'
 import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forward/scheduler'
+import { loadCredentials } from '../src/cloud/team/credentials'
+import { teamEndpoint } from '../src/cloud/team/config'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
+
+// Load `.env` from the current working directory, if one exists — lets `npm run local` point at
+// a specific team environment (e.g. `TRACEROOST_TEAM_ENV=test`) without exporting shell vars.
+// `quiet` suppresses dotenv's own startup banner; this is silent no-ops when no `.env` is present.
+loadDotenv({ quiet: true })
 
 // `traceroost service install` persists its port/host/data-dir choices to
 // ~/.traceroost/config.json (see src/serviceConfig.ts) so a background-service install and an
@@ -1661,6 +1669,12 @@ const uiServer = http.createServer((req, res) => {
           },
           recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
           buildPayloadPreview: (session) => buildPayloadPreviewText(session),
+          onOpenTeamView: () => {
+            const url = loadCredentials()?.endpoint ?? teamEndpoint()
+            const cmd = process.platform === 'darwin' ? `open "${url}"` : process.platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`
+            exec(cmd, () => {})
+          },
+          log: (m) => console.log(m),
         })
       } catch (e) {
         outbox.push({ type: 'teamActionResult', ok: false, error: String(e) })

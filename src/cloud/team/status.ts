@@ -9,6 +9,7 @@
 
 import { loadCredentials } from './credentials'
 import { clientVersion } from './oauthClient'
+import { resolveTeamEnvironment, TEAM_ENDPOINTS, type TeamEnvironment, type EnvironmentSource } from './config'
 
 /** Forwarding-queue health, supplied by AL 04. Absent until that lands (and always absent on an
  *  unlinked install, where there is no queue). */
@@ -36,6 +37,30 @@ export interface TeamStatus {
   queueDepth?: number
   lastRollupAt?: string | null
   degradedReason?: string
+  /**
+   * Which TraceRoost Pro environment this machine would talk to. Populated unconditionally —
+   * including on an unlinked install, where it's the only way to see where linking would even
+   * point — so the panel never has to guess or hide this. On a linked machine it echoes back the
+   * environment its own credential's `endpoint` (above) resolves to, not `resolveTeamEnvironment()`
+   * (which a linked machine never consults — see `config.ts`).
+   */
+  environment: TeamEnvironment | 'custom'
+  /** Where `environment` came from. The panel's environment picker is only meaningful — and
+   *  should only be shown as editable — when this is `'selected'` or `'default'`; `'env-url'` and
+   *  `'env-var'` come from outside the app (`.env` or the shell) and win regardless of what's
+   *  picked there. Always `'env-url'`/`'env-var'`-blind to linking: a linked machine's `endpoint`
+   *  reports back as whichever of these three names its actual endpoint matches, or `'custom'`. */
+  environmentSource: EnvironmentSource | 'linked'
+  /** True while `environment`/`environmentSource` above reflect a live credential rather than
+   *  `resolveTeamEnvironment()` — i.e. whenever `linked` is true. */
+  environmentEditable: boolean
+}
+
+function describeEndpoint(endpoint: string): TeamEnvironment | 'custom' {
+  const known = (Object.keys(TEAM_ENDPOINTS) as TeamEnvironment[]).find(
+    (env) => TEAM_ENDPOINTS[env] === endpoint,
+  )
+  return known ?? 'custom'
 }
 
 export function getTeamStatus(queue?: QueueStats): TeamStatus {
@@ -43,7 +68,15 @@ export function getTeamStatus(queue?: QueueStats): TeamStatus {
   const version = clientVersion()
 
   if (!creds) {
-    return { linked: false, clientVersion: version, indicator: 'unlinked' }
+    const resolved = resolveTeamEnvironment()
+    return {
+      linked: false,
+      clientVersion: version,
+      indicator: 'unlinked',
+      environment: resolved.environment,
+      environmentSource: resolved.source,
+      environmentEditable: resolved.source === 'selected' || resolved.source === 'default',
+    }
   }
 
   let indicator: TeamIndicator = 'reporting'
@@ -62,6 +95,9 @@ export function getTeamStatus(queue?: QueueStats): TeamStatus {
     clientVersion: version,
     indicator,
     endpoint: creds.endpoint,
+    environment: describeEndpoint(creds.endpoint),
+    environmentSource: 'linked',
+    environmentEditable: false,
     orgId: creds.orgId,
     orgName: creds.orgName,
     memberId: creds.memberId,

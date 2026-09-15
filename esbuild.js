@@ -5,6 +5,11 @@ const path = require("path");
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
+// Baked in at build time, not read at runtime — so a real release install can't be pointed at a
+// non-production TraceRoost Pro environment just by setting TRACEROOST_TEAM_ENV/_URL in the
+// shell or a .env file. See src/cloud/team/config.ts's resolveTeamEnvironment().
+const releaseDefine = { 'process.env.TRACEROOST_RELEASE_BUILD': production ? '"1"' : '""' };
+
 function copySqlWasm() {
   const sqlJsDir = path.join(__dirname, 'node_modules', 'sql.js', 'dist');
   const distDir  = path.join(__dirname, 'dist');
@@ -46,6 +51,7 @@ async function main() {
 		platform: 'node',
 		outfile: 'dist/extension.js',
 		external: ['vscode', 'sql.js'],
+		define: releaseDefine,
 		logLevel: 'silent',
 		plugins: [
 			/* add to the end of plugins array */
@@ -90,6 +96,7 @@ async function main() {
 		sourcesContent: false,
 		platform: 'node',
 		outfile: 'standalone/server.js',
+		define: releaseDefine,
 		logLevel: 'silent',
 		plugins: [esbuildProblemMatcherPlugin],
 	});
@@ -103,6 +110,7 @@ async function main() {
 		sourcesContent: false,
 		platform: 'node',
 		outfile: 'standalone/cli.js',
+		define: releaseDefine,
 		logLevel: 'silent',
 		plugins: [esbuildProblemMatcherPlugin],
 	});

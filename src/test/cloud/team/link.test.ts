@@ -1,6 +1,6 @@
 import * as assert from 'assert'
 import * as http from 'http'
-import { linkInteractive, leave } from '../../../cloud/team/link'
+import { linkInteractive, leave, refreshOrgNameIfStale } from '../../../cloud/team/link'
 import { getTeamStatus } from '../../../cloud/team/status'
 import { setCredentialStore, loadCredentials } from '../../../cloud/team/credentials'
 import type { CredentialStore } from '../../../cloud/team/credentials'
@@ -87,5 +87,49 @@ suite('team/link', () => {
     assert.strictEqual(res.wasLinked, true)
     assert.strictEqual(res.serverRevoked, false)
     assert.strictEqual(loadCredentials(), null)
+  })
+
+  test('refreshOrgNameIfStale heals a credential whose orgName fell back to orgId', async () => {
+    // Simulate exactly what persistFromTokens does when the link-time roster fetch fails: the
+    // credential is saved with orgName === orgId.
+    setCredentialStore((() => {
+      let cur: TeamCredentials | null = {
+        endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'org-1',
+        memberId: 'mem-1', role: 'member', perDeveloperVisibility: false,
+        accessToken: 'access-1', refreshToken: 'refresh-1',
+        accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
+      }
+      return { load: () => cur, save: (c: TeamCredentials) => { cur = c }, clear: () => { cur = null } }
+    })())
+
+    const changed = await refreshOrgNameIfStale()
+    assert.strictEqual(changed, true)
+    assert.strictEqual(loadCredentials()?.orgName, 'Acme Corp')
+  })
+
+  test('refreshOrgNameIfStale is a no-op once orgName already differs from orgId', async () => {
+    await linkInteractive({ openUrl: fakeBrowser(), timeoutMs: 2000 }) // orgName resolves to 'Acme Corp' here
+    globalThis.fetch = (() => { throw new Error('must not be called — nothing is stale') }) as typeof fetch
+    const changed = await refreshOrgNameIfStale()
+    assert.strictEqual(changed, false)
+  })
+
+  test('refreshOrgNameIfStale logs and stays stale when the roster fetch keeps failing', async () => {
+    setCredentialStore((() => {
+      let cur: TeamCredentials | null = {
+        endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'org-1',
+        memberId: 'mem-1', role: 'member', perDeveloperVisibility: false,
+        accessToken: 'access-1', refreshToken: 'refresh-1',
+        accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
+      }
+      return { load: () => cur, save: (c: TeamCredentials) => { cur = c }, clear: () => { cur = null } }
+    })())
+    globalThis.fetch = (async () => new Response('', { status: 500 })) as typeof fetch
+
+    const logs: string[] = []
+    const changed = await refreshOrgNameIfStale((m) => logs.push(m))
+    assert.strictEqual(changed, false)
+    assert.strictEqual(loadCredentials()?.orgName, 'org-1')
+    assert.strictEqual(logs.length, 1)
   })
 })

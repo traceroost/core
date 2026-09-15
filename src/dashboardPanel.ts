@@ -11,6 +11,8 @@ import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
 import { handleTeamMessage } from './cloud/team/panelController'
 import { buildPayloadPreviewText } from './cloud/team/payloadPreview'
+import { loadCredentials } from './cloud/team/credentials'
+import { teamEndpoint } from './cloud/team/config'
 import { buildLocalTurnoverReport } from './cloud/turnover/localReport'
 import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/team/instructionTelemetry'
 import { drainForwardQueueSoon } from './cloud/forward/scheduler'
@@ -96,7 +98,8 @@ export class DashboardPanel {
           openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
           recentSessions: () => this.repo.listSessions({ limit: 25 }),
           buildPayloadPreview: (session) => buildPayloadPreviewText(session),
-          onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse('https://traceroost.com')) },
+          onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse(loadCredentials()?.endpoint ?? teamEndpoint())) },
+          log: (m) => console.warn(m),
         })
         return
       }

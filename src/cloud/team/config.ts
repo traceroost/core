@@ -8,36 +8,79 @@
  * has returned a non-null value.
  */
 
+import { loadSelectedEnvironment } from './environmentSelection'
+
 /** The hosted TraceRoost Pro service's real environments — mirrors `alsaas/infra`'s Pulumi
  *  stacks exactly (`Pulumi.test.yaml`, `Pulumi.stage.yaml`, `Pulumi.prod.yaml`). Production has
  *  no subdomain: `alsaas`'s prod stack CNAMEs the bare apex, not `app.`. */
 export type TeamEnvironment = 'production' | 'stage' | 'test'
 
-const TEAM_ENDPOINTS: Record<TeamEnvironment, string> = {
+export const TEAM_ENDPOINTS: Record<TeamEnvironment, string> = {
   production: 'https://traceroost.com',
   stage: 'https://stage.traceroost.com',
   test: 'https://test.traceroost.com',
 }
 
-const DEFAULT_TEAM_ENVIRONMENT: TeamEnvironment = 'production'
+const DEFAULT_TEAM_ENVIRONMENT: TeamEnvironment = 'test'
 
-function isTeamEnvironment(v: string): v is TeamEnvironment {
+export function isTeamEnvironment(v: string): v is TeamEnvironment {
   return v === 'production' || v === 'stage' || v === 'test'
 }
 
+/** Where `resolveTeamEnvironment()` got its answer from, surfaced so the Team panel can explain
+ *  itself (e.g. "test — set by .env" vs "test — chosen in this panel") and know whether its own
+ *  picker should even be enabled (it can't override `env-url`/`env-var`/`release`). */
+export type EnvironmentSource = 'env-url' | 'env-var' | 'selected' | 'default' | 'release'
+
+export interface ResolvedEnvironment {
+  endpoint: string
+  /** The known environment this endpoint matches, or `'custom'` when `TRACEROOST_TEAM_URL` points
+   *  somewhere outside `TEAM_ENDPOINTS` (e.g. `alsaas`'s own `pnpm dev` on localhost). */
+  environment: TeamEnvironment | 'custom'
+  source: EnvironmentSource
+}
+
 /**
- * Resolves in order: an explicit full URL (`TRACEROOST_TEAM_URL`, for pointing at `alsaas`'s own
- * `pnpm dev` on localhost, or any other one-off target), then a named environment
- * (`TRACEROOST_TEAM_ENV=test|stage|production`), then production. Unset in a normal install —
- * there is no user-facing setting for this, because a linked machine already trusts whatever
- * server issued its token.
+ * Resolves in order: a release build (locked to production, full stop — see below), then an
+ * explicit full URL (`TRACEROOST_TEAM_URL`, for pointing at `alsaas`'s own `pnpm dev` on
+ * localhost, or any other one-off target), then a named environment
+ * (`TRACEROOST_TEAM_ENV=test|stage|production`, settable via `.env` for `npm run local`), then a
+ * selection persisted from the Team panel (`environmentSelection.ts`), then production.
+ *
+ * Only ever consulted pre-link (every call site for a linked machine passes `creds.endpoint`
+ * explicitly instead) — so this, and the picker behind step four, only ever affects an unlinked
+ * install, matching AL 01: a linked machine already trusts whatever server issued its token.
  */
-export function teamEndpoint(): string {
+export function resolveTeamEnvironment(): ResolvedEnvironment {
+  // Environment selection (the picker, TRACEROOST_TEAM_ENV, TRACEROOST_TEAM_URL) exists for
+  // developing and testing TraceRoost Pro itself, never for a real install. `TRACEROOST_RELEASE_BUILD`
+  // is baked in by esbuild.js at build time for both real release paths (`vscode:prepublish` and
+  // `prepublishOnly`, both → `pnpm run package`) — not read from the real environment at runtime —
+  // so a shipped install can't be pointed anywhere but production by setting a shell/`.env` var.
+  if (process.env.TRACEROOST_RELEASE_BUILD) {
+    return { endpoint: TEAM_ENDPOINTS.production, environment: 'production', source: 'release' }
+  }
   const fromUrl = process.env.TRACEROOST_TEAM_URL?.trim()
-  if (fromUrl) return stripTrailingSlash(fromUrl)
+  if (fromUrl) {
+    const endpoint = stripTrailingSlash(fromUrl)
+    const known = (Object.keys(TEAM_ENDPOINTS) as TeamEnvironment[]).find(
+      (k) => TEAM_ENDPOINTS[k] === endpoint,
+    )
+    return { endpoint, environment: known ?? 'custom', source: 'env-url' }
+  }
   const fromEnvName = process.env.TRACEROOST_TEAM_ENV?.trim().toLowerCase()
-  if (fromEnvName && isTeamEnvironment(fromEnvName)) return TEAM_ENDPOINTS[fromEnvName]
-  return TEAM_ENDPOINTS[DEFAULT_TEAM_ENVIRONMENT]
+  if (fromEnvName && isTeamEnvironment(fromEnvName)) {
+    return { endpoint: TEAM_ENDPOINTS[fromEnvName], environment: fromEnvName, source: 'env-var' }
+  }
+  const selected = loadSelectedEnvironment()
+  if (selected) {
+    return { endpoint: TEAM_ENDPOINTS[selected], environment: selected, source: 'selected' }
+  }
+  return { endpoint: TEAM_ENDPOINTS[DEFAULT_TEAM_ENVIRONMENT], environment: DEFAULT_TEAM_ENVIRONMENT, source: 'default' }
+}
+
+export function teamEndpoint(): string {
+  return resolveTeamEnvironment().endpoint
 }
 
 /** Back-compat export — prefer `teamEndpoint()`, which is environment-aware. */

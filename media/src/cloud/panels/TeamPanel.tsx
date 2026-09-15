@@ -23,6 +23,8 @@ const NEVER_SENT = [
 ]
 
 export type TeamIndicator = 'unlinked' | 'reporting' | 'queued' | 'degraded'
+export type TeamEnvironment = 'production' | 'stage' | 'test'
+export type EnvironmentSource = 'env-url' | 'env-var' | 'selected' | 'default' | 'linked' | 'release'
 
 export interface TeamStatus {
   linked: boolean
@@ -38,6 +40,34 @@ export interface TeamStatus {
   queueDepth?: number
   lastRollupAt?: string | null
   degradedReason?: string
+  environment: TeamEnvironment | 'custom'
+  environmentSource: EnvironmentSource
+  environmentEditable: boolean
+}
+
+/** `orgName` is never unset once linked — it falls back to the raw `orgId` at link time if the
+ *  roster fetch failed (see `refreshOrgNameIfStale`, which self-heals this in the background).
+ *  Until that succeeds, show a friendly placeholder instead of a 36-character UUID. */
+function displayOrgName(st: Pick<TeamStatus, 'orgName' | 'orgId'>): string {
+  return st.orgName && st.orgName !== st.orgId ? st.orgName : 'your team'
+}
+
+const ENVIRONMENT_LABEL: Record<TeamEnvironment | 'custom', string> = {
+  production: 'Production',
+  stage: 'Stage',
+  test: 'Test',
+  custom: 'Custom',
+}
+
+function environmentSourceNote(source: EnvironmentSource): string {
+  switch (source) {
+    case 'env-url': return 'set by TRACEROOST_TEAM_URL'
+    case 'env-var': return 'set by TRACEROOST_TEAM_ENV (.env or shell)'
+    case 'selected': return 'chosen below'
+    case 'default': return 'default'
+    case 'linked': return 'from this machine’s link'
+    case 'release': return 'fixed in this build'
+  }
 }
 
 export const teamOpen = signal(false)
@@ -74,7 +104,7 @@ export function TeamButton() {
   const title = !st || indicator === 'unlinked'
     ? 'Team — not linked, nothing is being sent'
     : indicator === 'reporting'
-      ? `Team — linked to ${st.orgName ?? 'your team'}, reporting`
+      ? `Team — linked to ${displayOrgName(st)}, reporting`
       : indicator === 'queued'
         ? `Team — linked, ${st.queueDepth ?? 0} rollup(s) queued`
         : `Team — linked, last send failed`
@@ -134,7 +164,33 @@ function SentNeverSent() {
   )
 }
 
-function UnlinkedBody() {
+const ENVIRONMENTS: TeamEnvironment[] = ['production', 'stage', 'test']
+
+function EnvironmentPicker({ st }: { st: TeamStatus }) {
+  return (
+    <div style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:10px;color:var(--muted)">Environment</span>
+        <span style="font-size:10px;color:var(--muted)">{environmentSourceNote(st.environmentSource)}</span>
+      </div>
+      {st.environmentEditable ? (
+        <div style="display:flex;gap:4px;margin-top:4px">
+          {ENVIRONMENTS.map((env) => (
+            <button
+              key={env}
+              onClick={() => vscode?.postMessage({ type: 'teamSetEnvironment', environment: env })}
+              style={`flex:1;font-size:11px;padding:4px 0;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:${st.environment === env ? 'var(--vscode-button-background)' : 'transparent'};color:${st.environment === env ? 'var(--vscode-button-foreground)' : 'var(--fg)'}`}
+            >{ENVIRONMENT_LABEL[env]}</button>
+          ))}
+        </div>
+      ) : (
+        <div style="font-size:12px;color:var(--fg);margin-top:4px">{ENVIRONMENT_LABEL[st.environment]}</div>
+      )}
+    </div>
+  )
+}
+
+function UnlinkedBody({ st }: { st: TeamStatus }) {
   const busy = teamBusy.value
   return (
     <>
@@ -143,6 +199,7 @@ function UnlinkedBody() {
           TraceRoost is working exactly as it does now. <strong>Nothing is being sent anywhere.</strong> There is
           no account, no telemetry and no network connection to any service.
         </div>
+        <EnvironmentPicker st={st} />
       </Section>
       <Section title="If you linked this machine to a team">
         <SentNeverSent />
@@ -169,11 +226,11 @@ function LinkedBody({ st }: { st: TeamStatus }) {
   return (
     <>
       <Section title="Team">
-        <div style="font-size:13px;font-weight:600;color:var(--fg)">{st.orgName ?? st.orgId}</div>
+        <div style="font-size:13px;font-weight:600;color:var(--fg)">{displayOrgName(st)}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">You are <strong>{st.role ?? 'a member'}</strong> · member {short(st.memberId)}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">
           {st.perDeveloperVisibility
-            ? `${st.orgName ?? 'Your team'} has per-developer numbers turned on — your lead sees your individual figures.`
+            ? `${displayOrgName(st)} has per-developer numbers turned on — your lead sees your individual figures.`
             : `Your lead sees team totals only. Your individual numbers stay yours unless the whole team turns that on.`}
         </div>
       </Section>
@@ -181,6 +238,7 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         <Row k="Reporting" v={st.indicator === 'reporting' ? 'yes — up to date' : st.indicator === 'queued' ? `${st.queueDepth ?? 0} rollup(s) queued` : `paused — ${st.degradedReason ?? 'last send failed'}`} />
         <Row k="Last rollup" v={st.lastRollupAt ? new Date(st.lastRollupAt).toLocaleString() : 'none yet'} />
         <Row k="Queue depth" v={String(st.queueDepth ?? 0)} />
+        <Row k="Environment" v={ENVIRONMENT_LABEL[st.environment]} />
         <Row k="Endpoint" v={st.endpoint ?? ''} />
         <Row k="Client" v={`v${st.clientVersion}`} />
         <Row k="Linked" v={st.linkedAt ? new Date(st.linkedAt).toLocaleDateString() : ''} />
@@ -239,7 +297,7 @@ export function TeamPanel() {
         <button onClick={() => teamOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)">×</button>
       </div>
       {!st && <div style="padding:16px;font-size:12px;color:var(--muted)">Checking this machine's status — locally, no network…</div>}
-      {st && !st.linked && <UnlinkedBody />}
+      {st && !st.linked && <UnlinkedBody st={st} />}
       {st && st.linked && <LinkedBody st={st} />}
     </div>
   )
