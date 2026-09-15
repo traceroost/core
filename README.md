@@ -1,8 +1,5 @@
 <h1>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="media/brand/wordmark.png">
-    <img src="media/brand/wordmark-on-dark.png" alt="TraceRoost" height="40">
-  </picture>
+  <img src="media/brand/wordmark-mid.png" alt="TraceRoost" height="40">
 </h1>
 
 > **Note:** AgentLens is now **TraceRoost**. Already using AgentLens? See [Upgrading from AgentLens](#upgrading-from-agentlens).
