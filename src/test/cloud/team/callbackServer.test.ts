@@ -50,4 +50,32 @@ suite('team/callbackServer', () => {
     await assert.rejects(server.waitForCallback(), /timed out/)
     assert.strictEqual(await isListening(server.redirectUri), false)
   })
+
+  test('a team_url matching teamOrigin appears as a link on the success page', async () => {
+    const server = await startCallbackServer({ teamOrigin: 'https://test.traceroost.com' })
+    const wait = server.waitForCallback()
+    const teamUrl = encodeURIComponent('https://test.traceroost.com/acme1')
+    const res = await get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    assert.match(res.body, /href="https:\/\/test\.traceroost\.com\/acme1"/)
+    await wait
+  })
+
+  test('a team_url on a different origin than teamOrigin is dropped, not linked', async () => {
+    const server = await startCallbackServer({ teamOrigin: 'https://test.traceroost.com' })
+    const wait = server.waitForCallback()
+    const teamUrl = encodeURIComponent('https://evil.example.com/acme1')
+    const res = await get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    assert.ok(!res.body.includes('evil.example.com'))
+    assert.match(res.body, /Machine linked/)
+    await wait
+  })
+
+  test('a team_url with no configured teamOrigin is dropped, not linked', async () => {
+    const server = await startCallbackServer()
+    const wait = server.waitForCallback()
+    const teamUrl = encodeURIComponent('https://test.traceroost.com/acme1')
+    const res = await get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    assert.ok(!res.body.includes('href='))
+    await wait
+  })
 })

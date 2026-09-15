@@ -99,7 +99,10 @@ export async function linkInteractive(opts: InteractiveLinkOptions = {}): Promis
     throw new Error('this machine is already linked — run `traceroost team leave` first to re-link')
   }
   const pkce = createPkcePair()
-  const server = await startCallbackServer({ timeoutMs: opts.timeoutMs })
+  const server = await startCallbackServer({
+    timeoutMs: opts.timeoutMs,
+    teamOrigin: new URL(teamEndpoint()).origin,
+  })
   try {
     const url = interactiveAuthorizeUrl({
       redirectUri: server.redirectUri,
