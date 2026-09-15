@@ -12,15 +12,19 @@ import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export interface EnqueueResult {
   enqueued: boolean
-  reason?: 'not-linked' | 'duplicate' | 'not-a-repo' | 'shallow-clone' | 'no-root-commit' | 'error'
+  reason?: 'not-linked' | 'duplicate' | 'error'
 }
 
-/** Builds the rollup for `card` and appends it to the forwarding queue, if a team is linked. */
+/** Builds the rollup for `card` and appends it to the forwarding queue, if a team is linked. A
+ *  session whose repository can't be keyed (not a git repo, a shallow clone, no root commit) is
+ *  still enqueued — just without repo grouping, never dropped and never keyed with a fake hash. */
 export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void): Promise<EnqueueResult> {
   if (!loadCredentials()) return { enqueued: false, reason: 'not-linked' }
   try {
     const built = await buildPayloadForCard(card)
-    if (!built.ok) return { enqueued: false, reason: built.reason }
+    if (built.ungroupedReason) {
+      log?.(`[TraceRoost] session forwarded without repo grouping (${built.ungroupedReason}): ${card.workspace || card.projectPath || 'unknown workspace'}`)
+    }
     const added = new ForwardQueue().enqueue(built.payload)
     return added ? { enqueued: true } : { enqueued: false, reason: 'duplicate' }
   } catch (err) {

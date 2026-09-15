@@ -132,7 +132,10 @@ export interface SessionRollup {
   session_id: string          // uuid
   agent: WireAgent
   models?: WireModelUse[]
-  repo_hash: Sha256
+  /** Absent when the workspace's repository can't be keyed (not a git repo, a shallow clone, or
+   *  no discoverable root commit) — the session is still sent, just without repo grouping, rather
+   *  than dropped or keyed with a fake hash. See `repoKey.ts`. */
+  repo_hash?: Sha256
   branch_hash?: Sha256
   started_at: Iso8601
   duration_ms: number
@@ -230,7 +233,9 @@ export function toWireTargetAgent(agent: string): WireAgent {
  */
 export interface RollupPayload {
   schema_version: typeof SCHEMA_VERSION
-  repo_key_fp: Sha256
+  /** Absent under the same conditions as `SessionRollup.repo_hash` — an unkeyable repo means
+   *  there's no fingerprint to send either, not that nothing is sent. */
+  repo_key_fp?: Sha256
   session?: SessionRollup
   commits?: CommitRecord[]
   turnover?: TurnoverSample[]

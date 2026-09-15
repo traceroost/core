@@ -55,6 +55,21 @@ suite('forward/buildSessionRollup', () => {
     assert.deepStrictEqual(validateRollupPayload(payload), [])
   })
 
+  // A session whose workspace can't be keyed (not a repo, shallow clone, no root commit) is
+  // still sent — just without repo grouping, never with a fake hash. See src/cloud/forward/repoKey.ts.
+  test('without a repoKey, the payload omits repo_key_fp/repo_hash/branch_hash/file_hashes but still validates', () => {
+    const { repoKey: _repoKey, branch: _branch, ...rest } = BUILD
+    const payload = sessionRollupPayload(BASE, rest)
+    assert.strictEqual(payload.repo_key_fp, undefined)
+    assert.strictEqual(payload.session?.repo_hash, undefined)
+    assert.strictEqual(payload.session?.branch_hash, undefined)
+    assert.strictEqual(payload.session?.file_hashes, undefined)
+    // Everything else still gets built and sent.
+    assert.strictEqual(payload.session?.session_id, toUuid(BASE.sessionId))
+    assert.strictEqual(payload.session?.tool_calls?.bash, 5)
+    assert.deepStrictEqual(validateRollupPayload(payload), [])
+  })
+
   test('tool names are normalised to the schema key form and merged', () => {
     const r = buildSessionRollup(BASE, BUILD)
     for (const k of Object.keys(r.tool_calls ?? {})) assert.match(k, /^[a-z_]{1,40}$/)

@@ -62,8 +62,11 @@ export interface SessionRollupInput {
 }
 
 export interface BuildContext {
-  repoKey: RepoKeyContext
-  branch: string
+  /** Absent when the workspace's repository can't be keyed (not a git repo, a shallow clone, or
+   *  no discoverable root commit) — the rollup is still built, just without repo grouping. */
+  repoKey?: RepoKeyContext
+  /** Meaningless without `repoKey`; ignored when it's absent. */
+  branch?: string
   /** USD cost — computed by the caller with `calcTokenCostUsd` (kept out of `src/forward/` so
    *  this island imports no pricing tables). */
   costUsd: number
@@ -148,8 +151,6 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
   const rollup: SessionRollup = {
     session_id: toUuid(input.sessionId),
     agent: toWireAgent(input.source),
-    repo_hash: repoHash(rk),
-    branch_hash: branchHash(rk, ctx.branch),
     started_at: normalizeTimestamp(input.startTime),
     duration_ms: nonNegInt(input.durationMs),
     turns: nonNegInt(input.totalLlmCalls),
@@ -160,13 +161,18 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
     outcome: ctx.outcome ? toWireOutcome(ctx.outcome) : 'unknown',
   }
 
+  if (rk) {
+    rollup.repo_hash = repoHash(rk)
+    if (ctx.branch) rollup.branch_hash = branchHash(rk, ctx.branch)
+  }
+
   const models = perModelCalls(input)
   if (models && models.length > 0) rollup.models = models
 
   const toolCalls = wireToolCalls(input.toolCounts)
   if (toolCalls) rollup.tool_calls = toolCalls
 
-  const fileHashes = wireFileHashes(input, rk)
+  const fileHashes = rk ? wireFileHashes(input, rk) : undefined
   if (fileHashes) rollup.file_hashes = fileHashes
 
   if (input.oneShotStats && input.oneShotStats.filesConsidered > 0) {
@@ -186,7 +192,7 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
 export function sessionRollupPayload(input: SessionRollupInput, ctx: BuildContext): RollupPayload {
   return {
     schema_version: SCHEMA_VERSION,
-    repo_key_fp: repoKeyFingerprint(ctx.repoKey),
+    ...(ctx.repoKey ? { repo_key_fp: repoKeyFingerprint(ctx.repoKey) } : {}),
     session: buildSessionRollup(input, ctx),
   }
 }

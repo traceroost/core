@@ -5,7 +5,7 @@
   "description": "The complete wire format between a linked machine and the TraceRoost Pro ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. See docs/decisions/0003-what-we-can-and-cannot-see.md.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "repo_key_fp"],
+  "required": ["schema_version"],
   "properties": {
     "schema_version": { "const": "1" },
     "repo_key_fp": { "$ref": "#/$defs/hash" },
@@ -66,7 +66,7 @@
     "session": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["session_id", "agent", "repo_hash", "started_at", "duration_ms"],
+      "required": ["session_id", "agent", "started_at", "duration_ms"],
       "properties": {
         "session_id": { "type": "string", "format": "uuid" },
         "agent": { "$ref": "#/$defs/agent" },

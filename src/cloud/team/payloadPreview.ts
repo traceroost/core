@@ -53,14 +53,17 @@ async function currentBranch(cwd: string): Promise<string> {
   }
 }
 
-export type PayloadForCard =
-  | { ok: true; payload: RollupPayload }
-  | { ok: false; reason: 'not-a-repo' | 'shallow-clone' | 'no-root-commit' }
+export interface PayloadForCard {
+  payload: RollupPayload
+  /** Set when the workspace's repository couldn't be keyed (not a git repo, a shallow clone, or
+   *  no discoverable root commit). `payload` is still complete and still gets sent — just without
+   *  repo grouping, never with a fake hash. */
+  ungroupedReason?: 'not-a-repo' | 'shallow-clone' | 'no-root-commit'
+}
 
 /**
- * Builds the exact `RollupPayload` for one session, or reports why it can't. Used by both the
- * panel's payload preview and the forwarding queue — so what the panel shows is byte-identical
- * to what is enqueued.
+ * Builds the exact `RollupPayload` for one session. Used by both the panel's payload preview and
+ * the forwarding queue — so what the panel shows is byte-identical to what is enqueued.
  *
  * When no team is linked, hashes are derived under a placeholder org salt so the preview is
  * representative; nothing is ever sent.
@@ -71,7 +74,6 @@ export async function buildPayloadForCard(card: SessionSummaryCard): Promise<Pay
   const workspace = card.workspace || card.projectPath || process.cwd()
 
   const rk = await deriveRepoKey(workspace, orgId)
-  if (!rk.ok) return { ok: false, reason: rk.reason }
 
   const cost = calcTokenCostUsd(
     Math.max(0, card.inputTokens - card.cacheReadTokens - (card.cacheCreateTokens ?? 0)),
@@ -82,19 +84,20 @@ export async function buildPayloadForCard(card: SessionSummaryCard): Promise<Pay
   )
   const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [], card.startTime, card.startTime)
   const payload = sessionRollupPayload(cardToInput(card), {
-    repoKey: rk.ctx,
-    branch: await currentBranch(rk.ctx.root),
+    repoKey: rk.ok ? rk.ctx : undefined,
+    branch: rk.ok ? await currentBranch(rk.ctx.root) : undefined,
     costUsd: cost,
     outcome: outcome?.overall,
   })
   assertValidRollupPayload(payload)
-  return { ok: true, payload }
+  return rk.ok ? { payload } : { payload, ungroupedReason: rk.reason }
 }
 
 export async function buildPayloadPreviewText(card: SessionSummaryCard): Promise<string> {
   const result = await buildPayloadForCard(card)
-  if (!result.ok) {
-    return `This session's repository can't be keyed (${result.reason}). It would be reported without repository grouping — never with a fake hash.`
+  const preview = renderPayloadPreview(result.payload, { linked: loadCredentials() !== null })
+  if (result.ungroupedReason) {
+    return `This session's repository can't be keyed (${result.ungroupedReason}). It is reported without repository grouping — never with a fake hash.\n\n${preview}`
   }
-  return renderPayloadPreview(result.payload, { linked: loadCredentials() !== null })
+  return preview
 }
