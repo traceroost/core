@@ -126,4 +126,34 @@ suite('turnover', () => {
       assert.ok(r.benchmark.verdict)
     }
   })
+
+  test('the per-commit drill-down sums to the same totals as the aggregate, sorted worst-survival-first', async () => {
+    writeLines('keep.txt', MIN_ATTRIBUTED_LINES, 'keep')
+    aiCommit('add keep (survives)', T0)
+    writeLines('gone.txt', MIN_ATTRIBUTED_LINES, 'gone')
+    aiCommit('add gone (removed later)', T0 + 1 * 86_400_000)
+    fs.rmSync(path.join(repo, 'gone.txt'))
+    git(['add', '-A'])
+    git(['commit', '-m', 'remove gone'], T0 + 40 * 86_400_000)
+
+    const report = await computeTurnover(repo, { now: FUTURE, windows: [90] })
+    const measured = report.results.find(r => r.kind === 'measured' && r.windowDays === 90)
+    assert.ok(measured && measured.kind === 'measured')
+    assert.ok(measured.commits) // always set by evaluateCohort — narrows away `| undefined`
+
+    assert.strictEqual(measured.commits.length, measured.commitCount)
+    assert.strictEqual(measured.commits.reduce((s, c) => s + c.aiLines, 0), measured.aiLinesAuthored)
+    assert.strictEqual(measured.commits.reduce((s, c) => s + c.aiLinesSurviving, 0), measured.aiLinesSurviving)
+    assert.deepStrictEqual(new Set(measured.commits.map(c => c.sha)), new Set(measured.cohortShas))
+
+    // Worst-survival-first: the fully-reverted commit (0% survival) sorts before the one that
+    // fully survives (100%).
+    assert.strictEqual(measured.commits[0].aiLinesSurviving, 0)
+    assert.strictEqual(measured.commits[measured.commits.length - 1].aiLinesSurviving, measured.commits[measured.commits.length - 1].aiLines)
+
+    // No free-text field ever appears on a commit detail — see commitScan.ts's own invariant.
+    for (const c of measured.commits) {
+      assert.deepStrictEqual(Object.keys(c).sort(), ['aiLines', 'aiLinesSurviving', 'attribution', 'authoredAt', 'linesAdded', 'sha'])
+    }
+  })
 })

@@ -5,6 +5,17 @@ import { teamStatus, requestTeamStatus } from '../panels/TeamPanel'
 
 // ── Types (mirror src/turnover/index.ts + localReport.ts) ───────────────────
 
+/** No message text — see the same field on src/cloud/turnover/index.ts's CommitDetail for why:
+ *  commitScan.ts reads a commit's message only to detect an agent trailer, then discards it. */
+interface CommitDetail {
+  sha: string
+  authoredAt: string
+  linesAdded: number
+  aiLines: number
+  aiLinesSurviving: number
+  attribution: 'certain' | 'probable' | 'unknown'
+}
+
 interface Measured {
   kind: 'measured'
   cohortLabel: string
@@ -16,6 +27,9 @@ interface Measured {
   mergeRange: { fromIso: string; toIso: string }
   benchmark: { low: number; high: number; healthyUnder: number; verdict: 'healthy' | 'typical' | 'elevated' }
   cohortShas: string[]
+  /** Worst-survival-first — see index.ts's evaluateCohort. Absent on a report cached before this
+   *  field existed. */
+  commits?: CommitDetail[]
 }
 interface Insufficient {
   kind: 'insufficient'
@@ -118,6 +132,58 @@ function MeasuredPanel({ r, coverage }: { r: Measured; coverage: TurnoverReport[
         Attribution determined for {pct(covPct)} of merged lines in this window.
       </div>
       <BenchmarkBar rate={r.turnoverRate} band={r.benchmark} />
+      {/* `?? []`: a cohort_turnover row cached before this field existed has no `commits` at all
+          — HEAD hasn't moved, so it won't recompute on its own until something else invalidates it. */}
+      <CommitDrilldown commits={r.commits ?? []} />
+    </div>
+  )
+}
+
+function CommitDrilldown({ commits }: { commits: CommitDetail[] }) {
+  const [open, setOpen] = useState(false)
+  if (commits.length === 0) return null
+  return (
+    <div style="margin-top:8px">
+      <button
+        onClick={() => setOpen(o => !o)}
+        style="font-size:10px;color:var(--vscode-textLink-foreground,#4fc3f7);background:none;border:none;cursor:pointer;padding:0"
+      >{open ? 'Hide' : 'Show'} the {commits.length} commit{commits.length === 1 ? '' : 's'} behind this number</button>
+      {open && (
+        <>
+          <table style="width:100%;font-size:10px;margin-top:6px;border-collapse:collapse">
+            <thead>
+              <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">
+                <th style="padding:2px 6px 2px 0;font-weight:500">Commit</th>
+                <th style="padding:2px 6px;font-weight:500">Date</th>
+                <th style="padding:2px 6px;text-align:right;font-weight:500">AI lines</th>
+                <th style="padding:2px 6px;text-align:right;font-weight:500">Surviving</th>
+                <th style="padding:2px 0;font-weight:500">Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {commits.map(c => {
+                const survivedFrac = c.aiLines > 0 ? c.aiLinesSurviving / c.aiLines : 1
+                const survivedColor = survivedFrac < 0.3 ? '#f44747' : survivedFrac < 0.7 ? '#f6a623' : '#56D364'
+                return (
+                  <tr key={c.sha} style="border-bottom:1px solid var(--border)">
+                    <td style="padding:3px 6px 3px 0;font-family:var(--vscode-editor-font-family,monospace);color:var(--muted)" title={`${c.sha} — run 'git show ${c.sha.slice(0, 12)}' in this repo for the full commit`}>
+                      {c.sha.slice(0, 8)}
+                    </td>
+                    <td style="padding:3px 6px;color:var(--muted);white-space:nowrap">{fmtDay(c.authoredAt)}</td>
+                    <td style="padding:3px 6px;text-align:right">{c.aiLines.toLocaleString()}</td>
+                    <td style={`padding:3px 6px;text-align:right;color:${survivedColor}`}>{pct(survivedFrac)}</td>
+                    <td style="padding:3px 0;color:var(--muted)">{c.attribution}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <div class="sub" style="margin-top:4px">
+            No commit messages here by design — TraceRoost reads a message only to check for an AI
+            trailer, then discards it. Use the sha with your own git tools for the rest.
+          </div>
+        </>
+      )}
     </div>
   )
 }

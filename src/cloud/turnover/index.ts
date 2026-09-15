@@ -14,6 +14,7 @@
  */
 
 import { attributeRepository, type AttributeOptions, type AttributionResult } from '../attribution'
+import type { Confidence } from '../attribution/types'
 import { buildCohorts, isWindowElapsed, measurableAt, type Cohort } from './cohorts'
 import { buildSurvivalIndex, survivingAiLines, type SurvivalIndex, type FileBlameCache } from './survival'
 import { benchmarkFor, benchmarkVerdict } from './benchmarks'
@@ -30,6 +31,20 @@ export interface TurnoverProgress {
  *  noise. */
 export const MIN_ATTRIBUTED_LINES = 200
 
+/** One commit's contribution to a measured cohort — the drill-down behind the aggregate
+ *  percentage. No message text: `commitScan.ts` reads a commit's message only to detect an
+ *  agent trailer and discards it before returning, by design — that boundary holds here too, so
+ *  this identifies a commit by sha/date/counts only. Never sent — the wire payload (AL 03) carries
+ *  `commit_hash` (a further HMAC of this sha), not this record. */
+export interface CommitDetail {
+  sha: string
+  authoredAt: string
+  linesAdded: number
+  aiLines: number
+  aiLinesSurviving: number
+  attribution: Confidence
+}
+
 export interface TurnoverResult {
   kind: 'measured'
   cohortLabel: string
@@ -42,6 +57,11 @@ export interface TurnoverResult {
   benchmark: { low: number; high: number; healthyUnder: number; verdict: 'healthy' | 'typical' | 'elevated' }
   /** The representative commit SHA, for the AL 03 `TurnoverSample` and the local hand-off. */
   cohortShas: string[]
+  /** Sorted worst-survival-first, so the drill-down opens on what's actually driving the number.
+   *  Always set by evaluateCohort — optional only because a `cohort_turnover` row cached before
+   *  this field existed round-trips through this same type with it absent (see cached.ts; HEAD
+   *  hasn't moved, so it won't recompute on its own). */
+  commits?: CommitDetail[]
 }
 
 export interface InsufficientData {
@@ -106,8 +126,16 @@ function evaluateCohort(
   }
 
   const attributed = cohort.commits.filter(c => !c.isMerge && c.attribution !== 'unknown')
-  const authored = attributed.reduce((s, c) => s + c.aiLines, 0)
-  const surviving = attributed.reduce((s, c) => s + survivingAiLines(index, c), 0)
+  const details: CommitDetail[] = attributed.map(c => ({
+    sha: c.sha,
+    authoredAt: c.authoredAt,
+    linesAdded: c.linesAdded,
+    aiLines: c.aiLines,
+    aiLinesSurviving: survivingAiLines(index, c),
+    attribution: c.attribution,
+  }))
+  const authored = details.reduce((s, c) => s + c.aiLines, 0)
+  const surviving = details.reduce((s, c) => s + c.aiLinesSurviving, 0)
   const rate = authored > 0 ? Math.max(0, Math.min(1, 1 - surviving / authored)) : 0
   const b = benchmarkFor(windowDays)
 
@@ -125,6 +153,13 @@ function evaluateCohort(
     },
     benchmark: { low: b.low, high: b.high, healthyUnder: b.healthyUnder, verdict: benchmarkVerdict(rate, windowDays) },
     cohortShas: attributed.map(c => c.sha),
+    // Worst survival fraction first (fewest surviving lines relative to what it introduced) —
+    // opens the drill-down on whatever is actually driving the number.
+    commits: [...details].sort((x, y) => {
+      const fx = x.aiLines > 0 ? x.aiLinesSurviving / x.aiLines : 1
+      const fy = y.aiLines > 0 ? y.aiLinesSurviving / y.aiLines : 1
+      return fx - fy
+    }),
   }
 }
 
