@@ -41,6 +41,8 @@ function cardToInput(card: SessionSummaryCard): SessionRollupInput {
     loopSignals: (card.loopSignals ?? []).map(s => ({ type: s.type, severity: s.severity })),
     oneShotStats: card.oneShotStats,
     llmModels: (card.timeline ?? []).filter(t => t.type === 'llm' && t.model).map(t => t.model as string),
+    dataSource: card.dataSource,
+    initiator: card.initiator,
   }
 }
 

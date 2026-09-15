@@ -63,6 +63,8 @@
       ]
     },
     "count": { "type": "integer", "minimum": 0, "maximum": 100000000 },
+    "data_source": { "type": "string", "enum": ["otel", "log"] },
+    "initiator": { "type": "string", "enum": ["user", "agent", "api"] },
     "session": {
       "type": "object",
       "additionalProperties": false,
@@ -124,7 +126,9 @@
             }
           }
         },
-        "outcome": { "$ref": "#/$defs/outcome" }
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "data_source": { "$ref": "#/$defs/data_source" },
+        "initiator": { "$ref": "#/$defs/initiator" }
       }
     },
     "commit": {

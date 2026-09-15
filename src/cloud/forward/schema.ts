@@ -31,6 +31,13 @@ export type WireAttribution = 'certain' | 'probable' | 'unknown'
 
 export type WireOutcome = 'merged' | 'abandoned' | 'in-progress' | 'reverted' | 'unknown'
 
+/** Whether the session was built from a finished, on-disk transcript file, or from live OTEL
+ *  telemetry with no transcript file (yet). Mirrors `SessionSummaryCard.dataSource`. */
+export type WireDataSource = 'otel' | 'log'
+
+/** Who or what started the session. Mirrors `SessionSummaryCard.initiator`. */
+export type WireInitiator = 'user' | 'agent' | 'api'
+
 export type WireLoopSignal =
   | 'context-flooding'
   | 'repeated-edit'
@@ -149,6 +156,8 @@ export interface SessionRollup {
   one_shot?: WireOneShot
   loop_signals?: WireLoopSignalEntry[]
   outcome?: WireOutcome
+  data_source?: WireDataSource
+  initiator?: WireInitiator
 }
 
 export interface CommitRecord {

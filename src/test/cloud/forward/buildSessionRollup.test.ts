@@ -26,6 +26,8 @@ const BASE: SessionRollupInput = {
   filesWritten: ['src/c.ts'],
   loopSignals: [{ type: 'exact_tool_repeat', severity: 'warning' }, { type: 'not_a_real_signal', severity: 'critical' }],
   oneShotStats: { filesConsidered: 3, oneShotFiles: 2, totalEdits: 5 },
+  dataSource: 'log',
+  initiator: 'user',
 }
 
 suite('forward/buildSessionRollup', () => {

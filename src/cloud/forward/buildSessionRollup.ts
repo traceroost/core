@@ -59,6 +59,8 @@ export interface SessionRollupInput {
   oneShotStats?: { filesConsidered: number; oneShotFiles: number; totalEdits: number }
   /** Per-LLM-entry model tags, if the timeline is loaded — used only for per-model call counts. */
   llmModels?: string[]
+  dataSource: 'otel' | 'log'
+  initiator?: 'user' | 'agent' | 'api'
 }
 
 export interface BuildContext {
@@ -159,7 +161,9 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
     cost_usd: Math.max(0, round4(ctx.costUsd)),
     errors: nonNegInt(input.errors),
     outcome: ctx.outcome ? toWireOutcome(ctx.outcome) : 'unknown',
+    data_source: input.dataSource,
   }
+  if (input.initiator) rollup.initiator = input.initiator
 
   if (rk) {
     rollup.repo_hash = repoHash(rk)
