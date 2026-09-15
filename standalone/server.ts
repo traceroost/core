@@ -212,6 +212,44 @@ startMcpHttpServer({
   },
 }, MCP_PORT, BIND_HOST, AUTH_TOKEN)
 
+// Sessions whose repository couldn't be *matched to a written transcript file at all* — a
+// genuinely different problem from the ungrouped-repo case (0182506): the client, agent, or
+// timing meant no ~/.claude/projects/ (etc.) log ever appeared for this session, so it exists
+// only as OTEL spans (dataSource 'otel', built by summarizeSpans()) and never reaches
+// runLogScan()/logReader at all — that pipeline only ever looks at log files, by construction.
+//
+// Only forward one once it's been idle a while: an OTEL session is *live* for as long as the
+// agent keeps emitting spans for it, and forwarding mid-conversation would send an incomplete,
+// wrong rollup — worse, forwarding it more than once as it grows would each time look like a
+// *different* session server-side (its payload, hence its content hash inputs, differs), so
+// there is no cheap dedup to lean on the way there is for a stable file. If its transcript file
+// *does* show up later (the common case — this is a race, not a permanent state, for anything
+// still actively writing), runLogScan() reaching it first and enqueuing under the real
+// session_id is what should happen; this function backs off the moment that's true so the same
+// underlying session is never double-counted under two different ids.
+const OTEL_IDLE_MS = 3 * 60_000
+const otelLastSeen = new Map<string, { durationMs: number; at: number }>()
+const otelAttempted = new Set<string>()
+
+function checkStaleOtelSessions() {
+  const summary = buildSessionSummary()
+  if (!summary) return
+  const now = Date.now()
+  for (const card of summary.sessions) {
+    if (card.dataSource !== 'otel') continue
+    if (otelAttempted.has(card.traceId)) continue
+    if (logSessions.has(card.sessionId)) { otelAttempted.add(card.traceId); continue } // now has a real log counterpart — that one wins
+    const prev = otelLastSeen.get(card.traceId)
+    if (!prev || prev.durationMs !== card.durationMs) {
+      otelLastSeen.set(card.traceId, { durationMs: card.durationMs, at: now })
+      continue
+    }
+    if (now - prev.at < OTEL_IDLE_MS) continue
+    otelAttempted.add(card.traceId)
+    void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
+  }
+}
+
 function runLogScan() {
   const results = logReader.scan()
   let changed = false
@@ -252,6 +290,10 @@ async function startLogIngestion() {
 
   // Register the poll first so it always runs, even if no files exist yet at startup.
   setInterval(runLogScan, 5_000)
+  // Pro: catch sessions that never got a matching transcript file at all — see the doc
+  // comment on checkStaleOtelSessions for why this needs its own idle-based check rather
+  // than firing from the same per-file-change trigger runLogScan uses.
+  setInterval(checkStaleOtelSessions, 5_000)
   // Watch log directories for file-system events so updates appear immediately,
   // without waiting for the next poll interval.
   setupLogWatcher()
