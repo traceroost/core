@@ -1484,6 +1484,55 @@ const MIME: Record<string, string> = {
 
 // ── UI server ─────────────────────────────────────────────────────────────────
 
+/** A real page, not a bare `text/plain` dump — this is the one 401 a human actually reads in a
+ *  browser (the OTLP server's matching check below stays plain text; nothing browses to that
+ *  one). Explains what's missing and exactly where to find it, since "Unauthorized" alone just
+ *  looks broken. */
+function unauthorizedHtml(port: number): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unauthorized — TraceRoost</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: #1e1e1e; color: #cccccc;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    body { background: #ffffff; color: #1f2328; }
+    .card { border-color: #d0d7de !important; background: #f6f8fa !important; }
+    code { background: #eaeef2 !important; color: #0969da !important; }
+  }
+  .card {
+    max-width: 480px; margin: 16px; padding: 28px 32px; border-radius: 8px;
+    border: 1px solid #3e3e42; background: #252526;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; }
+  p { line-height: 1.6; font-size: 13px; color: #9d9d9d; margin: 12px 0; }
+  code {
+    display: block; margin: 6px 0; padding: 8px 10px; border-radius: 4px;
+    background: #1e1e1e; color: #4fc3f7; font-size: 12px; overflow-wrap: anywhere;
+  }
+  .hint code { display: inline; padding: 1px 6px; margin: 0; }
+  .hint { font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔒 Unauthorized</h1>
+    <p>This dashboard needs the access token TraceRoost generated for it — the address you used is missing it, or has the wrong one.</p>
+    <p>Open the dashboard using the full URL TraceRoost printed when it started, token included:</p>
+    <code>http://localhost:${port}/?token=&lt;your-token&gt;</code>
+    <p class="hint">Running this as a background service instead? <code>traceroost service status</code> prints that same URL again — no need to dig through old terminal output.</p>
+  </div>
+</body>
+</html>`
+}
+
 const uiServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
@@ -1497,8 +1546,8 @@ const uiServer = http.createServer((req, res) => {
   }
 
   if (!isAuthorized(req, AUTH_TOKEN)) {
-    res.writeHead(401, { 'Content-Type': 'text/plain' })
-    res.end('Unauthorized — open the dashboard via the URL TraceRoost printed at startup (it includes an access token).')
+    res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(unauthorizedHtml(UI_PORT))
     return
   }
   // First request authenticated via ?token= or an Authorization header rather than an existing
