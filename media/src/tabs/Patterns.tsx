@@ -170,7 +170,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
             <table style="width:100%;border-collapse:collapse;font-size:11px">
               <thead>
                 <tr style="border-bottom:1px solid var(--border)">
-                  <th style={thStyle('time')}   onClick={() => toggleSort('time')}>Time{arrow('time')}</th>
+                  <th style={thStyle('time')}   onClick={() => toggleSort('time')}>Start Time{arrow('time')}</th>
                   <th style={thStyle('prompt')} onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</th>
                   <th style={`${thStyle('cost')};text-align:right`}  onClick={() => toggleSort('cost')}>Cost{arrow('cost')}</th>
                   <th style={`${thStyle('turns')};text-align:right`} onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</th>
