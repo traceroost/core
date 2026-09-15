@@ -6,6 +6,15 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ---
 
+## [0.16.2] — 2026-09-14
+
+### Changed
+
+- **VS Code Marketplace icon is now in color** — white background, the mark's actual two colors (dark ink bird, teal roost bar), replacing the mono dark-background treatment. The activity-bar icon is unchanged (VS Code requires mono there and theme-colors it itself) (#246)
+- **README wordmark is a single mid-grey variant** (`#76797F`) instead of a light/dark `<picture>`/`<source>` pair, since GitHub's the only renderer that actually evaluates that hint — the Marketplace and npm just show the fallback. The new color is legible against both a white and the brand's near-black background (#246)
+
+---
+
 ## [0.16.1] — 2026-09-14
 
 ### Fixed
