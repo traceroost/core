@@ -24,6 +24,7 @@
  */
 
 import { ForwardQueue, type QueueItem } from './queue'
+import { DeliveryLedger } from './deliveryLedger'
 import { readForwardState, writeForwardState, clearForwardState } from './forwardState'
 import { loadCredentials, saveCredentials, clearCredentials } from '../team/credentials'
 import { refreshTokens } from '../team/oauthClient'
@@ -152,7 +153,15 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   return finish(sawTransientFailure ? 'offline' : null)
 
   function finish(stopped: DrainResult['stopped']): DrainResult {
-    if (succeeded.length > 0) queue.remove(succeeded)
+    if (succeeded.length > 0) {
+      queue.remove(succeeded)
+      // Record delivery *before* removing from the queue would be equally correct — order
+      // doesn't matter here, since a crash between the two just means a redundant, harmless
+      // resend later (idempotent both locally and server-side), never a lost one. See
+      // deliveryLedger.ts and enqueueSession.ts's pre-build check.
+      const ledger = new DeliveryLedger(deps.baseHome)
+      for (const key of succeeded) ledger.markDelivered(key)
+    }
     if (droppedKeys.length > 0) queue.remove(droppedKeys)
     if (sent > 0) {
       writeForwardState({ lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null }, deps.baseHome)

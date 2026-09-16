@@ -6,20 +6,33 @@
  */
 
 import { ForwardQueue } from '../forward/queue'
+import { DeliveryLedger } from '../forward/deliveryLedger'
+import { toUuid } from '../forward/buildSessionRollup'
 import { loadCredentials } from './credentials'
 import { buildPayloadForCard } from './payloadPreview'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export interface EnqueueResult {
   enqueued: boolean
-  reason?: 'not-linked' | 'duplicate' | 'error'
+  reason?: 'not-linked' | 'duplicate' | 'already-delivered' | 'error'
 }
 
 /** Builds the rollup for `card` and appends it to the forwarding queue, if a team is linked. A
  *  session whose repository can't be keyed (not a git repo, a shallow clone, no root commit) is
- *  still enqueued — just without repo grouping, never dropped and never keyed with a fake hash. */
+ *  still enqueued — just without repo grouping, never dropped and never keyed with a fake hash.
+ *
+ *  Checks the delivery ledger *before* building the payload — every log-file rediscovery on
+ *  process restart, and every on-demand reconciliation, calls this once per local session
+ *  regardless of whether it was already sent; without this check that would mean rebuilding
+ *  (a git-subprocess-driven) payload and re-transmitting a machine's entire history on every
+ *  restart. See `deliveryLedger.ts`. */
 export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void): Promise<EnqueueResult> {
   if (!loadCredentials()) return { enqueued: false, reason: 'not-linked' }
+  // Matches the key a built session payload would get — see buildSessionRollup.ts's session_id
+  // field and queue.ts's itemKey — without paying for the git-subprocess work just to discard it.
+  if (new DeliveryLedger().isDelivered(`session:${toUuid(card.sessionId)}`)) {
+    return { enqueued: false, reason: 'already-delivered' }
+  }
   try {
     const built = await buildPayloadForCard(card)
     if (built.ungroupedReason) {

@@ -4,6 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { drainQueue } from '../../../cloud/forward/sender'
 import { ForwardQueue } from '../../../cloud/forward/queue'
+import { DeliveryLedger } from '../../../cloud/forward/deliveryLedger'
 import { readForwardState } from '../../../cloud/forward/forwardState'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/team/credentials'
 import type { TeamCredentials } from '../../../cloud/team/config'
@@ -65,6 +66,15 @@ suite('forward/sender', () => {
     assert.strictEqual(res.sent, 1)
     assert.strictEqual(new ForwardQueue(home).depth(), 0)
     assert.ok(readForwardState(home).lastSuccessAt)
+  })
+
+  test('a successful send records the item in the delivery ledger', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    const key = `session:${ID1}`
+    assert.strictEqual(new DeliveryLedger(home).isDelivered(key), false)
+    stubFetch(() => new Response('', { status: 202 }))
+    await drainQueue({ baseHome: home })
+    assert.strictEqual(new DeliveryLedger(home).isDelivered(key), true)
   })
 
   test('400 → record dropped, never retried', async () => {

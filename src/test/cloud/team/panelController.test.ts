@@ -8,6 +8,7 @@ import { setCredentialStore } from '../../../cloud/team/credentials'
 import type { CredentialStore } from '../../../cloud/team/credentials'
 import type { TeamCredentials } from '../../../cloud/team/config'
 import { ForwardQueue } from '../../../cloud/forward/queue'
+import { DeliveryLedger } from '../../../cloud/forward/deliveryLedger'
 import { toUuid } from '../../../cloud/forward/buildSessionRollup'
 import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 
@@ -63,7 +64,7 @@ function baseDeps(overrides: Partial<TeamPanelDeps> = {}): TeamPanelDeps {
   }
 }
 
-suite('team/panelController — link back-fill', () => {
+suite('team/panelController — link back-fill and reconciliation', () => {
   let home: string
 
   setup(() => {
@@ -115,6 +116,32 @@ suite('team/panelController — link back-fill', () => {
     await handleTeamMessage({ type: 'teamLink' }, baseDeps())
     await new Promise(resolve => setTimeout(resolve, 100))
     assert.strictEqual(new ForwardQueue().depth(), 0)
+  })
+
+  test('teamReconcile queues sessions not yet confirmed delivered and reports the count', async () => {
+    await handleTeamMessage({ type: 'teamLink' }, baseDeps()) // link with no allLocalSessions — queue starts empty
+    await new Promise(resolve => setTimeout(resolve, 100))
+    assert.strictEqual(new ForwardQueue().depth(), 0)
+
+    const posted: Record<string, unknown>[] = []
+    const cards = [makeCard('r1'), makeCard('r2')]
+    await handleTeamMessage({ type: 'teamReconcile' }, baseDeps({ allLocalSessions: () => cards, post: (m) => posted.push(m) }))
+
+    assert.strictEqual(new ForwardQueue().depth(), 2)
+    const result = posted.find(m => m.type === 'teamReconcileResult')
+    assert.deepStrictEqual(result, { type: 'teamReconcileResult', queued: 2 })
+  })
+
+  test('teamReconcile skips a session already recorded as delivered — reports 0, does not re-queue it', async () => {
+    await handleTeamMessage({ type: 'teamLink' }, baseDeps())
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    new DeliveryLedger().markDelivered(`session:${toUuid('r1')}`)
+    const posted: Record<string, unknown>[] = []
+    await handleTeamMessage({ type: 'teamReconcile' }, baseDeps({ allLocalSessions: () => [makeCard('r1')], post: (m) => posted.push(m) }))
+
+    assert.strictEqual(new ForwardQueue().depth(), 0)
+    assert.deepStrictEqual(posted.find(m => m.type === 'teamReconcileResult'), { type: 'teamReconcileResult', queued: 0 })
   })
 
   test('teamLinkDevice also starts the forward scheduler (it was silently missing before)', async () => {

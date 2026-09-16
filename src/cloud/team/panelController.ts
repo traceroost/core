@@ -28,9 +28,10 @@ export interface TeamPanelDeps {
   openExternal: (url: string) => void | Promise<void>
   /** Recent local sessions, newest first — used to build the `--explain-payload` preview. */
   recentSessions: () => SessionSummaryCard[]
-  /** Every local session this install knows about, regardless of age — used once, right after a
-   *  successful link, to back-fill the forwarding queue (see `backfillExistingSessions` below).
-   *  Absent hosts just skip the back-fill; nothing else in the panel depends on it. */
+  /** Every local session this install knows about, regardless of age — used right after a
+   *  successful link, and on demand via "Reconcile now", to queue anything not yet confirmed
+   *  delivered (see `reconcileLocalSessions` below). Absent hosts just skip reconciliation;
+   *  nothing else in the panel depends on it. */
   allLocalSessions?: () => SessionSummaryCard[]
   /** Live forwarding-queue stats (AL 04). Absent until that lands. */
   queueStats?: () => QueueStats | undefined
@@ -48,28 +49,31 @@ export interface TeamPanelDeps {
 }
 
 /**
- * Queues every existing local session for the team that was just linked. Without this, only
- * sessions that close *after* the link ever reach the forwarding queue — a newly linked team (or
- * a team re-linked after switching from another) would otherwise start from zero instead of from
- * this machine's actual history.
+ * Queues every local session not yet confirmed delivered — right after a link (so a newly linked
+ * team, or one re-linked after switching from another, starts from this machine's actual history
+ * instead of from zero), and again on demand via the panel's "Reconcile now" button, as a
+ * standing way to answer "did everything actually make it?" without waiting for a coincidental
+ * restart.
  *
- * Runs after credentials are already saved, so every payload is built (and every hash salted)
- * with the *new* team's org id — correct regardless of which team, if any, was linked before.
- * Fire-and-forget: enqueuing is local file I/O, not a network call, but there is no reason to
- * make the "you're linked" response wait on hashing every local session first.
+ * Cheap to call anytime `allLocalSessions` is available, including automatically: `maybeEnqueueSession`
+ * checks the delivery ledger before doing any real work, so a session already confirmed sent costs
+ * one file read here, not a rebuilt payload or a re-transmission. Runs after credentials are
+ * already saved when called from a link, so every payload is built (and every hash salted) with
+ * whichever team is *currently* linked.
  */
-async function backfillExistingSessions(deps: TeamPanelDeps): Promise<void> {
+async function reconcileLocalSessions(deps: TeamPanelDeps): Promise<number> {
   const sessions = deps.allLocalSessions?.()
-  if (!sessions || sessions.length === 0) return
+  if (!sessions || sessions.length === 0) return 0
   let queued = 0
   for (const card of sessions) {
     const res = await maybeEnqueueSession(card, deps.log)
     if (res.enqueued) queued++
   }
   if (queued > 0) {
-    deps.log?.(`[TraceRoost] queued ${queued} existing local session(s) for the newly linked team`)
+    deps.log?.(`[TraceRoost] reconcile: queued ${queued} local session(s) not yet confirmed delivered`)
     drainForwardQueueSoon()
   }
+  return queued
 }
 
 function pushStatus(deps: TeamPanelDeps): void {
@@ -113,7 +117,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
           openUrl: (url) => deps.openExternal(url),
         })
         syncForwardSchedulerToLinkState()
-        void backfillExistingSessions(deps)
+        void reconcileLocalSessions(deps)
         deps.post({ type: 'teamActionResult', action: 'link', ok: true })
       } catch (err) {
         deps.post({ type: 'teamActionResult', action: 'link', ok: false, error: (err as Error).message })
@@ -128,7 +132,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
           onPrompt: (info) => deps.post({ type: 'teamDevicePrompt', ...info }),
         })
         syncForwardSchedulerToLinkState()
-        void backfillExistingSessions(deps)
+        void reconcileLocalSessions(deps)
         deps.post({ type: 'teamActionResult', action: 'link', ok: true })
       } catch (err) {
         deps.post({ type: 'teamActionResult', action: 'link', ok: false, error: (err as Error).message })
@@ -148,6 +152,13 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
     case 'teamOpenView':
       deps.onOpenTeamView?.()
       return
+
+    case 'teamReconcile': {
+      const queued = await reconcileLocalSessions(deps)
+      deps.post({ type: 'teamReconcileResult', queued })
+      pushStatus(deps)
+      return
+    }
 
     case 'teamSetEnvironment': {
       // Only meaningful pre-link — a linked machine's endpoint comes from its credential, not

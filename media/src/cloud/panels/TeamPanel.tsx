@@ -71,6 +71,8 @@ export const teamOpen = signal(false)
 export const teamStatus = signal<TeamStatus | null>(null)
 export const teamPayloadPreview = signal<{ text: string; sessionLabel: string } | null>(null)
 export const teamBusy = signal<null | 'link' | 'leave'>(null)
+export const teamReconcileResult = signal<{ queued: number } | null>(null)
+export const teamReconcileBusy = signal(false)
 
 const DOT_COLOR: Record<TeamIndicator, string> = {
   unlinked: 'var(--muted)',
@@ -128,6 +130,30 @@ function Section({ title, children }: { title: string; children: preact.Componen
 
 function Dot({ indicator }: { indicator: TeamIndicator }) {
   return <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${DOT_COLOR[indicator]};margin-right:6px;flex-shrink:0`} />
+}
+
+/** On-demand answer to "did everything actually make it?" — queues anything not yet confirmed
+ *  delivered (cheap: the delivery ledger means an already-sent session costs one file read, not
+ *  a resend) and reports back how many were missing. Complements the automatic reconciliation
+ *  that already runs at link time and on every restart's log rediscovery — this is for checking
+ *  right now, without waiting for either. */
+function ReconcileButton() {
+  const busy = teamReconcileBusy.value
+  const result = teamReconcileResult.value
+  return (
+    <div style="margin-top:8px">
+      <button
+        disabled={busy}
+        onClick={() => { teamReconcileBusy.value = true; teamReconcileResult.value = null; vscode?.postMessage({ type: 'teamReconcile' }) }}
+        style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
+      >{busy ? 'Checking…' : 'Reconcile now'}</button>
+      {result && (
+        <span style="font-size:11px;color:var(--muted);margin-left:8px">
+          {result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.` : 'Everything is already sent.'}
+        </span>
+      )}
+    </div>
+  )
 }
 
 function PayloadPreview() {
@@ -253,6 +279,7 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         <Row k="Endpoint" v={st.endpoint ?? ''} />
         <Row k="TraceRoost version" v={`v${st.clientVersion}`} />
         <Row k="Linked" v={st.linkedAt ? new Date(st.linkedAt).toLocaleDateString() : ''} />
+        <ReconcileButton />
       </Section>
       <Section title="What is being sent">
         <SentNeverSent />

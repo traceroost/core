@@ -28,7 +28,7 @@ import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
-import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus } from './cloud/panels/TeamPanel'
+import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus, teamReconcileResult, teamReconcileBusy } from './cloud/panels/TeamPanel'
 import { Outcomes, outcomesReport, outcomesLoading, outcomesProgress } from './cloud/tabs/Outcomes'
 
 
@@ -417,6 +417,9 @@ export function App() {
       } else if (msg.type === 'teamActionResult') {
         teamBusy.value = null
         requestTeamStatus()
+      } else if (msg.type === 'teamReconcileResult') {
+        teamReconcileBusy.value = false
+        teamReconcileResult.value = { queued: (msg as unknown as { queued: number }).queued }
       } else if (msg.type === 'outcomesProgress') {
         outcomesProgress.value = (msg as unknown as { progress: typeof outcomesProgress.value }).progress
       } else if (msg.type === 'outcomesReport') {
