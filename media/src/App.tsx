@@ -631,7 +631,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
       {/* Divider + Agent filter — hidden on tabs that don't need it */}
       {!hideAgentFilter && <>
         <span style="width:1px;height:14px;background:var(--border);margin:0 8px;flex-shrink:0" />
-        <div style="display:flex;gap:4px;align-items:center">
+        <div style="display:flex;gap:6px;align-items:center">
           <span style="font-size:10px;color:var(--muted);margin-right:2px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
           {AGENT_FILTER_OPTIONS.map(o => {
             const active = agent === o.value
@@ -647,7 +647,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
                 aria-pressed={active}
                 onClick={() => { selectedAgentFilter.value = o.value }}
                 style={[
-                  'padding:2px 9px;font-size:11px;font-weight:600;cursor:pointer;border-radius:10px;transition:background-color 0.1s,color 0.1s,border-color 0.1s;',
+                  'padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer;border-radius:999px;transition:background-color 0.1s,color 0.1s,border-color 0.1s;',
                   `border:1.5px solid ${displayColor};`,
                   active
                     // Text always follows the theme's own foreground color rather than the agent's
@@ -731,7 +731,7 @@ function FilterPills<T extends string>({ options, value, onChange }: {
   onChange: (v: T) => void
 }) {
   return (
-    <div style="display:flex;gap:3px">
+    <div style="display:flex;gap:6px">
       {options.map(o => {
         const active = value === o.value
         const displayColor = (active && o.activeColor) ? o.activeColor : o.color
@@ -746,7 +746,7 @@ function FilterPills<T extends string>({ options, value, onChange }: {
             aria-pressed={active}
             onClick={() => onChange(o.value)}
             style={[
-              'padding:2px 7px;font-size:11px;font-weight:600;cursor:pointer;border-radius:10px;transition:background-color 0.1s,color 0.1s,border-color 0.1s;',
+              'padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer;border-radius:999px;transition:background-color 0.1s,color 0.1s,border-color 0.1s;',
               `border:1.5px solid ${displayColor};`,
               active
                 ? `background:${activeBg};color:var(--fg);font-weight:600`
