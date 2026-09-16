@@ -65,12 +65,15 @@ if (!isLoopbackHost(BIND_HOST) && !AUTH_TOKEN) {
   console.error(`[TraceRoost] Refusing to start: BIND_HOST=${BIND_HOST} exposes TraceRoost beyond localhost, but no auth token could be generated or persisted (check that the data directory is writable). Fix that, or set BIND_HOST back to 127.0.0.1.`)
   process.exit(1)
 }
-// OTLP and MCP only require the token once bound beyond loopback, so today's default setup and
-// existing agent auto-configuration keep working unauthenticated exactly as before. The UI
-// server (below) always requires it — the CLI hands the token to the browser on open.
+// None of the three servers (UI, OTLP, MCP) require the token while bound to loopback — the
+// network boundary is the security boundary there: only another process on this machine can
+// reach 127.0.0.1 at all, so a bearer token on top of that only ever defended against a
+// malicious webpage open in the same browser making same-machine requests, not against another
+// machine. Once BIND_HOST is exposed beyond loopback that network boundary is gone, so the token
+// becomes load-bearing everywhere, uniformly.
 const REQUIRE_TOKEN_EVERYWHERE = !isLoopbackHost(BIND_HOST)
 if (REQUIRE_TOKEN_EVERYWHERE) {
-  console.log('[TraceRoost] BIND_HOST is not loopback — OTLP and MCP now require Authorization: Bearer <token> (or ?token=) too. Configure agents accordingly.')
+  console.log('[TraceRoost] BIND_HOST is not loopback — the dashboard, OTLP and MCP all now require Authorization: Bearer <token> (or ?token=) too. Configure agents accordingly.')
 }
 const parsedMaxSpans = parseInt(process.env.TRACEROOST_MAX_SPANS ?? '', 10)
 const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxSpans
@@ -1563,15 +1566,18 @@ const uiServer = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ status: 'ok' })); return
   }
 
-  if (!isAuthorized(req, AUTH_TOKEN)) {
-    res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' })
-    res.end(unauthorizedHtml(UI_PORT))
-    return
-  }
-  // First request authenticated via ?token= or an Authorization header rather than an existing
-  // cookie — hand the browser a cookie so every subsequent asset/API/SSE request just works.
-  if (extractCookieToken(req) !== AUTH_TOKEN) {
-    res.setHeader('Set-Cookie', authCookieHeader(AUTH_TOKEN))
+  // Loopback-bound (the default): no token needed, same as OTLP/MCP — see REQUIRE_TOKEN_EVERYWHERE.
+  if (REQUIRE_TOKEN_EVERYWHERE) {
+    if (!isAuthorized(req, AUTH_TOKEN)) {
+      res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end(unauthorizedHtml(UI_PORT))
+      return
+    }
+    // First request authenticated via ?token= or an Authorization header rather than an existing
+    // cookie — hand the browser a cookie so every subsequent asset/API/SSE request just works.
+    if (extractCookieToken(req) !== AUTH_TOKEN) {
+      res.setHeader('Set-Cookie', authCookieHeader(AUTH_TOKEN))
+    }
   }
   res.setHeader('Access-Control-Allow-Origin', '*')
 
@@ -1991,13 +1997,14 @@ uiServer.on('error', (err: NodeJS.ErrnoException) => {
 
 uiServer.listen(UI_PORT, BIND_HOST, () => {
   const plainUrl = `http://localhost:${UI_PORT}`
-  const url = `${plainUrl}/?token=${AUTH_TOKEN}`
+  // Loopback doesn't need the token at all, so there's nothing to carry (and nothing to forget).
+  const url = REQUIRE_TOKEN_EVERYWHERE ? `${plainUrl}/?token=${AUTH_TOKEN}` : plainUrl
   console.log(`[TraceRoost] Dashboard      → ${url}`)
   console.log(`[TraceRoost] MCP server     → http://localhost:${MCP_PORT}/mcp`)
 
   // Auto-open browser — includes the access token so the browser gets its auth cookie on
-  // first load; the printed URL above is the fallback if auto-open fails or you're opening on
-  // another device.
+  // first load when the token is actually required; the printed URL above is the fallback if
+  // auto-open fails or you're opening on another device.
   const cmd = process.platform === 'darwin' ? `open "${url}"`
             : process.platform === 'win32'  ? `start "" "${url}"`
             : `xdg-open "${url}"`
