@@ -4,7 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { drainQueue } from '../../../cloud/forward/sender'
 import { ForwardQueue } from '../../../cloud/forward/queue'
-import { DeliveryLedger } from '../../../cloud/forward/deliveryLedger'
+import { DeliveryLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { readForwardState } from '../../../cloud/forward/forwardState'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/team/credentials'
 import type { TeamCredentials } from '../../../cloud/team/config'
@@ -68,13 +68,17 @@ suite('forward/sender', () => {
     assert.ok(readForwardState(home).lastSuccessAt)
   })
 
-  test('a successful send records the item in the delivery ledger', async () => {
+  test('a successful send records the item in the delivery ledger, scoped to the org it was sent to', async () => {
     new ForwardQueue(home).enqueue(payload(ID1))
-    const key = `session:${ID1}`
+    const key = scopedKey(CREDS.orgId, `session:${ID1}`)
     assert.strictEqual(new DeliveryLedger(home).isDelivered(key), false)
     stubFetch(() => new Response('', { status: 202 }))
     await drainQueue({ baseHome: home })
     assert.strictEqual(new DeliveryLedger(home).isDelivered(key), true)
+    // Not recorded as delivered to some other org that never received it — the exact bug this
+    // scoping exists to prevent (a session delivered to org A reading as "already delivered"
+    // after switching to org B, which never actually got it).
+    assert.strictEqual(new DeliveryLedger(home).isDelivered(scopedKey('some-other-org', `session:${ID1}`)), false)
   })
 
   test('400 → record dropped, never retried', async () => {

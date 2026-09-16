@@ -6,7 +6,7 @@
  */
 
 import { ForwardQueue } from '../forward/queue'
-import { DeliveryLedger } from '../forward/deliveryLedger'
+import { DeliveryLedger, scopedKey } from '../forward/deliveryLedger'
 import { toUuid } from '../forward/buildSessionRollup'
 import { loadCredentials } from './credentials'
 import { buildPayloadForCard } from './payloadPreview'
@@ -25,12 +25,14 @@ export interface EnqueueResult {
  *  process restart, and every on-demand reconciliation, calls this once per local session
  *  regardless of whether it was already sent; without this check that would mean rebuilding
  *  (a git-subprocess-driven) payload and re-transmitting a machine's entire history on every
- *  restart. See `deliveryLedger.ts`. */
+ *  restart. Scoped to the *currently linked* org (see `scopedKey`) — a session delivered to a
+ *  previous team is not "already delivered" to this one. See `deliveryLedger.ts`. */
 export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void): Promise<EnqueueResult> {
-  if (!loadCredentials()) return { enqueued: false, reason: 'not-linked' }
+  const creds = loadCredentials()
+  if (!creds) return { enqueued: false, reason: 'not-linked' }
   // Matches the key a built session payload would get — see buildSessionRollup.ts's session_id
   // field and queue.ts's itemKey — without paying for the git-subprocess work just to discard it.
-  if (new DeliveryLedger().isDelivered(`session:${toUuid(card.sessionId)}`)) {
+  if (new DeliveryLedger().isDelivered(scopedKey(creds.orgId, `session:${toUuid(card.sessionId)}`))) {
     return { enqueued: false, reason: 'already-delivered' }
   }
   try {

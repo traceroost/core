@@ -8,12 +8,12 @@
  * wasteful, alarming-looking one: a linked-but-idle install could show dozens of sessions
  * "queued" on every single restart, forever.
  *
- * Stored in `~/.traceroost/delivered.json`, a flat JSON array of item keys, user-only (0600).
- * Capped with oldest-first eviction — see `DEFAULT_MAX_ENTRIES` — so a long-lived install doesn't
- * grow this file without bound. Falling out of the cap just means that one item becomes eligible
- * to be sent (and re-deduplicated server-side, for free) once more on some future restart — never
- * lost data, just the wasted-resend problem this file exists to avoid, recurring at a much lower
- * rate than "every restart."
+ * Stored in `~/.traceroost/delivered.json`, a flat JSON array of *scoped* keys — see `scopedKey`
+ * below — user-only (0600). Capped with oldest-first eviction — see `DEFAULT_MAX_ENTRIES` — so a
+ * long-lived install doesn't grow this file without bound. Falling out of the cap just means that
+ * one item becomes eligible to be sent (and re-deduplicated server-side, for free) once more on
+ * some future restart — never lost data, just the wasted-resend problem this file exists to
+ * avoid, recurring at a much lower rate than "every restart."
  */
 
 import * as fs from 'fs'
@@ -24,6 +24,18 @@ export const DEFAULT_MAX_ENTRIES = 20_000
 
 export function ledgerPath(baseHome: string = os.homedir()): string {
   return path.join(baseHome, '.traceroost', 'delivered.json')
+}
+
+/**
+ * "Delivered" only means anything relative to a specific org. The first version of this file
+ * recorded a bare item key (`session:<uuid>`) — so a session delivered to Org A, then reconciled
+ * after leaving A and linking B, read as "already delivered" and was silently never sent to B at
+ * all. Every entry is now scoped by the org id the delivery was actually confirmed to; a
+ * pre-scoping entry just never matches a scoped lookup again, so the next reconciliation or
+ * restart re-sends it once (idempotent, deduplicated server-side) and re-records it correctly —
+ * a one-time cost per pre-existing entry, not a repeating one. */
+export function scopedKey(orgId: string, itemKey: string): string {
+  return `${orgId}:${itemKey}`
 }
 
 export class DeliveryLedger {

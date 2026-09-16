@@ -8,7 +8,7 @@ import { setCredentialStore } from '../../../cloud/team/credentials'
 import type { CredentialStore } from '../../../cloud/team/credentials'
 import type { TeamCredentials } from '../../../cloud/team/config'
 import { ForwardQueue } from '../../../cloud/forward/queue'
-import { DeliveryLedger } from '../../../cloud/forward/deliveryLedger'
+import { DeliveryLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { toUuid } from '../../../cloud/forward/buildSessionRollup'
 import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 
@@ -136,12 +136,50 @@ suite('team/panelController — link back-fill and reconciliation', () => {
     await handleTeamMessage({ type: 'teamLink' }, baseDeps())
     await new Promise(resolve => setTimeout(resolve, 100))
 
-    new DeliveryLedger().markDelivered(`session:${toUuid('r1')}`)
+    new DeliveryLedger().markDelivered(scopedKey('org-new-team', `session:${toUuid('r1')}`))
     const posted: Record<string, unknown>[] = []
     await handleTeamMessage({ type: 'teamReconcile' }, baseDeps({ allLocalSessions: () => [makeCard('r1')], post: (m) => posted.push(m) }))
 
     assert.strictEqual(new ForwardQueue().depth(), 0)
     assert.deepStrictEqual(posted.find(m => m.type === 'teamReconcileResult'), { type: 'teamReconcileResult', queued: 0 })
+  })
+
+  test('switching teams re-delivers a session the old team already has but the new team never received', async () => {
+    // The exact real-world bug: link org A, a session is confirmed delivered to A, leave, link
+    // org B — B never got that session, so reconciling after the switch must queue it again, not
+    // skip it as "already delivered" (that check has to be scoped per-org, not global).
+    await handleTeamMessage({ type: 'teamLink' }, baseDeps()) // links 'org-new-team', per the module-level fetch stub
+    await new Promise(resolve => setTimeout(resolve, 100))
+    new DeliveryLedger().markDelivered(scopedKey('org-new-team', `session:${toUuid('shared')}`))
+
+    globalThis.fetch = (async (input: FetchArgs[0]) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/revoke')) return new Response('{"ok":true}', { status: 200 })
+      throw new Error(`unexpected fetch in test: ${url}`)
+    }) as typeof fetch
+    await handleTeamMessage({ type: 'teamLeave' }, baseDeps())
+
+    globalThis.fetch = (async (input: FetchArgs[0]) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/token')) {
+        return new Response(JSON.stringify({
+          access_token: 'access-2', refresh_token: 'refresh-2', token_type: 'Bearer',
+          expires_in: 3600, member_id: 'mem-2', org_id: 'org-second-team',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.includes('/api/roster/me')) {
+        return new Response(JSON.stringify({ org_name: 'Second Team', role: 'member', per_developer_visibility: false, email: 'dev2@example.com' }), { status: 200 })
+      }
+      throw new Error(`unexpected fetch in test: ${url}`)
+    }) as typeof fetch
+    await handleTeamMessage({ type: 'teamLink' }, baseDeps())
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    const posted: Record<string, unknown>[] = []
+    await handleTeamMessage({ type: 'teamReconcile' }, baseDeps({ allLocalSessions: () => [makeCard('shared')], post: (m) => posted.push(m) }))
+
+    assert.deepStrictEqual(posted.find(m => m.type === 'teamReconcileResult'), { type: 'teamReconcileResult', queued: 1 })
+    assert.strictEqual(new ForwardQueue().list()[0]?.key, `session:${toUuid('shared')}`)
   })
 
   test('teamLinkDevice also starts the forward scheduler (it was silently missing before)', async () => {

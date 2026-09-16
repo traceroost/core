@@ -24,7 +24,7 @@
  */
 
 import { ForwardQueue, type QueueItem } from './queue'
-import { DeliveryLedger } from './deliveryLedger'
+import { DeliveryLedger, scopedKey } from './deliveryLedger'
 import { readForwardState, writeForwardState, clearForwardState } from './forwardState'
 import { loadCredentials, saveCredentials, clearCredentials } from '../team/credentials'
 import { refreshTokens } from '../team/oauthClient'
@@ -67,6 +67,9 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
 
   let creds = loadCredentials()
   if (!creds) return { ...empty, stopped: 'not-linked' }
+  // Org never changes within one drain (only the token does, on a mid-drain refresh) — captured
+  // once so `finish()`'s closure doesn't need TS to re-prove `creds` is non-null through it.
+  const orgId = creds.orgId
 
   const state = readForwardState(deps.baseHome)
   if (state.paused && state.pausedUntil !== null && state.pausedUntil > now()) {
@@ -157,10 +160,13 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       queue.remove(succeeded)
       // Record delivery *before* removing from the queue would be equally correct — order
       // doesn't matter here, since a crash between the two just means a redundant, harmless
-      // resend later (idempotent both locally and server-side), never a lost one. See
-      // deliveryLedger.ts and enqueueSession.ts's pre-build check.
+      // resend later (idempotent both locally and server-side), never a lost one. Scoped to the
+      // org that actually accepted it (see deliveryLedger.ts's scopedKey) — `orgId` was captured
+      // before any mid-drain token refresh, but a refresh only ever changes the token, never the
+      // org, so this is always the org `succeeded` was actually sent to. See enqueueSession.ts's
+      // pre-build check.
       const ledger = new DeliveryLedger(deps.baseHome)
-      for (const key of succeeded) ledger.markDelivered(key)
+      for (const key of succeeded) ledger.markDelivered(scopedKey(orgId, key))
     }
     if (droppedKeys.length > 0) queue.remove(droppedKeys)
     if (sent > 0) {

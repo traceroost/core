@@ -7,7 +7,7 @@ import { setCredentialStore } from '../../../cloud/team/credentials'
 import type { CredentialStore } from '../../../cloud/team/credentials'
 import type { TeamCredentials } from '../../../cloud/team/config'
 import { ForwardQueue } from '../../../cloud/forward/queue'
-import { DeliveryLedger } from '../../../cloud/forward/deliveryLedger'
+import { DeliveryLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { toUuid } from '../../../cloud/forward/buildSessionRollup'
 import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 
@@ -64,11 +64,20 @@ suite('team/enqueueSession', () => {
     assert.strictEqual(new ForwardQueue().depth(), 1)
   })
 
-  test('a session already confirmed delivered is skipped — not rebuilt, not re-enqueued', async () => {
-    new DeliveryLedger().markDelivered(`session:${toUuid('s1')}`)
+  test('a session already confirmed delivered to the linked org is skipped — not rebuilt, not re-enqueued', async () => {
+    new DeliveryLedger().markDelivered(scopedKey('org-1', `session:${toUuid('s1')}`))
     const res = await maybeEnqueueSession(makeCard('s1'))
     assert.deepStrictEqual(res, { enqueued: false, reason: 'already-delivered' })
     assert.strictEqual(new ForwardQueue().depth(), 0, 'must not have been added to the queue')
+  })
+
+  test('a session delivered to a DIFFERENT org is not treated as delivered after switching teams', async () => {
+    // The exact bug this scoping fixes: a session sent to org-old reading as "already delivered"
+    // once the machine leaves org-old and links org-new, silently never reaching org-new at all.
+    new DeliveryLedger().markDelivered(scopedKey('org-old', `session:${toUuid('s1')}`))
+    const res = await maybeEnqueueSession(makeCard('s1')) // credential store here is linked to 'org-1'
+    assert.strictEqual(res.enqueued, true)
+    assert.strictEqual(new ForwardQueue().depth(), 1)
   })
 
   test('a still-queued (not yet delivered) session is not affected by the ledger check', async () => {
