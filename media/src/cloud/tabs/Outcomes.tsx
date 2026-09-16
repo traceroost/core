@@ -225,6 +225,32 @@ function CohortTrend({ report }: { report: TurnoverReport }) {
   )
 }
 
+/** The two top-of-page cards only ever show the *latest* cohort per window — real, older
+ *  measured cohorts still exist (they're what draws the trend sparkline above) but otherwise had
+ *  no way to be seen or drilled into. Collapsed by default: a mature repo can have a year-plus of
+ *  these, and this is "go find something," not "here's the headline." */
+function PastCohorts({ report, coverage, exclude }: { report: TurnoverReport; coverage: TurnoverReport['coverage']; exclude: CohortTurnover[] }) {
+  const [open, setOpen] = useState(false)
+  const excludeSet = new Set(exclude)
+  const past = report.results
+    .filter((r): r is Measured => r.kind === 'measured' && !excludeSet.has(r))
+    .sort((a, b) => b.cohortLabel.localeCompare(a.cohortLabel) || a.windowDays - b.windowDays)
+  if (past.length === 0) return null
+  return (
+    <div style="margin-top:10px">
+      <button
+        onClick={() => setOpen(o => !o)}
+        style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);background:none;border:none;cursor:pointer;padding:0"
+      >{open ? 'Hide' : 'Show'} {past.length} earlier measured cohort{past.length === 1 ? '' : 's'}</button>
+      {open && (
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+          {past.map(r => <MeasuredPanel key={`${r.windowDays}-${r.cohortLabel}`} r={r} coverage={coverage} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Share ──────────────────────────────────────────────────────────────────
 
 function ShareBox({ repo }: { repo: RepoTurnover }) {
@@ -306,41 +332,48 @@ export function Outcomes() {
         Computed locally from your git history and session records. No account, no network, nothing sent.
       </p>
 
-      {report.repos.map(repo => (
-        <div key={repo.report.repoRoot} style="margin-bottom:22px">
-          {report.repos.length > 1 && <div class="section-label">{repo.label}</div>}
-          {repo.report.unavailable ? (
-            <div class="card" style="border-style:dashed">
-              <div class="sub">
-                {repo.report.unavailable === 'shallow-clone'
-                  ? 'This is a shallow clone — turnover needs full history. Run `git fetch --unshallow`.'
-                  : 'Not a git repository.'}
+      {report.repos.map(repo => {
+        // The latest cohort per window is the headline; everything else measured is real,
+        // older data that only existed via the trend sparkline — see PastCohorts below.
+        const latestPerWindow = ([30, 90] as const)
+          .map(w => repo.report.results.filter(x => x.windowDays === w).sort((a, b) => b.cohortLabel.localeCompare(a.cohortLabel))[0])
+          .filter((r): r is CohortTurnover => r !== undefined)
+
+        return (
+          <div key={repo.report.repoRoot} style="margin-bottom:22px">
+            {report.repos.length > 1 && <div class="section-label">{repo.label}</div>}
+            {repo.report.unavailable ? (
+              <div class="card" style="border-style:dashed">
+                <div class="sub">
+                  {repo.report.unavailable === 'shallow-clone'
+                    ? 'This is a shallow clone — turnover needs full history. Run `git fetch --unshallow`.'
+                    : 'Not a git repository.'}
+                </div>
               </div>
-            </div>
-          ) : (
-            <>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                {([30, 90] as const).map(w => {
-                  const r = repo.report.results
-                    .filter(x => x.windowDays === w)
-                    .sort((a, b) => b.cohortLabel.localeCompare(a.cohortLabel))[0]
-                  if (!r) return <div key={w} class="card" style="border-style:dashed"><h4>{w}-day</h4><div class="sub">No cohort in range.</div></div>
-                  return r.kind === 'measured'
-                    ? <MeasuredPanel key={w} r={r} coverage={repo.report.coverage} />
-                    : <InsufficientPanel key={w} r={r} />
-                })}
-              </div>
-              <CohortTrend report={repo.report} />
-              <ShareBox repo={repo} />
-              {/* The wall, stated once. One Cloud reference on this surface, in the cohort footer only. */}
-              <div class="sub" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
-                This is your own work on your own clones. The team-wide version — everyone's turnover,
-                across people and repositories — is <a href={teamStatus.value?.endpoint ?? 'https://traceroost.com'} target="_blank" style="color:var(--accent)">TraceRoost Cloud</a>.
-              </div>
-            </>
-          )}
-        </div>
-      ))}
+            ) : (
+              <>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  {([30, 90] as const).map(w => {
+                    const r = latestPerWindow.find(x => x.windowDays === w)
+                    if (!r) return <div key={w} class="card" style="border-style:dashed"><h4>{w}-day</h4><div class="sub">No cohort in range.</div></div>
+                    return r.kind === 'measured'
+                      ? <MeasuredPanel key={w} r={r} coverage={repo.report.coverage} />
+                      : <InsufficientPanel key={w} r={r} />
+                  })}
+                </div>
+                <PastCohorts report={repo.report} coverage={repo.report.coverage} exclude={latestPerWindow} />
+                <CohortTrend report={repo.report} />
+                <ShareBox repo={repo} />
+                {/* The wall, stated once. One Cloud reference on this surface, in the cohort footer only. */}
+                <div class="sub" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
+                  This is your own work on your own clones. The team-wide version — everyone's turnover,
+                  across people and repositories — is <a href={teamStatus.value?.endpoint ?? 'https://traceroost.com'} target="_blank" style="color:var(--accent)">TraceRoost Cloud</a>.
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
