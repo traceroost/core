@@ -33,17 +33,23 @@ type FetchArgs = Parameters<typeof fetch>
 const realFetch = globalThis.fetch
 const realHome = process.env.HOME
 
-/** Simulates the browser: reads the authorize URL, hits the loopback redirect with code+state. */
+/**
+ * Simulates the browser: reads the authorize URL, hits the loopback redirect with code+state.
+ * Resolves once the request is sent, not once the response completes — the server holds that
+ * response open until `linkInteractive()` itself calls `finish()` (after the exchange), so
+ * waiting for it here would deadlock against the very call this is meant to unblock.
+ */
 function fakeBrowser() {
   return (authorizeUrl: string) =>
     new Promise<void>((resolve, reject) => {
       const u = new URL(authorizeUrl)
       const redirectUri = u.searchParams.get('redirect_uri')!
       const state = u.searchParams.get('state')!
-      http.get(`${redirectUri}?code=testcode&state=${encodeURIComponent(state)}`, res => {
+      const req = http.get(`${redirectUri}?code=testcode&state=${encodeURIComponent(state)}`, res => {
         res.resume()
-        res.on('end', () => resolve())
-      }).on('error', reject)
+      })
+      req.on('error', reject)
+      req.on('finish', () => resolve())
     })
 }
 

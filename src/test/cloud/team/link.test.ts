@@ -18,17 +18,24 @@ function memoryStore(): CredentialStore {
 type FetchArgs = Parameters<typeof fetch>
 const realFetch = globalThis.fetch
 
-/** Simulates the browser: reads the authorize URL, hits the loopback redirect with code+state. */
+/**
+ * Simulates the browser: reads the authorize URL, hits the loopback redirect with code+state.
+ * Resolves once the request is sent, not once the response completes — the server now holds that
+ * response open until `linkInteractive()` itself calls `finish()` (after the exchange below), so
+ * waiting for it here would deadlock against the very call this is meant to unblock. A real
+ * browser open doesn't wait for the page to finish loading either.
+ */
 function fakeBrowser(overrideState?: string) {
   return (authorizeUrl: string) =>
     new Promise<void>((resolve, reject) => {
       const u = new URL(authorizeUrl)
       const redirectUri = u.searchParams.get('redirect_uri')!
       const state = overrideState ?? u.searchParams.get('state')!
-      http.get(`${redirectUri}?code=testcode&state=${encodeURIComponent(state)}`, res => {
-        res.resume()
-        res.on('end', () => resolve())
-      }).on('error', reject)
+      const req = http.get(`${redirectUri}?code=testcode&state=${encodeURIComponent(state)}`, res => {
+        res.resume() // drain in the background so the socket doesn't back up
+      })
+      req.on('error', reject)
+      req.on('finish', () => resolve())
     })
 }
 

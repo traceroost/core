@@ -17,26 +17,31 @@ function isListening(url: string): Promise<boolean> {
 }
 
 suite('team/callbackServer', () => {
-  test('binds a random loopback port and resolves the callback query', async () => {
+  test('binds a random loopback port and resolves the callback query before responding', async () => {
     const server = await startCallbackServer()
     assert.ok(/^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(server.redirectUri))
-    const wait = server.waitForCallback()
-    const res = await get(`${server.redirectUri}?code=abc123&state=xyz`)
+    const reqPromise = get(`${server.redirectUri}?code=abc123&state=xyz`)
+    // The request has landed and the result is available, but nothing has been sent back yet —
+    // that's the whole point (see callbackServer.ts's finish() doc).
+    const result = await server.waitForCallback()
+    assert.deepStrictEqual(result, { code: 'abc123', state: 'xyz' })
+    server.finish(true)
+    const res = await reqPromise
     assert.strictEqual(res.status, 200)
     assert.match(res.body, /Machine linked/)
-    const result = await wait
-    assert.deepStrictEqual(result, { code: 'abc123', state: 'xyz' })
   })
 
-  test('the listener cannot outlive success', async () => {
+  test('finish(true) closes the listener; the response is not sent before it is called', async () => {
     const server = await startCallbackServer()
-    const wait = server.waitForCallback()
-    await get(`${server.redirectUri}?code=c&state=s`)
-    await wait
+    const reqPromise = get(`${server.redirectUri}?code=c&state=s`)
+    await server.waitForCallback()
+    assert.strictEqual(await isListening(server.redirectUri), true, 'still open — finish() not called yet')
+    server.finish(true)
+    await reqPromise
     assert.strictEqual(await isListening(server.redirectUri), false)
   })
 
-  test('an error callback responds to the browser, then rejects, then closes', async () => {
+  test('an error callback responds to the browser immediately, then rejects, then closes', async () => {
     const server = await startCallbackServer()
     const wait = server.waitForCallback()
     const res = await get(`${server.redirectUri}?error=access_denied&state=s`)
@@ -51,31 +56,54 @@ suite('team/callbackServer', () => {
     assert.strictEqual(await isListening(server.redirectUri), false)
   })
 
-  test('a team_url matching teamOrigin appears as a link on the success page', async () => {
+  test('close() finishes a still-open good response instead of hanging it', async () => {
+    const server = await startCallbackServer()
+    const reqPromise = get(`${server.redirectUri}?code=c&state=s`)
+    await server.waitForCallback()
+    server.close()
+    const res = await reqPromise
+    assert.strictEqual(res.status, 400)
+    assert.match(res.body, /Link failed/)
+  })
+
+  test('a team_url matching teamOrigin appears as a link once finished', async () => {
     const server = await startCallbackServer({ teamOrigin: 'https://test.traceroost.com' })
-    const wait = server.waitForCallback()
     const teamUrl = encodeURIComponent('https://test.traceroost.com/acme1')
-    const res = await get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    const reqPromise = get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    await server.waitForCallback()
+    server.finish(true)
+    const res = await reqPromise
     assert.match(res.body, /href="https:\/\/test\.traceroost\.com\/acme1"/)
-    await wait
   })
 
   test('a team_url on a different origin than teamOrigin is dropped, not linked', async () => {
     const server = await startCallbackServer({ teamOrigin: 'https://test.traceroost.com' })
-    const wait = server.waitForCallback()
     const teamUrl = encodeURIComponent('https://evil.example.com/acme1')
-    const res = await get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    const reqPromise = get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    await server.waitForCallback()
+    server.finish(true)
+    const res = await reqPromise
     assert.ok(!res.body.includes('evil.example.com'))
     assert.match(res.body, /Machine linked/)
-    await wait
   })
 
   test('a team_url with no configured teamOrigin is dropped, not linked', async () => {
     const server = await startCallbackServer()
-    const wait = server.waitForCallback()
     const teamUrl = encodeURIComponent('https://test.traceroost.com/acme1')
-    const res = await get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    const reqPromise = get(`${server.redirectUri}?code=abc&state=s&team_url=${teamUrl}`)
+    await server.waitForCallback()
+    server.finish(true)
+    const res = await reqPromise
     assert.ok(!res.body.includes('href='))
-    await wait
+  })
+
+  test('finish(false) shows the failure page even for an otherwise-good callback', async () => {
+    const server = await startCallbackServer()
+    const reqPromise = get(`${server.redirectUri}?code=abc&state=s`)
+    await server.waitForCallback()
+    server.finish(false)
+    const res = await reqPromise
+    assert.strictEqual(res.status, 400)
+    assert.match(res.body, /Link failed/)
   })
 })

@@ -115,14 +115,26 @@ export async function linkInteractive(opts: InteractiveLinkOptions = {}): Promis
 
     const cb = await server.waitForCallback()
     if (!statesMatch(pkce.state, cb.state)) {
+      server.finish(false)
       throw new Error('state mismatch on the OAuth callback — link aborted (possible CSRF)')
     }
-    const tokens = await exchangeCode({
-      code: cb.code,
-      verifier: pkce.verifier,
-      redirectUri: server.redirectUri,
-    })
-    return await persistFromTokens(tokens)
+    // The browser tab's response is still open at this point (see callbackServer.ts) — finish()
+    // only once the exchange below has actually created the install row, so a team_url
+    // auto-redirect never beats the very thing its destination page checks for.
+    let result: LinkResult
+    try {
+      const tokens = await exchangeCode({
+        code: cb.code,
+        verifier: pkce.verifier,
+        redirectUri: server.redirectUri,
+      })
+      result = await persistFromTokens(tokens)
+    } catch (err) {
+      server.finish(false)
+      throw err
+    }
+    server.finish(true)
+    return result
   } finally {
     server.close()
   }

@@ -2,9 +2,10 @@
  * One-shot loopback HTTP server for the PKCE redirect (AL 01).
  *
  * Binds `127.0.0.1:0` (a random free port — the callback port is never hardcoded), waits for a
- * single `GET /callback?code=…&state=…`, responds to the browser *before* resolving so the tab
- * never hangs, and then closes. It cannot outlive success, failure, or timeout: every exit path
- * runs `close()`.
+ * single `GET /callback?code=…&state=…`. A bad request (missing code, an `error` param) is
+ * answered immediately — nothing further to wait for. A good one is *not* answered immediately:
+ * `waitForCallback()` resolves as soon as the request lands, but the actual HTTP response is held
+ * open until the caller calls `finish()` — see the note there for why.
  */
 
 import * as http from 'http'
@@ -18,9 +19,27 @@ export interface CallbackResult {
 export interface CallbackServer {
   /** e.g. `http://127.0.0.1:53219/callback` — pass verbatim as the OAuth `redirect_uri`. */
   redirectUri: string
-  /** Resolves with the query params of the first callback hit; rejects on timeout or a bad request. */
+  /** Resolves with the query params of the first callback hit; rejects on timeout or a bad
+   *  request. The browser's own HTTP response is still open at this point — see `finish()`. */
   waitForCallback(): Promise<CallbackResult>
-  /** Idempotent. Safe to call from any exit path. */
+  /**
+   * Completes the deferred response to the browser tab that hit the callback. Call this once
+   * you know what the tab should be told — after the token exchange (and whatever it creates
+   * server-side, e.g. the `installs` row a linked-machine check reads) has actually settled, not
+   * before. `ok: true` shows "Machine linked" plus the `team_url` link/redirect if the original
+   * request carried a trusted one; `ok: false` shows the same failure page an in-flight error
+   * does. A no-op if the callback never landed, or this has already been called.
+   *
+   * Responding immediately (the previous behaviour) raced a `team_url` auto-redirect against the
+   * exchange that creates the very row the destination page checks for — a tab could bounce back
+   * to the "link your machine" onboarding view because the install didn't exist yet. Holding the
+   * response open until the caller says the async work is done removes the race by construction;
+   * the exchange is one HTTP round trip plus a couple of inserts, so the tab sees at most a brief
+   * pause, not a hang — and a safety timer answers anyway if `finish()` is never reached.
+   */
+  finish(ok: boolean): void
+  /** Idempotent. Safe to call from any exit path — completes any still-open response with the
+   *  plain failure page first, so a forgotten `finish()` can never hang the browser tab. */
   close(): void
 }
 
@@ -29,10 +48,10 @@ export interface CallbackServer {
  * `/oauth/authorize`'s approve action, which is the one place that already knows both the site's
  * own domain and which org the machine just joined). It arrives as an untrusted query param on a
  * request to a loopback listener that anyone briefly sharing this machine's network namespace
- * could in principle hit during the ~5-minute link window, so the caller must have already
- * checked its origin against the endpoint this CLI is actually configured to trust — see
- * `isTrustedTeamUrl` — before it ever reaches this function. An absent or untrusted URL falls back
- * to the plain static message, never a guess.
+ * could in principle hit during the ~5-minute link window, so it's checked against the endpoint
+ * this CLI is actually configured to trust — see `isTrustedTeamUrl` — the moment the request
+ * lands, before any of it reaches this function. An absent or untrusted URL falls back to the
+ * plain static message, never a guess.
  */
 function successHtml(teamUrl?: string): string {
   const cta = teamUrl
@@ -67,10 +86,15 @@ h1{font-size:16px;margin:0 0 8px}p{color:#656d76;margin:0}</style></head>
 <body><div class="card"><h1>Link failed</h1><p>Something went wrong. Return to TraceRoost and try again.</p></div></body></html>`
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+// Bounds how long a good callback's response stays open waiting for finish() — comfortably above
+// a real token exchange (one HTTP round trip, a couple of DB writes), so this only ever fires on
+// a caller bug, not normal latency.
+const FINISH_SAFETY_TIMEOUT_MS = 20_000
 
-/** `callbackPath` defaults to `/callback`; overridable for tests. `timeoutMs` bounds the wait.
- *  `teamOrigin` (e.g. `https://test.traceroost.com`, from `teamEndpoint()`) is the only origin a
- *  `team_url` query param on the callback is ever trusted to link to — see `isTrustedTeamUrl`. */
+/** `callbackPath` defaults to `/callback`; overridable for tests. `timeoutMs` bounds the wait for
+ *  the browser redirect to land at all. `teamOrigin` (e.g. `https://test.traceroost.com`, from
+ *  `teamEndpoint()`) is the only origin a `team_url` query param on the callback is ever trusted
+ *  to link to — see `isTrustedTeamUrl`. */
 export async function startCallbackServer(opts: {
   callbackPath?: string
   timeoutMs?: number
@@ -91,6 +115,21 @@ export async function startCallbackServer(opts: {
   const deliverResult = (r: CallbackResult) => { if (settle) settle(r); else pendingResult = r }
   const deliverError = (e: Error) => { if (fail) fail(e); else pendingError = e }
 
+  // The good-request response, held open until finish() — see the interface doc above.
+  let pendingRes: http.ServerResponse | undefined
+  let pendingTeamUrl: string | undefined
+  let finishTimer: ReturnType<typeof setTimeout> | undefined
+
+  const finish = (ok: boolean) => {
+    if (!pendingRes) return
+    const res = pendingRes
+    pendingRes = undefined
+    if (finishTimer) { clearTimeout(finishTimer); finishTimer = undefined }
+    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html' })
+    res.end(ok ? successHtml(pendingTeamUrl) : ERROR_HTML)
+    close()
+  }
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     if (url.pathname !== callbackPath) {
@@ -101,15 +140,16 @@ export async function startCallbackServer(opts: {
     const error = url.searchParams.get('error')
     const code = url.searchParams.get('code')
     if (error || !code) {
-      // Respond to the browser first, *then* reject — otherwise the tab spins.
+      // Nothing further to wait for — respond immediately, same as always.
       res.writeHead(400, { 'Content-Type': 'text/html' })
       res.end(ERROR_HTML)
       deliverError(new Error(error ? `authorization server returned "${error}"` : 'callback missing authorization code'))
       return
     }
-    const teamUrl = isTrustedTeamUrl(url.searchParams.get('team_url'), opts.teamOrigin)
-    res.writeHead(200, { 'Content-Type': 'text/html' })
-    res.end(successHtml(teamUrl))
+    pendingRes = res
+    pendingTeamUrl = isTrustedTeamUrl(url.searchParams.get('team_url'), opts.teamOrigin)
+    finishTimer = setTimeout(() => finish(true), FINISH_SAFETY_TIMEOUT_MS)
+    finishTimer.unref?.()
     deliverResult({ code, state: url.searchParams.get('state') })
   })
 
@@ -117,6 +157,10 @@ export async function startCallbackServer(opts: {
     if (closed) return
     closed = true
     if (timer) clearTimeout(timer)
+    // A still-open good-request response would otherwise hang forever once the listening socket
+    // stops accepting new connections below — finish it first, plainly, rather than leave the
+    // browser tab spinning.
+    finish(false)
     server.close()
     // Drop any keep-alive sockets so the process can exit promptly.
     server.closeAllConnections?.()
@@ -135,7 +179,10 @@ export async function startCallbackServer(opts: {
 
   const waitForCallback = () =>
     new Promise<CallbackResult>((resolve, reject) => {
-      settle = (r) => { close(); resolve(r) }
+      // Unlike before, settling here does NOT close the server — the good-request response is
+      // still open, waiting on finish(). Only the failure path (no response left pending) closes
+      // immediately.
+      settle = (r) => resolve(r)
       fail = (e) => { close(); reject(e) }
       if (pendingResult) { settle(pendingResult); return }
       if (pendingError) { fail(pendingError); return }
@@ -147,5 +194,5 @@ export async function startCallbackServer(opts: {
       timer.unref?.()
     })
 
-  return { redirectUri, waitForCallback, close }
+  return { redirectUri, waitForCallback, finish, close }
 }
