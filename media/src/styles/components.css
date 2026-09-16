@@ -56,6 +56,11 @@
   border-color: rgba(240, 255, 66, 0.5);
   background: rgba(240, 255, 66, 0.14);
 }
+.session-agent-cursor {
+  color: #B39DDB;
+  border-color: rgba(179, 157, 219, 0.4);
+  background: rgba(179, 157, 219, 0.12);
+}
 
 /* Donut chart */
 .donut-container { display: flex; align-items: center; gap: 32px; justify-content: center; padding: 20px 0; }
