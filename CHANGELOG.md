@@ -6,6 +6,21 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ---
 
+## [0.16.3] — 2026-09-15
+
+### Fixed
+
+- **The standalone server's "Unauthorized" page was a bare `text/plain` dump** — easy to mistake for a broken server rather than a wrong or missing token. It's now a styled page explaining what's missing, showing the exact URL shape to use, and pointing at `traceroost service status` as a way to get that URL again if TraceRoost is running as a background service.
+- **The Traces table's agent/badge column had no header**, just a sort arrow, and the "Time" column header (shared with the Advisor tab's evidence table) was ambiguous next to Duration. Both are now labeled — "Source/From" and "Start Time" respectively — and the Source/From filter bar is reordered to match the column order.
+- **The per-row workspace label was cramped into the timestamp cell**, shown only when a session spanned multiple workspaces. It's now a proper "Project" column with its own header, sortable like every other column.
+
+### Changed
+
+- **The dashboard no longer requires the access token while running on loopback** (127.0.0.1, the default) — matches how the OTLP and MCP endpoints already behaved. Loopback binding already rules out every other machine reaching the port; the token there was only ever defending against a malicious webpage in the same browser, not the "some other machine" threat it's meant to stop. A token is still required the moment the server is bound beyond loopback. The printed/auto-opened dashboard URL no longer carries `?token=` when it isn't needed.
+- **Model pricing refreshed** — added GPT-6 Astra (new OpenAI flagship) and Gemini 3.8 Flash; resolved a stale known gap where Copilot's own extra 50%-off promotion on GPT-5.6 Sol (which ended on schedule) was still being flagged as unaccounted-for. All existing rates re-verified against each vendor's current pricing page.
+
+---
+
 ## [0.16.2] — 2026-09-14
 
 ### Changed
