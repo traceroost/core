@@ -763,6 +763,21 @@ function broadcastSse(payload: Record<string, unknown>): void {
   })
 }
 
+/** Pushes a fresh team status to every open dashboard tab — call after anything that can change
+ *  what the Team panel shows without a user having triggered it directly (a background
+ *  forward-queue drain, in particular; see `forwardScheduler`'s `onDrainComplete` below). A no-op
+ *  cheaply when nothing is linked. `openExternal` is a real no-op, not a stub standing in for one
+ *  — `getTeamStatus` never opens anything, so nothing here should ever call it. */
+function pushTeamStatusToClients(): void {
+  const { handleTeamMessage } = require('../src/cloud/team/panelController') as typeof import('../src/cloud/team/panelController')
+  void handleTeamMessage({ type: 'getTeamStatus' }, {
+    post: (m) => broadcastSse(m),
+    openExternal: () => {},
+    recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
+    log: (m) => console.log(m),
+  })
+}
+
 // ── Dashboard HTML ────────────────────────────────────────────────────────────
 
 function getHtml(): string {
@@ -2014,7 +2029,7 @@ uiServer.listen(UI_PORT, BIND_HOST, () => {
   startLogIngestion()
 
   // Pro: forwarding scheduler. No timer runs unless a team is linked.
-  startForwardScheduler({ log: (msg) => console.log(msg) })
+  startForwardScheduler({ log: (msg) => console.log(msg), onDrainComplete: pushTeamStatusToClients })
 })
 
 // ── Graceful shutdown — flush data before exit ────────────────────────────────

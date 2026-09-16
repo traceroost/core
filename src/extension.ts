@@ -611,6 +611,7 @@ export async function activate(context: vscode.ExtensionContext) {
       else vscode.window.showInformationMessage(message)
     },
     log: (msg) => outputChannel?.appendLine(msg),
+    onDrainComplete: () => DashboardPanel.pushTeamStatus(),
   })
   context.subscriptions.push({ dispose: () => forwardScheduler?.dispose() })
 

@@ -25,6 +25,15 @@ export function startForwardScheduler(opts: {
   intervalMs?: number
   notify?: DrainDeps['notify']
   log?: (msg: string) => void
+  /** Called after every real drain attempt (sent something, failed, or nothing was eligible) —
+   *  never after a tick skipped outright (already draining, or no credential). The queue depth
+   *  and connectivity indicator shown in the Team panel only change as a result of a drain, so
+   *  this is the one place a host needs to hook to keep that panel live instead of stale until
+   *  the next time it's reopened. */
+  onDrainComplete?: () => void
+  /** Test-only — every other piece of `cloud/forward` already threads this through instead of
+   *  always touching the real `~/.traceroost`; kept optional so no real caller needs to pass it. */
+  baseHome?: string
 } = {}): ForwardScheduler {
   const intervalMs = opts.intervalMs ?? 5 * 60_000
   let timer: ReturnType<typeof setInterval> | undefined
@@ -36,7 +45,7 @@ export function startForwardScheduler(opts: {
     if (!loadCredentials()) { stop(); return }
     draining = true
     try {
-      const res = await drainQueue({ notify: opts.notify })
+      const res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome })
       if (res.sent > 0 || res.droppedInvalid > 0) {
         opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
       }
@@ -45,6 +54,7 @@ export function startForwardScheduler(opts: {
       opts.log?.(`[TraceRoost] forwarding drain error: ${(err as Error).message}`)
     } finally {
       draining = false
+      opts.onDrainComplete?.()
     }
   }
 

@@ -9,7 +9,7 @@ import { serializeExport, exportFileExtension, type ExportFormat } from './expor
 import { classifySessionOutcome, type GitOutcome } from './gitOutcome'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
-import { handleTeamMessage } from './cloud/team/panelController'
+import { handleTeamMessage, type TeamPanelDeps } from './cloud/team/panelController'
 import { buildPayloadPreviewText } from './cloud/team/payloadPreview'
 import { loadCredentials } from './cloud/team/credentials'
 import { teamEndpoint } from './cloud/team/config'
@@ -79,6 +79,16 @@ export class DashboardPanel {
     DashboardPanel.currentPanel?.dispose()
   }
 
+  /** Pushes a fresh team status to the open panel, if any — call after anything that can change
+   *  what it shows without the user having triggered it directly (a background forward-queue
+   *  drain, in particular; see `forwardScheduler`'s `onDrainComplete` in extension.ts). A no-op,
+   *  cheaply, when no panel is open. */
+  static pushTeamStatus() {
+    const panel = DashboardPanel.currentPanel
+    if (!panel) return
+    void handleTeamMessage({ type: 'getTeamStatus' }, panel.teamDeps())
+  }
+
   private constructor(
     panel: vscode.WebviewPanel,
     private context: vscode.ExtensionContext,
@@ -93,15 +103,7 @@ export class DashboardPanel {
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (typeof msg.type === 'string' && (msg.type === 'getTeamStatus' || msg.type.startsWith('team'))) {
-        await handleTeamMessage(msg, {
-          post: (m) => { void this.panel.webview.postMessage(m) },
-          openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
-          recentSessions: () => this.repo.listSessions({ limit: 25 }),
-          allLocalSessions: () => this.repo.listSessions(),
-          buildPayloadPreview: (session) => buildPayloadPreviewText(session),
-          onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse(loadCredentials()?.endpoint ?? teamEndpoint())) },
-          log: (m) => console.warn(m),
-        })
+        await handleTeamMessage(msg, this.teamDeps())
         return
       }
       if (msg.type === 'getOutcomes') {
@@ -450,6 +452,20 @@ export class DashboardPanel {
     vscode.window.showInformationMessage(`TraceRoost: Exported ${sessions.length} sessions to ${filename}`)
     const doc = await vscode.workspace.openTextDocument(fileUri)
     vscode.window.showTextDocument(doc, { preview: false })
+  }
+
+  /** One source of truth for the Team panel's host dependencies — used both by the real webview
+   *  message handler and by `pushTeamStatus()`'s unprompted push, so they can never drift. */
+  private teamDeps(): TeamPanelDeps {
+    return {
+      post: (m) => { void this.panel.webview.postMessage(m) },
+      openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
+      recentSessions: () => this.repo.listSessions({ limit: 25 }),
+      allLocalSessions: () => this.repo.listSessions(),
+      buildPayloadPreview: (session) => buildPayloadPreviewText(session),
+      onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse(loadCredentials()?.endpoint ?? teamEndpoint())) },
+      log: (m) => console.warn(m),
+    }
   }
 
   private dispose() {
