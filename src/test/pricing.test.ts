@@ -90,6 +90,30 @@ suite('pricing', () => {
     }
   })
 
+  test('calcTokenCostUsd resolves the free Zen model added 2026-09-15', () => {
+    assert.notStrictEqual(lookupRates('muse-spark-1.3-contributor-free'), null)
+    assert.strictEqual(calcTokenCostUsd(500_000, 0, 0, 100_000, 'muse-spark-1.3-contributor-free'), 0)
+  })
+
+  test('calcTokenCostUsd resolves gemini-3.8-flash at the same promotional rate as 3.6/3.7', () => {
+    const rates38 = lookupRates('gemini-3.8-flash')
+    assert.notStrictEqual(rates38, null)
+    assert.deepStrictEqual(rates38, lookupRates('gemini-3.7-flash'))
+  })
+
+  test('calcTokenCostUsd uses flat rate for gpt-6-astra under its 272K threshold', () => {
+    const cost = calcTokenCostUsd(200_000, 0, 0, 100_000, 'gpt-6-astra')
+    const expected = (200_000 / 1_000_000) * 10.00 + (100_000 / 1_000_000) * 50.00
+    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  })
+
+  test('calcTokenCostUsd applies the surcharge for gpt-6-astra above its 272K threshold', () => {
+    // 372K input: first 272K at $10, next 100K at $20 (2x)
+    const cost = calcTokenCostUsd(372_000, 0, 0, 0, 'gpt-6-astra')
+    const expected = (272_000 / 1_000_000) * 10.00 + (100_000 / 1_000_000) * 20.00
+    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  })
+
   test('calcTokenCostUsd prices claude-fable-5-1 with the 0.025x cache-read rate', () => {
     // Fable 5.1 matches Fable 5 on input/output/cache-write but reads cache at $0.25/MTok (0.025x),
     // not $1.00/MTok (0.1x). A dotted telemetry ID must normalize to the hyphenated key.

@@ -1,6 +1,6 @@
 // Pricing data for extension-host cost computation (cost_usd stored in sessions table).
 // Rate table is kept in sync with media/src/pricing.ts — update both when rates change.
-// PRICING_LAST_UPDATED: 2026-09-01
+// PRICING_LAST_UPDATED: 2026-09-15
 
 export interface ModelRates {
   inputPerMTok: number
@@ -64,17 +64,24 @@ const RATES: Record<string, ModelRates> = {
                           inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.40, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 18.00 },
   // gpt-5.6-sol: corrected 2026-08-26 — OpenAI's own API page dropped this from $5.00/$0.50/$6.25/$30.00 to
   // $4.00/$0.40/$5.00/$20.00 (long-context tier $10.00/$1.00/$12.50/$45.00 → $8.00/$0.80/$10.00/$30.00), noted on
-  // the source page as "promotional pricing... at least through November 21, 2026" — re-check sooner than usual.
-  // Copilot additionally layers its own extra 50% promotional discount on top of this for Copilot-sourced sessions
-  // specifically ($2.00/$0.20/$2.50/$10.00) — not modeled here, since RATES has one shared rate per model
-  // regardless of source agent; see PRICING_SOURCES.md Known gaps. Codex/API-sourced sessions price correctly;
-  // Copilot-sourced sessions using this model will show roughly 2x their actual cost until that discount ends.
+  // the source page as "promotional pricing... at least through November 21, 2026" (still live as of 2026-09-15 —
+  // re-check sooner than usual). Copilot's own separate extra-50%-off layer on top of this rate, previously
+  // through Sept 3, 2026, is gone from Copilot's pricing page as of this refresh — it ended as scheduled, so this
+  // rate is now correct for Copilot-sourced sessions too (previously overstated ~2x while that discount was live).
   'gpt-5.6-sol':        { inputPerMTok: 4.00,  cacheReadPerMTok: 0.40,   cacheWritePerMTok: 5.00, outputPerMTok: 20.00, contextWindowTokens: 256_000,
                           longContextThresholdTokens: 272_000,
                           inputAboveThresholdPerMTok: 8.00, cacheReadAboveThresholdPerMTok: 0.80, cacheWriteAboveThresholdPerMTok: 10.00, outputAboveThresholdPerMTok: 30.00 },
   // gpt-5.6-cyber: added 2026-08-26 — new on OpenAI's API pricing page. Short-context only; no long-context tier
   // listed on the source page (unlike the rest of the 5.6 family).
   'gpt-5.6-cyber':      { inputPerMTok: 12.50, cacheReadPerMTok: 1.25,   cacheWritePerMTok: 15.625, outputPerMTok: 75.00, contextWindowTokens: 0 },
+  // gpt-6-astra: added 2026-09-15 — new flagship, confirmed on Copilot's model pricing page, OpenAI's own API
+  // pricing page, and the Codex CLI credits page (250/25/1250 credits ÷25 = $10.00/$1.00/$50.00). Same tiered
+  // shape as the 5.6 family: cache-write at 1.25x input, long-context surcharge above 272K (2x input/cache/
+  // cache-write, 1.5x output). OpenAI's API page also lists a fast-mode rate ($20.00/$2.00/$100.00 short-context)
+  // — not modeled, consistent with not modeling GPT-5.6 fast mode either.
+  'gpt-6-astra':        { inputPerMTok: 10.00, cacheReadPerMTok: 1.00,   cacheWritePerMTok: 12.50, outputPerMTok: 50.00, contextWindowTokens: 256_000,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 20.00, cacheReadAboveThresholdPerMTok: 2.00, cacheWriteAboveThresholdPerMTok: 25.00, outputAboveThresholdPerMTok: 75.00 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, but
   // not independently confirmed as reachable through Copilot or Codex CLI specifically (neither's own docs
   // mentioned them this pass). Added on this file's existing philosophy that a model which never appears in
@@ -153,6 +160,9 @@ const RATES: Record<string, ModelRates> = {
   'gemini-3.6-flash':{ inputPerMTok: 0.75, cacheReadPerMTok: 0.075, cacheWritePerMTok: 0, outputPerMTok:  3.75, contextWindowTokens: 1_000_000 },
   // gemini-3.7-flash: added 2026-08-26 — new on the Copilot pricing page, same promotional rate as 3.6-flash above.
   'gemini-3.7-flash':{ inputPerMTok: 0.75, cacheReadPerMTok: 0.075, cacheWritePerMTok: 0, outputPerMTok:  3.75, contextWindowTokens: 1_000_000 },
+  // gemini-3.8-flash: added 2026-09-15 — new on the Copilot pricing page, same promotional rate and end date
+  // (Dec 31, 2026) as 3.6/3.7-flash above.
+  'gemini-3.8-flash':{ inputPerMTok: 0.75, cacheReadPerMTok: 0.075, cacheWritePerMTok: 0, outputPerMTok:  3.75, contextWindowTokens: 1_000_000 },
   // ── Fine-tuned ─────────────────────────────────────────────────────────────
   // raptor-mini: no longer an included/$0 model as of the 2026-07-19 Copilot pricing page — now billed at standard rates.
   'raptor-mini': { inputPerMTok: 0.25, cacheReadPerMTok: 0.025, cacheWritePerMTok: 0, outputPerMTok:  2.00,  contextWindowTokens: 0 },
@@ -175,6 +185,9 @@ const RATES: Record<string, ModelRates> = {
   // no longer on the page — likely renamed to it, but left in place since it's $0 either way (see PRICING_SOURCES.md).
   'ling-3.0-flash-fin-free':      { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
   'muse-spark-1.2-contributor-free': { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  // muse-spark-1.3-contributor-free: added 2026-09-15 — 1.2 is gone from the Zen docs, replaced by this; both
+  // keys kept (see ling-3.0-tiny-free/-flash-fin-free above for the same pattern) since it's $0 either way.
+  'muse-spark-1.3-contributor-free': { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
 }
 
 // Exported so callers that build a model ID by appending their own suffix (e.g.
