@@ -113,9 +113,8 @@ function InsufficientPanel({ r }: { r: Insufficient }) {
   )
 }
 
-function MeasuredPanel({ r, coverage }: { r: Measured; coverage: TurnoverReport['coverage'] }) {
+function MeasuredPanel({ r }: { r: Measured }) {
   const color = VERDICT_COLOR[r.benchmark.verdict]
-  const covPct = coverage.totalMergedLines > 0 ? coverage.attributedLines / coverage.totalMergedLines : 0
   return (
     <div class="card">
       <h4>{r.windowDays}-day turnover · {fmtDate(r.cohortLabel + '-01')}</h4>
@@ -127,9 +126,6 @@ function MeasuredPanel({ r, coverage }: { r: Measured; coverage: TurnoverReport[
       <div class="sub" style="margin-top:6px">
         {r.commitCount} commit{r.commitCount === 1 ? '' : 's'} ·
         merged {fmtDay(r.mergeRange.fromIso)}–{fmtDay(r.mergeRange.toIso)}
-      </div>
-      <div class="sub" style="margin-top:4px">
-        Attribution determined for {pct(covPct)} of merged lines in this window.
       </div>
       <BenchmarkBar rate={r.turnoverRate} band={r.benchmark} />
       {/* `?? []`: a cohort_turnover row cached before this field existed has no `commits` at all
@@ -229,7 +225,7 @@ function CohortTrend({ report }: { report: TurnoverReport }) {
  *  measured cohorts still exist (they're what draws the trend sparkline above) but otherwise had
  *  no way to be seen or drilled into. Collapsed by default: a mature repo can have a year-plus of
  *  these, and this is "go find something," not "here's the headline." */
-function PastCohorts({ report, coverage, exclude }: { report: TurnoverReport; coverage: TurnoverReport['coverage']; exclude: CohortTurnover[] }) {
+function PastCohorts({ report, exclude }: { report: TurnoverReport; exclude: CohortTurnover[] }) {
   const [open, setOpen] = useState(false)
   const excludeSet = new Set(exclude)
   const past = report.results
@@ -244,7 +240,7 @@ function PastCohorts({ report, coverage, exclude }: { report: TurnoverReport; co
       >{open ? 'Hide' : 'Show'} {past.length} earlier measured cohort{past.length === 1 ? '' : 's'}</button>
       {open && (
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
-          {past.map(r => <MeasuredPanel key={`${r.windowDays}-${r.cohortLabel}`} r={r} coverage={coverage} />)}
+          {past.map(r => <MeasuredPanel key={`${r.windowDays}-${r.cohortLabel}`} r={r} />)}
         </div>
       )}
     </div>
@@ -255,6 +251,7 @@ function PastCohorts({ report, coverage, exclude }: { report: TurnoverReport; co
 
 function ShareBox({ repo }: { repo: RepoTurnover }) {
   const [includeLabel, setIncludeLabel] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const latest = repo.report.results
     .filter((r): r is Measured => r.kind === 'measured' && r.windowDays === 90)
     .sort((a, b) => b.cohortLabel.localeCompare(a.cohortLabel))[0]
@@ -267,6 +264,14 @@ function ShareBox({ repo }: { repo: RepoTurnover }) {
     `Healthy benchmark: under ${pct(latest.benchmark.healthyUnder)}. — via TraceRoost`,
   ].join('')
 
+  const copy = () => {
+    if (!navigator.clipboard) { setCopyState('failed'); setTimeout(() => setCopyState('idle'), 1500); return }
+    navigator.clipboard.writeText(summary)
+      .then(() => setCopyState('copied'))
+      .catch(() => setCopyState('failed'))
+      .finally(() => { setTimeout(() => setCopyState('idle'), 1500) })
+  }
+
   return (
     <div class="card" style="margin-top:10px">
       <h4>Share this number</h4>
@@ -276,9 +281,9 @@ function ShareBox({ repo }: { repo: RepoTurnover }) {
       </label>
       <pre style="font-size:11px;white-space:pre-wrap;background:var(--vscode-editor-background);border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0">{summary}</pre>
       <button
-        onClick={() => { navigator.clipboard?.writeText(summary) }}
+        onClick={copy}
         style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
-      >Copy summary</button>
+      >{copyState === 'copied' ? 'Copied ✓' : copyState === 'failed' ? 'Could not copy' : 'Copy summary'}</button>
     </div>
   )
 }
@@ -339,6 +344,9 @@ export function Outcomes() {
           .map(w => repo.report.results.filter(x => x.windowDays === w).sort((a, b) => b.cohortLabel.localeCompare(a.cohortLabel))[0])
           .filter((r): r is CohortTurnover => r !== undefined)
 
+        const cov = repo.report.coverage
+        const covPct = cov.totalMergedLines > 0 ? cov.attributedLines / cov.totalMergedLines : 0
+
         return (
           <div key={repo.report.repoRoot} style="margin-bottom:22px">
             {report.repos.length > 1 && <div class="section-label">{repo.label}</div>}
@@ -352,16 +360,22 @@ export function Outcomes() {
               </div>
             ) : (
               <>
+                {/* Report-wide, not per-cohort — shown once here rather than repeated identically
+                    inside every card below (all of which would otherwise show the same number and
+                    read as if it were scoped to that specific window/cohort). */}
+                <div class="sub" style="margin-bottom:8px">
+                  Attribution determined for {pct(covPct)} of this repository's merged lines overall.
+                </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
                   {([30, 90] as const).map(w => {
                     const r = latestPerWindow.find(x => x.windowDays === w)
                     if (!r) return <div key={w} class="card" style="border-style:dashed"><h4>{w}-day</h4><div class="sub">No cohort in range.</div></div>
                     return r.kind === 'measured'
-                      ? <MeasuredPanel key={w} r={r} coverage={repo.report.coverage} />
+                      ? <MeasuredPanel key={w} r={r} />
                       : <InsufficientPanel key={w} r={r} />
                   })}
                 </div>
-                <PastCohorts report={repo.report} coverage={repo.report.coverage} exclude={latestPerWindow} />
+                <PastCohorts report={repo.report} exclude={latestPerWindow} />
                 <CohortTrend report={repo.report} />
                 <ShareBox repo={repo} />
                 {/* The wall, stated once. One Cloud reference on this surface, in the cohort footer only. */}

@@ -709,11 +709,18 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
 
 // ── Deep links (AL 08 / AL 09) ──────────────────────────────────────────────
 //
-// `agentlens://advise?id=<hashed-or-raw-suggestion-id>` and
-// `agentlens://cohort?repo=<hash>&merged=<YYYY-MM>&window=<30|90>`. A link from an untrusted
-// source can only cause a local view change — never a network call, never a write. Every
-// parameter is validated for shape before use, and the cohort hand-off resolves hashes only
-// for repositories on this machine (it is not an oracle for testing hashes against).
+// Routed through VS Code's own `vscode://<publisher>.<extension-id>/<path>?<query>` scheme —
+// there is no separately-registered custom `traceroost://` or `agentlens://` protocol anywhere,
+// only what `registerUriHandler` below catches. The extension's marketplace identity is frozen at
+// `agentlens.agentlens-dashboard` (see RELEASING.md), so the real, working links are:
+// `vscode://agentlens.agentlens-dashboard/advise?id=<hashed-or-raw-suggestion-id>` and
+// `vscode://agentlens.agentlens-dashboard/cohort?repo=<hash>&merged=<YYYY-MM>&window=<30|90>`
+// (built by `traceroost/cloud`'s `vscodeDeepLink()`, `src/lib/deepLink.ts` — cloud previously
+// generated a bare `traceroost://...` link here that nothing registered and silently did nothing
+// when clicked; fixed 2026-09-16). A link from an untrusted source can only cause a local view
+// change — never a network call, never a write. Every parameter is validated for shape before
+// use, and the cohort hand-off resolves hashes only for repositories on this machine (it is not
+// an oracle for testing hashes against).
 
 const HASH_RE = /^[a-f0-9]{64}$/
 const MONTH_RE = /^\d{4}-\d{2}$/
