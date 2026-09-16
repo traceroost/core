@@ -97,3 +97,6 @@
   flex-shrink: 0;
 }
 @media (max-width: 560px) { .tr-wordmark { display: none; } }
+
+.tabs { overflow-x: auto; scrollbar-width: thin; }
+.tabs > * { flex-shrink: 0; }

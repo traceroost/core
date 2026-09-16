@@ -11,7 +11,7 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, availableWorkspaces, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  sessionsPage, getSessionsPagination, SESSIONS_PAGE_SIZE_OPTIONS,
+  sessionsPage, getSessionsPagination,
 } from './state'
 import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, WorkspaceFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome } from './types'
 import { Wordmark } from './Wordmark'
@@ -102,7 +102,9 @@ function ConfigPanel() {
 
   return (
     <div
-      style={`position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
+      inert={!open}
+      aria-hidden={!open}
+      style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
     >
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
         <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Settings</span>
@@ -505,9 +507,9 @@ export function App() {
 // look correctly in both themes instead of a color that only worked against a dark background.
 const AGENT_FILTER_OPTIONS: Array<{ value: AgentFilter; label: string; color: string; activeColor?: string }> = [
   { value: 'all',        label: 'All',      color: 'var(--vscode-descriptionForeground,#888)', activeColor: 'var(--fg)' },
-  { value: 'copilot',    label: 'Copilot',  color: '#00EAFF' },
-  { value: 'claude_code',label: 'Claude',   color: '#FFB085' },
-  { value: 'codex',      label: 'Codex',    color: '#F0FF42' },
+  { value: 'copilot',    label: 'Copilot',  color: 'var(--agent-copilot,#00EAFF)' },
+  { value: 'claude_code',label: 'Claude',   color: 'var(--agent-claude,#FFB085)' },
+  { value: 'codex',      label: 'Codex',    color: 'var(--agent-codex,#F0FF42)' },
   { value: 'opencode',   label: 'OpenCode', color: 'var(--fg)' },
 ]
 
@@ -606,16 +608,17 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
   const presentSources = new Set(baseSessions.map(s => s.source))
 
   return (
-    <div style="display:flex;align-items:center;gap:0;padding:0 8px 6px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
+    <div class="time-range-bar" role="group" aria-label="Time and agent filters" style="display:flex;align-items:center;gap:0;padding:0 8px 6px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
       {/* Time presets */}
       <span style="font-size:10px;color:var(--muted);margin-right:6px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Time</span>
       <div style="display:flex;gap:1px">
         {TIME_PRESETS.map(p => (
           <button
             key={p.id}
+            aria-pressed={range.preset === p.id}
             onClick={() => selectPreset(p.id)}
             style={[
-              'padding:2px 7px;font-size:11px;cursor:pointer;border:none;border-radius:3px;transition:background 0.1s',
+              'padding:2px 7px;font-size:11px;font-weight:600;cursor:pointer;border:none;border-radius:3px;transition:background-color 0.1s',
               range.preset === p.id
                 ? 'background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600'
                 : 'background:transparent;color:var(--muted)',
@@ -641,9 +644,10 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
             return (
               <button
                 key={o.value}
+                aria-pressed={active}
                 onClick={() => { selectedAgentFilter.value = o.value }}
                 style={[
-                  'padding:2px 9px;font-size:11px;cursor:pointer;border-radius:10px;transition:all 0.1s;',
+                  'padding:2px 9px;font-size:11px;font-weight:600;cursor:pointer;border-radius:10px;transition:background-color 0.1s,color 0.1s,border-color 0.1s;',
                   `border:1.5px solid ${displayColor};`,
                   active
                     // Text always follows the theme's own foreground color rather than the agent's
@@ -660,50 +664,48 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         </div>
       </>}
 
-      {/* Reset — shown after agent filter on sessions/analytics when any filter is active */}
-      {showReset && isFiltered && (
+      {/* Keep Reset in place when filters clear so neighboring controls do not move. */}
+      {showReset && (
         <>
           <span style="width:1px;height:14px;background:var(--border);margin:0 8px;flex-shrink:0" />
           <button
+            disabled={!isFiltered}
             onClick={resetFilters}
             style="padding:3px 12px;font-size:12px;border-radius:4px;cursor:pointer;white-space:nowrap;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--muted)"
           >Reset</button>
         </>
       )}
 
-      {/* Loading / error indicator */}
-      {loading && !searchError && <span style="margin-left:8px;font-size:10px;color:var(--muted);opacity:0.6">loading…</span>}
-      {searchError && <span style="margin-left:8px;font-size:10px;color:var(--vscode-errorForeground,#f48771)" title={searchError}>⚠ {searchError}</span>}
-
-      {/* Refresh button for non-live ranges */}
-      {isActive && !loading && (
-        <button
-          class="icon-btn"
-          style="margin-left:2px;border-bottom:none;margin-bottom:0;border-radius:3px"
-          onClick={() => { const r = makeTimeRange(range.preset); timeRange.value = r; fireSearch(r) }}
-          title="Refresh this time range"
-        ><IconRefresh /></button>
-      )}
+      <span role="status" class="range-status" title={searchError ?? undefined}>
+        {searchError ? `⚠ ${searchError}` : loading ? 'Loading…' : ''}
+      </span>
+      <button
+        class="icon-btn"
+        style="margin-left:2px;border-bottom:none;margin-bottom:0;border-radius:3px"
+        disabled={!isActive || loading}
+        onClick={() => { const r = makeTimeRange(range.preset); timeRange.value = r; fireSearch(r) }}
+        title="Refresh this time range"
+      ><IconRefresh /></button>
 
       {/* Trace paging — same controls, same styling, same signal as the table's own footer in
-          Sessions.tsx, just also reachable without scrolling down first. The page-size select
-          shows once there's more than the smallest page worth of traces, even at one page. */}
-      {showPaging && sessionCount > SESSIONS_PAGE_SIZE_OPTIONS[0] && (
+          Sessions.tsx, just also reachable without scrolling down first. Keep the controls
+          mounted for short and empty results so the toolbar remains steady. */}
+      {showPaging && (
         <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
           <PageSizeSelect />
-          {sessTotalPages > 1 && <>
+          <>
             <button
               onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
               disabled={sessPage === 0}
               style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
             >‹ Prev</button>
-            <span>Page {sessPage + 1} of {sessTotalPages}</span>
+            <span style="display:inline-block;min-width:11ch;text-align:center;font-variant-numeric:tabular-nums">Page {sessPage + 1} of {sessTotalPages}</span>
             <button
               onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
               disabled={sessPage >= sessTotalPages - 1}
               style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
             >Next ›</button>
-          </>}
+          </>
         </span>
       )}
     </div>
@@ -741,9 +743,10 @@ function FilterPills<T extends string>({ options, value, onChange }: {
         return (
           <button
             key={o.value}
+            aria-pressed={active}
             onClick={() => onChange(o.value)}
             style={[
-              'padding:2px 7px;font-size:11px;cursor:pointer;border-radius:10px;transition:all 0.1s;',
+              'padding:2px 7px;font-size:11px;font-weight:600;cursor:pointer;border-radius:10px;transition:background-color 0.1s,color 0.1s,border-color 0.1s;',
               `border:1.5px solid ${displayColor};`,
               active
                 ? `background:${activeBg};color:var(--fg);font-weight:600`
@@ -778,11 +781,12 @@ function WorkspaceDropdown() {
   const active = current !== 'all'
   return (
     <select
+      aria-label="Filter by project"
       value={current}
       onChange={e => { workspaceFilter.value = (e.target as HTMLSelectElement).value as WorkspaceFilter }}
       title={current !== 'all' ? current : 'Filter by project'}
       style={[
-        'padding:2px 5px;font-size:11px;cursor:pointer;border-radius:3px;max-width:160px;',
+        'padding:2px 5px;font-size:11px;cursor:pointer;border-radius:3px;width:160px;max-width:160px;',
         'background:var(--vscode-input-background,#3c3c3c);',
         'border:1px solid ' + (active ? 'var(--accent,#4fc3f7)' : 'var(--vscode-input-border,#555)') + ';',
         'color:' + (active ? 'var(--accent,#4fc3f7)' : 'var(--muted)') + ';',
@@ -822,13 +826,14 @@ function SearchFilterBar() {
           >Show all traces</button>
         </div>
       )}
-      <div style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap">
+      <div class="search-filter-controls" role="group" aria-label="Trace filters" style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap">
       <input
         type="text"
+        aria-label="Filter traces"
         placeholder="Filter traces…"
         value={text}
         onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
-        style="flex:1;min-width:100px;max-width:200px;padding:3px 7px;font-size:11px;background:var(--vscode-input-background,#3c3c3c);color:var(--vscode-input-foreground,#ccc);border:1px solid var(--vscode-input-border,#555);border-radius:3px;outline:none"
+        style="flex:0 0 200px;width:200px;min-width:100px;max-width:200px;padding:3px 7px;font-size:11px;background:var(--vscode-input-background,#3c3c3c);color:var(--vscode-input-foreground,#ccc);border:1px solid var(--vscode-input-border,#555);border-radius:3px;outline:none"
       />
       <WorkspaceDropdown />
       <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Source</span>
@@ -843,7 +848,7 @@ function SearchFilterBar() {
         value={iFilter}
         onChange={v => { initiatorFilter.value = v }}
       />
-      <span style="margin-left:auto;font-size:10px;color:var(--muted);white-space:nowrap;padding-right:2px">{filteredSessions.value.length} trace{filteredSessions.value.length !== 1 ? 's' : ''}</span>
+      <span role="status" style="margin-left:auto;min-width:10ch;text-align:right;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);white-space:nowrap;padding-right:2px">{filteredSessions.value.length} trace{filteredSessions.value.length !== 1 ? 's' : ''}</span>
       </div>
     </div>
   )
@@ -857,6 +862,7 @@ function Tab({ id, label }: { id: string; label: string; title?: string }) {
     <button
       class={'tab' + (isActive ? ' active' : '')}
       data-tab={id}
+      aria-current={isActive ? 'page' : undefined}
       onClick={() => { activeTab.value = id }}
     >
       {label}

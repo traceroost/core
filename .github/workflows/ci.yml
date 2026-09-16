@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, cloud]
   pull_request:
-    branches: [main]
+    branches: [main, cloud]
 
 jobs:
   build-and-test:
@@ -41,3 +41,16 @@ jobs:
 
       - name: Build production bundle
         run: pnpm run package
+
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: UX evaluations
+        run: pnpm run test:ux
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-ux-report
+          path: test-results/ux/
+          retention-days: 14
