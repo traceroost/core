@@ -236,7 +236,8 @@
     "check-types": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json",
     "lint": "eslint src media/src",
     "test": "vscode-test",
-    "test:unit": "pnpm run compile-tests && mocha"
+    "test:unit": "pnpm run compile-tests && mocha",
+    "test:ux": "node tests/ux/evaluate.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

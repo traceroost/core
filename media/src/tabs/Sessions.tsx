@@ -3,8 +3,8 @@ import {
   filteredSessions, sessionSummary, sessionTimelines, gitOutcomes, burnRateData,
   focusedSessionId, vscode, ignoredInsightKeys,
   sessionSortKey, sessionSortDir, type SortKey,
-  workspaceFilter, shortWorkspaceName, goToHelp,
-  sessionsPage, getSessionsPagination, SESSIONS_PAGE_SIZE_OPTIONS as PAGE_SIZE_OPTIONS,
+  shortWorkspaceName, goToHelp,
+  sessionsPage, getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
 } from '../state'
 import { PageSizeSelect } from './Settings'
@@ -428,12 +428,13 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 
         {/* Chevron */}
         <td style="padding:4px 4px 4px 8px;width:16px;color:var(--muted);font-size:9px;white-space:nowrap">
-          {expanded ? '▼' : '▶'}
+          <button class="trace-expand" aria-label={expanded ? 'Collapse trace' : 'Expand trace'} aria-expanded={expanded} onClick={e => { e.stopPropagation(); toggle() }}>{expanded ? '▼' : '▶'}</button>
         </td>
 
         {/* Agent dot + data source badge */}
         <td style="padding:4px 4px;width:auto;white-space:nowrap">
-          <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0;vertical-align:middle`} />
+          <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--agent-${sess.source === 'claude_code' ? 'claude' : sess.source},${color});flex-shrink:0;vertical-align:middle`} />
+          <span style="margin-left:4px;font-size:10px">{getAgentSourceLabel(sess.source)}</span>
           <span style="margin-left:4px" dangerouslySetInnerHTML={{ __html: getDataSourceBadgeHtml(sess.dataSource ?? 'otel') }} />
           <span dangerouslySetInnerHTML={{ __html: getInitiatorBadgeHtml(sess.initiator) }} />
         </td>
@@ -453,7 +454,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
         )}
 
         {/* Prompt */}
-        <td style="padding:4px 6px;max-width:0;width:100%">
+        <td style="padding:4px 6px;overflow:hidden">
           {prompt
             ? <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-style:italic;color:var(--foreground)" title={prompt}>{prompt}</span>
             : sess.turns === 0
@@ -510,24 +511,15 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 export function Sessions() {
   const sessions = filteredSessions.value
   const hasAny = (sessionSummary.value?.sessions?.length ?? 0) > 0
-  const wsFilter = workspaceFilter.value
-  const uniqueWorkspaces = new Set(sessions.map(s => s.workspace ?? ''))
-  const showWorkspace = wsFilter === 'all' && uniqueWorkspaces.size > 1
-
-  if (sessions.length === 0) {
-    return (
-      <div id="sessions-content">
-        <div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div>
-      </div>
-    )
-  }
+  const uniqueWorkspaces = new Set((sessionSummary.value?.sessions ?? []).map(s => s.workspace ?? ''))
+  const showWorkspace = uniqueWorkspaces.size > 1
 
   const sortKey = sessionSortKey.value
   const sortDir = sessionSortDir.value
 
   function sortArrow(key: SortKey) {
-    if (sortKey !== key) return <span style="opacity:0.3;margin-left:3px">↕</span>
-    return <span style="margin-left:3px;color:var(--accent)">{sortDir === 'desc' ? '▼' : '▲'}</span>
+    if (sortKey !== key) return <span aria-hidden="true" class="sort-indicator" style="opacity:0.3">↕</span>
+    return <span aria-hidden="true" class="sort-indicator" style="color:var(--accent)">{sortDir === 'desc' ? '▼' : '▲'}</span>
   }
 
   function onSortClick(key: SortKey) {
@@ -541,7 +533,11 @@ export function Sessions() {
 
   const thBase = 'padding:3px 6px;font-size:10px;font-weight:600;white-space:nowrap;user-select:none'
   const thSort = thBase + ';cursor:pointer;color:var(--fg)'
-  const thMuted = thBase + ';color:var(--muted);font-weight:500'
+  function sortHeader(key: SortKey, label: string, right = false, title?: string) {
+    return <th scope="col" aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:' + (right ? 'right;' : 'left;') + thSort}>
+      <button class="sort-button" onClick={() => onSortClick(key)} title={title}>{label}{sortArrow(key)}</button>
+    </th>
+  }
 
   // Rendering every matching session as its own live component with no cap was the mechanism
   // behind .staged-issues/session-list-scaling.md — see getSessionsPagination's own doc comment
@@ -554,50 +550,54 @@ export function Sessions() {
 
   return (
     <div id="sessions-content" style="padding-top:8px">
-      <div class="h-scroll-hint">
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <div class="h-scroll-hint trace-table-scroll" role="region" aria-label="Traces table" tabIndex={0}>
+      <table class="trace-table" style="width:100%;border-collapse:collapse;font-size:11px">
+        <colgroup>
+          <col style="width:8px" /><col style="width:28px" /><col style="width:175px" /><col style="width:144px" />
+          {showWorkspace && <col style="width:130px" />}
+          <col /><col style="width:140px" /><col style="width:80px" /><col style="width:85px" /><col style="width:80px" />
+        </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
             <th style="width:5px;padding:0" title="A colored bar marks traces that are really one conversation split into multiple rows by a long gap between them." />
             <th style="width:16px;padding:3px 4px 3px 8px" />
-            <th style={'text-align:left;padding:3px 4px;' + thSort} onClick={() => onSortClick('source')} title="Sort by agent">Source/From{sortArrow('source')}</th>
-            <th style={'text-align:left;' + thSort} onClick={() => onSortClick('start_time')}>Start Time{sortArrow('start_time')}</th>
-            {showWorkspace && <th style={'text-align:left;' + thSort} onClick={() => onSortClick('workspace')}>Project{sortArrow('workspace')}</th>}
-            <th style={'text-align:left;' + thSort} onClick={() => onSortClick('prompt')}>Prompt{sortArrow('prompt')}</th>
-            <th style={'text-align:left;' + thSort} onClick={() => onSortClick('model')}>Model{sortArrow('model')}</th>
-            <th style={'text-align:right;' + thSort} onClick={() => onSortClick('total_tokens')} title="Total tokens across all turns (fresh input + cache reads + output). For multi-turn traces this accumulates across every turn and can far exceed a single context window.">Tokens{sortArrow('total_tokens')}</th>
-            <th style={'text-align:right;' + thSort} onClick={() => onSortClick('duration_ms')}>Duration{sortArrow('duration_ms')}</th>
-            <th style={'text-align:right;padding:3px 8px 3px 6px;' + thSort} onClick={() => onSortClick('cost')}>Cost{sortArrow('cost')}</th>
+            {sortHeader('source', 'Source/From')}
+            {sortHeader('start_time', 'Start Time')}
+            {showWorkspace && sortHeader('workspace', 'Project')}
+            {sortHeader('prompt', 'Prompt')}
+            {sortHeader('model', 'Model')}
+            {sortHeader('total_tokens', 'Tokens', true, 'Accumulated input and output tokens across all turns')}
+            {sortHeader('duration_ms', 'Duration', true)}
+            {sortHeader('cost', 'Cost', true)}
           </tr>
         </thead>
         <tbody>
+          {sessions.length === 0 && <tr><td colspan={showWorkspace ? 10 : 9}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Reset to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
           {pageSessions.map(sess => (
             <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} conversation={conversationInfo.get(sess.sessionId)} />
           ))}
         </tbody>
       </table>
       </div>
-      <div style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div class="trace-pagination" style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         {window.__VERSION__ && <span title="TraceRoost version">v{window.__VERSION__}</span>}
-        {sessions.length > PAGE_SIZE_OPTIONS[0] && (
-          <span style="display:flex;align-items:center;gap:8px">
-            {totalPages > 1 && <span>Showing {rangeStart}–{rangeEnd} of {sessions.length}</span>}
+        <span style="display:flex;align-items:center;gap:8px">
+            <span style="display:inline-block;min-width:23ch">Showing {rangeStart}–{rangeEnd} of {sessions.length}</span>
             <PageSizeSelect />
-            {totalPages > 1 && <>
+            <>
               <button
                 onClick={() => sessionsPage.value = Math.max(0, page - 1)}
                 disabled={page === 0}
                 style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page === 0 ? 'default' : 'pointer'};opacity:${page === 0 ? 0.4 : 1}`}
               >‹ Prev</button>
-              <span>Page {page + 1} of {totalPages}</span>
+              <span style="display:inline-block;min-width:11ch;text-align:center">Page {page + 1} of {totalPages}</span>
               <button
                 onClick={() => sessionsPage.value = Math.min(totalPages - 1, page + 1)}
                 disabled={page >= totalPages - 1}
                 style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page >= totalPages - 1 ? 'default' : 'pointer'};opacity:${page >= totalPages - 1 ? 0.4 : 1}`}
               >Next ›</button>
-            </>}
-          </span>
-        )}
+            </>
+        </span>
       </div>
     </div>
   )

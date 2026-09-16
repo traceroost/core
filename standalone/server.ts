@@ -828,6 +828,7 @@ function getHtml(): string {
        rendering dark even when everything else correctly switched to light. */
     :root {
       color-scheme: light;
+      --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed;
       --vscode-editor-background:       #ffffff;
       --vscode-foreground:              #1f2328;
       --vscode-panel-border:            #d0d7de;
@@ -868,7 +869,7 @@ function getHtml(): string {
       --vscode-editorWarning-foreground: #cca700;
       --vscode-errorForeground:          #f48771;
       --vscode-charts-blue:              #4fc3f7;
-      --vscode-charts-green:             #81c784;
+      --vscode-charts-green:             #1a7f37;
       --vscode-charts-red:               #e57373;
       --vscode-charts-yellow:            #ffb74d;
     }
@@ -877,6 +878,8 @@ function getHtml(): string {
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
         color-scheme: dark;
+      --vscode-charts-green: #81c784;
+      --agent-copilot: #00EAFF; --agent-claude: #FFB085; --agent-codex: #F0FF42;
         --vscode-editor-background:       #1e1e1e;
         --vscode-foreground:              #cccccc;
         --vscode-panel-border:            #3e3e42;
@@ -898,6 +901,8 @@ function getHtml(): string {
     /* Explicit Dark override, regardless of system preference. */
     :root[data-theme="dark"] {
       color-scheme: dark;
+      --vscode-charts-green: #81c784;
+      --agent-copilot: #00EAFF; --agent-claude: #FFB085; --agent-codex: #F0FF42;
       --vscode-editor-background:       #1e1e1e;
       --vscode-foreground:              #cccccc;
       --vscode-panel-border:            #3e3e42;
@@ -957,7 +962,7 @@ function getHtml(): string {
     #sa-toast.visible { opacity:1; }
 
     /* ── Main panel ──────────────────────────────────────────────────────── */
-    #sa-main { flex: 1; overflow-y: auto; min-width: 0; padding: 0 18px 16px; }
+    #sa-main { flex: 1; overflow-y: auto; scrollbar-gutter: stable; min-width: 0; padding: 0 18px 16px; }
     #app { min-height: 100%; }
   </style>
 </head>

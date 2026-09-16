@@ -371,12 +371,12 @@ const DATA_SOURCE_TOOLTIP = {
 export function getDataSourceBadgeHtml(dataSource: 'otel' | 'log' | undefined): string {
   const ds = dataSource ?? 'otel'
   const label = ds === 'log' ? 'Log' : 'OTEL'
-  const color = ds === 'log' ? '#90a4ae' : 'var(--fg)'
+  const color = ds === 'log' ? 'var(--muted)' : 'var(--fg)'
   const tooltip = DATA_SOURCE_TOOLTIP[ds]
   return `<span style="font-size:9px;font-weight:600;padding:1px 4px;border-radius:2px;border:1px solid ${color};color:${color};letter-spacing:0.03em;vertical-align:middle;cursor:default" title="${tooltip}">${label}</span>`
 }
 
-const INITIATOR_COLORS = { user: '#4a90d9', agent: '#b0bec5', api: '#90a4ae' } as const
+const INITIATOR_COLORS = { user: 'var(--accent)', agent: 'var(--muted)', api: 'var(--muted)' } as const
 const INITIATOR_TOOLTIPS = {
   user:  'Typed directly by a human in the chat',
   agent: 'Spawned by the Agent tool (isSidechain) — a sub-task delegated by Claude',
@@ -396,6 +396,7 @@ export function getAgentSourceLabel(source: string | null | undefined): string {
   if (source === 'claude_code') return 'Claude'
   if (source === 'codex') return 'Codex'
   if (source === 'opencode') return 'OpenCode'
+  if (source === 'cursor') return 'Cursor'
   return 'Copilot'
 }
 
@@ -404,6 +405,9 @@ export function getAgentColor(source: string | null | undefined): string {
   if (source === 'codex') return '#F0FF42'
   if (source === 'copilot') return '#00EAFF'
   if (source === 'opencode') return '#FFFFFF'
+  // No local ingestion path produces this today — cloud's wire schema (WireAgent)
+  // already anticipates it, so this stays a no-op until it does, not a live gap.
+  if (source === 'cursor') return '#B39DDB'
   return '#90a4ae'
 }
 

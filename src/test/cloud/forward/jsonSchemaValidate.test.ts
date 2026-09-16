@@ -57,10 +57,19 @@ suite('forward/jsonSchemaValidate', () => {
   })
 
   test('rejects a missing required field', () => {
+    // schema_version is the only top-level required property — repo_key_fp is
+    // deliberately optional (absent when the workspace's repo can't be keyed;
+    // see buildSessionRollup.ts's own comment on the field).
+    const { schema_version, ...rest } = VALID
+    void schema_version
+    const errs = v.validate(rest)
+    assert.ok(errs.some(e => /missing required property "schema_version"/.test(e.message)))
+  })
+
+  test('accepts a payload with no repo_key_fp — the workspace could not be keyed', () => {
     const { repo_key_fp, ...rest } = VALID
     void repo_key_fp
-    const errs = v.validate(rest)
-    assert.ok(errs.some(e => /missing required property "repo_key_fp"/.test(e.message)))
+    assert.deepStrictEqual(v.validate(rest), [])
   })
 
   test('rejects severity out of range', () => {

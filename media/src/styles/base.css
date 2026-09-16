@@ -78,3 +78,29 @@ body { font-family: var(--vscode-font-family); color: var(--fg); background: var
 .h-scroll-hint::-webkit-scrollbar-track { background: transparent; }
 .h-scroll-hint::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 .h-scroll-hint::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Keep stationary chrome steady when the result count changes. */
+html, #sa-main { scrollbar-gutter: stable; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input:focus-visible, select:focus-visible { outline: 2px solid var(--accent) !important; }
+button:disabled { cursor: default; opacity: .5; }
+.time-range-bar { overflow-x: auto; min-height: 34px; scrollbar-width: thin; }
+.time-range-bar > * { flex-shrink: 0; }
+.time-range-bar button { white-space: nowrap; }
+.search-filter-controls > * { flex-shrink: 0; }
+.trace-table { table-layout: fixed; min-width: 1100px; font-variant-numeric: tabular-nums; }
+.trace-table-scroll { height: clamp(320px, calc(100dvh - 220px), 720px); overflow: auto; }
+.trace-table thead { position: sticky; top: 0; z-index: 1; background: var(--bg); }
+.trace-pagination { min-height: 40px; flex-wrap: nowrap !important; overflow-x: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.trace-pagination > * { flex-shrink: 0; }
+.sort-button { font: inherit; color: inherit; border: 0; background: none; padding: 3px 0; cursor: pointer; }
+.sort-indicator { display: inline-block; width: 12px; margin-left: 3px; text-align: center; }
+.trace-expand { color: var(--muted); background: none; border: 0; font: inherit; cursor: pointer; padding: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+.range-status { width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); margin-left: 8px; }
+body.vscode-light { --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed; }
+
+:root { --agent-opencode: var(--fg); }
