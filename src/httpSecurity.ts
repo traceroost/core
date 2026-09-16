@@ -1,17 +1,20 @@
 /**
- * Shared HTTP hardening for the three standalone servers (UI, OTLP, MCP) — see
- * .staged-issues/01-enterprise-readiness.md phase 1. Two independent defenses:
+ * Shared HTTP hardening for the three standalone servers (UI, OTLP, MCP). Two independent
+ * defenses:
  *
  *   - Host-header validation: rejects requests whose Host header isn't a loopback alias or
  *     the configured bindHost, which defeats DNS-rebinding (an attacker page that gets a
  *     hostname to resolve to 127.0.0.1 still sends its own hostname as the Host header, not
- *     "localhost" — the browser doesn't rewrite it).
+ *     "localhost" — the browser doesn't rewrite it). Always enforced, on all three servers,
+ *     regardless of the token requirement below.
  *   - Bearer-token auth: a token generated at first run (`ensureAuthToken` in serviceConfig.ts),
- *     checked via `Authorization: Bearer`, a `?token=` query param, or an `traceroost_token`
- *     cookie. Enforced everywhere on the UI server (the CLI hands the token to the browser when
- *     it opens the dashboard); on OTLP/MCP it only activates once BIND_HOST is non-loopback,
- *     so today's default loopback setup and existing agent auto-configuration keep working
- *     unauthenticated exactly as before.
+ *     checked via `Authorization: Bearer`, a `?token=` query param, or a `traceroost_token`
+ *     cookie. None of the three servers require it while bound to loopback — only another
+ *     process on this machine can reach 127.0.0.1 at all, so the token would only ever be
+ *     defending against a malicious webpage open in the same browser, not another machine
+ *     (that's the deliberate trade — see REQUIRE_TOKEN_EVERYWHERE in standalone/server.ts).
+ *     Once BIND_HOST is exposed beyond loopback, the network boundary is gone and the token
+ *     becomes load-bearing on all three, uniformly.
  */
 
 import * as crypto from 'crypto'
