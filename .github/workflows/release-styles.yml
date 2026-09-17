@@ -1,0 +1,65 @@
+name: Release @traceroost/styles
+
+# Separate tag prefix from the extension's own `v*` releases (release.yml) — this package
+# versions independently, so a pill-color tweak doesn't force an extension version bump and a
+# feature release doesn't drag an unrelated CSS bump with it.
+on:
+  push:
+    tags:
+      - 'styles-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for npm Trusted Publishing (OIDC — no stored secret needed)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # registry-url is required so setup-node writes the registry endpoint to .npmrc.
+          # Without it, npm throws ENEEDAUTH before attempting OIDC.
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm for OIDC Trusted Publishing
+        # OIDC Trusted Publishing requires npm 11.x+; keep this in sync with whatever version
+        # ships bundled with the node-version above (see release.yml's matching step).
+        run: npm install -g npm@latest
+
+      - name: Verify the pushed tag matches package.json's version
+        working-directory: packages/styles
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#styles-v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag styles-v$TAG_VERSION does not match packages/styles/package.json's version ($PKG_VERSION)"
+            exit 1
+          fi
+
+      # Trusted Publishing: npm exchanges the GitHub Actions OIDC token for a short-lived
+      # publish credential — no NPM_TOKEN secret required. NODE_AUTH_TOKEN must not be set;
+      # npm falls back to OIDC when it is absent.
+      #
+      # ONE-TIME SETUP before the first `styles-v*` tag: npm's Trusted Publishing needs a trust
+      # relationship configured against a package name, and (as of writing) that requires either
+      # the package to already exist, or using npmjs.com's "new package" trusted-publisher setup
+      # from this exact repo + workflow file. Until that's done, run a one-time manual publish
+      # from a machine logged into an account with rights to create packages under the
+      # `@traceroost` scope:
+      #
+      #   cd packages/styles && npm publish --access public
+      #
+      # then configure Trusted Publishing for @traceroost/styles on npmjs.com pointing at this
+      # repo/workflow (Settings → Publishing on the package's npmjs.com page), mirroring however
+      # the root `traceroost` package's Trusted Publisher was set up (see release.yml).
+      # Every publish after that first one runs through this workflow with no secrets involved.
+      - name: Publish to npm
+        working-directory: packages/styles
+        run: npm publish --access public --provenance

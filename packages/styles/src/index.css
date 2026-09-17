@@ -1,0 +1,6 @@
+/**
+ * Everything in this package, in one import. A consumer that wants only part of it (to control
+ * load order, or because it needs just one piece) imports that file directly instead — see the
+ * package README for the full file list.
+ */
+@import './pills.css';

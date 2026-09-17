@@ -1,0 +1,25 @@
+{
+  "name": "@traceroost/styles",
+  "version": "0.1.1",
+  "description": "Shared CSS building blocks for TraceRoost products.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/traceroost/core",
+    "directory": "packages/styles"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./index.css": "./src/index.css",
+    "./pills.css": "./src/pills.css"
+  }
+}

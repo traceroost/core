@@ -1,0 +1,44 @@
+/**
+ * Shared "filter pill" look — the toggle buttons used for Agent/Source/From/Outcome-style
+ * filters (see traceroost/core's media/src/App.tsx AGENT_FILTER_OPTIONS, and traceroost-cloud's
+ * FilterPills in src/app/(protected)/[org]/traces/traces-table.tsx).
+ *
+ * Part of the @traceroost/styles package — see ../README.md for how a consumer wires this in.
+ *
+ * This file only ever reads `--tr-pill-*` custom properties, never a host's own design tokens
+ * directly — each host maps four tokens once (see traceroost/core's media/src/styles/base.css
+ * `:root`, and traceroost-cloud's globals.css) and every pill in both products then renders
+ * identically. The one per-option value each host still supplies inline is `--tr-pill-color`,
+ * the pill's own identity color (e.g. an agent's brand color) — everything else (size, weight,
+ * radius, the active/inactive treatment) is fixed here.
+ */
+
+.tr-pill {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  border-radius: 10px;
+  border: 1.5px solid var(--tr-pill-color, currentColor);
+  background: transparent;
+  color: var(--tr-pill-muted-fg);
+  transition: background-color 0.1s, color 0.1s, border-color 0.1s;
+}
+
+/* Both hosts already set `aria-pressed` on these buttons for accessibility — reused here as the
+ * active-state hook so no separate class needs to be toggled in sync with it. */
+.tr-pill[aria-pressed="true"] {
+  background: var(--tr-pill-active-bg);
+  color: var(--tr-pill-active-fg);
+}
+
+.tr-pill:hover:not([aria-pressed="true"]):not(:disabled) {
+  background: var(--tr-pill-hover-bg);
+  color: var(--tr-pill-active-fg);
+}
+
+.tr-pill:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
