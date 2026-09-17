@@ -34,6 +34,7 @@ import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forwa
 import { loadCredentials } from '../src/cloud/team/credentials'
 import { teamEndpoint } from '../src/cloud/team/config'
 import { deriveRepoKey, repoHash } from '../src/cloud/forward/repoKey'
+import { resolveGithubUrl } from '../src/repoRemote'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
 
 // Load `.env` from the current working directory, if one exists — lets `npm run local` point at
@@ -190,7 +191,7 @@ async function loadOrComputeGitOutcome(sessionId: string, workspace: string, fil
 // Repo info, keyed by workspace path. `hash` is repoKey.ts's repoHash — the same hash
 // traceroost-cloud shows in its own Repo column. `name` is the git repo root's own basename (not
 // the workspace path, which may be a subfolder of it). Mirrors DashboardPanel's repoInfoCache.
-const repoInfoCache = new Map<string, { name: string; hash: string } | null>()
+const repoInfoCache = new Map<string, { name: string; hash: string; githubUrl: string | null } | null>()
 
 function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummaryCard {
   const num = (v: unknown, def = 0): number => (typeof v === 'number' ? v : def)
@@ -1374,7 +1375,7 @@ function getHtml(): string {
               .then(function(r) { return r.json(); })
               .then(function(data) {
                 window.dispatchEvent(new MessageEvent('message', {
-                  data: { type: 'repoHash', workspace: data.workspace, name: data.name, hash: data.hash }
+                  data: { type: 'repoHash', workspace: data.workspace, name: data.name, hash: data.hash, githubUrl: data.githubUrl }
                 }));
               })
               .catch(function(e) { console.warn('[TraceRoost] repo hash fetch failed', e); });
@@ -1947,24 +1948,24 @@ const uiServer = http.createServer((req, res) => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { workspace?: string }
         const workspace = body.workspace ?? ''
         if (!workspace) { res.writeHead(400); res.end(); return }
-        let info: { name: string; hash: string } | null
+        let info: { name: string; hash: string; githubUrl: string | null } | null
         if (repoInfoCache.has(workspace)) {
           info = repoInfoCache.get(workspace) ?? null
         } else {
           const orgId = loadCredentials()?.orgId ?? 'unlinked-preview'
-          const rk = await deriveRepoKey(workspace, orgId)
+          const [rk, githubUrl] = await Promise.all([deriveRepoKey(workspace, orgId), resolveGithubUrl(workspace)])
           if (rk.ok) {
             const rootName = path.basename(rk.ctx.root) || 'repository'
             const parentName = path.basename(path.dirname(rk.ctx.root))
             const name = parentName ? `${parentName}/${rootName}` : rootName
-            info = { name, hash: repoHash(rk.ctx) }
+            info = { name, hash: repoHash(rk.ctx), githubUrl }
           } else {
             info = null
           }
           repoInfoCache.set(workspace, info)
         }
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ workspace, name: info?.name ?? null, hash: info?.hash ?? null }))
+        res.end(JSON.stringify({ workspace, name: info?.name ?? null, hash: info?.hash ?? null, githubUrl: info?.githubUrl ?? null }))
       } catch (e) {
         console.warn('[TraceRoost] Malformed /api/repo-hash body:', e)
         res.writeHead(400); res.end()

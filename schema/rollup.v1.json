@@ -128,7 +128,8 @@
         },
         "outcome": { "$ref": "#/$defs/outcome" },
         "data_source": { "$ref": "#/$defs/data_source" },
-        "initiator": { "$ref": "#/$defs/initiator" }
+        "initiator": { "$ref": "#/$defs/initiator" },
+        "conversation_hash": { "$ref": "#/$defs/hash" }
       }
     },
     "commit": {

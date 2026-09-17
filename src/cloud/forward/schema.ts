@@ -158,6 +158,14 @@ export interface SessionRollup {
   outcome?: WireOutcome
   data_source?: WireDataSource
   initiator?: WireInitiator
+  /** sha256 of the local conversationId — present only when a log file was split into more than
+   *  one session by a long idle gap (see `toUuid`'s sibling `conversationHash` in
+   *  buildSessionRollup.ts). Lets the server color-code/group rows that are really one
+   *  conversation, the same way this client already does locally. Plain sha256, not the
+   *  repo_key-derived HMAC repo_hash/branch_hash/commit_hash use — a conversationId is already an
+   *  opaque, high-entropy token (a uuid or an OTEL trace id), not a guessable path, so it needs no
+   *  org-scoped salt to stay uncorrelatable. */
+  conversation_hash?: Sha256
 }
 
 export interface CommitRecord {

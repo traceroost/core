@@ -127,12 +127,14 @@ function outcomeToFilterBucket(overall: FileOutcome | null): Exclude<OutcomeFilt
 }
 
 // Caps how many not-yet-resolved sessions get a `getGitOutcome` request fired per call, and
-// staggers them — switching the Outcome filter on over a large, otherwise-unfiltered session set
-// must not spawn hundreds of concurrent git subprocesses on the extension host. The host caches
-// each sessionId's result (dashboardPanel.ts's gitOutcomeCache), so re-calling this for sessions
-// already resolved (or already in flight) is cheap: they're filtered out below.
+// staggers them a little — not to protect the host from concurrent git subprocesses (it now
+// bounds that itself, gitOutcome.ts's per-session classification gate), just so switching the
+// Outcome filter on over a large, otherwise-unfiltered session set doesn't fire an enormous
+// number of postMessage calls in one synchronous burst. The host caches each sessionId's result
+// (dashboardPanel.ts's gitOutcomeCache), so re-calling this for sessions already resolved (or
+// already in flight) is cheap: they're filtered out below.
 const GIT_OUTCOME_FETCH_CAP = 150
-const GIT_OUTCOME_FETCH_STAGGER_MS = 20
+const GIT_OUTCOME_FETCH_STAGGER_MS = 2
 
 export function requestGitOutcomesFor(sessions: SessionSummaryCard[]): void {
   const cache = gitOutcomes.peek()
@@ -152,7 +154,8 @@ export function requestGitOutcomesFor(sessions: SessionSummaryCard[]): void {
   }
 
   if (!vscode) return
-  needsFetch.slice(0, GIT_OUTCOME_FETCH_CAP).forEach((s, i) => {
+  const batch = needsFetch.slice(0, GIT_OUTCOME_FETCH_CAP)
+  batch.forEach((s, i) => {
     const endTime = s.startTime && s.durationMs
       ? new Date(new Date(s.startTime).getTime() + s.durationMs).toISOString()
       : s.startTime
@@ -167,18 +170,32 @@ export function requestGitOutcomesFor(sessions: SessionSummaryCard[]): void {
       })
     }, i * GIT_OUTCOME_FETCH_STAGGER_MS)
   })
+
+  // The cap above only bounds one *batch* — a caller passing more than that (the Outcome filter
+  // does, with every session currently matching the other filters, unlike the Sessions table's own
+  // per-page call) must still see every one of them eventually resolve, or its "resolving N
+  // outcomes" spinner spins forever. Chain the remainder as a follow-up batch once this one's
+  // stagger window finishes, rather than silently dropping it.
+  const overflow = needsFetch.slice(GIT_OUTCOME_FETCH_CAP)
+  if (overflow.length > 0) {
+    setTimeout(() => requestGitOutcomesFor(overflow), batch.length * GIT_OUTCOME_FETCH_STAGGER_MS)
+  }
 }
 
-// Lazy repo-info cache: workspace path → { name, hash }, or null once fetched but ungrouped (not
-// a repo, shallow clone, no root commit). `hash` is the same one traceroost-cloud shows in its own
-// Repo column (repoKey.ts's repoHash). `name` is the git repo root's own basename, prefixed with
-// its parent folder's name where one exists (e.g. "traceroost/core") — resolved through git
-// rather than read off the workspace path, which may be a subfolder of the repo (or, with
-// multiple worktrees/clones, a differently-named checkout of it) — see dashboardPanel.ts's
-// sendRepoHash. Absent key = not yet requested. There are only ever a handful of distinct
-// workspaces open at once (unlike sessions), so unlike git outcomes this is cheap to request for
-// every one of them up front — no cap/stagger needed.
-export const repoInfo = signal<Record<string, { name: string; hash: string } | null>>({})
+// `hash` is the same one traceroost-cloud shows in its own Repo column (repoKey.ts's repoHash).
+// `name` is the git repo root's own basename, prefixed with its parent folder's name where one
+// exists (e.g. "traceroost/core") — resolved through git rather than read off the workspace path,
+// which may be a subfolder of the repo (or, with multiple worktrees/clones, a differently-named
+// checkout of it) — see dashboardPanel.ts's sendRepoHash. `githubUrl` is the `origin` remote
+// normalized to `https://github.com/owner/repo`, or null if there's no remote or it isn't on
+// github.com — local-only (repoRemote.ts), never sent to traceroost-cloud, unlike `hash`.
+export interface RepoInfo { name: string; hash: string; githubUrl: string | null }
+
+// Lazy repo-info cache: workspace path → RepoInfo, or null once fetched but ungrouped (not a repo,
+// shallow clone, no root commit). Absent key = not yet requested. There are only ever a handful of
+// distinct workspaces open at once (unlike sessions), so unlike git outcomes this is cheap to
+// request for every one of them up front — no cap/stagger needed.
+export const repoInfo = signal<Record<string, RepoInfo | null>>({})
 
 export function requestRepoHash(workspace: string): void {
   if (!workspace || repoInfo.peek()[workspace] !== undefined || !vscode) return
@@ -274,12 +291,12 @@ export function setThemePreference(pref: ThemePreference): void {
 
 // Rendering every matching trace as its own live component with no cap was the mechanism behind
 // .staged-issues/session-list-scaling.md — fine at hundreds, unbounded past that, and the one time
-// range ("All") most likely to be selected had no cap at all. 25 is picked as a reasonable
+// range ("All") most likely to be selected had no cap at all. 20 is picked as a reasonable
 // default — enough to browse recent activity on one page without constant clicking, small enough
 // to keep the DOM light — not a measured number, same honesty standard as every other threshold
 // in this project; adjustable in Settings for anyone who wants it larger.
-export const SESSIONS_PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500] as const
-const DEFAULT_SESSIONS_PAGE_SIZE = 25
+export const SESSIONS_PAGE_SIZE_OPTIONS = [20, 50, 100, 250, 500] as const
+const DEFAULT_SESSIONS_PAGE_SIZE = 20
 const SESSIONS_PAGE_SIZE_STORAGE_KEY = 'traceroost-sessions-page-size'
 
 function readStoredSessionsPageSize(): number {
@@ -347,7 +364,7 @@ export function shortWorkspaceName(ws: string): string {
 // resolved), or falls back to the raw workspace path (before repoInfo arrives, or when the
 // workspace isn't a keyable git repo). Substring, case-insensitive — same convention as
 // sessionTextFilter's own prompt search.
-export function matchesRepoQuery(ws: string, query: string, info: Record<string, { name: string; hash: string } | null>): boolean {
+export function matchesRepoQuery(ws: string, query: string, info: Record<string, RepoInfo | null>): boolean {
   const q = query.toLowerCase()
   const entry = info[ws]
   if (entry) return entry.name.toLowerCase().includes(q) || entry.hash.toLowerCase().includes(q)
@@ -355,16 +372,25 @@ export function matchesRepoQuery(ws: string, query: string, info: Record<string,
 }
 
 // The name to actually show for a workspace — its git repo root's own basename (repoInfo) once
-// resolved, with its hash appended in parentheses, truncated the same way traceroost-cloud
-// truncates repoHash in its own Repo column (`hash.slice(0, 10) + '…'`) so the two are
-// recognizable as the same hash at a glance. Falls back to a path-derived guess
+// resolved, with its hash appended in parentheses, truncated to 4 characters (shorter than
+// traceroost-cloud's own `hash.slice(0, 10)` in its Repo column — there's more room to spare there
+// than in this table's narrower Repo column). Falls back to a path-derived guess
 // (shortWorkspaceName) until the hash resolves, or permanently if it isn't a keyable git repo.
 // Prefer this over shortWorkspaceName directly anywhere a repo name is displayed, so two sessions
 // recorded from different subfolders of the same repo always show the same name.
-export function repoDisplayName(ws: string, info: Record<string, { name: string; hash: string } | null>): string {
+export function repoDisplayName(ws: string, info: Record<string, RepoInfo | null>): string {
   const entry = info[ws]
   if (!entry) return shortWorkspaceName(ws)
-  return `${entry.name} (${entry.hash.slice(0, 10)}…)`
+  return `${entry.name} (${entry.hash.slice(0, 4)}…)`
+}
+
+// The repo cell's hover title's first line — the GitHub URL when the repo's `origin` remote
+// resolved to one, since that's more useful to click into than the bare name repoDisplayName
+// shows in the cell itself. Falls back to repoDisplayName's "name (hash)" form for a repo with no
+// GitHub remote (GitLab/Bitbucket/local-only) or before the lookup has resolved.
+export function repoTooltipName(ws: string, info: Record<string, RepoInfo | null>): string {
+  const entry = info[ws]
+  return entry?.githubUrl ?? repoDisplayName(ws, info)
 }
 
 // ── Derived (computed) signals ─────────────────────────────────────────────────

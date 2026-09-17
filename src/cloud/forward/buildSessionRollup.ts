@@ -61,6 +61,10 @@ export interface SessionRollupInput {
   llmModels?: string[]
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
+  /** Set only when this session is one segment of a log file split by a long idle gap — see
+   *  `SessionSummaryCard.conversationId` (logReader.ts). Absent for an ordinary one-file-one-
+   *  session card, same as core's own color-coding (getConversationColor) leaves it uncolored. */
+  conversationId?: string
 }
 
 export interface BuildContext {
@@ -88,6 +92,13 @@ export function toUuid(raw: string): string {
   b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
   const h = b.toString('hex')
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
+}
+
+/** Plain sha256 — deliberately not the repo_key-derived HMAC repoHash/branchHash/fileHash use.
+ *  A conversationId is already an opaque, high-entropy token (a uuid, or an OTEL trace id), not a
+ *  guessable path, so there is nothing for an org-scoped salt to protect against here. */
+function sha256Hex(s: string): string {
+  return crypto.createHash('sha256').update(s).digest('hex')
 }
 
 function perModelCalls(input: SessionRollupInput): WireModelUse[] | undefined {
@@ -164,6 +175,7 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
     data_source: input.dataSource,
   }
   if (input.initiator) rollup.initiator = input.initiator
+  if (input.conversationId) rollup.conversation_hash = sha256Hex(input.conversationId)
 
   if (rk) {
     rollup.repo_hash = repoHash(rk)

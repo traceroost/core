@@ -6,7 +6,7 @@ import {
   goToHelp,
   sessionsPage, getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
-  workspaceFilter, availableWorkspaces, repoInfo, requestRepoHash, repoDisplayName, sessionTextFilter,
+  repoInfo, repoDisplayName, repoTooltipName,
   requestGitOutcomesFor,
 } from '../state'
 import { PageSizeSelect } from './Settings'
@@ -46,7 +46,7 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   const meta = OUTCOME_META[go.overall]
   return (
     <span
-      style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;margin-left:5px;flex-shrink:0`}
+      style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;flex-shrink:0`}
       title={`Git outcome: ${meta.label} — ${go.reason}`}
     >{meta.letter}</span>
   )
@@ -380,6 +380,13 @@ function isSameIdSet(current: Set<string> | null, ids: string[]): boolean {
 
 // ── Table row ─────────────────────────────────────────────────────────────────
 
+// The prompt cell truncates in JS to this many characters, rather than leaving it to CSS
+// ellipsis alone, so the trailing "(<trace id>)" always survives intact — CSS text-overflow would
+// otherwise just as happily cut the id off mid-character as the prompt text. Not a measured
+// number, same honesty standard as every other threshold in this project — picked to leave room
+// for the id suffix within the column's own max-width.
+const PROMPT_PREVIEW_CHARS = 60
+
 function SessionRow({ sess, showWorkspace, conversation }: {
   sess: SessionSummaryCard; showWorkspace: boolean
   conversation?: { color: string; index: number; total: number; memberIds: string[]; firstPrompt: string }
@@ -467,21 +474,31 @@ function SessionRow({ sess, showWorkspace, conversation }: {
         {showWorkspace && (
           <td
             style="padding:4px 6px;font-size:10px;color:var(--muted);max-width:165px"
-            title={sess.workspace}
+            title={sess.workspace ? `${repoTooltipName(sess.workspace, repoInfo.value)}\nLocal: ${sess.workspace}` : undefined}
           >
-            <span style="display:flex;align-items:center">
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">
-                {sess.workspace ? repoDisplayName(sess.workspace, repoInfo.value) : '—'}
-              </span>
-              {sess.workspace && <GitOutcomeBadge sessionId={sess.sessionId} />}
+            <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              {sess.workspace ? repoDisplayName(sess.workspace, repoInfo.value) : '—'}
             </span>
           </td>
         )}
 
-        {/* Prompt */}
-        <td style="padding:4px 6px;overflow:hidden">
+        {/* Git outcome — own column so the single-letter pill (GitOutcomeBadge) always lines up
+            under the "O" header instead of riding along inside the Repo cell. */}
+        {showWorkspace && (
+          <td style="padding:4px 6px;text-align:center">
+            {sess.workspace && <GitOutcomeBadge sessionId={sess.sessionId} />}
+          </td>
+        )}
+
+        {/* Prompt (Trace ID) */}
+        <td style="padding:4px 6px;overflow:hidden;max-width:420px">
           {prompt
-            ? <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-style:italic;color:var(--foreground)" title={prompt}>{prompt}</span>
+            ? <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px" title={prompt}>
+                <span style="font-style:italic;color:var(--foreground)">
+                  {prompt.length > PROMPT_PREVIEW_CHARS ? prompt.slice(0, PROMPT_PREVIEW_CHARS).trimEnd() + '…' : prompt}
+                </span>
+                <span style="font-family:monospace;color:var(--muted)"> ({sess.sessionId.slice(0, 8)})</span>
+              </span>
             : sess.turns === 0
               ? <span style="color:var(--muted);font-size:11px">…</span>
               : <span style="color:var(--muted);font-size:11px">—</span>
@@ -489,7 +506,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
         </td>
 
         {/* Model */}
-        <td style="padding:4px 6px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:130px;overflow:hidden;text-overflow:ellipsis">
+        <td style="padding:4px 6px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:92px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
           {sess.model || '—'}
           {(sess.models?.length ?? 0) > 1 && (
             <span
@@ -522,45 +539,12 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 
       {expanded && (
         <tr style="border-bottom:1px solid var(--vscode-panel-border)">
-          <td colspan={showWorkspace ? 10 : 9} style="padding:0">
+          <td colspan={showWorkspace ? 11 : 9} style="padding:0">
             <SessionDetail sess={sess} />
           </td>
         </tr>
       )}
     </>
-  )
-}
-
-// Lives in the "Repo" column header itself rather than the filter bar above — labels each repo
-// "name/hash", using the exact hash traceroost-cloud shows in its own Repo column (repoKey.ts's
-// repoHash, fetched on demand per distinct workspace via requestRepoHash — there are only ever a
-// handful open at once, unlike sessions, so no cap/stagger is needed). Falls back to the plain
-// short name until the hash arrives, or permanently if the workspace isn't a keyable git repo.
-// Freeform rather than a dropdown of exact workspace paths — matches a typed substring against
-// each repo's git-derived name (repoInfo, requested here for every known workspace up front) or
-// its hash, so pasting part of the same hash traceroost-cloud shows in its own Repo column finds
-// the right repo. See matchesRepoQuery (state.ts) for the matching itself.
-function RepoDropdown() {
-  const query = workspaceFilter.value
-  const workspaces = availableWorkspaces.value
-
-  useEffect(() => {
-    workspaces.forEach(ws => requestRepoHash(ws))
-  }, [workspaces])
-
-  if (workspaces.length <= 1) return null
-
-  const active = query.trim() !== ''
-  return (
-    <input
-      type="text"
-      class={'tr-header-input' + (active ? ' active' : '')}
-      aria-label="Filter by repo — name or hash"
-      placeholder="Repo Name (hash)"
-      value={query}
-      onInput={e => { workspaceFilter.value = (e.target as HTMLInputElement).value }}
-      title="Matches a repo's name or its hash — the same hash shown in traceroost-cloud's Repo column"
-    />
   )
 }
 
@@ -616,38 +600,26 @@ export function Sessions() {
       <div role="region" aria-label="Traces table" tabIndex={0}>
       <table class="trace-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <colgroup>
-          <col style="width:8px" /><col style="width:28px" /><col style="width:110px" /><col style="width:144px" />
-          {showWorkspace && <col style="width:175px" />}
-          <col /><col style="width:140px" /><col style="width:80px" /><col style="width:85px" /><col style="width:80px" />
+          <col style="width:8px" /><col style="width:28px" /><col style="width:108px" /><col style="width:144px" />
+          {showWorkspace && <col style="width:150px" />}
+          {showWorkspace && <col style="width:60px" />}
+          <col /><col style="width:92px" /><col style="width:80px" /><col style="width:85px" /><col style="width:80px" />
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
             <th style="width:5px;padding:0" title="A colored bar marks traces that are really one conversation split into multiple rows by a long gap between them." />
             <th style="width:16px;padding:3px 4px 3px 8px" />
-            {sortHeader('source', 'Agent/Source/From')}
+            {sortHeader('source', 'Agent/Src/From')}
             {sortHeader('start_time', 'Start Time')}
             {showWorkspace && (
-              <th scope="col" aria-sort={sortKey === 'workspace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thBase}>
-                <div style="display:flex;align-items:center;gap:2px">
-                  <RepoDropdown />
-                  <button class="sort-button" style="padding:0;flex-shrink:0" onClick={() => onSortClick('workspace')} title="Sort by repo">{sortArrow('workspace')}</button>
-                </div>
+              <th scope="col" aria-sort={sortKey === 'workspace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
+                <button class="sort-button" onClick={() => onSortClick('workspace')} title="Sort by repo">Repo (ID){sortArrow('workspace')}</button>
               </th>
             )}
-            <th scope="col" aria-sort={sortKey === 'prompt' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thBase}>
-              <div style="display:flex;align-items:center;gap:2px">
-                <input
-                  type="text"
-                  class={'tr-header-input' + (sessionTextFilter.value.trim() !== '' ? ' active' : '')}
-                  aria-label="Filter by prompt"
-                  placeholder="Prompt"
-                  value={sessionTextFilter.value}
-                  onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
-                  style="min-width:40px"
-                />
-                <button class="sort-button" style="padding:0;flex-shrink:0" onClick={() => onSortClick('prompt')} title="Sort by prompt">{sortArrow('prompt')}</button>
-              </div>
-            </th>
+            {showWorkspace && (
+              <th scope="col" style={thBase + ';text-align:center;color:var(--tr-brand)'} title="Git outcome — whether each trace's changed files were committed, reverted, or left uncommitted, per local git history">Outcome</th>
+            )}
+            {sortHeader('prompt', 'Prompt (ID)')}
             {sortHeader('model', 'Model')}
             {sortHeader('total_tokens', 'Tokens', true, 'Accumulated input and output tokens across all turns')}
             {sortHeader('duration_ms', 'Duration', true)}
@@ -655,7 +627,7 @@ export function Sessions() {
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colspan={showWorkspace ? 10 : 9}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Reset to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
+          {sessions.length === 0 && <tr><td colspan={showWorkspace ? 11 : 9}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Reset to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
           {pageSessions.map(sess => (
             <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} conversation={conversationInfo.get(sess.sessionId)} />
           ))}

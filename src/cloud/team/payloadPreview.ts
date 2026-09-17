@@ -43,6 +43,7 @@ function cardToInput(card: SessionSummaryCard): SessionRollupInput {
     llmModels: (card.timeline ?? []).filter(t => t.type === 'llm' && t.model).map(t => t.model as string),
     dataSource: card.dataSource,
     initiator: card.initiator,
+    conversationId: card.conversationId,
   }
 }
 

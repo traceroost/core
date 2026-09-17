@@ -15,6 +15,7 @@ import { handleTeamMessage, type TeamPanelDeps } from './cloud/team/panelControl
 import { buildPayloadPreviewText } from './cloud/team/payloadPreview'
 import { loadCredentials } from './cloud/team/credentials'
 import { deriveRepoKey, repoHash } from './cloud/forward/repoKey'
+import { resolveGithubUrl } from './repoRemote'
 import { teamEndpoint } from './cloud/team/config'
 import { buildLocalTurnoverReport } from './cloud/turnover/localReport'
 import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/team/instructionTelemetry'
@@ -48,7 +49,7 @@ export class DashboardPanel {
   // workspaces open at once, unlike sessions, so this is cheap to compute for every one of them.
   // `name` is the git repo root's own basename, not the (possibly-a-subfolder) workspace path —
   // see sendRepoHash for why.
-  private repoInfoCache = new Map<string, { name: string; hash: string } | null>()
+  private repoInfoCache = new Map<string, { name: string; hash: string; githubUrl: string | null } | null>()
 
   static show(context: vscode.ExtensionContext, repo: SessionRepository, sidebarProvider?: SidebarPanel, instructionRepo?: InstructionRepository, rawDb?: TurnoverDb) {
     if (DashboardPanel.currentPanel) {
@@ -461,24 +462,24 @@ export class DashboardPanel {
   // in the UI before this async result arrives — swapping to a bare basename once it lands would
   // otherwise make the displayed name shrink out from under the user.
   private async sendRepoHash(workspace: string): Promise<void> {
-    let info: { name: string; hash: string } | null
+    let info: { name: string; hash: string; githubUrl: string | null } | null
     if (this.repoInfoCache.has(workspace)) {
       info = this.repoInfoCache.get(workspace) ?? null
     } else {
       const creds = loadCredentials()
       const orgId = creds?.orgId ?? 'unlinked-preview'
-      const rk = await deriveRepoKey(workspace, orgId)
+      const [rk, githubUrl] = await Promise.all([deriveRepoKey(workspace, orgId), resolveGithubUrl(workspace)])
       if (rk.ok) {
         const rootName = path.basename(rk.ctx.root) || 'repository'
         const parentName = path.basename(path.dirname(rk.ctx.root))
         const name = parentName ? `${parentName}/${rootName}` : rootName
-        info = { name, hash: repoHash(rk.ctx) }
+        info = { name, hash: repoHash(rk.ctx), githubUrl }
       } else {
         info = null
       }
       this.repoInfoCache.set(workspace, info)
     }
-    this.panel.webview.postMessage({ type: 'repoHash', workspace, name: info?.name ?? null, hash: info?.hash ?? null })
+    this.panel.webview.postMessage({ type: 'repoHash', workspace, name: info?.name ?? null, hash: info?.hash ?? null, githubUrl: info?.githubUrl ?? null })
   }
 
   private async exportSessions(redact: boolean, ids: Set<string> | null = null, format: ExportFormat = 'json'): Promise<void> {

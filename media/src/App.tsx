@@ -10,7 +10,7 @@ import {
   vscode, displaySessions, rangedSessions,
   sessionTextFilter, filteredSessions, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   sessionSortKey, sessionSortDir,
-  workspaceFilter,
+  workspaceFilter, availableWorkspaces, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   sessionsPage, getSessionsPagination,
 } from './state'
@@ -337,6 +337,7 @@ export function App() {
         workspace?: string
         name?: string | null
         hash?: string | null
+        githubUrl?: string | null
         spanId?: string
         field?: string
         content?: string | null
@@ -386,7 +387,7 @@ export function App() {
       } else if (msg.type === 'gitOutcome' && msg.sessionId) {
         gitOutcomes.value = { ...gitOutcomes.value, [msg.sessionId]: msg.outcome ?? null }
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
-        const entry = (msg.name && msg.hash) ? { name: msg.name, hash: msg.hash } : null
+        const entry = (msg.name && msg.hash) ? { name: msg.name, hash: msg.hash, githubUrl: msg.githubUrl ?? null } : null
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
       } else if (msg.type === 'blobContent' && msg.spanId && msg.field) {
         const key = `${msg.spanId}:${msg.field}`
@@ -612,6 +613,13 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
     }
   }, [rangedSearchResults.value])
 
+  // Resolves each known workspace's git repo hash (repoKey.ts's repoHash, the same one
+  // traceroost-cloud shows in its own Repo column) up front, so the Repo filter below can match a
+  // pasted hash as soon as it's typed rather than only after some other view has requested it.
+  useEffect(() => {
+    availableWorkspaces.value.forEach(ws => requestRepoHash(ws))
+  }, [availableWorkspaces.value])
+
   const isActive = range.preset !== 'all'
   // For "All" time: use full unfiltered in-memory list (no limit, no agent filter)
   // so pills reflect every agent that has ever recorded a session in memory.
@@ -637,7 +645,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
 
       {/* Agent filter — hidden on tabs that don't need it */}
       {!hideAgentFilter && (
-        <div style="display:flex;gap:3px;align-items:center;margin-left:10px">
+        <div style="display:flex;gap:3px;align-items:center;margin-left:20px">
           <span style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
           {AGENT_FILTER_OPTIONS.map(o => (
             <button
@@ -648,6 +656,22 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
               style={`--tr-pill-color:${o.color}`}
             >{o.label}</button>
           ))}
+        </div>
+      )}
+
+      {/* Prompt filter — substring match against the trace's captured prompt text. */}
+      {!hideAgentFilter && (
+        <div style="display:flex;align-items:center;margin-left:20px">
+          <label for="tr-filter-prompt" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Prompt</label>
+          <input
+            id="tr-filter-prompt"
+            type="text"
+            class={'tr-header-input' + (sessionTextFilter.value.trim() !== '' ? ' active' : '')}
+            placeholder="Text or Trace ID"
+            value={sessionTextFilter.value}
+            onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
+            style="flex:none;width:180px"
+          />
         </div>
       )}
 
@@ -755,9 +779,9 @@ const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string; color
 // staggered by requestGitOutcomesFor (state.ts) rather than firing everything at once.
 //
 // Source and From share this row (after Outcome) rather than SearchFilterBar below — this is now
-// the one row that holds every pill-style filter; SearchFilterBar is left with only the "viewing
-// evidence for a suggestion" banner, since Project and Prompt became inline table-header controls
-// (see Sessions.tsx's RepoDropdown and its Prompt header cell).
+// the one row that holds every pill-style filter, plus the Repo freeform input ahead of Outcome;
+// SearchFilterBar is left with only the "viewing evidence for a suggestion" banner, and Prompt
+// lives as its own freeform input on TimeRangePicker's row, next to Time and Agent, above.
 function OutcomeFilterBar() {
   const filter = outcomeFilter.value
   const candidates = preOutcomeFilteredSessions.value
@@ -772,9 +796,39 @@ function OutcomeFilterBar() {
 
   const pendingCount = filter === 'all' ? 0 : candidates.filter(s => outcomes[s.sessionId] === undefined).length
 
+  // Repo dropdown suggestions — each distinct repo's git-derived name (falling back to a
+  // path-derived guess until its repoInfo resolves), deduplicated since two workspaces can point
+  // at the same repo. A <datalist> keeps the input itself plain freeform text (matchesRepoQuery
+  // still does the actual filtering), it just also offers these as clickable suggestions.
+  const info = repoInfo.value
+  const repoOptions = [...new Set(availableWorkspaces.value.map(ws => info[ws]?.name ?? shortWorkspaceName(ws)))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+
   return (
     <div class="search-filter-controls" role="group" aria-label="Trace filters" style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
-      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Outcome</span>
+      {/* Repo filter — freeform match against a workspace's git-derived repo name or hash
+          (matchesRepoQuery, state.ts; hashes prefetched by TimeRangePicker's own effect above).
+          Hidden when there's only one workspace since there'd be nothing to narrow. */}
+      {availableWorkspaces.value.length > 1 && (
+        <span style="display:flex;align-items:center;margin-right:3px">
+          <label for="tr-filter-repo" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Repo</label>
+          <input
+            id="tr-filter-repo"
+            type="text"
+            list="tr-repo-options"
+            class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
+            placeholder="Name or ID"
+            value={workspaceFilter.value}
+            onInput={e => { workspaceFilter.value = (e.target as HTMLInputElement).value }}
+            title="Matches a repo's name or its hash — the same hash shown in traceroost-cloud's Repo column. Pick one from the list, or type to narrow further."
+            style="flex:none;width:110px"
+          />
+          <datalist id="tr-repo-options">
+            {repoOptions.map(name => <option key={name} value={name} />)}
+          </datalist>
+        </span>
+      )}
+      <span style="font-size:10px;color:var(--tr-brand);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Outcome</span>
       <FilterPills
         options={OUTCOME_FILTER_OPTIONS}
         value={filter}
@@ -796,7 +850,7 @@ function OutcomeFilterBar() {
         value={dsFilter}
         onChange={v => { dataSourceFilter.value = v }}
       />
-      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">From</span>
+      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;margin-left:20px">From</span>
       <FilterPills
         options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : 'Agent-spawned sub-tasks and non-interactive claude -p calls' }))}
         value={iFilter}
@@ -807,9 +861,8 @@ function OutcomeFilterBar() {
   )
 }
 
-// Only the evidence-view banner remains here — Project (now Repo) and the trace-text filter moved
-// into the trace table's own column headers (Sessions.tsx), and Outcome/Source/From live together
-// on OutcomeFilterBar above.
+// Only the evidence-view banner remains here — Repo lives on OutcomeFilterBar (ahead of Outcome)
+// and Prompt lives on TimeRangePicker's row (next to Time and Agent), above.
 function SearchFilterBar() {
   const evIds = evidenceSessionIds.value
   if (evIds === null) return null

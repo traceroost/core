@@ -26,6 +26,36 @@ export interface GitOutcome {
 const GIT_TIMEOUT_MS = 5000
 const MAX_FILES = 25 // cap subprocess fan-out for sessions that touched an unusually large number of files
 
+// Bounds how many sessions' git-outcome classifications run at once, across every caller sharing
+// this module (DashboardPanel, the standalone server). Each session can itself fan out up to
+// MAX_FILES*2 concurrent git subprocesses (classifyFile's own Promise.all below) — with nothing
+// bounding how many sessions run at once on top of that, switching the Outcome filter on over a
+// large candidate set could try to classify dozens of sessions simultaneously, spawning hundreds
+// of concurrent `git` processes. That doesn't just make the batch slow — it thrashes disk/CPU
+// enough to slow down every session's classification together, which is what turns "resolving N
+// outcomes" into a spinner that hangs for a long time rather than one that steadily counts down.
+// A small, fixed number here keeps total concurrent git subprocess load bounded and predictable
+// regardless of how many sessions are queued.
+const MAX_CONCURRENT_SESSION_CLASSIFICATIONS = 4
+let activeSessionClassifications = 0
+const sessionClassificationQueue: Array<() => void> = []
+
+function acquireSessionClassificationSlot(): Promise<void> {
+  if (activeSessionClassifications < MAX_CONCURRENT_SESSION_CLASSIFICATIONS) {
+    activeSessionClassifications++
+    return Promise.resolve()
+  }
+  return new Promise<void>(resolve => sessionClassificationQueue.push(resolve))
+}
+
+// Hands the freed slot directly to the next queued caller rather than decrementing then letting
+// them re-increment — same count, no window where a slot looks free to anyone else.
+function releaseSessionClassificationSlot(): void {
+  const next = sessionClassificationQueue.shift()
+  if (next) next()
+  else activeSessionClassifications--
+}
+
 async function runGit(cwd: string, args: string[]): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 })
@@ -157,12 +187,20 @@ export async function classifySessionOutcome(
   // one at a time. This is the dominant cost of the whole function (each file spawns
   // up to two more git subprocesses on top of this), so serializing it was the main
   // source of visible delay on sessions with more than a handful of changed files.
-  const entries = await Promise.all(
-    inRepo.slice(0, MAX_FILES).map(async ([absPath, rel]): Promise<[string, FileOutcome]> =>
-      [absPath, await classifyFile(root, rel, sessionStartIso)]
+  // Gated so this session's own fan-out doesn't stack unbounded on top of every other session
+  // being classified at the same time — see acquireSessionClassificationSlot's doc comment.
+  await acquireSessionClassificationSlot()
+  let files: Record<string, FileOutcome>
+  try {
+    const entries = await Promise.all(
+      inRepo.slice(0, MAX_FILES).map(async ([absPath, rel]): Promise<[string, FileOutcome]> =>
+        [absPath, await classifyFile(root, rel, sessionStartIso)]
+      )
     )
-  )
-  const files: Record<string, FileOutcome> = Object.fromEntries(entries)
+    files = Object.fromEntries(entries)
+  } finally {
+    releaseSessionClassificationSlot()
+  }
 
   const values = Object.values(files)
   const overall = OUTCOME_PRIORITY.find(p => values.includes(p)) ?? 'ambiguous'

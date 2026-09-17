@@ -122,6 +122,20 @@ suite('forward/buildSessionRollup', () => {
     assert.strictEqual(a, b)
   })
 
+  test('conversationId is hashed to conversation_hash, and stably so; absent when not split', () => {
+    const withConvo = buildSessionRollup({ ...BASE, conversationId: 'convo-1' }, BUILD)
+    assert.match(withConvo.conversation_hash ?? '', /^[a-f0-9]{64}$/)
+    assert.strictEqual(
+      withConvo.conversation_hash,
+      buildSessionRollup({ ...BASE, conversationId: 'convo-1' }, BUILD).conversation_hash,
+    )
+    assert.notStrictEqual(
+      withConvo.conversation_hash,
+      buildSessionRollup({ ...BASE, conversationId: 'convo-2' }, BUILD).conversation_hash,
+    )
+    assert.strictEqual(buildSessionRollup(BASE, BUILD).conversation_hash, undefined)
+  })
+
   test('toUuid passes through a real UUID and folds a non-UUID to a valid one', () => {
     const real = '11111111-2222-4333-8444-555555555555'
     assert.strictEqual(toUuid(real), real)

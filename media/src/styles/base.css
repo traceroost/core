@@ -134,11 +134,11 @@ button:disabled { cursor: default; opacity: .5; }
 .sort-button { font: inherit; color: inherit; border: 0; background: none; padding: 3px 0; cursor: pointer; }
 .sort-indicator { display: inline-block; width: 12px; margin-left: 3px; text-align: center; }
 
-/* Freeform filter inputs living in a trace-table column header (Sessions.tsx's Repo and Prompt
- * headers) — shared here so every column's filter box looks and weighs the same by default
- * rather than each call site redeclaring (and drifting from) the same handful of properties.
- * `.active` is the one state-dependent variant (a filter currently narrowing the table), applied
- * by the call site alongside this class rather than as an inline override. */
+/* Freeform filter inputs (App.tsx's TimeRangePicker row — Repo and Prompt, next to Time and
+ * Agent) — shared here so every filter box looks and weighs the same by default rather than each
+ * call site redeclaring (and drifting from) the same handful of properties. `.active` is the one
+ * state-dependent variant (a filter currently narrowing the table), applied by the call site
+ * alongside this class rather than as an inline override. */
 .tr-header-input {
   flex: 1;
   min-width: 0;
