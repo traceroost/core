@@ -1,8 +1,8 @@
 import { signal, computed } from '@preact/signals'
 import { calcSessionCost } from './sessionMetrics'
 import type {
-  FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome,
-  AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, VsCodeApi,
+  FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome,
+  AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
   DailyStatRow, LifetimeStats, BurnRate, Projection,
 } from './types'
 
@@ -116,6 +116,75 @@ export const blobCache = signal<Record<string, string>>({})
 // (no git repo, no changed files, etc). Absent key = not yet requested. See gitOutcome.ts.
 export const gitOutcomes = signal<Record<string, GitOutcome | null>>({})
 
+// FileOutcome (this session's overall git classification) → the coarser Outcome filter bucket.
+// Mirrors toWireOutcome (src/cloud/forward/schema.ts): 'ambiguous' has no dedicated bucket on
+// either side and reads as 'unknown', same as "not applicable" (a null GitOutcome).
+function outcomeToFilterBucket(overall: FileOutcome | null): Exclude<OutcomeFilter, 'all'> {
+  if (overall === 'productive') return 'merged'
+  if (overall === 'reverted') return 'reverted'
+  if (overall === 'abandoned') return 'abandoned'
+  return 'unknown'
+}
+
+// Caps how many not-yet-resolved sessions get a `getGitOutcome` request fired per call, and
+// staggers them — switching the Outcome filter on over a large, otherwise-unfiltered session set
+// must not spawn hundreds of concurrent git subprocesses on the extension host. The host caches
+// each sessionId's result (dashboardPanel.ts's gitOutcomeCache), so re-calling this for sessions
+// already resolved (or already in flight) is cheap: they're filtered out below.
+const GIT_OUTCOME_FETCH_CAP = 150
+const GIT_OUTCOME_FETCH_STAGGER_MS = 20
+
+export function requestGitOutcomesFor(sessions: SessionSummaryCard[]): void {
+  const cache = gitOutcomes.peek()
+  const pending = sessions.filter(s => cache[s.sessionId] === undefined)
+  if (pending.length === 0) return
+
+  // A session with no changed files is "not applicable" — resolve it locally, same verdict
+  // classifySessionOutcome itself would reach, without a round trip to the host.
+  const immediate: Record<string, null> = {}
+  const needsFetch: SessionSummaryCard[] = []
+  for (const s of pending) {
+    if (s.filesChanged.length === 0) immediate[s.sessionId] = null
+    else needsFetch.push(s)
+  }
+  if (Object.keys(immediate).length > 0) {
+    gitOutcomes.value = { ...gitOutcomes.value, ...immediate }
+  }
+
+  if (!vscode) return
+  needsFetch.slice(0, GIT_OUTCOME_FETCH_CAP).forEach((s, i) => {
+    const endTime = s.startTime && s.durationMs
+      ? new Date(new Date(s.startTime).getTime() + s.durationMs).toISOString()
+      : s.startTime
+    setTimeout(() => {
+      vscode?.postMessage({
+        type: 'getGitOutcome',
+        sessionId: s.sessionId,
+        workspace: s.workspace,
+        filesChanged: s.filesChanged,
+        startTime: s.startTime,
+        endTime,
+      })
+    }, i * GIT_OUTCOME_FETCH_STAGGER_MS)
+  })
+}
+
+// Lazy repo-info cache: workspace path → { name, hash }, or null once fetched but ungrouped (not
+// a repo, shallow clone, no root commit). `hash` is the same one traceroost-cloud shows in its own
+// Repo column (repoKey.ts's repoHash). `name` is the git repo root's own basename, prefixed with
+// its parent folder's name where one exists (e.g. "traceroost/core") — resolved through git
+// rather than read off the workspace path, which may be a subfolder of the repo (or, with
+// multiple worktrees/clones, a differently-named checkout of it) — see dashboardPanel.ts's
+// sendRepoHash. Absent key = not yet requested. There are only ever a handful of distinct
+// workspaces open at once (unlike sessions), so unlike git outcomes this is cheap to request for
+// every one of them up front — no cap/stagger needed.
+export const repoInfo = signal<Record<string, { name: string; hash: string } | null>>({})
+
+export function requestRepoHash(workspace: string): void {
+  if (!workspace || repoInfo.peek()[workspace] !== undefined || !vscode) return
+  vscode.postMessage({ type: 'getRepoHash', workspace })
+}
+
 // ── UI control signals ────────────────────────────────────────────────────────
 
 // Focused session — set by clicking any session in any view.
@@ -131,7 +200,8 @@ export const selectedAgentFilter = signal<AgentFilter>('all')
 export const initiatorFilter = signal<InitiatorFilter>('all')
 export const dataSourceFilter = signal<DataSourceFilter>('all')
 export const insightFilter = signal<InsightFilter>('all')
-export const workspaceFilter = signal<WorkspaceFilter>('all')
+export const workspaceFilter = signal<WorkspaceFilter>('')
+export const outcomeFilter = signal<OutcomeFilter>('all')
 export const activeTab = signal('sessions')
 
 // ── Ingestion settings ────────────────────────────────────────────────────────
@@ -273,6 +343,30 @@ export function shortWorkspaceName(ws: string): string {
   return parts.slice(-2).join('/')
 }
 
+// Freeform repo search — matches a workspace's git-derived repo name and hash (repoInfo, once
+// resolved), or falls back to the raw workspace path (before repoInfo arrives, or when the
+// workspace isn't a keyable git repo). Substring, case-insensitive — same convention as
+// sessionTextFilter's own prompt search.
+export function matchesRepoQuery(ws: string, query: string, info: Record<string, { name: string; hash: string } | null>): boolean {
+  const q = query.toLowerCase()
+  const entry = info[ws]
+  if (entry) return entry.name.toLowerCase().includes(q) || entry.hash.toLowerCase().includes(q)
+  return ws.toLowerCase().includes(q)
+}
+
+// The name to actually show for a workspace — its git repo root's own basename (repoInfo) once
+// resolved, with its hash appended in parentheses, truncated the same way traceroost-cloud
+// truncates repoHash in its own Repo column (`hash.slice(0, 10) + '…'`) so the two are
+// recognizable as the same hash at a glance. Falls back to a path-derived guess
+// (shortWorkspaceName) until the hash resolves, or permanently if it isn't a keyable git repo.
+// Prefer this over shortWorkspaceName directly anywhere a repo name is displayed, so two sessions
+// recorded from different subfolders of the same repo always show the same name.
+export function repoDisplayName(ws: string, info: Record<string, { name: string; hash: string } | null>): string {
+  const entry = info[ws]
+  if (!entry) return shortWorkspaceName(ws)
+  return `${entry.name} (${entry.hash.slice(0, 10)}…)`
+}
+
 // ── Derived (computed) signals ─────────────────────────────────────────────────
 
 export const availableWorkspaces = computed<string[]>(() => {
@@ -289,8 +383,11 @@ export const agentFilteredSessions = computed<SessionSummaryCard[]>(() => {
   if (filter !== 'all') all = all.filter(s => s.source === filter)
   const dsFilter = dataSourceFilter.value
   if (dsFilter !== 'all') all = all.filter(s => (s.dataSource ?? 'otel') === dsFilter)
-  const wsFilter = workspaceFilter.value
-  if (wsFilter !== 'all') all = all.filter(s => (s.workspace ?? '') === wsFilter)
+  const wsFilter = workspaceFilter.value.trim()
+  if (wsFilter !== '') {
+    const info = repoInfo.value
+    all = all.filter(s => matchesRepoQuery(s.workspace ?? '', wsFilter, info))
+  }
   return all
 })
 
@@ -335,15 +432,21 @@ export const rangedSessions = computed<SessionSummaryCard[]>(() => {
   ]
   merged.sort((a, b) => Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0'))
 
-  const wsFilter = workspaceFilter.value
-  const scoped = wsFilter === 'all' ? merged : merged.filter(s => (s.workspace ?? '') === wsFilter)
+  const wsFilter = workspaceFilter.value.trim()
+  const scoped = wsFilter === '' ? merged : (() => {
+    const info = repoInfo.value
+    return merged.filter(s => matchesRepoQuery(s.workspace ?? '', wsFilter, info))
+  })()
 
   if (agent === 'all') return scoped
   return scoped.filter(s => s.source === agent)
 })
 
-// Text-filtered + sorted view of rangedSessions — used by Efficiency, Cost, Traces, Search, Insights
-export const filteredSessions = computed<SessionSummaryCard[]>(() => {
+// Text- + initiator-filtered view of rangedSessions, ahead of the Outcome filter — this is the
+// candidate set OutcomeFilterBar (App.tsx) eagerly requests git outcomes for, since it's the
+// largest set the Outcome filter could ever need to narrow (before that filter itself removes
+// anything). Exported so that candidate list and the actual filter step can't drift apart.
+export const preOutcomeFilteredSessions = computed<SessionSummaryCard[]>(() => {
   let sessions = rangedSessions.value
   const evIds = evidenceSessionIds.value
   if (evIds !== null) {
@@ -356,7 +459,25 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
   }
   const iFilter = initiatorFilter.value
   if (iFilter !== 'all') {
-    sessions = sessions.filter(s => (s.initiator ?? 'user') === iFilter)
+    sessions = sessions.filter(s => {
+      const init = s.initiator ?? 'user'
+      return iFilter === 'agent' ? (init === 'agent' || init === 'api') : init === iFilter
+    })
+  }
+  return sessions
+})
+
+// Outcome-filtered + sorted view — used by Efficiency, Cost, Traces, Search, Insights
+export const filteredSessions = computed<SessionSummaryCard[]>(() => {
+  let sessions = preOutcomeFilteredSessions.value
+  const oFilter = outcomeFilter.value
+  if (oFilter !== 'all') {
+    const outcomes = gitOutcomes.value
+    sessions = sessions.filter(s => {
+      const go = outcomes[s.sessionId]
+      if (go === undefined) return false // not yet resolved — appears once its outcome loads
+      return outcomeToFilterBucket(go?.overall ?? null) === oFilter
+    })
   }
   const key = sessionSortKey.value
   const dir = sessionSortDir.value

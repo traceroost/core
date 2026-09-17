@@ -47,7 +47,7 @@ suite('team/link', () => {
       if (url.endsWith('/oauth/token')) {
         return new Response(JSON.stringify({
           access_token: 'access-1', refresh_token: 'refresh-1', token_type: 'Bearer',
-          expires_in: 3600, member_id: 'mem-1', org_id: 'org-1',
+          expires_in: 3600, member_id: 'mem-1', org_id: 'org-1', install_id: 'install-1',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
@@ -76,6 +76,7 @@ suite('team/link', () => {
     const creds = loadCredentials()
     assert.strictEqual(creds?.accessToken, 'access-1')
     assert.strictEqual(creds?.memberId, 'mem-1')
+    assert.strictEqual(creds?.installId, 'install-1')
     assert.strictEqual(creds?.email, 'dev@example.com')
     assert.strictEqual(getTeamStatus().indicator, 'reporting')
   })

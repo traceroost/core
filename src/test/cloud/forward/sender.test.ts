@@ -12,7 +12,7 @@ import type { RollupPayload } from '../../../cloud/forward/schema'
 
 const CREDS: TeamCredentials = {
   endpoint: 'https://traceroost.com',
-  orgId: 'org-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
+  orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
   perDeveloperVisibility: false,
   accessToken: 'access-1', refreshToken: 'refresh-1',
   accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
@@ -68,17 +68,37 @@ suite('forward/sender', () => {
     assert.ok(readForwardState(home).lastSuccessAt)
   })
 
-  test('a successful send records the item in the delivery ledger, scoped to the org it was sent to', async () => {
+  test('a successful send records the item in the delivery ledger, scoped to the install it was sent to', async () => {
     new ForwardQueue(home).enqueue(payload(ID1))
-    const key = scopedKey(CREDS.orgId, `session:${ID1}`)
+    const key = scopedKey(CREDS.installId!, `session:${ID1}`)
     assert.strictEqual(new DeliveryLedger(home).isDelivered(key), false)
     stubFetch(() => new Response('', { status: 202 }))
     await drainQueue({ baseHome: home })
     assert.strictEqual(new DeliveryLedger(home).isDelivered(key), true)
-    // Not recorded as delivered to some other org that never received it — the exact bug this
-    // scoping exists to prevent (a session delivered to org A reading as "already delivered"
-    // after switching to org B, which never actually got it).
-    assert.strictEqual(new DeliveryLedger(home).isDelivered(scopedKey('some-other-org', `session:${ID1}`)), false)
+    // Not recorded as delivered to some other install that never received it — the exact bug
+    // this scoping exists to prevent (a session delivered to install A reading as "already
+    // delivered" after a relink mints install B, even of the same org, which never actually got
+    // it).
+    assert.strictEqual(new DeliveryLedger(home).isDelivered(scopedKey('some-other-install', `session:${ID1}`)), false)
+  })
+
+  test('a credential missing installId (written before it existed) self-heals via a token refresh before recording delivery', async () => {
+    setCredentialStore(memStore({ ...CREDS, installId: undefined }))
+    new ForwardQueue(home).enqueue(payload(ID1))
+    stubFetch((url) => {
+      if (url.endsWith('/oauth/token')) {
+        return new Response(JSON.stringify({
+          access_token: 'access-2', refresh_token: 'refresh-2', expires_in: 3600,
+          member_id: 'm-1', org_id: 'org-1', install_id: 'install-healed',
+        }), { status: 200 })
+      }
+      return new Response('', { status: 202 })
+    })
+    await drainQueue({ baseHome: home })
+    assert.strictEqual(
+      new DeliveryLedger(home).isDelivered(scopedKey('install-healed', `session:${ID1}`)),
+      true,
+    )
   })
 
   test('400 → record dropped, never retried', async () => {
@@ -94,7 +114,7 @@ suite('forward/sender', () => {
     let ingestCalls = 0
     stubFetch((url) => {
       if (url.endsWith('/oauth/token')) {
-        return new Response(JSON.stringify({ access_token: 'access-2', refresh_token: 'refresh-2', expires_in: 3600, member_id: 'm-1', org_id: 'org-1' }), { status: 200 })
+        return new Response(JSON.stringify({ access_token: 'access-2', refresh_token: 'refresh-2', expires_in: 3600, member_id: 'm-1', org_id: 'org-1', install_id: 'install-1' }), { status: 200 })
       }
       ingestCalls++
       return new Response('', { status: ingestCalls === 1 ? 401 : 202 })
@@ -104,7 +124,9 @@ suite('forward/sender', () => {
     assert.strictEqual(new ForwardQueue(home).depth(), 0)
   })
 
-  test('401 with a failed refresh → paused, one notice, queue kept', async () => {
+  test('401 with the refresh token rejected (invalid_grant) → credential cleared, queue kept, one notice', async () => {
+    const store = memStore(CREDS)
+    setCredentialStore(store)
     new ForwardQueue(home).enqueue(payload(ID1))
     const notices: string[] = []
     stubFetch((url) => {
@@ -114,6 +136,31 @@ suite('forward/sender', () => {
     const res = await drainQueue({ baseHome: home, notify: (m) => notices.push(m) })
     assert.strictEqual(res.stopped, 'auth-failed')
     assert.strictEqual(notices.length, 1)
+    // Unlike a transient refresh failure, this credential will never refresh successfully again
+    // — it's cleared so the Team panel drops back to "Unlinked" (with its "Link this machine"
+    // button) rather than staying stuck on "Paused" forever.
+    assert.strictEqual(store.load(), null)
+    assert.strictEqual(readForwardState(home).paused, false)
+    // The queued rollup itself is still good data — only the credential died — so it's kept for
+    // whenever this machine gets re-linked.
+    assert.strictEqual(new ForwardQueue(home).depth(), 1)
+  })
+
+  test('401 with a transient refresh failure (5xx from the token endpoint) → paused, one notice, credential kept', async () => {
+    const store = memStore(CREDS)
+    setCredentialStore(store)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    const notices: string[] = []
+    stubFetch((url) => {
+      if (url.endsWith('/oauth/token')) return new Response('', { status: 500 })
+      return new Response('', { status: 401 })
+    })
+    const res = await drainQueue({ baseHome: home, notify: (m) => notices.push(m) })
+    assert.strictEqual(res.stopped, 'auth-failed')
+    assert.strictEqual(notices.length, 1)
+    // A 5xx from the token endpoint says nothing about whether this credential is still good —
+    // unlike invalid_grant above, it's kept so the next drain just tries again.
+    assert.notStrictEqual(store.load(), null)
     assert.strictEqual(new ForwardQueue(home).depth(), 1)
     assert.strictEqual(readForwardState(home).paused, true)
   })

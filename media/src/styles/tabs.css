@@ -2,7 +2,7 @@
   display: flex;
   gap: 0;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
+  margin-bottom: 4px;
   flex-wrap: nowrap;
   position: sticky;
   top: 0;
@@ -23,7 +23,7 @@
 }
 
 .tab:hover { color: var(--fg); background: var(--hover); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(79, 195, 247, 0.07); }
+.tab.active { color: var(--tr-brand); border-bottom-color: var(--tr-brand); background: color-mix(in srgb, var(--tr-brand) 7%, transparent); }
 
 .tab-mini {
   padding: 3px 8px;

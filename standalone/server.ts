@@ -19,7 +19,8 @@ import { classifyOtlpPayload } from '../src/otlpParser'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
-import { classifySessionOutcome, type GitOutcome } from '../src/gitOutcome'
+import { classifySessionOutcome, resolveRepoHead, type GitOutcome } from '../src/gitOutcome'
+import { GitOutcomeRepository } from '../src/database/gitOutcomeRepository'
 import { detectSessionRiskSignals } from '../src/sessionRiskSignals'
 import { temperLoopSignalSeverity } from '../src/loopDetector'
 import { generateSuggestions } from '../src/instructionAdvisor'
@@ -32,6 +33,7 @@ import { maybeEnqueueSession } from '../src/cloud/team/enqueueSession'
 import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forward/scheduler'
 import { loadCredentials } from '../src/cloud/team/credentials'
 import { teamEndpoint } from '../src/cloud/team/config'
+import { deriveRepoKey, repoHash } from '../src/cloud/forward/repoKey'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
 
 // Load `.env` from the current working directory, if one exists — lets `npm run local` point at
@@ -164,9 +166,31 @@ function addSpan(span: Span) {
 // when the same session ID appears in both, the OTEL version is used.
 let logSessions: Map<string, SessionSummaryCard> = new Map()
 
-// Git outcome results, cached for the life of the server process (git operations aren't free) —
-// same eviction-free lifetime as logSessions. Mirrors DashboardPanel's per-panel-lifetime cache.
-const gitOutcomeCache = new Map<string, GitOutcome | null>()
+// De-dupes concurrent/repeat requests for the life of the server process — holds in-flight
+// promises so two requests for the same not-yet-cached session don't both shell out to git.
+// Mirrors DashboardPanel's gitOutcomeCache. The durable cache is GitOutcomeRepository
+// (git_outcome table in outcomesDb), which is what survives a server restart.
+const gitOutcomeCache = new Map<string, Promise<GitOutcome | null>>()
+
+async function loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[], startTime: string, endTime: string): Promise<GitOutcome | null> {
+  if (outcomesDb && workspace && filesChanged.length > 0) {
+    const head = await resolveRepoHead(workspace)
+    if (head) {
+      const repo = new GitOutcomeRepository(outcomesDb.raw)
+      const cached = repo.get(sessionId, head.headSha)
+      if (cached !== undefined) return cached
+      const outcome = await classifySessionOutcome(workspace, filesChanged, startTime, endTime)
+      if (outcome) repo.put(sessionId, head.root, head.headSha, outcome)
+      return outcome
+    }
+  }
+  return classifySessionOutcome(workspace, filesChanged, startTime, endTime)
+}
+
+// Repo info, keyed by workspace path. `hash` is repoKey.ts's repoHash — the same hash
+// traceroost-cloud shows in its own Repo column. `name` is the git repo root's own basename (not
+// the workspace path, which may be a subfolder of it). Mirrors DashboardPanel's repoInfoCache.
+const repoInfoCache = new Map<string, { name: string; hash: string } | null>()
 
 function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummaryCard {
   const num = (v: unknown, def = 0): number => (typeof v === 'number' ? v : def)
@@ -1341,6 +1365,19 @@ function getHtml(): string {
                 }));
               })
               .catch(function(e) { console.warn('[TraceRoost] git outcome fetch failed', e); });
+          } else if (msg.type === 'getRepoHash' && msg.workspace) {
+            fetch('/api/repo-hash', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ workspace: msg.workspace }),
+            })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                window.dispatchEvent(new MessageEvent('message', {
+                  data: { type: 'repoHash', workspace: data.workspace, name: data.name, hash: data.hash }
+                }));
+              })
+              .catch(function(e) { console.warn('[TraceRoost] repo hash fetch failed', e); });
           } else if (msg.type === 'reconfigureOtel') {
             fetch('/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'reconfigureOtel' }) })
               .then(function(r) { return r.json(); })
@@ -1873,18 +1910,18 @@ const uiServer = http.createServer((req, res) => {
         }
         const sessionId = body.sessionId ?? ''
         if (!sessionId) { res.writeHead(400); res.end(); return }
-        let outcome: GitOutcome | null
-        if (gitOutcomeCache.has(sessionId)) {
-          outcome = gitOutcomeCache.get(sessionId) ?? null
-        } else {
-          outcome = await classifySessionOutcome(
+        let pending = gitOutcomeCache.get(sessionId)
+        if (!pending) {
+          pending = loadOrComputeGitOutcome(
+            sessionId,
             body.workspace ?? '',
             Array.isArray(body.filesChanged) ? body.filesChanged : [],
             body.startTime ?? '',
             body.endTime ?? '',
           )
-          gitOutcomeCache.set(sessionId, outcome)
+          gitOutcomeCache.set(sessionId, pending)
         }
+        const outcome = await pending
         // Post-hoc risk signals (hallucinated import, submitted-despite-a-failing-check) and
         // re-tempered loop-signal severity are both only knowable once the session's outcome is
         // known, same lifecycle as git-outcome classification — computed here rather than eagerly
@@ -1896,6 +1933,40 @@ const uiServer = http.createServer((req, res) => {
         res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals }))
       } catch (e) {
         console.warn('[TraceRoost] Malformed /api/git-outcome body:', e)
+        res.writeHead(400); res.end()
+      }
+    })
+    return
+  }
+
+  if (req.method === 'POST' && url === '/api/repo-hash') {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', async () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { workspace?: string }
+        const workspace = body.workspace ?? ''
+        if (!workspace) { res.writeHead(400); res.end(); return }
+        let info: { name: string; hash: string } | null
+        if (repoInfoCache.has(workspace)) {
+          info = repoInfoCache.get(workspace) ?? null
+        } else {
+          const orgId = loadCredentials()?.orgId ?? 'unlinked-preview'
+          const rk = await deriveRepoKey(workspace, orgId)
+          if (rk.ok) {
+            const rootName = path.basename(rk.ctx.root) || 'repository'
+            const parentName = path.basename(path.dirname(rk.ctx.root))
+            const name = parentName ? `${parentName}/${rootName}` : rootName
+            info = { name, hash: repoHash(rk.ctx) }
+          } else {
+            info = null
+          }
+          repoInfoCache.set(workspace, info)
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ workspace, name: info?.name ?? null, hash: info?.hash ?? null }))
+      } catch (e) {
+        console.warn('[TraceRoost] Malformed /api/repo-hash body:', e)
         res.writeHead(400); res.end()
       }
     })

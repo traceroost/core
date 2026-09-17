@@ -53,7 +53,12 @@ function applyRemainingFilters(sessions: SessionSummaryCard[]): SessionSummaryCa
   const wsFilter = workspaceFilter.value
   if (wsFilter !== 'all') result = result.filter(s => (s.workspace ?? '') === wsFilter)
   const iFilter = initiatorFilter.value
-  if (iFilter !== 'all') result = result.filter(s => (s.initiator ?? 'user') === iFilter)
+  if (iFilter !== 'all') {
+    result = result.filter(s => {
+      const init = s.initiator ?? 'user'
+      return iFilter === 'agent' ? (init === 'agent' || init === 'api') : init === iFilter
+    })
+  }
   const evIds = evidenceSessionIds.value
   if (evIds !== null) result = result.filter(s => evIds.has(s.sessionId))
   return result

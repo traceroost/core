@@ -59,6 +59,24 @@ suite('gitOutcome', () => {
     assert.strictEqual(result!.overall, 'productive')
   })
 
+  test('classifies a file as productive when committed mid-session, before the session\'s recorded end time', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+
+    // The session's log-derived end time (01-03) can land after the actual commit (01-02T12:00) —
+    // an agent often commits partway through a session that keeps going with more turns. That
+    // shouldn't read as "abandoned" just because the commit predates the session's last event.
+    const sessionStart = '2026-01-02T00:00:00Z'
+    const sessionEnd = '2026-01-03T00:00:00Z'
+    writeFile(file, 'v2')
+    commitAll('committed mid-session', '2026-01-02T12:00:00Z')
+
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)], sessionStart, sessionEnd)
+    assert.ok(result, 'expected a non-null result')
+    assert.strictEqual(result!.overall, 'productive')
+  })
+
   test('classifies a file as reverted when a later commit restored the pre-session content', async () => {
     const file = `file${fileCounter}.txt`
     writeFile(file, 'v1')
@@ -123,6 +141,39 @@ suite('gitOutcome', () => {
   test('returns null when there are no changed files', async () => {
     commitAll('initial', '2026-01-01T00:00:00Z')
     const result = await classifySessionOutcome(repoDir, [], '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')
+    assert.strictEqual(result, null)
+  })
+
+  test('ignores files outside the repo root instead of marking them ambiguous', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+
+    const sessionStart = '2026-01-02T00:00:00Z'
+    const sessionEnd = '2026-01-03T00:00:00Z'
+    writeFile(file, 'v2')
+    commitAll('session change kept', '2026-01-04T00:00:00Z')
+
+    // A session's filesChanged isn't scoped to the repo it ran in — e.g. Claude Code's own
+    // memory notes or global settings can show up alongside real repo edits. Those shouldn't
+    // drag a cleanly-committed session down to 'ambiguous'.
+    const outsideRepo = path.join(os.tmpdir(), 'not-in-this-repo.md')
+    const result = await classifySessionOutcome(
+      repoDir,
+      [path.join(repoDir, file), outsideRepo],
+      sessionStart,
+      sessionEnd,
+    )
+    assert.ok(result)
+    assert.strictEqual(result!.overall, 'productive')
+    assert.strictEqual(Object.keys(result!.files).length, 1)
+    assert.strictEqual(result!.files[path.join(repoDir, file)], 'productive')
+  })
+
+  test('returns null when every changed file falls outside the repo root', async () => {
+    commitAll('initial', '2026-01-01T00:00:00Z')
+    const outsideRepo = path.join(os.tmpdir(), 'also-not-in-this-repo.md')
+    const result = await classifySessionOutcome(repoDir, [outsideRepo], '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z')
     assert.strictEqual(result, null)
   })
 

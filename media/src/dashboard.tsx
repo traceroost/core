@@ -14,6 +14,9 @@ import './styles/help.css'
 import './styles/tooltip.css'
 import './styles/insights.css'
 import './styles/graph.css'
+// Shared with traceroost-cloud — see packages/styles/README.md. Consumed here by relative
+// import (same repo); traceroost-cloud installs it as a published dependency instead.
+import '../../packages/styles/src/pills.css'
 
 const vscode = window.acquireVsCodeApi()
 setVscode(vscode)

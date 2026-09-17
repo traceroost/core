@@ -17,6 +17,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import type { TeamCredentials } from './config'
+import { refreshTokens } from './oauthClient'
 
 export function traceroostDir(baseHome: string = os.homedir()): string {
   return path.join(baseHome, '.traceroost')
@@ -97,6 +98,35 @@ export function clearCredentials(): void {
 
 export function isLinked(): boolean {
   return loadCredentials() !== null
+}
+
+/**
+ * Self-heal for a credential written before `installId` existed. `deliveryLedger.ts` needs it
+ * to scope "already delivered" correctly (see its doc comment); a credential lacking it just
+ * means this call hasn't succeeded yet, here or at link time — never a reason to reject an
+ * otherwise-valid credential file.
+ *
+ * A no-op the instant it has ever once succeeded. On failure (offline, revoked), returns `creds`
+ * unchanged — callers that need `installId` degrade gracefully without it (see
+ * `enqueueSession.ts` and `sender.ts`), so there's nothing to retry here specifically; the next
+ * opportunistic call (or drain) tries again.
+ */
+export async function ensureInstallId(creds: TeamCredentials): Promise<TeamCredentials> {
+  if (creds.installId) return creds
+  try {
+    const t = await refreshTokens(creds.refreshToken, creds.endpoint)
+    const next: TeamCredentials = {
+      ...creds,
+      installId: t.installId,
+      accessToken: t.accessToken,
+      refreshToken: t.refreshToken,
+      accessTokenExpiresAt: Date.now() + t.expiresInSeconds * 1000,
+    }
+    saveCredentials(next)
+    return next
+  } catch {
+    return creds
+  }
 }
 
 function isCompleteCredential(c: Partial<TeamCredentials>): c is TeamCredentials {

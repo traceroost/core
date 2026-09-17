@@ -3,9 +3,11 @@ import {
   filteredSessions, sessionSummary, sessionTimelines, gitOutcomes, burnRateData,
   focusedSessionId, vscode, ignoredInsightKeys,
   sessionSortKey, sessionSortDir, type SortKey,
-  shortWorkspaceName, goToHelp,
+  goToHelp,
   sessionsPage, getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
+  workspaceFilter, availableWorkspaces, repoInfo, requestRepoHash, repoDisplayName, sessionTextFilter,
+  requestGitOutcomesFor,
 } from '../state'
 import { PageSizeSelect } from './Settings'
 import {
@@ -26,11 +28,28 @@ import type { SessionSummaryCard, FileOutcome } from '../types'
 
 type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 
-const OUTCOME_META: Record<FileOutcome, { icon: string; color: string; label: string }> = {
-  productive: { icon: '✓', color: 'var(--vscode-charts-green,#81c784)', label: 'Committed' },
-  reverted:   { icon: '↺', color: 'var(--error)',                       label: 'Reverted' },
-  abandoned:  { icon: '◑', color: '#f6a623',                            label: 'Uncommitted' },
-  ambiguous:  { icon: '?', color: 'var(--muted)',                       label: 'Unknown' },
+const OUTCOME_META: Record<FileOutcome, { icon: string; letter: string; color: string; label: string }> = {
+  productive: { icon: '✓', letter: 'M', color: 'var(--vscode-charts-green,#81c784)', label: 'Committed' },
+  reverted:   { icon: '↺', letter: 'R', color: 'var(--error)',                       label: 'Reverted' },
+  abandoned:  { icon: '◑', letter: 'A', color: '#f6a623',                            label: 'Uncommitted' },
+  ambiguous:  { icon: '?', letter: 'U', color: 'var(--muted)',                       label: 'Unknown' },
+}
+
+// Small one-letter badge for the session's overall git outcome — same visual language as the
+// Source/From badges in the row above it (getDataSourceBadgeHtml/getInitiatorBadgeHtml, utils.ts):
+// a bordered square, colored to match OUTCOME_META / the Outcome filter pills (App.tsx's
+// OUTCOME_FILTER_OPTIONS). Renders nothing while the outcome hasn't resolved yet (undefined) or
+// isn't applicable (null — no repo, no changed files) rather than reserving space for it.
+function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
+  const go = gitOutcomes.value[sessionId]
+  if (!go) return null
+  const meta = OUTCOME_META[go.overall]
+  return (
+    <span
+      style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;margin-left:5px;flex-shrink:0`}
+      title={`Git outcome: ${meta.label} — ${go.reason}`}
+    >{meta.letter}</span>
+  )
 }
 
 function PromptBlock({ text }: { text: string }) {
@@ -191,7 +210,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               ].map(({ k, v }) => (
                 <div key={k} style="background:var(--card-bg);border:1px solid var(--border);border-radius:4px;padding:5px 8px">
                   <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px">{k}</div>
-                  <div style="font-size:14px;font-weight:600;color:var(--vscode-textLink-foreground,#4fc3f7)">{v}</div>
+                  <div style="font-size:14px;font-weight:600;color:var(--accent)">{v}</div>
                 </div>
               ))}
             </div>
@@ -303,7 +322,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                         title={vscode ? 'Click to open in editor' : f}
                       >
                         <span style="color:var(--vscode-charts-green,#81c784);font-size:10px;flex-shrink:0">M</span>
-                        <span style={`font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1${vscode ? ';color:var(--vscode-textLink-foreground,#4fc3f7)' : ''}`}>{f}</span>
+                        <span style={`font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1${vscode ? ';color:var(--accent)' : ''}`}>{f}</span>
                         {meta && (
                           <span style={`color:${meta.color};font-size:10px;flex-shrink:0`} title={meta.label}>{meta.icon} {meta.label}</span>
                         )}
@@ -431,10 +450,11 @@ function SessionRow({ sess, showWorkspace, conversation }: {
           <button class="trace-expand" aria-label={expanded ? 'Collapse trace' : 'Expand trace'} aria-expanded={expanded} onClick={e => { e.stopPropagation(); toggle() }}>{expanded ? '▼' : '▶'}</button>
         </td>
 
-        {/* Agent dot + data source badge */}
+        {/* Agent dot + single-letter Source/From badges (colors match the Outcome bar's own
+            Source/From pills — see DATA_SOURCE_COLORS/INITIATOR_COLORS in utils.ts) */}
         <td style="padding:4px 4px;width:auto;white-space:nowrap">
           <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--agent-${sess.source === 'claude_code' ? 'claude' : sess.source},${color});flex-shrink:0;vertical-align:middle`} />
-          <span style="margin-left:4px;font-size:10px">{getAgentSourceLabel(sess.source)}</span>
+          <span style="margin-left:4px;font-size:10px" title={getAgentSourceLabel(sess.source)}>{getAgentSourceLabel(sess.source)}</span>
           <span style="margin-left:4px" dangerouslySetInnerHTML={{ __html: getDataSourceBadgeHtml(sess.dataSource ?? 'otel') }} />
           <span dangerouslySetInnerHTML={{ __html: getInitiatorBadgeHtml(sess.initiator) }} />
         </td>
@@ -446,10 +466,15 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 
         {showWorkspace && (
           <td
-            style="padding:4px 6px;white-space:nowrap;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;max-width:130px"
+            style="padding:4px 6px;font-size:10px;color:var(--muted);max-width:165px"
             title={sess.workspace}
           >
-            {sess.workspace ? shortWorkspaceName(sess.workspace) : '—'}
+            <span style="display:flex;align-items:center">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">
+                {sess.workspace ? repoDisplayName(sess.workspace, repoInfo.value) : '—'}
+              </span>
+              {sess.workspace && <GitOutcomeBadge sessionId={sess.sessionId} />}
+            </span>
           </td>
         )}
 
@@ -506,6 +531,39 @@ function SessionRow({ sess, showWorkspace, conversation }: {
   )
 }
 
+// Lives in the "Repo" column header itself rather than the filter bar above — labels each repo
+// "name/hash", using the exact hash traceroost-cloud shows in its own Repo column (repoKey.ts's
+// repoHash, fetched on demand per distinct workspace via requestRepoHash — there are only ever a
+// handful open at once, unlike sessions, so no cap/stagger is needed). Falls back to the plain
+// short name until the hash arrives, or permanently if the workspace isn't a keyable git repo.
+// Freeform rather than a dropdown of exact workspace paths — matches a typed substring against
+// each repo's git-derived name (repoInfo, requested here for every known workspace up front) or
+// its hash, so pasting part of the same hash traceroost-cloud shows in its own Repo column finds
+// the right repo. See matchesRepoQuery (state.ts) for the matching itself.
+function RepoDropdown() {
+  const query = workspaceFilter.value
+  const workspaces = availableWorkspaces.value
+
+  useEffect(() => {
+    workspaces.forEach(ws => requestRepoHash(ws))
+  }, [workspaces])
+
+  if (workspaces.length <= 1) return null
+
+  const active = query.trim() !== ''
+  return (
+    <input
+      type="text"
+      class={'tr-header-input' + (active ? ' active' : '')}
+      aria-label="Filter by repo — name or hash"
+      placeholder="Repo Name (hash)"
+      value={query}
+      onInput={e => { workspaceFilter.value = (e.target as HTMLInputElement).value }}
+      title="Matches a repo's name or its hash — the same hash shown in traceroost-cloud's Repo column"
+    />
+  )
+}
+
 // ── Main Sessions component ───────────────────────────────────────────────────
 
 export function Sessions() {
@@ -548,23 +606,48 @@ export function Sessions() {
   const rangeEnd = Math.min((page + 1) * pageSize, sessions.length)
   const conversationInfo = buildConversationInfo(sessions)
 
+  // Fetches git outcomes for just the current page (bounded by pagination already, same cap/
+  // stagger the Outcome filter uses — see requestGitOutcomesFor) so the one-letter outcome badge
+  // next to each repo name has data without computing it for every off-screen session.
+  useEffect(() => { if (showWorkspace) requestGitOutcomesFor(pageSessions) }, [showWorkspace, pageSessions])
+
   return (
     <div id="sessions-content" style="padding-top:8px">
-      <div class="h-scroll-hint trace-table-scroll" role="region" aria-label="Traces table" tabIndex={0}>
+      <div role="region" aria-label="Traces table" tabIndex={0}>
       <table class="trace-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <colgroup>
-          <col style="width:8px" /><col style="width:28px" /><col style="width:175px" /><col style="width:144px" />
-          {showWorkspace && <col style="width:130px" />}
+          <col style="width:8px" /><col style="width:28px" /><col style="width:110px" /><col style="width:144px" />
+          {showWorkspace && <col style="width:175px" />}
           <col /><col style="width:140px" /><col style="width:80px" /><col style="width:85px" /><col style="width:80px" />
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
             <th style="width:5px;padding:0" title="A colored bar marks traces that are really one conversation split into multiple rows by a long gap between them." />
             <th style="width:16px;padding:3px 4px 3px 8px" />
-            {sortHeader('source', 'Source/From')}
+            {sortHeader('source', 'Agent/Source/From')}
             {sortHeader('start_time', 'Start Time')}
-            {showWorkspace && sortHeader('workspace', 'Project')}
-            {sortHeader('prompt', 'Prompt')}
+            {showWorkspace && (
+              <th scope="col" aria-sort={sortKey === 'workspace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thBase}>
+                <div style="display:flex;align-items:center;gap:2px">
+                  <RepoDropdown />
+                  <button class="sort-button" style="padding:0;flex-shrink:0" onClick={() => onSortClick('workspace')} title="Sort by repo">{sortArrow('workspace')}</button>
+                </div>
+              </th>
+            )}
+            <th scope="col" aria-sort={sortKey === 'prompt' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thBase}>
+              <div style="display:flex;align-items:center;gap:2px">
+                <input
+                  type="text"
+                  class={'tr-header-input' + (sessionTextFilter.value.trim() !== '' ? ' active' : '')}
+                  aria-label="Filter by prompt"
+                  placeholder="Prompt"
+                  value={sessionTextFilter.value}
+                  onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
+                  style="min-width:40px"
+                />
+                <button class="sort-button" style="padding:0;flex-shrink:0" onClick={() => onSortClick('prompt')} title="Sort by prompt">{sortArrow('prompt')}</button>
+              </div>
+            </th>
             {sortHeader('model', 'Model')}
             {sortHeader('total_tokens', 'Tokens', true, 'Accumulated input and output tokens across all turns')}
             {sortHeader('duration_ms', 'Duration', true)}

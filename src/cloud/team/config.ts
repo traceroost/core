@@ -130,6 +130,13 @@ export interface TeamCredentials {
   endpoint: string
   /** Organisation the machine is linked to. Opaque; assigned by the service. */
   orgId: string
+  /** This specific linked install's id, assigned by the service at link time — a fresh one is
+   *  minted on every link, even a re-link to the same org from the same machine (see
+   *  `deliveryLedger.ts`'s `scopedKey`, which is keyed on this, not `orgId`, for exactly that
+   *  reason). Optional: a credential written before this field existed simply lacks it until
+   *  `ensureInstallId` (`credentials.ts`) backfills it via a token refresh — never a reason to
+   *  reject an otherwise-valid credential file. */
+  installId?: string
   /** Human-readable org name, cached from the link response for offline display. */
   orgName: string
   /** This member's id, assigned by the service at link time — never chosen locally (AL 02). */

@@ -81,8 +81,31 @@ export function timestampToMs(value: string | number | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+const TASK_NOTIFICATION_RE = /<task-notification>[\s\S]*?<\/task-notification>/gi
+
+/**
+ * True when `text` is nothing but one or more <task-notification> blocks — the harness's way
+ * of delivering a background Bash/Agent task's result back into the conversation on a
+ * synthetic turn. Not something a person typed, so it shouldn't be shown as the prompt.
+ */
+export function isTaskNotificationOnly(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed.includes('<task-notification>')) { return false }
+  return trimmed.replace(TASK_NOTIFICATION_RE, '').trim() === ''
+}
+
+/** Pulls a human-readable label out of a <task-notification> block's <summary> field. */
+export function summarizeTaskNotification(text: string): string {
+  const summary = text.match(/<summary>\s*([\s\S]*?)\s*<\/summary>/i)?.[1]?.trim()
+  return (summary ? `[background task] ${summary}` : '[background task result]').slice(0, 500)
+}
+
 export function extractUserRequest(raw: string): string {
   const trimmed = raw.trim()
+
+  // Background task result delivered on a synthetic turn (see isTaskNotificationOnly) —
+  // show its summary instead of the raw notification XML.
+  if (isTaskNotificationOnly(trimmed)) { return summarizeTaskNotification(trimmed) }
 
   // Claude Code wraps the user text in <userRequest> when IDE context is attached
   if (trimmed.includes('<userRequest>')) {

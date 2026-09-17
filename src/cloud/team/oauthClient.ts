@@ -26,6 +26,9 @@ export interface TokenResponse {
   expiresInSeconds: number
   memberId: string
   orgId: string
+  /** This install's id — a fresh one is minted on every link, even a re-link to the same org
+   *  from the same machine. See `deliveryLedger.ts`'s `scopedKey`. */
+  installId: string
 }
 
 interface RawTokenBody {
@@ -35,10 +38,23 @@ interface RawTokenBody {
   expires_in?: number
   member_id?: string
   org_id?: string
+  install_id?: string
   error?: string
 }
 
 const REQUEST_TIMEOUT_MS = 15_000
+
+/** Thrown by `refreshTokens` when the token endpoint rejects the request. `permanent` is true
+ *  only when the server told us the refresh token/client itself is bad (`invalid_grant` —
+ *  expired, revoked, or already used; `invalid_client`) — that credential will never refresh
+ *  successfully again, no matter how many times it's retried. Anything else (a 5xx, a timeout,
+ *  a malformed body) says something about the network or the service, not the credential, so
+ *  `permanent` is false and callers should keep it and retry later. */
+export class TokenRefreshError extends Error {
+  constructor(message: string, public readonly permanent: boolean) {
+    super(message)
+  }
+}
 
 async function postForm(url: string, body: Record<string, string>): Promise<Response> {
   const controller = new AbortController()
@@ -80,7 +96,7 @@ export function clientVersion(): string {
 }
 
 function parseTokenBody(raw: RawTokenBody): TokenResponse {
-  if (!raw.access_token || !raw.refresh_token || !raw.member_id || !raw.org_id) {
+  if (!raw.access_token || !raw.refresh_token || !raw.member_id || !raw.org_id || !raw.install_id) {
     throw new Error(`token endpoint returned an incomplete response${raw.error ? ` (${raw.error})` : ''}`)
   }
   return {
@@ -89,6 +105,7 @@ function parseTokenBody(raw: RawTokenBody): TokenResponse {
     expiresInSeconds: typeof raw.expires_in === 'number' ? raw.expires_in : 3600,
     memberId: raw.member_id,
     orgId: raw.org_id,
+    installId: raw.install_id,
   }
 }
 
@@ -139,7 +156,10 @@ export async function refreshTokens(refreshToken: string, endpoint = teamEndpoin
     refresh_token: refreshToken,
   })
   const raw = (await res.json().catch(() => ({}))) as RawTokenBody
-  if (!res.ok) throw new Error(`token refresh failed: ${raw.error ?? `HTTP ${res.status}`}`)
+  if (!res.ok) {
+    const permanent = raw.error === 'invalid_grant' || raw.error === 'invalid_client'
+    throw new TokenRefreshError(`token refresh failed: ${raw.error ?? `HTTP ${res.status}`}`, permanent)
+  }
   return parseTokenBody(raw)
 }
 

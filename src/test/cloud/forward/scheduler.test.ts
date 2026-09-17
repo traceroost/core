@@ -10,7 +10,7 @@ import type { RollupPayload } from '../../../cloud/forward/schema'
 
 const CREDS: TeamCredentials = {
   endpoint: 'https://traceroost.com',
-  orgId: 'org-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
+  orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
   perDeveloperVisibility: false,
   accessToken: 'access-1', refreshToken: 'refresh-1',
   accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),

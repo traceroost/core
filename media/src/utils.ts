@@ -361,7 +361,14 @@ export function extractSpanSummary(span: Span): string | null {
   return null
 }
 
-// ── Data source badge helpers ─────────────────────────────────────────────────
+// ── Data source / initiator badge helpers ───────────────────────────────────────
+//
+// Single source of truth for the Source/From column's per-row badges AND the Outcome filter
+// bar's own Source/From pills (App.tsx's DATA_SOURCE_FILTER_OPTIONS / INITIATOR_FILTER_OPTIONS,
+// which import these same maps) — so a badge's color always matches its pill in the nav above.
+
+export const DATA_SOURCE_COLORS = { all: 'var(--fg)', otel: 'var(--fg)', log: '#90a4ae' } as const
+export const INITIATOR_COLORS = { all: 'var(--fg)', user: '#4a90d9', agent: '#90a4ae' } as const
 
 const DATA_SOURCE_TOOLTIP = {
   otel: 'OTEL — Full telemetry: timing, speed, TTFT, loop signals',
@@ -370,24 +377,24 @@ const DATA_SOURCE_TOOLTIP = {
 
 export function getDataSourceBadgeHtml(dataSource: 'otel' | 'log' | undefined): string {
   const ds = dataSource ?? 'otel'
-  const label = ds === 'log' ? 'Log' : 'OTEL'
-  const color = ds === 'log' ? 'var(--muted)' : 'var(--fg)'
+  const label = ds === 'log' ? 'L' : 'O'
+  const color = DATA_SOURCE_COLORS[ds]
   const tooltip = DATA_SOURCE_TOOLTIP[ds]
-  return `<span style="font-size:9px;font-weight:600;padding:1px 4px;border-radius:2px;border:1px solid ${color};color:${color};letter-spacing:0.03em;vertical-align:middle;cursor:default" title="${tooltip}">${label}</span>`
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="${tooltip}">${label}</span>`
 }
 
-const INITIATOR_COLORS = { user: 'var(--accent)', agent: 'var(--muted)', api: 'var(--muted)' } as const
-const INITIATOR_TOOLTIPS = {
+// 'agent' and 'api' (isSidechain sub-tasks vs. non-interactive `claude -p` calls) collapse into
+// one "Agent" bucket here — see InitiatorFilter's own doc comment (types.ts) for why.
+const INITIATOR_TOOLTIP = {
   user:  'Typed directly by a human in the chat',
-  agent: 'Spawned by the Agent tool (isSidechain) — a sub-task delegated by Claude',
-  api:   'Non-interactive API call (claude -p) — from a script or pipeline',
+  agent: 'Agent-spawned sub-task, or a non-interactive API call (claude -p)',
 } as const
 
 export function getInitiatorBadgeHtml(initiator: 'user' | 'agent' | 'api' | undefined): string {
-  const key = initiator ?? 'user'
+  const key = initiator === 'api' ? 'agent' : (initiator ?? 'user')
   const color = INITIATOR_COLORS[key]
-  const label = key === 'api' ? 'API' : key === 'user' ? 'User' : 'Agent'
-  return `<span style="font-size:9px;font-weight:600;padding:1px 4px;border-radius:2px;border:1px solid ${color};color:${color};letter-spacing:0.03em;vertical-align:middle;cursor:default;margin-left:3px" title="${INITIATOR_TOOLTIPS[key]}">${label}</span>`
+  const label = key === 'user' ? 'U' : 'A'
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="${INITIATOR_TOOLTIP[key]}">${label}</span>`
 }
 
 // ── Agent label / color helpers ───────────────────────────────────────────────

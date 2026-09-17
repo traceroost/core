@@ -11,11 +11,12 @@ import { DeliveryLedger, scopedKey } from '../../../cloud/forward/deliveryLedger
 import { toUuid } from '../../../cloud/forward/buildSessionRollup'
 import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 
-function memoryStore(): CredentialStore {
+function memoryStore(overrides: Partial<TeamCredentials> = {}): CredentialStore {
   let cur: TeamCredentials | null = {
-    endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
+    endpoint: 'https://test.traceroost.com', orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
     perDeveloperVisibility: false, accessToken: 'a', refreshToken: 'r',
     accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
+    ...overrides,
   }
   return { load: () => cur, save: (c) => { cur = c }, clear: () => { cur = null } }
 }
@@ -64,18 +65,31 @@ suite('team/enqueueSession', () => {
     assert.strictEqual(new ForwardQueue().depth(), 1)
   })
 
-  test('a session already confirmed delivered to the linked org is skipped — not rebuilt, not re-enqueued', async () => {
-    new DeliveryLedger().markDelivered(scopedKey('org-1', `session:${toUuid('s1')}`))
+  test('a session already confirmed delivered to the linked install is skipped — not rebuilt, not re-enqueued', async () => {
+    new DeliveryLedger().markDelivered(scopedKey('install-1', `session:${toUuid('s1')}`))
     const res = await maybeEnqueueSession(makeCard('s1'))
     assert.deepStrictEqual(res, { enqueued: false, reason: 'already-delivered' })
     assert.strictEqual(new ForwardQueue().depth(), 0, 'must not have been added to the queue')
   })
 
-  test('a session delivered to a DIFFERENT org is not treated as delivered after switching teams', async () => {
-    // The exact bug this scoping fixes: a session sent to org-old reading as "already delivered"
-    // once the machine leaves org-old and links org-new, silently never reaching org-new at all.
-    new DeliveryLedger().markDelivered(scopedKey('org-old', `session:${toUuid('s1')}`))
-    const res = await maybeEnqueueSession(makeCard('s1')) // credential store here is linked to 'org-1'
+  test('a session delivered to a DIFFERENT install is not treated as delivered after a relink', async () => {
+    // The exact bug this scoping fixes: a session sent to install-old reading as "already
+    // delivered" once the machine leaves and relinks — minting install-new, even of the SAME
+    // org — silently never reaching install-new at all.
+    new DeliveryLedger().markDelivered(scopedKey('install-old', `session:${toUuid('s1')}`))
+    const res = await maybeEnqueueSession(makeCard('s1')) // credential store here is linked as 'install-1'
+    assert.strictEqual(res.enqueued, true)
+    assert.strictEqual(new ForwardQueue().depth(), 1)
+  })
+
+  test('a credential missing installId (written before it existed) always enqueues rather than guessing at "already delivered"', async () => {
+    // Nothing can safely short-circuit here without an install to scope the check to — see
+    // `ensureInstallId` (only `sender.ts`'s drain calls it; this function stays local-only).
+    // Enqueueing anyway is safe: `ForwardQueue.enqueue` dedupes by key, and a redundant send is
+    // deduplicated server-side too.
+    setCredentialStore(memoryStore({ installId: undefined }))
+    new DeliveryLedger().markDelivered(scopedKey('install-1', `session:${toUuid('s1')}`))
+    const res = await maybeEnqueueSession(makeCard('s1'))
     assert.strictEqual(res.enqueued, true)
     assert.strictEqual(new ForwardQueue().depth(), 1)
   })

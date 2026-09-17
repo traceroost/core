@@ -8,13 +8,48 @@
   --success: var(--vscode-testing-iconPassed, #4c4);
   --muted: var(--vscode-descriptionForeground);
   --hover: var(--vscode-list-hoverBackground);
+
+  /* The TraceRoost brand teal (Wordmark.tsx, BrandMark.tsx) — used only for the top nav's
+   * active-section indicator (.tab.active in tabs.css), not buttons or links. */
+  --tr-brand: #0fbfa6;
+
+  /* "Merged" reads as its own green, distinct from --success (which in several VS Code themes
+   * leans close enough to teal to be easy to misread). GitHub's own green, light/dark split
+   * below. */
+  --tr-merged: #3fb950;
+
+  /* Bridge for pills.css's shared `.tr-pill` — see that file's header. Keep these five in sync
+   * with traceroost-cloud's own bridge in globals.css whenever either theme changes. */
+  --tr-pill-muted-fg: var(--muted);
+  --tr-pill-active-fg: var(--fg);
+  --tr-pill-active-bg: var(--card-bg);
+  --tr-pill-hover-bg: var(--hover);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* A single scroll region, not two nested ones. Without this, the page (html/body) has no height
+ * ceiling, so once .tabs + the filter bars + a tall table push past the actual webview viewport,
+ * *body* starts scrolling too — and since the table's own thead is only sticky relative to its
+ * own scroll box (formerly .trace-table-scroll in Sessions.tsx, now unconstrained — see its own
+ * rule further down), that whole box (header included) just rides along with the outer scroll,
+ * making the header look like it "moves." Capping html/body at the viewport and giving #app a
+ * definite height fixes that: .tabs and the filter bars are non-scrolling flex items sized to
+ * their content, and `.panel.active` below (styles further down) is the one region that actually
+ * scrolls — so every tab, not just Sessions, has a pinned header with no second scrollbar
+ * fighting it. `#app` uses `height: 100%` rather than `flex: 1` because its parent differs by
+ * host: a direct child of `body` in the VS Code extension webview (dashboardPanel.ts), but nested
+ * inside standalone/server.ts's own `#sa-main` (`flex:1;overflow-y:auto`) in the standalone
+ * build — `height: 100%` resolves against either without depending on the parent being a flex
+ * container itself. */
+html, body { height: 100%; overflow: hidden; }
 body { font-family: var(--vscode-font-family); color: var(--fg); background: var(--bg); padding: 0 16px 16px; }
+#app { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+@keyframes tr-spin { to { transform: rotate(360deg); } }
 
 .panel { display: none; }
-.panel.active { display: block; }
+.panel.active { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 
 .empty-state { text-align: center; padding: 40px; color: var(--muted); font-style: italic; }
 
@@ -89,18 +124,76 @@ button:disabled { cursor: default; opacity: .5; }
 .time-range-bar button { white-space: nowrap; }
 .search-filter-controls > * { flex-shrink: 0; }
 .trace-table { table-layout: fixed; min-width: 1100px; font-variant-numeric: tabular-nums; }
-.trace-table-scroll { height: clamp(320px, calc(100dvh - 220px), 720px); overflow: auto; }
+/* No height/vertical-overflow here on purpose — `.panel.active` above is the one vertical scroll
+ * region now; this box only ever needs its own (horizontal, from .h-scroll-hint) scrollbar for a
+ * table wider than a narrow panel. Left unconstrained, it sizes to its content, so it never
+ * develops a competing vertical scrollbar of its own. */
 .trace-table thead { position: sticky; top: 0; z-index: 1; background: var(--bg); }
 .trace-pagination { min-height: 40px; flex-wrap: nowrap !important; overflow-x: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .trace-pagination > * { flex-shrink: 0; }
 .sort-button { font: inherit; color: inherit; border: 0; background: none; padding: 3px 0; cursor: pointer; }
 .sort-indicator { display: inline-block; width: 12px; margin-left: 3px; text-align: center; }
+
+/* Freeform filter inputs living in a trace-table column header (Sessions.tsx's Repo and Prompt
+ * headers) — shared here so every column's filter box looks and weighs the same by default
+ * rather than each call site redeclaring (and drifting from) the same handful of properties.
+ * `.active` is the one state-dependent variant (a filter currently narrowing the table), applied
+ * by the call site alongside this class rather than as an inline override. */
+.tr-header-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 5px;
+  font-size: 10px;
+  font-weight: 400;
+  border-radius: 3px;
+  background: var(--vscode-input-background, #3c3c3c);
+  color: var(--fg);
+  border: 1px solid var(--vscode-input-border, #555);
+  outline: none;
+}
+.tr-header-input.active { border-color: var(--accent, #4fc3f7); color: var(--accent, #4fc3f7); }
+/* A plain input's default placeholder is dimmed by the browser/webview well below this UI's
+ * other muted text, easy to misread as "disabled" rather than "type here." Brighter on the
+ * placeholder only; typed text keeps its own explicit color above. */
+.tr-header-input::placeholder { color: var(--fg); opacity: 0.7; }
+
+/* Time-range preset buttons (App.tsx's TimeRangePicker) — slightly larger than the Agent/Source
+ * pills next to them since they're the primary control in this bar, with the same hover
+ * affordance as `.tr-pill` (packages/styles/src/pills.css) for consistency even though these
+ * aren't shared cross-product pills. */
+.tr-time-pill {
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  transition: background-color 0.1s, color 0.1s;
+}
+.tr-time-pill[aria-pressed="true"] { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.tr-time-pill:hover:not([aria-pressed="true"]) { background: var(--hover); color: var(--fg); }
+
+/* Reset button in the time-range bar (App.tsx) — kept visually small next to the refresh icon it
+ * now sits beside, rather than the larger stand-alone call-to-action size it had when it lived
+ * apart from the rest of the bar's controls. */
+.tr-reset-btn {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.1s, color 0.1s, border-color 0.1s;
+}
+.tr-reset-btn:disabled { cursor: default; }
 .trace-expand { color: var(--muted); background: none; border: 0; font: inherit; cursor: pointer; padding: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
 .range-status { width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); margin-left: 8px; }
-body.vscode-light { --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed; }
+body.vscode-light { --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed; --tr-merged: #1a7f37; }
 
 :root { --agent-opencode: var(--fg); }

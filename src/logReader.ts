@@ -35,7 +35,7 @@ import * as path from 'path'
 import * as os from 'os'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizers/summarizerTypes'
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
-import { rankModelsByWeight } from './summarizers/helpers'
+import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
@@ -352,6 +352,7 @@ export class LogReader {
     let firstTimestamp = ''
     let lastTimestamp = ''
     let userRequest = ''
+    let taskNotificationFallback = ''
     let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheCreate = 0
     let peakContextPerTurn = 0
     let turns = 0, totalToolCalls = 0
@@ -390,6 +391,10 @@ export class LogReader {
             initiator = 'api'
             const afterCaveat = text.replace(/^<local-command-caveat>[\s\S]*?<\/local-command-caveat>\s*/i, '').trim()
             userRequest = afterCaveat || '[api session]'
+          } else if (isTaskNotificationOnly(text)) {
+            // A background Bash/Agent task result on a synthetic turn, not typed by a human —
+            // keep scanning for a real prompt; remember a fallback in case none ever shows up.
+            if (!taskNotificationFallback) taskNotificationFallback = summarizeTaskNotification(text)
           } else {
             userRequest = text
           }
@@ -483,6 +488,10 @@ export class LogReader {
     }
 
     if (!firstTimestamp) return null
+    if (!userRequest && taskNotificationFallback) {
+      userRequest = taskNotificationFallback
+      initiator = 'agent'
+    }
     // Rank by token volume rather than reporting whichever model answered last;
     // the fast-mode suffix is a session-wide flag, so it's only applied to the
     // primary (highest-volume) model, matching the existing single-value behavior.

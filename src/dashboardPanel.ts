@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import * as path from 'path'
 import { SidebarPanel } from './sidebarPanel'
 import { SessionRepository } from './sessionRepository'
 import { InstructionRepository } from './database/instructionRepository'
@@ -6,12 +7,14 @@ import { detectInstructionFiles, appendSuggestion, removeSuggestion } from './in
 import { computeBaseline } from './instructionEffectiveness'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
 import { serializeExport, exportFileExtension, type ExportFormat } from './exportFormats'
-import { classifySessionOutcome, type GitOutcome } from './gitOutcome'
+import { classifySessionOutcome, resolveRepoHead, type GitOutcome } from './gitOutcome'
+import { GitOutcomeRepository } from './database/gitOutcomeRepository'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
 import { handleTeamMessage, type TeamPanelDeps } from './cloud/team/panelController'
 import { buildPayloadPreviewText } from './cloud/team/payloadPreview'
 import { loadCredentials } from './cloud/team/credentials'
+import { deriveRepoKey, repoHash } from './cloud/forward/repoKey'
 import { teamEndpoint } from './cloud/team/config'
 import { buildLocalTurnoverReport } from './cloud/turnover/localReport'
 import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/team/instructionTelemetry'
@@ -32,9 +35,20 @@ export class DashboardPanel {
   private readonly panel: vscode.WebviewPanel
   private disposables: vscode.Disposable[] = []
   private pendingUpdate: ReturnType<typeof setTimeout> | undefined
-  // On-demand, computed once per session per panel lifetime — see gitOutcome.ts for why this
-  // isn't computed eagerly for every loaded session.
-  private gitOutcomeCache = new Map<string, GitOutcome | null>()
+  // On-demand — see gitOutcome.ts for why this isn't computed eagerly for every loaded session.
+  // Two layers: this in-memory map is just to de-dupe concurrent/repeat requests within a single
+  // panel lifetime (also holds in-flight promises, so two clicks for the same not-yet-cached
+  // session don't both shell out to git); the durable cache is GitOutcomeRepository (git_outcome
+  // table), which is what actually survives a panel/window restart.
+  private gitOutcomeCache = new Map<string, Promise<GitOutcome | null>>()
+  // Same cutoff update() uses to decide a session is still "live" for burn-rate purposes — see
+  // sendGitOutcome.
+  private static readonly GIT_OUTCOME_ACTIVE_GRACE_MS = 2 * 60_000
+  // Keyed by workspace path rather than session — there are only ever a handful of distinct
+  // workspaces open at once, unlike sessions, so this is cheap to compute for every one of them.
+  // `name` is the git repo root's own basename, not the (possibly-a-subfolder) workspace path —
+  // see sendRepoHash for why.
+  private repoInfoCache = new Map<string, { name: string; hash: string } | null>()
 
   static show(context: vscode.ExtensionContext, repo: SessionRepository, sidebarProvider?: SidebarPanel, instructionRepo?: InstructionRepository, rawDb?: TurnoverDb) {
     if (DashboardPanel.currentPanel) {
@@ -138,6 +152,8 @@ export class DashboardPanel {
           (msg.startTime as string) || '',
           (msg.endTime as string) || '',
         )
+      } else if (msg.type === 'getRepoHash' && msg.workspace) {
+        void this.sendRepoHash(msg.workspace as string)
       } else if (msg.type === 'loadBlob' && msg.spanId && msg.field) {
         const content = await this.repo.loadBlob(
           msg.spanId as string,
@@ -323,7 +339,7 @@ export class DashboardPanel {
     const lifetimeStats = this.repo.queryLifetimeStats()
 
     // Burn rate for the most recently updated live session (< 2 min old).
-    const recentCutoff = Date.now() - 2 * 60_000
+    const recentCutoff = Date.now() - DashboardPanel.GIT_OUTCOME_ACTIVE_GRACE_MS
     const activeSession = sessions.find(s => Date.parse(s.startTime) > recentCutoff)
     const burnRateResult = activeSession
       ? this.repo.queryBurnRate(activeSession.sessionId)
@@ -380,13 +396,23 @@ export class DashboardPanel {
   }
 
   private async sendGitOutcome(sessionId: string, workspace: string, filesChanged: string[], startTime: string, endTime: string): Promise<void> {
-    let outcome: GitOutcome | null
-    if (this.gitOutcomeCache.has(sessionId)) {
-      outcome = this.gitOutcomeCache.get(sessionId) ?? null
-    } else {
-      outcome = await classifySessionOutcome(workspace, filesChanged, startTime, endTime)
-      this.gitOutcomeCache.set(sessionId, outcome)
+    // classifySessionOutcome has no "still in progress" state — a changed-but-not-yet-committed
+    // file reads as 'abandoned' whether the session ended five minutes ago or five seconds ago
+    // (see gitOutcome.ts). Sessions.tsx now requests an outcome for every visible session (not
+    // just ones a user opens), so a brand-new session with an uncommitted edit would otherwise be
+    // classified and durably cached as 'abandoned' before the agent has had a chance to commit.
+    // Skip (without caching) while the session's last known activity is still within the same
+    // "live" window update() uses for the active-session burn rate — it'll be requested again on
+    // the next sessions refresh once that window passes.
+    if (endTime && Date.now() - Date.parse(endTime) < DashboardPanel.GIT_OUTCOME_ACTIVE_GRACE_MS) {
+      return
     }
+    let pending = this.gitOutcomeCache.get(sessionId)
+    if (!pending) {
+      pending = this.loadOrComputeGitOutcome(sessionId, workspace, filesChanged, startTime, endTime)
+      this.gitOutcomeCache.set(sessionId, pending)
+    }
+    const outcome = await pending
     // Post-hoc risk signals (hallucinated import, submitted-despite-a-failing-check) and
     // re-tempered loop-signal severity are both only knowable once the session's outcome is
     // known, same lifecycle as git-outcome classification — computed here rather than eagerly
@@ -395,6 +421,64 @@ export class DashboardPanel {
     const riskSignals = card ? detectSessionRiskSignals(card, workspace) : []
     const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
     this.panel.webview.postMessage({ type: 'gitOutcome', sessionId, outcome, riskSignals, temperedLoopSignals })
+  }
+
+  // Checks the durable git_outcome cache (keyed by session + the repo's HEAD sha) before shelling
+  // out to git — classifySessionOutcome's actual scan is the expensive part (see gitOutcome.ts),
+  // so this is what makes reopening the panel/window not rescan every session again. A row is
+  // reused as long as HEAD hasn't moved since it was computed; once it has, the file's outcome
+  // (e.g. abandoned -> productive) may genuinely have changed, so it's recomputed rather than
+  // trusted forever.
+  private async loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[], startTime: string, endTime: string): Promise<GitOutcome | null> {
+    if (this.rawDb && workspace && filesChanged.length > 0) {
+      const head = await resolveRepoHead(workspace)
+      if (head) {
+        const repo = new GitOutcomeRepository(this.rawDb)
+        const cached = repo.get(sessionId, head.headSha)
+        if (cached !== undefined) return cached
+        const outcome = await classifySessionOutcome(workspace, filesChanged, startTime, endTime)
+        if (outcome) repo.put(sessionId, head.root, head.headSha, outcome)
+        return outcome
+      }
+    }
+    return classifySessionOutcome(workspace, filesChanged, startTime, endTime)
+  }
+
+  // `hash` is the same one traceroost-cloud shows in its own Repo column (repoKey.ts's repoHash,
+  // HMAC-derived from the repo's root commit and the linked org id) — so a local repo can be
+  // matched up with its row in the cloud dashboard on sight. Unlinked installs get the same
+  // 'unlinked-preview' salt buildPayloadForCard's own preview path already uses, so the value is
+  // still stable and distinguishes repos from each other locally, it just won't match cloud until
+  // the team links.
+  //
+  // `name` is the git-resolved repo root's own basename (`rk.ctx.root`), prefixed with its parent
+  // folder's name where one exists (e.g. "traceroost/core") — not the workspace path itself:
+  // `workspace` is whatever folder the session happened to be recorded from, which can be a
+  // subdirectory of the repo (or, with multiple worktrees/clones, a differently-named checkout of
+  // it). Two sessions from different subfolders of the same repo must show the same name, so this
+  // always resolves through git rather than reading it off the given path. The parent segment
+  // keeps this consistent with shortWorkspaceName's own "last two path segments" fallback shown
+  // in the UI before this async result arrives — swapping to a bare basename once it lands would
+  // otherwise make the displayed name shrink out from under the user.
+  private async sendRepoHash(workspace: string): Promise<void> {
+    let info: { name: string; hash: string } | null
+    if (this.repoInfoCache.has(workspace)) {
+      info = this.repoInfoCache.get(workspace) ?? null
+    } else {
+      const creds = loadCredentials()
+      const orgId = creds?.orgId ?? 'unlinked-preview'
+      const rk = await deriveRepoKey(workspace, orgId)
+      if (rk.ok) {
+        const rootName = path.basename(rk.ctx.root) || 'repository'
+        const parentName = path.basename(path.dirname(rk.ctx.root))
+        const name = parentName ? `${parentName}/${rootName}` : rootName
+        info = { name, hash: repoHash(rk.ctx) }
+      } else {
+        info = null
+      }
+      this.repoInfoCache.set(workspace, info)
+    }
+    this.panel.webview.postMessage({ type: 'repoHash', workspace, name: info?.name ?? null, hash: info?.hash ?? null })
   }
 
   private async exportSessions(redact: boolean, ids: Set<string> | null = null, format: ExportFormat = 'json'): Promise<void> {

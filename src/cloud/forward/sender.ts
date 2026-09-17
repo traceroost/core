@@ -6,7 +6,8 @@
  * | Failure               | Behaviour                                                            |
  * |-----------------------|---------------------------------------------------------------------|
  * | Service unreachable / 5xx | keep the item, back off, retry next tick. No UI change.        |
- * | 401 / token expired   | refresh once; on failure, one dismissible notice, keep queueing.  |
+ * | 401, refresh transiently fails | refresh once; on failure, one dismissible notice, keep queueing. |
+ * | 401, refresh token/client rejected (`invalid_grant`/`invalid_client`) | stop forwarding, clear the credential, tell the developer once — same as membership-gone below, since this credential will never refresh again. |
  * | 403 / membership gone  | stop forwarding, clear the credential, tell the developer once.   |
  * | 400 / schema rejected  | drop the record, log locally with the error, never retry.         |
  * | 429                   | back off per `Retry-After`, stop the whole batch (the server just  |
@@ -26,8 +27,8 @@
 import { ForwardQueue, type QueueItem } from './queue'
 import { DeliveryLedger, scopedKey } from './deliveryLedger'
 import { readForwardState, writeForwardState, clearForwardState } from './forwardState'
-import { loadCredentials, saveCredentials, clearCredentials } from '../team/credentials'
-import { refreshTokens } from '../team/oauthClient'
+import { loadCredentials, saveCredentials, clearCredentials, ensureInstallId } from '../team/credentials'
+import { refreshTokens, TokenRefreshError } from '../team/oauthClient'
 import { ingestUrl } from '../team/config'
 import { clientVersion } from '../team/oauthClient'
 
@@ -67,9 +68,16 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
 
   let creds = loadCredentials()
   if (!creds) return { ...empty, stopped: 'not-linked' }
-  // Org never changes within one drain (only the token does, on a mid-drain refresh) — captured
-  // once so `finish()`'s closure doesn't need TS to re-prove `creds` is non-null through it.
-  const orgId = creds.orgId
+  // Self-heal for a credential written before `installId` existed (see `ensureInstallId`) — a
+  // no-op the instant it has ever once succeeded. This is the one place in the send path that
+  // already does network I/O every drain, so it's the natural home for this, rather than
+  // `enqueueSession.ts`, which stays local-only by design.
+  if (!creds.installId) creds = await ensureInstallId(creds)
+  // Install never changes within one drain (only the token does, on a mid-drain refresh) —
+  // captured once so `finish()`'s closure doesn't need TS to re-prove `creds` is non-null
+  // through it. May still be undefined if the self-heal above couldn't reach the server —
+  // `finish()` degrades to "sent but not locally recorded as delivered" in that case (see there).
+  const installId = creds.installId
 
   const state = readForwardState(deps.baseHome)
   if (state.paused && state.pausedUntil !== null && state.pausedUntil > now()) {
@@ -116,8 +124,21 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         // Retry this same item immediately with the fresh token.
         res = await postPayload(creds.accessToken, item, deps.baseHome).catch(() => res)
         if (res.status === 202 || res.status === 200) { succeeded.push(item.key); sent++; continue }
-      } catch {
-        deps.notify?.('TraceRoost: could not refresh your team credential. Rollups are queued and will send once you re-link.', 'warning')
+      } catch (err) {
+        if (err instanceof TokenRefreshError && err.permanent) {
+          // The server rejected the refresh token/client itself — retrying later with the same
+          // credential would just fail the same way forever. Clear it (like the 403 branch
+          // below) so the Team panel drops back to "Unlinked" with its "Link this machine"
+          // button, instead of staying stuck on "Paused" with no way forward short of "Leave
+          // team" first. The queue is left intact — the locally queued rollups are still good
+          // data, just waiting on a fresh credential to send them with.
+          const result = finish('auth-failed')
+          clearCredentials()
+          clearForwardState(deps.baseHome)
+          deps.notify?.('TraceRoost: your team credential is no longer valid. Re-link this machine in the Team panel to resume forwarding.', 'warning')
+          return result
+        }
+        deps.notify?.('TraceRoost: could not refresh your team credential. Rollups are queued and will retry automatically.', 'warning')
         writeForwardState({ paused: true, pausedUntil: null, lastErrorAt: new Date().toISOString(), lastError: 'token refresh failed' }, deps.baseHome)
         return finish('auth-failed')
       }
@@ -161,12 +182,20 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       // Record delivery *before* removing from the queue would be equally correct — order
       // doesn't matter here, since a crash between the two just means a redundant, harmless
       // resend later (idempotent both locally and server-side), never a lost one. Scoped to the
-      // org that actually accepted it (see deliveryLedger.ts's scopedKey) — `orgId` was captured
-      // before any mid-drain token refresh, but a refresh only ever changes the token, never the
-      // org, so this is always the org `succeeded` was actually sent to. See enqueueSession.ts's
-      // pre-build check.
-      const ledger = new DeliveryLedger(deps.baseHome)
-      for (const key of succeeded) ledger.markDelivered(scopedKey(orgId, key))
+      // install that actually accepted it (see deliveryLedger.ts's scopedKey) — `installId` was
+      // captured before any mid-drain token refresh, but a refresh only ever changes the token,
+      // never the install, so this is always the install `succeeded` was actually sent to. See
+      // enqueueSession.ts's pre-build check.
+      //
+      // If `installId` is still unknown (the self-heal above couldn't reach the server this
+      // drain), the items are still correctly removed from the queue — they *were* sent — but
+      // skip ledger-recording rather than guess at a scope. The cost is a possible redundant
+      // resend on a future restart's reconciliation (harmless, server-deduplicated), not a lost
+      // delivery; the next drain's self-heal attempt will record correctly going forward.
+      if (installId) {
+        const ledger = new DeliveryLedger(deps.baseHome)
+        for (const key of succeeded) ledger.markDelivered(scopedKey(installId, key))
+      }
     }
     if (droppedKeys.length > 0) queue.remove(droppedKeys)
     if (sent > 0) {

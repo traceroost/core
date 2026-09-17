@@ -27,15 +27,21 @@ export function ledgerPath(baseHome: string = os.homedir()): string {
 }
 
 /**
- * "Delivered" only means anything relative to a specific org. The first version of this file
- * recorded a bare item key (`session:<uuid>`) — so a session delivered to Org A, then reconciled
- * after leaving A and linking B, read as "already delivered" and was silently never sent to B at
- * all. Every entry is now scoped by the org id the delivery was actually confirmed to; a
- * pre-scoping entry just never matches a scoped lookup again, so the next reconciliation or
- * restart re-sends it once (idempotent, deduplicated server-side) and re-records it correctly —
- * a one-time cost per pre-existing entry, not a repeating one. */
-export function scopedKey(orgId: string, itemKey: string): string {
-  return `${orgId}:${itemKey}`
+ * "Delivered" only means anything relative to a specific *install*, not a specific org. The
+ * server tracks delivery per-install (`/api/installs/me` counts `rollups` by `install_id`), and
+ * a fresh install is minted on every link — even a re-link to the same org from the same
+ * machine (see `cloud/src/lib/oauth.ts`'s `exchangeCode`/`pollDeviceFlow`, both of which
+ * unconditionally `installs.insert(...)`). Org-scoping (an earlier version of this comment,
+ * before entries were rescoped to install) got this one level too coarse: a session delivered
+ * under install A, then reconciled after a leave+relink to install B of the *same* org, still
+ * read as "already delivered" and was silently never sent to B at all — install B's own count
+ * stayed wherever it was at the moment of relink, forever. Every entry is now scoped by the
+ * install id the delivery was actually confirmed to; a pre-rescoping entry just never matches a
+ * scoped lookup again, so the next reconciliation or restart re-sends it once (idempotent,
+ * deduplicated server-side) and re-records it correctly — a one-time cost per pre-existing
+ * entry, not a repeating one. */
+export function scopedKey(installId: string, itemKey: string): string {
+  return `${installId}:${itemKey}`
 }
 
 export class DeliveryLedger {

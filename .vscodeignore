@@ -6,6 +6,7 @@
 out/**
 node_modules/**
 src/**
+packages/**
 .gitignore
 .yarnrc
 .mocharc.cjs

@@ -25,14 +25,25 @@ export interface EnqueueResult {
  *  process restart, and every on-demand reconciliation, calls this once per local session
  *  regardless of whether it was already sent; without this check that would mean rebuilding
  *  (a git-subprocess-driven) payload and re-transmitting a machine's entire history on every
- *  restart. Scoped to the *currently linked* org (see `scopedKey`) — a session delivered to a
- *  previous team is not "already delivered" to this one. See `deliveryLedger.ts`. */
+ *  restart. Scoped to the *currently linked install* (see `scopedKey`) — a session delivered
+ *  under a previous install (a prior link, even of the same org — see `deliveryLedger.ts`) is
+ *  not "already delivered" to this one.
+ *
+ *  `creds.installId` can be briefly absent right after a credential is written before this field
+ *  existed — `ensureInstallId` (`credentials.ts`) backfills it, but only `sender.ts`'s drain
+ *  calls that (it's the one place already doing network I/O; this function stays local-only by
+ *  design). Until then, this just skips the ledger short-circuit and always enqueues — safe,
+ *  since `ForwardQueue.enqueue` already dedupes by item key, and a redundant send is
+ *  deduplicated server-side too. */
 export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void): Promise<EnqueueResult> {
   const creds = loadCredentials()
   if (!creds) return { enqueued: false, reason: 'not-linked' }
   // Matches the key a built session payload would get — see buildSessionRollup.ts's session_id
   // field and queue.ts's itemKey — without paying for the git-subprocess work just to discard it.
-  if (new DeliveryLedger().isDelivered(scopedKey(creds.orgId, `session:${toUuid(card.sessionId)}`))) {
+  if (
+    creds.installId &&
+    new DeliveryLedger().isDelivered(scopedKey(creds.installId, `session:${toUuid(card.sessionId)}`))
+  ) {
     return { enqueued: false, reason: 'already-delivered' }
   }
   try {

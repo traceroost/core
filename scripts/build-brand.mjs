@@ -89,25 +89,27 @@ writeFileSync(join(media, 'icon.svg'), activityBar + '\n')
 console.log('  media/icon.svg (activity bar, mono 256)')
 
 // Raster: marketplace icon. Full-bleed square (no rounded corners — the
-// marketplace frames it), dark background, paper mark.
+// marketplace frames it), teal background (the brand accent, not just a thin
+// roost-bar sliver), ink mark — this is the browser tab favicon.
 const marketplace = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
-  `<rect width="512" height="512" fill="${NIGHT}"/>` +
+  `<rect width="512" height="512" fill="${TEAL}"/>` +
   `<g transform="translate(71.4,77.9) scale(0.19232)">` +
-  markSmallBody.replace(/fill="[^"]*"/g, `fill="${PAPER}"`).replace(/stroke="[^"]*"/g, `stroke="${PAPER}"`) +
+  markSmallBody.replace(/fill="[^"]*"/g, `fill="${NIGHT}"`).replace(/stroke="[^"]*"/g, `stroke="${NIGHT}"`) +
   `</g></svg>`
 
 console.log('raster:')
 await sharp(Buffer.from(marketplace)).png().toFile(join(media, 'mascot.png'))
 console.log('  media/mascot.png (512, marketplace)')
 
-// Raster: marketplace icon, color variant. Same layout as the mono one above, but keeps
-// mark-small.svg's own two colors (ink bird, teal roost bar) instead of recoloring to one,
-// on white instead of dark — this is what package.json's "icon" (the extension listing's
-// actual icon) points at; mascot.png above stays as-is for the standalone server favicon.
+// Raster: marketplace icon, color variant. Same teal background as the mono one above, but
+// keeps mark-small.svg's two-tone read (ink bird, now a paper roost bar so it still reads
+// against teal) instead of collapsing to one ink — this is what package.json's "icon" (the
+// extension listing's actual icon, shown in-browser on the Marketplace/Open VSX pages) points
+// at; mascot.png above stays as-is for the standalone server favicon.
 const marketplaceColor = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">` +
-  `<rect width="512" height="512" fill="#FFFFFF"/>` +
+  `<rect width="512" height="512" fill="${TEAL}"/>` +
   `<g transform="translate(71.4,77.9) scale(0.19232)">` +
-  markSmallBody +
+  markSmallBody.replace(/fill="#0FBFA6"/, `fill="${PAPER}"`) +
   `</g></svg>`
 await sharp(Buffer.from(marketplaceColor)).png().toFile(join(media, 'mascot-color.png'))
 console.log('  media/mascot-color.png (512, marketplace, color)')
@@ -128,5 +130,5 @@ await sharp(Buffer.from(wordmarkMid)).resize(wordmarkPngWidth, wordmarkPngHeight
 console.log('  media/brand/wordmark-mid.png (README hero, mid-grey compromise)')
 
 // Standalone favicon.
-writeFileSync(join(media, 'favicon.svg'), iconAt(NIGHT, PAPER) + '\n')
+writeFileSync(join(media, 'favicon.svg'), iconAt(TEAL, NIGHT) + '\n')
 console.log('  media/favicon.svg')

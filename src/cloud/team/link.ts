@@ -72,6 +72,7 @@ async function persistFromTokens(tokens: TokenResponse): Promise<LinkResult> {
   const creds: TeamCredentials = {
     endpoint: teamEndpoint(),
     orgId: tokens.orgId,
+    installId: tokens.installId,
     orgName: self?.orgName || tokens.orgId,
     memberId: tokens.memberId,
     email: self?.email || undefined,

@@ -76,7 +76,7 @@ suite('team/panelController — link back-fill and reconciliation', () => {
       if (url.endsWith('/oauth/token')) {
         return new Response(JSON.stringify({
           access_token: 'access-1', refresh_token: 'refresh-1', token_type: 'Bearer',
-          expires_in: 3600, member_id: 'mem-1', org_id: 'org-new-team',
+          expires_in: 3600, member_id: 'mem-1', org_id: 'org-new-team', install_id: 'install-new-team',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
@@ -136,7 +136,7 @@ suite('team/panelController — link back-fill and reconciliation', () => {
     await handleTeamMessage({ type: 'teamLink' }, baseDeps())
     await new Promise(resolve => setTimeout(resolve, 100))
 
-    new DeliveryLedger().markDelivered(scopedKey('org-new-team', `session:${toUuid('r1')}`))
+    new DeliveryLedger().markDelivered(scopedKey('install-new-team', `session:${toUuid('r1')}`))
     const posted: Record<string, unknown>[] = []
     await handleTeamMessage({ type: 'teamReconcile' }, baseDeps({ allLocalSessions: () => [makeCard('r1')], post: (m) => posted.push(m) }))
 
@@ -144,13 +144,15 @@ suite('team/panelController — link back-fill and reconciliation', () => {
     assert.deepStrictEqual(posted.find(m => m.type === 'teamReconcileResult'), { type: 'teamReconcileResult', queued: 0 })
   })
 
-  test('switching teams re-delivers a session the old team already has but the new team never received', async () => {
-    // The exact real-world bug: link org A, a session is confirmed delivered to A, leave, link
-    // org B — B never got that session, so reconciling after the switch must queue it again, not
-    // skip it as "already delivered" (that check has to be scoped per-org, not global).
-    await handleTeamMessage({ type: 'teamLink' }, baseDeps()) // links 'org-new-team', per the module-level fetch stub
+  test('relinking (even to the SAME org) re-delivers a session the old install already has but the new install never received', async () => {
+    // The exact real-world bug: link (install A), a session is confirmed delivered to A, leave,
+    // relink — the server mints a brand-new install B, even for the same org. B never got that
+    // session, so reconciling after the relink must queue it again, not skip it as "already
+    // delivered" (that check has to be scoped per-install, not per-org — a relink alone, with no
+    // org switch at all, already reproduces this).
+    await handleTeamMessage({ type: 'teamLink' }, baseDeps()) // links install 'install-new-team', per the module-level fetch stub
     await new Promise(resolve => setTimeout(resolve, 100))
-    new DeliveryLedger().markDelivered(scopedKey('org-new-team', `session:${toUuid('shared')}`))
+    new DeliveryLedger().markDelivered(scopedKey('install-new-team', `session:${toUuid('shared')}`))
 
     globalThis.fetch = (async (input: FetchArgs[0]) => {
       const url = String(input)
@@ -164,11 +166,13 @@ suite('team/panelController — link back-fill and reconciliation', () => {
       if (url.endsWith('/oauth/token')) {
         return new Response(JSON.stringify({
           access_token: 'access-2', refresh_token: 'refresh-2', token_type: 'Bearer',
-          expires_in: 3600, member_id: 'mem-2', org_id: 'org-second-team',
+          // Same org as before — this is a relink, not a switch — but a fresh install id, exactly
+          // like the real server does on every `exchangeCode`.
+          expires_in: 3600, member_id: 'mem-2', org_id: 'org-new-team', install_id: 'install-relinked',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'Second Team', role: 'member', per_developer_visibility: false, email: 'dev2@example.com' }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'New Team', role: 'member', per_developer_visibility: false, email: 'dev2@example.com' }), { status: 200 })
       }
       throw new Error(`unexpected fetch in test: ${url}`)
     }) as typeof fetch
@@ -197,7 +201,7 @@ suite('team/panelController — link back-fill and reconciliation', () => {
       if (url.endsWith('/oauth/device/token')) {
         return new Response(JSON.stringify({
           access_token: 'access-1', refresh_token: 'refresh-1', token_type: 'Bearer',
-          expires_in: 3600, member_id: 'mem-1', org_id: 'org-new-team',
+          expires_in: 3600, member_id: 'mem-1', org_id: 'org-new-team', install_id: 'install-device-1',
         }), { status: 200 })
       }
       if (url.includes('/api/roster/me')) {

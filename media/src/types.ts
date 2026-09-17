@@ -212,10 +212,18 @@ export interface SearchQuery {
 }
 
 export type AgentFilter = 'all' | 'copilot' | 'claude_code' | 'codex' | 'opencode'
-export type InitiatorFilter = 'all' | 'user' | 'agent' | 'api'
+// 'agent' covers both agent-spawned sub-tasks and non-interactive API calls (sess.initiator
+// 'agent' | 'api') — the two were a single visually-indistinguishable gray pill even before this
+// type merged them, so the filter now matches what a user could actually tell apart.
+export type InitiatorFilter = 'all' | 'user' | 'agent'
 export type DataSourceFilter = 'all' | 'otel' | 'log'
 export type InsightFilter = 'all' | 'loop' | 'efficiency'
-export type WorkspaceFilter = 'all' | string
+// Freeform — '' means unfiltered (same convention as sessionTextFilter), any other value is a
+// live substring search matched against a repo's name, path, and hash (see matchesRepoQuery).
+export type WorkspaceFilter = string
+// Mirrors WireOutcome (src/cloud/forward/schema.ts) minus 'in-progress', which nothing in core
+// currently produces locally — FileOutcome's 'ambiguous' and "not applicable" both read as 'unknown'.
+export type OutcomeFilter = 'all' | 'merged' | 'reverted' | 'abandoned' | 'unknown'
 
 export interface VsCodeApi {
   postMessage(message: unknown): void

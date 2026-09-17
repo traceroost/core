@@ -40,6 +40,17 @@ async function findRepoRoot(workspace: string): Promise<string | null> {
   return out?.trim() || null
 }
 
+/** Resolves the repo root and current HEAD sha for `workspace` in one git call — used to key the
+ *  on-disk outcome cache (GitOutcomeRepository) so a restart doesn't force a rescan unless the
+ *  repo has actually moved. */
+export async function resolveRepoHead(workspace: string): Promise<{ root: string; headSha: string } | null> {
+  const out = await runGit(workspace, ['rev-parse', '--show-toplevel', 'HEAD'])
+  if (!out) return null
+  const [root, headSha] = out.trim().split('\n')
+  if (!root || !headSha) return null
+  return { root, headSha }
+}
+
 // Resolves symlinks where possible so paths compare consistently — `git rev-parse --show-toplevel`
 // always returns a fully-resolved path, but a workspace/file path from elsewhere may not (notably
 // macOS, where the default tmpdir and often the home directory sit behind a symlink).
@@ -79,27 +90,23 @@ function currentContentOnDisk(root: string, relPath: string): string | null {
   }
 }
 
-// Is there a commit touching `relPath` at or after `sinceIso`?
-async function hasCommitSince(root: string, relPath: string, sinceIso: string): Promise<boolean> {
-  const out = await runGit(root, ['log', '--format=%H', '--since=' + sinceIso, '--', relPath])
-  return Boolean(out?.trim())
-}
-
-async function classifyFile(root: string, relPath: string, sessionStartIso: string, sessionEndIso: string): Promise<FileOutcome> {
+async function classifyFile(root: string, relPath: string, sessionStartIso: string): Promise<FileOutcome> {
   const onDisk = currentContentOnDisk(root, relPath)
-  const after = onDisk !== null ? onDisk : await runGit(root, ['show', 'HEAD:' + relPath])
+  const headContent = await runGit(root, ['show', 'HEAD:' + relPath])
+  const after = onDisk !== null ? onDisk : headContent
   if (after === null) return 'ambiguous' // deleted, moved, or never committed and gone
 
-  // These two don't depend on each other's result — run concurrently rather than
-  // paying for two sequential git subprocess round-trips per file. hasCommitSince
-  // ends up unused in the 'reverted' case, but that wastes a little CPU, not latency.
-  const [before, committedSince] = await Promise.all([
-    contentBeforeSession(root, relPath, sessionStartIso),
-    hasCommitSince(root, relPath, sessionEndIso),
-  ])
+  const before = await contentBeforeSession(root, relPath, sessionStartIso)
   if (before !== null && before === after) return 'reverted' // net no-op vs. pre-session state
 
-  return committedSince ? 'productive' : 'abandoned'
+  // Whether the change made it into a commit is "is the working tree clean" (or there's no
+  // working-tree copy to be dirty, and we already fell back to HEAD) — not "did a commit land
+  // after some cutoff timestamp". A time-window check (the previous approach, keyed off the
+  // session's end time) misclassifies a file committed mid-session — before the session's last
+  // logged event, but well after the edit — as 'abandoned', even though it's sitting cleanly in
+  // HEAD with no further changes.
+  const committed = onDisk === null || onDisk === headContent
+  return committed ? 'productive' : 'abandoned'
 }
 
 const OUTCOME_PRIORITY: FileOutcome[] = ['reverted', 'abandoned', 'ambiguous', 'productive']
@@ -117,8 +124,9 @@ function summarize(overall: FileOutcome, files: Record<string, FileOutcome>): st
 
 /**
  * Returns null (rather than an "ambiguous" result) when there's nothing meaningful to classify —
- * no workspace, no changed files, the workspace path doesn't exist, or it isn't a git repo at all.
- * Callers should treat null as "not applicable," distinct from a computed-but-inconclusive result.
+ * no workspace, no changed files, the workspace path doesn't exist, it isn't a git repo at all, or
+ * every changed file falls outside the repo root. Callers should treat null as "not applicable,"
+ * distinct from a computed-but-inconclusive result.
  */
 export async function classifySessionOutcome(
   workspace: string,
@@ -133,19 +141,26 @@ export async function classifySessionOutcome(
   if (!root) return null
 
   const sessionStartIso = startTime || endTime
-  const sessionEndIso = endTime || startTime
   if (!sessionStartIso) return null
+
+  // Files outside the repo (global settings, cross-project memory notes, etc. — a session's
+  // filesChanged isn't scoped to the repo it ran in) have no git status to speak of. Drop them
+  // before classifying rather than counting them as 'ambiguous': that outranks 'productive' in
+  // OUTCOME_PRIORITY, so a single unrelated housekeeping edit would otherwise drag an entire
+  // cleanly-committed session's verdict down to ambiguous.
+  const inRepo = filesChanged
+    .map((absPath): [string, string | null] => [absPath, relativeToRoot(root, absPath)])
+    .filter((pair): pair is [string, string] => pair[1] !== null)
+  if (inRepo.length === 0) return null
 
   // Each file's classification is independent — run them concurrently rather than
   // one at a time. This is the dominant cost of the whole function (each file spawns
   // up to two more git subprocesses on top of this), so serializing it was the main
   // source of visible delay on sessions with more than a handful of changed files.
   const entries = await Promise.all(
-    filesChanged.slice(0, MAX_FILES).map(async (absPath): Promise<[string, FileOutcome]> => {
-      const rel = relativeToRoot(root, absPath)
-      if (!rel) return [absPath, 'ambiguous']
-      return [absPath, await classifyFile(root, rel, sessionStartIso, sessionEndIso)]
-    })
+    inRepo.slice(0, MAX_FILES).map(async ([absPath, rel]): Promise<[string, FileOutcome]> =>
+      [absPath, await classifyFile(root, rel, sessionStartIso)]
+    )
   )
   const files: Record<string, FileOutcome> = Object.fromEntries(entries)
 

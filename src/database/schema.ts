@@ -46,6 +46,21 @@ CREATE TABLE IF NOT EXISTS file_blame (
   computed_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
   PRIMARY KEY (repo_root, file_path)
 );
+
+-- Per-session git-outcome classification (productive/reverted/abandoned/ambiguous) shown as the
+-- Sessions tab's outcome pill (gitOutcome.ts). Shelling out to git per changed file is the
+-- expensive part, so this follows cohort_turnover's convention: recomputed only when the repo's
+-- HEAD has moved since the stored row, not on every restart. Holds only counts/enums, never diff
+-- or file content.
+CREATE TABLE IF NOT EXISTS git_outcome (
+  session_id   TEXT PRIMARY KEY,
+  repo_root    TEXT NOT NULL,
+  head_sha     TEXT NOT NULL,
+  overall      TEXT NOT NULL,
+  files_json   TEXT NOT NULL DEFAULT '{}',
+  reason       TEXT NOT NULL DEFAULT '',
+  computed_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
 `
 
 export const SCHEMA_SQL = `

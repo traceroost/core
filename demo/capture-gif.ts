@@ -14,6 +14,7 @@
  *   pnpm run demo:gif -- --dry-run          # run the tour, skip recording — for tuning pauses
  *   pnpm run demo:gif -- --speed 2          # faster tour -> shorter capture
  *   pnpm run demo:gif -- --headed           # show the browser while it records (debugging)
+ *   pnpm run demo:gif -- --theme light      # capture in light mode instead of the dark default
  *
  * Safety, and why it's structured this way: see .staged-issues/demo-gif-capture.md. In
  * short — the standalone server this spawns is started with TRACEROOST_NO_AUTOCONFIG=1
@@ -47,6 +48,11 @@ const HEADED   = hasFlag('headed')
 const SPEED    = parseFloat(flag('speed', '1')) || 1
 const SCENARIO = flag('scenario', 'story')
 const AGENTS   = flag('agents', '')
+const THEME    = flag('theme', 'dark') as 'dark' | 'light'
+if (THEME !== 'dark' && THEME !== 'light') {
+  err(`--theme must be "dark" or "light", got "${THEME}"`)
+  process.exit(1)
+}
 const OUT      = path.resolve(flag('out', path.join(__dirname, '..', 'media', 'demo.gif')))
 
 // Distinct from the default 3000/4318 on purpose — a real `pnpm run local` instance can
@@ -184,8 +190,15 @@ async function main() {
     const browser = await chromium.launch({ headless: !HEADED })
     const context = await browser.newContext({
       viewport: { width: WIDTH, height: HEIGHT },
+      colorScheme: THEME,
       recordVideo: DRY_RUN ? undefined : { dir: scratchVideo, size: { width: WIDTH, height: HEIGHT } },
     })
+    // Matches media/src/state.ts's THEME_STORAGE_KEY — set before the app's own anti-flash
+    // script runs (standalone/server.ts) so it picks up the explicit choice on first paint
+    // instead of the scratch profile's default ("system").
+    await context.addInitScript(theme => {
+      try { localStorage.setItem('traceroost-theme', theme) } catch { /* ignore */ }
+    }, THEME)
     const page = await context.newPage()
     await page.goto(`http://localhost:${UI_PORT}/?token=${token}`)
     await page.waitForLoadState('domcontentloaded')
