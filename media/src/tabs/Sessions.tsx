@@ -22,7 +22,7 @@ import { Step, StepRow } from './Traces'
 import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
 import { LogIngestionNote } from './IngestionNote'
-import type { SessionSummaryCard, FileOutcome } from '../types'
+import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
@@ -49,6 +49,116 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
       style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;flex-shrink:0`}
       title={`Git outcome: ${meta.label} — ${go.reason}`}
     >{meta.letter}</span>
+  )
+}
+
+// schema/rollup.v1.json's loop_signal enum (traceroost/cloud) — same 9 canonical names and same
+// pictograms as cloud's own Signals column (traces-table.tsx), so a struggle pattern draws
+// identically in both products. This webview bundle can't import src/cloud/forward/schema.ts (a
+// separate bundle) — the map below mirrors that file's toWireLoopSignal MAP, just collapsed onto
+// icon choice rather than the full wire payload. "instruction-conflict" has no local signal that
+// maps to it (cloud-only, computed across sessions) so it never appears here.
+const LOOP_SIGNAL_ICON_TYPE: Record<LoopSignalType, string> = {
+  exact_tool_repeat: 'repeated-edit',
+  edit_revert_cycle: 'oscillation',
+  error_recurrence: 'retry-loop',
+  runaway_steps: 'no-progress',
+  token_runaway: 'runaway-cost',
+  chronic_tool_failures: 'tool-failure-cascade',
+  context_flooding_risk: 'context-flooding',
+  malformed_tool_call: 'tool-failure-cascade',
+  hallucinated_import: 'retry-loop',
+  failed_check_submission: 'no-progress',
+}
+
+const SIGNAL_LABEL: Record<string, string> = {
+  'context-flooding': 'Context flooding',
+  'repeated-edit': 'Repeated edit',
+  'retry-loop': 'Retry loop',
+  'tool-failure-cascade': 'Tool failure cascade',
+  'no-progress': 'No progress',
+  oscillation: 'Oscillation',
+  'runaway-cost': 'Runaway cost',
+}
+
+const SIGNAL_SEVERITY_COLOR: Record<'warning' | 'critical', string> = {
+  warning: '#f6a623',
+  critical: 'var(--error)',
+}
+
+// Silhouette-distinct at 11px: stacked ripples / parallel strokes / a circular arrow / stepped
+// tiles / an arrow stopped at a wall / an S-curve / a hockey-stick climb — same paths as cloud's
+// traces-table.tsx SIGNAL_ICON_PATHS (minus the two cloud-only types this client never emits).
+const SIGNAL_ICON_PATHS: Record<string, string[]> = {
+  'context-flooding': [
+    'M1.5 5.5c1.5-1.8 3-1.8 4.5 0s3 1.8 4.5 0 3-1.8 4.5 0',
+    'M1.5 10.5c1.5-1.8 3-1.8 4.5 0s3 1.8 4.5 0 3-1.8 4.5 0',
+  ],
+  'repeated-edit': ['M4 12.5l7-9', 'M6.5 13.5l7-9'],
+  'retry-loop': ['M13 6.5V3.5h-3', 'M13 6.5a5 5 0 1 1-1.4-4.2'],
+  'tool-failure-cascade': [
+    'M2 2h4v4H2z',
+    'M6.5 6.5h4v4h-4z',
+    'M11 11h4v4h-4z',
+    'M12 12l2 2M14 12l-2 2',
+  ],
+  'no-progress': ['M2 8h5.2', 'M6 5.8L8.4 8L6 10.2', 'M11.5 3v10'],
+  oscillation: ['M3 3c0 4 10 6 10 10'],
+  'runaway-cost': ['M2 12.5c2 .3 4 0 5.5-2.5S9.5 3 11 2', 'M9.3 2.2l1.9-.4.4 1.9'],
+}
+
+function SignalIcon({ type, color }: { type: string; color: string }) {
+  const paths = SIGNAL_ICON_PATHS[type]
+  if (!paths) return null
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke={color} stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      {paths.map(d => <path key={d} d={d} />)}
+    </svg>
+  )
+}
+
+const MAX_SIGNAL_ICONS = 3
+
+// One glyph per distinct pattern type present (worst-severity/most-frequent first, capped at 3
+// then a "+N" overflow pill) rather than a bare tally — matches cloud's own Signals column so the
+// same struggle pattern reads the same way in both products.
+function SignalsCell({ signals }: { signals: LoopSignal[] }) {
+  if (!signals || signals.length === 0) return <span style="color:var(--muted)">—</span>
+  const byType = new Map<string, { severity: 'warning' | 'critical'; count: number }>()
+  for (const s of signals) {
+    const iconType = LOOP_SIGNAL_ICON_TYPE[s.type] ?? s.type
+    const e = byType.get(iconType) ?? { severity: 'warning' as const, count: 0 }
+    if (s.severity === 'critical') e.severity = 'critical'
+    e.count += 1
+    byType.set(iconType, e)
+  }
+  const severityRank = { warning: 0, critical: 1 }
+  const types = [...byType.entries()].sort((a, b) =>
+    severityRank[b[1].severity] - severityRank[a[1].severity] || b[1].count - a[1].count)
+  const shown = types.slice(0, MAX_SIGNAL_ICONS)
+  const overflow = types.slice(MAX_SIGNAL_ICONS)
+  return (
+    <span style="display:inline-flex;align-items:center;gap:3px">
+      {shown.map(([type, e]) => {
+        const color = SIGNAL_SEVERITY_COLOR[e.severity]
+        const label = SIGNAL_LABEL[type] ?? type
+        return (
+          <span
+            key={type}
+            title={`${label}${e.count > 1 ? ' ×' + e.count : ''} (${e.severity})`}
+            style={`display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:3px;border:1px solid ${color};flex-shrink:0`}
+          >
+            <SignalIcon type={type} color={color} />
+          </span>
+        )
+      })}
+      {overflow.length > 0 && (
+        <span
+          title={overflow.map(([type, e]) => `${SIGNAL_LABEL[type] ?? type} ×${e.count}`).join('\n')}
+          style="display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 2px;border-radius:3px;border:1px solid var(--muted);font-size:9px;font-weight:700;color:var(--muted);flex-shrink:0"
+        >+{overflow.length}</span>
+      )}
+    </span>
   )
 }
 
@@ -516,6 +626,12 @@ function SessionRow({ sess, showWorkspace, conversation }: {
           )}
         </td>
 
+        {/* Signals — own column, unconditional (unlike Repo/Outcome above, doesn't need a
+            workspace) so a struggle pattern is visible regardless of showWorkspace. */}
+        <td style="padding:4px 6px;text-align:center">
+          <SignalsCell signals={sess.loopSignals} />
+        </td>
+
         {/* Tokens */}
         <td style="padding:4px 6px;text-align:right;white-space:nowrap;font-size:10px;color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in trace detail for actual context window size.' : undefined}>
           {formatCompact(sess.inputTokens + sess.outputTokens)}
@@ -539,7 +655,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 
       {expanded && (
         <tr style="border-bottom:1px solid var(--vscode-panel-border)">
-          <td colspan={showWorkspace ? 11 : 9} style="padding:0">
+          <td colspan={showWorkspace ? 12 : 10} style="padding:0">
             <SessionDetail sess={sess} />
           </td>
         </tr>
@@ -603,7 +719,7 @@ export function Sessions() {
           <col style="width:8px" /><col style="width:28px" /><col style="width:108px" /><col style="width:144px" />
           {showWorkspace && <col style="width:150px" />}
           {showWorkspace && <col style="width:60px" />}
-          <col /><col style="width:92px" /><col style="width:80px" /><col style="width:85px" /><col style="width:80px" />
+          <col /><col style="width:92px" /><col style="width:78px" /><col style="width:80px" /><col style="width:85px" /><col style="width:80px" />
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
@@ -621,13 +737,14 @@ export function Sessions() {
             )}
             {sortHeader('prompt', 'Prompt (ID)')}
             {sortHeader('model', 'Model')}
+            <th scope="col" style={thBase + ';text-align:center;color:var(--muted)'} title="Struggle/loop patterns detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags">Signals</th>
             {sortHeader('total_tokens', 'Tokens', true, 'Accumulated input and output tokens across all turns')}
             {sortHeader('duration_ms', 'Duration', true)}
             {sortHeader('cost', 'Cost', true)}
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colspan={showWorkspace ? 11 : 9}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Reset to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
+          {sessions.length === 0 && <tr><td colspan={showWorkspace ? 12 : 10}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Reset to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
           {pageSessions.map(sess => (
             <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} conversation={conversationInfo.get(sess.sessionId)} />
           ))}
