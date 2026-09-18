@@ -461,7 +461,7 @@ function SessionsSection() {
     <div class="help-section" id="help-traces">
       <h3 class="help-heading">{HELP_SECTIONS.traces.heading}</h3>
       <div class="help-overview-body">
-        <p>The Traces tab shows every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — as a sortable table: timestamp, prompt, model, tokens, duration, and estimated cost per row. Use the filter bar to search by text or repo, filter by agent, git outcome (see <a href="#help-outcome">Git Outcome</a> below), data source (OTEL / Log), or initiator (User / Agent / API), set a time range, or cap the number of rows shown. The Reset button clears all active filters back to defaults.</p>
+        <p>The Traces tab shows every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — as a sortable table: timestamp, prompt, model, tokens, duration, and estimated cost per row. Use the filter bar to search by text or repo, filter by agent, git outcome (see <a href="#help-outcome">Git Outcome</a> below), data source (OTEL / Log), or initiator (User / Agent / API), set a time range, or cap the number of rows shown. The Clear Filters button clears all active filters back to defaults.</p>
         <p>Claude Code, Codex, and Copilot Chat (VS Code) each write one log file per working period on disk — but a single file can span multiple genuinely separate <a href="#gl-conversation">conversations</a> if a long idle gap (30+ minutes) separates them, so TraceRoost splits it into one trace per conversation rather than showing one entry with a misleading multi-hour (or multi-day) duration. A colored bar on the left edge of a row marks traces that came from the same original conversation — same color means same conversation, split apart by time. Hover the bar for its position (e.g. "Part 2 of 5"), or click it to isolate just that conversation's traces — a banner appears above the filter bar naming the conversation's first prompt, with a <strong>Show all traces</strong> button to clear it (or click the same bar again — the active bar renders slightly wider). Only traces still visible under the active filters are colored; if a filter hides a sibling, the remaining row isn't colored — nothing implies a hidden sibling exists.</p>
         <p>Click any row to expand it in-place. Five sub-tabs appear beneath the row:</p>
 
@@ -642,7 +642,7 @@ function AnalyticsSection() {
     <div class="help-section" id="help-analytics">
       <h3 class="help-heading">{HELP_SECTIONS.analytics.heading}</h3>
       <div class="help-overview-body">
-        <p>The Analytics tab shows aggregate charts and metrics across all traces in the active time range. Use the Source filter to limit to OTEL-traced traces or log-ingested traces, and the time range picker to zoom into a specific window. The Reset button restores all filters to defaults.</p>
+        <p>The Analytics tab shows aggregate charts and metrics across all traces in the active time range. Use the Source filter to limit to OTEL-traced traces or log-ingested traces, and the time range picker to zoom into a specific window. The Clear Filters button restores all filters to defaults.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agent Breakdown</dt>

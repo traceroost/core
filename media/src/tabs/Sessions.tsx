@@ -838,7 +838,7 @@ export function Sessions() {
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colspan={showWorkspace ? 12 : 10}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Reset to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
+          {sessions.length === 0 && <tr><td colspan={showWorkspace ? 12 : 10}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
           {pageSessions.map(sess => (
             <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} conversation={conversationInfo.get(sess.sessionId)} />
           ))}

@@ -691,7 +691,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
                 ? 'border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent)'
                 : 'border:1px solid var(--vscode-panel-border);background:transparent;color:var(--muted)'
             }
-          >Reset</button>
+          >Clear Filters</button>
         )}
 
         {/* Trace paging — same controls, same styling, same signal as the table's own footer in
