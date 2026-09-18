@@ -1,0 +1,101 @@
+name: Security & dependency review
+
+# Scheduled, not on push/PR — this is a periodic audit, not a merge gate.
+# See .staged-features/security-and-dependency-review.md for the design.
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Monday 09:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Installed via the upstream script rather than a pinned marketplace Action so the
+      # vulnerability DB and CLI are always current — the DB freshness matters more here
+      # than binary pinning, and Trivy re-downloads its DB every run regardless.
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Dependency, secret & misconfig scan (Trivy)
+        run: trivy fs --scanners vuln,secret,misconfig,license --format json --output trivy.json --exit-code 0 .
+
+      - name: Install Semgrep
+        run: python3 -m pip install --quiet semgrep
+
+      # Explicit free rule packs, not --config=auto — auto requires metrics to be on
+      # (phones home), which doesn't fit a repo that's explicit about what leaves it.
+      - name: Static analysis (Semgrep)
+        run: |
+          semgrep scan \
+            --config=p/security-audit --config=p/secrets --config=p/typescript \
+            --config=p/javascript --config=p/owasp-top-ten \
+            --metrics=off --json --output semgrep.json .
+        continue-on-error: true
+
+      - name: Outdated dependencies
+        run: pnpm outdated --format json > outdated.json || true
+
+      - name: Build report
+        run: |
+          node scripts/security-review/report.mjs \
+            --trivy trivy.json --semgrep semgrep.json --outdated outdated.json \
+            --repo "${{ github.repository }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --out report.md --counts counts.json
+
+      - name: Publish job summary
+        run: cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-review-raw-${{ github.run_id }}
+          path: |
+            trivy.json
+            semgrep.json
+            outdated.json
+            report.md
+            counts.json
+          retention-days: 90
+
+      - name: Upsert tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create security-review --color 5319e7 --description "Recurring security & dependency review report" 2>/dev/null || true
+          existing=$(gh issue list --state open --label security-review --json number,title \
+            --jq '.[] | select(.title == "Security & dependency review") | .number' | head -n1)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file report.md
+          else
+            gh issue create --title "Security & dependency review" --body-file report.md --label security-review
+          fi
+
+      - name: Fail on critical findings
+        run: |
+          if [ "$(node -pe "require('./counts.json').shouldFail")" = "true" ]; then
+            echo "::error::Critical vulnerabilities or secrets found — see the job summary and the tracking issue."
+            exit 1
+          fi
