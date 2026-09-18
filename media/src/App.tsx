@@ -280,14 +280,24 @@ function PricingButton() {
 }
 
 export function App() {
-  // Global smart tooltip for [data-tip] elements
+  // Global smart tooltip for [data-tip] elements, and a fast replacement for the browser's own
+  // [title] tooltip — native title tooltips take ~1s+ (OS/browser-controlled, not something CSS
+  // or JS can shorten) to appear, which reads as sluggish given how many small badges/pills
+  // throughout this app rely on title text to explain themselves. This shows the same styled
+  // tooltip for either attribute after one short, consistent delay. The native title is
+  // temporarily removed while hovered (restored on mouseout) so it can't also pop in later,
+  // stacked on top of this one.
   useEffect(() => {
+    const HOVER_DELAY_MS = 150
     let tipEl: HTMLDivElement | null = null
-    function show(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null
-      if (!target) return
-      const text = target.getAttribute('data-tip')
-      if (!text) return
+    let showTimer: ReturnType<typeof setTimeout> | null = null
+    let activeTarget: HTMLElement | null = null
+
+    function clearTimer() {
+      if (showTimer !== null) { clearTimeout(showTimer); showTimer = null }
+    }
+
+    function positionAndShow(target: HTMLElement, text: string) {
       if (!tipEl) {
         tipEl = document.createElement('div')
         tipEl.className = 'metric-tooltip'
@@ -307,12 +317,53 @@ export function App() {
       tipEl.style.left = left + 'px'
       tipEl.style.top = top + 'px'
     }
-    function hide() { if (tipEl) tipEl.style.display = 'none' }
+
+    function restoreNativeTitle(target: HTMLElement) {
+      const native = target.getAttribute('data-native-title')
+      if (native !== null) {
+        target.setAttribute('title', native)
+        target.removeAttribute('data-native-title')
+      }
+    }
+
+    function show(e: MouseEvent) {
+      const target = (e.target as HTMLElement).closest('[data-tip], [title]') as HTMLElement | null
+      if (!target || target === activeTarget) return
+      clearTimer()
+      activeTarget = target
+      // Suppress the native tooltip right away (not after the delay) so it never gets a chance
+      // to start its own much-longer timer in parallel.
+      const nativeTitle = target.getAttribute('title')
+      if (nativeTitle !== null) {
+        target.setAttribute('data-native-title', nativeTitle)
+        target.removeAttribute('title')
+      }
+      showTimer = setTimeout(() => {
+        const text = target.getAttribute('data-tip') ?? target.getAttribute('data-native-title')
+        if (text) positionAndShow(target, text)
+      }, HOVER_DELAY_MS)
+    }
+
+    function hide(e: MouseEvent) {
+      const target = (e.target as HTMLElement).closest('[data-tip], [data-native-title]') as HTMLElement | null
+      if (!target) return
+      // Moving onto a child of the same target (e.g. an icon inside a titled pill) isn't a real
+      // leave — mouseout/mouseover delegation fires for that boundary too, and without this
+      // check the tooltip would flicker hidden-then-rescheduled on every such internal move.
+      const related = e.relatedTarget as Node | null
+      if (related && target.contains(related)) return
+      restoreNativeTitle(target)
+      clearTimer()
+      activeTarget = null
+      if (tipEl) tipEl.style.display = 'none'
+    }
+
     document.addEventListener('mouseover', show)
     document.addEventListener('mouseout', hide)
     return () => {
       document.removeEventListener('mouseover', show)
       document.removeEventListener('mouseout', hide)
+      clearTimer()
       if (tipEl) { tipEl.remove(); tipEl = null }
     }
   }, [])
@@ -355,7 +406,17 @@ export function App() {
         if (msg.otlpPort !== undefined) otlpPort.value = msg.otlpPort
         if (msg.currentWorkspace !== undefined) currentWorkspace.value = msg.currentWorkspace
         if (msg.summary?.toolCalls) toolCalls.value = msg.summary.toolCalls
-        if (msg.sessionSummary !== undefined) sessionSummary.value = msg.sessionSummary
+        if (msg.sessionSummary !== undefined) {
+          sessionSummary.value = msg.sessionSummary
+          // Warm the git-outcome cache in the background as soon as sessions load, rather than
+          // waiting for the Outcome filter to be engaged (OutcomeFilterBar below) or the Outcome
+          // column to scroll into view (Sessions.tsx). Both of those still fire their own request
+          // on top of this — requestGitOutcomesFor already skips anything already resolved or
+          // in flight, so that's a cheap no-op once this has run. This is what makes turning the
+          // Outcome filter on feel instant on a repeat visit instead of kicking off a fresh batch
+          // of git subprocesses right when the user asks to see results.
+          if (msg.sessionSummary) requestGitOutcomesFor(msg.sessionSummary.sessions)
+        }
         if (msg.analyticsData) {
           dailyStats.value = msg.analyticsData.dailyStats
           lifetimeStats.value = msg.analyticsData.lifetimeStats
