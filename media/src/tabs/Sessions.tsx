@@ -135,9 +135,39 @@ function PromptBlock({ text }: { text: string }) {
   )
 }
 
+// Small copy-to-clipboard icon button: shows a box icon at rest, swaps to a green checkmark
+// for a moment after copying (matches the cloud dashboard's trace ID copy affordance).
+function CopyIconButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      title={copied ? 'Copied' : label}
+      aria-label={copied ? 'Copied' : label}
+      onClick={e => {
+        e.stopPropagation()
+        navigator.clipboard.writeText(value).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        })
+      }}
+      style={`display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;padding:0;border:none;background:transparent;cursor:pointer;flex-shrink:0;color:${copied ? 'var(--vscode-charts-green,#81c784)' : 'var(--muted)'}`}
+    >
+      {copied ? (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ) : (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
 function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   const [section, setSection] = useState<Section>('overview')
-  const [traceIdCopied, setTraceIdCopied] = useState(false)
   const traceIdHash = formatTraceIdHash(sess.traceId || sess.sessionId)
   const timelines = sessionTimelines.value
   const timeline = timelines[sess.sessionId] ?? sess.timeline ?? []
@@ -201,30 +231,18 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   return (
     <div style="border-top:1px solid var(--border)" onClick={e => e.stopPropagation()}>
       <div style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
+        <span
+          style="display:flex;align-items:center;gap:5px;padding:3px 4px;margin-right:4px;font-size:10px;color:var(--muted);white-space:nowrap"
+        >
+          <span style="text-transform:uppercase;letter-spacing:.3px">Trace ID</span>
+          <span style="font-family:monospace;color:var(--fg)">{traceIdHash}</span>
+          <CopyIconButton value={traceIdHash} label="Copy trace ID" />
+        </span>
         {navBtn('overview', 'Overview')}
         {navBtn('waterfall', `Waterfall${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
         {navBtn('flow', `Flow${sess.totalLlmCalls > 0 ? ' (' + sess.totalLlmCalls + ')' : ''}`)}
         {navBtn('tools', `Tools${sess.totalToolCalls > 0 ? ' (' + sess.totalToolCalls + ')' : ''}`)}
         {navBtn('files', `Files${sess.filesChanged.length > 0 ? ' (' + sess.filesChanged.length + ')' : ''}`)}
-        <span
-          title="Trace ID"
-          style="margin-left:auto;display:flex;align-items:center;gap:5px;padding:3px 4px;font-size:10px;color:var(--muted);white-space:nowrap"
-        >
-          <span style="text-transform:uppercase;letter-spacing:.3px">Trace ID</span>
-          <span style="font-family:monospace;color:var(--fg)">{traceIdHash}</span>
-          <button
-            title="Copy trace ID"
-            aria-label="Copy trace ID"
-            onClick={e => {
-              e.stopPropagation()
-              navigator.clipboard.writeText(traceIdHash).then(() => {
-                setTraceIdCopied(true)
-                setTimeout(() => setTraceIdCopied(false), 1500)
-              })
-            }}
-            style={`border:none;background:transparent;cursor:pointer;padding:1px 3px;font-size:10px;${traceIdCopied ? 'color:var(--accent)' : 'color:var(--muted)'}`}
-          >{traceIdCopied ? '✓ Copied' : 'Copy'}</button>
-        </span>
       </div>
 
       <div style="padding:12px 14px">
