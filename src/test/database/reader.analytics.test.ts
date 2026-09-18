@@ -163,6 +163,25 @@ suite('DatabaseReader.searchSessions', () => {
     assert.strictEqual(result.totalCount, 1)
   })
 
+  test('text filter also matches session_id and trace_id, so a pasted Trace ID finds the trace', async () => {
+    const db = await openDb()
+    const storageUri = makeStorageUri()
+    const writer = new DatabaseWriter(db, storageUri, () => {})
+    const reader = new DatabaseReader(db, storageUri)
+
+    writer.enqueue(makeCard({ sessionId: 'abc123session', traceId: 'xyz789trace', userRequest: 'unrelated prompt' }), 'ws')
+    writer.enqueue(makeCard({ sessionId: 'other-session', traceId: 'other-trace', userRequest: 'a different prompt' }), 'ws')
+    await writer.drain()
+
+    const bySessionId = reader.searchSessions({ text: 'abc123', limit: 10, offset: 0 })
+    assert.strictEqual(bySessionId.sessions.length, 1)
+    assert.strictEqual(bySessionId.sessions[0].sessionId, 'abc123session')
+
+    const byTraceId = reader.searchSessions({ text: 'xyz789', limit: 10, offset: 0 })
+    assert.strictEqual(byTraceId.sessions.length, 1)
+    assert.strictEqual(byTraceId.sessions[0].sessionId, 'abc123session')
+  })
+
   test('orderBy cost_usd returns sessions in correct order', async () => {
     const db = await openDb()
     const storageUri = makeStorageUri()

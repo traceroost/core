@@ -1,5 +1,6 @@
 import { signal, computed } from '@preact/signals'
 import { calcSessionCost } from './sessionMetrics'
+import { formatTraceIdHash } from './hash'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome,
   AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
@@ -480,7 +481,16 @@ export const preOutcomeFilteredSessions = computed<SessionSummaryCard[]>(() => {
   } else {
     const text = sessionTextFilter.value.toLowerCase().trim()
     if (text) {
-      sessions = sessions.filter(s => (s.userRequest ?? '').toLowerCase().includes(text))
+      // Matches prompt text, or a Trace ID pasted in either form: the raw underlying id
+      // (traceId, or sessionId for sources with no separate trace id) and the normalized
+      // display hash shown/copied from the trace's expanded detail (formatTraceIdHash) —
+      // copying either one from anywhere in the app should find the trace here.
+      sessions = sessions.filter(s =>
+        (s.userRequest ?? '').toLowerCase().includes(text)
+        || s.sessionId.toLowerCase().includes(text)
+        || (s.traceId ?? '').toLowerCase().includes(text)
+        || formatTraceIdHash(s.traceId || s.sessionId).includes(text)
+      )
     }
   }
   const iFilter = initiatorFilter.value

@@ -437,6 +437,8 @@ export function getConversationColor(conversationId: string): string {
   return CONVERSATION_COLORS[Math.abs(hash) % CONVERSATION_COLORS.length]
 }
 
+export { formatTraceIdHash } from './hash'
+
 export function getAgentShortLabel(source: string | null | undefined): string {
   if (source === 'claude_code') return 'CL'
   if (source === 'codex') return 'CX'

@@ -13,7 +13,7 @@ import {
 import { PageSizeSelect } from './Settings'
 import {
   getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
-  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor,
+  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash,
 } from '../utils'
 import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
@@ -260,6 +260,8 @@ function PromptBlock({ text }: { text: string }) {
 
 function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   const [section, setSection] = useState<Section>('overview')
+  const [traceIdCopied, setTraceIdCopied] = useState(false)
+  const traceIdHash = formatTraceIdHash(sess.traceId || sess.sessionId)
   const timelines = sessionTimelines.value
   const timeline = timelines[sess.sessionId] ?? sess.timeline ?? []
   const cost = calcSessionCost(sess, 'token')
@@ -321,12 +323,31 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
 
   return (
     <div style="border-top:1px solid var(--border)" onClick={e => e.stopPropagation()}>
-      <div style="display:flex;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
+      <div style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         {navBtn('overview', 'Overview')}
         {navBtn('waterfall', `Waterfall${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
         {navBtn('flow', `Flow${sess.totalLlmCalls > 0 ? ' (' + sess.totalLlmCalls + ')' : ''}`)}
         {navBtn('tools', `Tools${sess.totalToolCalls > 0 ? ' (' + sess.totalToolCalls + ')' : ''}`)}
         {navBtn('files', `Files${sess.filesChanged.length > 0 ? ' (' + sess.filesChanged.length + ')' : ''}`)}
+        <span
+          title="Trace ID"
+          style="margin-left:auto;display:flex;align-items:center;gap:5px;padding:3px 4px;font-size:10px;color:var(--muted);white-space:nowrap"
+        >
+          <span style="text-transform:uppercase;letter-spacing:.3px">Trace ID</span>
+          <span style="font-family:monospace;color:var(--fg)">{traceIdHash}</span>
+          <button
+            title="Copy trace ID"
+            aria-label="Copy trace ID"
+            onClick={e => {
+              e.stopPropagation()
+              navigator.clipboard.writeText(traceIdHash).then(() => {
+                setTraceIdCopied(true)
+                setTimeout(() => setTraceIdCopied(false), 1500)
+              })
+            }}
+            style={`border:none;background:transparent;cursor:pointer;padding:1px 3px;font-size:10px;${traceIdCopied ? 'color:var(--accent)' : 'color:var(--muted)'}`}
+          >{traceIdCopied ? '✓ Copied' : 'Copy'}</button>
+        </span>
       </div>
 
       <div style="padding:12px 14px">
@@ -680,7 +701,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
                 <span style="font-style:italic;color:var(--foreground)">
                   {prompt.length > PROMPT_PREVIEW_CHARS ? prompt.slice(0, PROMPT_PREVIEW_CHARS).trimEnd() + '…' : prompt}
                 </span>
-                <span style="font-family:monospace;color:var(--muted)"> ({sess.sessionId.slice(0, 8)})</span>
+                <span style="font-family:monospace;color:var(--muted)"> ({formatTraceIdHash(sess.traceId || sess.sessionId).slice(0, 8)})</span>
               </span>
             : sess.turns === 0
               ? <span style="color:var(--muted);font-size:11px">…</span>

@@ -298,7 +298,14 @@ export class DatabaseReader {
 
   searchSessions(query: SearchQuery): { sessions: SessionSummaryCard[]; totalCount: number } {
     const conditions: string[] = ['is_sidechain = 0', "session_id NOT LIKE 'synth-%'"]
-    if (query.text)        conditions.push(`user_request LIKE '%${this._esc(query.text)}%'`)
+    // Matches prompt text, or a raw trace/session id pasted into the same box — the normalized
+    // display hash (formatTraceIdHash, media/src/hash.ts) can't be matched here since it's a
+    // pure client-side hash of whichever raw id a trace has; the webview's own client-side
+    // filter (state.ts) is what handles that case for the interactive trace list.
+    if (query.text) {
+      const t = this._esc(query.text)
+      conditions.push(`(user_request LIKE '%${t}%' OR session_id LIKE '%${t}%' OR trace_id LIKE '%${t}%')`)
+    }
     if (query.source)      conditions.push(`source = '${this._esc(query.source)}'`)
     if (query.model)       conditions.push(`model = '${this._esc(query.model)}'`)
     if (query.since !== null && query.since !== undefined) conditions.push(`start_time >= ${query.since}`)
