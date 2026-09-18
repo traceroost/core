@@ -733,7 +733,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
           the wrapper (not the individual controls) pulls the whole row against whatever's
           before it. Reset sits right next to PageSizeSelect (the "page size" control) rather
           than off on its own. */}
-      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
+      <span class="tr-trailing-controls" style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
         <span role="status" class="range-status" title={searchError ?? undefined}>
           {searchError ? `⚠ ${searchError}` : ''}
         </span>
