@@ -219,6 +219,12 @@ export const initiatorFilter = signal<InitiatorFilter>('all')
 export const dataSourceFilter = signal<DataSourceFilter>('all')
 export const insightFilter = signal<InsightFilter>('all')
 export const workspaceFilter = signal<WorkspaceFilter>('')
+// The one real folder open in this VS Code window (dashboardPanel.ts's 'update' message,
+// vscode.workspace.workspaceFolders[0]) — null until the first message arrives, or if no folder
+// is open. Distinct from workspaceFilter above (a freeform search box that can match any
+// historical repo's sessions): this is what Apply/getInstructionFiles actually write to, so
+// Instructions.tsx scopes its evidence and applied/dismissed state to this, not the search box.
+export const currentWorkspace = signal<string | null>(null)
 export const outcomeFilter = signal<OutcomeFilter>('all')
 export const activeTab = signal('sessions')
 

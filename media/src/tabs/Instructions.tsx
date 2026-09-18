@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import { signal } from '@preact/signals'
 import {
-  workspaceFilter, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
+  currentWorkspace, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
   repoInfo, repoDisplayName, repoTooltipName,
 } from '../state'
 import { calcSessionCost } from '../sessionMetrics'
@@ -419,12 +419,12 @@ function changePctColor(pct: number | null): string {
 // ── Components ────────────────────────────────────────────────────────────────
 
 
-function InsufficientDataState({ workspace, count }: { workspace: string; count: number }) {
+function InsufficientDataState({ workspace, count }: { workspace: string | null; count: number }) {
   return (
     <div style="padding:32px 24px;max-width:480px;margin:0 auto;text-align:center">
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
         Not enough history yet — TraceRoost needs at least 3 sessions
-        {workspace !== 'all' && <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></>}
+        {workspace !== null && <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></>}
         {' '}to detect patterns.<br />
         Current: {count} trace{count !== 1 ? "s" : ""}.
       </div>
@@ -668,11 +668,21 @@ function AppliedCard({
 // ── Main tab component ────────────────────────────────────────────────────────
 
 export function Instructions() {
-  const workspace = workspaceFilter.value
+  // The real folder this VS Code window has open (dashboardPanel.ts's 'update' message) — not
+  // workspaceFilter, which is the Traces/Sessions toolbar's freeform repo *search* box and can
+  // match any historical repo's sessions, not just the one Apply actually writes to (the
+  // extension host resolves targetFile against vscode.workspace.workspaceFolders[0] regardless
+  // of what string the webview sends it). A suggestion built from a different repo's sessions
+  // isn't just mislabeled, it's not actionable: Apply would write it into the wrong repo's
+  // instruction file.
+  const workspace = currentWorkspace.value
   const sessions = filteredSessions.value
 
-  // Workspace-scoped sessions — use all visible sessions when no workspace is selected
-  const wsSessions = workspace === 'all'
+  // Scoped to the one repo Apply can act on. No open folder (rare — e.g. inspecting historical
+  // data with nothing open) falls back to every session, same as before; a suggestion generated
+  // that way just can't be applied (the effect below only requests files/applied/dismissed state
+  // when workspace is non-null, and the file-status bar stays empty).
+  const wsSessions = workspace === null
     ? sessions
     : sessions.filter(s => (s.workspace ?? '') === workspace)
 
@@ -689,7 +699,7 @@ export function Instructions() {
 
   // Request instruction files from extension when workspace changes
   useEffect(() => {
-    if (workspace !== 'all' && vscode) {
+    if (workspace !== null && vscode) {
       vscode.postMessage({ type: 'getInstructionFiles', workspace })
       vscode.postMessage({ type: 'getAppliedSuggestions', workspace })
       vscode.postMessage({ type: 'getDismissedSuggestions', workspace })
@@ -706,12 +716,14 @@ export function Instructions() {
         category: card.category, title: card.title, suggestedText: card.suggestedText,
       })
     } else {
-      // Standalone: optimistically add to applied list
+      // Standalone: optimistically add to applied list. workspace is only null with no folder
+      // open (or no real host in this preview mode) — AppliedRecord's key needs *some* string,
+      // and there's nothing truer to fall back to here.
       const nowMs = Date.now()
       appliedSuggestions.value = [
         ...appliedSuggestions.value,
         {
-          id, workspace, category: card.category, title: card.title,
+          id, workspace: workspace ?? '', category: card.category, title: card.title,
           suggestedText: card.suggestedText, appliedTo: targetFile,
           appliedText: text, appliedAt: new Date().toISOString(), appliedAtMs: nowMs,
           baselineCostAvg: 0, baselineTurnsAvg: 0, baselineInsufficient: true,
@@ -742,9 +754,11 @@ export function Instructions() {
       <FileStatusBar files={files} />
 
       <div style="padding:12px 16px">
-        {workspace === 'all' && (
+        {workspace === null && (
           <div style="margin-bottom:12px;padding:8px 12px;font-size:11px;color:var(--muted);line-height:1.5;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-            Select a project above for tailored suggestions. Across all projects, only universal patterns surface.
+            No folder is open, so TraceRoost can't tell which repo's instruction file these
+            patterns apply to — suggestions below are shown for reference only and can't be
+            applied. Open the project's folder to get tailored, applicable suggestions.
           </div>
         )}
         {/* Pending suggestions */}

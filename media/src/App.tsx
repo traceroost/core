@@ -10,7 +10,7 @@ import {
   vscode, displaySessions, rangedSessions,
   sessionTextFilter, filteredSessions, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   sessionSortKey, sessionSortDir,
-  workspaceFilter, availableWorkspaces, requestRepoHash, shortWorkspaceName,
+  workspaceFilter, currentWorkspace, availableWorkspaces, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   sessionsPage, getSessionsPagination,
 } from './state'
@@ -346,12 +346,14 @@ export function App() {
         enableOtelIngestion?: boolean
         enableLogIngestion?: boolean
         otlpPort?: number
+        currentWorkspace?: string | null
         results?: OtelReconfigureResult
       }
       if (msg.type === 'update') {
         if (msg.enableOtelIngestion !== undefined) enableOtelIngestion.value = msg.enableOtelIngestion
         if (msg.enableLogIngestion !== undefined) enableLogIngestion.value = msg.enableLogIngestion
         if (msg.otlpPort !== undefined) otlpPort.value = msg.otlpPort
+        if (msg.currentWorkspace !== undefined) currentWorkspace.value = msg.currentWorkspace
         if (msg.summary?.toolCalls) toolCalls.value = msg.summary.toolCalls
         if (msg.sessionSummary !== undefined) sessionSummary.value = msg.sessionSummary
         if (msg.analyticsData) {

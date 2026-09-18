@@ -317,6 +317,11 @@ export class DashboardPanel {
       enableOtelIngestion: cfg.get<boolean>('enableOtelIngestion', true),
       enableLogIngestion: cfg.get<boolean>('enableLogIngestion', true),
       otlpPort: cfg.get<number>('otlpPort', 4318),
+      // The one real folder Apply/getInstructionFiles below actually act on
+      // (vscode.workspace.workspaceFolders[0], same source those handlers already use) — the
+      // webview has no other way to know it, and it is not the same thing as the Repo toolbar's
+      // freeform search box (workspaceFilter), which can match any historical repo's sessions.
+      currentWorkspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
     })
   }
 

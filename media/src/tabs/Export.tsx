@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks'
 import {
   filteredSessions, vscode, timeRange, rangedSearchResults, exportSearchResults,
   agentFilteredSessions, selectedAgentFilter, workspaceFilter, dataSourceFilter,
-  sessionTextFilter, initiatorFilter, evidenceSessionIds,
+  sessionTextFilter, initiatorFilter, evidenceSessionIds, repoInfo, matchesRepoQuery,
 } from '../state'
 import type { SessionSummaryCard } from '../types'
 
@@ -50,8 +50,14 @@ function applyRemainingFilters(sessions: SessionSummaryCard[]): SessionSummaryCa
   let result = sessions
   const dsFilter = dataSourceFilter.value
   if (dsFilter !== 'all') result = result.filter(s => (s.dataSource ?? 'otel') === dsFilter)
-  const wsFilter = workspaceFilter.value
-  if (wsFilter !== 'all') result = result.filter(s => (s.workspace ?? '') === wsFilter)
+  // workspaceFilter is the toolbar's freeform repo search (empty = no filter, matching a
+  // workspace's git-derived name/hash or its raw path — state.ts's matchesRepoQuery), not the
+  // old 'all'-sentinel dropdown this used to check against.
+  const wsFilter = workspaceFilter.value.trim()
+  if (wsFilter !== '') {
+    const info = repoInfo.value
+    result = result.filter(s => matchesRepoQuery(s.workspace ?? '', wsFilter, info))
+  }
   const iFilter = initiatorFilter.value
   if (iFilter !== 'all') {
     result = result.filter(s => {
