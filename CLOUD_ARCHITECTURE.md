@@ -1,4 +1,4 @@
-# TraceRoost Pro — Cloud Architecture
+# TraceRoost Cloud Architecture
 
 This is the entry point for the **cloud / team** feature set merged onto this branch from the
 `pro/01`–`pro/09` series (`AL 01`–`AL 09` in the plan below). It indexes the deep-dive docs that
