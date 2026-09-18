@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { filteredSessions, sessionSummary, insightFilter, ignoredInsightKeys } from '../state'
 import { buildDisplaySummary, getAgentColor, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
 import type { Insight, InsightFilter, SessionSummaryCard } from '../types'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 
 type EffSummary = ReturnType<typeof buildDisplaySummary>['efficiency']
 
@@ -314,8 +315,28 @@ export function generateInsights(
 
 // ── InsightCard ───────────────────────────────────────────────────────────────
 
+// Loop insights get the exact same pictogram as the Signals column/cell for their pattern type
+// (via _loopType) instead of a generic ↺ — same struggle pattern, same glyph, wherever it shows
+// up. Non-loop (efficiency) insights keep the plain ⚠/ℹ they always had; only loop severities
+// have a per-type icon to draw.
+function InsightIcon({ ins }: { ins: Insight }) {
+  if (ins.severity.startsWith('loop')) {
+    const iconType = ins._loopType ? LOOP_SIGNAL_ICON_TYPE[ins._loopType] : undefined
+    const Icon = iconType ? SIGNAL_ICON[iconType] : undefined
+    if (Icon) {
+      const color = SIGNAL_SEVERITY_COLOR[ins.severity === 'loop-critical' ? 'critical' : 'warning']
+      return (
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0">
+          <Icon color={color} />
+        </span>
+      )
+    }
+    return <>↺</>
+  }
+  return <>{ins.severity === 'warning' ? '⚠' : 'ℹ'}</>
+}
+
 export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgnored: boolean; sessions: SessionSummaryCard[] }) {
-  const icon = ins.severity.startsWith('loop') ? '↺' : ins.severity === 'warning' ? '⚠' : 'ℹ'
   const session = ins.sessionIdx !== undefined ? sessions[ins.sessionIdx] : undefined
   const titleTraceMatch = ins.title.match(/^\[Trace\s+\d+\]\s*(.*)$/)
   const insightTitle = titleTraceMatch ? titleTraceMatch[1] : ins.title
@@ -394,7 +415,7 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
     <div class={clsx('insight-card', 'insight-' + ins.severity)} style={isIgnored ? 'opacity:0.55' : ''}>
       {/* Header: icon + title + ignore button */}
       <div class="insight-header" style="align-items:flex-start;margin-bottom:4px">
-        <span class="insight-icon" style="margin-top:1px">{icon}</span>
+        <span class="insight-icon" style="margin-top:1px"><InsightIcon ins={ins} /></span>
         <span class="insight-title" style="flex:1">{insightTitle}</span>
         <button
           class="insight-ignore-btn"

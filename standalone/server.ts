@@ -1356,7 +1356,15 @@ function getHtml(): string {
                   data: { type: 'gitOutcome', sessionId: data.sessionId, outcome: data.outcome, riskSignals: data.riskSignals, temperedLoopSignals: data.temperedLoopSignals }
                 }));
               })
-              .catch(function(e) { console.warn('[TraceRoost] git outcome fetch failed', e); });
+              .catch(function(e) {
+                console.warn('[TraceRoost] git outcome fetch failed', e);
+                // Still dispatch a reply (as "not applicable") — the Outcome filter's pending
+                // count only ever counts down on a 'gitOutcome' message, so a request that only
+                // logs and never replies leaves that session's spinner stuck forever.
+                window.dispatchEvent(new MessageEvent('message', {
+                  data: { type: 'gitOutcome', sessionId: msg.sessionId, outcome: null, riskSignals: [], temperedLoopSignals: null }
+                }));
+              });
           } else if (msg.type === 'getRepoHash' && msg.workspace) {
             fetch('/api/repo-hash', {
               method: 'POST',
@@ -1873,16 +1881,26 @@ const uiServer = http.createServer((req, res) => {
         }
         const sessionId = body.sessionId ?? ''
         if (!sessionId) { res.writeHead(400); res.end(); return }
-        let pending = gitOutcomeCache.get(sessionId)
-        if (!pending) {
-          pending = loadOrComputeGitOutcome(
-            sessionId,
-            body.workspace ?? '',
-            Array.isArray(body.filesChanged) ? body.filesChanged : [],
-          )
-          gitOutcomeCache.set(sessionId, pending)
+        let outcome: GitOutcome | null
+        try {
+          let pending = gitOutcomeCache.get(sessionId)
+          if (!pending) {
+            pending = loadOrComputeGitOutcome(
+              sessionId,
+              body.workspace ?? '',
+              Array.isArray(body.filesChanged) ? body.filesChanged : [],
+            )
+            gitOutcomeCache.set(sessionId, pending)
+          }
+          outcome = await pending
+        } catch (err) {
+          // See dashboardPanel.ts's sendGitOutcome for why a rejected classification must never
+          // stay cached (it would permanently poison this session's slot) or go unreported (the
+          // browser's Outcome-filter spinner counts down only on receiving a reply).
+          gitOutcomeCache.delete(sessionId)
+          console.warn(`[TraceRoost] git-outcome classification failed for session ${sessionId}:`, err)
+          outcome = null
         }
-        const outcome = await pending
         // Post-hoc risk signals (hallucinated import, submitted-despite-a-failing-check) and
         // re-tempered loop-signal severity are both only knowable once the session's outcome is
         // known, same lifecycle as git-outcome classification — computed here rather than eagerly

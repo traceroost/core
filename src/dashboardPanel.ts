@@ -124,12 +124,12 @@ export class DashboardPanel {
         const timeline = this.repo.loadSessionTimeline(msg.sessionId as string)
         this.panel.webview.postMessage({ type: 'sessionDetail', sessionId: msg.sessionId, timeline })
       } else if (msg.type === 'getGitOutcome' && msg.sessionId) {
-        void this.sendGitOutcome(
+        this.sendGitOutcome(
           msg.sessionId as string,
           (msg.workspace as string) || '',
           Array.isArray(msg.filesChanged) ? msg.filesChanged as string[] : [],
           (msg.endTime as string) || '',
-        )
+        ).catch(err => console.error('[TraceRoost] sendGitOutcome failed:', err))
       } else if (msg.type === 'getRepoHash' && msg.workspace) {
         void this.sendRepoHash(msg.workspace as string)
       } else if (msg.type === 'loadBlob' && msg.spanId && msg.field) {
@@ -372,12 +372,24 @@ export class DashboardPanel {
     if (endTime && Date.now() - Date.parse(endTime) < DashboardPanel.GIT_OUTCOME_ACTIVE_GRACE_MS) {
       return
     }
-    let pending = this.gitOutcomeCache.get(sessionId)
-    if (!pending) {
-      pending = this.loadOrComputeGitOutcome(sessionId, workspace, filesChanged)
-      this.gitOutcomeCache.set(sessionId, pending)
+    let outcome: GitOutcome | null
+    try {
+      let pending = this.gitOutcomeCache.get(sessionId)
+      if (!pending) {
+        pending = this.loadOrComputeGitOutcome(sessionId, workspace, filesChanged)
+        this.gitOutcomeCache.set(sessionId, pending)
+      }
+      outcome = await pending
+    } catch (err) {
+      // Never leave a rejected classification cached — that would permanently poison this
+      // session's slot (every future call re-rejects immediately, forever) and, since nothing
+      // downstream of a throw here ever posts a `gitOutcome` reply, permanently strand the
+      // Outcome filter's "resolving N outcomes" spinner above zero. Evict so it's retried next
+      // time, and still reply now (as "not applicable") so the spinner can count this one down.
+      this.gitOutcomeCache.delete(sessionId)
+      console.error(`[TraceRoost] git-outcome classification failed for session ${sessionId}:`, err)
+      outcome = null
     }
-    const outcome = await pending
     // Post-hoc risk signals (hallucinated import, submitted-despite-a-failing-check) and
     // re-tempered loop-signal severity are both only knowable once the session's outcome is
     // known, same lifecycle as git-outcome classification — computed here rather than eagerly
