@@ -58,4 +58,34 @@ suite('forward/deliveryLedger', () => {
     ledger.markDelivered('session:a') // must not throw, and must recover to a valid file
     assert.strictEqual(new DeliveryLedger(home).isDelivered('session:a'), true)
   })
+
+  test('repeated isDelivered calls do not re-read the file while it is unchanged — this is what made a full reconcile slow', () => {
+    // Written directly (not via DeliveryLedger) so the module-level read cache starts cold for
+    // this file, same as a freshly-started reconcile finding an existing ledger.
+    fs.mkdirSync(path.dirname(ledgerPath(home)), { recursive: true })
+    fs.writeFileSync(ledgerPath(home), JSON.stringify(['session:already-sent']), { mode: 0o600 })
+    const file = ledgerPath(home)
+    let reads = 0
+    const realReadFileSync = fs.readFileSync
+    const spy = ((...args: Parameters<typeof fs.readFileSync>) => {
+      if (args[0] === file) reads++
+      return realReadFileSync(...(args as [string]))
+    }) as typeof fs.readFileSync
+    // `deliveryLedger.ts`'s `import * as fs from 'fs'` reads `readFileSync` off the real,
+    // `require`-cached `fs` module object live on every call (that's how TS compiles a
+    // namespace import) — patching it here, rather than this file's own `fs` namespace object,
+    // is what makes the spy actually visible to the code under test.
+    const nodeFs = require('fs') as typeof fs
+    nodeFs.readFileSync = spy
+    try {
+      // Simulates reconcile checking many local sessions against the same unchanged ledger — the
+      // real bug was one full readFileSync + JSON.parse of the whole file per session (see
+      // `DeliveryLedger.readCached`'s doc comment).
+      const ledger = new DeliveryLedger(home)
+      for (let i = 0; i < 50; i++) ledger.isDelivered('session:already-sent')
+      assert.strictEqual(reads, 1)
+    } finally {
+      nodeFs.readFileSync = realReadFileSync
+    }
+  })
 })

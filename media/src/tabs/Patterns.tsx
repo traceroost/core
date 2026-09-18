@@ -1,10 +1,11 @@
-import { useState, useRef } from 'preact/hooks'
-import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter } from '../state'
-import { Instructions } from './Instructions'
+import { useState, useRef, useEffect } from 'preact/hooks'
+import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode } from '../state'
+import { Instructions, instructionFiles } from './Instructions'
 import { getAgentSourceLabel, formatSessionTime } from '../utils'
 import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
+import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -425,6 +426,59 @@ function HotFiles({ sessions }: { sessions: SessionSummaryCard[] }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+const ACTION_KIND_ICON: Record<CostSavingAction['kind'], string> = {
+  cache_rate: '⚡',
+  loop_signal: '🔁',
+  hot_file: '📄',
+}
+
+/** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
+ *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
+ *  See .staged-issues/value-prop-and-cost-savings.md, Step 1. */
+function SaveMoneyCard({ sessions }: { sessions: SessionSummaryCard[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const workspace = currentWorkspace.value
+
+  useEffect(() => {
+    if (workspace !== null && vscode) {
+      vscode.postMessage({ type: 'getInstructionFiles', workspace })
+    }
+  }, [workspace])
+
+  const existingText = instructionFiles.value.map(f => f.content).join('\n')
+  const actions = getCostSavingActions(sessions, existingText)
+  if (actions.length === 0) return null
+
+  const shown = expanded ? actions : actions.slice(0, 3)
+
+  return (
+    <section>
+      <h3 style={sectionHead}>How to spend less</h3>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        {shown.map(a => (
+          <div key={a.id} style="display:flex;gap:8px;align-items:flex-start;font-size:12px">
+            <span style="flex-shrink:0">{ACTION_KIND_ICON[a.kind]}</span>
+            <div>
+              <div style="font-weight:600">{a.title}</div>
+              <div style="color:var(--muted);margin:2px 0">{a.evidence}</div>
+              <div>{a.action}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {actions.length > 3 && (
+        <button
+          class="btn-link"
+          style="margin-top:8px;font-size:11px"
+          onClick={() => setExpanded(e => !e)}
+        >
+          {expanded ? 'Show fewer' : `Show ${actions.length - 3} more`}
+        </button>
+      )}
+    </section>
+  )
+}
+
 export function Patterns() {
   const sessions = filteredSessions.value
 
@@ -436,6 +490,10 @@ export function Patterns() {
 
   return (
     <div id="patterns-content" style="padding-top:8px">
+      <SaveMoneyCard sessions={sessions} />
+
+      {divider}
+
       <section>
         <h3 style={sectionHead}>Instructions File</h3>
         <Instructions />

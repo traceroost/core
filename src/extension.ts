@@ -1,8 +1,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import * as http from 'http'
 import * as vscode from 'vscode'
 import { OtlpCollector } from './otlpCollector'
+import { detectPortOwner } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
@@ -15,7 +15,7 @@ import { migrateGlobalStateToSqlite } from './database/migration'
 import { runRetention } from './database/retention'
 import { SessionRepository } from './sessionRepository'
 import { summarizeSpans } from './spanSummarizer'
-import { LogReader } from './logReader'
+import { LogReader, type FileState } from './logReader'
 import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
 import { startMcpHttpServer } from './mcpServer'
@@ -60,35 +60,31 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
   }
 }
 
-// ── Port detection ────────────────────────────────────────────────────────────
+// ── Log-reader file-state persistence ────────────────────────────────────────
+//
+// Without this, every extension activation re-parses every historical source-tool log file from
+// scratch — LogReader.fileState is an in-memory Map that starts empty on every process start. This
+// is pure waste today, at current scale, for anyone with more than a few weeks of log history, so
+// it's fixed unconditionally rather than gated behind the stress-test in scalability.md. See
+// .staged-issues/scalability.md, risk #1.
 
-function probePort(port: number, probePath: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}${probePath}`, (res) => {
-      const chunks: Buffer[] = []
-      res.on('data', (chunk: Buffer) => chunks.push(chunk))
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>
-          resolve(json.traceroost === true)
-        } catch {
-          resolve(false)
-        }
-      })
-    })
-    req.on('error', () => resolve(false))
-    req.setTimeout(1000, () => { req.destroy(); resolve(false) })
-  })
+const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
+
+function readLogFileState(storageUri: vscode.Uri): Record<string, FileState> {
+  try {
+    const filePath = path.join(storageUri.fsPath, LOG_FILE_STATE_FILENAME)
+    const raw = fs.readFileSync(filePath, 'utf8')
+    return JSON.parse(raw) as Record<string, FileState>
+  } catch {
+    return {}
+  }
 }
 
-async function detectPortOwner(port: number): Promise<'plugin' | 'standalone' | 'foreign'> {
-  const [isPlugin, isStandalone] = await Promise.all([
-    probePort(port, '/traceroost/plugin'),
-    probePort(port, '/traceroost/standalone'),
-  ])
-  if (isPlugin) return 'plugin'
-  if (isStandalone) return 'standalone'
-  return 'foreign'
+function writeLogFileState(storageUri: vscode.Uri, state: Record<string, FileState>): void {
+  try {
+    const filePath = path.join(storageUri.fsPath, LOG_FILE_STATE_FILENAME)
+    fs.writeFileSync(filePath, JSON.stringify(state))
+  } catch { /* non-fatal — worst case, the next activation re-parses from scratch */ }
 }
 
 // ── Activate ─────────────────────────────────────────────────────────────────
@@ -134,7 +130,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const log = (msg: string) => outputChannel!.appendLine(msg)
     writer = new DatabaseWriter(traceRoostDb.raw, context.globalStorageUri, log)
     const reader = new DatabaseReader(traceRoostDb.raw, context.globalStorageUri)
-    repository = new SessionRepository(reader, writer, store)
+    repository = new SessionRepository(reader, writer, store, log)
 
     // Run one-time migration before registering the onUpdate subscriber.
     await migrateGlobalStateToSqlite(context, writer, log)
@@ -258,7 +254,9 @@ export async function activate(context: vscode.ExtensionContext) {
   let startBatchedLoad: ((onAllDone?: () => void) => void) | undefined
   if (enableLogIngestion && writer) {
     logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
+    logReader.importFileState(readLogFileState(context.globalStorageUri))
     const lr = logReader  // non-null alias for use inside closures
+    const persistFileState = () => writeLogFileState(context.globalStorageUri, lr.exportFileState())
     const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString() ?? ''
 
     // Periodic incremental scan: only picks up files that have changed since last run.
@@ -276,6 +274,7 @@ export async function activate(context: vscode.ExtensionContext) {
         provider.refresh()
         DashboardPanel.currentPanel?.update()
         writeLastWriteSignal(context.globalStorageUri)
+        persistFileState()
       }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
     }
 
@@ -394,6 +393,7 @@ export async function activate(context: vscode.ExtensionContext) {
               .join(', ')
             outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
           }
+          persistFileState()
           onAllDone?.()
         })
       })
@@ -421,7 +421,7 @@ export async function activate(context: vscode.ExtensionContext) {
         )
         if (snapshotReader && store) {
           const snapshotWriter = writer ?? new DatabaseWriter(traceRoostDb!.raw, context.globalStorageUri, () => {})
-          repository = new SessionRepository(snapshotReader, snapshotWriter, store)
+          repository = new SessionRepository(snapshotReader, snapshotWriter, store, (msg) => outputChannel!.appendLine(msg))
           provider.setRepository(repository)
           DashboardPanel.setRepository(repository)
           provider.refresh()
@@ -594,13 +594,22 @@ export async function activate(context: vscode.ExtensionContext) {
   const enableMcp = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableMcpServer', true)
   if (enableMcp) {
     const mcpPort = vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
-    const mcpServer = startMcpHttpServer(
-      { getSessions: () => repository?.listSessions() ?? [],
-        getTimeline: (id) => repository?.loadSessionTimeline(id) ?? [] },
-      mcpPort,
-    )
-    context.subscriptions.push({ dispose: () => mcpServer.close() })
-    outputChannel.appendLine(`TraceRoost MCP server → http://127.0.0.1:${mcpPort}/mcp`)
+    try {
+      const mcpServer = await startMcpHttpServer(
+        { getSessions: () => repository?.listSessions() ?? [],
+          getTimeline: (id) => repository?.loadSessionTimeline(id) ?? [] },
+        mcpPort,
+        '127.0.0.1',
+        '',
+        (requested, bound) => outputChannel!.appendLine(`[TraceRoost] Port ${requested} (MCP) was in use — using ${bound} instead.`),
+      )
+      context.subscriptions.push({ dispose: () => mcpServer.close() })
+      const boundMcpPort = (mcpServer.address() as { port: number }).port
+      outputChannel.appendLine(`TraceRoost MCP server → http://127.0.0.1:${boundMcpPort}/mcp`)
+    } catch (err) {
+      outputChannel.appendLine(`Failed to start MCP server on port ${mcpPort}: ${err}`)
+      vscode.window.showErrorMessage(`TraceRoost: Could not start the MCP server (port ${mcpPort} and nearby ports are all in use). Set traceRoost.mcpPort to a free port.`)
+    }
   }
 
   // ── Pro: forwarding scheduler ───────────────────────────────────────────────

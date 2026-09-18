@@ -1,14 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://traceroost.com/schema/rollup.v1.json",
+  "$id": "https://traceroost.cloud/schema/rollup.v1.json",
   "title": "TraceRoost rollup, version 1",
-  "description": "The complete wire format between a linked machine and the TraceRoost Pro ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. See docs/decisions/0003-what-we-can-and-cannot-see.md.",
+  "description": "The complete wire format between a linked machine and the TraceRoost Cloud ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. See docs/decisions/0003-what-we-can-and-cannot-see.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version"],
   "properties": {
     "schema_version": { "const": "1" },
     "repo_key_fp": { "$ref": "#/$defs/hash" },
+    "member_author_hash": { "$ref": "#/$defs/hash" },
     "session": { "$ref": "#/$defs/session" },
     "commits": {
       "type": "array",
@@ -145,7 +146,8 @@
         "lines_added": { "$ref": "#/$defs/count" },
         "lines_removed": { "$ref": "#/$defs/count" },
         "ai_lines": { "$ref": "#/$defs/count" },
-        "attribution": { "$ref": "#/$defs/attribution" }
+        "attribution": { "$ref": "#/$defs/attribution" },
+        "author_hash": { "$ref": "#/$defs/hash" }
       }
     },
     "turnover": {

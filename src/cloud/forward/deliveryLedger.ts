@@ -44,6 +44,12 @@ export function scopedKey(installId: string, itemKey: string): string {
   return `${installId}:${itemKey}`
 }
 
+/** Per-process, per-file cache of the parsed ledger, keyed off the file's mtime — see `readAll`
+ *  below for why this exists. Module-level (not per-instance) because every call site does
+ *  `new DeliveryLedger()` fresh rather than holding one around. */
+interface LedgerCache { mtimeMs: number; keys: string[]; set: Set<string> }
+const readCache = new Map<string, LedgerCache>()
+
 export class DeliveryLedger {
   private readonly file: string
   private readonly maxEntries: number
@@ -53,30 +59,54 @@ export class DeliveryLedger {
     this.maxEntries = maxEntries
   }
 
-  private readAll(): string[] {
+  /**
+   * Re-parsing this file (up to `DEFAULT_MAX_ENTRIES` entries) on every call used to be exactly
+   * what it looked like: reconciliation and the post-send delivery recording (`sender.ts`) both
+   * call `isDelivered`/`markDelivered` once per session, in a loop, and each call built a fresh
+   * `DeliveryLedger()` — so a "Reconcile now" over a machine's full history re-read and
+   * re-JSON.parsed the entire ledger file once per session. That's the real reason it was slow,
+   * not just perceived-slow: an `fs.statSync` (below) is orders of magnitude cheaper than a
+   * `readFileSync` + `JSON.parse` of a large array, so reusing the parse when the file's mtime
+   * hasn't moved turns an O(sessions × ledger size) reconcile into O(sessions) statSyncs plus one
+   * real parse.
+   */
+  private readCached(): LedgerCache {
+    let stat: fs.Stats
+    try {
+      stat = fs.statSync(this.file)
+    } catch {
+      readCache.delete(this.file)
+      return { mtimeMs: -1, keys: [], set: new Set() }
+    }
+    const cached = readCache.get(this.file)
+    if (cached && cached.mtimeMs === stat.mtimeMs) return cached
     let raw: string
     try {
       raw = fs.readFileSync(this.file, 'utf-8')
     } catch {
-      return []
+      return { mtimeMs: -1, keys: [], set: new Set() }
     }
+    let keys: string[]
     try {
       const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+      keys = Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
     } catch {
-      return []
+      keys = []
     }
+    const entry: LedgerCache = { mtimeMs: stat.mtimeMs, keys, set: new Set(keys) }
+    readCache.set(this.file, entry)
+    return entry
   }
 
   isDelivered(key: string): boolean {
-    return this.readAll().includes(key)
+    return this.readCached().set.has(key)
   }
 
   /** Idempotent. A no-op if `key` is already recorded. */
   markDelivered(key: string): void {
-    const existing = this.readAll()
-    if (existing.includes(key)) return
-    const next = [...existing, key]
+    const existing = this.readCached()
+    if (existing.set.has(key)) return
+    const next = [...existing.keys, key]
     this.writeAll(next.length > this.maxEntries ? next.slice(next.length - this.maxEntries) : next)
   }
 
@@ -86,5 +116,9 @@ export class DeliveryLedger {
     const tmp = `${this.file}.${process.pid}.tmp`
     fs.writeFileSync(tmp, JSON.stringify(keys), { mode: 0o600 })
     fs.renameSync(tmp, this.file)
+    // Keep the cache in step with our own write so a `markDelivered` loop (sender.ts sends
+    // several keys per drain) doesn't immediately re-read what it just wrote.
+    const stat = fs.statSync(this.file)
+    readCache.set(this.file, { mtimeMs: stat.mtimeMs, keys, set: new Set(keys) })
   }
 }

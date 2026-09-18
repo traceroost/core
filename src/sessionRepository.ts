@@ -9,6 +9,20 @@ import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizer
 export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection }
 
 /**
+ * Ceiling on how many sessions `listSessions()` ever returns when no caller-supplied `limit` is
+ * given — the unfiltered call `repository?.listSessions()` in extension.ts posts whole to the
+ * webview. Search/Export already has real DB-level `LIMIT`/`OFFSET` (`DatabaseReader.
+ * searchSessions()`) as an escape hatch for "give me everything"; this list doesn't, and
+ * `docs/decisions/0001-session-list-pagination.md` explicitly declines to add DB-level pagination
+ * here for now (a stress test at 7,300 sessions found no real cost problem at that size). This cap
+ * is the backstop regardless of that finding — a known, tested ceiling, the same shape as
+ * `spanStore.ts`'s `DEFAULT_MAX_SPANS`, so an unusually large history degrades to "most recent N
+ * sessions" instead of risking V8's ~512MB max string length on the webview `postMessage` payload.
+ * See .staged-issues/scalability.md, risk #5.
+ */
+export const MAX_SESSIONS_TO_WEBVIEW = 20_000
+
+/**
  * For OTEL sessions missing workspace: look for a log session of the same source
  * that started within the same minute and borrow its workspace. Uses 1-minute
  * buckets keyed by source+bucket; if two log sessions in the same bucket have
@@ -68,9 +82,12 @@ export class SessionRepository {
     private readonly reader: DatabaseReader,
     private readonly writer: DatabaseWriter,
     private readonly store: SessionStore,
+    private readonly log: (msg: string) => void = () => { /* silent */ },
   ) {}
 
-  /** Returns merged session list: live window + historical DB, sorted newest-first. */
+  /** Returns merged session list: live window + historical DB, sorted newest-first.
+   *  Capped at `MAX_SESSIONS_TO_WEBVIEW` when the caller doesn't supply its own (smaller) `limit`
+   *  — see that constant's doc comment. */
   listSessions(filter?: {
     source?: 'copilot' | 'claude_code' | 'codex' | 'opencode'
     limit?: number
@@ -80,8 +97,12 @@ export class SessionRepository {
     const liveSessions = liveSpans.length > 0 ? summarizeSpans(liveSpans).sessions : []
     const merged = mergeSessions(dbSessions, liveSessions)
     resolveWorkspacesFromLogs(merged)
-    if (filter?.limit !== null && filter?.limit !== undefined && merged.length > filter.limit) {
-      return merged.slice(0, filter.limit)
+    const effectiveLimit = filter?.limit ?? MAX_SESSIONS_TO_WEBVIEW
+    if (merged.length > effectiveLimit) {
+      if (filter?.limit === undefined) {
+        this.log(`[TraceRoost] Session list (${merged.length}) exceeds the ${MAX_SESSIONS_TO_WEBVIEW}-session safety cap — returning the most recent ${MAX_SESSIONS_TO_WEBVIEW} only.`)
+      }
+      return merged.slice(0, effectiveLimit)
     }
     return merged
   }

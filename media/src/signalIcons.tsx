@@ -26,15 +26,11 @@ export const LOOP_SIGNAL_ICON_TYPE: Record<LoopSignalType, string> = {
   failed_check_submission: 'no-progress',
 }
 
-export const SIGNAL_LABEL: Record<string, string> = {
-  'context-flooding': 'Context flooding',
-  'repeated-edit': 'Repeated edit',
-  'retry-loop': 'Retry loop',
-  'tool-failure-cascade': 'Tool failure cascade',
-  'no-progress': 'No progress',
-  oscillation: 'Oscillation',
-  'runaway-cost': 'Runaway cost',
-}
+// No SIGNAL_LABEL map here on purpose — a label derived from LOOP_SIGNAL_ICON_TYPE's collapsed
+// bucket names used to cause misleading tooltips (e.g. every exact_tool_repeat read "Repeated
+// edit" even when no edit was involved, and hallucinated_import/error_recurrence shared "Retry
+// loop"). Callers should read the accurate per-signal `patternName` off the LoopSignal itself
+// instead (see Sessions.tsx's SignalsCell and Insights.tsx's InsightCard).
 
 export const SIGNAL_SEVERITY_COLOR: Record<'warning' | 'critical', string> = {
   warning: '#f6a623',

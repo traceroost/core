@@ -11,7 +11,14 @@
  * file_hash   = HMAC(repo_key, <repo-relative posix path>)
  * commit_hash = HMAC(repo_key, <commit sha>)
  * repo_key_fp = HMAC(repo_key, "fingerprint")
+ * author_hash = HMAC(repo_key, "author:" + <git author email, lowercased>)
  * ```
+ *
+ * `author_hash` (AL 04's commit-attribution fix, docs/decisions/0005 in `cloud`) is the same
+ * primitive applied to a git author email instead of a path or SHA — because `repo_key` is
+ * derivable by anyone with the repo cloned (not just the reporting machine), any client can
+ * compute `author_hash` for a commit's author email *or* for its own linked member's email, and
+ * the server can match the two without ever learning either email.
  *
  * The root commit SHA is content-addressed and byte-identical in every clone, and never leaves
  * the machine — a 30- or 90-day cohort never reaches back to a repository's first day. Mixing in
@@ -120,6 +127,15 @@ export function branchHash(ctx: RepoKeyContext, branch: string): string {
 
 export function commitHash(ctx: RepoKeyContext, sha: string): string {
   return hmac(ctx.key, sha.trim().toLowerCase())
+}
+
+/** Hashes a git author email — used both for a commit's `author_hash` (in buildCommitRecords.ts)
+ *  and for a linked member's own `member_author_hash` (in buildSessionRollup.ts, from `git config
+ *  user.email`). Same function either way: the server matches the two without ever learning
+ *  either email. Lowercased/trimmed so case or whitespace differences between two clients'
+ *  git configs don't produce two different hashes for the same person. */
+export function authorHash(ctx: RepoKeyContext, email: string): string {
+  return hmac(ctx.key, `author:${email.trim().toLowerCase()}`)
 }
 
 /** Fingerprint carried on every record so the service can flag a member whose history was

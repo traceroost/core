@@ -61,13 +61,29 @@ export interface TeamPanelDeps {
  * already saved when called from a link, so every payload is built (and every hash salted) with
  * whichever team is *currently* linked.
  */
-async function reconcileLocalSessions(deps: TeamPanelDeps): Promise<number> {
+async function reconcileLocalSessions(deps: TeamPanelDeps, reportProgress = false): Promise<number> {
   const sessions = deps.allLocalSessions?.()
   if (!sessions || sessions.length === 0) return 0
   let queued = 0
-  for (const card of sessions) {
-    const res = await maybeEnqueueSession(card, deps.log)
+  const total = sessions.length
+  for (let i = 0; i < sessions.length; i++) {
+    const res = await maybeEnqueueSession(sessions[i], deps.log)
     if (res.enqueued) queued++
+    // An install with a lot of local history can take a real, visible amount of time here — each
+    // session is a delivery-ledger read plus, for anything not yet sent, a payload build. Report
+    // progress only for the on-demand "Reconcile now" click (`teamReconcile` below); the
+    // link-time call is fire-and-forget and nothing is listening for it.
+    if (reportProgress) {
+      deps.post({ type: 'teamReconcileProgress', done: i + 1, total })
+      // Without this, the progress message above can sit unsent: when `maybeEnqueueSession`
+      // short-circuits on an already-delivered session, it resolves via microtasks only (no real
+      // async I/O), so a tight `for await` loop over a long history never actually returns
+      // control to the event loop — and posting to the webview is IPC, which needs that to flush.
+      // The result was every "Checking… (n/total)" update arriving in one burst right at the end,
+      // indistinguishable from a hang. `setImmediate` forces one real event-loop tick per session
+      // so the webview sees progress as it happens.
+      await new Promise<void>(resolve => setImmediate(resolve))
+    }
   }
   if (queued > 0) {
     deps.log?.(`[TraceRoost] reconcile: queued ${queued} local session(s) not yet confirmed delivered`)
@@ -102,11 +118,17 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
         return
       }
       const label = `${session.source} · ${new Date(session.startTime).toLocaleString()}`
-      const text = deps.buildPayloadPreview
-        ? await deps.buildPayloadPreview(session)
-        : 'The exact-payload preview arrives with the trace builder in the next TraceRoost update.\n' +
-          'Until then: nothing is sent, so there is nothing to preview.'
-      deps.post({ type: 'teamPayloadPreview', preview: { text, sessionLabel: label } })
+      try {
+        const text = deps.buildPayloadPreview
+          ? await deps.buildPayloadPreview(session)
+          : 'The exact-payload preview arrives with the trace builder in the next TraceRoost update.\n' +
+            'Until then: nothing is sent, so there is nothing to preview.'
+        deps.post({ type: 'teamPayloadPreview', preview: { text, sessionLabel: label } })
+      } catch (err) {
+        // Without this, a thrown error here left the webview's "Building it…" state showing
+        // forever — nothing else ever clears it (see App.tsx's `teamPayloadPreview` handler).
+        deps.post({ type: 'teamPayloadPreview', preview: { text: `Could not build the payload preview: ${(err as Error).message}`, sessionLabel: label } })
+      }
       return
     }
 
@@ -154,8 +176,14 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
       return
 
     case 'teamReconcile': {
-      const queued = await reconcileLocalSessions(deps)
-      deps.post({ type: 'teamReconcileResult', queued })
+      try {
+        const queued = await reconcileLocalSessions(deps, /* reportProgress */ true)
+        deps.post({ type: 'teamReconcileResult', queued })
+      } catch (err) {
+        // Without this, a thrown error here (or from the unbounded `allLocalSessions` read) left
+        // the "Checking…" button disabled forever — nothing else ever clears `teamReconcileBusy`.
+        deps.post({ type: 'teamReconcileResult', queued: 0, error: (err as Error).message })
+      }
       pushStatus(deps)
       return
     }

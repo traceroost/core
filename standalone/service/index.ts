@@ -8,6 +8,7 @@ import {
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure,
   type ServiceConfig, type ServiceProgram,
 } from '../../src/serviceConfig'
+import { readResolvedPorts } from '../../src/portResolver'
 import { waitForServiceHealth } from './health'
 import * as macos from './macos'
 import * as linux from './linux'
@@ -373,13 +374,28 @@ export async function runServiceCli(args: string[]): Promise<number> {
     case 'status': {
       const version = readRunningVersion()
       const config = readServiceConfig()
-      const running = await platformService.status(config.uiPort, config.bindHost)
+      // Prefer the resolved-ports record (what the running process actually bound, written once
+      // per start) over the configured port — a fallback after a conflict means the two can
+      // differ, and probing the stale configured port would report "not reachable" for a service
+      // that's actually up on the port it fell back to. See .staged-issues/auto-pick-free-port.md.
+      const resolved = readResolvedPorts()
+      const effectiveUiPort = resolved?.ui ?? config.uiPort
+      const running = await platformService.status(effectiveUiPort, config.bindHost)
       const installed = safeIsInstalled(platformService)
+      const portsDiffer = resolved !== undefined && (
+        resolved.ui !== config.uiPort || resolved.otlp !== config.otlpPort || resolved.mcp !== config.mcpPort
+      )
       console.log(running
-        ? `[TraceRoost] Running${version ? ` (v${version})` : ''} — dashboard reachable at ${dashboardUrl(config)}`
+        ? `[TraceRoost] Running${version ? ` (v${version})` : ''} — dashboard reachable at ${dashboardUrl({ ...config, uiPort: effectiveUiPort })}`
         : installed
           ? '[TraceRoost] Installed but not reachable. Run `traceroost service logs` to check for errors, or `traceroost service start`.'
           : '[TraceRoost] No background service is installed. Run `traceroost service install` to set one up.')
+      if (running && portsDiffer && resolved) {
+        console.log(`[TraceRoost] Resolved ports (actually bound) differ from configured:`)
+        console.log(`[TraceRoost]   UI:   configured ${config.uiPort}, resolved ${resolved.ui}`)
+        console.log(`[TraceRoost]   OTLP: configured ${config.otlpPort}, resolved ${resolved.otlp}`)
+        console.log(`[TraceRoost]   MCP:  configured ${config.mcpPort}, resolved ${resolved.mcp}`)
+      }
       return running ? 0 : 1
     }
     case 'logs': {

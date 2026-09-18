@@ -18,6 +18,7 @@
 import * as http from 'http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { listenWithFallback } from './portResolver'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -423,7 +424,7 @@ function handleGetInstructionSuggestions(
 ) {
   const workspace = args.workspace?.trim()
   if (!workspace) {
-    return { error: 'workspace is required — instruction suggestions are project-scoped.' }
+    return { error: 'workspace is required — instruction suggestions are repo-scoped.' }
   }
   const filtered = sessions.filter(s => (s.workspace ?? '') === workspace || s.workspace?.startsWith(workspace))
   if (filtered.length < 5) {
@@ -561,13 +562,21 @@ export function handleMcpRequest(
 /**
  * Starts a dedicated HTTP server for the MCP endpoint.
  * Used when there is no existing HTTP server to attach to.
+ *
+ * On `EADDRINUSE`, scans upward for a free port (see `listenWithFallback`) rather than exiting —
+ * callers read the port actually bound off the returned server's `.address()` (or the
+ * `onFallback` callback, fired only when the bound port differs from the requested one) instead
+ * of assuming `port` was the one that ended up listening. Throws `PortScanExhaustedError` if the
+ * whole scan range is taken; callers own how loudly to fail (the standalone/service entrypoint
+ * exits the process, the VS Code extension shows an error and keeps running).
  */
-export function startMcpHttpServer(
+export async function startMcpHttpServer(
   opts: McpServerOptions,
   port: number,
   bindHost = '127.0.0.1',
   authToken = '',
-): http.Server {
+  onFallback?: (requested: number, bound: number) => void,
+): Promise<http.Server> {
   const server = createMcpServer(opts)
   // Only enforced once bindHost is exposed beyond loopback — the default local setup and
   // existing MCP clients (this repo's own Claude Code / editor integrations) point at
@@ -586,13 +595,6 @@ export function startMcpHttpServer(
     }
     handleMcpRequest(server, req, res)
   })
-  httpServer.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`[TraceRoost] Port ${port} (MCP) already in use — stop the process using it or set MCP_PORT=<other> to use a different port.`)
-      process.exit(1)
-    }
-    throw err
-  })
-  httpServer.listen(port, bindHost)
+  await listenWithFallback(httpServer, port, bindHost, { onFallback })
   return httpServer
 }

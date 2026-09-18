@@ -183,6 +183,12 @@ export interface CommitRecord {
   lines_removed: number
   ai_lines?: number
   attribution?: WireAttribution
+  /** HMAC(repo_key, "author:" + git author email) — lets the server match this commit to
+   *  whichever member's own `member_author_hash` (on the payload this commit rides in, or any
+   *  other payload for the same repo) agrees, regardless of which install reported it. Absent for
+   *  a caller that hasn't computed it yet; falls back to reporting-install attribution. See
+   *  docs/decisions/0005 in `cloud`. */
+  author_hash?: Sha256
 }
 
 export interface TurnoverSample {
@@ -260,6 +266,12 @@ export interface RollupPayload {
   /** Absent under the same conditions as `SessionRollup.repo_hash` — an unkeyable repo means
    *  there's no fingerprint to send either, not that nothing is sent. */
   repo_key_fp?: Sha256
+  /** HMAC(repo_key, "author:" + this machine's git config user.email) for the repo this payload
+   *  is about — lets the server match this member's own commits by author fingerprint instead of
+   *  by whichever install reported them. See AL 04 / cloud's
+   *  docs/decisions/0005-commit-author-fingerprint-matching.md. Absent under the same conditions
+   *  as repo_key_fp, plus whenever the local git email couldn't be resolved. */
+  member_author_hash?: Sha256
   session?: SessionRollup
   commits?: CommitRecord[]
   turnover?: TurnoverSample[]

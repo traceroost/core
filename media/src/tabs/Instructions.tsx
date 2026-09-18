@@ -78,8 +78,19 @@ function makeId(prefix: string, key: string): string {
 function pct(n: number, total: number): number { return Math.round((n / total) * 100) }
 
 // The distinct workspace(s) behind a suggestion's evidence traces — usually one, since suggestions
-// are generated from a single workspace's sessions once a project is selected, but "all projects"
+// are generated from a single workspace's sessions once a repo is selected, but "all repos"
 // suggestions can draw evidence from more than one.
+function groupByWorkspace(sessions: SessionSummaryCard[]): Map<string, SessionSummaryCard[]> {
+  const byRepo = new Map<string, SessionSummaryCard[]>()
+  for (const s of sessions) {
+    const key = s.workspace ?? ''
+    const group = byRepo.get(key)
+    if (group) group.push(s)
+    else byRepo.set(key, [s])
+  }
+  return byRepo
+}
+
 function evidenceWorkspaces(ids: string[], sessions: SessionSummaryCard[]): string[] {
   const byId = new Map(sessions.map(s => [s.sessionId, s.workspace]))
   const set = new Set<string>()
@@ -691,11 +702,20 @@ export function Instructions() {
   const applied = appliedSuggestions.value.filter(a => a.workspace === workspace)
   const dismissed = dismissedIds.value
 
-  // Generate suggestions from session data + existing instruction file content
+  // Generate suggestions from session data + existing instruction file content.
+  // generateSuggestions' file/turn/cost thresholds are only meaningful within a single repo's
+  // traces (src/instructionAdvisor.ts documents this: "all inputs are workspace-pre-filtered").
+  // With a repo folder open, wsSessions is already scoped to it. With none open, wsSessions spans
+  // every repo — group by repo and run generation separately per group so no suggestion's
+  // evidence (or the stats behind it) ever mixes traces from more than one repo.
   const existingText = files.map(f => f.content).join('\n')
   const appliedIds = new Set(applied.map(a => a.id))
-  const suggestions = generateSuggestions(wsSessions, existingText)
-    .filter(s => !appliedIds.has(s.id))
+  const suggestions = (
+    workspace !== null
+      ? generateSuggestions(wsSessions, existingText)
+      : [...groupByWorkspace(wsSessions).values()]
+        .flatMap(repoSessions => generateSuggestions(repoSessions, existingText))
+  ).filter(s => !appliedIds.has(s.id))
 
   // Request instruction files from extension when workspace changes
   useEffect(() => {
@@ -756,9 +776,10 @@ export function Instructions() {
       <div style="padding:12px 16px">
         {workspace === null && (
           <div style="margin-bottom:12px;padding:8px 12px;font-size:11px;color:var(--muted);line-height:1.5;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-            No folder is open, so TraceRoost can't tell which repo's instruction file these
-            patterns apply to — suggestions below are shown for reference only and can't be
-            applied. Open the project's folder to get tailored, applicable suggestions.
+            No repo folder is open in this window, so TraceRoost has nowhere to write instruction
+            file changes — suggestions below (each labeled with its source repo) are shown for
+            reference only and can't be applied. Open a repo folder to get tailored, applicable
+            suggestions for it.
           </div>
         )}
         {/* Pending suggestions */}

@@ -34,6 +34,7 @@ import {
   branchHash,
   fileHash,
   repoKeyFingerprint,
+  authorHash,
   type RepoKeyContext,
 } from './repoKey'
 
@@ -73,6 +74,13 @@ export interface BuildContext {
   repoKey?: RepoKeyContext
   /** Meaningless without `repoKey`; ignored when it's absent. */
   branch?: string
+  /** This machine's `git config user.email` for the workspace, if resolvable — the same value
+   *  used elsewhere to scope AL 05's local attribution to "commits I authored"
+   *  (`attribution/index.ts`'s `localGitEmail()`). Meaningless without `repoKey`; ignored when
+   *  either is absent. Hashed into `member_author_hash` so the server can match this member's own
+   *  commits by author fingerprint instead of by "whichever install reported it" — see AL 04 /
+   *  cloud's docs/decisions/0005-commit-author-fingerprint-matching.md. */
+  authorEmail?: string
   /** USD cost — computed by the caller with `calcTokenCostUsd` (kept out of `src/forward/` so
    *  this island imports no pricing tables). */
   costUsd: number
@@ -211,6 +219,7 @@ export function sessionRollupPayload(input: SessionRollupInput, ctx: BuildContex
   return {
     schema_version: SCHEMA_VERSION,
     ...(ctx.repoKey ? { repo_key_fp: repoKeyFingerprint(ctx.repoKey) } : {}),
+    ...(ctx.repoKey && ctx.authorEmail ? { member_author_hash: authorHash(ctx.repoKey, ctx.authorEmail) } : {}),
     session: buildSessionRollup(input, ctx),
   }
 }

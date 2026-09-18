@@ -117,7 +117,15 @@ export class DashboardPanel {
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (typeof msg.type === 'string' && (msg.type === 'getTeamStatus' || msg.type.startsWith('team'))) {
-        await handleTeamMessage(msg, this.teamDeps())
+        try {
+          await handleTeamMessage(msg, this.teamDeps())
+        } catch (err) {
+          // Belt-and-suspenders: individual team* cases reply on both success and failure, but if
+          // one doesn't, this is what stops the webview's busy/loading state from hanging forever
+          // with no error shown (see App.tsx's `teamError` handler).
+          console.error('[TraceRoost] team message handler failed:', err)
+          this.panel.webview.postMessage({ type: 'teamError', error: (err as Error).message })
+        }
         return
       }
       if (msg.type === 'loadSessionDetail' && msg.sessionId) {

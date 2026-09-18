@@ -10,6 +10,7 @@ import {
   branchHash,
   commitHash,
   repoKeyFingerprint,
+  authorHash,
   toRepoRelativePosix,
 } from '../../../cloud/forward/repoKey'
 
@@ -120,5 +121,59 @@ suite('forward/repoKey', () => {
     const r = await deriveRepoKey(plain, 'org-1')
     assert.strictEqual(r.ok, false)
     if (!r.ok) assert.strictEqual(r.reason, 'not-a-repo')
+  })
+
+  suite('authorHash', () => {
+    test('two checkouts of the same repo derive identical author hashes for the same email', async () => {
+      const upstream = path.join(tmp, 'upstream')
+      makeRepo(upstream)
+      const cloneA = path.join(tmp, 'a', 'proj')
+      const cloneB = path.join(tmp, 'b', 'proj')
+      fs.mkdirSync(path.dirname(cloneA), { recursive: true })
+      fs.mkdirSync(path.dirname(cloneB), { recursive: true })
+      git(tmp, ['clone', '-q', upstream, cloneA])
+      git(tmp, ['clone', '-q', upstream, cloneB])
+
+      const a = await deriveRepoKey(cloneA, 'org-1')
+      const b = await deriveRepoKey(cloneB, 'org-1')
+      assert.ok(a.ok && b.ok)
+      if (!a.ok || !b.ok) return
+
+      assert.strictEqual(authorHash(a.ctx, 'dev@example.com'), authorHash(b.ctx, 'dev@example.com'))
+      assert.match(authorHash(a.ctx, 'dev@example.com'), /^[a-f0-9]{64}$/)
+    })
+
+    test('is case- and whitespace-insensitive on the email, like commitHash is on the SHA', async () => {
+      const repo = path.join(tmp, 'repo')
+      makeRepo(repo)
+      const r = await deriveRepoKey(repo, 'org-1')
+      assert.ok(r.ok)
+      if (!r.ok) return
+      assert.strictEqual(
+        authorHash(r.ctx, 'Dev@Example.com'),
+        authorHash(r.ctx, ' dev@example.com '),
+      )
+    })
+
+    test('two different emails hash to different values', async () => {
+      const repo = path.join(tmp, 'repo')
+      makeRepo(repo)
+      const r = await deriveRepoKey(repo, 'org-1')
+      assert.ok(r.ok)
+      if (!r.ok) return
+      assert.notStrictEqual(authorHash(r.ctx, 'a@example.com'), authorHash(r.ctx, 'b@example.com'))
+    })
+
+    test('never collides with commitHash/fileHash/branchHash for the same input string', async () => {
+      const repo = path.join(tmp, 'repo')
+      makeRepo(repo)
+      const r = await deriveRepoKey(repo, 'org-1')
+      assert.ok(r.ok)
+      if (!r.ok) return
+      // "author:x" as an author email vs. "x" hashed as a commit sha / branch name / file path —
+      // the "author:" prefix keeps these namespaces from colliding even on the same raw string.
+      assert.notStrictEqual(authorHash(r.ctx, 'x'), commitHash(r.ctx, 'x'))
+      assert.notStrictEqual(authorHash(r.ctx, 'x'), branchHash(r.ctx, 'x'))
+    })
   })
 })

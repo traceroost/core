@@ -146,7 +146,7 @@ function vscodeFamilyWorkspaceStorageRoots(): string[] {
 
 // ── File state tracking ───────────────────────────────────────────────────────
 
-interface FileState {
+export interface FileState {
   bytesRead: number
   mtimeMs: number
 }
@@ -192,6 +192,24 @@ export class LogReader {
   /** Clears cached file state so the next scan re-reads all files from scratch. */
   clearFileState(): void {
     this.fileState.clear()
+  }
+
+  /** Plain-object snapshot of the per-file mtime/size cache, for a caller to persist to disk
+   *  (a sidecar JSON file, e.g.) so the next process start can restore it via `importFileState`
+   *  instead of re-parsing every historical log file from scratch. See
+   *  .staged-issues/scalability.md, risk #1. */
+  exportFileState(): Record<string, FileState> {
+    return Object.fromEntries(this.fileState)
+  }
+
+  /** Restores a snapshot from `exportFileState`. Merges into (does not clear) any state already
+   *  present — call before the first `scan()`/`parseFile()` of a process, while `fileState` is
+   *  still empty, so a restored entry causes an unchanged file to be skipped exactly like it
+   *  would have been within the same still-running process. */
+  importFileState(snapshot: Record<string, FileState>): void {
+    for (const [filePath, state] of Object.entries(snapshot)) {
+      this.fileState.set(filePath, state)
+    }
   }
 
   /**

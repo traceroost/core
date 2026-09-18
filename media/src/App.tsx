@@ -30,7 +30,7 @@ import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
-import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus, teamReconcileResult, teamReconcileBusy } from './cloud/panels/TeamPanel'
+import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus, teamReconcileResult, teamReconcileBusy, teamReconcileProgress, teamPayloadBusy } from './cloud/panels/TeamPanel'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -485,13 +485,27 @@ export function App() {
         teamStatus.value = (msg as unknown as { status: typeof teamStatus.value }).status
         teamBusy.value = null
       } else if (msg.type === 'teamPayloadPreview') {
+        teamPayloadBusy.value = false
         teamPayloadPreview.value = (msg as unknown as { preview: typeof teamPayloadPreview.value }).preview
       } else if (msg.type === 'teamActionResult') {
         teamBusy.value = null
         requestTeamStatus()
+      } else if (msg.type === 'teamReconcileProgress') {
+        const p = msg as unknown as { done: number; total: number }
+        teamReconcileProgress.value = { done: p.done, total: p.total }
       } else if (msg.type === 'teamReconcileResult') {
         teamReconcileBusy.value = false
-        teamReconcileResult.value = { queued: (msg as unknown as { queued: number }).queued }
+        teamReconcileProgress.value = null
+        const r = msg as unknown as { queued: number; error?: string }
+        teamReconcileResult.value = { queued: r.queued, error: r.error }
+      } else if (msg.type === 'teamError') {
+        // Safety net for a handler that threw before it could post its normal reply — clears
+        // every team busy/loading state so a backend bug shows as a stalled action, not a
+        // permanently stuck "Checking…"/"Building…" button. See panelController.ts.
+        teamBusy.value = null
+        teamReconcileBusy.value = false
+        teamReconcileProgress.value = null
+        teamPayloadBusy.value = false
       } else if (msg.type === 'instructionApplied') {
         // Re-request applied list after successful apply — handled by appliedSuggestions message
       } else if (msg.type === 'searchResults' && msg.sessions != null) {

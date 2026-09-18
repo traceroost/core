@@ -23,7 +23,7 @@ import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
 import { LogIngestionNote } from './IngestionNote'
 import type { SessionSummaryCard, FileOutcome, LoopSignal } from '../types'
-import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_LABEL, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
@@ -60,10 +60,19 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   )
 }
 
-// LOOP_SIGNAL_ICON_TYPE/SIGNAL_LABEL/SIGNAL_SEVERITY_COLOR/SIGNAL_ICON live in ../signalIcons —
-// shared with Insights.tsx's InsightCard so a loop signal draws the same glyph whether it's read
-// off this row's Signals column or off the Insights list in this same row's expanded panel.
-
+// LOOP_SIGNAL_ICON_TYPE/SIGNAL_SEVERITY_COLOR/SIGNAL_ICON live in ../signalIcons — shared with
+// Insights.tsx's InsightCard so a loop signal draws the same glyph whether it's read off this
+// row's Signals column or off the Insights list in this same row's expanded panel.
+//
+// LOOP_SIGNAL_ICON_TYPE collapses onto a smaller set of pictograms than there are LoopSignalTypes
+// (it mirrors the ~9-value wire enum cloud's own Signals column groups by — see signalIcons.tsx),
+// so it's fine for picking *which glyph* to draw but not for the tooltip text: several distinct,
+// unrelated signal types share a glyph (e.g. hallucinated_import and error_recurrence both draw
+// the "retry-loop" icon), and exact_tool_repeat's glyph reads as "Repeated edit" even when the
+// repeated tool call was a Read or Bash, not an edit at all. Each LoopSignal instead carries its
+// own accurate `patternName` (src/loopDetector.ts's PATTERN_NAMES — the same text Insights.tsx's
+// InsightCard already titles itself with), so the tooltip is built from those, not from the
+// shared glyph's bucket name.
 const MAX_SIGNAL_ICONS = 3
 
 // One glyph per distinct pattern type present (worst-severity/most-frequent first, capped at 3
@@ -71,12 +80,13 @@ const MAX_SIGNAL_ICONS = 3
 // same struggle pattern reads the same way in both products.
 function SignalsCell({ signals }: { signals: LoopSignal[] }) {
   if (!signals || signals.length === 0) return <span style="color:var(--muted)">—</span>
-  const byType = new Map<string, { severity: 'warning' | 'critical'; count: number }>()
+  const byType = new Map<string, { severity: 'warning' | 'critical'; count: number; patterns: Map<string, number> }>()
   for (const s of signals) {
     const iconType = LOOP_SIGNAL_ICON_TYPE[s.type] ?? s.type
-    const e = byType.get(iconType) ?? { severity: 'warning' as const, count: 0 }
+    const e = byType.get(iconType) ?? { severity: 'warning' as const, count: 0, patterns: new Map<string, number>() }
     if (s.severity === 'critical') e.severity = 'critical'
     e.count += 1
+    e.patterns.set(s.patternName, (e.patterns.get(s.patternName) ?? 0) + 1)
     byType.set(iconType, e)
   }
   const severityRank = { warning: 0, critical: 1 }
@@ -84,18 +94,20 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
     severityRank[b[1].severity] - severityRank[a[1].severity] || b[1].count - a[1].count)
   const shown = types.slice(0, MAX_SIGNAL_ICONS)
   const overflow = types.slice(MAX_SIGNAL_ICONS)
+  const labelFor = (e: { patterns: Map<string, number> }) =>
+    [...e.patterns.entries()].map(([name, n]) => n > 1 ? `${name} ×${n}` : name).join(' + ')
   return (
     <span style="display:inline-flex;align-items:center;gap:3px">
       {shown.map(([type, e]) => {
         const color = SIGNAL_SEVERITY_COLOR[e.severity]
-        const label = SIGNAL_LABEL[type] ?? type
+        const label = labelFor(e)
         const Icon = SIGNAL_ICON[type]
         return (
           <span
             key={type}
             role="img"
-            aria-label={`${label}${e.count > 1 ? ' ×' + e.count : ''} (${e.severity})`}
-            title={`${label}${e.count > 1 ? ' ×' + e.count : ''} (${e.severity})`}
+            aria-label={`${label} (${e.severity})`}
+            title={`${label} (${e.severity})`}
             style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;flex-shrink:0"
           >
             {Icon ? <Icon color={color} /> : <span style={`font-size:9px;font-weight:700;color:${color}`}>?</span>}
@@ -104,7 +116,7 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
       })}
       {overflow.length > 0 && (
         <span
-          title={overflow.map(([type, e]) => `${SIGNAL_LABEL[type] ?? type} ×${e.count}`).join('\n')}
+          title={overflow.map(([, e]) => `${labelFor(e)} (${e.severity})`).join('\n')}
           style="display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 2px;border-radius:3px;border:1px solid var(--muted);font-size:9px;font-weight:700;color:var(--muted);flex-shrink:0"
         >+{overflow.length}</span>
       )}

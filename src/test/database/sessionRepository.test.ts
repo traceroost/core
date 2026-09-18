@@ -1,5 +1,8 @@
 import * as assert from 'assert'
-import { mergeSessions, resolveWorkspacesFromLogs } from '../../sessionRepository'
+import { mergeSessions, resolveWorkspacesFromLogs, SessionRepository, MAX_SESSIONS_TO_WEBVIEW } from '../../sessionRepository'
+import type { DatabaseReader } from '../../database/reader'
+import type { DatabaseWriter } from '../../database/writer'
+import type { SessionStore } from '../../sessionStore'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 function makeCard(id: string, startTime: string, overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCard {
@@ -113,5 +116,52 @@ suite('resolveWorkspacesFromLogs', () => {
 
   test('no-op when session list is empty', () => {
     assert.doesNotThrow(() => resolveWorkspacesFromLogs([]))
+  })
+})
+
+suite('SessionRepository — MAX_SESSIONS_TO_WEBVIEW safety valve', () => {
+  function fakeReader(count: number): DatabaseReader {
+    const sessions = Array.from({ length: count }, (_, i) =>
+      makeCard(`s${i}`, new Date(2024, 0, 1, 0, 0, i).toISOString())
+    )
+    return { listSessions: () => sessions } as unknown as DatabaseReader
+  }
+  const noopWriter = {} as unknown as DatabaseWriter
+  const emptyStore = { getSpans: () => [] } as unknown as SessionStore
+
+  test('an unfiltered call below the cap returns everything', () => {
+    const repo = new SessionRepository(fakeReader(10), noopWriter, emptyStore)
+    assert.strictEqual(repo.listSessions().length, 10)
+  })
+
+  test('an unfiltered call above the cap is truncated to MAX_SESSIONS_TO_WEBVIEW', () => {
+    const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 500), noopWriter, emptyStore)
+    assert.strictEqual(repo.listSessions().length, MAX_SESSIONS_TO_WEBVIEW)
+  })
+
+  test('truncation keeps the most recent sessions, not an arbitrary slice', () => {
+    const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 500), noopWriter, emptyStore)
+    const result = repo.listSessions()
+    // mergeSessions sorts newest-first, so the kept slice should be the last-created (highest index) sessions.
+    assert.strictEqual(result[0].sessionId, `s${MAX_SESSIONS_TO_WEBVIEW + 499}`)
+  })
+
+  test('an explicit caller-supplied limit smaller than the cap is still honored', () => {
+    const repo = new SessionRepository(fakeReader(100), noopWriter, emptyStore)
+    assert.strictEqual(repo.listSessions({ limit: 25 }).length, 25)
+  })
+
+  test('logs when the safety cap (not a caller limit) truncates the list', () => {
+    const messages: string[] = []
+    const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 1), noopWriter, emptyStore, (m) => messages.push(m))
+    repo.listSessions()
+    assert.ok(messages.some(m => m.includes('safety cap')))
+  })
+
+  test('does not log when a caller-supplied limit (not the safety cap) truncates the list', () => {
+    const messages: string[] = []
+    const repo = new SessionRepository(fakeReader(100), noopWriter, emptyStore, (m) => messages.push(m))
+    repo.listSessions({ limit: 25 })
+    assert.strictEqual(messages.length, 0)
   })
 })

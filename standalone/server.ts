@@ -29,6 +29,7 @@ import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx } from '../src/serviceConfig'
+import { listenWithFallback, writeResolvedPorts, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
 import { maybeEnqueueSession } from '../src/cloud/team/enqueueSession'
 import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forward/scheduler'
 import { loadCredentials } from '../src/cloud/team/credentials'
@@ -67,6 +68,28 @@ const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
 if (!isLoopbackHost(BIND_HOST) && !AUTH_TOKEN) {
   console.error(`[TraceRoost] Refusing to start: BIND_HOST=${BIND_HOST} exposes TraceRoost beyond localhost, but no auth token could be generated or persisted (check that the data directory is writable). Fix that, or set BIND_HOST back to 127.0.0.1.`)
   process.exit(1)
+}
+
+// ── Resolved-ports record ────────────────────────────────────────────────────
+//
+// One record, written once all three ports are known — every other reader (the printed dashboard
+// URL, the browser auto-open, `service status`, the `reconfigureOtel` action) reads this instead
+// of re-deriving "the port" from OTLP_PORT/UI_PORT/MCP_PORT independently. See
+// .staged-issues/auto-pick-free-port.md.
+const resolvedPorts: Partial<Record<'ui' | 'otlp' | 'mcp', number>> = {}
+
+function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, bound: number): void {
+  resolvedPorts[kind] = bound
+  if (bound !== requested) {
+    console.log(`[TraceRoost] Port ${requested} (${kind.toUpperCase()}) was in use — using ${bound} instead.`)
+  }
+  if (resolvedPorts.ui !== undefined && resolvedPorts.otlp !== undefined && resolvedPorts.mcp !== undefined) {
+    const record: ResolvedPorts = {
+      ui: resolvedPorts.ui, otlp: resolvedPorts.otlp, mcp: resolvedPorts.mcp,
+      resolvedAt: new Date().toISOString(), pid: process.pid,
+    }
+    try { writeResolvedPorts(record) } catch (e) { console.warn('[TraceRoost] Could not persist resolved ports:', e) }
+  }
 }
 // None of the three servers (UI, OTLP, MCP) require the token while bound to loopback — the
 // network boundary is the security boundary there: only another process on this machine can
@@ -233,13 +256,24 @@ let outcomesDb: import('./db/outcomesDb').OutcomesDb | null = null
 
 // ── MCP server ────────────────────────────────────────────────────────────────
 
-// Dedicated server on MCP_PORT (default 4316) — same port as the VS Code extension.
-startMcpHttpServer({
+// Dedicated server on MCP_PORT (default 4316) — same port as the VS Code extension. Falls back to
+// the next free port on EADDRINUSE rather than exiting; `mcpServerReady` is awaited before the UI
+// server prints the MCP endpoint, so the printed URL is always the port actually bound.
+const mcpServerReady: Promise<number> = startMcpHttpServer({
   getSessions: () => {
     const summary = buildSessionSummary()
     return summary?.sessions ?? []
   },
 }, MCP_PORT, BIND_HOST, AUTH_TOKEN)
+  .then(server => {
+    const bound = (server.address() as { port: number }).port
+    recordResolvedPort('mcp', MCP_PORT, bound)
+    return bound
+  })
+  .catch(err => {
+    console.error(`[TraceRoost] Failed to start MCP server: ${err instanceof Error ? err.message : err}`)
+    process.exit(1)
+  })
 
 // Sessions whose repository couldn't be *matched to a written transcript file at all* — a
 // genuinely different problem from the ungrouped-repo case (0182506): the client, agent, or
@@ -1194,6 +1228,7 @@ function getHtml(): string {
               });
             }).catch(function() {
               window.dispatchEvent(new MessageEvent('message', { data: { type: 'teamActionResult', ok: false, error: 'request failed' } }));
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'teamError', error: 'request failed' } }));
             });
             return;
           }
@@ -1798,9 +1833,9 @@ const uiServer = http.createServer((req, res) => {
             return
           }
           const [claudeCode, codex, copilotResults] = await Promise.all([
-            autoConfigureClaudeCode(OTLP_PORT),
-            autoConfigureCodex(OTLP_PORT),
-            autoConfigureCopilotStandalone(OTLP_PORT),
+            autoConfigureClaudeCode(resolvedPorts.otlp ?? OTLP_PORT),
+            autoConfigureCodex(resolvedPorts.otlp ?? OTLP_PORT),
+            autoConfigureCopilotStandalone(resolvedPorts.otlp ?? OTLP_PORT),
           ])
           const copilot = {
             changed: copilotResults.some(r => r.changed),
@@ -1854,7 +1889,11 @@ const uiServer = http.createServer((req, res) => {
           log: (m) => console.log(m),
         })
       } catch (e) {
+        // `teamActionResult` is only listened for by link/leave — reconcile and the payload
+        // preview ignore it, so without `teamError` too, this host also left those buttons
+        // stuck on "Checking…"/"Building…" after a clean, caught backend error.
         outbox.push({ type: 'teamActionResult', ok: false, error: String(e) })
+        outbox.push({ type: 'teamError', error: String(e) })
       }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ messages: outbox }))
@@ -2014,63 +2053,72 @@ const otlpServer = http.createServer((req, res) => {
 })
 
 // ── Start ─────────────────────────────────────────────────────────────────────
+//
+// Bind order: OTLP first (so auto-configure fires against the port actually bound, never the
+// configured one racing ahead of the real listen), then UI. Each resolves independently via
+// listenWithFallback — a conflict on one never blocks the other from starting on its own
+// (possibly-fallback) port.
 
-otlpServer.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[TraceRoost] Port ${OTLP_PORT} (OTLP) already in use — stop the process using it or set OTLP_PORT=<other> to use a different port.`)
+async function startOtlpServer(): Promise<void> {
+  let bound: number
+  try {
+    bound = await listenWithFallback(otlpServer, OTLP_PORT, BIND_HOST)
+  } catch (err) {
+    console.error(`[TraceRoost] ${err instanceof PortScanExhaustedError ? err.message : `OTLP server error: ${err}`}`)
     process.exit(1)
   }
-  console.error('[TraceRoost] OTLP server error:', err)
-})
+  recordResolvedPort('otlp', OTLP_PORT, bound)
+  console.log(`[TraceRoost] OTLP receiver → http://localhost:${bound}`)
 
-// Auto-configure Claude Code, Codex, and Copilot to point at this collector
-if (AUTOCONFIG_DISABLED) {
-  console.log('[TraceRoost] Auto-configure disabled (TRACEROOST_NO_AUTOCONFIG=1) — agent config left untouched.')
-} else {
-  Promise.all([
-    autoConfigureClaudeCode(OTLP_PORT),
-    autoConfigureCodex(OTLP_PORT),
-    autoConfigureCopilotStandalone(OTLP_PORT),
-  ]).then(([claudeResult, codexResult, copilotResults]) => {
-    if (claudeResult.error) {
-      console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
-    } else if (claudeResult.changed) {
-      console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
-    }
-    if (codexResult.error) {
-      console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
-    } else if (codexResult.changed) {
-      console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
-    }
-    const copilotChanged = copilotResults.filter(r => r.changed)
-    const copilotErrors  = copilotResults.filter(r => r.error)
-    if (copilotChanged.length > 0) {
-      console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
-    }
-    for (const r of copilotErrors) {
-      console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
-    }
-  }).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
+  // Auto-configure Claude Code, Codex, and Copilot to point at this collector — only after the
+  // real bind succeeds, against `bound` (the port actually listening), never the static OTLP_PORT,
+  // which may differ from it after a fallback.
+  if (AUTOCONFIG_DISABLED) {
+    console.log('[TraceRoost] Auto-configure disabled (TRACEROOST_NO_AUTOCONFIG=1) — agent config left untouched.')
+  } else {
+    Promise.all([
+      autoConfigureClaudeCode(bound),
+      autoConfigureCodex(bound),
+      autoConfigureCopilotStandalone(bound),
+    ]).then(([claudeResult, codexResult, copilotResults]) => {
+      if (claudeResult.error) {
+        console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
+      } else if (claudeResult.changed) {
+        console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
+      }
+      if (codexResult.error) {
+        console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
+      } else if (codexResult.changed) {
+        console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
+      }
+      const copilotChanged = copilotResults.filter(r => r.changed)
+      const copilotErrors  = copilotResults.filter(r => r.error)
+      if (copilotChanged.length > 0) {
+        console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
+      }
+      for (const r of copilotErrors) {
+        console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
+      }
+    }).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
+  }
 }
 
-otlpServer.listen(OTLP_PORT, BIND_HOST, () => {
-  console.log(`[TraceRoost] OTLP receiver → http://localhost:${OTLP_PORT}`)
-})
-
-uiServer.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[TraceRoost] Port ${UI_PORT} (UI) already in use — set UI_PORT=<other> to use a different port.`)
+async function startUiServer(): Promise<void> {
+  let bound: number
+  try {
+    bound = await listenWithFallback(uiServer, UI_PORT, BIND_HOST)
+  } catch (err) {
+    console.error(`[TraceRoost] ${err instanceof PortScanExhaustedError ? err.message : `UI server error: ${err}`}`)
     process.exit(1)
   }
-  console.error('[TraceRoost] UI server error:', err)
-})
+  recordResolvedPort('ui', UI_PORT, bound)
+  const mcpPort = await mcpServerReady
 
-uiServer.listen(UI_PORT, BIND_HOST, () => {
-  const plainUrl = `http://localhost:${UI_PORT}`
+  const plainUrl = `http://localhost:${bound}`
   // Loopback doesn't need the token at all, so there's nothing to carry (and nothing to forget).
   const url = REQUIRE_TOKEN_EVERYWHERE ? `${plainUrl}/?token=${AUTH_TOKEN}` : plainUrl
   console.log(`[TraceRoost] Dashboard      → ${url}`)
-  console.log(`[TraceRoost] MCP server     → http://localhost:${MCP_PORT}/mcp`)
+  console.log(`[TraceRoost] MCP server     → http://localhost:${mcpPort}/mcp`)
 
   // Auto-open browser — includes the access token so the browser gets its auth cookie on
   // first load when the token is actually required; the printed URL above is the fallback if
@@ -2085,7 +2133,10 @@ uiServer.listen(UI_PORT, BIND_HOST, () => {
 
   // Pro: forwarding scheduler. No timer runs unless a team is linked.
   startForwardScheduler({ log: (msg) => console.log(msg), onDrainComplete: pushTeamStatusToClients })
-})
+}
+
+void startOtlpServer()
+void startUiServer()
 
 // ── Graceful shutdown — flush data before exit ────────────────────────────────
 

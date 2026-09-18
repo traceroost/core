@@ -3,7 +3,7 @@ import * as crypto from 'crypto'
 import { buildSessionRollup, sessionRollupPayload, toUuid, type SessionRollupInput } from '../../../cloud/forward/buildSessionRollup'
 import { validateRollupPayload } from '../../../cloud/forward/validate'
 import { stableStringify } from '../../../cloud/forward/preview'
-import type { RepoKeyContext } from '../../../cloud/forward/repoKey'
+import { authorHash, type RepoKeyContext } from '../../../cloud/forward/repoKey'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('test-key').digest() }
 const BUILD = { repoKey: CTX, branch: 'main', costUsd: 0.1234, outcome: 'merged' }
@@ -61,6 +61,30 @@ suite('forward/buildSessionRollup', () => {
     const payload = sessionRollupPayload(BASE, BUILD)
     assert.strictEqual(payload.session?.tokens_cache_read, 200)
     assert.strictEqual(payload.session?.tokens_cache_create, 50)
+  })
+
+  suite('member_author_hash', () => {
+    test('present when both repoKey and authorEmail are given, and validates against the schema', () => {
+      const payload = sessionRollupPayload(BASE, { ...BUILD, authorEmail: 'dev@example.com' })
+      assert.match(payload.member_author_hash ?? '', /^[a-f0-9]{64}$/)
+      assert.deepStrictEqual(validateRollupPayload(payload), [])
+    })
+
+    test('absent when authorEmail is not given, even with a repoKey', () => {
+      const payload = sessionRollupPayload(BASE, BUILD)
+      assert.strictEqual(payload.member_author_hash, undefined)
+    })
+
+    test('absent when repoKey is not given, even with an authorEmail', () => {
+      const { repoKey: _repoKey, branch: _branch, ...rest } = BUILD
+      const payload = sessionRollupPayload(BASE, { ...rest, authorEmail: 'dev@example.com' })
+      assert.strictEqual(payload.member_author_hash, undefined)
+    })
+
+    test('matches repoKey.ts\'s authorHash for the same context and email', () => {
+      const payload = sessionRollupPayload(BASE, { ...BUILD, authorEmail: 'dev@example.com' })
+      assert.strictEqual(payload.member_author_hash, authorHash(CTX, 'dev@example.com'))
+    })
   })
 
   // A session whose workspace can't be keyed (not a repo, shallow clone, no root commit) is

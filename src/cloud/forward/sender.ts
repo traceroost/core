@@ -48,6 +48,13 @@ export interface DrainDeps {
   baseHome?: string
   /** Max items per drain, so a huge backlog doesn't block the timer. */
   batchLimit?: number
+  /** Called right after each item leaves the queue — a confirmed send or a permanent (400) drop —
+   *  so a host can push a fresh queue depth to the Team panel as it happens, not just once the
+   *  whole batch finishes. A backlog can take minutes to drain (one network round trip per item),
+   *  during which the on-disk queue depth is genuinely dropping one at a time; without this the
+   *  panel's count sat frozen at the pre-drain total for that whole time. Never called for an item
+   *  that's merely backed off for retry (still queued, so the depth hasn't changed). */
+  onItemDone?: () => void
 }
 
 const BASE_BACKOFF_MS = 30_000
@@ -92,8 +99,20 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   let droppedInvalid = 0
   let refreshedThisDrain = false
   let sawTransientFailure = false
-  const succeeded: string[] = []
-  const droppedKeys: string[] = []
+
+  // Removes a confirmed-sent item from the queue and records it delivered immediately, rather
+  // than batching every success in this drain into one removal at the very end — see
+  // `onItemDone` above for why. Order (remove, then record) doesn't matter for correctness: a
+  // crash between the two just means a redundant, harmless resend later (idempotent both locally
+  // and server-side), never a lost one.
+  function recordSuccess(key: string): void {
+    queue.remove([key])
+    if (installId) {
+      const ledger = new DeliveryLedger(deps.baseHome)
+      ledger.markDelivered(scopedKey(installId, key))
+    }
+    deps.onItemDone?.()
+  }
 
   for (const item of batch) {
     let res: Response
@@ -110,7 +129,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
 
     if (res.status === 202 || res.status === 200) {
-      succeeded.push(item.key)
+      recordSuccess(item.key)
       sent++
       continue
     }
@@ -123,7 +142,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         saveCredentials(creds)
         // Retry this same item immediately with the fresh token.
         res = await postPayload(creds.accessToken, item, deps.baseHome).catch(() => res)
-        if (res.status === 202 || res.status === 200) { succeeded.push(item.key); sent++; continue }
+        if (res.status === 202 || res.status === 200) { recordSuccess(item.key); sent++; continue }
       } catch (err) {
         if (err instanceof TokenRefreshError && err.permanent) {
           // The server rejected the refresh token/client itself — retrying later with the same
@@ -155,9 +174,10 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     if (res.status === 400) {
       // The server will never accept this record. Retrying it is a loop.
       const detail = await safeText(res)
-      droppedKeys.push(item.key)
+      queue.remove([item.key])
       droppedInvalid++
       writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: `schema rejected: ${detail.slice(0, 200)}` }, deps.baseHome)
+      deps.onItemDone?.()
       continue
     }
 
@@ -177,27 +197,14 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   return finish(sawTransientFailure ? 'offline' : null)
 
   function finish(stopped: DrainResult['stopped']): DrainResult {
-    if (succeeded.length > 0) {
-      queue.remove(succeeded)
-      // Record delivery *before* removing from the queue would be equally correct — order
-      // doesn't matter here, since a crash between the two just means a redundant, harmless
-      // resend later (idempotent both locally and server-side), never a lost one. Scoped to the
-      // install that actually accepted it (see deliveryLedger.ts's scopedKey) — `installId` was
-      // captured before any mid-drain token refresh, but a refresh only ever changes the token,
-      // never the install, so this is always the install `succeeded` was actually sent to. See
-      // enqueueSession.ts's pre-build check.
-      //
-      // If `installId` is still unknown (the self-heal above couldn't reach the server this
-      // drain), the items are still correctly removed from the queue — they *were* sent — but
-      // skip ledger-recording rather than guess at a scope. The cost is a possible redundant
-      // resend on a future restart's reconciliation (harmless, server-deduplicated), not a lost
-      // delivery; the next drain's self-heal attempt will record correctly going forward.
-      if (installId) {
-        const ledger = new DeliveryLedger(deps.baseHome)
-        for (const key of succeeded) ledger.markDelivered(scopedKey(installId, key))
-      }
-    }
-    if (droppedKeys.length > 0) queue.remove(droppedKeys)
+    // Removal and delivery-recording already happened per item in `recordSuccess`/the 400 branch
+    // above — nothing left to do here but report the final tally. `installId` is scoped to the
+    // install that actually accepted each item (see deliveryLedger.ts's scopedKey) — captured
+    // before any mid-drain token refresh, but a refresh only ever changes the token, never the
+    // install, so it's always the right one. If it's still unknown (the self-heal above couldn't
+    // reach the server this drain), successes were still correctly removed from the queue — they
+    // *were* sent — just without ledger-recording; the cost is a possible redundant resend on a
+    // future restart's reconciliation (harmless, server-deduplicated), not a lost delivery.
     if (sent > 0) {
       writeForwardState({ lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null }, deps.baseHome)
     }

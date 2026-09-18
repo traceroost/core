@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals'
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect } from 'preact/hooks'
 import { vscode, goToHelp } from '../../state'
 
 // ── The one description of the payload promise ──────────────────────────────
@@ -71,8 +71,16 @@ export const teamOpen = signal(false)
 export const teamStatus = signal<TeamStatus | null>(null)
 export const teamPayloadPreview = signal<{ text: string; sessionLabel: string } | null>(null)
 export const teamBusy = signal<null | 'link' | 'leave'>(null)
-export const teamReconcileResult = signal<{ queued: number } | null>(null)
+export const teamReconcileResult = signal<{ queued: number; error?: string } | null>(null)
 export const teamReconcileBusy = signal(false)
+/** Populated while a reconcile is running, from `teamReconcileProgress` messages — lets the
+ *  button show real progress instead of a static "Checking…" on installs with enough local
+ *  history for this to take a while (see `reconcileLocalSessions` in panelController.ts). */
+export const teamReconcileProgress = signal<{ done: number; total: number } | null>(null)
+/** Mirrors `teamReconcileBusy` for the payload-preview button — lifted out of the component so
+ *  a `teamError` reply (panelController threw before it could post a `teamPayloadPreview`) can
+ *  clear it from the central message dispatcher in App.tsx, the same way it clears the others. */
+export const teamPayloadBusy = signal(false)
 
 const DOT_COLOR: Record<TeamIndicator, string> = {
   unlinked: 'var(--muted)',
@@ -139,17 +147,28 @@ function Dot({ indicator }: { indicator: TeamIndicator }) {
  *  right now, without waiting for either. */
 function ReconcileButton() {
   const busy = teamReconcileBusy.value
+  const progress = teamReconcileProgress.value
   const result = teamReconcileResult.value
+  const label = busy
+    ? (progress && progress.total > 0 ? `Checking… (${progress.done}/${progress.total})` : 'Checking…')
+    : 'Reconcile now'
   return (
     <div style="margin-top:8px">
       <button
         disabled={busy}
-        onClick={() => { teamReconcileBusy.value = true; teamReconcileResult.value = null; vscode?.postMessage({ type: 'teamReconcile' }) }}
+        onClick={() => {
+          teamReconcileBusy.value = true
+          teamReconcileProgress.value = null
+          teamReconcileResult.value = null
+          vscode?.postMessage({ type: 'teamReconcile' })
+        }}
         style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
-      >{busy ? 'Checking…' : 'Reconcile now'}</button>
+      >{label}</button>
       {result && (
-        <span style="font-size:11px;color:var(--muted);margin-left:8px">
-          {result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.` : 'Everything is already sent.'}
+        <span style={`font-size:11px;margin-left:8px;color:${result.error ? '#f14c4c' : 'var(--muted)'}`}>
+          {result.error
+            ? `Couldn't finish: ${result.error}`
+            : result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.` : 'Everything is already sent.'}
         </span>
       )}
     </div>
@@ -158,14 +177,15 @@ function ReconcileButton() {
 
 function PayloadPreview() {
   const preview = teamPayloadPreview.value
-  const [requested, setRequested] = useState(false)
+  const busy = teamPayloadBusy.value
   return (
     <div style="margin-top:8px">
       <button
-        onClick={() => { setRequested(true); vscode?.postMessage({ type: 'teamExplainPayload' }) }}
+        disabled={busy}
+        onClick={() => { teamPayloadBusy.value = true; teamPayloadPreview.value = null; vscode?.postMessage({ type: 'teamExplainPayload' }) }}
         style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
-      >Show the exact payload</button>
-      {requested && !preview && <div style="font-size:11px;color:var(--muted);margin-top:6px">Building it from your most recent session…</div>}
+      >{busy ? 'Building…' : 'Show the exact payload'}</button>
+      {busy && !preview && <div style="font-size:11px;color:var(--muted);margin-top:6px">Building it from your most recent session…</div>}
       {preview && (
         <div style="margin-top:8px">
           <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Exact bytes for your last session ({preview.sessionLabel}) — this, and nothing else, goes over the wire:</div>
@@ -269,7 +289,7 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         <div style="display:flex;align-items:center;font-size:11px;padding:2px 0">
           <Dot indicator={st.indicator} />
           <span style="color:var(--fg)">
-            {st.indicator === 'reporting' ? 'Reporting — up to date'
+            {st.indicator === 'reporting' ? 'Reporting — all traces sent to cloud'
               : st.indicator === 'queued' ? `Queued — ${st.queueDepth ?? 0} trace(s) waiting to send`
               : `Paused — ${st.degradedReason ?? 'last send failed'}`}
           </span>

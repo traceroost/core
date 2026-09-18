@@ -6,7 +6,7 @@
  * a public repository).
  */
 
-import { commitHash, repoHash, type RepoKeyContext } from './repoKey'
+import { commitHash, repoHash, authorHash, type RepoKeyContext } from './repoKey'
 import { toWireAttribution } from './wireAttribution'
 import type { CommitRecord } from './schema'
 
@@ -18,6 +18,11 @@ export interface CommitAttributionInput {
   linesRemoved: number
   aiLines: number
   attribution: 'certain' | 'probable' | 'unknown'
+  /** Raw git author email (`%ae`) — hashed here, never emitted. Absent only for a caller that
+   *  hasn't threaded it through yet; a commit with no author_hash falls back to reporting-install
+   *  attribution server-side, same as before this field existed. See AL 04 / cloud's
+   *  docs/decisions/0005. */
+  authorEmail?: string
 }
 
 export function buildCommitRecords(commits: CommitAttributionInput[], ctx: RepoKeyContext): CommitRecord[] {
@@ -30,6 +35,7 @@ export function buildCommitRecords(commits: CommitAttributionInput[], ctx: RepoK
     lines_removed: nonNegInt(c.linesRemoved),
     ai_lines: nonNegInt(c.aiLines),
     attribution: toWireAttribution(c.attribution),
+    ...(c.authorEmail ? { author_hash: authorHash(ctx, c.authorEmail) } : {}),
   }))
 }
 

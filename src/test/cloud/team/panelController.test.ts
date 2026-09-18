@@ -186,6 +186,47 @@ suite('team/panelController — link back-fill and reconciliation', () => {
     assert.strictEqual(new ForwardQueue().list()[0]?.key, `session:${toUuid('shared')}`)
   })
 
+  test('teamReconcile reports progress as it works through local sessions', async () => {
+    await handleTeamMessage({ type: 'teamLink' }, baseDeps())
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    const posted: Record<string, unknown>[] = []
+    const cards = [makeCard('p1'), makeCard('p2'), makeCard('p3')]
+    await handleTeamMessage({ type: 'teamReconcile' }, baseDeps({ allLocalSessions: () => cards, post: (m) => posted.push(m) }))
+
+    const progress = posted.filter(m => m.type === 'teamReconcileProgress')
+    assert.deepStrictEqual(progress, [
+      { type: 'teamReconcileProgress', done: 1, total: 3 },
+      { type: 'teamReconcileProgress', done: 2, total: 3 },
+      { type: 'teamReconcileProgress', done: 3, total: 3 },
+    ])
+  })
+
+  test('teamReconcile always replies, even when reading local sessions throws — no permanent "Checking…"', async () => {
+    const posted: Record<string, unknown>[] = []
+    await handleTeamMessage({ type: 'teamReconcile' }, baseDeps({
+      allLocalSessions: () => { throw new Error('log directory unreadable') },
+      post: (m) => posted.push(m),
+    }))
+
+    assert.deepStrictEqual(
+      posted.find(m => m.type === 'teamReconcileResult'),
+      { type: 'teamReconcileResult', queued: 0, error: 'log directory unreadable' },
+    )
+  })
+
+  test('teamExplainPayload always replies, even when building the preview throws — no permanent "Building…"', async () => {
+    const posted: Record<string, unknown>[] = []
+    await handleTeamMessage({ type: 'teamExplainPayload' }, baseDeps({
+      recentSessions: () => [makeCard('e1')],
+      buildPayloadPreview: () => { throw new Error('git subprocess failed') },
+      post: (m) => posted.push(m),
+    }))
+
+    const preview = posted.find(m => m.type === 'teamPayloadPreview') as { preview: { text: string } } | undefined
+    assert.ok(preview?.preview.text.includes('git subprocess failed'))
+  })
+
   test('teamLinkDevice also starts the forward scheduler (it was silently missing before)', async () => {
     // linkViaDevice polls a *different* endpoint than the interactive flow — stub the
     // device-code request and its poll separately (see oauthClient.ts startDeviceFlow /

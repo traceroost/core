@@ -223,4 +223,30 @@ suite('forward/sender', () => {
     q.enqueue(payload(ID1))
     assert.strictEqual(q.depth(), 1)
   })
+
+  test('onItemDone fires once per sent item, with the queue already down by one at each call — not just once at the end of the batch', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    new ForwardQueue(home).enqueue(payload(ID2))
+    stubFetch(() => new Response('', { status: 202 }))
+    const depthsAtCallTime: number[] = []
+    const res = await drainQueue({ baseHome: home, onItemDone: () => depthsAtCallTime.push(new ForwardQueue(home).depth()) })
+    assert.strictEqual(res.sent, 2)
+    // Fired twice (once per item), and each call already sees that item's removal reflected on
+    // disk — a live progress indicator reading the queue mid-drain gets the true count, not the
+    // pre-drain total until the very end.
+    assert.deepStrictEqual(depthsAtCallTime, [1, 0])
+  })
+
+  test('onItemDone also fires for a permanently-dropped (400) item, but not for one merely backed off for retry', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    new ForwardQueue(home).enqueue(payload(ID2))
+    stubFetch((_url, init) => {
+      if (String(init?.body).includes(ID1)) return new Response('bad payload', { status: 400 })
+      return new Response('', { status: 500 })
+    })
+    let calls = 0
+    const res = await drainQueue({ baseHome: home, onItemDone: () => { calls++ } })
+    assert.strictEqual(res.droppedInvalid, 1)
+    assert.strictEqual(calls, 1) // the 400 drop, not the 500 (still queued for retry)
+  })
 })

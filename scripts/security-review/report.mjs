@@ -27,8 +27,14 @@ const semgrep = readJson(arg('semgrep'), {})
 const outdated = readJson(arg('outdated'), {})
 
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']
-// Copyleft licenses that need legal review before shipping in a closed-source product.
-const DISALLOWED_LICENSES = new Set(['GPL-2.0', 'GPL-3.0', 'AGPL-3.0', 'SSPL-1.0', 'CC-BY-NC-4.0'])
+// Copyleft licenses that need legal review before shipping in a closed-source product. Matched by
+// family prefix, not exact string — Trivy normalizes to modern SPDX identifiers with an
+// -only/-or-later (and sometimes -with-*-exception) suffix (e.g. `GPL-3.0-only`,
+// `AGPL-3.0-or-later`), which a Set of bare `GPL-3.0`/`AGPL-3.0` strings would never match.
+const DISALLOWED_LICENSE_FAMILIES = ['GPL-2.0', 'GPL-3.0', 'AGPL-3.0', 'SSPL-1.0', 'CC-BY-NC-4.0']
+function isDisallowedLicense(name) {
+  return DISALLOWED_LICENSE_FAMILIES.some((family) => name === family || name.startsWith(`${family}-`))
+}
 
 const vulns = []
 const secrets = []
@@ -65,7 +71,7 @@ for (const result of trivy.Results ?? []) {
     })
   }
   for (const l of result.Licenses ?? []) {
-    if (DISALLOWED_LICENSES.has(l.Name)) {
+    if (isDisallowedLicense(l.Name)) {
       licenseFindings.push({ pkg: l.PkgName, license: l.Name, target: result.Target })
     }
   }
