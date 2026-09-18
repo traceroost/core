@@ -46,7 +46,7 @@
     "attribution": { "type": "string", "enum": ["certain", "probable", "unknown"] },
     "outcome": {
       "type": "string",
-      "enum": ["merged", "abandoned", "in-progress", "reverted", "unknown"]
+      "enum": ["merged", "committed", "abandoned", "in-progress", "reverted", "unknown"]
     },
     "loop_signal": {
       "type": "string",

@@ -54,7 +54,7 @@ export interface LoopSignal {
 
 // Mirrors src/gitOutcome.ts. Fetched lazily per session (see sessionTimelines in state.ts for the
 // same lazy-cache pattern) — never eagerly computed for every loaded session.
-export type FileOutcome = 'productive' | 'reverted' | 'abandoned' | 'ambiguous'
+export type FileOutcome = 'merged' | 'committed' | 'abandoned' | 'ambiguous'
 
 export interface GitOutcome {
   overall: FileOutcome
@@ -221,9 +221,11 @@ export type InsightFilter = 'all' | 'loop' | 'efficiency'
 // Freeform — '' means unfiltered (same convention as sessionTextFilter), any other value is a
 // live substring search matched against a repo's name, path, and hash (see matchesRepoQuery).
 export type WorkspaceFilter = string
-// Mirrors WireOutcome (src/cloud/forward/schema.ts) minus 'in-progress', which nothing in core
-// currently produces locally — FileOutcome's 'ambiguous' and "not applicable" both read as 'unknown'.
-export type OutcomeFilter = 'all' | 'merged' | 'reverted' | 'abandoned' | 'unknown'
+// Mirrors WireOutcome (src/cloud/forward/schema.ts) minus 'in-progress', 'reverted' (neither of
+// which the local classifier, gitOutcome.ts, produces any more) and 'unknown' — an
+// ambiguous/inconclusive outcome has no dedicated filter: those sessions just don't match any of
+// these and only show under 'all' (see outcomeToFilterBucket, state.ts).
+export type OutcomeFilter = 'all' | 'merged' | 'committed' | 'abandoned'
 
 export interface VsCodeApi {
   postMessage(message: unknown): void

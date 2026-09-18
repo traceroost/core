@@ -85,7 +85,7 @@ export async function buildPayloadForCard(card: SessionSummaryCard): Promise<Pay
     card.outputTokens,
     card.model,
   )
-  const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [], card.startTime, card.startTime)
+  const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [])
   const payload = sessionRollupPayload(cardToInput(card), {
     repoKey: rk.ok ? rk.ctx : undefined,
     branch: rk.ok ? await currentBranch(rk.ctx.root) : undefined,

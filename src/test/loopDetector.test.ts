@@ -980,13 +980,18 @@ suite('temperLoopSignalSeverity', () => {
     return { overall, files: {}, reason: 'test' }
   }
 
-  test('downgrades critical to warning when outcome is productive', () => {
-    const result = temperLoopSignalSeverity([criticalSignal], outcome('productive'))
+  test('downgrades critical to warning when outcome is merged', () => {
+    const result = temperLoopSignalSeverity([criticalSignal], outcome('merged'))
     assert.strictEqual(result[0].severity, 'warning')
   })
 
-  test('leaves warnings alone when outcome is productive', () => {
-    const result = temperLoopSignalSeverity([warningSignal], outcome('productive'))
+  test('downgrades critical to warning when outcome is committed', () => {
+    const result = temperLoopSignalSeverity([criticalSignal], outcome('committed'))
+    assert.strictEqual(result[0].severity, 'warning')
+  })
+
+  test('leaves warnings alone when outcome is merged', () => {
+    const result = temperLoopSignalSeverity([warningSignal], outcome('merged'))
     assert.strictEqual(result[0].severity, 'warning')
   })
 
@@ -995,15 +1000,15 @@ suite('temperLoopSignalSeverity', () => {
     assert.strictEqual(result[0].severity, 'critical')
   })
 
-  test('leaves signals unchanged for reverted/abandoned/ambiguous outcomes', () => {
-    for (const overall of ['reverted', 'abandoned', 'ambiguous'] as const) {
+  test('leaves signals unchanged for abandoned/ambiguous outcomes', () => {
+    for (const overall of ['abandoned', 'ambiguous'] as const) {
       const result = temperLoopSignalSeverity([criticalSignal], outcome(overall))
       assert.strictEqual(result[0].severity, 'critical')
     }
   })
 
   test('does not mutate the original signal objects', () => {
-    const result = temperLoopSignalSeverity([criticalSignal], outcome('productive'))
+    const result = temperLoopSignalSeverity([criticalSignal], outcome('merged'))
     assert.strictEqual(criticalSignal.severity, 'critical')
     assert.notStrictEqual(result[0], criticalSignal)
   })

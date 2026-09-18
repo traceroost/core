@@ -134,7 +134,7 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
       card.outputTokens,
       card.model,
     )
-    const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [], card.startTime, card.startTime)
+    const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [])
     const payload = sessionRollupPayload(toInput(card), {
       repoKey: rk.ctx,
       branch: currentBranch(rk.ctx.root),

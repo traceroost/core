@@ -33,7 +33,7 @@ function commitAll(message: string, isoDate: string): void {
 suite('gitOutcome', () => {
   setup(() => {
     repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-gitoutcome-'))
-    git(['init', '-q'])
+    git(['init', '-q', '-b', 'main'])
     git(['config', 'user.email', 'test@traceroost.local'])
     git(['config', 'user.name', 'TraceRoost Test'])
     fileCounter++
@@ -43,67 +43,76 @@ suite('gitOutcome', () => {
     fs.rmSync(repoDir, { recursive: true, force: true })
   })
 
-  test('classifies a file as productive when a later commit kept the session\'s change', async () => {
+  test('classifies a file as merged when committed on the trunk branch itself', async () => {
     const file = `file${fileCounter}.txt`
     writeFile(file, 'v1')
     commitAll('initial', '2026-01-01T00:00:00Z')
-
-    // Session runs 01-02 to 01-03; the change is committed afterward, at 01-04.
-    const sessionStart = '2026-01-02T00:00:00Z'
-    const sessionEnd = '2026-01-03T00:00:00Z'
     writeFile(file, 'v2')
     commitAll('session change kept', '2026-01-04T00:00:00Z')
 
-    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)], sessionStart, sessionEnd)
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
     assert.ok(result, 'expected a non-null result')
-    assert.strictEqual(result!.overall, 'productive')
+    assert.strictEqual(result!.overall, 'merged')
   })
 
-  test('classifies a file as productive when committed mid-session, before the session\'s recorded end time', async () => {
+  test('classifies a file as committed (not merged) when it only exists on a feature branch', async () => {
     const file = `file${fileCounter}.txt`
     writeFile(file, 'v1')
     commitAll('initial', '2026-01-01T00:00:00Z')
 
-    // The session's log-derived end time (01-03) can land after the actual commit (01-02T12:00) —
-    // an agent often commits partway through a session that keeps going with more turns. That
-    // shouldn't read as "abandoned" just because the commit predates the session's last event.
-    const sessionStart = '2026-01-02T00:00:00Z'
-    const sessionEnd = '2026-01-03T00:00:00Z'
+    git(['checkout', '-q', '-b', 'feature'])
     writeFile(file, 'v2')
-    commitAll('committed mid-session', '2026-01-02T12:00:00Z')
+    commitAll('feature branch change', '2026-01-02T00:00:00Z')
 
-    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)], sessionStart, sessionEnd)
-    assert.ok(result, 'expected a non-null result')
-    assert.strictEqual(result!.overall, 'productive')
-  })
-
-  test('classifies a file as reverted when a later commit restored the pre-session content', async () => {
-    const file = `file${fileCounter}.txt`
-    writeFile(file, 'v1')
-    commitAll('initial', '2026-01-01T00:00:00Z')
-
-    const sessionStart = '2026-01-02T00:00:00Z'
-    const sessionEnd = '2026-01-03T00:00:00Z'
-    writeFile(file, 'v2')
-    commitAll('session change', '2026-01-04T00:00:00Z')
-    writeFile(file, 'v1')
-    commitAll('revert back to v1', '2026-01-05T00:00:00Z')
-
-    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)], sessionStart, sessionEnd)
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
     assert.ok(result)
-    assert.strictEqual(result!.overall, 'reverted')
+    assert.strictEqual(result!.overall, 'committed')
   })
 
-  test('classifies a file as abandoned when it is still uncommitted after the session', async () => {
+  test('classifies a file as merged once its feature-branch commit is merged into trunk', async () => {
     const file = `file${fileCounter}.txt`
     writeFile(file, 'v1')
     commitAll('initial', '2026-01-01T00:00:00Z')
 
-    const sessionStart = '2026-01-02T00:00:00Z'
-    const sessionEnd = '2026-01-03T00:00:00Z'
+    git(['checkout', '-q', '-b', 'feature'])
+    writeFile(file, 'v2')
+    commitAll('feature branch change', '2026-01-02T00:00:00Z')
+
+    git(['checkout', '-q', 'main'])
+    git(['merge', '-q', '--no-ff', 'feature', '-m', 'merge feature'], '2026-01-03T00:00:00Z')
+
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
+    assert.ok(result)
+    assert.strictEqual(result!.overall, 'merged')
+  })
+
+  test('classifies a squash-merged file as merged (content match, not commit ancestry)', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+
+    git(['checkout', '-q', '-b', 'feature'])
+    writeFile(file, 'v2')
+    commitAll('feature branch change', '2026-01-02T00:00:00Z')
+
+    // A squash merge gives trunk's copy of the change a brand-new commit sha — ancestry-based
+    // detection (`merge-base --is-ancestor`) would miss this; content comparison shouldn't.
+    git(['checkout', '-q', 'main'])
+    git(['merge', '-q', '--squash', 'feature'])
+    commitAll('squash-merge feature', '2026-01-03T00:00:00Z')
+
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
+    assert.ok(result)
+    assert.strictEqual(result!.overall, 'merged')
+  })
+
+  test('classifies a file as abandoned when it is still uncommitted', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
     writeFile(file, 'v2') // left modified on disk, never committed
 
-    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)], sessionStart, sessionEnd)
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
     assert.ok(result)
     assert.strictEqual(result!.overall, 'abandoned')
   })
@@ -113,25 +122,20 @@ suite('gitOutcome', () => {
     commitAll('initial', '2026-01-01T00:00:00Z')
 
     const missingFile = path.join(repoDir, 'never-existed.txt')
-    const result = await classifySessionOutcome(repoDir, [missingFile], '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z')
+    const result = await classifySessionOutcome(repoDir, [missingFile])
     assert.ok(result)
     assert.strictEqual(result!.overall, 'ambiguous')
   })
 
   test('returns null for a workspace that does not exist', async () => {
-    const result = await classifySessionOutcome(
-      path.join(repoDir, 'does-not-exist'),
-      ['whatever.txt'],
-      '2026-01-01T00:00:00Z',
-      '2026-01-02T00:00:00Z',
-    )
+    const result = await classifySessionOutcome(path.join(repoDir, 'does-not-exist'), ['whatever.txt'])
     assert.strictEqual(result, null)
   })
 
   test('returns null for a workspace that is not a git repo', async () => {
     const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-not-a-repo-'))
     try {
-      const result = await classifySessionOutcome(notARepo, ['whatever.txt'], '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')
+      const result = await classifySessionOutcome(notARepo, ['whatever.txt'])
       assert.strictEqual(result, null)
     } finally {
       fs.rmSync(notARepo, { recursive: true, force: true })
@@ -140,7 +144,7 @@ suite('gitOutcome', () => {
 
   test('returns null when there are no changed files', async () => {
     commitAll('initial', '2026-01-01T00:00:00Z')
-    const result = await classifySessionOutcome(repoDir, [], '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')
+    const result = await classifySessionOutcome(repoDir, [])
     assert.strictEqual(result, null)
   })
 
@@ -148,9 +152,6 @@ suite('gitOutcome', () => {
     const file = `file${fileCounter}.txt`
     writeFile(file, 'v1')
     commitAll('initial', '2026-01-01T00:00:00Z')
-
-    const sessionStart = '2026-01-02T00:00:00Z'
-    const sessionEnd = '2026-01-03T00:00:00Z'
     writeFile(file, 'v2')
     commitAll('session change kept', '2026-01-04T00:00:00Z')
 
@@ -158,49 +159,34 @@ suite('gitOutcome', () => {
     // memory notes or global settings can show up alongside real repo edits. Those shouldn't
     // drag a cleanly-committed session down to 'ambiguous'.
     const outsideRepo = path.join(os.tmpdir(), 'not-in-this-repo.md')
-    const result = await classifySessionOutcome(
-      repoDir,
-      [path.join(repoDir, file), outsideRepo],
-      sessionStart,
-      sessionEnd,
-    )
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file), outsideRepo])
     assert.ok(result)
-    assert.strictEqual(result!.overall, 'productive')
+    assert.strictEqual(result!.overall, 'merged')
     assert.strictEqual(Object.keys(result!.files).length, 1)
-    assert.strictEqual(result!.files[path.join(repoDir, file)], 'productive')
+    assert.strictEqual(result!.files[path.join(repoDir, file)], 'merged')
   })
 
   test('returns null when every changed file falls outside the repo root', async () => {
     commitAll('initial', '2026-01-01T00:00:00Z')
     const outsideRepo = path.join(os.tmpdir(), 'also-not-in-this-repo.md')
-    const result = await classifySessionOutcome(repoDir, [outsideRepo], '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z')
+    const result = await classifySessionOutcome(repoDir, [outsideRepo])
     assert.strictEqual(result, null)
   })
 
-  test('overall status prioritizes reverted over productive across multiple files', async () => {
-    const keptFile = `kept${fileCounter}.txt`
-    const revertedFile = `reverted${fileCounter}.txt`
-    writeFile(keptFile, 'v1')
-    writeFile(revertedFile, 'v1')
+  test('overall status prioritizes abandoned over merged across multiple files', async () => {
+    const mergedFile = `merged${fileCounter}.txt`
+    const abandonedFile = `abandoned${fileCounter}.txt`
+    writeFile(mergedFile, 'v1')
+    writeFile(abandonedFile, 'v1')
     commitAll('initial', '2026-01-01T00:00:00Z')
+    writeFile(mergedFile, 'v2')
+    commitAll('session change', '2026-01-04T00:00:00Z')
+    writeFile(abandonedFile, 'v2') // left modified on disk, never committed
 
-    const sessionStart = '2026-01-02T00:00:00Z'
-    const sessionEnd = '2026-01-03T00:00:00Z'
-    writeFile(keptFile, 'v2')
-    writeFile(revertedFile, 'v2')
-    commitAll('session changes', '2026-01-04T00:00:00Z')
-    writeFile(revertedFile, 'v1')
-    commitAll('revert one of them', '2026-01-05T00:00:00Z')
-
-    const result = await classifySessionOutcome(
-      repoDir,
-      [path.join(repoDir, keptFile), path.join(repoDir, revertedFile)],
-      sessionStart,
-      sessionEnd,
-    )
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, mergedFile), path.join(repoDir, abandonedFile)])
     assert.ok(result)
-    assert.strictEqual(result!.overall, 'reverted')
-    assert.strictEqual(result!.files[path.join(repoDir, keptFile)], 'productive')
-    assert.strictEqual(result!.files[path.join(repoDir, revertedFile)], 'reverted')
+    assert.strictEqual(result!.overall, 'abandoned')
+    assert.strictEqual(result!.files[path.join(repoDir, mergedFile)], 'merged')
+    assert.strictEqual(result!.files[path.join(repoDir, abandonedFile)], 'abandoned')
   })
 })

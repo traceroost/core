@@ -202,6 +202,19 @@ suite('DatabaseReader.searchSessions', () => {
     assert.strictEqual(page3.totalCount, 5)
     assert.strictEqual(page3.sessions.length, 1)
   })
+
+  test('initiator survives the round trip through searchSessions', async () => {
+    const db = await openDb()
+    const storageUri = makeStorageUri()
+    const writer = new DatabaseWriter(db, storageUri, () => {})
+    const reader = new DatabaseReader(db, storageUri)
+
+    writer.enqueue(makeCard({ sessionId: 'search-agent', initiator: 'agent' }), 'ws')
+    await writer.drain()
+
+    const result = reader.searchSessions({ limit: 10, offset: 0 })
+    assert.strictEqual(result.sessions.find(s => s.sessionId === 'search-agent')?.initiator, 'agent')
+  })
 })
 
 // ── queryBurnRate ─────────────────────────────────────────────────────────────

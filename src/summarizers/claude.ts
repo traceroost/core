@@ -332,7 +332,14 @@ export function buildClaudeSessions(
       traceId: interaction.traceId || '',
       source: 'claude_code' as const,
       dataSource: 'otel' as const,
-      initiator: (interaction.parentSpanId || getAttrStr(interaction, 'is_sidechain') === 'true') ? 'agent' as const : 'user' as const,
+      // is_sidechain marks a turn spawned by the Task tool rather than typed by a human. The
+      // interaction span itself is often synthesized with no attributes of its own (see
+      // spanSummarizer.ts), so the real attribute — when Claude Code emits it — lives on the
+      // per-turn llm_request/tool children instead; check the whole trace, not just the root.
+      initiator: (interaction.parentSpanId
+        || getAttrStr(interaction, 'is_sidechain') === 'true'
+        || traceSpans.some(s => getAttrStr(s, 'is_sidechain') === 'true')
+      ) ? 'agent' as const : 'user' as const,
       workspace,
       userRequest,
       model,

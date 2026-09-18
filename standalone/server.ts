@@ -19,7 +19,7 @@ import { classifyOtlpPayload } from '../src/otlpParser'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
-import { classifySessionOutcome, resolveRepoHead, type GitOutcome } from '../src/gitOutcome'
+import { classifySessionOutcome, resolveOutcomeCacheKey, type GitOutcome } from '../src/gitOutcome'
 import { GitOutcomeRepository } from '../src/database/gitOutcomeRepository'
 import { detectSessionRiskSignals } from '../src/sessionRiskSignals'
 import { temperLoopSignalSeverity } from '../src/loopDetector'
@@ -173,19 +173,19 @@ let logSessions: Map<string, SessionSummaryCard> = new Map()
 // (git_outcome table in outcomesDb), which is what survives a server restart.
 const gitOutcomeCache = new Map<string, Promise<GitOutcome | null>>()
 
-async function loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[], startTime: string, endTime: string): Promise<GitOutcome | null> {
+async function loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[]): Promise<GitOutcome | null> {
   if (outcomesDb && workspace && filesChanged.length > 0) {
-    const head = await resolveRepoHead(workspace)
-    if (head) {
+    const key = await resolveOutcomeCacheKey(workspace, filesChanged)
+    if (key) {
       const repo = new GitOutcomeRepository(outcomesDb.raw)
-      const cached = repo.get(sessionId, head.headSha)
+      const cached = repo.get(sessionId, key.cacheKey)
       if (cached !== undefined) return cached
-      const outcome = await classifySessionOutcome(workspace, filesChanged, startTime, endTime)
-      if (outcome) repo.put(sessionId, head.root, head.headSha, outcome)
+      const outcome = await classifySessionOutcome(workspace, filesChanged)
+      if (outcome) repo.put(sessionId, key.root, key.cacheKey, outcome)
       return outcome
     }
   }
-  return classifySessionOutcome(workspace, filesChanged, startTime, endTime)
+  return classifySessionOutcome(workspace, filesChanged)
 }
 
 // Repo info, keyed by workspace path. `hash` is repoKey.ts's repoHash — the same hash
@@ -317,11 +317,11 @@ async function startLogIngestion() {
     logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory })
   } catch { /* no sql.js — OpenCode falls back to JSON */ }
 
-  // Outcomes-tab caching (AL 05/06) — a separate small sqlite file, see standalone/db/outcomesDb.ts.
+  // Git-outcome caching — a separate small sqlite file, see standalone/db/outcomesDb.ts.
   try {
     const { openOutcomesDb } = require('./db/outcomesDb') as typeof import('./db/outcomesDb')
     outcomesDb = await openOutcomesDb(DATA_DIR)
-  } catch { /* falls back to uncached turnover computation, same as before this existed */ }
+  } catch { /* falls back to uncached git-outcome classification, same as before this existed */ }
 
   // Register the poll first so it always runs, even if no files exist yet at startup.
   setInterval(runLogScan, 5_000)
@@ -1197,14 +1197,6 @@ function getHtml(): string {
             });
             return;
           }
-          if (msg.type === 'getOutcomes') {
-            fetch('/api/outcomes').then(function(r) { return r.json(); }).then(function(report) {
-              window.dispatchEvent(new MessageEvent('message', { data: { type: 'outcomesReport', report: report } }));
-            }).catch(function() {
-              window.dispatchEvent(new MessageEvent('message', { data: { type: 'outcomesReport', report: { repos: [], hasMeasurableCohort: false, generatedAt: '' } } }));
-            });
-            return;
-          }
           if (msg.type === 'confirmClear') {
             if (confirm('Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
               fetch('/api/clear', { method: 'POST' });
@@ -1355,7 +1347,6 @@ function getHtml(): string {
                 sessionId: msg.sessionId,
                 workspace: msg.workspace || '',
                 filesChanged: msg.filesChanged || [],
-                startTime: msg.startTime || '',
                 endTime: msg.endTime || '',
               }),
             })
@@ -1824,35 +1815,6 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
-  // Outcomes (AL 07) — free, local, no network. Computed from git history + session records.
-  if (req.method === 'GET' && url === '/api/outcomes') {
-    void (async () => {
-      const { buildLocalTurnoverReport } = require('../src/cloud/turnover/localReport') as typeof import('../src/cloud/turnover/localReport')
-      try {
-        let lastSent = 0
-        const report = await buildLocalTurnoverReport(buildSessionSummary()?.sessions ?? [], {
-          db: outcomesDb?.raw,
-          // Throttled the same way dashboardPanel.ts's getOutcomes handler is — a large repo
-          // reports per-file/per-commit, and broadcasting every one over SSE would flood every
-          // open dashboard tab. The final item of each stage always gets through.
-          onProgress: (p) => {
-            const now = Date.now()
-            if (now - lastSent < 100 && p.done !== p.total) return
-            lastSent = now
-            broadcastSse({ type: 'outcomesProgress', progress: p })
-          },
-        })
-        outcomesDb?.save()
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify(report))
-      } catch (e) {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ repos: [], hasMeasurableCohort: false, generatedAt: new Date().toISOString(), error: String(e) }))
-      }
-    })()
-    return
-  }
-
   // ── Team (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
   // GET returns the local status (no network). POST runs an action (link/leave/explain).
   // Both reply with an array of webview messages the polyfill re-dispatches.
@@ -1907,7 +1869,7 @@ const uiServer = http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as {
-          sessionId?: string; workspace?: string; filesChanged?: string[]; startTime?: string; endTime?: string
+          sessionId?: string; workspace?: string; filesChanged?: string[]
         }
         const sessionId = body.sessionId ?? ''
         if (!sessionId) { res.writeHead(400); res.end(); return }
@@ -1917,8 +1879,6 @@ const uiServer = http.createServer((req, res) => {
             sessionId,
             body.workspace ?? '',
             Array.isArray(body.filesChanged) ? body.filesChanged : [],
-            body.startTime ?? '',
-            body.endTime ?? '',
           )
           gitOutcomeCache.set(sessionId, pending)
         }

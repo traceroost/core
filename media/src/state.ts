@@ -116,14 +116,15 @@ export const blobCache = signal<Record<string, string>>({})
 // (no git repo, no changed files, etc). Absent key = not yet requested. See gitOutcome.ts.
 export const gitOutcomes = signal<Record<string, GitOutcome | null>>({})
 
-// FileOutcome (this session's overall git classification) → the coarser Outcome filter bucket.
-// Mirrors toWireOutcome (src/cloud/forward/schema.ts): 'ambiguous' has no dedicated bucket on
-// either side and reads as 'unknown', same as "not applicable" (a null GitOutcome).
-function outcomeToFilterBucket(overall: FileOutcome | null): Exclude<OutcomeFilter, 'all'> {
-  if (overall === 'productive') return 'merged'
-  if (overall === 'reverted') return 'reverted'
+// FileOutcome (this session's overall git classification) → the coarser Outcome filter bucket, or
+// null when there's nothing to filter on ('ambiguous', or "not applicable" — a null GitOutcome).
+// A null bucket never equals any pill's value, so those sessions simply don't match a specific
+// Outcome filter and only appear under 'all'.
+function outcomeToFilterBucket(overall: FileOutcome | null): Exclude<OutcomeFilter, 'all'> | null {
+  if (overall === 'merged') return 'merged'
+  if (overall === 'committed') return 'committed'
   if (overall === 'abandoned') return 'abandoned'
-  return 'unknown'
+  return null
 }
 
 // Caps how many not-yet-resolved sessions get a `getGitOutcome` request fired per call, and
@@ -165,7 +166,6 @@ export function requestGitOutcomesFor(sessions: SessionSummaryCard[]): void {
         sessionId: s.sessionId,
         workspace: s.workspace,
         filesChanged: s.filesChanged,
-        startTime: s.startTime,
         endTime,
       })
     }, i * GIT_OUTCOME_FETCH_STAGGER_MS)

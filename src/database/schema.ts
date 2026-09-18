@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   errors              INTEGER NOT NULL DEFAULT 0,
   outcome             TEXT    NOT NULL DEFAULT 'unknown',
   is_sidechain        INTEGER NOT NULL DEFAULT 0,
+  initiator           TEXT,
   speed               TEXT,
   user_request        TEXT    NOT NULL DEFAULT '',
   tool_counts         TEXT    NOT NULL DEFAULT '{}',

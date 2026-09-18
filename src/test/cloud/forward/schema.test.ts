@@ -69,10 +69,14 @@ suite('forward/schema', () => {
   })
 
   test('toWireOutcome maps the session verdicts', () => {
-    assert.strictEqual(toWireOutcome('productive'), 'merged')
-    assert.strictEqual(toWireOutcome('reverted'), 'reverted')
+    assert.strictEqual(toWireOutcome('merged'), 'merged')
+    assert.strictEqual(toWireOutcome('committed'), 'committed')
     assert.strictEqual(toWireOutcome('abandoned'), 'abandoned')
     assert.strictEqual(toWireOutcome('ambiguous'), 'unknown')
+    // No longer produced locally (gitOutcome.ts dropped the 'reverted' verdict), but still a valid
+    // wire value for historical rows / other producers — toWireOutcome only maps known internal
+    // verdicts, it isn't the place that decides which values are legal on the wire.
+    assert.strictEqual(toWireOutcome('reverted'), 'unknown')
   })
 
   test('toWireToolName produces only [a-z_] and never empty', () => {

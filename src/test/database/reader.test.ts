@@ -165,4 +165,21 @@ suite('DatabaseReader', () => {
     assert.strictEqual(row.outcome, card.outcome)
     db.close()
   })
+
+  test('initiator survives the round trip through SQLite (agent, api, and unset)', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'init-agent', initiator: 'agent' }),
+      makeCard({ sessionId: 'init-api', initiator: 'api' }),
+      makeCard({ sessionId: 'init-user', initiator: 'user' }),
+      makeCard({ sessionId: 'init-unset' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const bySessionId = new Map(reader.listSessions().map(s => [s.sessionId, s]))
+    assert.strictEqual(bySessionId.get('init-agent')?.initiator, 'agent')
+    assert.strictEqual(bySessionId.get('init-api')?.initiator, 'api')
+    assert.strictEqual(bySessionId.get('init-user')?.initiator, 'user')
+    assert.strictEqual(bySessionId.get('init-unset')?.initiator, undefined)
+    db.close()
+  })
 })

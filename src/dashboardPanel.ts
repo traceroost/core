@@ -7,7 +7,7 @@ import { detectInstructionFiles, appendSuggestion, removeSuggestion } from './in
 import { computeBaseline } from './instructionEffectiveness'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
 import { serializeExport, exportFileExtension, type ExportFormat } from './exportFormats'
-import { classifySessionOutcome, resolveRepoHead, type GitOutcome } from './gitOutcome'
+import { classifySessionOutcome, resolveOutcomeCacheKey, type GitOutcome } from './gitOutcome'
 import { GitOutcomeRepository } from './database/gitOutcomeRepository'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
@@ -17,7 +17,6 @@ import { loadCredentials } from './cloud/team/credentials'
 import { deriveRepoKey, repoHash } from './cloud/forward/repoKey'
 import { resolveGithubUrl } from './repoRemote'
 import { teamEndpoint } from './cloud/team/config'
-import { buildLocalTurnoverReport } from './cloud/turnover/localReport'
 import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/team/instructionTelemetry'
 import { drainForwardQueueSoon } from './cloud/forward/scheduler'
 
@@ -121,27 +120,6 @@ export class DashboardPanel {
         await handleTeamMessage(msg, this.teamDeps())
         return
       }
-      if (msg.type === 'getOutcomes') {
-        try {
-          let lastSent = 0
-          const report = await buildLocalTurnoverReport(this.repo.listSessions(), {
-            db: this.rawDb,
-            onProgress: (p) => {
-              // Throttled — a large repo reports per-file/per-commit, and posting every one of
-              // those to the webview would flood it. The final item of each stage always gets
-              // through (p.done === p.total) so the bar reaches 100% instead of stalling short.
-              const now = Date.now()
-              if (now - lastSent < 100 && p.done !== p.total) return
-              lastSent = now
-              this.panel.webview.postMessage({ type: 'outcomesProgress', progress: p })
-            },
-          })
-          this.panel.webview.postMessage({ type: 'outcomesReport', report })
-        } catch (err) {
-          this.panel.webview.postMessage({ type: 'outcomesReport', report: { repos: [], hasMeasurableCohort: false, generatedAt: new Date().toISOString(), error: String(err) } })
-        }
-        return
-      }
       if (msg.type === 'loadSessionDetail' && msg.sessionId) {
         const timeline = this.repo.loadSessionTimeline(msg.sessionId as string)
         this.panel.webview.postMessage({ type: 'sessionDetail', sessionId: msg.sessionId, timeline })
@@ -150,7 +128,6 @@ export class DashboardPanel {
           msg.sessionId as string,
           (msg.workspace as string) || '',
           Array.isArray(msg.filesChanged) ? msg.filesChanged as string[] : [],
-          (msg.startTime as string) || '',
           (msg.endTime as string) || '',
         )
       } else if (msg.type === 'getRepoHash' && msg.workspace) {
@@ -166,7 +143,7 @@ export class DashboardPanel {
         const prompt = `The following efficiency issue was detected in my AI coding trace. Help me fix it:\n\n${msg.prompt}`
         openAIChat(prompt, msg.agent)
       } else if (msg.type === 'alert' && msg.label) {
-        handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider)
+        handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider, rawDb)
       } else if (msg.type === 'automation' && msg.prompt) {
         handleAutomation(msg as { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; prompt: string })
       } else if (msg.type === 'openFile' && msg.filePath) {
@@ -277,11 +254,6 @@ export class DashboardPanel {
     this.disposables.push(pushDisposable)
     const interval = setInterval(() => this.update(), 10000)
     this.disposables.push({ dispose: () => clearInterval(interval) })
-
-    // First-run routing (AL 07): if a turnover cohort is measurable and Outcomes has never been
-    // shown, open on it — it is the free tier's activation event. Computed off the activation
-    // path so it never blocks the panel.
-    void this.maybeRouteToOutcomes()
   }
 
   /** Builds an instruction-telemetry rollup for `workspace` and queues it — a hard no-op unless
@@ -304,19 +276,6 @@ export class DashboardPanel {
     void maybeEnqueueInstructionTelemetry(wsRoot, this.repo.listSessions(), ledger)
       .then(enqueued => { if (enqueued) drainForwardQueueSoon() })
       .catch(() => { /* telemetry is best-effort */ })
-  }
-
-  private async maybeRouteToOutcomes(): Promise<void> {
-    const SHOWN_KEY = 'traceRoost.outcomesFirstRunShown'
-    if (this.context.globalState.get<boolean>(SHOWN_KEY)) return
-    try {
-      const report = await buildLocalTurnoverReport(this.repo.listSessions(), { db: this.rawDb })
-      if (report.hasMeasurableCohort) {
-        await this.context.globalState.update(SHOWN_KEY, true)
-        this.panel.webview.postMessage({ type: 'outcomesReport', report })
-        this.panel.webview.postMessage({ type: 'switchTab', tab: 'outcomes' })
-      }
-    } catch { /* first-run nicety only */ }
   }
 
   private scheduleUpdate() {
@@ -396,7 +355,7 @@ export class DashboardPanel {
     }
   }
 
-  private async sendGitOutcome(sessionId: string, workspace: string, filesChanged: string[], startTime: string, endTime: string): Promise<void> {
+  private async sendGitOutcome(sessionId: string, workspace: string, filesChanged: string[], endTime: string): Promise<void> {
     // classifySessionOutcome has no "still in progress" state — a changed-but-not-yet-committed
     // file reads as 'abandoned' whether the session ended five minutes ago or five seconds ago
     // (see gitOutcome.ts). Sessions.tsx now requests an outcome for every visible session (not
@@ -410,7 +369,7 @@ export class DashboardPanel {
     }
     let pending = this.gitOutcomeCache.get(sessionId)
     if (!pending) {
-      pending = this.loadOrComputeGitOutcome(sessionId, workspace, filesChanged, startTime, endTime)
+      pending = this.loadOrComputeGitOutcome(sessionId, workspace, filesChanged)
       this.gitOutcomeCache.set(sessionId, pending)
     }
     const outcome = await pending
@@ -424,25 +383,25 @@ export class DashboardPanel {
     this.panel.webview.postMessage({ type: 'gitOutcome', sessionId, outcome, riskSignals, temperedLoopSignals })
   }
 
-  // Checks the durable git_outcome cache (keyed by session + the repo's HEAD sha) before shelling
-  // out to git — classifySessionOutcome's actual scan is the expensive part (see gitOutcome.ts),
-  // so this is what makes reopening the panel/window not rescan every session again. A row is
-  // reused as long as HEAD hasn't moved since it was computed; once it has, the file's outcome
-  // (e.g. abandoned -> productive) may genuinely have changed, so it's recomputed rather than
-  // trusted forever.
-  private async loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[], startTime: string, endTime: string): Promise<GitOutcome | null> {
+  // Checks the durable git_outcome cache (keyed by session + resolveOutcomeCacheKey's doc comment)
+  // before shelling out to git — classifySessionOutcome's actual scan is the expensive part (see
+  // gitOutcome.ts), so this is what makes reopening the panel/window not rescan every session
+  // again. A row is reused as long as nothing relevant has moved since it was computed; once it
+  // has, the file's outcome (e.g. abandoned -> committed -> merged) may genuinely have changed, so
+  // it's recomputed rather than trusted forever.
+  private async loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[]): Promise<GitOutcome | null> {
     if (this.rawDb && workspace && filesChanged.length > 0) {
-      const head = await resolveRepoHead(workspace)
-      if (head) {
+      const key = await resolveOutcomeCacheKey(workspace, filesChanged)
+      if (key) {
         const repo = new GitOutcomeRepository(this.rawDb)
-        const cached = repo.get(sessionId, head.headSha)
+        const cached = repo.get(sessionId, key.cacheKey)
         if (cached !== undefined) return cached
-        const outcome = await classifySessionOutcome(workspace, filesChanged, startTime, endTime)
-        if (outcome) repo.put(sessionId, head.root, head.headSha, outcome)
+        const outcome = await classifySessionOutcome(workspace, filesChanged)
+        if (outcome) repo.put(sessionId, key.root, key.cacheKey, outcome)
         return outcome
       }
     }
-    return classifySessionOutcome(workspace, filesChanged, startTime, endTime)
+    return classifySessionOutcome(workspace, filesChanged)
   }
 
   // `hash` is the same one traceroost-cloud shows in its own Repo column (repoKey.ts's repoHash,
@@ -670,7 +629,8 @@ async function handleAlertNotification(
   msg: { label: string; detail?: string; severity: string },
   context: vscode.ExtensionContext,
   repo: SessionRepository,
-  sidebarProvider?: SidebarPanel
+  sidebarProvider?: SidebarPanel,
+  rawDb?: TurnoverDb
 ): Promise<void> {
   const text = `Alert: ${msg.label}${msg.detail ? ' — ' + msg.detail : ''}`
   const clipboardPrompt = [
@@ -690,7 +650,7 @@ async function handleAlertNotification(
   }
   promise.then(action => {
     if (action === 'View Alerts') {
-      DashboardPanel.show(context, repo, sidebarProvider)
+      DashboardPanel.show(context, repo, sidebarProvider, undefined, rawDb)
       DashboardPanel.switchToTab('alerts')
     } else if (action === 'Copy Prompt') {
       vscode.env.clipboard.writeText(clipboardPrompt).then(() => {

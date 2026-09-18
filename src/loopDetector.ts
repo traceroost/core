@@ -118,9 +118,10 @@ export function detectLoopSignals(session: SessionSummaryCard): LoopSignal[] {
  * Tempers already-computed signal severity using a session's eventual git outcome, when known.
  * None of the 5 detectors above check whether a session ultimately succeeded — a session that
  * tripped a critical signal mid-session and then recovered gets the same alarm level as one that
- * never did. Deliberately conservative: only ever downgrades (a confirmed-productive outcome softens
- * a critical signal to a warning), never upgrades — a clean signal list on a session with a bad
- * outcome isn't evidence this function should invent one.
+ * never did. Deliberately conservative: only ever downgrades (a confirmed-committed outcome —
+ * 'merged' or 'committed', either way the change survived — softens a critical signal to a
+ * warning), never upgrades — a clean signal list on a session with a bad outcome isn't evidence
+ * this function should invent one.
  *
  * Not wired into the eager per-session-card computation in spanSummarizer.ts/extension.ts.
  * `GitOutcome` is deliberately computed on demand (see gitOutcome.ts) because it shells out to git
@@ -130,7 +131,7 @@ export function detectLoopSignals(session: SessionSummaryCard): LoopSignal[] {
  * specifically, without changing how signals are computed for the session list.
  */
 export function temperLoopSignalSeverity(signals: LoopSignal[], outcome: GitOutcome | null): LoopSignal[] {
-  if (!outcome || outcome.overall !== 'productive') { return signals }
+  if (!outcome || (outcome.overall !== 'merged' && outcome.overall !== 'committed')) { return signals }
   return signals.map(s => s.severity === 'critical' ? { ...s, severity: 'warning' as const } : s)
 }
 

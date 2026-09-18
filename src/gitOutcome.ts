@@ -1,11 +1,13 @@
 /**
- * Session-outcome correlation with git — did a session's file changes survive?
+ * Session-outcome correlation with git — did a session's file changes survive, and did they make
+ * it all the way to the shared trunk branch?
  *
  * Local git only, on-demand (called per session when its detail view is opened, not eagerly for
  * every loaded session — see .staged-issues/03-git-outcome-correlation.md for why). Classifies
- * each changed file by comparing its content immediately before the session started against its
- * content right now, using git history as the source of truth rather than TraceRoost's own
- * recorded diff snippets (which only capture partial before/after strings, not full file content).
+ * each changed file by comparing its content right now against the working tree, the local HEAD,
+ * and (when resolvable) the tip of the repo's trunk branch — using git history as the source of
+ * truth rather than TraceRoost's own recorded diff snippets (which only capture partial
+ * before/after strings, not full file content).
  */
 
 import { execFile } from 'child_process'
@@ -15,7 +17,7 @@ import * as path from 'path'
 
 const execFileAsync = promisify(execFile)
 
-export type FileOutcome = 'productive' | 'reverted' | 'abandoned' | 'ambiguous'
+export type FileOutcome = 'merged' | 'committed' | 'abandoned' | 'ambiguous'
 
 export interface GitOutcome {
   overall: FileOutcome
@@ -27,8 +29,8 @@ const GIT_TIMEOUT_MS = 5000
 const MAX_FILES = 25 // cap subprocess fan-out for sessions that touched an unusually large number of files
 
 // Bounds how many sessions' git-outcome classifications run at once, across every caller sharing
-// this module (DashboardPanel, the standalone server). Each session can itself fan out up to
-// MAX_FILES*2 concurrent git subprocesses (classifyFile's own Promise.all below) — with nothing
+// this module (DashboardPanel, the standalone server). Each session can itself fan out several
+// concurrent git subprocesses per file (classifyFile's own git calls below) — with nothing
 // bounding how many sessions run at once on top of that, switching the Outcome filter on over a
 // large candidate set could try to classify dozens of sessions simultaneously, spawning hundreds
 // of concurrent `git` processes. That doesn't just make the batch slow — it thrashes disk/CPU
@@ -70,15 +72,48 @@ async function findRepoRoot(workspace: string): Promise<string | null> {
   return out?.trim() || null
 }
 
-/** Resolves the repo root and current HEAD sha for `workspace` in one git call — used to key the
- *  on-disk outcome cache (GitOutcomeRepository) so a restart doesn't force a rescan unless the
- *  repo has actually moved. */
-export async function resolveRepoHead(workspace: string): Promise<{ root: string; headSha: string } | null> {
-  const out = await runGit(workspace, ['rev-parse', '--show-toplevel', 'HEAD'])
-  if (!out) return null
-  const [root, headSha] = out.trim().split('\n')
-  if (!root || !headSha) return null
-  return { root, headSha }
+/** Resolves a ref for the repo's shared/trunk branch — preferring the remote's advertised default
+ *  (works whichever it's named), then falling back to a local main/master. Returns null if none of
+ *  these resolve (no remote and no local main/master — e.g. a repo that hasn't set one up, or uses
+ *  a trunk name this can't guess): callers treat that as "can't tell if it's merged," not as
+ *  evidence that it isn't. */
+async function resolveTrunkRef(root: string): Promise<string | null> {
+  const symbolic = await runGit(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
+  const ref = symbolic?.trim()
+  if (ref) return ref
+  for (const candidate of ['refs/remotes/origin/main', 'refs/remotes/origin/master', 'refs/heads/main', 'refs/heads/master']) {
+    const exists = await runGit(root, ['show-ref', '--verify', '--quiet', candidate])
+    if (exists !== null) return candidate
+  }
+  return null
+}
+
+/** Resolves the repo root and a cache key for `filesChanged` — combining the latest commit sha
+ *  touching any of those specific files with the trunk branch's current tip sha (if resolvable).
+ *  Used to key the on-disk outcome cache (GitOutcomeRepository) so a restart doesn't force a
+ *  rescan unless something relevant has actually moved: either a new commit to *this session's own
+ *  files*, or the trunk branch advancing (which can flip a file from 'committed' to 'merged'
+ *  without touching the file again locally — e.g. a human merges the PR later). Deliberately
+ *  scoped to those two things rather than the repo's overall HEAD: keying on HEAD meant an
+ *  unrelated commit anywhere else in the repo invalidated every other session's cached outcome at
+ *  the same time, which read as a full reload rather than an isolated recompute. Returns null if
+ *  none of the files are inside the repo (mirrors classifySessionOutcome's own "nothing to
+ *  classify" case, so nothing gets cached for it either). */
+export async function resolveOutcomeCacheKey(workspace: string, filesChanged: string[]): Promise<{ root: string; cacheKey: string } | null> {
+  const root = await findRepoRoot(workspace)
+  if (!root) return null
+  const relPaths = filesChanged
+    .map(absPath => relativeToRoot(root, absPath))
+    .filter((p): p is string => p !== null)
+    .slice(0, MAX_FILES)
+  if (relPaths.length === 0) return null
+
+  const [fileSha, trunkRef] = await Promise.all([
+    runGit(root, ['log', '-1', '--format=%H', '--', ...relPaths]),
+    resolveTrunkRef(root),
+  ])
+  const trunkSha = trunkRef ? await runGit(root, ['rev-parse', trunkRef]) : null
+  return { root, cacheKey: `${fileSha?.trim() ?? ''}:${trunkSha?.trim() ?? ''}` }
 }
 
 // Resolves symlinks where possible so paths compare consistently — `git rev-parse --show-toplevel`
@@ -103,14 +138,6 @@ function relativeToRoot(root: string, absPath: string): string | null {
   return rel.split(path.sep).join('/')
 }
 
-// Content of `relPath` at the last commit strictly before `sinceIso`, or null if no such commit.
-async function contentBeforeSession(root: string, relPath: string, sinceIso: string): Promise<string | null> {
-  const hash = await runGit(root, ['log', '--format=%H', '-1', '--before=' + sinceIso, '--', relPath])
-  const commitHash = hash?.trim()
-  if (!commitHash) return null
-  return runGit(root, ['show', commitHash + ':' + relPath])
-}
-
 // Content of `relPath` right now: working tree if present on disk, else HEAD, else null.
 function currentContentOnDisk(root: string, relPath: string): string | null {
   try {
@@ -120,34 +147,47 @@ function currentContentOnDisk(root: string, relPath: string): string | null {
   }
 }
 
-async function classifyFile(root: string, relPath: string, sessionStartIso: string): Promise<FileOutcome> {
+async function classifyFile(root: string, relPath: string, trunkRef: string | null): Promise<FileOutcome> {
   const onDisk = currentContentOnDisk(root, relPath)
   const headContent = await runGit(root, ['show', 'HEAD:' + relPath])
   const after = onDisk !== null ? onDisk : headContent
   if (after === null) return 'ambiguous' // deleted, moved, or never committed and gone
 
-  const before = await contentBeforeSession(root, relPath, sessionStartIso)
-  if (before !== null && before === after) return 'reverted' // net no-op vs. pre-session state
-
   // Whether the change made it into a commit is "is the working tree clean" (or there's no
   // working-tree copy to be dirty, and we already fell back to HEAD) — not "did a commit land
-  // after some cutoff timestamp". A time-window check (the previous approach, keyed off the
+  // after some cutoff timestamp". A time-window check (a previous approach, keyed off the
   // session's end time) misclassifies a file committed mid-session — before the session's last
   // logged event, but well after the edit — as 'abandoned', even though it's sitting cleanly in
   // HEAD with no further changes.
   const committed = onDisk === null || onDisk === headContent
-  return committed ? 'productive' : 'abandoned'
+  if (!committed) return 'abandoned'
+
+  if (!trunkRef) return 'committed' // no resolvable trunk branch to compare against
+
+  // Content-based rather than ancestry-based (`git merge-base --is-ancestor`): a squash or rebase
+  // merge gives the trunk copy of a commit a different sha than the local one, so ancestry checks
+  // would miss those. Comparing file content at the trunk tip catches "this exact content is on
+  // the shared branch now" regardless of how it got there.
+  const trunkContent = await runGit(root, ['show', trunkRef + ':' + relPath])
+  return trunkContent === after ? 'merged' : 'committed'
 }
 
-const OUTCOME_PRIORITY: FileOutcome[] = ['reverted', 'abandoned', 'ambiguous', 'productive']
+// Worst-first: one abandoned file drags the whole session down even if everything else merged.
+const OUTCOME_PRIORITY: FileOutcome[] = ['abandoned', 'ambiguous', 'committed', 'merged']
 
-function summarize(overall: FileOutcome, files: Record<string, FileOutcome>): string {
+function trunkDisplayName(trunkRef: string | null): string {
+  if (!trunkRef) return 'the trunk branch'
+  return trunkRef.replace(/^refs\/(remotes\/origin|heads)\//, '')
+}
+
+function summarize(overall: FileOutcome, files: Record<string, FileOutcome>, trunkRef: string | null): string {
   const total = Object.keys(files).length
   const count = Object.values(files).filter(v => v === overall).length
+  const trunk = trunkDisplayName(trunkRef)
   switch (overall) {
-    case 'reverted':   return `${count}/${total} file(s) reverted to their pre-session state, per git history`
     case 'abandoned':  return `${count}/${total} file(s) changed but not yet committed to git`
-    case 'productive': return `${total} file(s) committed to git after the session`
+    case 'committed':  return `${count}/${total} file(s) committed, but not yet merged into ${trunk}`
+    case 'merged':     return `${total} file(s) committed and merged into ${trunk}`
     default:           return `Could not determine git status for ${count}/${total} file(s)`
   }
 }
@@ -158,30 +198,24 @@ function summarize(overall: FileOutcome, files: Record<string, FileOutcome>): st
  * every changed file falls outside the repo root. Callers should treat null as "not applicable,"
  * distinct from a computed-but-inconclusive result.
  */
-export async function classifySessionOutcome(
-  workspace: string,
-  filesChanged: string[],
-  startTime: string,
-  endTime: string,
-): Promise<GitOutcome | null> {
+export async function classifySessionOutcome(workspace: string, filesChanged: string[]): Promise<GitOutcome | null> {
   if (!workspace || filesChanged.length === 0) return null
   if (!fs.existsSync(workspace)) return null
 
   const root = await findRepoRoot(workspace)
   if (!root) return null
 
-  const sessionStartIso = startTime || endTime
-  if (!sessionStartIso) return null
-
   // Files outside the repo (global settings, cross-project memory notes, etc. — a session's
   // filesChanged isn't scoped to the repo it ran in) have no git status to speak of. Drop them
-  // before classifying rather than counting them as 'ambiguous': that outranks 'productive' in
-  // OUTCOME_PRIORITY, so a single unrelated housekeeping edit would otherwise drag an entire
-  // cleanly-committed session's verdict down to ambiguous.
+  // before classifying rather than counting them as 'ambiguous': that outranks 'merged'/'committed'
+  // in OUTCOME_PRIORITY, so a single unrelated housekeeping edit would otherwise drag an entire
+  // cleanly-merged session's verdict down to ambiguous.
   const inRepo = filesChanged
     .map((absPath): [string, string | null] => [absPath, relativeToRoot(root, absPath)])
     .filter((pair): pair is [string, string] => pair[1] !== null)
   if (inRepo.length === 0) return null
+
+  const trunkRef = await resolveTrunkRef(root)
 
   // Each file's classification is independent — run them concurrently rather than
   // one at a time. This is the dominant cost of the whole function (each file spawns
@@ -194,7 +228,7 @@ export async function classifySessionOutcome(
   try {
     const entries = await Promise.all(
       inRepo.slice(0, MAX_FILES).map(async ([absPath, rel]): Promise<[string, FileOutcome]> =>
-        [absPath, await classifyFile(root, rel, sessionStartIso)]
+        [absPath, await classifyFile(root, rel, trunkRef)]
       )
     )
     files = Object.fromEntries(entries)
@@ -205,5 +239,5 @@ export async function classifySessionOutcome(
   const values = Object.values(files)
   const overall = OUTCOME_PRIORITY.find(p => values.includes(p)) ?? 'ambiguous'
 
-  return { overall, files, reason: summarize(overall, files) }
+  return { overall, files, reason: summarize(overall, files, trunkRef) }
 }

@@ -31,7 +31,6 @@ import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
 import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus, teamReconcileResult, teamReconcileBusy } from './cloud/panels/TeamPanel'
-import { Outcomes, outcomesReport, outcomesLoading, outcomesProgress } from './cloud/tabs/Outcomes'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -47,7 +46,6 @@ const bellOpen = signal(false)
 const TABS = [
   { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail — waterfall, files, cost, and flagged issues for each trace.' },
   { id: 'analytics',  label: 'Analytics',  title: 'Aggregate charts and metrics: token/cost trends, agent comparison, tool distribution, and active insights.' },
-  { id: 'outcomes',   label: 'Outcomes',   title: 'AI code turnover for your own commits — how much agent-written code you merged is still there weeks later. Local, no account.' },
   { id: 'patterns',   label: 'Advisor',    title: 'Cross-trace behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
   { id: 'export',     label: 'Export',     title: 'Export raw or redacted trace data as JSON files.' },
   { id: 'import',     label: 'Import',     title: 'Import trace data from a TraceRoost export file.' },
@@ -58,7 +56,6 @@ function ActivePanel() {
   switch (tab) {
     case 'sessions':  return <Sessions />
     case 'analytics': return <Analytics />
-    case 'outcomes':  return <Outcomes />
     case 'patterns':  return <Patterns />
     case 'export':    return <Export />
     case 'import':    return <Import />
@@ -432,12 +429,6 @@ export function App() {
       } else if (msg.type === 'teamReconcileResult') {
         teamReconcileBusy.value = false
         teamReconcileResult.value = { queued: (msg as unknown as { queued: number }).queued }
-      } else if (msg.type === 'outcomesProgress') {
-        outcomesProgress.value = (msg as unknown as { progress: typeof outcomesProgress.value }).progress
-      } else if (msg.type === 'outcomesReport') {
-        outcomesLoading.value = false
-        outcomesProgress.value = null
-        outcomesReport.value = (msg as unknown as { report: typeof outcomesReport.value }).report
       } else if (msg.type === 'instructionApplied') {
         // Re-request applied list after successful apply — handled by appliedSuggestions message
       } else if (msg.type === 'searchResults' && msg.sessions != null) {
@@ -762,12 +753,21 @@ function FilterPills<T extends string>({ options, value, onChange }: {
   )
 }
 
+// Labels here match Sessions.tsx's own OUTCOME_META and the Glossary's "Git Outcome" entry exactly
+// (Merged/Committed/Uncommitted). "Merged" is a real, verified claim, not just wording —
+// gitOutcome.ts resolves the repo's trunk branch (main/master) and only reports 'merged' once a
+// file's content also matches the trunk tip; a file that's committed but hasn't reached trunk yet
+// (e.g. still on a feature branch, or no trunk could be resolved) reports 'committed' instead. See
+// help-outcome in Help.tsx for the full definitions. Internal `value`s are unchanged — they're a
+// wire format (WireOutcome, schema.ts) shared with traceroost-cloud, not just a display string.
+// No 'unknown' pill: an ambiguous/inconclusive outcome (deleted file, no repo, etc.) has nothing
+// meaningful to filter on or badge — those sessions just don't show a pill, and only appear under
+// "All" (see OUTCOME_META in Sessions.tsx and outcomeToFilterBucket in state.ts).
 const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string; color: string; title: string }> = [
-  { value: 'all',       label: 'All',       color: 'var(--fg)',      title: 'Show all traces' },
-  { value: 'merged',    label: 'Merged',    color: 'var(--tr-merged)', title: "Changed files were committed and are still there, per this repo's git history" },
-  { value: 'reverted',  label: 'Reverted',  color: 'var(--error)',   title: 'Changed files are back to their pre-trace content, per git history' },
-  { value: 'abandoned', label: 'Abandoned', color: '#f6a623',        title: 'Changed files are still sitting uncommitted' },
-  { value: 'unknown',   label: 'Unknown',   color: 'var(--muted)',   title: 'Git outcome not yet determined, or not applicable (no repo, or no files changed)' },
+  { value: 'all',       label: 'All',         color: 'var(--fg)',        title: 'Show all traces' },
+  { value: 'merged',    label: 'Merged',      color: 'var(--tr-merged)', title: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history" },
+  { value: 'committed', label: 'Committed',   color: 'var(--accent)',    title: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally" },
+  { value: 'abandoned', label: 'Uncommitted', color: '#f6a623',          title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
 ]
 
 // The local-git equivalent of traceroost-cloud's own Outcome filter (same TracesTable this
@@ -794,7 +794,24 @@ function OutcomeFilterBar() {
     requestGitOutcomesFor(candidates)
   }, [filter, candidates])
 
-  const pendingCount = filter === 'all' ? 0 : candidates.filter(s => outcomes[s.sessionId] === undefined).length
+  // When the Outcome filter itself is engaged, every candidate must resolve before the filter can
+  // show accurate results — the effect above eagerly fetches the whole candidate set, so track
+  // pending count against it. When the filter is off ('all'), nothing is eagerly fetched beyond
+  // the Traces table's own current page (its own effect, Sessions.tsx) — track pending count
+  // against just that page, and only while its Outcome column is actually visible, so the spinner
+  // reflects real in-flight requests instead of spinning forever over off-screen sessions nothing
+  // is fetching.
+  const tab = normalizeTabId(activeTab.value)
+  const showsOutcomeColumn = tab === 'sessions' &&
+    new Set((sessionSummary.value?.sessions ?? []).map(s => s.workspace ?? '')).size > 1
+  let pendingCount = 0
+  if (filter !== 'all') {
+    pendingCount = candidates.filter(s => outcomes[s.sessionId] === undefined).length
+  } else if (showsOutcomeColumn) {
+    const { page, pageSize } = getSessionsPagination(filteredSessions.value.length)
+    const pageSessions = filteredSessions.value.slice(page * pageSize, (page + 1) * pageSize)
+    pendingCount = pageSessions.filter(s => outcomes[s.sessionId] === undefined).length
+  }
 
   // Repo dropdown suggestions — each distinct repo's git-derived name (falling back to a
   // path-derived guess until its repoInfo resolves), deduplicated since two workspaces can point

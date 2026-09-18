@@ -449,6 +449,55 @@ suite('SpanSummarizer', () => {
       assert.ok(claude?.filesChangedNote?.includes('tool arguments'))
     })
 
+    test('marks a Claude session agent-initiated when a child span carries is_sidechain', () => {
+      const root = makeSpan({
+        traceId: 'claude-trace-sidechain',
+        name: 'claude_code.interaction',
+        attributes: [makeAttr('user_prompt', 'Explore the auth module')],
+      })
+      const llmCall = makeChildSpan(root.spanId, {
+        traceId: root.traceId,
+        name: 'claude_code.llm_request',
+        attributes: [makeAttr('is_sidechain', 'true')],
+      })
+      const result = summarizeSpans([root, llmCall])
+      const claude = result.sessions.find(s => s.source === 'claude_code')
+      assert.strictEqual(claude?.initiator, 'agent')
+    })
+
+    test('a Claude session with no is_sidechain signal defaults to user-initiated', () => {
+      const root = makeSpan({
+        traceId: 'claude-trace-plain',
+        name: 'claude_code.interaction',
+        attributes: [makeAttr('user_prompt', 'Fix the failing test')],
+      })
+      const llmCall = makeChildSpan(root.spanId, {
+        traceId: root.traceId,
+        name: 'claude_code.llm_request',
+        attributes: [],
+      })
+      const result = summarizeSpans([root, llmCall])
+      const claude = result.sessions.find(s => s.source === 'claude_code')
+      assert.strictEqual(claude?.initiator, 'user')
+    })
+
+    test('a root invoke_agent span (no parent) is a user-initiated Copilot session', () => {
+      const agent = makeAgentSpan({ userRequest: 'add a test' })
+      const result = summarizeSpans([agent])
+      assert.strictEqual(result.sessions[0].initiator, 'user')
+    })
+
+    test('a nested invoke_agent span (has a parent) is an agent-initiated Copilot session', () => {
+      const orchestrator = makeAgentSpan({ spanId: 'orchestrator', userRequest: 'coordinate the fix' })
+      const subAgent: Span = {
+        ...makeAgentSpan({ spanId: 'sub-agent', userRequest: 'apply the fix' }),
+        parentSpanId: 'orchestrator',
+      }
+      const result = summarizeSpans([orchestrator, subAgent])
+      const sub = result.sessions.find(s => s.sessionId === 'sub-agent')
+      assert.strictEqual(sub?.initiator, 'agent')
+    })
+
     test('reports the token-weighted dominant model, not whichever model answered last', () => {
       const root = makeSpan({
         name: 'claude_code.interaction',
@@ -541,6 +590,48 @@ suite('SpanSummarizer', () => {
       const codex = result.sessions.find(s => s.source === 'codex')
       assert.ok(codex)
       assert.deepStrictEqual(codex?.filesChanged.sort(), ['src/newThing.ts', 'src/summarizers/codex.ts'])
+    })
+
+    // Regression: every extraction path above stores whatever the source actually spelled out —
+    // usually relative, since that's how a unified diff or `cat > foo.ts` shell command writes
+    // it. classifySessionOutcome (gitOutcome.ts) assumes filesChanged is absolute; left relative,
+    // every one of these gets resolved against the *process's* cwd instead of the repo root and
+    // is silently dropped as "outside the repo" — so a session whose Files list shows real,
+    // in-place edits still comes back with a null (blank) git outcome. Once `cwd` is known,
+    // relative paths must be joined against it before this session card is returned.
+    test('resolves relative filesChanged paths against the session cwd, once known', () => {
+      const patch = [
+        '*** Begin Patch',
+        '*** Update File: src/summarizers/codex.ts',
+        '@@',
+        '-old line',
+        '+new line',
+        '*** End Patch',
+      ].join('\n')
+      const spans: Span[] = [
+        makeSpan({
+          traceId: 'codex-apply-patch-cwd-trace',
+          spanId: 'cx-root-cwd',
+          name: 'codex.user_message',
+          attributes: [makeAttr('user_prompt', 'Fix the summarizer'), makeAttr('cwd', '/repo/core')],
+        }),
+        makeSpan({
+          traceId: 'codex-apply-patch-cwd-trace',
+          spanId: 'cx-tool-cwd',
+          name: 'codex.tool_result',
+          attributes: [
+            makeAttr('tool_name', 'apply_patch'),
+            makeAttr('arguments', JSON.stringify({ input: patch })),
+            makeAttr('cwd', '/repo/core'),
+          ],
+        }),
+      ]
+
+      const result = summarizeSpans(spans)
+      const codex = result.sessions.find(s => s.source === 'codex')
+      assert.ok(codex)
+      assert.strictEqual(codex?.workspace, '/repo/core')
+      assert.deepStrictEqual(codex?.filesChanged, ['/repo/core/src/summarizers/codex.ts'])
     })
 
     test('treats a read-only shell command as a file read, not a change', () => {

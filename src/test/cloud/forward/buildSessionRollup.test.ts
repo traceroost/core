@@ -6,7 +6,7 @@ import { stableStringify } from '../../../cloud/forward/preview'
 import type { RepoKeyContext } from '../../../cloud/forward/repoKey'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('test-key').digest() }
-const BUILD = { repoKey: CTX, branch: 'main', costUsd: 0.1234, outcome: 'productive' }
+const BUILD = { repoKey: CTX, branch: 'main', costUsd: 0.1234, outcome: 'merged' }
 
 const BASE: SessionRollupInput = {
   sessionId: 'sess-abc',
@@ -104,7 +104,7 @@ suite('forward/buildSessionRollup', () => {
     assert.strictEqual(r.loop_signals?.[0].severity, 2)
   })
 
-  test('outcome maps productive → merged', () => {
+  test('outcome passes merged through unchanged', () => {
     assert.strictEqual(buildSessionRollup(BASE, BUILD).outcome, 'merged')
   })
 

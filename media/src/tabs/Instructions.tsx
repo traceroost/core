@@ -2,6 +2,7 @@ import { useState, useEffect } from 'preact/hooks'
 import { signal } from '@preact/signals'
 import {
   workspaceFilter, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
+  repoInfo, repoDisplayName, repoTooltipName,
 } from '../state'
 import { calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
@@ -75,6 +76,19 @@ function makeId(prefix: string, key: string): string {
 }
 
 function pct(n: number, total: number): number { return Math.round((n / total) * 100) }
+
+// The distinct workspace(s) behind a suggestion's evidence traces — usually one, since suggestions
+// are generated from a single workspace's sessions once a project is selected, but "all projects"
+// suggestions can draw evidence from more than one.
+function evidenceWorkspaces(ids: string[], sessions: SessionSummaryCard[]): string[] {
+  const byId = new Map(sessions.map(s => [s.sessionId, s.workspace]))
+  const set = new Set<string>()
+  for (const id of ids) {
+    const ws = byId.get(id)
+    if (ws) set.add(ws)
+  }
+  return [...set]
+}
 
 // ── Suggestion generation (pure frontend) ────────────────────────────────────
 
@@ -458,18 +472,25 @@ function TextBlock({ label, text }: { label: string; text: string }) {
 }
 
 function SuggestionCardView({
-  card, dismissed, applied, onDismiss,
+  card, dismissed, applied, repoWorkspaces, onDismiss,
 }: {
   card: SuggestionCard
   dismissed: boolean
   applied: boolean
   files: InstructionFile[]
+  repoWorkspaces: string[]
   onApply: (id: string, targetFile: string, text: string) => void
   onDismiss: (id: string) => void
 }) {
   if (dismissed || applied) return null
 
   const catColor = CAT_COLOR[card.category]
+  const info = repoInfo.value
+  const repoLabel = repoWorkspaces.length === 0 ? null
+    : repoWorkspaces.length === 1 ? repoDisplayName(repoWorkspaces[0], info)
+    : `${repoWorkspaces.length} repos`
+  const repoTitle = repoWorkspaces.length === 1 ? repoTooltipName(repoWorkspaces[0], info)
+    : repoWorkspaces.join(', ') || undefined
 
   return (
     <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden">
@@ -488,6 +509,12 @@ function SuggestionCardView({
             ))}
           </div>
         </div>
+        {repoLabel && (
+          <span
+            title={repoTitle}
+            style="font-size:9px;padding:2px 7px;border-radius:8px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border);flex-shrink:0;white-space:nowrap;margin-top:1px"
+          >{repoLabel}</span>
+        )}
         <button
           onClick={() => onDismiss(card.id)}
           style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 2px;line-height:1;flex-shrink:0"
@@ -734,6 +761,7 @@ export function Instructions() {
                 dismissed={dismissed.has(card.id)}
                 applied={appliedIds.has(card.id)}
                 files={files}
+                repoWorkspaces={evidenceWorkspaces(card.evidenceSessions, wsSessions)}
                 onApply={handleApply}
                 onDismiss={handleDismiss}
               />

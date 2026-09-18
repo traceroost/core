@@ -118,6 +118,7 @@ export class DatabaseReader {
         outcome:          (col(row, 'outcome') as 'text_response' | 'tool_calls' | 'unknown') ?? 'unknown',
         loopSignals:      this._parseJson(col(row, 'loop_signals') as string, []),
         oneShotStats:     this._parseJson<OneShotStats | undefined>(col(row, 'one_shot_stats') as string, undefined),
+        initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
         timeline:         [],
         backgroundSpans:  [],
       } satisfies SessionSummaryCard
@@ -355,6 +356,7 @@ export class DatabaseReader {
         outcome:          (col(row, 'outcome') as 'text_response' | 'tool_calls' | 'unknown') ?? 'unknown',
         loopSignals:      this._parseJson(col(row, 'loop_signals') as string, []),
         oneShotStats:     this._parseJson<OneShotStats | undefined>(col(row, 'one_shot_stats') as string, undefined),
+        initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
         timeline:         [],
         backgroundSpans:  [],
       } satisfies SessionSummaryCard

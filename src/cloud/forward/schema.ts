@@ -29,7 +29,12 @@ export type WireAgent = 'claude-code' | 'copilot' | 'codex' | 'cursor' | 'other'
 
 export type WireAttribution = 'certain' | 'probable' | 'unknown'
 
-export type WireOutcome = 'merged' | 'abandoned' | 'in-progress' | 'reverted' | 'unknown'
+// 'reverted' stays a valid value on the wire (historical rows may carry it, and cloud's schema
+// still lists it) even though the local classifier (gitOutcome.ts) no longer produces it — see
+// that file's FileOutcome for why. 'committed' is new: locally committed but not (yet, or
+// verifiably) merged into the repo's trunk branch — distinct from 'merged', which core only
+// reports once a file's content also matches the trunk tip.
+export type WireOutcome = 'merged' | 'committed' | 'abandoned' | 'in-progress' | 'reverted' | 'unknown'
 
 /** Whether the session was built from a finished, on-disk transcript file, or from live OTEL
  *  telemetry with no transcript file (yet). Mirrors `SessionSummaryCard.dataSource`. */
@@ -91,8 +96,8 @@ export function toWireSeverity(severity: 'warning' | 'critical'): 1 | 2 | 3 {
 /** git-outcome / session verdict → wire outcome. */
 export function toWireOutcome(v: string): WireOutcome {
   switch (v) {
-    case 'productive': return 'merged'
-    case 'reverted':   return 'reverted'
+    case 'merged':     return 'merged'
+    case 'committed':  return 'committed'
     case 'abandoned':  return 'abandoned'
     case 'in_progress':
     case 'in-progress': return 'in-progress'

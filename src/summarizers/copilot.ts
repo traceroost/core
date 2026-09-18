@@ -205,7 +205,12 @@ export function buildCopilotSessions(
       traceId: agent.traceId || '',
       source: 'copilot' as const,
       dataSource: 'otel' as const,
-      initiator: 'agent' as const,
+      // invoke_agent is the GenAI semconv span name for "an agent ran" and is emitted for every
+      // Copilot session regardless of who started it — it does not by itself mean this session
+      // was agent-spawned. A nested invoke_agent (this span has a parent) is the real signal:
+      // it means another agent/orchestrator invoked this one, rather than a human starting it
+      // directly in Chat or the CLI.
+      initiator: agent.parentSpanId ? 'agent' as const : 'user' as const,
       conversationId: conversationId || undefined,
       workspace: '',
       userRequest: userReq,

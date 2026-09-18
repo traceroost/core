@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
+import type { JSX } from 'preact/jsx-runtime'
 import {
   filteredSessions, sessionSummary, sessionTimelines, gitOutcomes, burnRateData,
   focusedSessionId, vscode, ignoredInsightKeys,
@@ -28,22 +29,29 @@ import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from
 
 type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 
-const OUTCOME_META: Record<FileOutcome, { icon: string; letter: string; color: string; label: string }> = {
-  productive: { icon: '✓', letter: 'M', color: 'var(--vscode-charts-green,#81c784)', label: 'Committed' },
-  reverted:   { icon: '↺', letter: 'R', color: 'var(--error)',                       label: 'Reverted' },
-  abandoned:  { icon: '◑', letter: 'A', color: '#f6a623',                            label: 'Uncommitted' },
-  ambiguous:  { icon: '?', letter: 'U', color: 'var(--muted)',                       label: 'Unknown' },
+// Each letter is the first letter of its own label (Merged/Committed/Uncommitted), not the
+// internal FileOutcome key — 'abandoned' displays as "Uncommitted" so it gets 'U', not 'A'.
+// 'merged' vs 'committed' is a real, verified distinction (see gitOutcome.ts's trunk-branch
+// check), not just wording — so they get their own letters rather than sharing one. 'ambiguous'
+// has no entry at all — there's nothing meaningful to show for it (a deleted/moved file, or
+// classification not applicable), so every consumer below renders blank rather than a "?" badge.
+const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string }>> = {
+  merged:    { icon: '✓', letter: 'M', color: 'var(--tr-merged)', label: 'Merged' },
+  committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed' },
+  abandoned: { icon: '◑', letter: 'U', color: '#f6a623',          label: 'Uncommitted' },
 }
 
 // Small one-letter badge for the session's overall git outcome — same visual language as the
 // Source/From badges in the row above it (getDataSourceBadgeHtml/getInitiatorBadgeHtml, utils.ts):
 // a bordered square, colored to match OUTCOME_META / the Outcome filter pills (App.tsx's
-// OUTCOME_FILTER_OPTIONS). Renders nothing while the outcome hasn't resolved yet (undefined) or
-// isn't applicable (null — no repo, no changed files) rather than reserving space for it.
+// OUTCOME_FILTER_OPTIONS). Renders nothing while the outcome hasn't resolved yet (undefined),
+// isn't applicable (null — no repo, no changed files), or is ambiguous (no OUTCOME_META entry)
+// rather than reserving space for it.
 function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   const go = gitOutcomes.value[sessionId]
   if (!go) return null
   const meta = OUTCOME_META[go.overall]
+  if (!meta) return null
   return (
     <span
       style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;flex-shrink:0`}
@@ -52,12 +60,13 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   )
 }
 
-// schema/rollup.v1.json's loop_signal enum (traceroost/cloud) — same 9 canonical names and same
-// pictograms as cloud's own Signals column (traces-table.tsx), so a struggle pattern draws
-// identically in both products. This webview bundle can't import src/cloud/forward/schema.ts (a
-// separate bundle) — the map below mirrors that file's toWireLoopSignal MAP, just collapsed onto
-// icon choice rather than the full wire payload. "instruction-conflict" has no local signal that
-// maps to it (cloud-only, computed across sessions) so it never appears here.
+// schema/rollup.v1.json's loop_signal enum (traceroost/cloud) — same 9 canonical names cloud's own
+// Signals column (traces-table.tsx) groups by, though the two don't share exact pictograms (see
+// SIGNAL_ICON below). This webview bundle can't import src/cloud/forward/schema.ts (a separate
+// bundle) — the map below
+// mirrors that file's toWireLoopSignal MAP, just collapsed onto icon choice rather than the full
+// wire payload. "instruction-conflict" has no local signal that maps to it (cloud-only, computed
+// across sessions) so it never appears here.
 const LOOP_SIGNAL_ICON_TYPE: Record<LoopSignalType, string> = {
   exact_tool_repeat: 'repeated-edit',
   edit_revert_cycle: 'oscillation',
@@ -86,35 +95,96 @@ const SIGNAL_SEVERITY_COLOR: Record<'warning' | 'critical', string> = {
   critical: 'var(--error)',
 }
 
-// Silhouette-distinct at 11px: stacked ripples / parallel strokes / a circular arrow / stepped
-// tiles / an arrow stopped at a wall / an S-curve / a hockey-stick climb — same paths as cloud's
-// traces-table.tsx SIGNAL_ICON_PATHS (minus the two cloud-only types this client never emits).
-const SIGNAL_ICON_PATHS: Record<string, string[]> = {
-  'context-flooding': [
-    'M1.5 5.5c1.5-1.8 3-1.8 4.5 0s3 1.8 4.5 0 3-1.8 4.5 0',
-    'M1.5 10.5c1.5-1.8 3-1.8 4.5 0s3 1.8 4.5 0 3-1.8 4.5 0',
-  ],
-  'repeated-edit': ['M4 12.5l7-9', 'M6.5 13.5l7-9'],
-  'retry-loop': ['M13 6.5V3.5h-3', 'M13 6.5a5 5 0 1 1-1.4-4.2'],
-  'tool-failure-cascade': [
-    'M2 2h4v4H2z',
-    'M6.5 6.5h4v4h-4z',
-    'M11 11h4v4h-4z',
-    'M12 12l2 2M14 12l-2 2',
-  ],
-  'no-progress': ['M2 8h5.2', 'M6 5.8L8.4 8L6 10.2', 'M11.5 3v10'],
-  oscillation: ['M3 3c0 4 10 6 10 10'],
-  'runaway-cost': ['M2 12.5c2 .3 4 0 5.5-2.5S9.5 3 11 2', 'M9.3 2.2l1.9-.4.4 1.9'],
-}
-
-function SignalIcon({ type, color }: { type: string; color: string }) {
-  const paths = SIGNAL_ICON_PATHS[type]
-  if (!paths) return null
+// Same stroke-icon convention as Settings.tsx's IconMonitor/IconMoon/IconSun (24x24 viewBox,
+// stroke-width 2) rather than a second icon convention or emoji — recolored per signal severity
+// instead of currentColor, since that's the whole point here. Path data adapted from Lucide
+// (lucide.dev, ISC license): waves / repeat-2 / rotate-cw / bomb / brick-wall / arrow-right-left /
+// trending-up, one per signal so each reads literally (a wall for stuck, a climbing line for
+// runaway cost — a bare $ just says "money", not "spiraling") without needing the hover tooltip
+// just to identify the shape.
+function IconWaves({ color }: { color: string }) {
   return (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke={color} stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      {paths.map(d => <path key={d} d={d} />)}
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M2 12q2.5 2 5 0t5 0 5 0 5 0" />
+      <path d="M2 19q2.5 2 5 0t5 0 5 0 5 0" />
+      <path d="M2 5q2.5 2 5 0t5 0 5 0 5 0" />
     </svg>
   )
+}
+
+function IconRepeat({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="m2 9 3-3 3 3" />
+      <path d="M13 18H7a2 2 0 0 1-2-2V6" />
+      <path d="m22 15-3 3-3-3" />
+      <path d="M11 6h6a2 2 0 0 1 2 2v10" />
+    </svg>
+  )
+}
+
+function IconRotateCw({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+    </svg>
+  )
+}
+
+function IconBomb({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <circle cx="11" cy="13" r="9" />
+      <path d="M14.35 4.65 16.3 2.7a2.41 2.41 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4l-1.95 1.95" />
+      <path d="m22 2-1.5 1.5" />
+    </svg>
+  )
+}
+
+function IconBrickWall({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M12 9v6" />
+      <path d="M16 15v6" />
+      <path d="M16 3v6" />
+      <path d="M3 15h18" />
+      <path d="M3 9h18" />
+      <path d="M8 15v6" />
+      <path d="M8 3v6" />
+    </svg>
+  )
+}
+
+function IconArrowRightLeft({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="m16 3 4 4-4 4" />
+      <path d="M20 7H4" />
+      <path d="m8 21-4-4 4-4" />
+      <path d="M4 17h16" />
+    </svg>
+  )
+}
+
+function IconTrendingUp({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M16 7h6v6" />
+      <path d="m22 7-8.5 8.5-5-5L2 17" />
+    </svg>
+  )
+}
+
+const SIGNAL_ICON: Record<string, (props: { color: string }) => JSX.Element> = {
+  'context-flooding': IconWaves,
+  'repeated-edit': IconRepeat,
+  'retry-loop': IconRotateCw,
+  'tool-failure-cascade': IconBomb,
+  'no-progress': IconBrickWall,
+  oscillation: IconArrowRightLeft,
+  'runaway-cost': IconTrendingUp,
 }
 
 const MAX_SIGNAL_ICONS = 3
@@ -142,13 +212,16 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
       {shown.map(([type, e]) => {
         const color = SIGNAL_SEVERITY_COLOR[e.severity]
         const label = SIGNAL_LABEL[type] ?? type
+        const Icon = SIGNAL_ICON[type]
         return (
           <span
             key={type}
+            role="img"
+            aria-label={`${label}${e.count > 1 ? ' ×' + e.count : ''} (${e.severity})`}
             title={`${label}${e.count > 1 ? ' ×' + e.count : ''} (${e.severity})`}
-            style={`display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:3px;border:1px solid ${color};flex-shrink:0`}
+            style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;flex-shrink:0"
           >
-            <SignalIcon type={type} color={color} />
+            {Icon ? <Icon color={color} /> : <span style={`font-size:9px;font-weight:700;color:${color}`}>?</span>}
           </span>
         )
       })}
@@ -412,12 +485,12 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                       </div>
                     )
                   })()}
-                  {gitOutcome && (
+                  {gitOutcome && OUTCOME_META[gitOutcome.overall] && (
                     <div
                       data-tip="Estimated from local git history: compares each file's content right before this trace against its content now. Not available without a local git repo, and doesn't cover files git can't see (e.g. gitignored)."
-                      style={`display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:2px;font-size:11px;color:${OUTCOME_META[gitOutcome.overall].color};cursor:help`}
+                      style={`display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:2px;font-size:11px;color:${OUTCOME_META[gitOutcome.overall]!.color};cursor:help`}
                     >
-                      <span>{OUTCOME_META[gitOutcome.overall].icon}</span>
+                      <span>{OUTCOME_META[gitOutcome.overall]!.icon}</span>
                       <span>{gitOutcome.reason}</span>
                     </div>
                   )}
