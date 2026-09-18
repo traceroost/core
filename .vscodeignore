@@ -2,7 +2,7 @@
 .vscode-test/**
 .github/**
 .staged-issues/**
-.staged-feature/**
+.staged-features/**
 out/**
 node_modules/**
 src/**

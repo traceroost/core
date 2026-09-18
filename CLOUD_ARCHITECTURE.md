@@ -14,8 +14,8 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 | [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
 | [`docs/wire-schema.md`](docs/wire-schema.md) | The exact wire contract, and how to verify the privacy claim yourself |
 | [`docs/pricing-boundary.md`](docs/pricing-boundary.md) | The free/paid line, word-for-word with the pricing page |
-| [`.staged-feature/README.md`](.staged-feature/README.md) | The phased plan this was built against, and the companion closed-source service repo (`alsaas`) |
-| `.staged-feature/01`–`09` | The design doc for each merged slice — privacy invariants and tier called out per plan |
+| [`.staged-features/README.md`](.staged-features/README.md) | The phased plan this was built against, and the companion closed-source service repo (`alsaas`) |
+| `.staged-features/01`–`09` | The design doc for each merged slice — privacy invariants and tier called out per plan |
 
 ## The two rules everything below answers to
 

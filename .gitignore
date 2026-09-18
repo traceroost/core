@@ -20,6 +20,7 @@ demo/fixtures/*.json
 export_*.json
 # Local staging
 .staged-issues/
+.staged-features/
 # Scratch research notes — not project docs
 .research/
 # Claude Code per-developer settings (permissions, hooks — not project config)
