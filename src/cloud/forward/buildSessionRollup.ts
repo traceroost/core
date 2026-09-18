@@ -169,6 +169,8 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
     turns: nonNegInt(input.totalLlmCalls),
     tokens_in: nonNegInt(input.inputTokens),
     tokens_out: nonNegInt(input.outputTokens),
+    tokens_cache_read: nonNegInt(input.cacheReadTokens),
+    tokens_cache_create: nonNegInt(input.cacheCreateTokens ?? 0),
     cost_usd: Math.max(0, round4(ctx.costUsd)),
     errors: nonNegInt(input.errors),
     outcome: ctx.outcome ? toWireOutcome(ctx.outcome) : 'unknown',

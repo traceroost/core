@@ -57,6 +57,12 @@ suite('forward/buildSessionRollup', () => {
     assert.deepStrictEqual(validateRollupPayload(payload), [])
   })
 
+  test('cache read/create tokens are forwarded onto the rollup', () => {
+    const payload = sessionRollupPayload(BASE, BUILD)
+    assert.strictEqual(payload.session?.tokens_cache_read, 200)
+    assert.strictEqual(payload.session?.tokens_cache_create, 50)
+  })
+
   // A session whose workspace can't be keyed (not a repo, shallow clone, no root commit) is
   // still sent — just without repo grouping, never with a fake hash. See src/cloud/forward/repoKey.ts.
   test('without a repoKey, the payload omits repo_key_fp/repo_hash/branch_hash/file_hashes but still validates', () => {
@@ -78,11 +84,21 @@ suite('forward/buildSessionRollup', () => {
   // path (see enqueueSession.ts's catch), unlike a queue-level send failure.
   test('a count or cost over the schema cap is clamped, not rejected', () => {
     const payload = sessionRollupPayload(
-      { ...BASE, durationMs: 1e12, totalLlmCalls: 1e12, inputTokens: 5e8, outputTokens: 5e8 },
+      {
+        ...BASE,
+        durationMs: 1e12,
+        totalLlmCalls: 1e12,
+        inputTokens: 5e8,
+        outputTokens: 5e8,
+        cacheReadTokens: 5e8,
+        cacheCreateTokens: 5e8,
+      },
       { ...BUILD, costUsd: 999_999 },
     )
     assert.strictEqual(payload.session?.tokens_in, 100_000_000)
     assert.strictEqual(payload.session?.tokens_out, 100_000_000)
+    assert.strictEqual(payload.session?.tokens_cache_read, 100_000_000)
+    assert.strictEqual(payload.session?.tokens_cache_create, 100_000_000)
     assert.strictEqual(payload.session?.duration_ms, 100_000_000)
     assert.strictEqual(payload.session?.turns, 100_000_000)
     assert.strictEqual(payload.session?.models?.[0].calls, 100_000_000)

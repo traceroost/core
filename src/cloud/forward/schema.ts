@@ -154,6 +154,8 @@ export interface SessionRollup {
   turns?: number
   tokens_in?: number
   tokens_out?: number
+  tokens_cache_read?: number
+  tokens_cache_create?: number
   cost_usd?: number
   tool_calls?: Record<string, number>
   errors?: number
