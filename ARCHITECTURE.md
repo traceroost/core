@@ -882,14 +882,9 @@ flowchart TD
         ENTRY[TimelineEntry<br/>model · tokens] --> LR[lookupRates<br/>normalise + prefix match]
         LR --> RATES{Rates found?}
         RATES -- no  --> ZERO[cost=0, modelUnknown=true]
-        RATES -- yes --> MODE{PricingMode}
-        MODE -- token --> TC[calcTokenCost<br/>input/cacheRead/cacheWrite/output<br/>per-MTok rate / 1,000,000]
-        MODE -- request-annual --> RA[calcRequestCost<br/>turns x multiplierAnnualPostJun1 x $0.04<br/>annual-plan holders post-Jun 2026]
-        MODE -- request --> RC[calcRequestCost — DEPRECATED<br/>turns x multiplier x $0.04<br/>pre-Jun 2026 billing only]
+        RATES -- yes --> TC[calcTokenCost<br/>input/cacheRead/cacheWrite/output<br/>per-MTok rate / 1,000,000]
         TC --> ENTRY_COST[calcEntryCost - Flow tooltip]
         TC --> SESS_COST[calcSessionCost - Cost tab table]
-        RC --> SESS_COST
-        RA --> SESS_COST
     end
 
     subgraph analytics["Analytics - query time"]
@@ -901,7 +896,7 @@ flowchart TD
 
 `contextWindowTokens` (stored in `src/pricing.ts`) enables the `Projection` calculation: given current session token usage and burn rate, estimate time to context exhaustion and final cost.
 
-Pricing data covers: OpenAI (GPT-4.1 through GPT-6), Anthropic (Claude Haiku 3.5/4.5, Sonnet 4.x/5, Opus 4.x/5, Fable 5/5.1, Mythos 5/5.1), Google (Gemini 2.5–3.8), Codex, third-party Copilot-marketplace models (Grok, Kimi, MAI-Code), OpenCode Zen free models, and fine-tuned models. Some models also carry a per-model tiered "long context" surcharge above a token-per-call threshold — see `PRICING_SOURCES.md`. Refreshed per the runbook in `PRICING_SOURCES.md`. Last updated: 2026-09-15.
+Pricing data covers: OpenAI (GPT-4.1 through GPT-6), Anthropic (Claude Haiku 3.5/4.5, Sonnet 4.x/5, Opus 4.x/5, Fable 5/5.1, Mythos 5/5.1), Google (Gemini 2.5–3.8), Codex, third-party Copilot-marketplace models (Grok, Kimi, MAI-Code), OpenCode Zen free models, and fine-tuned models. Some models also carry a per-model tiered "long context" surcharge above a token-per-call threshold — see `PRICING_SOURCES.md`. Refreshed per the runbook in `PRICING_SOURCES.md`. Last updated: 2026-09-19.
 
 ---
 

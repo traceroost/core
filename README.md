@@ -82,7 +82,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - **One-shot / Retry Rate** — Tracks what fraction of edited files reached their final state in a single edit pass vs. needed retries, per trace (Files sub-tab) and aggregated per-agent in Analytics — a proxy for correction effort
 - **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, and top tools for Copilot, Claude, and Codex), estimated cost with a daily total overlay, token usage per trace, and context growth
 - **Advisor** — Project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Select a specific project from the filter for tailored suggestions; all-projects view surfaces only universal patterns.
-- **Cost Estimation** — Estimates trace cost for Copilot (three billing models), Claude Code, and Codex, broken down by model in a day-grouped table
+- **Cost Estimation** — Estimates trace cost for Copilot, Claude Code, and Codex (all token-based), broken down by model in a day-grouped table
 - **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and nine loop/malfunction patterns with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for turns, errors, active time, repeat tool calls, and estimated daily cost — per-agent or shared
 - **Automated Prompts** — The gear-icon Settings panel's Automation section configures threshold-based automations (Loop Breaker, Turn Limit Wrap-up, Context Dump) that trigger a correction prompt when a trace crosses a limit — delivered as a VS Code notification or written to a file for agent consumption
@@ -179,15 +179,7 @@ Override the default database location with the `OPENCODE_DATA_DIR` environment 
 
 The **Analytics** tab (Estimated Cost section) shows the dollar cost of Copilot, Claude Code, and Codex traces.
 
-**Copilot** supports three billing models via a toggle:
-
-| Mode | Who it applies to |
-| ---- | ----------------- |
-| **Token-based AI Credits** (default) | Default Copilot plans from June 1, 2026 — charges per input/output/cache token at per-model rates |
-| **Annual plan request-based** | Annual-plan holders staying on request billing from June 1, 2026 — multiplier × $0.04 per user-initiated prompt |
-| **Request-based** *(deprecated)* | Plans on request billing before June 1, 2026 — multiplier × $0.04 per user-initiated prompt |
-
-**Claude Code** and **Codex** always use token-based pricing — no toggle required. Claude Code is billed against the Anthropic API at standard per-token rates (input, cache write, cache read, output) depending on model (Opus, Sonnet, or Haiku). Codex is billed against the OpenAI API.
+**Copilot**, **Claude Code**, and **Codex** all use token-based pricing — charging per input/output/cache token at per-model rates. Claude Code is billed against the Anthropic API at standard per-token rates (input, cache write, cache read, output) depending on model (Opus, Sonnet, or Haiku). Codex is billed against the OpenAI API.
 
 The Estimated Cost section includes a per-trace bar chart with a daily aggregate line (right axis), a multi-dimensional table grouped by date and agent showing input, output, cache create, cache read, total tokens, and cost, and a model breakdown table. Some models carry a "long context" surcharge above a per-model token-per-call threshold — see [PRICING_SOURCES.md](PRICING_SOURCES.md) for which ones and the exact thresholds.
 

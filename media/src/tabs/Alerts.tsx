@@ -34,7 +34,7 @@ const ALERT_TOOLTIPS: Record<string, string> = {
   long_session:   'Uses active LLM/tool compute time, not wall-clock waiting time.',
   no_cache:       'Only checks sessions above the input-token gate. Cache can be low for small sessions without being a problem.',
   tool_loop:      'Counts identical tool plus argument repeats, not just the same tool name.',
-  daily_cost:     'Estimated cost only, not a real billing figure. Sums today (UTC) across every agent using token-based pricing, so it will overcount for Copilot plans on legacy request-based billing.',
+  daily_cost:     'Estimated cost only, not a real billing figure. Sums today (UTC) across every agent using token-based pricing.',
 }
 
 type AgentThresholdMap = Record<AgentSource, number>

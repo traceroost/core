@@ -183,7 +183,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   const traceIdHash = formatTraceIdHash(sess.traceId || sess.sessionId)
   const timelines = sessionTimelines.value
   const timeline = timelines[sess.sessionId] ?? sess.timeline ?? []
-  const cost = calcSessionCost(sess, 'token')
+  const cost = calcSessionCost(sess)
   const cacheRate = sess.inputTokens > 0 ? Math.round(sess.cacheReadTokens / sess.inputTokens * 100) : 0
   const burnRate = burnRateData.value
   const gitOutcome = gitOutcomes.value[sess.sessionId]
@@ -505,7 +505,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
   const [expanded, setExpanded] = useState(false)
   const isFocused = focusedSessionId.value === sess.sessionId
   const rowRef = useRef<HTMLTableRowElement>(null)
-  const cost = calcSessionCost(sess, 'token')
+  const cost = calcSessionCost(sess)
   const color = getAgentColor(sess.source)
   const prompt = sess.userRequest ?? ''
   const isIsolatedToThisGroup = conversation ? isSameIdSet(evidenceSessionIds.value, conversation.memberIds) : false

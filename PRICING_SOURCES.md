@@ -48,11 +48,11 @@ and revert independently if a source turns out to have been misread.
 
 ## Copilot
 
-Copilot has three billing models depending on plan type and date.
+Copilot uses token-based AI Credits billing only.
 
-### Model 1 — Token-based AI Credits (from Jun 1, 2026)
+### Billing model — Token-based AI Credits (from Jun 1, 2026)
 
-**Who it applies to:** All Copilot plans on the new billing model, default from June 1, 2026.
+**Who it applies to:** All Copilot plans.
 
 **Source:** <https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing> (verified 2026-09-15 — all existing token rates re-checked and unchanged. Copilot's own extra 50%-off promo on GPT-5.6 Sol, previously stated as running "through September 3, 2026," is gone from the page as of this refresh — it ended as scheduled, so `RATES`' single shared rate for GPT-5.6 Sol is now correct for Copilot-sourced sessions too, where it previously overstated cost ~2x. New this pass: **GPT-6 Astra** — a new flagship, above GPT-5.6 Sol in price, confirmed independently on this page, OpenAI's own API pricing page, and the Codex CLI credits page. Also noticed: **Claude Opus 4.6 is no longer listed on this page** (Opus 4.7/4.8/5 still are) — Anthropic's own pricing page still lists it unchanged, so this looks like a Copilot-specific model-availability change, not a rate change; same situation as gpt-4.1 previously.)
 
@@ -76,54 +76,8 @@ cost = (inputTokens / 1_000_000 × inputRate)
 aiCredits = cost / 0.01
 ```
 
-### Model 2 — Annual-plan request-based (from Jun 1, 2026)
-
-**Who it applies to:** Copilot annual-plan holders who opt to stay on request-based billing
-after June 1, 2026. These users face significantly higher multipliers than the pre-June rates.
-
-**Source:** <https://docs.github.com/en/copilot/reference/copilot-billing/model-multipliers-for-annual-plans> (verified 2026-09-15 — re-checked, unchanged. Still no rows for claude-opus-5, the Claude Fable/Mythos family, the GPT-5.6 family, gpt-6-astra, gpt-4.1-mini/-nano, gpt-5/-nano, grok-4.5/4.6, kimi-k3, or gemini-3.6/3.7/3.8-flash; `multiplierAnnualPostJun1` stays 0 for those until published.)
-
-**What this page provides:**
-
-- Post-June multipliers for annual plan holders (`multiplierAnnualPostJun1` field in `ModelRates`)
-- Formula is the same as Model 3 — only the multiplier values differ
-- A separate note: Copilot code review has a model multiplier of 13 (each code review request
-  deducts 13 from the premium request quota) — see Known gaps below
-
-**Formula:**
-
-```text
-cost = userPromptCount × multiplierAnnualPostJun1 × $0.04
-```
-
-### Model 3 — Request-based with multipliers *(deprecated — pre-Jun 1, 2026)*
-
-**Who it applies to:** All Copilot plans before June 1, 2026. No longer active for new sessions.
-
-**Source:** <https://docs.github.com/en/copilot/concepts/billing/copilot-requests>
-
-**What this page provides:**
-
-- Per-model request multipliers (`multiplier` field in `ModelRates`)
-- Clarification that only **user-initiated prompts** count as premium requests in agentic sessions —
-  autonomous tool calls and internal LLM calls within a session do NOT count
-- Models with a 0× multiplier are included and cost nothing under this model
-
-**Formula:**
-
-```text
-cost = userPromptCount × multiplier × $0.04
-```
-
-This model is now fully historical (we're past the June 1, 2026 cutover), so its source page no
-longer lists per-model multipliers directly — it points to the annual-plan legacy page instead,
-which 404s. `multiplier` values in `RATES` are frozen at their last-known state for historical
-sessions; don't expect to re-verify them.
-
 **Known gaps:**
 
-- **Copilot code review multiplier**: not currently modeled in `pricing.ts` — TraceRoost doesn't
-  distinguish code-review-triggered requests from regular premium requests.
 - `gpt-4o`, `gpt-4o-mini` are no longer listed on the current AI Credits pricing page at all (paid
   or included). Kept in `RATES` at their legacy rate for historical/legacy sessions; treat as
   deprecated. `gpt-4.1` is **not** listed on Copilot's own model pricing page as of 2026-08-12

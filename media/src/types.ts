@@ -210,7 +210,7 @@ export interface SearchQuery {
   offset?: number
 }
 
-export type AgentFilter = 'all' | 'copilot' | 'claude_code' | 'codex' | 'opencode'
+export type AgentFilter = 'all' | 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
 // 'agent' covers both agent-spawned sub-tasks and non-interactive API calls (sess.initiator
 // 'agent' | 'api') — the two were a single visually-indistinguishable gray pill even before this
 // type merged them, so the filter now matches what a user could actually tell apart.

@@ -1,5 +1,5 @@
 import { useEffect } from 'preact/hooks'
-import { PRICING_LAST_UPDATED, RATES, PRICING_SECTIONS, REQUEST_BILLING_SOURCES, normalizeCostKey, type ModelRates } from '../pricing'
+import { PRICING_LAST_UPDATED, RATES, PRICING_SECTIONS, normalizeCostKey, type ModelRates } from '../pricing'
 import { teamStatus, requestTeamStatus, displayOrgName, type CloudRate } from '../cloud/panels/TeamPanel'
 
 // Table styling matches the established convention duplicated per-component across
@@ -15,12 +15,6 @@ const tdNum   = tdStyle + ';white-space:nowrap;font-variant-numeric:tabular-nums
 // oddly for small per-token rates (e.g. "$0.020" instead of "$0.02").
 function fmtRate(v: number): string {
   return v === 0 ? '—' : '$' + v.toFixed(2)
-}
-
-function fmtMult(v: number): string {
-  if (v === 0) return '—'
-  const s = v % 1 === 0 ? v.toFixed(0) : v.toString()
-  return s + '×'
 }
 
 function SourceLinks({ sources }: { sources: { label: string; url: string }[] }) {
@@ -58,8 +52,6 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
             <th style={thStyle}>Cache Read</th>
             <th style={thStyle}>Cache Write</th>
             <th style={thStyle}>Output</th>
-            <th style={thStyle}>Request ×</th>
-            <th style={thStyle}>Annual ×</th>
             <th style={thStyle}>Source</th>
           </tr>
         </thead>
@@ -80,8 +72,6 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
                 <td style={tdNum}>{fmtRate(shown.cacheReadPerMTok)}</td>
                 <td style={tdNum}>{fmtRate(shown.cacheWritePerMTok)}</td>
                 <td style={tdNum}>{fmtRate(shown.outputPerMTok)}</td>
-                <td style={tdNum}>{fmtMult(r.multiplier)}</td>
-                <td style={tdNum}>{fmtMult(r.multiplierAnnualPostJun1)}</td>
                 <td style={tdNum}>
                   {remote
                     ? <span title={endpoint ? `Synced from your organization's rate table at ${hostLabel(endpoint)}` : "Synced from your organization's rate table"} style="cursor:help">Remote</span>
@@ -130,11 +120,7 @@ export function Pricing() {
       )}
 
       <p style="font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 8px">
-        All USD rates are per 1M tokens. <strong style="color:var(--fg)">Request ×</strong> and <strong style="color:var(--fg)">Annual ×</strong> are Copilot's
-        per-request multipliers (× $0.04/request) — pre- and post-June 1 2026 respectively — for
-        plans on request-based billing rather than token-based AI Credits; <code>—</code> means
-        included/free under that billing mode. Sources for those two columns specifically:{' '}
-        <SourceLinks sources={REQUEST_BILLING_SOURCES} />.
+        All USD rates are per 1M tokens, token-based AI Credits billing.
       </p>
 
       {PRICING_SECTIONS.map(section => (

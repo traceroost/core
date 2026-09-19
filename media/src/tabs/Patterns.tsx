@@ -17,7 +17,7 @@ const AGENT_DOT_COLOR: Record<string, string> = {
 function agentDotColor(source: string): string { return AGENT_DOT_COLOR[source] ?? '#888' }
 
 function sessionCost(s: SessionSummaryCard): number {
-  return calcSessionCost(s, s.source === 'copilot' ? 'token' : 'token').totalUsd
+  return calcSessionCost(s).totalUsd
 }
 
 function basename(p: string): string {

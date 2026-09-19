@@ -3,9 +3,8 @@ import { useEffect, useRef } from 'preact/hooks'
 import { sessionSummary, displaySessions, filteredSessions, dailyStats, lifetimeStats, selectedAgentFilter, timeRange, makeTimeRange, focusedSessionId, activeTab } from '../state'
 import type { TimePreset } from '../state'
 import { getAgentColor, getSessionGlobalNumber, formatCompact, getAgentSourceLabel, formatSessionTime } from '../utils'
-import { calcSessionCost, sessionCostMode, dayKeyUtc } from '../sessionMetrics'
+import { calcSessionCost, dayKeyUtc } from '../sessionMetrics'
 import { PRICING_LAST_UPDATED } from '../pricing'
-import type { PricingMode } from '../sessionMetrics'
 import type { SessionSummaryCard, DailyStatRow } from '../types'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -222,13 +221,13 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
 
 // ── Per-session cost bar chart ─────────────────────────────────────────────────
 
-export function CostBarChart({ sessions, mode }: { sessions: SessionSummaryCard[]; mode: PricingMode }) {
+export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const barDataRef = useRef<Array<{ sessionId: string; slotX: number; slotW: number }>>([])
 
   // Compute outside the effect so excludedCount is available for JSX rendering.
   const allData = sessions.slice().reverse().map(sess => {  // oldest → newest left → right
-    const cost = calcSessionCost(sess, sessionCostMode(sess, mode))
+    const cost = calcSessionCost(sess)
     return { sessionId: sess.sessionId, cost: cost.totalUsd, unknown: cost.modelUnknown, startTime: sess.startTime, source: sess.source }
   })
   const excludedCount = allData.filter(d => d.unknown).length
@@ -407,7 +406,6 @@ export function CostBarChart({ sessions, mode }: { sessions: SessionSummaryCard[
 export function Cost() {
   const sessions = filteredSessions.value
   const hasAny = (sessionSummary.value?.sessions?.length ?? 0) > 0
-  const [mode, setMode] = useState<PricingMode>('token')
 
   const copilotSessions = sessions.filter(s => s.source === 'copilot')
   const codexSessions = sessions.filter(s => s.source === 'codex')
@@ -430,10 +428,10 @@ export function Cost() {
     )
   }
 
-  const copilotCosts = copilotSessions.map(s => ({ session: s, cost: calcSessionCost(s, mode) }))
-  const codexCosts = codexSessions.map(s => ({ session: s, cost: calcSessionCost(s, 'token') }))
-  const claudeCosts = claudeSessions.map(s => ({ session: s, cost: calcSessionCost(s, 'token') }))
-  const allCosts = pricedSessions.map(s => ({ session: s, cost: calcSessionCost(s, sessionCostMode(s, mode)) }))
+  const copilotCosts = copilotSessions.map(s => ({ session: s, cost: calcSessionCost(s) }))
+  const codexCosts = codexSessions.map(s => ({ session: s, cost: calcSessionCost(s) }))
+  const claudeCosts = claudeSessions.map(s => ({ session: s, cost: calcSessionCost(s) }))
+  const allCosts = pricedSessions.map(s => ({ session: s, cost: calcSessionCost(s) }))
 
   const copilotTotalUsd = copilotCosts.reduce((sum, c) => sum + c.cost.totalUsd, 0)
   const copilotTotalCredits = copilotTotalUsd / 0.01
@@ -448,35 +446,15 @@ export function Cost() {
     Date.parse(b.session.startTime || '0') - Date.parse(a.session.startTime || '0')
   )
 
-  const showCreditsCol = mode === 'token'
-
   return (
     <div id="cost-content">
       {disclaimer}
       {/* Pricing model section — one block per agent type */}
       <div style="margin-bottom:16px;display:flex;flex-direction:column;gap:10px">
         {copilotSessions.length > 0 && (
-          <div>
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);margin-bottom:5px">
-              <span style={'display:inline-block;width:7px;height:7px;border-radius:50%;background:' + getAgentColor('copilot')} />
-              Copilot — Select pricing model
-            </div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap">
-              <button
-                class={'tab-mini' + (mode === 'token' ? ' active' : '')}
-                onClick={() => setMode('token')}
-                title="Token-based AI Credits billing, effective Jun 1, 2026"
-              >Token-based</button>
-              <button
-                class={'tab-mini' + (mode === 'request-annual' ? ' active' : '')}
-                onClick={() => setMode('request-annual')}
-                title="Annual plan holders staying on request-based billing after Jun 1, 2026 — higher multipliers apply"
-              >Annual plan (request)</button>
-            </div>
-            <div style="margin-top:5px;font-size:10px;color:var(--muted);line-height:1.5">
-              Sessions before Jun 1, 2026 were billed per request — use Annual plan (request) for those.
-              Copilot Chat log traces with no token data will show $0 in token mode regardless of billing period.
-            </div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)">
+            <span style={'display:inline-block;width:7px;height:7px;border-radius:50%;background:' + getAgentColor('copilot')} />
+            Copilot — Always uses token-based pricing
           </div>
         )}
         {codexSessions.length > 0 && (
@@ -522,7 +500,7 @@ export function Cost() {
 
       {/* Per-session cost bar chart */}
       <h3 style="margin:0 0 8px;font-size:13px;color:var(--muted)">ESTIMATED COST PER TRACE</h3>
-      <CostBarChart sessions={pricedSessions} mode={mode} />
+      <CostBarChart sessions={pricedSessions} />
 
       {/* Session cost table */}
       <h3 style="margin:24px 0 8px;font-size:13px;color:var(--muted)">TRACE COST TABLE</h3>
@@ -537,7 +515,7 @@ export function Cost() {
               <th style="padding:4px 8px;text-align:right">Output tok</th>
               <th style="padding:4px 8px;text-align:right">Cache read</th>
               <th style="padding:4px 8px;text-align:right">Est. cost</th>
-              {showCreditsCol && <th style="padding:4px 8px;text-align:right" data-tip="Copilot AI Credits (1 credit = $0.01); not applicable to Codex">AI Credits</th>}
+              <th style="padding:4px 8px;text-align:right" data-tip="Copilot AI Credits (1 credit = $0.01); not applicable to Codex">AI Credits</th>
             </tr>
           </thead>
           <tbody>
@@ -569,11 +547,9 @@ export function Cost() {
                       ? <span style="color:var(--muted)" data-tip={'Model "' + s.model + '" not in rate table — add rates in pricing.ts'}>~$?</span>
                       : fmtUsd(cost.totalUsd)}
                   </td>
-                  {showCreditsCol && (
-                    <td style="padding:4px 8px;text-align:right;color:var(--muted)">
-                      {!isCopilot ? '—' : cost.modelUnknown ? '?' : fmtCredits(cost.aiCredits)}
-                    </td>
-                  )}
+                  <td style="padding:4px 8px;text-align:right;color:var(--muted)">
+                    {!isCopilot ? '—' : cost.modelUnknown ? '?' : fmtCredits(cost.aiCredits)}
+                  </td>
                 </tr>
               )
             })}
@@ -585,7 +561,7 @@ export function Cost() {
                   Copilot ({copilotSessions.length} session{copilotSessions.length !== 1 ? 's' : ''})
                 </td>
                 <td style="padding:5px 8px;text-align:right;font-weight:600">{copilotAnyUnknown ? '~' : ''}{fmtUsd(copilotTotalUsd)}</td>
-                {showCreditsCol && <td style="padding:5px 8px;text-align:right;color:var(--muted)">{copilotAnyUnknown ? '~' : ''}{fmtCredits(copilotTotalCredits)}</td>}
+                <td style="padding:5px 8px;text-align:right;color:var(--muted)">{copilotAnyUnknown ? '~' : ''}{fmtCredits(copilotTotalCredits)}</td>
               </tr>
             )}
             {codexSessions.length > 0 && (
@@ -594,7 +570,7 @@ export function Cost() {
                   Codex ({codexSessions.length} session{codexSessions.length !== 1 ? 's' : ''})
                 </td>
                 <td style="padding:5px 8px;text-align:right;font-weight:600">{codexAnyUnknown ? '~' : ''}{fmtUsd(codexTotalUsd)}</td>
-                {showCreditsCol && <td style="padding:5px 8px;text-align:right;color:var(--muted)">—</td>}
+                <td style="padding:5px 8px;text-align:right;color:var(--muted)">—</td>
               </tr>
             )}
             {claudeSessions.length > 0 && (
@@ -603,7 +579,7 @@ export function Cost() {
                   Claude ({claudeSessions.length} session{claudeSessions.length !== 1 ? 's' : ''})
                 </td>
                 <td style="padding:5px 8px;text-align:right;font-weight:600">{claudeAnyUnknown ? '~' : ''}{fmtUsd(claudeTotalUsd)}</td>
-                {showCreditsCol && <td style="padding:5px 8px;text-align:right;color:var(--muted)">—</td>}
+                <td style="padding:5px 8px;text-align:right;color:var(--muted)">—</td>
               </tr>
             )}
             {[copilotSessions, codexSessions, claudeSessions].filter(s => s.length > 0).length > 1 && (
@@ -612,7 +588,7 @@ export function Cost() {
                   Total ({pricedSessions.length} session{pricedSessions.length !== 1 ? 's' : ''})
                 </td>
                 <td style="padding:6px 8px;text-align:right">{(copilotAnyUnknown || codexAnyUnknown || claudeAnyUnknown) ? '~' : ''}{fmtUsd(copilotTotalUsd + codexTotalUsd + claudeTotalUsd)}</td>
-                {showCreditsCol && <td style="padding:6px 8px;text-align:right;color:var(--muted)">—</td>}
+                <td style="padding:6px 8px;text-align:right;color:var(--muted)">—</td>
               </tr>
             )}
           </tfoot>
@@ -621,11 +597,9 @@ export function Cost() {
 
       {/* Footer note */}
       <div style="margin-top:16px;font-size:10px;color:var(--muted);line-height:1.6">
-        {mode === 'token'
-          ? 'Token-based AI Credits: effective Jun 1, 2026. Per-turn chart uses input+output only; trace totals include cache tokens.'
-          : 'Annual plan request-based: for annual-plan holders staying on request billing after Jun 1, 2026. Multipliers are significantly higher on this plan post-June.'}
-        {codexSessions.length > 0 && ' Codex sessions use token-based pricing regardless of the Copilot billing model selected above.'}
-        {claudeSessions.length > 0 && ' Claude sessions use Anthropic API token-based pricing regardless of the Copilot billing model selected above.'}
+        Token-based AI Credits: effective Jun 1, 2026. Per-turn chart uses input+output only; trace totals include cache tokens.
+        {codexSessions.length > 0 && ' Codex sessions use token-based pricing too.'}
+        {claudeSessions.length > 0 && ' Claude sessions use Anthropic API token-based pricing too.'}
       </div>
 
       {/* Known gaps */}
@@ -639,7 +613,6 @@ export function Cost() {
           <ul style="margin:4px 0 0;padding-left:18px">
             <li>Long-context surcharges are not applied — GPT-5.4 (prompts &gt;272K tokens) and Gemini 2.5 Pro / 3.1 Pro (prompts &gt;200K tokens) have higher rates above those thresholds, which require per-prompt token counts not available in trace telemetry.</li>
             <li>Models not in the rate table are shown as <strong>~$?</strong> — this can happen when GitHub releases a new model after the last rate update, or when the model ID in telemetry doesn't match the published name.</li>
-            <li>Request-based cost uses trace turn count as a proxy for billable prompts, which may not match exactly for all trace shapes.</li>
           </ul>
         </div>
         <div style="margin-top:12px">

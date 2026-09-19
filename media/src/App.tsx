@@ -665,6 +665,7 @@ const AGENT_FILTER_OPTIONS: Array<{ value: AgentFilter; label: string; color: st
   { value: 'claude_code',label: 'Claude',   color: 'var(--agent-claude,#FFB085)' },
   { value: 'codex',      label: 'Codex',    color: 'var(--agent-codex,#F0FF42)' },
   { value: 'opencode',   label: 'OpenCode', color: 'var(--fg)' },
+  { value: 'cursor',     label: 'Cursor',   color: 'var(--agent-cursor,#B39DDB)' },
 ]
 
 function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolean }) {

@@ -68,7 +68,7 @@ const AGENT_LABEL: Record<string, string> = {
 }
 
 function sessionCostUsd(s: SessionSummaryCard): number {
-  return calcSessionCost(s, 'token').totalUsd
+  return calcSessionCost(s).totalUsd
 }
 
 function makeId(prefix: string, key: string): string {

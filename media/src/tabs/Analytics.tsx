@@ -7,7 +7,6 @@ import {
 import { getAgentColor, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
 import { buildDailyCostMap } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
-import type { PricingMode } from '../sessionMetrics'
 import { PRICING_LAST_UPDATED } from '../pricing'
 
 import { ContextGrowthChart, SessionTokenChart } from './SessionCharts'
@@ -85,7 +84,6 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
 // ── Main Analytics component ──────────────────────────────────────────────────
 
 export function Analytics() {
-  const [mode, setMode] = useState<PricingMode>('token')
   const [abbrevTokens, setAbbrevTokens] = useState(true)
   const [showZeroCost, setShowZeroCost] = useState(false)
   const sessions = filteredSessions.value
@@ -131,7 +129,7 @@ export function Analytics() {
 
   // Multi-dimensional cost table: day → agent. Shared with the daily_cost alert in Alerts.tsx —
   // see buildDailyCostMap in sessionMetrics.ts, the single source of truth for day-grouped cost.
-  const dayMap = buildDailyCostMap(pricedSess, mode)
+  const dayMap = buildDailyCostMap(pricedSess)
   const dayRows = [...dayMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   const grand = dayRows.reduce((g, [, d]) => ({
     input: g.input + d.input, output: g.output + d.output,
@@ -189,15 +187,7 @@ export function Analytics() {
           {copilotSess.length > 0 && (
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:8px">
               <span style={'display:inline-block;width:6px;height:6px;border-radius:50%;background:' + getAgentColor('copilot')} />
-              <span style="text-transform:uppercase;letter-spacing:.3px;font-size:10px">Copilot</span>
-              <button
-                class={'tab-mini' + (mode === 'token' ? ' active' : '')}
-                onClick={() => setMode('token')}
-              >Token-based</button>
-              <button
-                class={'tab-mini' + (mode === 'request-annual' ? ' active' : '')}
-                onClick={() => setMode('request-annual')}
-              >Annual request-based</button>
+              <span style="text-transform:uppercase;letter-spacing:.3px;font-size:10px">Copilot — Token-based</span>
             </div>
           )}
 
@@ -209,7 +199,7 @@ export function Analytics() {
             Daily total (right axis)
           </div>
 
-          <CostBarChart sessions={pricedChartSess} mode={mode} />
+          <CostBarChart sessions={pricedChartSess} />
 
           {/* Multi-dimensional cost table: date → agent, scrollable */}
           {dayRows.length > 0 && (

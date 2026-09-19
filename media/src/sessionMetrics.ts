@@ -1,6 +1,6 @@
 import type { SessionSummaryCard, TimelineEntry, OneShotStats } from './types'
 import { getAgentProfiles, resolveAgentProfile, type AgentThresholdProfiles } from './agentProfiles'
-import { lookupRates, calcTokenCost, type PricingMode } from './pricing'
+import { lookupRates, calcTokenCost } from './pricing'
 
 // Mirrors src/oneShotRate.ts — see there for why this metric exists and its honest limitations
 // (edit-pass counting, not a correctness signal).
@@ -30,41 +30,18 @@ export function calcEntryCost(entry: TimelineEntry, sessionModel: string): numbe
   return calcTokenCost(rawInput, cacheRead, cacheCreate, entry.outputTokens ?? 0, rates)
 }
 
-export type { PricingMode }
-
 export interface SessionCost {
   totalUsd: number
   aiCredits: number     // totalUsd / 0.01 — Copilot's billing unit
   byTurn: number[]      // cumulative USD at each LLM timeline entry index
   modelUnknown: boolean
-  pricingMode: PricingMode
 }
 
-export function calcSessionCost(session: SessionSummaryCard, mode: PricingMode): SessionCost {
+export function calcSessionCost(session: SessionSummaryCard): SessionCost {
   const modelId = session.model || ''
   const rates = lookupRates(modelId)
   const llmEntries = (session.timeline ?? []).filter(e => e.type === 'llm')
 
-  if (mode === 'request' || mode === 'request-annual') {
-    const mult = mode === 'request-annual'
-      ? (rates?.multiplierAnnualPostJun1 ?? 0)
-      : (rates?.multiplier ?? 0)
-    if (!rates || mult === 0) {
-      return { totalUsd: 0, aiCredits: 0, byTurn: llmEntries.map(() => 0), modelUnknown: !rates, pricingMode: mode }
-    }
-    // Only the user-initiated prompt counts as a premium request in agentic sessions;
-    // autonomous tool calls and internal LLM calls within a session do not.
-    // session.turns reflects user prompt count; fall back to 1 if unavailable.
-    const promptCount = session.turns || 1
-    const totalUsd = promptCount * mult * 0.04
-    const perPrompt = totalUsd / promptCount
-    let cum = 0
-    // Spread cost evenly across LLM entries for the chart shape, but total is prompt-based.
-    const byTurn = llmEntries.map(() => { cum = Math.min(cum + perPrompt, totalUsd); return cum })
-    return { totalUsd, aiCredits: totalUsd / 0.01, byTurn, modelUnknown: false, pricingMode: mode }
-  }
-
-  // Token-based mode.
   // Sessions can span more than one model (a Task-tool subagent on a cheaper model, a
   // mid-session /model switch) — when the timeline shows more than one distinct model,
   // price each LLM entry at its own model and sum, instead of pricing the session's
@@ -88,7 +65,7 @@ export function calcSessionCost(session: SessionSummaryCard, mode: PricingMode):
       ? calcTokenCost(rawInput, session.cacheReadTokens, session.cacheCreateTokens, session.outputTokens, rates)
       : 0
 
-  return { totalUsd, aiCredits: totalUsd / 0.01, byTurn, modelUnknown: anyRateUnknown, pricingMode: mode }
+  return { totalUsd, aiCredits: totalUsd / 0.01, byTurn, modelUnknown: anyRateUnknown }
 }
 
 export interface PeakContextUsage {
@@ -111,11 +88,6 @@ export interface ErrorHealth {
   trailingConsecutive: number
   failureRate: number
   recentErrors: string[]
-}
-
-export function sessionCostMode(session: SessionSummaryCard, mode: PricingMode): PricingMode {
-  // Codex and Claude Code are always token-based; the mode toggle only applies to Copilot
-  return (session.source === 'codex' || session.source === 'claude_code') ? 'token' : mode
 }
 
 // 'YYYY-MM-DD', UTC — matches the day-grouping convention used by the Cost tab's daily chart.
@@ -145,11 +117,11 @@ export interface DayCost {
 // Day → agent cost/token breakdown. The single source of truth for "daily cost" — the Analytics
 // tab's cost table, the daily_cost alert, and anything else that needs a per-day total should
 // build on this rather than re-deriving their own day-grouping and summing.
-export function buildDailyCostMap(sessions: SessionSummaryCard[], mode: PricingMode): Map<string, DayCost> {
+export function buildDailyCostMap(sessions: SessionSummaryCard[]): Map<string, DayCost> {
   const dayMap = new Map<string, DayCost>()
   for (const sess of sessions) {
     const day = dayKeyUtc(sess.startTime)
-    const cost = calcSessionCost(sess, sessionCostMode(sess, mode)).totalUsd
+    const cost = calcSessionCost(sess).totalUsd
     if (!dayMap.has(day)) dayMap.set(day, { input: 0, output: 0, cacheCreate: 0, cacheRead: 0, cost: 0, agents: new Map() })
     const de = dayMap.get(day)!
     de.input += sess.inputTokens; de.output += sess.outputTokens
@@ -163,11 +135,10 @@ export function buildDailyCostMap(sessions: SessionSummaryCard[], mode: PricingM
   return dayMap
 }
 
-// Estimated cost across sessions that started on the given UTC day key. Defaults to token-based
-// pricing (Copilot's AI Credits model) since this runs in contexts (alerts) with no user-facing
-// pricing-mode toggle to plumb through. Built on buildDailyCostMap, not a separate calculation.
+// Estimated cost across sessions that started on the given UTC day key. Built on
+// buildDailyCostMap, not a separate calculation.
 export function getDailyCostUsd(sessions: SessionSummaryCard[], dayKey: string): number {
-  return buildDailyCostMap(sessions, 'token').get(dayKey)?.cost ?? 0
+  return buildDailyCostMap(sessions).get(dayKey)?.cost ?? 0
 }
 
 export function sessionDisplayName(session: SessionSummaryCard): string {

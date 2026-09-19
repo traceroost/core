@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Removed
+
+- **Copilot's "Annual plan (request)" pricing-mode toggle** — the Cost and Analytics tabs' Copilot billing model selector is gone; Copilot cost is now always estimated with token-based AI Credits, matching Claude Code, Codex, and every other agent. The Pricing page's `Request ×` and `Annual ×` multiplier columns are removed along with the underlying `multiplier`/`multiplierAnnualPostJun1` rate fields.
+
 ---
 
 ## [0.16.2] — 2026-09-14
