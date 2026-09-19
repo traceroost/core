@@ -102,17 +102,19 @@ export interface PricingSyncHandle {
   dispose(): void
 }
 
-export function startPricingSync(opts: { intervalMs?: number; baseHome?: string } = {}): PricingSyncHandle {
+export function startPricingSync(opts: { intervalMs?: number; baseHome?: string; onSync?: () => void } = {}): PricingSyncHandle {
   const intervalMs = opts.intervalMs ?? 60 * 60_000 // hourly — see comment above
   let timer: ReturnType<typeof setInterval> | undefined
 
   loadCachedRatesIntoPricing(opts.baseHome)
 
+  const fetchAndNotify = () => fetchAndCacheRates(opts.baseHome).then(() => opts.onSync?.())
+
   const start = () => {
     if (timer) return
-    timer = setInterval(() => { void fetchAndCacheRates(opts.baseHome) }, intervalMs)
+    timer = setInterval(() => { void fetchAndNotify() }, intervalMs)
     timer.unref?.()
-    void fetchAndCacheRates(opts.baseHome)
+    void fetchAndNotify()
   }
   const stop = () => {
     if (timer) { clearInterval(timer); timer = undefined }
@@ -123,7 +125,11 @@ export function startPricingSync(opts: { intervalMs?: number; baseHome?: string 
   const handle: PricingSyncHandle = {
     syncToLinkState() {
       if (loadCredentials()) start()
-      else { stop(); setCloudRateOverrides({}) } // leaving a team stops trusting its rates too
+      else {
+        stop()
+        setCloudRateOverrides({}) // leaving a team stops trusting its rates too
+        opts.onSync?.()
+      }
     },
     dispose() {
       stop()

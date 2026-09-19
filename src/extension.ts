@@ -628,7 +628,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // ── Pro: pricing sync ────────────────────────────────────────────────────────
   // Same "no timer unless linked" invariant as the forwarding scheduler above, on its own
   // (longer) interval — see pricingSync.ts for why it isn't just piggybacked on the drain cadence.
-  const pricingSync = startPricingSync()
+  const pricingSync = startPricingSync({ onSync: () => DashboardPanel.pushTeamStatus() })
   context.subscriptions.push({ dispose: () => pricingSync.dispose() })
 
   // ── Status bar ───────────────────────────────────────────────────────────────

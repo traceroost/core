@@ -254,6 +254,13 @@ export function setCloudRateOverrides(rates: Record<string, Omit<ModelRates, 'co
   cloudRateOverrides = map
 }
 
+/** Snapshot of whichever cloud rate overrides are currently active, keyed by normalizeCostKey —
+ *  for surfacing "local vs remote" in the Pricing tab. Empty on an unlinked install or before the
+ *  first successful sync (see pricingSync.ts). Read-only local-memory access, no network call. */
+export function getCloudRateOverrides(): Record<string, ModelRates> {
+  return Object.fromEntries(cloudRateOverrides)
+}
+
 // Exact match only, after normalization — no prefix-matching fallback. A previous
 // version fell back to substring-prefix matching ("versioned or aliased model IDs"),
 // but that let an unrecognized *newer* model silently inherit an unrelated *older*

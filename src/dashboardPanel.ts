@@ -532,7 +532,13 @@ export class DashboardPanel {
       recentSessions: () => this.repo.listSessions({ limit: 25 }),
       allLocalSessions: () => this.repo.listSessions(),
       buildPayloadPreview: (session) => buildPayloadPreviewText(session),
-      onOpenTeamView: () => { void vscode.env.openExternal(vscode.Uri.parse(loadCredentials()?.endpoint ?? teamEndpoint())) },
+      onOpenTeamView: () => {
+        const url = loadCredentials()?.endpoint ?? teamEndpoint()
+        void vscode.env.openExternal(vscode.Uri.parse(url)).then(
+          (opened) => { if (!opened) void vscode.window.showErrorMessage(`TraceRoost: could not open ${url} in your browser.`) },
+          (err) => { void vscode.window.showErrorMessage(`TraceRoost: could not open ${url}: ${err instanceof Error ? err.message : err}`) },
+        )
+      },
       log: (m) => console.warn(m),
     }
   }

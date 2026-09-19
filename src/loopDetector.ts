@@ -3,7 +3,7 @@
  *
  * Detects 7 signal types that indicate an agent is stuck, spiraling, or working unreliably:
  *
- *   1. exact_tool_repeat     — identical tool call (by label) executed 3+ times with no edit in between
+ *   1. exact_tool_repeat     — identical tool call (by label) executed 30+ times with no edit in between
  *   2. edit_revert_cycle     — a file was edited then reverted to a prior state
  *   3. error_recurrence      — the same error message appearing 3+ times
  *   4. runaway_steps         — too many steps relative to inferred task complexity

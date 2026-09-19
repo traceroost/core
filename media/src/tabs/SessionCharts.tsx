@@ -50,6 +50,7 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
 
   const [paused, setPaused] = useState(false)
   const [hasData, setHasData] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [seriesCount, setSeriesCount] = useState(0)
   const [speed, setSpeed] = useState(1)
   const pausedRef = useRef(false)
@@ -106,10 +107,16 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
       drawFnRef.current = null
       clearTimer()
       setHasData(false)
+      // A session with no timeline entry yet (fetch still in flight — see the
+      // loadSessionDetail postMessage loop in Analytics.tsx) is "not loaded", not
+      // "no data" — only call it empty once every session has actually reported in.
+      const stillLoading = sessions.some(sess => timelines[sess.sessionId] === undefined && (sess.timeline?.length ?? 0) === 0)
+      setLoading(stillLoading)
       return
     }
     canvas.style.display = 'block'
     setHasData(true)
+    setLoading(false)
     setSeriesCount(seriesData.length)
     seriesCountRef.current = seriesData.length
 
@@ -292,7 +299,8 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
         onClick={handleCanvasClick}
         title="Click a line to select that trace"
       />
-      {!hasData && <div class="empty-state" style="font-size:11px">No per-turn token data for these traces. Context Growth requires traces with per-turn input token counts — available for OTel-sourced traces and Claude Code log traces.</div>}
+      {!hasData && loading && <div class="empty-state" style="font-size:11px">Loading per-turn token data…</div>}
+      {!hasData && !loading && <div class="empty-state" style="font-size:11px">No per-turn token data for these traces. Context Growth requires traces with per-turn input token counts — available for OTel-sourced traces and Claude Code log traces.</div>}
       {hasData && (
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px">
           <div style="display:flex;align-items:center;gap:6px">

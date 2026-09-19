@@ -4,7 +4,7 @@ import type { OneShotStats } from '../oneShotRate'
 export interface SessionSummaryCard {
   sessionId: string
   traceId: string
-  source: 'copilot' | 'claude_code' | 'codex' | 'opencode'
+  source: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
   conversationId?: string

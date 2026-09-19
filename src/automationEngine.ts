@@ -34,6 +34,9 @@ const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
   copilot:     { contextWindowTokens: 128000, turnNudge: 150, identicalRepeatNudge: 3, consecutiveErrorNudge: 3 },
   codex:       { contextWindowTokens: 400000, turnNudge: 250, identicalRepeatNudge: 4, consecutiveErrorNudge: 4 },
   opencode:    { contextWindowTokens: 200000, turnNudge: 80,  identicalRepeatNudge: 3, consecutiveErrorNudge: 3 },
+  // Placeholder, not yet calibrated against real Cursor CLI session data (see runbooks/
+  // SIGNAL_CALIBRATION.md) — copied from claude_code/opencode's defaults as a starting point.
+  cursor:      { contextWindowTokens: 200000, turnNudge: 80,  identicalRepeatNudge: 3, consecutiveErrorNudge: 3 },
 }
 
 function resolveAgentProfile(source: AgentSource | null | undefined): AgentThresholdProfile {

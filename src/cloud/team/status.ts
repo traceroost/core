@@ -10,6 +10,7 @@
 import { loadCredentials } from './credentials'
 import { clientVersion } from './oauthClient'
 import { resolveTeamEnvironment, TEAM_ENDPOINTS, type TeamEnvironment, type EnvironmentSource } from './config'
+import { getCloudRateOverrides, type ModelRates } from '../../pricing'
 
 /** Forwarding-queue health, supplied by AL 04. Absent until that lands (and always absent on an
  *  unlinked install, where there is no queue). */
@@ -57,6 +58,11 @@ export interface TeamStatus {
   /** True while `environment`/`environmentSource` above reflect a live credential rather than
    *  `resolveTeamEnvironment()` — i.e. whenever `linked` is true. */
   environmentEditable: boolean
+  /** Whichever org-provided model rates (pricingSync.ts) are currently overriding the local
+   *  `RATES` table, keyed by normalizeCostKey — empty on an unlinked install or before the first
+   *  successful sync. Lets the Pricing tab mark a row "Remote" vs "Local" without a dedicated
+   *  round trip: this is local in-memory state, same invariant as the rest of this file. */
+  cloudRateOverrides: Record<string, ModelRates>
 }
 
 function describeEndpoint(endpoint: string): TeamEnvironment | 'custom' {
@@ -80,6 +86,7 @@ export function getTeamStatus(queue?: QueueStats): TeamStatus {
       environment: resolved.environment,
       environmentSource: resolved.source,
       environmentEditable: resolved.source === 'selected' || resolved.source === 'default',
+      cloudRateOverrides: getCloudRateOverrides(),
     }
   }
 
@@ -112,5 +119,6 @@ export function getTeamStatus(queue?: QueueStats): TeamStatus {
     queueDepth: queue?.depth ?? 0,
     lastRollupAt: queue?.lastSuccessAt ?? null,
     degradedReason,
+    cloudRateOverrides: getCloudRateOverrides(),
   }
 }

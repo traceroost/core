@@ -784,10 +784,18 @@ function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
   let summary: ReturnType<typeof summarizeSpans> | null = null
   try { summary = summarizeSpans(spans) } catch (e) { console.warn('[TraceRoost] summarizeSpans error:', e) }
 
-  // Merge log-sourced sessions; OTEL wins on ID collision.
+  // Merge log-sourced sessions; OTEL wins on ID collision, but backfills conversationId from the
+  // log-sourced sibling when OTEL's own card doesn't have one — buildClaudeSessions (the live OTEL
+  // path) never does cross-trace/multi-segment linking, only logReader.ts's file parser does, so a
+  // bare "OTEL wins" would silently drop conversation-highlight info the log side already worked out.
   if (logSessions.size > 0) {
-    const otelIds = new Set((summary?.sessions ?? []).map(s => s.sessionId))
-    const logOnly = [...logSessions.values()].filter(s => !otelIds.has(s.sessionId))
+    const otelById = new Map((summary?.sessions ?? []).map(s => [s.sessionId, s]))
+    const logOnly = [...logSessions.values()].filter(s => {
+      const otelSession = otelById.get(s.sessionId)
+      if (!otelSession) return true
+      if (!otelSession.conversationId && s.conversationId) otelSession.conversationId = s.conversationId
+      return false
+    })
     if (logOnly.length > 0) {
       const merged = [...logOnly, ...(summary?.sessions ?? [])]
         .sort((a, b) => Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0'))
@@ -1909,7 +1917,9 @@ const uiServer = http.createServer((req, res) => {
           onOpenTeamView: () => {
             const url = loadCredentials()?.endpoint ?? teamEndpoint()
             const cmd = process.platform === 'darwin' ? `open "${url}"` : process.platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`
-            exec(cmd, () => {})
+            exec(cmd, (err) => {
+              if (err) console.warn(`[TraceRoost] Could not open ${url} in a browser: ${err.message}`)
+            })
           },
           log: (m) => console.log(m),
         })
@@ -2160,7 +2170,7 @@ async function startUiServer(): Promise<void> {
   startForwardScheduler({ log: (msg) => console.log(msg), onDrainComplete: pushTeamStatusToClients })
 
   // Pro: pricing sync — own (longer) interval, see pricingSync.ts.
-  startPricingSync()
+  startPricingSync({ onSync: pushTeamStatusToClients })
 }
 
 void startOtlpServer()

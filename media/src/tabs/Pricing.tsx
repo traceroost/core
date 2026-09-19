@@ -1,4 +1,6 @@
-import { PRICING_LAST_UPDATED, RATES, PRICING_SECTIONS, REQUEST_BILLING_SOURCES, type ModelRates } from '../pricing'
+import { useEffect } from 'preact/hooks'
+import { PRICING_LAST_UPDATED, RATES, PRICING_SECTIONS, REQUEST_BILLING_SOURCES, normalizeCostKey, type ModelRates } from '../pricing'
+import { teamStatus, requestTeamStatus, displayOrgName, type CloudRate } from '../cloud/panels/TeamPanel'
 
 // Table styling matches the established convention duplicated per-component across
 // the codebase (see Help.tsx's CostSection, Cost.tsx) rather than a shared import.
@@ -34,10 +36,17 @@ function SourceLinks({ sources }: { sources: { label: string; url: string }[] })
   )
 }
 
+/** Strips the scheme so the Source column reads "test.traceroost.com", not "https://test.traceroost.com". */
+function hostLabel(endpoint: string): string {
+  try { return new URL(endpoint).host } catch { return endpoint }
+}
+
 function RatesTable({ modelKeys }: { modelKeys: string[] }) {
   const hasTier = (r: ModelRates) => r.inputAbove200kPerMTok !== undefined
   const anyTiered = modelKeys.some(k => RATES[k] && hasTier(RATES[k]))
   const anyPromo = modelKeys.some(k => RATES[k] && RATES[k].promoNote)
+  const overrides = teamStatus.value?.cloudRateOverrides ?? {}
+  const endpoint = teamStatus.value?.endpoint
 
   return (
     <>
@@ -51,12 +60,15 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
             <th style={thStyle}>Output</th>
             <th style={thStyle}>Request ×</th>
             <th style={thStyle}>Annual ×</th>
+            <th style={thStyle}>Source</th>
           </tr>
         </thead>
         <tbody>
           {modelKeys.map(key => {
             const r = RATES[key]
             if (!r) return null
+            const remote: CloudRate | undefined = overrides[normalizeCostKey(key)]
+            const shown = remote ?? r
             return (
               <tr key={key}>
                 <td style={tdBold}>
@@ -64,12 +76,17 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
                   {hasTier(r) ? <sup style="margin-left:2px;color:var(--muted)">†</sup> : null}
                   {r.promoNote ? <sup title={r.promoNote} style="margin-left:2px;color:var(--muted);cursor:help">‡</sup> : null}
                 </td>
-                <td style={tdNum}>{fmtRate(r.inputPerMTok)}</td>
-                <td style={tdNum}>{fmtRate(r.cacheReadPerMTok)}</td>
-                <td style={tdNum}>{fmtRate(r.cacheWritePerMTok)}</td>
-                <td style={tdNum}>{fmtRate(r.outputPerMTok)}</td>
+                <td style={tdNum}>{fmtRate(shown.inputPerMTok)}</td>
+                <td style={tdNum}>{fmtRate(shown.cacheReadPerMTok)}</td>
+                <td style={tdNum}>{fmtRate(shown.cacheWritePerMTok)}</td>
+                <td style={tdNum}>{fmtRate(shown.outputPerMTok)}</td>
                 <td style={tdNum}>{fmtMult(r.multiplier)}</td>
                 <td style={tdNum}>{fmtMult(r.multiplierAnnualPostJun1)}</td>
+                <td style={tdNum}>
+                  {remote
+                    ? <span title={endpoint ? `Synced from your organization's rate table at ${hostLabel(endpoint)}` : "Synced from your organization's rate table"} style="cursor:help">Remote</span>
+                    : <span style="color:var(--muted)">Local</span>}
+                </td>
               </tr>
             )
           })}
@@ -90,8 +107,12 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
 }
 
 export function Pricing() {
+  useEffect(() => { requestTeamStatus() }, [])
+
   const assignedKeys = new Set(PRICING_SECTIONS.flatMap(s => s.modelKeys))
   const unassignedKeys = Object.keys(RATES).filter(k => !assignedKeys.has(k))
+  const st = teamStatus.value
+  const overrideCount = st ? Object.keys(st.cloudRateOverrides).length : 0
 
   return (
     <div id="pricing-content" style="padding:16px;max-width:960px">
@@ -99,6 +120,14 @@ export function Pricing() {
         <span><strong style="color:var(--fg)">Estimates only</strong> — this is the exact rate table TraceRoost uses to estimate cost, nothing hidden or approximated for display. Actual billing may differ; see each vendor's own invoice.</span>
         <span style="white-space:nowrap">Rates last updated: {PRICING_LAST_UPDATED}</span>
       </div>
+
+      {overrideCount > 0 && st?.endpoint && (
+        <div style="font-size:11px;color:var(--muted);margin:-12px 0 20px">
+          {overrideCount} model{overrideCount === 1 ? '' : 's'} below {overrideCount === 1 ? 'is' : 'are'} priced from{' '}
+          <strong style="color:var(--fg)">{displayOrgName(st)}</strong>'s own rate table at{' '}
+          <code>{hostLabel(st.endpoint)}</code>, ahead of the local table — see the Source column.
+        </div>
+      )}
 
       <p style="font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 8px">
         All USD rates are per 1M tokens. <strong style="color:var(--fg)">Request ×</strong> and <strong style="color:var(--fg)">Annual ×</strong> are Copilot's

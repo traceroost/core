@@ -63,7 +63,7 @@ export class DeliveryLedger {
    * Re-parsing this file (up to `DEFAULT_MAX_ENTRIES` entries) on every call used to be exactly
    * what it looked like: reconciliation and the post-send delivery recording (`sender.ts`) both
    * call `isDelivered`/`markDelivered` once per session, in a loop, and each call built a fresh
-   * `DeliveryLedger()` — so a "Reconcile now" over a machine's full history re-read and
+   * `DeliveryLedger()` — so a "Check for unsent traces" over a machine's full history re-read and
    * re-JSON.parsed the entire ledger file once per session. That's the real reason it was slow,
    * not just perceived-slow: an `fs.statSync` (below) is orders of magnitude cheaper than a
    * `readFileSync` + `JSON.parse` of a large array, so reusing the parse when the file's mtime

@@ -13,7 +13,7 @@ import { classifySessionOutcome } from '../../gitOutcome'
 import { deriveRepoKey } from '../forward/repoKey'
 import { sessionRollupPayload, type SessionRollupInput } from '../forward/buildSessionRollup'
 import { assertValidRollupPayload } from '../forward/validate'
-import { renderPayloadPreview } from '../forward/preview'
+import { stableStringify } from '../forward/preview'
 import type { RollupPayload } from '../forward/schema'
 import { loadCredentials } from './credentials'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
@@ -87,11 +87,10 @@ export async function buildPayloadForCard(card: SessionSummaryCard): Promise<Pay
   return rk.ok ? { payload } : { payload, ungroupedReason: rk.reason }
 }
 
+/** Just the wire bytes — no prose. The panel already shows the sent/never-sent promise and the
+ *  linked/unlinked state as their own UI elements; repeating them as text here only pushed the
+ *  actual JSON further down. */
 export async function buildPayloadPreviewText(card: SessionSummaryCard): Promise<string> {
   const result = await buildPayloadForCard(card)
-  const preview = renderPayloadPreview(result.payload, { linked: loadCredentials() !== null })
-  if (result.ungroupedReason) {
-    return `This session's repository can't be keyed (${result.ungroupedReason}). It is reported without repository grouping — never with a fake hash.\n\n${preview}`
-  }
-  return preview
+  return stableStringify(result.payload)
 }

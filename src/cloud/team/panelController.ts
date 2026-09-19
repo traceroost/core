@@ -30,7 +30,7 @@ export interface TeamPanelDeps {
   /** Recent local sessions, newest first — used to build the `--explain-payload` preview. */
   recentSessions: () => SessionSummaryCard[]
   /** Every local session this install knows about, regardless of age — used right after a
-   *  successful link, and on demand via "Reconcile now", to queue anything not yet confirmed
+   *  successful link, and on demand via "Check for unsent traces", to queue anything not yet confirmed
    *  delivered (see `reconcileLocalSessions` below). Absent hosts just skip reconciliation;
    *  nothing else in the panel depends on it. */
   allLocalSessions?: () => SessionSummaryCard[]
@@ -52,7 +52,7 @@ export interface TeamPanelDeps {
 /**
  * Queues every local session not yet confirmed delivered — right after a link (so a newly linked
  * team, or one re-linked after switching from another, starts from this machine's actual history
- * instead of from zero), and again on demand via the panel's "Reconcile now" button, as a
+ * instead of from zero), and again on demand via the panel's "Check for unsent traces" button, as a
  * standing way to answer "did everything actually make it?" without waiting for a coincidental
  * restart.
  *
@@ -72,7 +72,7 @@ async function reconcileLocalSessions(deps: TeamPanelDeps, reportProgress = fals
     if (res.enqueued) queued++
     // An install with a lot of local history can take a real, visible amount of time here — each
     // session is a delivery-ledger read plus, for anything not yet sent, a payload build. Report
-    // progress only for the on-demand "Reconcile now" click (`teamReconcile` below); the
+    // progress only for the on-demand "Check for unsent traces" click (`teamReconcile` below); the
     // link-time call is fire-and-forget and nothing is listening for it.
     if (reportProgress) {
       deps.post({ type: 'teamReconcileProgress', done: i + 1, total })

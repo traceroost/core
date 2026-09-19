@@ -22,6 +22,15 @@ export type TeamIndicator = 'unlinked' | 'reporting' | 'queued' | 'degraded'
 export type TeamEnvironment = 'production' | 'stage' | 'test'
 export type EnvironmentSource = 'env-url' | 'env-var' | 'selected' | 'default' | 'linked' | 'release'
 
+/** The four flat per-MTok rates the cloud effective-rates endpoint knows how to serve — mirrors
+ *  `src/pricing.ts`'s `ModelRates` minus the tiered/long-context fields it doesn't model. */
+export interface CloudRate {
+  inputPerMTok: number
+  cacheReadPerMTok: number
+  cacheWritePerMTok: number
+  outputPerMTok: number
+}
+
 export interface TeamStatus {
   linked: boolean
   clientVersion: string
@@ -40,12 +49,15 @@ export interface TeamStatus {
   environment: TeamEnvironment | 'custom'
   environmentSource: EnvironmentSource
   environmentEditable: boolean
+  /** Org-provided rates (pricingSync.ts) currently overriding the local rate table, keyed by
+   *  normalizeCostKey — empty on an unlinked install or before the first successful sync. */
+  cloudRateOverrides: Record<string, CloudRate>
 }
 
 /** `orgName` is never unset once linked — it falls back to the raw `orgId` at link time if the
  *  roster fetch failed (see `refreshOrgNameIfStale`, which self-heals this in the background).
  *  Until that succeeds, show a friendly placeholder instead of a 36-character UUID. */
-function displayOrgName(st: Pick<TeamStatus, 'orgName' | 'orgId'>): string {
+export function displayOrgName(st: Pick<TeamStatus, 'orgName' | 'orgId'>): string {
   return st.orgName && st.orgName !== st.orgId ? st.orgName : 'your team'
 }
 
@@ -111,7 +123,7 @@ export function TeamButton() {
   const title = !st || indicator === 'unlinked'
     ? 'Team — not linked, nothing is being sent'
     : indicator === 'reporting'
-      ? `Team — linked to ${displayOrgName(st)}, reporting`
+      ? `Team — linked to ${displayOrgName(st)}, synced`
       : indicator === 'queued'
         ? `Team — linked, ${st.queueDepth ?? 0} trace(s) queued`
         : `Team — linked, last send failed`
@@ -151,7 +163,7 @@ function ReconcileButton() {
   const result = teamReconcileResult.value
   const label = busy
     ? (progress && progress.total > 0 ? `Checking… (${progress.done}/${progress.total})` : 'Checking…')
-    : 'Reconcile now'
+    : 'Check for unsent traces'
   return (
     <div style="margin-top:8px">
       <button
@@ -188,7 +200,6 @@ function PayloadPreview() {
       {busy && !preview && <div style="font-size:11px;color:var(--muted);margin-top:6px">Building it from your most recent session…</div>}
       {preview && (
         <div style="margin-top:8px">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Exact bytes for your last session ({preview.sessionLabel}) — this, and nothing else, goes over the wire:</div>
           <pre style="font-size:10px;line-height:1.45;background:var(--vscode-editorWidget-background);border:1px solid var(--border);border-radius:4px;padding:8px;overflow:auto;max-height:280px;white-space:pre">{preview.text}</pre>
         </div>
       )}
@@ -289,8 +300,8 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         <div style="display:flex;align-items:center;font-size:11px;padding:2px 0">
           <Dot indicator={st.indicator} />
           <span style="color:var(--fg)">
-            {st.indicator === 'reporting' ? 'Reporting — all traces sent to cloud'
-              : st.indicator === 'queued' ? `Queued — ${st.queueDepth ?? 0} trace(s) waiting to send`
+            {st.indicator === 'reporting' ? 'Synced — hashed traces sent to cloud'
+              : st.indicator === 'queued' ? `Queued — ${st.queueDepth ?? 0} hashed trace(s) waiting to sync`
               : `Paused — ${st.degradedReason ?? 'last send failed'}`}
           </span>
         </div>
@@ -314,13 +325,13 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         <button
           onClick={() => vscode?.postMessage({ type: 'teamOpenView' })}
           style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
-        >Open team view →</button>
+        >Open Team View →</button>
       </Section>
       <Section title="Leave">
         <button
           disabled={busy !== null}
           onClick={() => { teamBusy.value = 'leave'; vscode?.postMessage({ type: 'teamLeave' }) }}
-          style="font-size:12px;padding:6px 14px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
+          style="font-size:12px;padding:6px 14px;border:1px solid var(--error);border-radius:4px;background:transparent;color:var(--error);cursor:pointer"
         >{busy === 'leave' ? 'Leaving…' : 'Leave team'}</button>
         <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline.</div>
       </Section>

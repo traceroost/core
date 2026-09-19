@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { lookupRates, calcTokenCostUsd, stripDateSuffix, normalizeCostKey, setCloudRateOverrides } from '../pricing'
+import { lookupRates, calcTokenCostUsd, stripDateSuffix, normalizeCostKey, setCloudRateOverrides, getCloudRateOverrides } from '../pricing'
 
 suite('pricing', () => {
   test('lookupRates returns rates for known model', () => {
@@ -290,5 +290,13 @@ suite('pricing — cloud rate overrides', () => {
     setCloudRateOverrides({ 'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 1 } })
     setCloudRateOverrides({})
     assert.notStrictEqual(lookupRates('claude-sonnet-5')?.inputPerMTok, 1)
+  })
+
+  test('getCloudRateOverrides reflects the current override map, keyed by normalizeCostKey', () => {
+    assert.deepStrictEqual(getCloudRateOverrides(), {})
+    setCloudRateOverrides({ 'Claude-Sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4 } })
+    assert.deepStrictEqual(getCloudRateOverrides(), {
+      'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4, contextWindowTokens: 0 },
+    })
   })
 })

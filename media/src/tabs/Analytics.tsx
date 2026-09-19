@@ -168,10 +168,22 @@ export function Analytics() {
   return (
     <div id="analytics-content">
 
+      {/* Agent breakdown */}
+      {(copilotSess.length > 0 || claudeSess.length > 0 || codexSess.length > 0) && (
+        <>
+          <SectionHead title="AGENT BREAKDOWN" first />
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            {copilotSess.length > 0 && <AgentCard source="copilot"    sessions={copilotSess} />}
+            {claudeSess.length  > 0 && <AgentCard source="claude_code" sessions={claudeSess} />}
+            {codexSess.length   > 0 && <AgentCard source="codex"      sessions={codexSess} />}
+          </div>
+        </>
+      )}
+
       {/* Estimated cost */}
       {pricedSess.length > 0 && (
         <>
-          <SectionHead title="ESTIMATED COST" first helpAnchor="help-costs" />
+          <SectionHead title="ESTIMATED COST" first={copilotSess.length === 0 && claudeSess.length === 0 && codexSess.length === 0} helpAnchor="help-costs" />
           {disclaimer}
 
           {copilotSess.length > 0 && (
@@ -321,22 +333,6 @@ export function Analytics() {
         </>
       )}
 
-      {/* Agent breakdown */}
-      {(copilotSess.length > 0 || claudeSess.length > 0 || codexSess.length > 0) && (
-        <>
-          <SectionHead title="AGENT BREAKDOWN" />
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            {copilotSess.length > 0 && <AgentCard source="copilot"    sessions={copilotSess} />}
-            {claudeSess.length  > 0 && <AgentCard source="claude_code" sessions={claudeSess} />}
-            {codexSess.length   > 0 && <AgentCard source="codex"      sessions={codexSess} />}
-          </div>
-        </>
-      )}
-
-      {/* Context growth */}
-      <SectionHead title="CONTEXT GROWTH" first={pricedSess.length === 0} />
-      <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
-
       {/* Token usage per session */}
       <SectionHead title="TOKEN USAGE PER TRACE" />
       <div style="display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--muted)">
@@ -345,6 +341,10 @@ export function Analytics() {
       </div>
       {/* Always pass newest-first (rangedSessions); chart reverses internally to oldest-first */}
       <SessionTokenChart sessions={timeOrdered} />
+
+      {/* Context growth */}
+      <SectionHead title="CONTEXT GROWTH" />
+      <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
 
     </div>
   )

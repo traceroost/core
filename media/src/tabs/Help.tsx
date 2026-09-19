@@ -958,6 +958,11 @@ function TeamSection() {
 
         <h4 style={subHeadStyle}>Linking and leaving</h4>
         <p style={mutedP}>Linking opens your browser once, for account setup — nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; there's no server-side step and nothing to wait for.</p>
+
+        <h4 style={subHeadStyle}>Going offline</h4>
+        <p style={mutedP}>Your local dashboard — everything in Sessions, Cost, Patterns, Analytics — has no dependency on internet connectivity at all, linked or not. Trace capture is either OTEL received on your own machine or read directly from each agent's own on-disk log file (every currently supported source keeps one); neither needs a network connection, only TraceRoost itself running.</p>
+        <p style={mutedP}>That log-file reading is also what makes the data complete rather than just live: because TraceRoost reads the agent's own persisted transcript rather than only capturing a live stream, a session recorded before you linked, before TraceRoost was running, or during any gap still shows up in full once TraceRoost next reads that file. Nothing about being offline erases what the agent itself already wrote to disk.</p>
+        <p style={mutedP}>The one thing connectivity affects is sending rollups to your team, if linked. Offline, or if the service is briefly unreachable, sessions queue locally instead of being lost, and send automatically once you're back — no action needed. The queue is capped (oldest first) so an install that never reconnects doesn't grow it without bound; use <strong>Check for unsent traces</strong> in this panel any time you want to confirm nothing's stuck.</p>
       </div>
     </div>
   )

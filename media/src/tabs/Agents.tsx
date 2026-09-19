@@ -4,7 +4,7 @@ import { oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 
 export function computeStats(sessions: SessionSummaryCard[]) {
-  let totalInput = 0, totalOutput = 0, totalCache = 0
+  let totalInput = 0, totalOutput = 0, totalCache = 0, totalCacheRead = 0
   let totalLlm = 0, totalTools = 0, ttftSum = 0, ttftCount = 0, durSum = 0
   let filesConsidered = 0, oneShotFiles = 0, totalEdits = 0
   const toolCounts: Record<string, number> = {}
@@ -12,6 +12,7 @@ export function computeStats(sessions: SessionSummaryCard[]) {
     totalInput += s.inputTokens ?? 0
     totalOutput += s.outputTokens ?? 0
     totalCache += (s.cacheReadTokens ?? 0) + (s.cacheCreateTokens ?? 0)
+    totalCacheRead += s.cacheReadTokens ?? 0
     totalLlm += s.totalLlmCalls ?? 0
     totalTools += s.totalToolCalls ?? 0
     durSum += s.durationMs ?? 0
@@ -36,7 +37,10 @@ export function computeStats(sessions: SessionSummaryCard[]) {
     totalInput, totalOutput, totalCache, totalLlm, totalTools,
     avgTtft: ttftCount > 0 ? Math.round(ttftSum / ttftCount) : 0,
     avgDuration: sessions.length > 0 ? Math.round(durSum / sessions.length) : 0,
-    cacheHitRate: totalInput > 0 ? totalCache / totalInput : 0,
+    // Numerator is cache *reads* only — cache creation is a write, not a hit. Denominator
+    // (totalInput) already includes read+create tokens (see logReader's totalContext), so this
+    // stays a proper 0–1 rate instead of double-counting creates and skewing toward 100%.
+    cacheHitRate: totalInput > 0 ? totalCacheRead / totalInput : 0,
     toolCounts,
     oneShotRate: oneShot,
     avgEditsPerFile: editsPerFile,
