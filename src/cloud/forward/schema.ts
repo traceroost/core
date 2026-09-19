@@ -155,7 +155,6 @@ export interface SessionRollup {
   tokens_out?: number
   tokens_cache_read?: number
   tokens_cache_create?: number
-  cost_usd?: number
   tool_calls?: Record<string, number>
   errors?: number
   file_hashes?: Sha256[]

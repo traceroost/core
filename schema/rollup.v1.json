@@ -95,7 +95,6 @@
         "tokens_out": { "$ref": "#/$defs/count" },
         "tokens_cache_read": { "$ref": "#/$defs/count" },
         "tokens_cache_create": { "$ref": "#/$defs/count" },
-        "cost_usd": { "type": "number", "minimum": 0, "maximum": 100000 },
         "tool_calls": {
           "type": "object",
           "additionalProperties": false,
