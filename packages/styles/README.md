@@ -23,6 +23,11 @@ The one thing components still pass in themselves, inline, is an *identity* valu
 inherently per-instance — e.g. `pills.css`'s `--tr-pill-color`, an agent's brand color. Structure
 (size, spacing, radius, the active/hover/disabled treatment) always stays in the shared file.
 
+`agent-colors.css` is the one exception to "a consumer maps these to its own theme": its
+`--tr-agent-*` tokens are fixed identity colors (core's `getAgentColor()` values), not structural
+tokens, so a consumer's own alias for one (e.g. traceroost-cloud's `--agent-claude`) should point
+at it with the same value in every theme rather than remapping it per light/dark.
+
 ## Adding a new shared file
 
 1. Add `src/<name>.css`, following the pattern above: only `--tr-*` custom properties, documented

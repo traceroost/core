@@ -1,6 +1,6 @@
 {
   "name": "@traceroost/styles",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Shared CSS building blocks for TraceRoost products.",
   "license": "MIT",
   "repository": {
@@ -20,6 +20,7 @@
   "exports": {
     "./package.json": "./package.json",
     "./index.css": "./src/index.css",
-    "./pills.css": "./src/pills.css"
+    "./pills.css": "./src/pills.css",
+    "./agent-colors.css": "./src/agent-colors.css"
   }
 }
