@@ -117,14 +117,21 @@ export function ratesUrl(endpoint = teamEndpoint()): string {
   return `${endpoint}/api/rates/effective`
 }
 
+/** Resolves a Repeat work cluster's repo hash + key (clusters.read) back to its raw session ids —
+ *  see clusterResolve.ts and the `traceroost cluster` CLI command. */
+export function clusterResolveUrl(endpoint = teamEndpoint()): string {
+  return `${endpoint}/api/clusters/resolve`
+}
+
 /** The OAuth client id the CLI/extension identifies as. Public by design — PKCE is what
  *  secures the exchange, not a client secret (there is none). */
 export const OAUTH_CLIENT_ID = 'traceroost-client'
 
-/** Scope requested at link time. Read-only membership, write-only rollup ingest, and read-only
- *  access to the org's own pricing table (rates.read — see pricingSync.ts); nothing that could
- *  read another member's data or a repository. */
-export const OAUTH_SCOPE = 'rollup.write roster.read rates.read'
+/** Scope requested at link time. Read-only membership, write-only rollup ingest, read-only access
+ *  to the org's own pricing table (rates.read — see pricingSync.ts), and read-only resolution of a
+ *  Repeat work cluster's own session ids (clusters.read — see clusterResolve.ts); nothing that
+ *  could read another member's data or a repository. */
+export const OAUTH_SCOPE = 'rollup.write roster.read rates.read clusters.read'
 
 /**
  * The on-disk credential for a linked machine. Written only by `credentials.ts`, only after a

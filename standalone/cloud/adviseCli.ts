@@ -14,7 +14,9 @@ import { recordApplied } from '../../src/cloud/team/suggestionLedgerStore'
 import { readLedger } from '../../src/cloud/team/suggestionLedgerStore'
 import { maybeEnqueueInstructionTelemetry } from '../../src/cloud/team/instructionTelemetry'
 import { drainForwardQueueSoon } from '../../src/cloud/forward/scheduler'
-import { loadSessionsForWorkspace } from './sessionLoader'
+import { loadCredentials } from '../../src/cloud/team/credentials'
+import { fetchClusterResolution, matchLocalSessions } from '../../src/cloud/team/clusterResolve'
+import { loadSessionsForWorkspace, loadAllSessions } from './sessionLoader'
 
 function sha256(s: string): string {
   return crypto.createHash('sha256').update(s).digest('hex')
@@ -77,15 +79,62 @@ async function runApply(workspace: string, idOrHash: string): Promise<number> {
   return 0
 }
 
-function runCluster(args: string[]): number {
+/**
+ * Resolves a Repeat work cluster's hand-off command into real local sessions. Cloud can identify a
+ * cluster (same repo, overlapping files, similar tools, crossing people) but never say what it's
+ * about — no filename or prompt ever reached it. This machine is the one place that can, for
+ * whichever of the cluster's sessions actually happened here.
+ */
+async function runCluster(args: string[]): Promise<number> {
   const repo = valueAfter(args, '--repo')
   const id = valueAfter(args, '--id')
+  if (!repo || !id) {
+    console.log(
+      `Usage: traceroost cluster --repo <hash> --id <id>\n` +
+      `  repo: ${repo ?? '(missing --repo)'}\n  cluster: ${id ?? '(missing --id)'}`,
+    )
+    return 1
+  }
+
+  if (!loadCredentials()) {
+    console.log('Not linked to a team — nothing to resolve. Run `traceroost team link` first.')
+    return 1
+  }
+
+  const resolution = await fetchClusterResolution(repo, id)
+  if (!resolution) {
+    console.log("Couldn't reach the cloud service to resolve this cluster — check your connection and try again.")
+    return 1
+  }
+  if (resolution.sessionIds.length === 0) {
+    console.log('No sessions found for this cluster — it may have aged out or already dissolved.')
+    return 1
+  }
+
+  const { matched, unmatchedCount } = matchLocalSessions(resolution, loadAllSessions())
   console.log(
-    'Cluster naming happens locally, where the prompts are. This command opens the local view:\n' +
-    `  repo: ${repo ?? '(missing --repo)'}\n  cluster: ${id ?? '(missing --id)'}\n` +
-    'In the editor, run the TraceRoost: Open Dashboard command and use the Advisor tab.',
+    `\n${resolution.sessions} sessions · ${resolution.members} people · ${resolution.files} files` +
+    (resolution.topTools.length ? ` · tools: ${resolution.topTools.join(' → ')}` : '') + '\n',
   )
-  return repo && id ? 0 : 1
+
+  if (matched.length === 0) {
+    console.log(`None of this cluster's ${resolution.sessionIds.length} session(s) are on this machine — try a machine that worked on this repo.`)
+    return 1
+  }
+
+  console.log(`Found ${matched.length} of ${resolution.sessionIds.length} session(s) on this machine:\n`)
+  for (const s of matched) {
+    console.log(`  ${s.startTime}  ${s.workspace}`)
+    console.log(`    "${s.userRequest.slice(0, 100)}"`)
+    if (s.filesChanged.length > 0) {
+      const shown = s.filesChanged.slice(0, 5).join(', ')
+      console.log(`    files: ${shown}${s.filesChanged.length > 5 ? ', …' : ''}`)
+    }
+  }
+  if (unmatchedCount > 0) {
+    console.log(`\n${unmatchedCount} more session(s) in this cluster are on other machines.`)
+  }
+  return 0
 }
 
 function safeInstructions(workspace: string): string {
