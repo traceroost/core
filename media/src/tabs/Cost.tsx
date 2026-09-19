@@ -419,10 +419,21 @@ export function Cost() {
     </div>
   )
 
+  // This tab is a pure ledger — how much, never so what. Point at the Advisor tab's "How to
+  // spend less" card (costSavingActions.ts), the one place that turns these numbers into a
+  // ranked list of concrete actions, instead of leaving that connection undiscoverable.
+  // See .staged-issues/value-prop-and-cost-savings.md, Step 2.
+  const advisorPointer = (
+    <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+      Want to spend less? <a onClick={() => { activeTab.value = 'patterns' }} style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">See "How to spend less" in Advisor</a>.
+    </div>
+  )
+
   if (pricedSessions.length === 0) {
     return (
       <div id="cost-content">
         {disclaimer}
+        {advisorPointer}
         <div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div>
       </div>
     )
@@ -449,6 +460,7 @@ export function Cost() {
   return (
     <div id="cost-content">
       {disclaimer}
+      {advisorPointer}
       {/* Pricing model section — one block per agent type */}
       <div style="margin-bottom:16px;display:flex;flex-direction:column;gap:10px">
         {copilotSessions.length > 0 && (

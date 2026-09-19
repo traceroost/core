@@ -264,6 +264,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
             {sess.dataSource === 'log' && (() => {
               const isCopilot = sess.source === 'copilot'
               const isOpenCode = sess.source === 'opencode'
+              const isCursor = sess.source === 'cursor'
               // Pre-~Feb 2026 Copilot Chat sessions (.json snapshot format): VS Code did not
               // record token counts at all — outputTokens=0 with turns>0 is the fingerprint.
               if (isCopilot && sess.outputTokens === 0 && sess.turns > 0) {
@@ -281,6 +282,19 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                     <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">OpenCode SQLite trace</span>
                     {' — '}
                     Token counts, tools, and files sourced from OpenCode&apos;s local database. OTEL traces and TTFT are not available for OpenCode.
+                  </div>
+                )
+              }
+              if (isCursor) {
+                // Real, confirmed gaps in cursor-agent's local transcript format (no OTEL export
+                // exists for it to fall back to, unlike Claude Code/Codex/Copilot) — see
+                // .staged-issues/support-cursor-cli.md. Cost/token/model are honestly zero/unknown
+                // here, never a guessed number.
+                return (
+                  <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
+                    <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">Cursor CLI trace</span>
+                    {' — '}
+                    Token counts, cost, and model name aren&apos;t recorded anywhere on disk by cursor-agent, so they show as unpriced/unknown here rather than a guess. Session start/end times fall back to the transcript file&apos;s own timestamps. There is no OTEL path for Cursor CLI to enable instead.
                   </div>
                 )
               }

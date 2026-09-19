@@ -11,7 +11,7 @@
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. Nothing leaves your machine.
 
-TraceRoost receives **OpenTelemetry traces** from Copilot, Claude Code, and Codex in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
+TraceRoost receives **OpenTelemetry traces** from Copilot, Claude Code, and Codex in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** and Cursor CLI's transcript files — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
 
 Two things it does that a usage dashboard doesn't:
 
@@ -45,6 +45,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
     - [Codex CLI](#codex-cli)
     - [GitHub Copilot](#github-copilot)
     - [OpenCode](#opencode)
+    - [Cursor CLI](#cursor-cli)
 - [Cost Estimation](#cost-estimation)
 - [Exporting and Importing Trace Data](#exporting-and-importing-trace-data)
   - [Export](#export)
@@ -76,7 +77,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 ## Features
 
 - **OpenTelemetry collection** — Built-in OTEL receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; auto-configured on first activation
-- **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, and Copilot, and OpenCode's SQLite database — backfilling history when OTEL isn't configured (VS Code-family IDEs and native process only)
+- **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, and Cursor CLI, and OpenCode's SQLite database — backfilling history when OTEL isn't configured (VS Code-family IDEs and native process only)
 - **Traces Table** — Drill into any trace: expand a row to see a full span waterfall, turn-to-tool flow graph, tool distribution chart, and modified files — all without leaving the trace list
 - **Files Changed** — The Files sub-tab tracks every file created or modified by a trace, organized with inline before/after diffs. (VS Code extension only) A git-outcome banner then classifies each file as Committed, Reverted, or left Uncommitted by comparing against local git history after the fact — answers "did this trace's changes actually survive?" (not available in Docker mode — same host git-repo access limitation as log file ingestion)
 - **One-shot / Retry Rate** — Tracks what fraction of edited files reached their final state in a single edit pass vs. needed retries, per trace (Files sub-tab) and aggregated per-agent in Analytics — a proxy for correction effort
@@ -111,8 +112,9 @@ TraceRoost also reads the local log files that Claude Code, Codex, Copilot CLI, 
 | **Copilot CLI** | `~/.copilot/session-state/<session>/events.jsonl` | `%USERPROFILE%\.copilot\session-state\...` |
 | **Copilot Chat** | `~/Library/Application Support/<IDE>/User/workspaceStorage/…/chatSessions/` | `%APPDATA%\<IDE>\User\workspaceStorage\…\chatSessions\` |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | `%APPDATA%\opencode\opencode.db` |
+| **Cursor CLI** (`cursor-agent`) | `~/.cursor/projects/<workspace>/agent-transcripts/<session>/<session>.jsonl` | `%APPDATA%\Cursor\projects\...` (unconfirmed) |
 
-Copilot Chat traces are scanned across all installed VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro.
+Copilot Chat traces are scanned across all installed VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro. (That's Cursor *the IDE's* built-in Copilot Chat scanning — unrelated to the standalone Cursor CLI agent above, which TraceRoost ingests directly.)
 
 Loading is incremental and runs in the background, sorted newest-first so recent traces appear immediately. A 30-second poll picks up new traces as they complete.
 
@@ -173,7 +175,17 @@ Not available: time-to-first-token, per-tool execution timing, streaming speed, 
 
 Override the default database location with the `OPENCODE_DATA_DIR` environment variable (comma-separated for multiple directories).
 
-> **Note:** Agent observability is evolving rapidly. All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
+#### Cursor CLI
+
+**Log files** (automatic, no setup) — `~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<session-uuid>/<session-uuid>.jsonl`
+
+This is Cursor's standalone terminal agent (`cursor-agent`, installed via `curl https://cursor.com/install -fsS | bash`), not Cursor the IDE's built-in composer/chat agent — those are separate products with separate storage; see the note in the log-location table above.
+
+Available from logs: prompt, tool calls (names, arguments, file paths touched), session-level success/failure. Session start/end times fall back to the transcript file's own filesystem timestamps, since the format has no per-turn timestamps.
+
+Not available, confirmed by direct inspection rather than assumed: **token/usage counts, model name, workspace path, and per-tool error detail** — none of these exist anywhere in Cursor CLI's local storage today. These show as an honest unpriced/unknown gap (matching every other unrecognized-model session) rather than a guessed number. No OTEL path exists for this agent, so there is no richer alternative source to fall back to — Cursor CLI traces always carry a **Log** badge.
+
+ All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
 
 ## Cost Estimation
 
@@ -264,7 +276,7 @@ Open <http://localhost:3000> after the server starts. The OTLP receiver listens 
 > `npm cache clean --force`. A global install (`npm install -g`) has the same trap — re-run it with
 > `@latest`, or `npm update -g traceroost`, to move forward.
 
-> **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, and OpenCode's SQLite database at `~/.local/share/opencode/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
+> **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, OpenCode's SQLite database at `~/.local/share/opencode/`, and Cursor CLI's transcripts at `~/.cursor/projects/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
 >
 > **Running this in a terminal only lasts until you close it.** If TraceRoost isn't running when an agent sends OTEL data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
 

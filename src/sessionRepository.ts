@@ -86,10 +86,11 @@ export class SessionRepository {
   ) {}
 
   /** Returns merged session list: live window + historical DB, sorted newest-first.
-   *  Capped at `MAX_SESSIONS_TO_WEBVIEW` when the caller doesn't supply its own (smaller) `limit`
-   *  — see that constant's doc comment. */
+   *  Capped at `MAX_SESSIONS_TO_WEBVIEW` when the caller doesn't supply its own `limit` — see that
+   *  constant's doc comment. Pass `limit: Infinity` to bypass the cap entirely (used by team
+   *  reconcile, which must see every local session, not just the most recent N). */
   listSessions(filter?: {
-    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode'
+    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
     limit?: number
   }): SessionSummaryCard[] {
     const dbSessions = this.reader.listSessions(filter)

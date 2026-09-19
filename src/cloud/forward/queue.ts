@@ -57,10 +57,16 @@ function digest(parts: string[]): string {
 export class ForwardQueue {
   private readonly file: string
   private readonly maxItems: number
+  private readonly log?: (m: string) => void
 
-  constructor(baseHome?: string, maxItems = DEFAULT_MAX_ITEMS) {
+  /** `log`, if given, is used to surface a loud line when `enqueue` evicts to stay under
+   *  `maxItems` — without it, an install whose backlog outgrows the cap (a sustained 5xx, an
+   *  offline stretch, a slow network) silently drops undelivered work, indistinguishable from
+   *  "still queued, just slow". See .staged-issues/reconcile-gap-and-latency.md. */
+  constructor(baseHome?: string, maxItems = DEFAULT_MAX_ITEMS, log?: (m: string) => void) {
     this.file = queuePath(baseHome)
     this.maxItems = maxItems
+    this.log = log
   }
 
   /** Every item currently pending, oldest first. */
@@ -107,7 +113,13 @@ export class ForwardQueue {
     }
     const next = [...existing, item]
     // Oldest-first eviction past the cap.
-    this.writeAll(next.length > this.maxItems ? next.slice(next.length - this.maxItems) : next)
+    if (next.length > this.maxItems) {
+      const evicted = next.length - this.maxItems
+      this.log?.(`[TraceRoost] forward queue at capacity (${this.maxItems}) — evicting ${evicted} oldest unsent item(s) to make room; they will not be sent`)
+      this.writeAll(next.slice(evicted))
+    } else {
+      this.writeAll(next)
+    }
     return true
   }
 

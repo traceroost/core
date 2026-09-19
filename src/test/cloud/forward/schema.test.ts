@@ -51,8 +51,25 @@ suite('forward/schema', () => {
     assert.strictEqual(toWireAgent('claude_code'), 'claude-code')
     assert.strictEqual(toWireAgent('copilot'), 'copilot')
     assert.strictEqual(toWireAgent('codex'), 'codex')
+    // OpenCode deliberately never got its own wire identity — collapses to 'other'.
     assert.strictEqual(toWireAgent('opencode'), 'other')
     assert.strictEqual(toWireAgent('something-new'), 'other')
+  })
+
+  // Cursor CLI ingestion (support-cursor-cli.md phase 1) makes this case live/reachable for the
+  // first time — the wire schema drafted 'cursor' as a forward-looking stub before any real
+  // ingestion existed (see toWireAgent's own doc comment). Unlike OpenCode, Cursor gets its own
+  // wire identity, not 'other'.
+  test('toWireAgent gives Cursor CLI sessions their own wire identity, not other', () => {
+    assert.strictEqual(toWireAgent('cursor'), 'cursor')
+  })
+
+  test('every WireAgent value toWireAgent can produce is present in the committed schema enum', () => {
+    const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf-8'))
+    const agentEnum: string[] = schema.$defs.agent.enum
+    for (const source of ['claude_code', 'copilot', 'codex', 'opencode', 'cursor', 'something-new']) {
+      assert.ok(agentEnum.includes(toWireAgent(source)), `${source} → ${toWireAgent(source)} missing from schema enum`)
+    }
   })
 
   test('toWireLoopSignal only ever returns a value in the schema enum, or null', () => {

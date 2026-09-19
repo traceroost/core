@@ -9,7 +9,7 @@ import { ForwardQueue } from '../forward/queue'
 import { DeliveryLedger, scopedKey } from '../forward/deliveryLedger'
 import { toUuid } from '../forward/buildSessionRollup'
 import { loadCredentials } from './credentials'
-import { buildPayloadForCard } from './payloadPreview'
+import { buildPayloadForCard, type PayloadBuildCache } from './payloadPreview'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export interface EnqueueResult {
@@ -35,7 +35,7 @@ export interface EnqueueResult {
  *  design). Until then, this just skips the ledger short-circuit and always enqueues — safe,
  *  since `ForwardQueue.enqueue` already dedupes by item key, and a redundant send is
  *  deduplicated server-side too. */
-export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void): Promise<EnqueueResult> {
+export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void, cache?: PayloadBuildCache): Promise<EnqueueResult> {
   const creds = loadCredentials()
   if (!creds) return { enqueued: false, reason: 'not-linked' }
   // Matches the key a built session payload would get — see buildSessionRollup.ts's session_id
@@ -47,11 +47,11 @@ export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: st
     return { enqueued: false, reason: 'already-delivered' }
   }
   try {
-    const built = await buildPayloadForCard(card)
+    const built = await buildPayloadForCard(card, cache)
     if (built.ungroupedReason) {
       log?.(`[TraceRoost] session forwarded without repo grouping (${built.ungroupedReason}): ${card.workspace || card.projectPath || 'unknown workspace'}`)
     }
-    const added = new ForwardQueue().enqueue(built.payload)
+    const added = new ForwardQueue(undefined, undefined, log).enqueue(built.payload)
     return added ? { enqueued: true } : { enqueued: false, reason: 'duplicate' }
   } catch (err) {
     log?.(`[TraceRoost] could not enqueue session for forwarding: ${(err as Error).message}`)

@@ -4,6 +4,19 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Decided
+
+- **The model/agent cost-per-outcome comparator will not be a local/free feature** — real local session history shows near-zero within-agent model diversity per repo, so a single developer's history structurally can't supply the "same task, different model" comparison this needs. See [docs/decisions/0002](docs/decisions/0002-model-cost-per-outcome-comparator-scope.md). No user-facing change; nothing was built or removed.
+
+### Added
+
+- **The Cost tab now points to Advisor's "How to spend less" card** — closing the gap where the 30-day cost chart and per-trace cost table had no action attached to any number on the screen.
+- **Cursor CLI (`cursor-agent`) sessions are now fully wired through the UI** — agent filter pills, per-agent Settings thresholds, Alerts/Automation configs, the Agents tab comparison, and a Sessions-tab banner explaining Cursor's real data gaps (no token/cost/model data exists in its local transcript format, confirmed by hands-on testing, not guessed) now all recognize `source: 'cursor'` instead of silently falling back to Copilot's styling. Also fixed a real turn-counting bug found via a live multi-turn `cursor-agent --resume` session: resuming removes the previous turn's `turn_ended` marker, so counting `turn_ended` lines undercounted real turns — now counted from `user`-role lines instead, which persist across a resume.
+
+### Fixed
+
+- **"Check for unsent traces" could take minutes on a real backlog and stall well short of closing the gap** — reconciliation now runs sessions through a bounded worker pool instead of one at a time, and memoizes the per-workspace git work (repo key, branch, outcome) that a developer's sessions in the same repo were each recomputing from scratch. The forwarding drain also keeps going immediately while a backlog remains, instead of waiting up to 5 minutes between 200-item batches, and reconcile now sees every local session regardless of history size instead of being silently capped at the most recent 20,000. A forwarding queue that hits its capacity now logs the eviction instead of silently dropping unsent work.
+
 ### Removed
 
 - **Copilot's "Annual plan (request)" pricing-mode toggle** — the Cost and Analytics tabs' Copilot billing model selector is gone; Copilot cost is now always estimated with token-based AI Credits, matching Claude Code, Codex, and every other agent. The Pricing page's `Request ×` and `Annual ×` multiplier columns are removed along with the underlying `multiplier`/`multiplierAnnualPostJun1` rate fields.

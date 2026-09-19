@@ -133,11 +133,35 @@ the denominator rather than guessed at.
    failure, dropping (never retrying) a 400 the schema rejects, and stopping entirely with one
    notice if membership was revoked (403).
 6. A 2xx removes the item from the queue. If the service is unreachable indefinitely, the queue
-   just grows (capped, oldest-first eviction) — the developer's local dashboard is completely
-   unaffected either way.
+   just grows (capped at 5,000 items, oldest-first eviction — logged when it happens, not silent)
+   — the developer's local dashboard is completely unaffected either way.
 
 `leave()` reverses step 2 immediately: the credential is deleted and forwarding stops **before**
 the server-side token revoke is even attempted, so leaving while offline still works.
+
+## "Check for unsent traces" (on-demand reconcile)
+
+The Team panel's button (also run automatically right after linking, and on every log-file
+rediscovery) calls `reconcileLocalSessions` (`panelController.ts`), which runs steps 2–4 above for
+*every* local session the host knows about, not just the one that just closed — so a newly linked
+machine (or one that was offline) backfills its whole history instead of only reporting forward
+from the link moment.
+
+- **Runs a bounded 6-worker pool**, not one session at a time — `maybeEnqueueSession` calls for
+  independent sessions overlap instead of fully serializing.
+- **Shares one per-run cache** (`createPayloadBuildCache`, `payloadPreview.ts`) across the whole
+  pool — repo-key derivation, branch lookup, and git-outcome classification are memoized per
+  distinct workspace for the run's lifetime, since a developer's sessions cluster in a handful of
+  repos. Nothing is cached across separate reconcile runs.
+- **Sees every local session**, not capped at `MAX_SESSIONS_TO_WEBVIEW` — the VS Code host passes
+  `listSessions({ limit: Infinity })` for this path specifically (`dashboardPanel.ts`).
+- Once reconcile enqueues anything, `drainForwardQueueSoon()` (`scheduler.ts`) triggers a drain
+  that **keeps going immediately while genuine backlog remains and nothing is stopping it** —
+  instead of draining one 200-item batch and waiting up to 5 minutes for the next tick.
+
+See `.staged-issues/reconcile-gap-and-latency.md`'s investigation for the reported symptom (the
+button hanging for minutes on a real backlog) this was built against — file removed once
+implemented; git history has it.
 
 ## Testing hooks worth knowing about
 

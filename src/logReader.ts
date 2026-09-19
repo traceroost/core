@@ -23,11 +23,19 @@ import { claudeUsageLines } from './claudeUsageLines'
  *
  *   Cursor CLI   ~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl
  *   (cursor-     %APPDATA%\Cursor\projects\...  (Windows, unconfirmed — mirrors Claude's convention)
- *   agent)       ~/.config/cursor/projects/...  (XDG_CONFIG_HOME override, unconfirmed)
- *                Confirmed against real output from cursor-agent 2026.09.18 — see
- *                .staged-issues/support-cursor-cli.md. Separate from, and not to be confused
- *                with, Cursor the IDE's own undocumented state.vscdb chat store (out of scope —
- *                see .staged-issues/support-cursor.md).
+ *   agent)       ~/.config/cursor/projects/...  (XDG_CONFIG_HOME override — checked live on
+ *                2026-09-19 against cursor-agent 2026.09.18-9a7762b/macOS: setting
+ *                XDG_CONFIG_HOME relocates its *config* (cli-config.json, chats/) but NOT
+ *                agent-transcripts, which stayed under the real ~/.cursor/projects regardless.
+ *                cursorAgentProjectsDirs() below still probes the XDG path defensively — a
+ *                nonexistent directory there is silently filtered out — in case a future version
+ *                does honor it; one platform's one version confirmed not honoring it isn't proof
+ *                no version ever will).
+ *                Confirmed against real output from cursor-agent 2026.09.18 (and re-verified
+ *                2026-09-19, including a real `--resume`d multi-turn session). Separate from, and
+ *                not to be confused with, Cursor the IDE's own undocumented state.vscdb chat
+ *                store — investigated and concluded not viable to ingest (enterprise-only OTEL
+ *                export, no stable local format), independent of this CLI agent.
  *
  * Data available from logs (vs OTEL):
  *   Claude / Codex: session ID, workspace, model, timestamps, full token counts
@@ -1607,7 +1615,13 @@ export class LogReader {
       try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
 
       if (entry['type'] === 'turn_ended') {
-        turns++
+        // NOT a per-turn counter — confirmed against a real `--resume`d session (2026-09-19):
+        // resuming removes the *previous* turn's `turn_ended` line and appends exactly one new
+        // one at the new end of file, so a file with N real turns only ever has one `turn_ended`
+        // line on disk at any given time, reflecting the *last* one. `errors` below is therefore
+        // "was the most recently completed turn an error", not a running total across the whole
+        // session — an honest reading of what this format actually preserves, not an undercount
+        // bug to fix (the data for earlier turns' status is gone by the time this file is read).
         if (entry['status'] !== 'success') errors++
         continue
       }
@@ -1617,6 +1631,10 @@ export class LogReader {
       const content = ((entry['message'] as Record<string, unknown> | undefined)?.['content'] ?? []) as Array<Record<string, unknown>>
 
       if (role === 'user') {
+        // Real turn count: one `role: 'user'` entry per turn, and unlike `turn_ended` these
+        // persist across a `--resume`d session — confirmed against a real two-turn resumed
+        // session (2026-09-19), which left exactly one `turn_ended` line but two `user` lines.
+        turns++
         const text = _extractTextContent(content)
         if (!userRequest && text) {
           // The first user turn wraps the actual prompt in <user_query> tags, alongside a

@@ -412,8 +412,6 @@ export function getAgentColor(source: string | null | undefined): string {
   if (source === 'codex') return '#F0FF42'
   if (source === 'copilot') return '#00EAFF'
   if (source === 'opencode') return '#FFFFFF'
-  // No local ingestion path produces this today — cloud's wire schema (WireAgent)
-  // already anticipates it, so this stays a no-op until it does, not a live gap.
   if (source === 'cursor') return '#B39DDB'
   return '#90a4ae'
 }
@@ -443,6 +441,7 @@ export function getAgentShortLabel(source: string | null | undefined): string {
   if (source === 'claude_code') return 'CL'
   if (source === 'codex') return 'CX'
   if (source === 'opencode') return 'OC'
+  if (source === 'cursor') return 'CU'
   return 'CP'
 }
 
@@ -740,5 +739,6 @@ export function getAgentSourceClass(source: string | null | undefined): string {
   if (source === 'claude_code') return 'session-agent-claude'
   if (source === 'codex') return 'session-agent-codex'
   if (source === 'opencode') return 'session-agent-opencode'
+  if (source === 'cursor') return 'session-agent-cursor'
   return 'session-agent-copilot'
 }

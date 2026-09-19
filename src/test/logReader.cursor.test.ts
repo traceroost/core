@@ -12,7 +12,9 @@ function writeJsonl(filePath: string, lines: Record<string, unknown>[]) {
 // Fixture shape confirmed against real output from cursor-agent 2026.09.18-9a7762b
 // (`cursor-agent --print --output-format json "..."`, inspecting the resulting
 // ~/.cursor/projects/<workspace>/agent-transcripts/<uuid>/<uuid>.jsonl) — see
-// .staged-issues/support-cursor-cli.md for the full investigation.
+// .staged-issues/support-cursor-cli.md for the full investigation. Re-verified 2026-09-19
+// against a real `--resume`d two-turn session (see the "counts real turns" test below for what
+// that confirmed about `turn_ended`'s actual semantics).
 
 suite('LogReader — Cursor CLI (cursor-agent)', () => {
   let tmpDir: string
@@ -99,6 +101,27 @@ suite('LogReader — Cursor CLI (cursor-agent)', () => {
     const reader = new LogReader()
     const card = reader.parseFile(filePath, 'cursor')[0].card
     assert.strictEqual(card.errors, 1)
+  })
+
+  test('counts real turns via user-role lines, not turn_ended lines — a resumed session only ever keeps one turn_ended', () => {
+    // Real shape confirmed by resuming an actual cursor-agent session on 2026-09-19
+    // (`cursor-agent --print --resume <chatId> ...` after an initial turn): the file's *previous*
+    // turn_ended line is gone by the time the second turn lands, replaced by exactly one new
+    // turn_ended at the new end of file — so a two-turn session has two `user` lines but only
+    // ever one `turn_ended` line on disk.
+    const sessionId = 'e4444444-4444-4444-4444-444444444444'
+    const filePath = path.join(tmpDir, `${sessionId}.jsonl`)
+    writeJsonl(filePath, [
+      { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nfirst\n</user_query>' }] } },
+      { role: 'assistant', message: { content: [{ type: 'text', text: 'first done' }] } },
+      { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nsecond\n</user_query>' }] } },
+      { role: 'assistant', message: { content: [{ type: 'text', text: 'second done' }] } },
+      { type: 'turn_ended', status: 'success' },
+    ])
+
+    const reader = new LogReader()
+    const card = reader.parseFile(filePath, 'cursor')[0].card
+    assert.strictEqual(card.turns, 2, 'two real turns, even though only one turn_ended line exists')
   })
 
   test('a Write tool_use block is tracked as both changed and written', () => {

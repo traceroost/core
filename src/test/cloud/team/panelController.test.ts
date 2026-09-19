@@ -227,6 +227,26 @@ suite('team/panelController — link back-fill and reconciliation', () => {
     assert.ok(preview?.preview.text.includes('git subprocess failed'))
   })
 
+  test('teamReconcile processes a backlog larger than the concurrency pool correctly, and reports done in strict order', async () => {
+    await handleTeamMessage({ type: 'teamLink' }, baseDeps())
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // More sessions than the pool's concurrency (6) — exercises the "more work left when a
+    // worker finishes" path, not just "everyone gets their own worker".
+    const cards = Array.from({ length: 14 }, (_, i) => makeCard(`bulk${i}`))
+    const posted: Record<string, unknown>[] = []
+    await handleTeamMessage({ type: 'teamReconcile' }, baseDeps({ allLocalSessions: () => cards, post: (m) => posted.push(m) }))
+
+    assert.strictEqual(new ForwardQueue().depth(), 14)
+    assert.deepStrictEqual(posted.find(m => m.type === 'teamReconcileResult'), { type: 'teamReconcileResult', queued: 14 })
+    const progress = posted.filter(m => m.type === 'teamReconcileProgress') as { done: number; total: number }[]
+    assert.strictEqual(progress.length, 14)
+    // `done` is assigned as each completion lands, so regardless of which underlying session
+    // finishes first, the sequence of posted values is always 1..total in order.
+    assert.deepStrictEqual(progress.map(p => p.done), Array.from({ length: 14 }, (_, i) => i + 1))
+    assert.ok(progress.every(p => p.total === 14))
+  })
+
   test('teamLinkDevice also starts the forward scheduler (it was silently missing before)', async () => {
     // linkViaDevice polls a *different* endpoint than the interactive flow — stub the
     // device-code request and its poll separately (see oauthClient.ts startDeviceFlow /

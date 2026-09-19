@@ -12,6 +12,7 @@ import { getQueueStats } from '../forward/currentQueueStats'
 import { syncForwardSchedulerToLinkState, drainForwardQueueSoon } from '../forward/scheduler'
 import { syncPricingToLinkState } from './pricingSync'
 import { maybeEnqueueSession } from './enqueueSession'
+import { createPayloadBuildCache } from './payloadPreview'
 import { isTeamEnvironment } from './config'
 import { saveSelectedEnvironment } from './environmentSelection'
 import { isLinked } from './credentials'
@@ -62,30 +63,64 @@ export interface TeamPanelDeps {
  * already saved when called from a link, so every payload is built (and every hash salted) with
  * whichever team is *currently* linked.
  */
+// How many sessions' `maybeEnqueueSession` calls run at once. Matches the shape of
+// `gitOutcome.ts`'s `MAX_CONCURRENT_SESSION_CLASSIFICATIONS` — bounded so total concurrent `git`
+// subprocess load stays predictable, not unbounded fan-out over a large backlog.
+const RECONCILE_CONCURRENCY = 6
+
+/** Runs `worker` over `sessions` with up to `RECONCILE_CONCURRENCY` in flight at once, rather than
+ *  one at a time. Progress (when `onProgress` is given) is reported after each *completion*, in
+ *  whichever order they land — no longer tied to array order the way the old serial loop was. */
+async function runReconcilePool(
+  sessions: SessionSummaryCard[],
+  worker: (session: SessionSummaryCard) => Promise<{ enqueued: boolean }>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<number> {
+  const total = sessions.length
+  let nextIndex = 0
+  let done = 0
+  let queued = 0
+
+  async function runOne(): Promise<void> {
+    for (;;) {
+      const i = nextIndex++
+      if (i >= total) return
+      const res = await worker(sessions[i])
+      if (res.enqueued) queued++
+      done++
+      if (onProgress) {
+        onProgress(done, total)
+        // Without this, a progress update can sit unsent: when `worker` short-circuits on an
+        // already-delivered session, it resolves via microtasks only (no real async I/O), so a
+        // burst of already-delivered sessions completing back-to-back never actually returns
+        // control to the event loop — and posting to the webview is IPC, which needs that to
+        // flush. `setImmediate` forces one real event-loop tick per completion so the webview
+        // sees progress as it happens instead of one burst at the end.
+        await new Promise<void>(resolve => setImmediate(resolve))
+      }
+    }
+  }
+
+  const workerCount = Math.min(RECONCILE_CONCURRENCY, total)
+  await Promise.all(Array.from({ length: workerCount }, runOne))
+  return queued
+}
+
 async function reconcileLocalSessions(deps: TeamPanelDeps, reportProgress = false): Promise<number> {
   const sessions = deps.allLocalSessions?.()
   if (!sessions || sessions.length === 0) return 0
-  let queued = 0
-  const total = sessions.length
-  for (let i = 0; i < sessions.length; i++) {
-    const res = await maybeEnqueueSession(sessions[i], deps.log)
-    if (res.enqueued) queued++
-    // An install with a lot of local history can take a real, visible amount of time here — each
-    // session is a delivery-ledger read plus, for anything not yet sent, a payload build. Report
-    // progress only for the on-demand "Check for unsent traces" click (`teamReconcile` below); the
-    // link-time call is fire-and-forget and nothing is listening for it.
-    if (reportProgress) {
-      deps.post({ type: 'teamReconcileProgress', done: i + 1, total })
-      // Without this, the progress message above can sit unsent: when `maybeEnqueueSession`
-      // short-circuits on an already-delivered session, it resolves via microtasks only (no real
-      // async I/O), so a tight `for await` loop over a long history never actually returns
-      // control to the event loop — and posting to the webview is IPC, which needs that to flush.
-      // The result was every "Checking… (n/total)" update arriving in one burst right at the end,
-      // indistinguishable from a hang. `setImmediate` forces one real event-loop tick per session
-      // so the webview sees progress as it happens.
-      await new Promise<void>(resolve => setImmediate(resolve))
-    }
-  }
+  // Scoped to this one reconcile pass — memoizes the per-workspace git work (repo key, branch,
+  // outcome classification) that would otherwise be recomputed once per session instead of once
+  // per distinct repo a developer's sessions cluster in. See payloadPreview.ts's
+  // createPayloadBuildCache and .staged-issues/reconcile-gap-and-latency.md.
+  const cache = createPayloadBuildCache()
+  const queued = await runReconcilePool(
+    sessions,
+    (session) => maybeEnqueueSession(session, deps.log, cache),
+    // Report progress only for the on-demand "Check for unsent traces" click (`teamReconcile`
+    // below); the link-time call is fire-and-forget and nothing is listening for it.
+    reportProgress ? (done, total) => deps.post({ type: 'teamReconcileProgress', done, total }) : undefined,
+  )
   if (queued > 0) {
     deps.log?.(`[TraceRoost] reconcile: queued ${queued} local session(s) not yet confirmed delivered`)
     drainForwardQueueSoon()

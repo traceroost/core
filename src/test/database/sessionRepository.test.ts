@@ -151,6 +151,11 @@ suite('SessionRepository — MAX_SESSIONS_TO_WEBVIEW safety valve', () => {
     assert.strictEqual(repo.listSessions({ limit: 25 }).length, 25)
   })
 
+  test('limit: Infinity bypasses the safety cap entirely — the reconcile path needs every local session', () => {
+    const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 500), noopWriter, emptyStore)
+    assert.strictEqual(repo.listSessions({ limit: Infinity }).length, MAX_SESSIONS_TO_WEBVIEW + 500)
+  })
+
   test('logs when the safety cap (not a caller limit) truncates the list', () => {
     const messages: string[] = []
     const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 1), noopWriter, emptyStore, (m) => messages.push(m))

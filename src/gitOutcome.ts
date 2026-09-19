@@ -72,6 +72,36 @@ async function findRepoRoot(workspace: string): Promise<string | null> {
   return out?.trim() || null
 }
 
+/**
+ * Memoizes `findRepoRoot`/`resolveTrunkRef` across many `classifySessionOutcome` calls that share
+ * a workspace or repo root — a developer's sessions cluster in a handful of repos, so without this
+ * every one of them re-runs the same `git rev-parse`/`symbolic-ref` round trips from scratch.
+ * Scoped to whatever call site constructs one (e.g. one on-demand reconcile pass); nothing here is
+ * cached across separate instances, so a mid-history branch change is picked up next time one is
+ * created, same as the uncached path. See .staged-issues/reconcile-gap-and-latency.md.
+ */
+export interface OutcomeRepoCache {
+  root(workspace: string): Promise<string | null>
+  trunkRef(root: string): Promise<string | null>
+}
+
+export function createOutcomeRepoCache(): OutcomeRepoCache {
+  const roots = new Map<string, Promise<string | null>>()
+  const trunkRefs = new Map<string, Promise<string | null>>()
+  return {
+    root(workspace: string) {
+      let p = roots.get(workspace)
+      if (!p) { p = findRepoRoot(workspace); roots.set(workspace, p) }
+      return p
+    },
+    trunkRef(root: string) {
+      let p = trunkRefs.get(root)
+      if (!p) { p = resolveTrunkRef(root); trunkRefs.set(root, p) }
+      return p
+    },
+  }
+}
+
 /** Resolves a ref for the repo's shared/trunk branch — preferring the remote's advertised default
  *  (works whichever it's named), then falling back to a local main/master. Returns null if none of
  *  these resolve (no remote and no local main/master — e.g. a repo that hasn't set one up, or uses
@@ -198,11 +228,11 @@ function summarize(overall: FileOutcome, files: Record<string, FileOutcome>, tru
  * every changed file falls outside the repo root. Callers should treat null as "not applicable,"
  * distinct from a computed-but-inconclusive result.
  */
-export async function classifySessionOutcome(workspace: string, filesChanged: string[]): Promise<GitOutcome | null> {
+export async function classifySessionOutcome(workspace: string, filesChanged: string[], cache?: OutcomeRepoCache): Promise<GitOutcome | null> {
   if (!workspace || filesChanged.length === 0) return null
   if (!fs.existsSync(workspace)) return null
 
-  const root = await findRepoRoot(workspace)
+  const root = cache ? await cache.root(workspace) : await findRepoRoot(workspace)
   if (!root) return null
 
   // Files outside the repo (global settings, cross-project memory notes, etc. — a session's
@@ -215,7 +245,7 @@ export async function classifySessionOutcome(workspace: string, filesChanged: st
     .filter((pair): pair is [string, string] => pair[1] !== null)
   if (inRepo.length === 0) return null
 
-  const trunkRef = await resolveTrunkRef(root)
+  const trunkRef = cache ? await cache.trunkRef(root) : await resolveTrunkRef(root)
 
   // Each file's classification is independent — run them concurrently rather than
   // one at a time. This is the dominant cost of the whole function (each file spawns

@@ -530,7 +530,12 @@ export class DashboardPanel {
       post: (m) => { void this.panel.webview.postMessage(m) },
       openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
       recentSessions: () => this.repo.listSessions({ limit: 25 }),
-      allLocalSessions: () => this.repo.listSessions(),
+      // Explicitly unbounded — reconcile must see every local session, not just the most recent
+      // MAX_SESSIONS_TO_WEBVIEW. That cap exists to bound the webview postMessage payload; an
+      // install with a history past it would otherwise silently strand its oldest sessions,
+      // permanently unreachable by "Check for unsent traces". See sessionRepository.ts's
+      // MAX_SESSIONS_TO_WEBVIEW doc comment and .staged-issues/reconcile-gap-and-latency.md.
+      allLocalSessions: () => this.repo.listSessions({ limit: Infinity }),
       buildPayloadPreview: (session) => buildPayloadPreviewText(session),
       onOpenTeamView: () => {
         const url = loadCredentials()?.endpoint ?? teamEndpoint()

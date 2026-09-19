@@ -1,6 +1,6 @@
 # TraceRoost Architecture
 
-TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
+TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database and Cursor CLI's transcript files), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
 
 > **Naming:** the UI calls one prompt-to-response run a **Trace** (the Traces tab, the Waterfall sub-tab). The codebase predates that and still says `session` throughout — `SessionSummaryCard`, `sessions` table, `session_id`, `listSessions`, the `get_recent_sessions` MCP tool, etc. Read "session" as "trace" everywhere below; the two are the same thing.
 
@@ -43,6 +43,7 @@ graph TB
         CP_VS["workspaceStorage/{hash}/chatSessions/{uuid}.jsonl<br/>(delta log — newer VS Code-family Copilot Chat)"]
         CP_JSON["workspaceStorage/{hash}/chatSessions/{uuid}.json<br/>(snapshot — older VS Code-family Copilot Chat)"]
         OC_DB["~/.local/share/opencode/opencode.db<br/>(SQLite — WAL merged at read time)"]
+        CU_LOGS["~/.cursor/projects/**/agent-transcripts/**/*.jsonl"]
     end
 
     subgraph VSCode Extension
@@ -73,7 +74,7 @@ graph TB
     COL -- addSpan --> STO
     STO -- onUpdate → summarize → enqueue --> WRI
 
-    CL_LOGS & CX_LOGS & CP_LOGS & CP_VS & CP_JSON & OC_DB --> LR
+    CL_LOGS & CX_LOGS & CP_LOGS & CP_VS & CP_JSON & OC_DB & CU_LOGS --> LR
     LR -- "enqueue(card)" --> WRI
 
     WRI --> DB
@@ -183,7 +184,7 @@ flowchart TD
     end
 
     subgraph LOGS["Log file / database path (disk) — see §4"]
-        LF["~/.claude · ~/.codex · ~/.copilot<br/>JSONL files<br/>~/.local/share/opencode/opencode.db (SQLite)"] --> LR[LogReader<br/>parseFile / scanOpenCode / scan]
+        LF["~/.claude · ~/.codex · ~/.copilot · ~/.cursor<br/>JSONL files<br/>~/.local/share/opencode/opencode.db (SQLite)"] --> LR[LogReader<br/>parseFile / scanOpenCode / scan]
         LR -- "enqueue(card)" --> WRITE
     end
 
@@ -209,6 +210,7 @@ A parallel, network-free ingestion path that reads session files written to disk
 | Copilot Chat (VS Code-family, newer) | JSONL (delta log) | `workspaceStorage/<hash>/chatSessions/<uuid>.jsonl` | — |
 | Copilot Chat (VS Code-family, older) | JSON (snapshot) | `workspaceStorage/<hash>/chatSessions/<uuid>.json` | — |
 | OpenCode | SQLite database (WAL mode) | `~/.local/share/opencode/opencode.db` (Linux/Mac) | `OPENCODE_DATA_DIR` (comma-separated data dirs) |
+| Cursor CLI (`cursor-agent`) | JSONL (append log, one file per session) | `~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl` | `XDG_CONFIG_HOME` — checked live 2026-09-19 against a real install and does **not** relocate transcripts (only `cursor-agent`'s own config); probed defensively anyway in case a future version honors it |
 
 `workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. TraceRoost scans all known VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro — via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude.
 
@@ -244,6 +246,16 @@ OpenCode stores all session data in a local SQLite database (`opencode.db`) usin
 
 **Timeline:** `llmEvents` (one per assistant message, from the message query) and `toolEvents` (one per tool part, from the part query) are merged and sorted by timestamp into `TimelineEntry[]`.
 
+### Cursor CLI — transcript log
+
+`cursor-agent`'s standalone terminal agent (a separate product from Cursor the IDE's built-in composer/chat agent — see §4's Copilot Chat vs. `vscodeFamilyIdes.ts` distinction for the analogous IDE-vs-CLI split). One JSONL file per session, one line per turn: `{"role":"user"|"assistant", "message":{"content":[...]}}` content blocks (`text`, `tool_use`), plus a `{"type":"turn_ended","status":...}` marker line.
+
+Confirmed by direct inspection against a real install (`cursor-agent 2026.09.18-9a7762b`, 2026-09-19), not assumed:
+
+- **No token/usage, model name, or workspace path exist anywhere in this format.** These are left as an honest gap (0 tokens, `model: 'cursor-agent'` placeholder that matches no pricing entry, `workspace: ''`) rather than guessed — see `.staged-issues/support-cursor-cli.md`'s investigation (file since removed once implemented; git history has it).
+- **`turn_ended` does not persist per-turn.** Resuming a session (`cursor-agent --resume <id>`) removes the *previous* turn's `turn_ended` line and appends exactly one new one at the new end of file — confirmed with a real two-turn resumed session. A file with N real turns has only ever one `turn_ended` line on disk at read time. `_parseCursorFile` therefore counts real turns from `role: 'user'` lines (which do persist across a resume), not from `turn_ended` occurrences; `errors` reflects only the *most recently completed* turn's status, not a running total.
+- **No per-turn timestamps.** Session start/end bounds fall back to the transcript file's own `birthtimeMs`/`mtimeMs`.
+
 ### Scan mechanics
 
 ```mermaid
@@ -264,27 +276,27 @@ flowchart TD
     INC -- cards --> WRI
 ```
 
-**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is not persisted to disk; on extension restart all files are re-scanned once.
+**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `extension.ts`'s `readLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`.
 
 **Two-phase startup loading:** the fast group (all non-.json files) runs first and surfaces recent sessions immediately. The slow group (legacy .json snapshots) starts after the fast group finishes, with a 50 ms gap between each 2-file batch to keep the extension host responsive (each ~60 ms parsing window).
 
 ### Data availability
 
-| Field | OTLP | Claude / Codex logs | Copilot CLI log | Copilot Chat JSONL | Copilot Chat JSON | OpenCode SQLite |
-| --- | --- | --- | --- | --- | --- | --- |
-| Session ID, workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Model | ✓ | ✓ | ✓ | ✓ (initial model only) | ✓ (first request) | ✓ |
-| Timestamps, duration | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Input tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ |
-| Output tokens | ✓ | ✓ | ✓ | ✓ (`completionTokens` per turn) | ✗ not stored | ✓ |
-| Cache read / write tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ |
-| User request text | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (last user message) |
-| Tool calls (names) | ✓ | ✓ | ✓ | ✗ | ✗ (presence only) | ✓ |
-| Tool call inputs / outputs | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ |
-| File paths from tools | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ |
-| TTFT, per-tool timing | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Full turn timeline | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (LLM + tool entries) |
+| Field | OTLP | Claude / Codex logs | Copilot CLI log | Copilot Chat JSONL | Copilot Chat JSON | OpenCode SQLite | Cursor CLI log |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Session ID, workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | session ID only — no workspace field exists |
+| Model | ✓ | ✓ | ✓ | ✓ (initial model only) | ✓ (first request) | ✓ | ✗ not stored — `cursor-agent` placeholder |
+| Timestamps, duration | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | file `birthtimeMs`/`mtimeMs` only — no per-turn timestamps |
+| Input tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
+| Output tokens | ✓ | ✓ | ✓ | ✓ (`completionTokens` per turn) | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
+| Cache read / write tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
+| User request text | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (last user message) | ✓ |
+| Tool calls (names) | ✓ | ✓ | ✓ | ✗ | ✗ (presence only) | ✓ | ✓ |
+| Tool call inputs / outputs | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ (input only; no output/result recorded) |
+| File paths from tools | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ |
+| TTFT, per-tool timing | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ — per-tool error data needed for `error_recurrence`/`chronic_tool_failures` doesn't exist |
+| Full turn timeline | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) |
 
 Sessions produced by `LogReader` carry `dataSource: 'log'` on `SessionSummaryCard`; OTLP sessions carry `dataSource: 'otel'`. The UI shows an OTEL/Log source badge on each session row.
 
@@ -1071,7 +1083,7 @@ lead see cross-developer aggregates. It is built against two rules:
 | `src/cloud/team/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
 | `src/cloud/team/status.ts` | `getTeamStatus()` — local-only status for the panel, dot and CLI |
 | `src/cloud/team/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
-| `src/cloud/team/panelController.ts` | Transport-agnostic handler for `team*` webview messages |
+| `src/cloud/team/panelController.ts` | Transport-agnostic handler for `team*` webview messages; `reconcileLocalSessions` runs a bounded 6-worker pool, not serially |
 | `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
 | `src/cloud/forward/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
 | `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
@@ -1089,11 +1101,11 @@ install can reach. The local Advisor is free and unchanged. `suggestedText` / `e
 `title` never leave the machine — only `suggestion_id` (hashed), the enums, and the numeric
 baseline. Apply loop: `traceroost advise --apply <id>` regenerates with real paths, appends,
 captures a baseline; `agentlens://advise?id=…` is the editor deep link.
-| `src/cloud/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard` |
+| `src/cloud/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
 | `src/cloud/team/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
-| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600 |
+| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
 | `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
-| `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave |
+| `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
 `traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
@@ -1195,7 +1207,7 @@ traceroost/
 │   ├── exportFormats.ts          # CSV + Markdown export serialization
 │   ├── gitOutcome.ts             # On-demand git-outcome classification (reverted/productive/abandoned/ambiguous)
 │   ├── oneShotRate.ts            # One-shot / retry-rate metric — per-file edit-count aggregation
-│   ├── logReader.ts              # LogReader — local log ingestion (Claude/Codex/Copilot CLI/Copilot Chat JSONL+JSON/OpenCode SQLite)
+│   ├── logReader.ts              # LogReader — local log ingestion (Claude/Codex/Copilot CLI/Copilot Chat JSONL+JSON/OpenCode SQLite/Cursor CLI JSONL)
 │   ├── loopDetector.ts           # Loop signal detection; shares getFileEditCounts with oneShotRate.ts
 │   ├── instructionAdvisor.ts     # Advisor tab analysis — hot files, loop patterns, high turn counts
 │   ├── instructionEffectiveness.ts # Before/after baseline metrics for applied instruction suggestions
@@ -1225,6 +1237,8 @@ traceroost/
 │       ├── otlpParser.test.ts
 │       ├── loopDetector.test.ts
 │       ├── logReader.opencode.test.ts
+│       ├── logReader.cursor.test.ts
+│       ├── logReader.fileState.test.ts
 │       ├── gitOutcome.test.ts
 │       ├── oneShotRate.test.ts
 │       ├── exportFormats.test.ts

@@ -11,7 +11,13 @@
  */
 
 import { drainQueue, type DrainDeps } from './sender'
+import { DEFAULT_MAX_ITEMS } from './queue'
 import { loadCredentials } from '../team/credentials'
+
+// The most batches a single drain run could ever need to fully empty a queue at the hard item
+// cap, at the default per-batch limit (`drainQueue`'s own `batchLimit ?? 200`) — a sanity
+// backstop against an unbounded loop, not a limit expected to bite in practice.
+const MAX_DRAIN_ITERATIONS_PER_RUN = Math.ceil(DEFAULT_MAX_ITEMS / 200)
 
 export interface ForwardScheduler {
   /** Re-evaluate whether the timer should be running (call after link / leave). */
@@ -37,6 +43,10 @@ export function startForwardScheduler(opts: {
   /** Test-only — every other piece of `cloud/forward` already threads this through instead of
    *  always touching the real `~/.traceroost`; kept optional so no real caller needs to pass it. */
   baseHome?: string
+  /** Test-only — lets a test exercise the multi-batch keep-draining loop below without needing a
+   *  real backlog past `drainQueue`'s default 200-item `batchLimit`. No real caller needs to
+   *  override this. */
+  batchLimit?: number
 } = {}): ForwardScheduler {
   const intervalMs = opts.intervalMs ?? 5 * 60_000
   let timer: ReturnType<typeof setInterval> | undefined
@@ -48,9 +58,29 @@ export function startForwardScheduler(opts: {
     if (!loadCredentials()) { stop(); return }
     draining = true
     try {
-      const res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, onItemDone: opts.onDrainComplete })
+      let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete })
       if (res.sent > 0 || res.droppedInvalid > 0) {
         opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
+      }
+      // A single drain caps itself at `batchLimit` (200) items so one tick never blocks the timer
+      // — but left alone, a backlog bigger than that (right after "Check for unsent traces" on a
+      // large history, say) would only shrink by 200 once every 5 minutes. Keep going immediately
+      // while a batch is genuinely making progress with nothing stopping it (`stopped: null`
+      // means the batch completed with no auth/rate-limit/offline condition hit); any other
+      // `stopped` reason means retrying right now would just fail the same way, so defer to the
+      // normal timer/backoff instead. Capped at `DEFAULT_MAX_ITEMS / batchLimit` iterations — the
+      // most batches a single drain could ever need to empty a full queue — as a sanity backstop,
+      // not a real limit expected to bite.
+      let iterations = 1
+      while (res.stopped === null && res.remaining > 0 && iterations < MAX_DRAIN_ITERATIONS_PER_RUN) {
+        res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete })
+        iterations++
+        if (res.sent > 0 || res.droppedInvalid > 0) {
+          opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
+        }
+      }
+      if (res.remaining > 0 && iterations >= MAX_DRAIN_ITERATIONS_PER_RUN) {
+        opts.log?.(`[TraceRoost] forwarding: paused after ${iterations} batches this run with ${res.remaining} still queued — resuming on the next tick`)
       }
       if (res.stopped === 'membership-revoked') stop()
     } catch (err) {

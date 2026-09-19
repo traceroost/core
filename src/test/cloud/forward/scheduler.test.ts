@@ -63,6 +63,24 @@ suite('forward/scheduler', () => {
     assert.strictEqual(calls, 0)
   })
 
+  test('a backlog bigger than one batch fully drains within a single run, not one batch per tick', async () => {
+    setCredentialStore(memStore(CREDS))
+    const q = new ForwardQueue(home)
+    const ids = Array.from({ length: 7 }, (_, i) => `${(i + 1).toString().repeat(8)}-0000-4000-8000-000000000000`)
+    for (const id of ids) q.enqueue(payload(id))
+    let sendCount = 0
+    globalThis.fetch = (async () => { sendCount++; return new Response('', { status: 202 }) }) as typeof fetch
+
+    // batchLimit: 2 simulates a real backlog (200+ items) using a small queue — 7 items across
+    // 2-item batches needs 4 batches to fully drain.
+    const scheduler = startForwardScheduler({ baseHome: home, batchLimit: 2, intervalMs: 5 * 60_000 })
+    await new Promise(resolve => setTimeout(resolve, 200))
+    scheduler.dispose()
+
+    assert.strictEqual(new ForwardQueue(home).depth(), 0, 'the whole backlog should drain in one run, without waiting for further ticks')
+    assert.strictEqual(sendCount, 7)
+  })
+
   test('drainSoon triggers onDrainComplete again, on top of the initial one', async () => {
     setCredentialStore(memStore(CREDS))
     globalThis.fetch = (async () => new Response('', { status: 202 })) as typeof fetch

@@ -70,4 +70,15 @@ suite('forward/queue', () => {
     assert.strictEqual(q.list()[0].attempts, 2)
     assert.strictEqual(q.list()[0].lastError, 'boom')
   })
+
+  test('eviction past the cap is logged, not silent', () => {
+    const logs: string[] = []
+    const q = new ForwardQueue(home, 2, (m) => logs.push(m))
+    q.enqueue(payload('77777777-0000-4000-8000-000000000000'))
+    q.enqueue(payload('88888888-0000-4000-8000-000000000000'))
+    assert.strictEqual(logs.length, 0, 'no eviction yet, no log')
+    q.enqueue(payload('99999999-0000-4000-8000-000000000000'))
+    assert.strictEqual(logs.length, 1)
+    assert.match(logs[0], /evicting 1 oldest unsent item/)
+  })
 })

@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { classifySessionOutcome } from '../gitOutcome'
+import { classifySessionOutcome, createOutcomeRepoCache } from '../gitOutcome'
 
 // Builds a throwaway git repo per test so the classifier can be exercised against real git
 // history instead of mocks — commit timestamps are pinned via GIT_AUTHOR_DATE/GIT_COMMITTER_DATE
@@ -188,5 +188,42 @@ suite('gitOutcome', () => {
     assert.strictEqual(result!.overall, 'abandoned')
     assert.strictEqual(result!.files[path.join(repoDir, mergedFile)], 'merged')
     assert.strictEqual(result!.files[path.join(repoDir, abandonedFile)], 'abandoned')
+  })
+
+  test('createOutcomeRepoCache: same result with and without a cache — caching never changes the answer', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+    writeFile(file, 'v2')
+    commitAll('session change kept', '2026-01-04T00:00:00Z')
+
+    const cache = createOutcomeRepoCache()
+    const uncached = await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
+    const cached = await classifySessionOutcome(repoDir, [path.join(repoDir, file)], cache)
+    assert.deepStrictEqual(cached, uncached)
+  })
+
+  test('createOutcomeRepoCache: memoizes root() and trunkRef() per key — same promise, not a fresh git call each time', async () => {
+    commitAll('initial', '2026-01-01T00:00:00Z')
+    const cache = createOutcomeRepoCache()
+
+    const rootP1 = cache.root(repoDir)
+    const rootP2 = cache.root(repoDir)
+    assert.strictEqual(rootP1, rootP2, 'a second call for the same workspace must reuse the in-flight/resolved promise, not start a new git subprocess')
+    const root = await rootP1
+    assert.ok(root)
+
+    const trunkP1 = cache.trunkRef(root!)
+    const trunkP2 = cache.trunkRef(root!)
+    assert.strictEqual(trunkP1, trunkP2, 'a second call for the same root must reuse the in-flight/resolved promise')
+
+    // A different workspace/root gets its own cache entry — this isn't a global singleton.
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-gitoutcome-other-'))
+    try {
+      const otherRootP = cache.root(other)
+      assert.notStrictEqual(otherRootP, rootP1)
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true })
+    }
   })
 })

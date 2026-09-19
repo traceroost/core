@@ -552,5 +552,6 @@ export const agentPresence = computed(() => {
     copilot:   sessions.some(s => s.source === 'copilot'),
     codex:     sessions.some(s => s.source === 'codex'),
     opencode:  sessions.some(s => s.source === 'opencode'),
+    cursor:    sessions.some(s => s.source === 'cursor'),
   }
 })

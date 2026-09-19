@@ -307,6 +307,7 @@ export async function activate(context: vscode.ExtensionContext) {
         copilot_vscode:      'Copilot (VS Code)',
         copilot_vscode_json: 'Copilot (VS Code)',
         opencode:            'OpenCode',
+        cursor:              'Cursor CLI',
       }
       const countByKey = new Map<string, number>()
 
