@@ -232,6 +232,28 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
   return map
 })()
 
+// Optional override, populated only by a linked install's src/cloud/team/pricingSync.ts —
+// unset (empty) for every unlinked install, which is the overwhelming majority of usage. Checked
+// first in lookupRates below, falling back to the local RATES_BY_COST_KEY exactly as before when
+// empty or when a model isn't in it. This is the one and only seam cloud-sourced pricing enters
+// through: the calculation itself (calcTokenCostUsd's formula, tiered pricing, normalizeCostKey)
+// is completely unaffected — only where a rate's *numbers* come from can change.
+//
+// Cloud's effective-rates endpoint only knows 4 flat per-MTok rates (no tiered/long-context
+// surcharge fields, no contextWindowTokens — the cloud pricing table doesn't model either). An
+// override entry always gets contextWindowTokens: 0 ("unknown"), same as any other model this
+// file has no context-window data for; cost math is unaffected, only the Projection tab's
+// context-fill estimate loses precision for an overridden model specifically.
+let cloudRateOverrides: Map<string, ModelRates> = new Map()
+
+export function setCloudRateOverrides(rates: Record<string, Omit<ModelRates, 'contextWindowTokens'>>): void {
+  const map = new Map<string, ModelRates>()
+  for (const [modelId, r] of Object.entries(rates)) {
+    map.set(normalizeCostKey(modelId), { ...r, contextWindowTokens: 0 })
+  }
+  cloudRateOverrides = map
+}
+
 // Exact match only, after normalization — no prefix-matching fallback. A previous
 // version fell back to substring-prefix matching ("versioned or aliased model IDs"),
 // but that let an unrecognized *newer* model silently inherit an unrelated *older*
@@ -243,6 +265,8 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
 // visible gap.
 export function lookupRates(modelId: string): ModelRates | null {
   if (!modelId) return null
+  const cloudRate = cloudRateOverrides.get(normalizeCostKey(modelId))
+  if (cloudRate) return cloudRate
   return RATES_BY_COST_KEY.get(normalizeCostKey(modelId)) ?? null
 }
 

@@ -4,7 +4,7 @@ import * as path from 'path'
 import { execFileSync, spawn } from 'child_process'
 import {
   parseServiceInstallFlags, isRunningFromNpx, writeServiceConfig, readServiceConfig,
-  shouldBlockRepeatedBootstrap, childEnvForReexec,
+  shouldBlockRepeatedBootstrap, childEnvForReexec, readPackageManifest,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure,
   type ServiceConfig, type ServiceProgram,
 } from '../../src/serviceConfig'
@@ -36,16 +36,10 @@ function serviceManagerName(): string {
 }
 
 /** The running copy's own package.json (name + version). Bundled output lives at
- *  <pkg>/standalone/cli.js, so `../package.json` from here; the extra `../../` fallback covers
- *  running the un-bundled source from standalone/service/. */
+ *  <pkg>/standalone/cli.js, so `../package.json` from here; `readPackageManifest`'s extra
+ *  `../../` fallback covers running the un-bundled source from standalone/service/. */
 function readRunningManifest(): { name?: string; version?: string } {
-  for (const rel of [['..', 'package.json'], ['..', '..', 'package.json']]) {
-    try {
-      const m = JSON.parse(fs.readFileSync(path.join(__dirname, ...rel), 'utf-8'))
-      return { name: m.name as string, version: m.version as string }
-    } catch { /* try the next candidate */ }
-  }
-  return {}
+  return readPackageManifest(__dirname)
 }
 
 function readRunningVersion(): string | undefined {

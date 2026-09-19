@@ -10,6 +10,7 @@ import { getTeamStatus, type QueueStats } from './status'
 import { linkInteractive, linkViaDevice, leave, refreshOrgNameIfStale } from './link'
 import { getQueueStats } from '../forward/currentQueueStats'
 import { syncForwardSchedulerToLinkState, drainForwardQueueSoon } from '../forward/scheduler'
+import { syncPricingToLinkState } from './pricingSync'
 import { maybeEnqueueSession } from './enqueueSession'
 import { isTeamEnvironment } from './config'
 import { saveSelectedEnvironment } from './environmentSelection'
@@ -139,6 +140,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
           openUrl: (url) => deps.openExternal(url),
         })
         syncForwardSchedulerToLinkState()
+        syncPricingToLinkState()
         void reconcileLocalSessions(deps)
         deps.post({ type: 'teamActionResult', action: 'link', ok: true })
       } catch (err) {
@@ -154,6 +156,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
           onPrompt: (info) => deps.post({ type: 'teamDevicePrompt', ...info }),
         })
         syncForwardSchedulerToLinkState()
+        syncPricingToLinkState()
         void reconcileLocalSessions(deps)
         deps.post({ type: 'teamActionResult', action: 'link', ok: true })
       } catch (err) {
@@ -166,6 +169,7 @@ export async function handleTeamMessage(msg: TeamMessage, deps: TeamPanelDeps): 
     case 'teamLeave': {
       const res = await leave()
       syncForwardSchedulerToLinkState()
+      syncPricingToLinkState()
       deps.post({ type: 'teamActionResult', action: 'leave', ok: true, serverRevoked: res.serverRevoked })
       pushStatus(deps)
       return

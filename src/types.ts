@@ -38,7 +38,6 @@ export type LoopSignalType =
   | 'token_runaway'
   | 'chronic_tool_failures'
   | 'context_flooding_risk'
-  | 'malformed_tool_call'
   // Detected post-hoc by src/sessionRiskSignals.ts, not by the real-time loopDetector.ts — a
   // session completing cleanly doesn't rule out these two, so they're checked on demand alongside
   // git-outcome classification rather than eagerly for every session. See that file's docstring.

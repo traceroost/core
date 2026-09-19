@@ -38,7 +38,6 @@ export type LoopSignalType =
   | 'token_runaway'
   | 'chronic_tool_failures'
   | 'context_flooding_risk'
-  | 'malformed_tool_call'
   | 'hallucinated_import'
   | 'failed_check_submission'
 
@@ -250,6 +249,18 @@ export interface SpanTreeNode {
   span: Span
   children: SpanTreeNode[]
   depth: number
+}
+
+// Response shape of GET /api/version-check (standalone only — see standalone/versionCheck.ts).
+// Hand-duplicated rather than imported: the webview bundle never imports from standalone/.
+export interface VersionCheckResponse {
+  currentVersion: string
+  latestVersion: string | null
+  updateAvailable: boolean
+  checkedAt: string | null
+  error: string | null
+  isService: boolean
+  recommendedCommand: string
 }
 
 declare global {

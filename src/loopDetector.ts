@@ -1,7 +1,7 @@
 /**
  * Loop and malfunction detector for agent sessions.
  *
- * Detects 8 signal types that indicate an agent is stuck, spiraling, or working unreliably:
+ * Detects 7 signal types that indicate an agent is stuck, spiraling, or working unreliably:
  *
  *   1. exact_tool_repeat     — identical tool call (by label) executed 3+ times with no edit in between
  *   2. edit_revert_cycle     — a file was edited then reverted to a prior state
@@ -10,12 +10,13 @@
  *   5. token_runaway         — context growing rapidly while output stays flat/declines
  *   6. chronic_tool_failures — an unusually high share of tool calls in the session failed
  *   7. context_flooding_risk — a tool call returned a result too large for the model to use well
- *   8. malformed_tool_call   — the agent's own harness rejected a call before it even executed
  *
- * The last 3 started as ad-hoc frontend-only checks (media/src/tabs/Insights.tsx) and a new
- * pattern found during a later failure-mode review, promoted here so MCP tools and the
- * Instruction Advisor's cross-session aggregation — everything that reads session.loopSignals —
- * can see them too, not just the Insights tab.
+ * The last 2 started as ad-hoc frontend-only checks (media/src/tabs/Insights.tsx), promoted here
+ * so MCP tools and the Instruction Advisor's cross-session aggregation — everything that reads
+ * session.loopSignals — can see them too, not just the Insights tab. (A third promoted check,
+ * malformed_tool_call, was removed after review: its regex was a best guess at three different
+ * agent harnesses' rejection wording, never verified against real session text, and outcome-based
+ * calibration can't validate wording accuracy the way it can a threshold.)
  *
  * Each detector is exported individually so tests can exercise them in isolation.
  *
@@ -41,7 +42,6 @@ export const PATTERN_NAMES: Record<LoopSignalType, string> = {
   token_runaway:     'Infinite Loop — Context Accumulation',
   chronic_tool_failures: 'Chronic Tool Unreliability',
   context_flooding_risk: 'Context Flooding Risk',
-  malformed_tool_call:   'Malformed Tool Call',
   hallucinated_import:     'Fabricated Dependency',
   failed_check_submission: 'Unverified Submission',
 }
@@ -84,11 +84,6 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     'One or more tool calls returned a very large result, which gets appended to context in full and crowds out everything else for the rest of the session. '
     + 'Use narrower reads — specify line ranges instead of whole files, tighten search patterns, or pipe command output through something that limits it.',
 
-  malformed_tool_call:
-    'The agent\'s own harness rejected a tool call before it ran — a wrong argument name, an unknown tool, or malformed arguments. '
-    + 'This is different from a normal runtime failure: it means the agent\'s call didn\'t match what the tool expected, not that the codebase has a problem. '
-    + 'If this recurs, the agent may be working from an outdated or incorrect idea of what tools are available.',
-
   hallucinated_import:
     'An edit imports a package that is not declared in the project\'s manifest (package.json, requirements.txt) and does not resolve on disk — '
     + 'a likely hallucinated dependency that will fail at install or runtime. '
@@ -110,7 +105,6 @@ export function detectLoopSignals(session: SessionSummaryCard): LoopSignal[] {
   detectTokenRunaway(session, signals)
   detectChronicToolFailures(session, signals)
   detectContextFloodingRisk(session, signals)
-  detectMalformedToolCall(session, signals)
   return signals
 }
 
@@ -147,11 +141,32 @@ export function temperLoopSignalSeverity(signals: LoopSignal[], outcome: GitOutc
  * redundancy. Without this, re-running a verification command (tests, lint) after each fix looks
  * identical to an agent re-issuing the same call because it isn't retaining results.
  *
- * Thresholds: 3+ occurrences in a row with no intervening edit → warning, 5+ → critical.
+ * That edit-reset only catches changes made through the agent's own recognized edit tool. A file
+ * can just as legitimately change out from under a repeated read via a bash command, an external
+ * process, or another agent/user — none of which produce editDetails. So when both the current and
+ * previous occurrence of a label carry a `fullResult`, the streak breaks on content too: identical
+ * label but different result means the resource changed and this wasn't a redundant call, whatever
+ * changed it. When either side lacks `fullResult` (some sources/telemetry configs never capture it —
+ * see getFileEditCounts's docstring), we can't tell, so it falls back to the label-only behavior
+ * above.
+ *
+ * Thresholds calibrated against this project's own session history (scripts/calibrateSignals.ts,
+ * see runbooks/SIGNAL_CALIBRATION.md) rather than guessed. The original 3+/5+ thresholds fired on
+ * 87% of all 236 sessions checked (83% of *all* sessions at critical) with zero correlation to
+ * outcome (49% bad-outcome rate whether it fired or not, vs. a 49% baseline) — a streak of 3-5
+ * turned out to be completely ordinary, not anomalous, on real agentic-coding sessions. Among
+ * sessions that did cross the old floor, the streak-length distribution was p50=21, p75=32,
+ * p90=44, p95=48 — the thresholds below sit near p75/p95 of that distribution, so only a real
+ * minority of sessions should flag: 30+ → warning, 50+ → critical. Revisit as the corpus grows;
+ * this was one calibration pass on one codebase's history, not a settled constant.
  */
+const EXACT_REPEAT_WARNING_STREAK = 30
+const EXACT_REPEAT_CRITICAL_STREAK = 50
+
 export function detectExactToolRepeat(session: SessionSummaryCard, signals: LoopSignal[]): void {
   const streaks: Record<string, number> = {}
   const maxStreaks: Record<string, number> = {}
+  const lastResult: Record<string, string | undefined> = {}
 
   for (const entry of session.timeline) {
     if (entry.editDetails && entry.editDetails.length > 0) {
@@ -160,12 +175,17 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
     if (entry.type !== 'tool') { continue }
     const key = (entry.label || '').trim()
     if (!key) { continue }
-    streaks[key] = (streaks[key] || 0) + 1
+
+    const prevResult = lastResult[key]
+    const contentChanged = prevResult !== undefined && entry.fullResult !== undefined && entry.fullResult !== prevResult
+
+    streaks[key] = contentChanged ? 1 : (streaks[key] || 0) + 1
     maxStreaks[key] = Math.max(maxStreaks[key] || 0, streaks[key])
+    lastResult[key] = entry.fullResult
   }
 
   const repeated = Object.entries(maxStreaks)
-    .filter(([, n]) => n >= 3)
+    .filter(([, n]) => n >= EXACT_REPEAT_WARNING_STREAK)
     .sort((a, b) => b[1] - a[1])
 
   if (repeated.length === 0) { return }
@@ -173,8 +193,8 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
   const topCount = repeated[0][1]
   signals.push({
     type: 'exact_tool_repeat',
-    severity: topCount >= 5 ? 'critical' : 'warning',
-    evidence: `${repeated.length} tool call(s) executed identically 3+ times with no edit in between`,
+    severity: topCount >= EXACT_REPEAT_CRITICAL_STREAK ? 'critical' : 'warning',
+    evidence: `${repeated.length} tool call(s) executed identically ${EXACT_REPEAT_WARNING_STREAK}+ times with no edit in between`,
     count: topCount,
     examples: repeated.slice(0, 3).map(([label, n]) => `"${label.slice(0, 60)}" ×${n}`),
     patternName: PATTERN_NAMES.exact_tool_repeat,
@@ -230,6 +250,13 @@ export function getFileEditCounts(session: SessionSummaryCard): Record<string, A
  * ended — a revert followed by further edits to that file means the agent reconsidered and moved on,
  * not that it's still stuck. Downgraded to a warning otherwise: the pattern happened, but the
  * session recovered from it.
+ *
+ * Calibration check (scripts/calibrateSignals.ts): fired on only 5% of 236 sessions checked — a
+ * real minority, not the near-universal firing exact_tool_repeat and runaway_steps had before their
+ * own recalibration — so no threshold change made here. But only 11 fired sessions had a resolvable
+ * outcome, too few to read a reliable bad-outcome rate off (result was noisy and close to
+ * baseline). Left as-is rather than tuned off a sample that small; revisit via
+ * runbooks/SIGNAL_CALIBRATION.md once more sessions accumulate.
  */
 export function detectEditRevertCycle(session: SessionSummaryCard, signals: LoopSignal[]): void {
   const fileEdits = getFileEditCounts(session)
@@ -332,7 +359,16 @@ const SIMPLE_KEYWORDS = [
   'add line', 'update string', 'change message', 'add import',
 ]
 
-const STEP_THRESHOLDS = { simple: 15, medium: 35, complex: 80 } as const
+// Calibrated against this project's own session history (scripts/calibrateSignals.ts, see
+// runbooks/SIGNAL_CALIBRATION.md) after the original {15, 35, 80} fired on 56% of all 236 sessions
+// checked (32% of *all* sessions at critical) with zero correlation to outcome (50% bad-outcome
+// rate whether it fired or not, vs. a 49% baseline) — real agentic-coding sessions on this
+// codebase run far more steps than these thresholds assumed (fired-session step count: p50=140,
+// already exceeding even the old "complex" threshold). Scaled up ~3x across all three tiers so the
+// thresholds mark genuine outliers rather than ordinary multi-file work. This is a coarse,
+// order-of-magnitude correction, not a per-tier statistical fit (the underlying complexity
+// classifier is still an uncalibrated keyword heuristic) — revisit as the corpus grows.
+const STEP_THRESHOLDS = { simple: 45, medium: 110, complex: 250 } as const
 type Complexity = keyof typeof STEP_THRESHOLDS
 
 /**
@@ -410,10 +446,13 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
  * guard against a single atypical opening exchange skewing the comparison, but the existing test
  * suite caught it doing more harm than good: in a genuine runaway, the 2nd/3rd calls are often
  * already mid-decline, so blending them into the baseline drags it down and suppresses detection
- * exactly when it should fire (see `existing-detection-accuracy.md`'s open question about needing
- * real session data — this is exactly the kind of threshold change that needs it before shipping).
- * Reverted to the literal first-call baseline rather than ship a change proven worse by the tests
- * already in place.
+ * exactly when it should fire. Reverted to the literal first-call baseline rather than ship a
+ * change proven worse by the tests already in place.
+ *
+ * Calibration check (scripts/calibrateSignals.ts, see runbooks/SIGNAL_CALIBRATION.md): fired on
+ * only 4% of 236 sessions checked, and just 6 of those had a resolvable git outcome — far too few
+ * to read a reliable bad-outcome rate off (the +1pp lift over baseline this run measured is noise,
+ * not a verdict either way). Threshold left unchanged; revisit once the corpus is bigger.
  */
 export function detectTokenRunaway(session: SessionSummaryCard, signals: LoopSignal[]): void {
   const llmCalls = session.timeline.filter(
@@ -454,8 +493,11 @@ export function detectTokenRunaway(session: SessionSummaryCard, signals: LoopSig
 
 // Below this, an occasional wrong path corrected along the way is normal exploratory behavior,
 // not a reliability problem — the threshold needs to sit clearly above that ambient baseline.
-// Guessed at 20%/40% pending real calibration against labeled sessions (see
-// .staged-issues/tool-reliability-signals.md's open questions) — not measured.
+// Still guessed at 20%/40%, not measured: scripts/calibrateSignals.ts (see
+// runbooks/SIGNAL_CALIBRATION.md) found zero firings across 236 real sessions checked, so there's
+// no data yet to confirm or correct this against — a threshold that never fires can't be
+// validated by outcome correlation either way. Left unchanged; worth checking again once sessions
+// with real tool-failure cascades show up in the corpus.
 const CHRONIC_FAILURE_WARNING_RATE = 0.2
 const CHRONIC_FAILURE_CRITICAL_RATE = 0.4
 const CHRONIC_FAILURE_MIN_SAMPLE = 5
@@ -509,6 +551,11 @@ const LARGE_RESULT_CRITICAL_KB = 300
  * (10,000 characters per result). Worth confirming during rollout whether fullResult is already
  * truncated somewhere upstream in the capture pipeline before this check runs on it; if so this
  * threshold needs to be checked against whatever that cap actually is.
+ *
+ * Calibration check (scripts/calibrateSignals.ts, see runbooks/SIGNAL_CALIBRATION.md): zero
+ * firings across 236 real sessions checked — no data yet either way on whether 10,000 chars is the
+ * right bar. Left unchanged; revisit if it turns out to be firing too rarely (or too often) once
+ * real usage surfaces some examples.
  */
 export function detectContextFloodingRisk(session: SessionSummaryCard, signals: LoopSignal[]): void {
   const largeResults: Array<{ tool: string; size: number }> = []
@@ -533,37 +580,3 @@ export function detectContextFloodingRisk(session: SessionSummaryCard, signals: 
   })
 }
 
-// ── Detector 8: Malformed tool call ──────────────────────────────────────────
-
-// Matches an agent harness rejecting a call before execution, not a normal runtime failure.
-// Best-guess wording, not verified against real session text from each agent (Claude Code, Codex,
-// and Copilot each have their own harness and error format) — see this signal's open question in
-// .staged-issues/tool-reliability-signals.md before trusting this in production.
-const MALFORMED_CALL_PATTERN =
-  /\b(invalid tool call|unknown tool|unrecognized tool|missing required (parameter|argument|field)|failed to parse (arguments|input)|invalid (arguments|argument|parameters)|unrecognized (field|argument|parameter)|tool .* not found|no such tool)\b/i
-
-/**
- * Unlike error_recurrence, this doesn't need 3+ occurrences to fire — a single rejected call
- * already means the agent's call didn't match what the tool expected, which is categorically more
- * certain than an arbitrary runtime error (a failing grep or a broken build is often legitimate
- * signal about the codebase, not the agent).
- */
-export function detectMalformedToolCall(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const matches: string[] = []
-  for (const entry of session.timeline) {
-    if (entry.type !== 'tool' || !entry.isError) { continue }
-    const text = entry.errorMessage || entry.label || ''
-    if (MALFORMED_CALL_PATTERN.test(text)) { matches.push(text.slice(0, 100)) }
-  }
-  if (matches.length === 0) { return }
-
-  signals.push({
-    type: 'malformed_tool_call',
-    severity: matches.length >= 3 ? 'critical' : 'warning',
-    evidence: `${matches.length} tool call(s) rejected by the agent's own harness before executing`,
-    count: matches.length,
-    examples: matches.slice(0, 3),
-    patternName: PATTERN_NAMES.malformed_tool_call,
-    action: LOOP_SIGNAL_ACTIONS.malformed_tool_call,
-  })
-}

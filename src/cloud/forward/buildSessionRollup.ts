@@ -81,9 +81,6 @@ export interface BuildContext {
    *  commits by author fingerprint instead of by "whichever install reported it" — see AL 04 /
    *  cloud's docs/decisions/0005-commit-author-fingerprint-matching.md. */
   authorEmail?: string
-  /** USD cost — computed by the caller with `calcTokenCostUsd` (kept out of `src/forward/` so
-   *  this island imports no pricing tables). */
-  costUsd: number
   /** git-outcome verdict for the session, if known (`productive` / `reverted` / …). */
   outcome?: string
 }
@@ -179,7 +176,10 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
     tokens_out: nonNegInt(input.outputTokens),
     tokens_cache_read: nonNegInt(input.cacheReadTokens),
     tokens_cache_create: nonNegInt(input.cacheCreateTokens ?? 0),
-    cost_usd: Math.max(0, round4(ctx.costUsd)),
+    // cost_usd is deliberately not sent — cloud computes it itself, server-side, from an org's own
+    // editable pricing table (0022_pricing_rates.sql in traceroost/cloud) rather than trusting a
+    // number from the client. See src/pricing.ts's setCloudRateOverrides for the other half of
+    // this: a linked install can now *read* that same table back to price its own local display.
     errors: nonNegInt(input.errors),
     outcome: ctx.outcome ? toWireOutcome(ctx.outcome) : 'unknown',
     data_source: input.dataSource,
@@ -231,11 +231,6 @@ export function sessionRollupPayload(input: SessionRollupInput, ctx: BuildContex
 const MAX_COUNT = 100_000_000
 function nonNegInt(n: number): number {
   return Number.isFinite(n) && n > 0 ? Math.min(MAX_COUNT, Math.round(n)) : 0
-}
-// Mirrors cost_usd's `maximum` in the schema, same reasoning as MAX_COUNT above.
-const MAX_COST_USD = 100_000
-function round4(n: number): number {
-  return Number.isFinite(n) ? Math.min(MAX_COST_USD, Math.round(n * 10000) / 10000) : 0
 }
 function normalizeTimestamp(t: string): string {
   const d = new Date(t)

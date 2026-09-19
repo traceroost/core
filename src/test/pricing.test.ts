@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { lookupRates, calcTokenCostUsd, stripDateSuffix, normalizeCostKey } from '../pricing'
+import { lookupRates, calcTokenCostUsd, stripDateSuffix, normalizeCostKey, setCloudRateOverrides } from '../pricing'
 
 suite('pricing', () => {
   test('lookupRates returns rates for known model', () => {
@@ -251,5 +251,44 @@ suite('pricing', () => {
     assert.notStrictEqual(lookupRates('gpt-5.4'), lookupRates('gpt-5.4-mini'))
     assert.ok(lookupRates('mai-code-1-flash') !== null && lookupRates('mai-code-1.1-flash') !== null)
     assert.notStrictEqual(lookupRates('mai-code-1-flash'), lookupRates('mai-code-1.1-flash'))
+  })
+})
+
+// setCloudRateOverrides mutates module-level state read by every other test in this file (via
+// lookupRates), so each test here resets it to empty afterward rather than relying on suite order
+// — same reason none of the suite above ever calls it.
+suite('pricing — cloud rate overrides', () => {
+  teardown(() => { setCloudRateOverrides({}) })
+
+  test('an override takes priority over the local RATES entry for the same model', () => {
+    const local = lookupRates('claude-sonnet-5')
+    assert.ok(local && local.inputPerMTok > 0)
+    setCloudRateOverrides({ 'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4 } })
+    assert.deepStrictEqual(lookupRates('claude-sonnet-5'), {
+      inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4, contextWindowTokens: 0,
+    })
+  })
+
+  test('an override for an unrecognized model makes it resolve where it previously returned null', () => {
+    assert.strictEqual(lookupRates('some-orgs-fine-tune'), null)
+    setCloudRateOverrides({ 'some-orgs-fine-tune': { inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 5 } })
+    assert.ok(lookupRates('some-orgs-fine-tune') !== null)
+  })
+
+  test('override keys are normalized the same way local RATES keys are', () => {
+    setCloudRateOverrides({ 'Claude-Sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 1 } })
+    assert.strictEqual(lookupRates('claude sonnet 5')?.inputPerMTok, 1)
+  })
+
+  test('a model absent from the override map still falls back to local RATES', () => {
+    setCloudRateOverrides({ 'some-other-model': { inputPerMTok: 9, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 9 } })
+    const local = lookupRates('claude-sonnet-5')
+    assert.ok(local && local.inputPerMTok !== 9)
+  })
+
+  test('clearing overrides (empty map) restores local RATES', () => {
+    setCloudRateOverrides({ 'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 1 } })
+    setCloudRateOverrides({})
+    assert.notStrictEqual(lookupRates('claude-sonnet-5')?.inputPerMTok, 1)
   })
 })

@@ -26,6 +26,7 @@ COPY --from=builder --chown=traceroost:traceroost /app/standalone/server.js ./st
 COPY --from=builder --chown=traceroost:traceroost /app/media/dashboard.js   ./media/dashboard.js
 COPY --from=builder --chown=traceroost:traceroost /app/media/dashboard.css  ./media/dashboard.css
 COPY --from=builder --chown=traceroost:traceroost /app/media/mascot.png     ./media/mascot.png
+COPY --from=builder --chown=traceroost:traceroost /app/package.json        ./package.json
 
 RUN mkdir -p /data && chown traceroost:traceroost /data
 VOLUME ["/data"]

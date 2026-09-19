@@ -32,6 +32,11 @@ const FAILURE_TEXT_PATTERN = /\bfail(ed|ure|ing)?\b|✗|✘|✖/i
  * explicitly told to, so this only catches the slice of failures where the agent happened to
  * check its own work and ignored the result. Only looks at the *last* tool call in the timeline —
  * a failing check followed by more edits (a fix attempt) is not what this flags.
+ *
+ * Calibration check (scripts/calibrateSignals.ts, see runbooks/SIGNAL_CALIBRATION.md): zero
+ * firings across 236 real sessions checked — the narrow-by-design scoping here means that may just
+ * reflect how rarely a session both runs a check and ends immediately after a failure, not that
+ * anything is miscalibrated. No data either way yet; revisit as the corpus grows.
  */
 export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSignal | null {
   const timeline = session.timeline
@@ -167,6 +172,13 @@ function nodeModulesHasPackage(workspaceRoot: string, pkg: string): boolean {
  *     resolved via workspace protocol) without needing to parse workspace globs, a real
  *     false-positive source this project's own repo shape would hit otherwise.
  *
+ * Calibration check (scripts/calibrateSignals.ts, see runbooks/SIGNAL_CALIBRATION.md): the
+ * best-validated signal in the whole taxonomy so far — fired on 15% of 236 real sessions checked,
+ * a real minority, with a 64% bad-outcome rate among those vs. a 49% baseline (+15pp lift, n=33
+ * with a resolvable outcome). Worth noting when tempted to second-guess this one; the narrow
+ * scoping above is doing its job.
+ *
+
  * Returns null (says nothing) rather than a false negative when there's no manifest to check
  * against at all — silence, not a claim of cleanliness.
  */

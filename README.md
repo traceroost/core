@@ -15,20 +15,23 @@ TraceRoost receives **OpenTelemetry traces** from Copilot, Claude Code, and Code
 
 Two things it does that a usage dashboard doesn't:
 
-- **Catches agents that are stuck.** Ten named loop and malfunction patterns — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--malfunction-detection)
+- **Catches agents that are stuck.** Nine named loop and malfunction patterns — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--malfunction-detection)
 - **Tells you what to fix in your instructions file.** The Advisor reads across traces and suggests concrete additions to your CLAUDE.md or AGENTS.md — including hot files the agent rediscovers from scratch on every run. [More →](#features)
 
 **Quick start:**
 
+The recommended way to run TraceRoost is as a background service — it starts automatically and keeps running without a terminal open, so incoming OTEL data from your agents is never silently lost:
+
 ```bash
-npx traceroost@latest
+npx traceroost@latest service install
 ```
 
-Open <http://localhost:3000> — that's it. Running it in a terminal only lasts until you close it, though: if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry. Once you've kicked the tires, install it as a background service so nothing gets missed:
+Open <http://localhost:3000> — that's it. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or manage it later (`traceroost service status`, `service stop`, `service uninstall`, etc.).
+
+Just want a quick look first? Run it directly in a terminal instead — closing the terminal stops it, and if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry:
 
 ```bash
-npx traceroost@latest service install    # runs from now on, no terminal needed
-traceroost service uninstall             # remove it later
+npx traceroost@latest
 ```
 
 See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker options.
@@ -80,7 +83,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, and top tools for Copilot, Claude, and Codex), estimated cost with a daily total overlay, token usage per trace, and context growth
 - **Advisor** — Project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Select a specific project from the filter for tailored suggestions; all-projects view surfaces only universal patterns.
 - **Cost Estimation** — Estimates trace cost for Copilot (three billing models), Claude Code, and Codex, broken down by model in a day-grouped table
-- **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and ten loop/malfunction patterns with suggested prompts to correct course
+- **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and nine loop/malfunction patterns with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for turns, errors, active time, repeat tool calls, and estimated daily cost — per-agent or shared
 - **Automated Prompts** — The gear-icon Settings panel's Automation section configures threshold-based automations (Loop Breaker, Turn Limit Wrap-up, Context Dump) that trigger a correction prompt when a trace crosses a limit — delivered as a VS Code notification or written to a file for agent consumption
 - **Export** — Export filtered traces as JSON, CSV, or Markdown (full or redacted); respects the active agent, source, time range, and text filters
@@ -232,14 +235,13 @@ The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categori
 
 | Signal | Description | Trigger |
 | ------ | ----------- | ------- |
-| **Tool Call Deadlock** | Same tool + arguments called 3+ times (critical at 5+) | Agent not retaining tool results |
+| **Tool Call Deadlock** | Same tool + arguments called 30+ times (critical at 50+) | Agent not retaining tool results |
 | **State Corruption Spiral** | A file edited then reverted to a prior state | Agent oscillating between conflicting constraints |
 | **Hallucination Amplification Loop** | Same error recurring 3+ times | Fix attempts not resolving the root cause |
 | **Ambiguous Success / Escalating Scope** | Too many steps for the task complexity | No clear completion condition |
 | **Infinite Loop — Context Accumulation** | Input tokens growing while output ratio collapses 70%+ | Agent stuck, accumulating context without progress |
 | **Chronic Tool Unreliability** | 20%+ of tool calls failed (5+ calls made) — many different one-off failures, not one repeating | Agent guessing at file locations, commands, or available tools |
 | **Context Flooding Risk** | A tool result over 10,000 characters landed in context | Missing line ranges or scope on a read/search |
-| **Malformed Tool Call** | The agent's own harness rejected a call before it ran | Wrong argument name, unknown tool, or malformed arguments |
 | **Fabricated Dependency** | An edit imports a package absent from the manifest and unresolvable on disk | Hallucinated package name |
 | **Unverified Submission** | The session's last test/build check failed with no fix attempt after | Session ended before confirming the fix |
 

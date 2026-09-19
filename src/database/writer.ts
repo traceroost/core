@@ -27,6 +27,16 @@ export class DatabaseWriter {
     this.vscodeFs = vscodeFs ?? vscode.workspace.fs
   }
 
+  /**
+   * `workspace` is a fallback (typically the currently-open VS Code folder), not a source of
+   * truth — it has no relation to where the session's agent actually ran. Prefer whatever the
+   * summarizer already resolved onto `card.workspace` (e.g. a real `cwd` OTEL attribute, or an
+   * inferred path from touched files) and only fall back to the VS Code folder when the
+   * summarizer came up empty (Copilot's OTEL path always does; Claude's file-path heuristic
+   * sometimes does). Previously this unconditionally overwrote `card.workspace`, silently
+   * discarding a correct summarizer-derived value in favor of whatever folder happened to be
+   * open in that window — the main cause of inconsistent repo names across OTEL sessions.
+   */
   enqueue(card: SessionSummaryCard, workspace: string): void {
     // OTEL always wins: if this is a log-sourced card and an OTEL record already
     // exists for the same session, skip it so we never downgrade richer data.
@@ -38,8 +48,9 @@ export class DatabaseWriter {
         if (rows[0]?.values[0]?.[0] === 'otel') return
       } catch { /* non-fatal — proceed to enqueue */ }
     }
-    card.workspace = workspace
-    this.pending.set(card.sessionId, { card, workspace })
+    const resolvedWorkspace = card.workspace || workspace
+    card.workspace = resolvedWorkspace
+    this.pending.set(card.sessionId, { card, workspace: resolvedWorkspace })
     if (!this.writing) {
       this.drainPromise = this._drain()
     }

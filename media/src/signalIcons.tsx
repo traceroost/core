@@ -21,7 +21,6 @@ export const LOOP_SIGNAL_ICON_TYPE: Record<LoopSignalType, string> = {
   token_runaway: 'runaway-cost',
   chronic_tool_failures: 'tool-failure-cascade',
   context_flooding_risk: 'context-flooding',
-  malformed_tool_call: 'tool-failure-cascade',
   hallucinated_import: 'retry-loop',
   failed_check_submission: 'no-progress',
 }

@@ -1,4 +1,5 @@
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import { Span } from '../types'
 
@@ -24,11 +25,18 @@ export function commonPathPrefix(paths: string[]): string {
 
 /**
  * Walks up from startDir until it finds a directory containing a project root
- * marker (.git or package.json). Falls back to startDir if none is found.
- * Prevents OTEL sessions from being labelled with a deep subdirectory (e.g.
- * src/tabs) when only files there were touched in that session.
+ * marker (.git or package.json). Prevents OTEL sessions from being labelled
+ * with a deep subdirectory (e.g. src/tabs) when only files there were touched
+ * in that session.
+ *
+ * If no marker is found anywhere up the tree, startDir itself is normally a reasonable fallback —
+ * except when it's at or above the user's home directory. That shape only shows up when the
+ * caller's `startDir` was already an overly shallow guess (e.g. commonPathPrefix collapsing to
+ * almost nothing because a session touched only two files in unrelated subtrees) — it *looks* like
+ * a real project path but isn't one, and displaying it (e.g. "Users/rogerreed") is more misleading
+ * than showing nothing. `homeDir` is injectable for tests; defaults to the real home directory.
  */
-export function findProjectRoot(startDir: string): string {
+export function findProjectRoot(startDir: string, homeDir: string = os.homedir()): string {
   if (!startDir || !startDir.startsWith('/')) { return startDir }
   let dir = startDir
   for (;;) {
@@ -39,7 +47,11 @@ export function findProjectRoot(startDir: string): string {
     if (parent === dir) { break }
     dir = parent
   }
-  return startDir
+  const startSegments = startDir.split('/').filter(Boolean)
+  const homeSegments = homeDir.split('/').filter(Boolean)
+  const isHomeOrAboveHome = startSegments.length <= homeSegments.length
+    && startSegments.every((seg, i) => seg === homeSegments[i])
+  return isHomeOrAboveHome ? '' : startDir
 }
 
 export function getAttrStr(span: Span, key: string): string {

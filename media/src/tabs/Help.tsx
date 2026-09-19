@@ -200,16 +200,15 @@ function OverviewSection() {
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
         <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, with no data leaving your machine. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
-        <p style="font-size:13px;margin:10px 0 4px"><strong>TraceRoost detects ten loop / malfunction patterns</strong> — each with a ready-to-paste correction prompt (see <a href="#help-loops">Loop Detection</a> below for details):</p>
+        <p style="font-size:13px;margin:10px 0 4px"><strong>TraceRoost detects nine loop / malfunction patterns</strong> — each with a ready-to-paste correction prompt (see <a href="#help-loops">Loop Detection</a> below for details):</p>
         <ul style="margin:0 0 0 18px;padding:0;font-size:13px;color:var(--muted);line-height:1.75">
-          <li><a href="#help-tool-deadlock">Tool Call Deadlock</a> — the same tool call repeated 5+ times</li>
+          <li><a href="#help-tool-deadlock">Tool Call Deadlock</a> — the same tool call repeated 30+ times</li>
           <li><a href="#help-state-spiral">State Corruption Spiral</a> — a file edited then reverted, oscillating</li>
           <li><a href="#help-hallucination">Hallucination Amplification Loop</a> — the same error recurring 3+ times</li>
           <li><a href="#help-runaway-steps">Ambiguous Success / Escalating Scope</a> — runaway step count, no stopping condition</li>
           <li><a href="#help-context-accumulation">Infinite Loop — Context Accumulation</a> — input tokens growing while output collapses</li>
           <li><a href="#help-chronic-tool-unreliability">Chronic Tool Unreliability</a> — an unusually high share of tool calls failing</li>
           <li><a href="#help-context-flooding-risk">Context Flooding Risk</a> — a tool result too large for the model to use well</li>
-          <li><a href="#help-malformed-tool-call">Malformed Tool Call</a> — the agent's own harness rejected a call before it ran</li>
           <li><a href="#help-fabricated-dependency">Fabricated Dependency</a> — an edit imports a package that doesn't exist in the project</li>
           <li><a href="#help-unverified-submission">Unverified Submission</a> — the session ended right after a failed test/build, with no fix attempt</li>
         </ul>
@@ -571,8 +570,8 @@ function SessionsSection() {
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-loop-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work. They appear in the Insights panel with warning or critical severity.</p>
         <div class="glossary">
           <LoopBlock id="help-tool-deadlock" title="Tool Call Deadlock"
-            why="The same tool call — identical name and arguments — was executed 5+ times. The agent is not retaining the result, likely lost in a long context."
-            example={`The agent ran <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> eight times in one trace.`}
+            why="The same tool call — identical name and arguments, identical result — was executed 30+ times in a row with no edit in between (critical at 50+). Thresholds are calibrated against real session history rather than guessed: a handful of repeats turned out to be completely ordinary on real coding sessions, so the bar is set well above that to flag genuine outliers instead of routine work."
+            example={`The agent ran <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
             steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>Pin non-deterministic commands to fixed output.</li><li>Stop the trace and restart with what was already read.</li>`}
             impact="Stopping this pattern prevents runaway token accumulation. 200K tokens looping → 20K tokens with a direct prompt."
           />
@@ -611,12 +610,6 @@ function SessionsSection() {
             example="A read_file call on a 300-line file added 45KB (~11,000 tokens) to every subsequent call in the trace."
             steps={`<li>Use line-range reads instead of whole files.</li><li>Tighten search patterns.</li><li>Pipe command output through something that limits it.</li>`}
             impact="Replacing a 300-line read with a 30-line read saves ~2,700 tokens per turn for the rest of the trace."
-          />
-          <LoopBlock id="help-malformed-tool-call" title="Malformed Tool Call"
-            why="The agent's own harness rejected a call before it ran — a wrong argument name, an unknown tool, or malformed arguments. This is different from a normal runtime failure (a grep that finds nothing, a build that fails on real code): it means the agent's call didn't match what the tool expected, not that the codebase has a problem. Fires on a single occurrence, unlike the other signals here."
-            example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">Invalid tool call: missing required parameter "path"</code>`}
-            steps={`<li>If this recurs, the agent may be working from an outdated or incorrect idea of what tools are available.</li><li>Check whether a tool definition changed recently.</li>`}
-            impact="Each rejected call is a full round-trip to the model that produced nothing but an error to recover from."
           />
           <LoopBlock id="help-fabricated-dependency" title="Fabricated Dependency"
             why="An edit imports a package that isn't declared in the project's manifest (package.json, requirements.txt) and doesn't resolve on disk — a likely hallucinated dependency that will fail at install or runtime. Checked once the edit is complete, not mid-session like the signals above."
@@ -864,8 +857,7 @@ function McpSection() {
   const mcpUrl = 'http://localhost:4316/mcp'
   const settingsJson = JSON.stringify({ mcpServers: { traceroost: { url: mcpUrl } } }, null, 2)
   const claudeMd = `# TraceRoost MCP
-Before any task: call get_recent_sessions (recent work + cost) and get_workspace_patterns (hot files, recurring issues).
-Only use find_relevant_context if your task closely matches past prompts by keyword — skip it for novel tasks.`
+Before any task: call get_recent_sessions (recent work + cost) and get_workspace_patterns (hot files, recurring issues).`
 
   return (
     <div class="help-section" id="help-mcp">
@@ -902,10 +894,6 @@ Only use find_relevant_context if your task closely matches past prompts by keyw
             <dd class="glossary-def" style="display:block">Aggregate patterns across all traces: the files accessed most often (ranked by % of traces), average cost and turn count, top tools, and recurring loop signal types. Optional filter: <code style={codeStyle}>days</code> to limit to recent traces.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term"><code style={codeStyle}>find_relevant_context</code></dt>
-            <dd class="glossary-def" style="display:block">Given a <code style={codeStyle}>task</code> description, keyword-matches against past trace prompts and returns: files accessed in similar traces (with frequency %), estimated cost and turn count range, and known traps (loop signals that appeared in similar traces). <strong>Important:</strong> matching is keyword-based, not semantic — results are reliable for well-established task types (e.g. "add auth", "fix sidebar tests") but often pull in unrelated traces for novel or cross-cutting work. Treat file suggestions as a sanity check, not a reading list.</dd>
-          </div>
-          <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_session_detail</code></dt>
             <dd class="glossary-def" style="display:block">Returns the full timeline for one trace by <code style={codeStyle}>sessionId</code> — every LLM call and tool call with timing, errors, and file edits. Use <code style={codeStyle}>get_recent_sessions</code> first to get an id.</dd>
           </div>
@@ -927,11 +915,6 @@ Only use find_relevant_context if your task closely matches past prompts by keyw
         <pre style={preStyle}>{`# Always useful — run these before any task:
 Use traceroost get_recent_sessions to see what was worked on recently.
 Use traceroost get_workspace_patterns to see recurring problems and known traps.
-
-# Worth running when task keywords match established workflows:
-Use traceroost find_relevant_context with task="add OAuth to the auth module"
-to see what files similar traces touched and what they typically cost.
-(Skip this for new feature work — keyword matching won't find good matches.)
 
 # To check efficiency trends over time:
 Use traceroost get_efficiency_report to see if traces are getting more or

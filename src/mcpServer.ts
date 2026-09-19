@@ -6,7 +6,6 @@
  *   get_recent_sessions        — recent session summaries, newest-first
  *   get_workspace_patterns     — aggregate patterns across all sessions
  *   get_session_detail         — full timeline for one session
- *   find_relevant_context      — files and patterns relevant to a task description
  *   get_efficiency_report      — trends and recurring efficiency problems
  *   get_instruction_suggestions — pending Advisor suggestions for one workspace
  *   check_automation_triggers  — currently-triggered stuck-agent corrections for one workspace
@@ -90,23 +89,6 @@ const TOOLS = [
       required: ['sessionId'],
       properties: {
         sessionId: { type: 'string', description: 'Session ID from get_recent_sessions' },
-      },
-    },
-  },
-  {
-    name: 'find_relevant_context',
-    description:
-      'Given a task description, keyword-matches against past session prompts and returns ' +
-      'files accessed in similar sessions, estimated cost/turns, and known traps. ' +
-      'Reliable for established workflows (e.g. "add auth", "fix sidebar tests"); ' +
-      'unreliable for novel tasks where keyword overlap is weak — file suggestions ' +
-      'may pull in unrelated sessions. Treat results as a sanity check, not a reading list.',
-    inputSchema: {
-      type: 'object' as const,
-      required: ['task'],
-      properties: {
-        task:      { type: 'string', description: 'Short description of the task you are about to start' },
-        workspace: { type: 'string', description: 'Filter sessions by workspace path prefix' },
       },
     },
   },
@@ -295,67 +277,6 @@ function handleGetSessionDetail(
   }
 }
 
-function handleFindRelevantContext(
-  sessions: SessionSummaryCard[],
-  args: { task: string; workspace?: string },
-) {
-  const taskWords = new Set(
-    args.task.toLowerCase().replace(/[^a-z0-9\s/_.]/g, ' ').split(/\s+/).filter(w => w.length > 3)
-  )
-  if (taskWords.size === 0) return { message: 'Task description too short to match against history.' }
-
-  // Score each session by word overlap with the task description
-  const scored = sessions.map(s => {
-    const req = (s.userRequest ?? '').toLowerCase()
-    const overlap = [...taskWords].filter(w => req.includes(w)).length
-    return { s, score: overlap }
-  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score)
-
-  const similar = scored.slice(0, 15).map(x => x.s)
-  if (similar.length === 0) return { message: 'No past sessions closely match this task description. No history to draw from yet.' }
-
-  // Aggregate files from similar sessions
-  const fileFreq = new Map<string, number>()
-  for (const s of similar) {
-    for (const f of [...(s.filesRead ?? []), ...(s.filesChanged ?? [])]) {
-      fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1)
-    }
-  }
-  const relevantFiles = [...fileFreq.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12)
-    .map(([file, count]) => ({ file, appearsIn: count, pct: Math.round(count / similar.length * 100) }))
-
-  // Cost and turn estimates
-  const costs  = similar.map(s => sessionCost(s))
-  const turns  = similar.map(s => s.totalLlmCalls)
-  const minC   = +Math.min(...costs).toFixed(3), maxC = +Math.max(...costs).toFixed(3)
-  const avgC   = +(costs.reduce((a, b) => a + b, 0) / costs.length).toFixed(3)
-  const avgT   = +(turns.reduce((a, b) => a + b, 0) / turns.length).toFixed(1)
-
-  // Common loop signals in similar sessions
-  const sigFreq = new Map<string, number>()
-  for (const s of similar) {
-    for (const sig of s.loopSignals ?? []) {
-      sigFreq.set(sig.type, (sigFreq.get(sig.type) ?? 0) + 1)
-    }
-  }
-  const knownTraps = [...sigFreq.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([type, count]) => `${type} (${count}/${similar.length} similar sessions)`)
-
-  return {
-    matchedSessions: similar.length,
-    estimatedCostUsd: { min: minC, avg: avgC, max: maxC },
-    estimatedTurns:   avgT,
-    relevantFiles,
-    knownTraps: knownTraps.length > 0 ? knownTraps : null,
-    tip: relevantFiles.length > 0
-      ? `Consider mentioning these files upfront: ${relevantFiles.slice(0, 3).map(f => f.file).join(', ')}`
-      : null,
-  }
-}
 
 function handleGetEfficiencyReport(
   sessions: SessionSummaryCard[],
@@ -494,9 +415,6 @@ export function createMcpServer(opts: McpServerOptions): Server {
         break
       case 'get_session_detail':
         result = handleGetSessionDetail(sessions, opts.getTimeline ?? null, args as { sessionId: string })
-        break
-      case 'find_relevant_context':
-        result = handleFindRelevantContext(sessions, args as { task: string; workspace?: string })
         break
       case 'get_efficiency_report':
         result = handleGetEfficiencyReport(sessions, args as { workspace?: string; days?: number })

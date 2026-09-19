@@ -27,6 +27,7 @@ import { getQueueStats } from './cloud/forward/currentQueueStats'
 import { maybeEnqueueSession } from './cloud/team/enqueueSession'
 import { maybeEnqueueInstructionTelemetry, EMPTY_LEDGER } from './cloud/team/instructionTelemetry'
 import { startForwardScheduler, type ForwardScheduler } from './cloud/forward/scheduler'
+import { startPricingSync } from './cloud/team/pricingSync'
 import { resolveRepoHash } from './cloud/team/resolveRepoHash'
 
 let collector: OtlpCollector | undefined
@@ -257,7 +258,7 @@ export async function activate(context: vscode.ExtensionContext) {
     logReader.importFileState(readLogFileState(context.globalStorageUri))
     const lr = logReader  // non-null alias for use inside closures
     const persistFileState = () => writeLogFileState(context.globalStorageUri, lr.exportFileState())
-    const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString() ?? ''
+    const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
 
     // Periodic incremental scan: only picks up files that have changed since last run.
     const runLogScan = runLogScanFn = () => {
@@ -623,6 +624,12 @@ export async function activate(context: vscode.ExtensionContext) {
     onDrainComplete: () => DashboardPanel.pushTeamStatus(),
   })
   context.subscriptions.push({ dispose: () => forwardScheduler?.dispose() })
+
+  // ── Pro: pricing sync ────────────────────────────────────────────────────────
+  // Same "no timer unless linked" invariant as the forwarding scheduler above, on its own
+  // (longer) interval — see pricingSync.ts for why it isn't just piggybacked on the drain cadence.
+  const pricingSync = startPricingSync()
+  context.subscriptions.push({ dispose: () => pricingSync.dispose() })
 
   // ── Status bar ───────────────────────────────────────────────────────────────
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)

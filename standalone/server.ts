@@ -28,10 +28,12 @@ import { detectInstructionFiles, appendSuggestion } from '../src/instructionFile
 import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
-import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx } from '../src/serviceConfig'
+import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest } from '../src/serviceConfig'
+import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { listenWithFallback, writeResolvedPorts, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
 import { maybeEnqueueSession } from '../src/cloud/team/enqueueSession'
 import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forward/scheduler'
+import { startPricingSync } from '../src/cloud/team/pricingSync'
 import { loadCredentials } from '../src/cloud/team/credentials'
 import { teamEndpoint } from '../src/cloud/team/config'
 import { deriveRepoKey, repoHash } from '../src/cloud/forward/repoKey'
@@ -104,8 +106,16 @@ if (REQUIRE_TOKEN_EVERYWHERE) {
 const parsedMaxSpans = parseInt(process.env.TRACEROOST_MAX_SPANS ?? '', 10)
 const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxSpans
 
-const PACKAGE_VERSION: string = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version
-console.log(`[TraceRoost] Version         ${PACKAGE_VERSION}`)
+const PACKAGE_VERSION: string = readPackageManifest(__dirname).version ?? 'unknown'
+if (PACKAGE_VERSION === 'unknown') {
+  console.warn('[TraceRoost] Could not read package.json to determine the running version — is package.json missing from this install?')
+} else {
+  console.log(`[TraceRoost] Version         ${PACKAGE_VERSION}`)
+  // The Sessions tab footer shows this version, but a bare `npx traceroost`/long-running
+  // service can go stale silently — startVersionCheckLoop compares it against npm in the
+  // background so the dashboard can surface an "update available" notice (/api/version-check).
+  startVersionCheckLoop(PACKAGE_VERSION)
+}
 if (isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) {
   // A bare `npx traceroost` re-runs npx's cached copy without checking npm, so the version
   // above can be an old release even right after a publish. Surface that at the moment it's on screen.
@@ -1858,6 +1868,21 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
+  if (req.method === 'GET' && url === '/api/version-check') {
+    const result = getCachedVersionCheck(PACKAGE_VERSION)
+    // No signal distinguishes a Docker container from a bare npx run, so both get the same
+    // generic recommendation — only an OS-native background service (which sets this env var,
+    // see src/serviceConfig.ts's generators) gets the more precise `service update`.
+    const isService = process.env.TRACEROOST_SERVICE === '1'
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      ...result,
+      isService,
+      recommendedCommand: isService ? 'traceroost service update' : 'npx traceroost@latest service install',
+    }))
+    return
+  }
+
   // ── Team (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
   // GET returns the local status (no network). POST runs an action (link/leave/explain).
   // Both reply with an array of webview messages the polyfill re-dispatches.
@@ -2133,6 +2158,9 @@ async function startUiServer(): Promise<void> {
 
   // Pro: forwarding scheduler. No timer runs unless a team is linked.
   startForwardScheduler({ log: (msg) => console.log(msg), onDrainComplete: pushTeamStatusToClients })
+
+  // Pro: pricing sync — own (longer) interval, see pricingSync.ts.
+  startPricingSync()
 }
 
 void startOtlpServer()

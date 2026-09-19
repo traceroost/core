@@ -30,7 +30,7 @@ function noActiveTakeawayText(filter: InsightFilter): string {
 // Promoted to the backend taxonomy (src/loopDetector.ts) — matched by _loopType here rather than
 // title text, since their titles are now "patternName — evidence" instead of the old ad-hoc
 // "N tool failure(s)" / "Large tool results" wording that the title-matching below used to catch.
-const TOOL_ISSUE_LOOP_TYPES = new Set(['chronic_tool_failures', 'context_flooding_risk', 'malformed_tool_call'])
+const TOOL_ISSUE_LOOP_TYPES = new Set(['chronic_tool_failures', 'context_flooding_risk'])
 
 function summarizeTakeaways(insights: Insight[]): InsightTakeaways {
   const summary: InsightTakeaways = {
@@ -72,7 +72,6 @@ const HELP_WHY: Record<string, string> = {
   'help-context-accumulation': 'Input tokens are growing while output shrinks — cost per call is compounding with diminishing returns. Continuing will likely hit the context limit with nothing saved.',
   'help-chronic-tool-unreliability': 'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
   'help-context-flooding-risk': 'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
-  'help-malformed-tool-call':  'A rejected call means the round-trip to the model happened for nothing — no result, just an error to recover from. Unlike a runtime failure, this is unambiguously the agent\'s call not matching what the tool expected.',
 }
 
 // ── Insight generation ────────────────────────────────────────────────────────
@@ -206,7 +205,6 @@ export function generateInsights(
       token_runaway:      'help-context-accumulation',
       chronic_tool_failures: 'help-chronic-tool-unreliability',
       context_flooding_risk: 'help-context-flooding-risk',
-      malformed_tool_call:   'help-malformed-tool-call',
     }
     ;(sess.loopSignals ?? []).forEach(sig => {
       const examplesText = sig.examples?.length > 0 ? '\n\nExamples: ' + sig.examples.join(' · ') : ''

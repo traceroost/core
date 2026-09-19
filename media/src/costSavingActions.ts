@@ -65,7 +65,7 @@ function loopSignalActions(sessions: SessionSummaryCard[]): CostSavingAction[] {
       id: `loop_signal:${type}`,
       kind: 'loop_signal',
       title: patternName,
-      evidence: `Detected in ${count} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} (${Math.round(pct * 100)}%).`,
+      evidence: `Detected in ${count} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} (${Math.round(pct * 100)}%). Based on a heuristic — may include false positives.`,
       action,
       affectedSessions: sessionIds.size,
       priority: pct >= 0.2 ? 'high' : pct >= 0.08 ? 'medium' : 'low',

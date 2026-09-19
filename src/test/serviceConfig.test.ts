@@ -8,7 +8,7 @@ import {
   childEnvForReexec, shouldBlockRepeatedBootstrap, REEXEC_GUARD_ENV,
   generateLaunchdPlist, generateSystemdUnit, generateWindowsWrapperScript,
   launchdLabel, SYSTEMD_UNIT_NAME, WINDOWS_TASK_NAME,
-  generateAuthToken, ensureAuthToken,
+  generateAuthToken, ensureAuthToken, readPackageManifest,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure,
   type ServiceProgram,
 } from '../serviceConfig'
@@ -202,6 +202,7 @@ suite('serviceConfig', () => {
       assert.ok(plist.includes('<key>RunAtLoad</key>'))
       assert.ok(plist.includes('<key>KeepAlive</key>'))
       assert.ok(plist.includes('<string>3000</string>'))
+      assert.ok(plist.includes('<key>TRACEROOST_SERVICE</key>\n    <string>1</string>'))
       assert.ok(plist.includes(serviceLogPath(program.config)))
     })
   })
@@ -217,6 +218,7 @@ suite('serviceConfig', () => {
       assert.ok(unit.includes('ExecStart=/usr/bin/node /usr/lib/node_modules/traceroost/standalone/cli.js'))
       assert.ok(unit.includes('Restart=on-failure'))
       assert.ok(unit.includes('Environment=UI_PORT=3000'))
+      assert.ok(unit.includes('Environment=TRACEROOST_SERVICE=1'))
       assert.ok(unit.includes(`StandardOutput=append:${serviceLogPath(program.config)}`))
       assert.ok(unit.includes('WantedBy=default.target'))
     })
@@ -231,8 +233,34 @@ suite('serviceConfig', () => {
       }
       const script = generateWindowsWrapperScript(program)
       assert.ok(script.includes('set "UI_PORT=3000"'))
+      assert.ok(script.includes('set "TRACEROOST_SERVICE=1"'))
       assert.ok(script.includes('"C:\\Program Files\\nodejs\\node.exe"'))
       assert.ok(script.includes('>> "' + serviceLogPath(program.config) + '" 2>&1'))
+    })
+  })
+
+  suite('readPackageManifest', () => {
+    test('reads name/version from ../package.json relative to fromDir', () => {
+      const home = tmpHome()
+      fs.writeFileSync(path.join(home, 'package.json'), JSON.stringify({ name: 'traceroost', version: '1.2.3' }), 'utf-8')
+      const fromDir = path.join(home, 'standalone')
+      fs.mkdirSync(fromDir, { recursive: true })
+      assert.deepStrictEqual(readPackageManifest(fromDir), { name: 'traceroost', version: '1.2.3' })
+    })
+
+    test('falls back to ../../package.json when the first candidate is missing', () => {
+      const home = tmpHome()
+      fs.writeFileSync(path.join(home, 'package.json'), JSON.stringify({ name: 'traceroost', version: '4.5.6' }), 'utf-8')
+      const fromDir = path.join(home, 'standalone', 'service')
+      fs.mkdirSync(fromDir, { recursive: true })
+      assert.deepStrictEqual(readPackageManifest(fromDir), { name: 'traceroost', version: '4.5.6' })
+    })
+
+    test('returns {} when neither candidate exists', () => {
+      const home = tmpHome()
+      const fromDir = path.join(home, 'standalone')
+      fs.mkdirSync(fromDir, { recursive: true })
+      assert.deepStrictEqual(readPackageManifest(fromDir), {})
     })
   })
 

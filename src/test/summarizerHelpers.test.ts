@@ -1,5 +1,77 @@
 import * as assert from 'assert'
-import { extractUserRequest, isTaskNotificationOnly, summarizeTaskNotification } from '../summarizers/helpers'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
+import { extractUserRequest, isTaskNotificationOnly, summarizeTaskNotification, findProjectRoot, commonPathPrefix } from '../summarizers/helpers'
+
+suite('findProjectRoot', () => {
+  let tmpRoot: string
+
+  setup(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-findProjectRoot-'))
+  })
+
+  teardown(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  })
+
+  test('returns the directory containing .git', () => {
+    fs.mkdirSync(path.join(tmpRoot, '.git'))
+    const deep = path.join(tmpRoot, 'src', 'tabs')
+    fs.mkdirSync(deep, { recursive: true })
+    assert.strictEqual(findProjectRoot(deep), tmpRoot)
+  })
+
+  test('returns the directory containing package.json', () => {
+    fs.writeFileSync(path.join(tmpRoot, 'package.json'), '{}')
+    assert.strictEqual(findProjectRoot(tmpRoot), tmpRoot)
+  })
+
+  test('passes through non-absolute or empty input unchanged', () => {
+    assert.strictEqual(findProjectRoot(''), '')
+    assert.strictEqual(findProjectRoot('relative/path'), 'relative/path')
+  })
+
+  test('returns startDir unchanged when no marker is found but it sits well below the home directory', () => {
+    const deep = path.join(tmpRoot, 'a', 'b', 'c')
+    fs.mkdirSync(deep, { recursive: true })
+    // tmpRoot has no .git/package.json anywhere up to '/', so the walk finds nothing — but
+    // `deep` is far deeper than the fake home dir, so it's still trusted as a fallback.
+    assert.strictEqual(findProjectRoot(deep, '/fake-home-unrelated'), deep)
+  })
+
+  test('reports no signal (empty string) when the walk collapses to exactly the home directory', () => {
+    assert.strictEqual(findProjectRoot('/Users/rogerreed', '/Users/rogerreed'), '')
+  })
+
+  test('reports no signal when startDir is an ancestor of the home directory', () => {
+    assert.strictEqual(findProjectRoot('/Users', '/Users/rogerreed'), '')
+  })
+
+  test('reports no signal when startDir is the filesystem root', () => {
+    assert.strictEqual(findProjectRoot('/', '/Users/rogerreed'), '')
+  })
+})
+
+suite('commonPathPrefix', () => {
+  test('returns empty string for no paths', () => {
+    assert.strictEqual(commonPathPrefix([]), '')
+  })
+
+  test('returns the shared directory ancestor of multiple absolute paths', () => {
+    assert.strictEqual(
+      commonPathPrefix(['/Users/rogerreed/proj/src/a.ts', '/Users/rogerreed/proj/src/b.ts']),
+      '/Users/rogerreed/proj/src',
+    )
+  })
+
+  test('collapses to a shallow prefix when paths diverge early', () => {
+    assert.strictEqual(
+      commonPathPrefix(['/Users/rogerreed/repo-a/x.ts', '/Users/rogerreed/repo-b/y.ts']),
+      '/Users/rogerreed',
+    )
+  })
+})
 
 suite('summarizers/helpers — task notification handling', () => {
   const notification = `<task-notification>

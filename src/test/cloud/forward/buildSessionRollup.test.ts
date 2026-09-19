@@ -6,7 +6,7 @@ import { stableStringify } from '../../../cloud/forward/preview'
 import { authorHash, type RepoKeyContext } from '../../../cloud/forward/repoKey'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('test-key').digest() }
-const BUILD = { repoKey: CTX, branch: 'main', costUsd: 0.1234, outcome: 'merged' }
+const BUILD = { repoKey: CTX, branch: 'main', outcome: 'merged' }
 
 const BASE: SessionRollupInput = {
   sessionId: 'sess-abc',
@@ -117,7 +117,7 @@ suite('forward/buildSessionRollup', () => {
         cacheReadTokens: 5e8,
         cacheCreateTokens: 5e8,
       },
-      { ...BUILD, costUsd: 999_999 },
+      BUILD,
     )
     assert.strictEqual(payload.session?.tokens_in, 100_000_000)
     assert.strictEqual(payload.session?.tokens_out, 100_000_000)
@@ -126,7 +126,6 @@ suite('forward/buildSessionRollup', () => {
     assert.strictEqual(payload.session?.duration_ms, 100_000_000)
     assert.strictEqual(payload.session?.turns, 100_000_000)
     assert.strictEqual(payload.session?.models?.[0].calls, 100_000_000)
-    assert.strictEqual(payload.session?.cost_usd, 100_000)
     assert.deepStrictEqual(validateRollupPayload(payload), [])
   })
 

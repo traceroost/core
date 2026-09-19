@@ -738,7 +738,7 @@ export function Sessions() {
             )}
             {sortHeader('prompt', 'Prompt (ID)')}
             {sortHeader('model', 'Model')}
-            <th scope="col" style={thBase + ';text-align:center;color:var(--muted)'} title="Struggle/loop patterns detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags">Signals</th>
+            <th scope="col" style={thBase + ';text-align:center;color:var(--muted)'} title="Struggle/loop patterns detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.">Signals</th>
             {sortHeader('total_tokens', 'Tokens', true, 'Accumulated input and output tokens across all turns')}
             {sortHeader('duration_ms', 'Duration', true)}
             {sortHeader('cost', 'Cost', true)}

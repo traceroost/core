@@ -9,7 +9,6 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { calcTokenCostUsd } from '../../pricing'
 import { classifySessionOutcome } from '../../gitOutcome'
 import { deriveRepoKey } from '../forward/repoKey'
 import { sessionRollupPayload, type SessionRollupInput } from '../forward/buildSessionRollup'
@@ -78,18 +77,10 @@ export async function buildPayloadForCard(card: SessionSummaryCard): Promise<Pay
 
   const rk = await deriveRepoKey(workspace, orgId)
 
-  const cost = calcTokenCostUsd(
-    Math.max(0, card.inputTokens - card.cacheReadTokens - (card.cacheCreateTokens ?? 0)),
-    card.cacheReadTokens,
-    card.cacheCreateTokens ?? 0,
-    card.outputTokens,
-    card.model,
-  )
   const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [])
   const payload = sessionRollupPayload(cardToInput(card), {
     repoKey: rk.ok ? rk.ctx : undefined,
     branch: rk.ok ? await currentBranch(rk.ctx.root) : undefined,
-    costUsd: cost,
     outcome: outcome?.overall,
   })
   assertValidRollupPayload(payload)

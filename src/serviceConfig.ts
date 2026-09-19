@@ -110,6 +110,25 @@ export function serviceLogPath(config: ServiceConfig): string {
   return path.join(config.dataDir, 'logs', 'service.log')
 }
 
+/** Reads `name`/`version` out of the nearest `package.json` relative to `fromDir`, trying a
+ *  couple of candidate depths since callers sit at different distances from the package root
+ *  (e.g. `standalone/` vs. `standalone/service/`). Returns `{}` if neither candidate parses —
+ *  callers decide how to degrade (e.g. fall back to `'unknown'`) rather than throwing, since a
+ *  missing `package.json` (a stripped-down Docker image, say) shouldn't crash the process just to
+ *  report its own version. */
+export function readPackageManifest(fromDir: string): { name?: string; version?: string } {
+  for (const rel of [['..', 'package.json'], ['..', '..', 'package.json']]) {
+    try {
+      const raw = fs.readFileSync(path.join(fromDir, ...rel), 'utf-8')
+      const manifest = JSON.parse(raw) as { name?: string; version?: string }
+      return { name: manifest.name, version: manifest.version }
+    } catch {
+      // try the next candidate depth
+    }
+  }
+  return {}
+}
+
 // ── CLI flag parsing ─────────────────────────────────────────────────────────
 
 const FLAG_TO_KEY: Record<string, keyof ServiceConfig> = {
@@ -257,6 +276,7 @@ ${envEntry('OTLP_PORT', String(config.otlpPort))}
 ${envEntry('MCP_PORT', String(config.mcpPort))}
 ${envEntry('BIND_HOST', config.bindHost)}
 ${envEntry('DATA_DIR', config.dataDir)}
+${envEntry('TRACEROOST_SERVICE', '1')}
   </dict>
   <key>StandardOutPath</key>
   <string>${logPath}</string>
@@ -284,6 +304,7 @@ Environment=OTLP_PORT=${config.otlpPort}
 Environment=MCP_PORT=${config.mcpPort}
 Environment=BIND_HOST=${config.bindHost}
 Environment=DATA_DIR=${config.dataDir}
+Environment=TRACEROOST_SERVICE=1
 StandardOutput=append:${logPath}
 StandardError=append:${logPath}
 
@@ -306,6 +327,7 @@ set "OTLP_PORT=${config.otlpPort}"
 set "MCP_PORT=${config.mcpPort}"
 set "BIND_HOST=${config.bindHost}"
 set "DATA_DIR=${config.dataDir}"
+set "TRACEROOST_SERVICE=1"
 "${nodePath}" "${cliPath}" >> "${logPath}" 2>&1
 `
 }

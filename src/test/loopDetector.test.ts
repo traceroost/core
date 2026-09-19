@@ -8,7 +8,6 @@ import {
   detectTokenRunaway,
   detectChronicToolFailures,
   detectContextFloodingRisk,
-  detectMalformedToolCall,
   inferTaskComplexity,
   getFileEditCounts,
   temperLoopSignalSeverity,
@@ -176,31 +175,36 @@ suite('detectExactToolRepeat', () => {
     assert.strictEqual(signals.length, 0)
   })
 
-  test('warning when a tool is called 3 times', () => {
+  test('no signal below the warning streak threshold', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
-      timeline: [
-        makeTool('read_file README'),
-        makeTool('read_file README'),
-        makeTool('read_file README'),
-      ],
+      timeline: Array(29).fill(null).map(() => makeTool('read_file README')),
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('warning when a tool is called 30+ times', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array(30).fill(null).map(() => makeTool('read_file README')),
     })
     detectExactToolRepeat(session, signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].type, 'exact_tool_repeat')
     assert.strictEqual(signals[0].severity, 'warning')
-    assert.strictEqual(signals[0].count, 3)
+    assert.strictEqual(signals[0].count, 30)
   })
 
-  test('critical when a tool is called 5+ times', () => {
+  test('critical when a tool is called 50+ times', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
-      timeline: Array(6).fill(null).map(() => makeTool('bash ls -la')),
+      timeline: Array(50).fill(null).map(() => makeTool('bash ls -la')),
     })
     detectExactToolRepeat(session, signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].severity, 'critical')
-    assert.strictEqual(signals[0].count, 6)
+    assert.strictEqual(signals[0].count, 50)
   })
 
   test('ignores non-tool timeline entries', () => {
@@ -246,13 +250,61 @@ suite('detectExactToolRepeat', () => {
     assert.strictEqual(signals.length, 0)
   })
 
+  test('no signal when repeated reads return different content (no edit tool involved)', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [
+        makeResultTool('read_file src/a.ts', 'version 1'),
+        makeResultTool('read_file src/a.ts', 'version 2'),
+        makeResultTool('read_file src/a.ts', 'version 3'),
+      ],
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('signal when repeated reads return identical content', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array(30).fill(null).map(() => makeResultTool('read_file src/a.ts', 'same content')),
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 30)
+  })
+
+  test('a content change only breaks the streak at that point, not retroactively', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [
+        ...Array(3).fill(null).map(() => makeResultTool('bash cat log.txt', 'v1')),
+        // Content differs from 'v1' — breaks the streak — then stays identical for the rest,
+        // building a fresh streak that should NOT include the 3 'v1' calls before it.
+        ...Array(35).fill(null).map(() => makeResultTool('bash cat log.txt', 'v2')),
+      ],
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 35)
+  })
+
+  test('falls back to label-only counting when fullResult is missing', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array(30).fill(null).map(() => makeTool('bash ls -la')),
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 30)
+  })
+
   test('only highest-count tool drives severity, examples include top 3', () => {
     const signals: LoopSignal[] = []
-    // toolA ×6, toolB ×3, toolC ×3
+    // toolA ×55 (critical), toolB ×35, toolC ×32 (both warning-level "repeated")
     const timeline = [
-      ...Array(6).fill(null).map(() => makeTool('bash echo hello')),
-      ...Array(3).fill(null).map(() => makeTool('read_file config.json')),
-      ...Array(3).fill(null).map(() => makeTool('grep_search TODO')),
+      ...Array(55).fill(null).map(() => makeTool('bash echo hello')),
+      ...Array(35).fill(null).map(() => makeTool('read_file config.json')),
+      ...Array(32).fill(null).map(() => makeTool('grep_search TODO')),
     ]
     const session = makeSession({ timeline })
     detectExactToolRepeat(session, signals)
@@ -568,12 +620,12 @@ suite('detectRunawaySteps', () => {
     assert.strictEqual(signals.length, 0)
   })
 
-  test('warning when steps exceed simple threshold (15)', () => {
+  test('warning when steps exceed simple threshold (45)', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       userRequest: 'rename the variable',
-      totalLlmCalls: 8,
-      totalToolCalls: 10,  // total=18 > 15
+      totalLlmCalls: 25,
+      totalToolCalls: 25,  // total=50 > 45
     })
     detectRunawaySteps(session, signals)
     assert.strictEqual(signals.length, 1)
@@ -585,32 +637,32 @@ suite('detectRunawaySteps', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       userRequest: 'rename the variable',
-      totalLlmCalls: 15,
-      totalToolCalls: 16,  // total=31 > 2×15=30
+      totalLlmCalls: 50,
+      totalToolCalls: 45,  // total=95 > 2×45=90
     })
     detectRunawaySteps(session, signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].severity, 'critical')
   })
 
-  test('warning when steps exceed medium threshold (35)', () => {
+  test('warning when steps exceed medium threshold (110)', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       userRequest: 'build a helper function for parsing JSON',
-      totalLlmCalls: 20,
-      totalToolCalls: 20, // total=40 > 35
+      totalLlmCalls: 60,
+      totalToolCalls: 55, // total=115 > 110
     })
     detectRunawaySteps(session, signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].severity, 'warning')
   })
 
-  test('no signal for complex task under 80 steps', () => {
+  test('no signal for complex task under 250 steps', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       userRequest: 'implement and refactor the entire authentication module',
-      totalLlmCalls: 30,
-      totalToolCalls: 45,  // total=75 ≤ 80
+      totalLlmCalls: 100,
+      totalToolCalls: 140,  // total=240 ≤ 250
     })
     detectRunawaySteps(session, signals)
     assert.strictEqual(signals.length, 0)
@@ -620,12 +672,12 @@ suite('detectRunawaySteps', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       userRequest: 'rename the variable x to y',
-      totalLlmCalls: 10,
-      totalToolCalls: 10,
+      totalLlmCalls: 25,
+      totalToolCalls: 25,
     })
     detectRunawaySteps(session, signals)
     assert.ok(signals[0].evidence.includes('simple'))
-    assert.ok(signals[0].evidence.includes('15'))
+    assert.ok(signals[0].evidence.includes('45'))
   })
 })
 
@@ -848,48 +900,6 @@ suite('detectContextFloodingRisk', () => {
   })
 })
 
-// ── detectMalformedToolCall ─────────────────────────────────────────────────
-
-suite('detectMalformedToolCall', () => {
-  test('no signal for a normal runtime error', () => {
-    const signals: LoopSignal[] = []
-    const session = makeSession({ timeline: [makeErrorTool('bash', 'command failed with exit code 1')] })
-    detectMalformedToolCall(session, signals)
-    assert.strictEqual(signals.length, 0)
-  })
-
-  test('fires on a single rejected call, unlike error_recurrence', () => {
-    const signals: LoopSignal[] = []
-    const session = makeSession({ timeline: [makeErrorTool('bash', 'Invalid tool call: missing required parameter "path"')] })
-    detectMalformedToolCall(session, signals)
-    assert.strictEqual(signals.length, 1)
-    assert.strictEqual(signals[0].type, 'malformed_tool_call')
-    assert.strictEqual(signals[0].severity, 'warning')
-    assert.strictEqual(signals[0].count, 1)
-  })
-
-  test('critical at 3 or more rejected calls', () => {
-    const signals: LoopSignal[] = []
-    const session = makeSession({
-      timeline: [
-        makeErrorTool('bash', 'unknown tool "run_shell"'),
-        makeErrorTool('bash', 'unknown tool "run_shell"'),
-        makeErrorTool('bash', 'unknown tool "run_shell"'),
-      ],
-    })
-    detectMalformedToolCall(session, signals)
-    assert.strictEqual(signals.length, 1)
-    assert.strictEqual(signals[0].severity, 'critical')
-  })
-
-  test('ignores non-error entries', () => {
-    const signals: LoopSignal[] = []
-    const session = makeSession({ timeline: [makeTool('bash')] })
-    detectMalformedToolCall(session, signals)
-    assert.strictEqual(signals.length, 0)
-  })
-})
-
 // ── detectLoopSignals (integration) ─────────────────────────────────────────
 
 suite('detectLoopSignals', () => {
@@ -914,11 +924,9 @@ suite('detectLoopSignals', () => {
     const session = makeSession({
       userRequest: 'rename the variable',
       totalLlmCalls: 2,
-      totalToolCalls: 9,
+      totalToolCalls: 33,
       timeline: [
-        makeTool('read_file index.ts'),
-        makeTool('read_file index.ts'),
-        makeTool('read_file index.ts'),
+        ...Array(30).fill(null).map(() => makeTool('read_file index.ts')),
         errEntry,
         errEntry,
         errEntry,
@@ -932,7 +940,7 @@ suite('detectLoopSignals', () => {
 
   test('each signal has required fields', () => {
     const session = makeSession({
-      timeline: Array(3).fill(null).map(() => makeTool('bash ls')),
+      timeline: Array(30).fill(null).map(() => makeTool('bash ls')),
     })
     const signals = detectLoopSignals(session)
     for (const sig of signals) {
@@ -957,7 +965,6 @@ suite('LOOP_SIGNAL_ACTIONS', () => {
     'token_runaway',
     'chronic_tool_failures',
     'context_flooding_risk',
-    'malformed_tool_call',
   ]
 
   test('has an action string for every signal type', () => {

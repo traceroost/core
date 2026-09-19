@@ -14,7 +14,7 @@ import {
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   sessionsPage, getSessionsPagination,
 } from './state'
-import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome } from './types'
+import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS } from './utils'
 
@@ -39,6 +39,8 @@ import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOp
 const sidebarOpen = signal(window.__STANDALONE__ !== true)
 const configOpen = signal(false)
 const bellOpen = signal(false)
+const versionCheckOpen = signal(false)
+const versionCheck = signal<VersionCheckResponse | null>(null)
 
 // `id` stays 'sessions' — it's an internal routing key, not shown anywhere. The
 // user-facing vocabulary is "Trace" (one prompt-to-response cycle); see the
@@ -183,6 +185,15 @@ function IconDollar() {
   )
 }
 
+function IconUpdate() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M12 19V5" />
+      <path d="M5 12l7-7 7 7" />
+    </svg>
+  )
+}
+
 function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') bellOpen.value = false }
@@ -242,6 +253,58 @@ function BellButton() {
       ><IconBell /></button>
       {count > 0 && <span class="alert-badge">{count}</span>}
       {open && <AlertStatusCard alerts={getTriggeredAlerts()} />}
+    </div>
+  )
+}
+
+function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') versionCheckOpen.value = false }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  return (
+    <>
+      <div style="position:fixed;inset:0;z-index:199" onClick={() => versionCheckOpen.value = false} />
+      <div style="position:fixed;top:35px;right:8px;width:min(400px,calc(100vw - 16px));background:var(--vscode-editor-background);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.5);z-index:200;overflow:hidden">
+        <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">
+          Update Available
+        </div>
+        <div style="padding:12px;font-size:12px;color:var(--fg);line-height:1.5">
+          <div style="margin-bottom:8px">
+            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available on npm.
+          </div>
+          <div style="margin-bottom:8px;color:var(--muted)">
+            {info.isService
+              ? 'Update the background service:'
+              : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTEL data is never lost. Install it (this also updates you to the latest version):"}
+          </div>
+          <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
+          {!info.isService && (
+            <div style="font-size:11px;color:var(--muted)">
+              Or for a quick one-off look: <code>npx traceroost@latest</code> · Docker: <code>docker pull traceroost/traceroost</code> and re-run your <code>docker run</code> command.
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function UpdateButton() {
+  const info = versionCheck.value
+  if (!info || !info.updateAvailable) { return null }
+  const open = versionCheckOpen.value
+  return (
+    <div style="position:relative;display:flex;align-items:center">
+      <button
+        class={'icon-btn' + (open ? ' active' : '')}
+        title={`Update available — v${info.latestVersion}`}
+        onClick={() => { versionCheckOpen.value = !versionCheckOpen.value }}
+      ><IconUpdate /></button>
+      <span class="alert-badge">!</span>
+      {open && <UpdateStatusCard info={info} />}
     </div>
   )
 }
@@ -533,6 +596,17 @@ export function App() {
   useEffect(() => { requestTeamStatus() }, [])
   void teamOpen.value
 
+  // Standalone only — VS Code updates through the Marketplace, never npm. The server already
+  // refreshes its own npm-registry check on a long interval, so one fetch per page load is
+  // enough; a page reload (which `service update`/`restart` naturally causes) is enough cadence.
+  useEffect(() => {
+    if (window.__STANDALONE__ !== true) { return }
+    fetch('/api/version-check')
+      .then(res => res.ok ? res.json() : null)
+      .then((data: VersionCheckResponse | null) => { if (data) { versionCheck.value = data } })
+      .catch(() => { /* no update banner if the check fails — not worth surfacing an error for */ })
+  }, [])
+
   const tab = normalizeTabId(activeTab.value)
   const showFilterBars = tab !== 'help' && tab !== 'pricing'
 
@@ -560,6 +634,7 @@ export function App() {
         {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
         <div style="margin-left:auto;display:flex;align-items:center;border-left:1px solid var(--border);padding-left:2px">
           <TeamButton />
+          {window.__STANDALONE__ === true && <UpdateButton />}
           <BellButton />
           <GearButton />
           <PricingButton />

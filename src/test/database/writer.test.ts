@@ -90,6 +90,28 @@ suite('DatabaseWriter', () => {
     db.close()
   })
 
+  test('enqueue prefers a non-empty card.workspace over the fallback workspace argument', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    const card = makeCard({ workspace: '/Users/rogerreed/traceroost/core' })
+    w.enqueue(card, '/Users/rogerreed/some-other-open-folder')
+    await w.drain()
+    assert.strictEqual(card.workspace, '/Users/rogerreed/traceroost/core')
+    assert.strictEqual(queryValue(db, `SELECT workspace FROM sessions WHERE session_id = 'sess-1'`), '/Users/rogerreed/traceroost/core')
+    db.close()
+  })
+
+  test('enqueue falls back to the workspace argument when card.workspace is empty', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    const card = makeCard({ workspace: '' })
+    w.enqueue(card, '/Users/rogerreed/some-open-folder')
+    await w.drain()
+    assert.strictEqual(card.workspace, '/Users/rogerreed/some-open-folder')
+    assert.strictEqual(queryValue(db, `SELECT workspace FROM sessions WHERE session_id = 'sess-1'`), '/Users/rogerreed/some-open-folder')
+    db.close()
+  })
+
   test('writing the same session twice does not create duplicate rows', async () => {
     const db = await openInMemoryDb()
     const w = new DatabaseWriter(db, makeStorageUri(), () => {})
