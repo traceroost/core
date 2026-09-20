@@ -1,7 +1,7 @@
 /**
  * Resolves a Repeat work cluster (cloud) back to real local sessions — the client half of AL 08's
  * `traceroost cluster --repo <hash> --id <id>` command. Cloud groups sessions by repo hash + file
- * hash set + tool histogram (alsaas `lib/clusters/`), but can never say what the cluster is *about*
+ * hash set + tool histogram (cloud `lib/clusters/`), but can never say what the cluster is *about*
  * — no filename, no prompt, ever reached it. The one thing cloud can safely hand back is the raw
  * session ids that belong to it (opaque UUIDs, not content); only the machine that actually
  * produced one of those sessions can turn it back into a real workspace, prompt, and file list,

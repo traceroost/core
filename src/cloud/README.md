@@ -4,7 +4,8 @@ If you're browsing the tree wondering why this exists outside the rest of
 `src/`, this is the short answer. For the deep architecture, see
 [CLOUD_ARCHITECTURE.md](../../CLOUD_ARCHITECTURE.md) and
 [ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-pro--team-link). For
-what shipped feature-by-feature, see [CLOUD_FEATURES.md](../../CLOUD_FEATURES.md).
+what shipped feature-by-feature, see CLOUD_ARCHITECTURE.md's "What ships
+where" table.
 
 ## What's in here
 
@@ -32,7 +33,7 @@ the free/paid line — see the two rules in CLOUD_ARCHITECTURE.md. They're
 grouped here anyway, because the axis this directory answers to isn't
 pricing, it's **provenance and disposition**: everything in `src/cloud/` was
 built as one connected effort (the `pro/01`–`pro/09` series, against the
-closed-source `alsaas` service), ships as one thing, and is the part of this
+closed-source `cloud` service), ships as one thing, and is the part of this
 codebase that could be spun out or licensed differently from the rest.
 Pricing tier is a property of a *feature*, documented per-feature in
 CLOUD_ARCHITECTURE.md's "what ships where" table — not a property of this

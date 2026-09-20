@@ -38,7 +38,7 @@ export function queuePath(baseHome: string = os.homedir()): string {
   return path.join(baseHome, '.traceroost', 'forward-queue.jsonl')
 }
 
-/** Derives the idempotency key for a payload — matches `alsaas` `receiptKeys()`. */
+/** Derives the idempotency key for a payload — matches `cloud` `receiptKeys()`. */
 export function itemKey(payload: RollupPayload): string {
   if (payload.session) return `session:${payload.session.session_id}`
   if (payload.commits && payload.commits.length > 0) {

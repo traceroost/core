@@ -66,7 +66,7 @@ person, one model per repo, most of the time) is not specific to this machine.
 enhancement: cross-developer aggregation is exactly what supplies the model diversity a single
 local history structurally lacks — different team members already make different model choices
 on the same repo, which is the "same task, different model" pair this feature needs. That is a
-new `cloud`/`alsaas` feature (extending `cloud/src/lib/rollups/advisor.ts`'s `retryPasses`-style
+new `cloud` feature (extending `cloud/src/lib/rollups/advisor.ts`'s `retryPasses`-style
 aggregation with the same cost join, cross-developer), not a `core` change, and carries its own
 design work (minimum sample size per bucket, UI placement, the same "comparable, not identical,
 work" caveat the original doc required) — scoped separately, not assumed here.
@@ -77,7 +77,7 @@ work" caveat the original doc required) — scoped separately, not assumed here.
   answered, and its Steps 2–3 (the local pure function and Advisor surface) are not built.
 - No new code ships in `core` from this decision. Nothing regresses; `retryPasses` (cloud) already
   answers agent reliability per repo and is unaffected.
-- If cross-developer cost-per-outcome is wanted, it starts as a new `cloud`/`alsaas` design — the
+- If cross-developer cost-per-outcome is wanted, it starts as a new `cloud` design — the
   minimum viable version is "same repo, same complexity tier, same outcome, joined with cost,
   aggregated across a team's members," which is `retryPasses`'s existing shape plus a cost column,
   not a new mechanism.

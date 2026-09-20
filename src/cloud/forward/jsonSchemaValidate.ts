@@ -2,7 +2,7 @@
  * A small JSON Schema validator, purpose-built for `schema/rollup.v1.json` (AL 03).
  *
  * The client validates every built record against the committed schema before it is queued, so
- * a schema mistake is caught by whoever introduced it rather than by a customer. `alsaas` uses
+ * a schema mistake is caught by whoever introduced it rather than by a customer. `cloud` uses
  * `ajv` server-side; pulling `ajv` + `ajv-formats` into a VS Code extension that ships five
  * runtime dependencies is not worth it for one small fixed document, so this covers exactly the
  * draft-07 constructs that document uses: `type`, `const`, `enum`, `pattern`, `format` (`uuid`

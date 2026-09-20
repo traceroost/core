@@ -2,10 +2,10 @@ import * as assert from 'assert'
 import { SENT, NEVER_SENT } from '../../../cloud/team/privacy'
 
 // This test pins the exact wording of the payload promise. The same list is rendered by the
-// Team panel, printed by `--explain-payload`, shown on the OAuth consent screen (alsaas
+// Team panel, printed by `--explain-payload`, shown on the OAuth consent screen (cloud
 // src/lib/privacy.ts) and carried in the invite email. When the repos are reconciled this
 // becomes a cross-repo fixture check (OPEN-QUESTIONS CC-1). If you are changing this text,
-// change it in alsaas in the same PR.
+// change it in cloud in the same PR.
 suite('team/privacy', () => {
   test('SENT is the agreed list, verbatim', () => {
     assert.deepStrictEqual([...SENT], [

@@ -58,8 +58,8 @@ traceroost cohort --repo <hash|name> --merged 2026-07
 traceroost cohort --repo <hash|name> --merged 2026-07 --window 90
 ```
 
-Also reachable from an `agentlens://cohort?repo=<hash>&merged=<YYYY-MM>&window=<30|90>` deep link
-the team view offers. Repository hashes resolve locally because the client re-derives the key
+Also reachable from a `vscode://agentlens.agentlens-dashboard/cohort?repo=<hash>&merged=<YYYY-MM>&window=<30|90>`
+deep link the team view offers. Repository hashes resolve locally because the client re-derives the key
 from your clone; the service hands over a hash and never learns a name. A deep link for a
 repository this machine does not have shows a plain message and makes no request.
 

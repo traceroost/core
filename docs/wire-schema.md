@@ -36,7 +36,7 @@ transmitted, logged, or written to disk — it is derived on demand from your ow
 ([`src/cloud/forward/repoKey.ts`](../src/cloud/forward/repoKey.ts)) and held only for the duration of a
 build.
 
-Grounding: `alsaas/docs/decisions/0003-what-we-can-and-cannot-see.md`.
+Grounding: `cloud/docs/decisions/0003-what-we-can-and-cannot-see.md`.
 
 ## Versioning
 

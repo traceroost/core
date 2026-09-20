@@ -3,12 +3,12 @@
  *
  * This list is the argument. It is rendered verbatim by the Team panel (AL 01), printed above
  * every `--explain-payload` run (AL 03), and must match — word for word — the OAuth consent
- * screen (`alsaas` `src/lib/privacy.ts` `SENT` / `NEVER_SENT`) and the invite email. A test
- * (`src/test/team/privacy.test.ts`) pins the wording so the three copies cannot drift; when the
- * `alsaas` repo and this one are reconciled, that test becomes a cross-repo fixture check
+ * screen (`cloud` `src/lib/privacy.ts` `SENT` / `NEVER_SENT`) and the invite email. A test
+ * (`src/test/cloud/team/privacy.test.ts`) pins the wording so the three copies cannot drift; when
+ * the `cloud` repo and this one are reconciled, that test becomes a cross-repo fixture check
  * (OPEN-QUESTIONS CC-1).
  *
- * Grounding: `alsaas/docs/decisions/0003-what-we-can-and-cannot-see.md`.
+ * Grounding: `cloud/docs/decisions/0003-what-we-can-and-cannot-see.md`.
  */
 
 /** What a rollup carries. Every item is a count, an enum, a hash, or a time. */

@@ -10,9 +10,9 @@
 
 import { loadSelectedEnvironment } from './environmentSelection'
 
-/** The hosted TraceRoost Pro service's real environments — mirrors `alsaas/infra`'s Pulumi
+/** The hosted TraceRoost Pro service's real environments — mirrors `cloud/infra`'s Pulumi
  *  stacks exactly (`Pulumi.test.yaml`, `Pulumi.stage.yaml`, `Pulumi.prod.yaml`). Production has
- *  no subdomain: `alsaas`'s prod stack CNAMEs the bare apex, not `app.`. */
+ *  no subdomain: `cloud`'s prod stack CNAMEs the bare apex, not `app.`. */
 export type TeamEnvironment = 'production' | 'stage' | 'test'
 
 export const TEAM_ENDPOINTS: Record<TeamEnvironment, string> = {
@@ -35,14 +35,14 @@ export type EnvironmentSource = 'env-url' | 'env-var' | 'selected' | 'default' |
 export interface ResolvedEnvironment {
   endpoint: string
   /** The known environment this endpoint matches, or `'custom'` when `TRACEROOST_TEAM_URL` points
-   *  somewhere outside `TEAM_ENDPOINTS` (e.g. `alsaas`'s own `pnpm dev` on localhost). */
+   *  somewhere outside `TEAM_ENDPOINTS` (e.g. `cloud`'s own `pnpm dev` on localhost). */
   environment: TeamEnvironment | 'custom'
   source: EnvironmentSource
 }
 
 /**
  * Resolves in order: a release build (locked to production, full stop — see below), then an
- * explicit full URL (`TRACEROOST_TEAM_URL`, for pointing at `alsaas`'s own `pnpm dev` on
+ * explicit full URL (`TRACEROOST_TEAM_URL`, for pointing at `cloud`'s own `pnpm dev` on
  * localhost, or any other one-off target), then a named environment
  * (`TRACEROOST_TEAM_ENV=test|stage|production`, settable via `.env` for `npm run local`), then a
  * selection persisted from the Team panel (`environmentSelection.ts`), then production.
@@ -98,7 +98,7 @@ export function tokenUrl(endpoint = teamEndpoint()): string {
   return `${endpoint}/oauth/token`
 }
 export function deviceCodeUrl(endpoint = teamEndpoint()): string {
-  // Matches `alsaas/src/app/oauth/device/code/route.ts` — not `/oauth/device` (that path 404s;
+  // Matches `cloud/src/app/oauth/device/code/route.ts` — not `/oauth/device` (that path 404s;
   // `/oauth/device` is only the browser-facing verification page).
   return `${endpoint}/oauth/device/code`
 }

@@ -1100,7 +1100,9 @@ raises it to "four of you do, and none of your instruction files mention it," wh
 install can reach. The local Advisor is free and unchanged. `suggestedText` / `evidence` /
 `title` never leave the machine — only `suggestion_id` (hashed), the enums, and the numeric
 baseline. Apply loop: `traceroost advise --apply <id>` regenerates with real paths, appends,
-captures a baseline; `agentlens://advise?id=…` is the editor deep link.
+captures a baseline; `vscode://agentlens.agentlens-dashboard/advise?id=…` is the editor deep
+link — routed through VS Code's own URI scheme, not a custom-registered `agentlens://` one; see
+`src/extension.ts`'s "Deep links" comment.
 | `src/cloud/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
 | `src/cloud/team/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
 | `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
@@ -1141,7 +1143,8 @@ pinned by a test.
 
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
 machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
-and `agentlens://cohort?repo=<hash>&merged=…&window=…`. `src/cloud/team/resolveRepoHash.ts` re-derives
+and `vscode://agentlens.agentlens-dashboard/cohort?repo=<hash>&merged=…&window=…`.
+`src/cloud/team/resolveRepoHash.ts` re-derives
 repo hashes for local clones only — it is not an oracle, and a deep link for an unknown repo
 makes no request.
 

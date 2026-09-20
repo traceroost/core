@@ -3,8 +3,8 @@
  *
  * Every function here is only ever reached from an explicit user action (`team link`, a token
  * refresh inside AL 04's sender, `team leave`) or from the linked Team panel refreshing itself.
- * None of it runs on an unlinked install. The contract mirrors `alsaas/src/app/oauth/*` and
- * `alsaas/src/app/api/*` exactly.
+ * None of it runs on an unlinked install. The contract mirrors `cloud/src/app/oauth/*` and
+ * `cloud/src/app/api/*` exactly.
  */
 
 import * as fs from 'fs'
@@ -230,7 +230,7 @@ export async function pollDeviceFlow(deviceCode: string): Promise<DevicePollResu
 //
 // The token response gives us org_id and member_id but not the org's *name*, this member's
 // *role* or *email*, or the org's per-developer-visibility setting — all of which the linked
-// panel states as fact. `alsaas` exposes these to a bearer token at `GET /api/roster/me`; if
+// panel states as fact. `cloud` exposes these to a bearer token at `GET /api/roster/me`; if
 // that ever fails (network, a token revoked mid-flight, a future server issue) this degrades
 // cleanly — the panel shows the ids and a "checking…" note rather than inventing a value.
 

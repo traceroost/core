@@ -8,14 +8,12 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 
 | Doc | Covers |
 | --- | --- |
-| [CLOUD_FEATURES.md](CLOUD_FEATURES.md) | What each merged slice actually does, feature by feature |
-| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--team-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines |
+| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--team-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
 | [`src/cloud/README.md`](src/cloud/README.md) | Why this code lives in one directory, and under a different license |
 | [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
 | [`docs/wire-schema.md`](docs/wire-schema.md) | The exact wire contract, and how to verify the privacy claim yourself |
 | [`docs/pricing-boundary.md`](docs/pricing-boundary.md) | The free/paid line, word-for-word with the pricing page |
-| [`.staged-features/README.md`](.staged-features/README.md) | The phased plan this was built against, and the companion closed-source service repo (`alsaas`) |
-| `.staged-features/01`–`09` | The design doc for each merged slice — privacy invariants and tier called out per plan |
+| [`.staged-features/README.md`](.staged-features/README.md) | The phased plan this was built against, and the companion closed-source service repo (`cloud`) — local-only, gitignored; the numbered per-phase design docs it describes are deleted once each phase ships, so don't expect them all to exist |
 
 ## The two rules everything below answers to
 
@@ -29,7 +27,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 ## Two repositories, one contract
 
 The team feature spans two codebases. This repo owns the wire schema; the hosted service
-(`alsaas`, closed-source, not in this checkout) only validates against it — never the reverse,
+(`cloud`, closed-source, not in this checkout) only validates against it — never the reverse,
 because the claim *"this client cannot send your code"* is only worth what it's worth in the
 repository a skeptical developer already trusts.
 
@@ -48,7 +46,7 @@ graph TB
         LOCAL[("Local SQLite<br/>sessions, spans, attribution, turnover")]
     end
 
-    subgraph Service["TraceRoost Pro service — alsaas (separate repo)"]
+    subgraph Service["TraceRoost Pro service — cloud (separate repo)"]
         OAUTH["OAuth / PKCE authorization server"]
         INGEST["POST /api/ingest<br/>validates against schema/rollup.v1.json"]
         STORE[("Rollup storage")]
@@ -114,7 +112,7 @@ the denominator rather than guessed at.
 | CLI | `traceroost advise --apply <id>` | `standalone/cloud/adviseCli.ts` — regenerates instruction text with real paths, appends, captures a baseline |
 | CLI | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/cloud/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo |
 | Standalone HTTP | `GET/POST /api/team` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview |
-| Deep links | `agentlens://advise?id=…`, `agentlens://cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source |
+| Deep links | `vscode://agentlens.agentlens-dashboard/advise?id=…`, `vscode://agentlens.agentlens-dashboard/cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source. Routed through VS Code's own URI scheme, not a custom-registered one — see `src/extension.ts`'s "Deep links" comment |
 
 ## One session, end to end (linked machine)
 
@@ -165,11 +163,11 @@ implemented; git history has it.
 
 ## Testing hooks worth knowing about
 
-- `src/test/forward/schema.test.ts` walks `schema/rollup.v1.json` and fails the build if any
+- `src/test/cloud/forward/schema.test.ts` walks `schema/rollup.v1.json` and fails the build if any
   string field is left unconstrained (no accidental free-text field).
-- `src/test/team/privacy.test.ts` pins the exact `SENT` / `NEVER_SENT` lists shown on the consent
-  screen.
-- `src/test/team/pricingBoundary.test.ts` pins `docs/pricing-boundary.md` against the shipped
-  copy so the pricing page and the repo can't drift apart.
+- `src/test/cloud/team/privacy.test.ts` pins the exact `SENT` / `NEVER_SENT` lists shown on the
+  consent screen.
+- `src/test/cloud/team/pricingBoundary.test.ts` pins `docs/pricing-boundary.md` against the
+  shipped copy so the pricing page and the repo can't drift apart.
 - `standalone/cloud/explainPayload.ts` + its test assert the printed `--explain-payload` JSON equals
   what actually gets queued — the transparency claim is enforced, not just documented.

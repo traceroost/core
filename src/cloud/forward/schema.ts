@@ -11,8 +11,8 @@
  * free text, so there is nothing for code to travel in.
  *
  * This file is the source of truth for the shape. `schema/rollup.v1.json` is the JSON Schema
- * form of the same contract, committed and published; `alsaas` validates every ingest against
- * that document (SA 05). A test (`src/test/forward/schema.test.ts`) walks the JSON Schema and
+ * form of the same contract, committed and published; `cloud` validates every ingest against
+ * that document (SA 05). A test (`src/test/cloud/forward/schema.test.ts`) walks the JSON Schema and
  * fails if any string property is left unconstrained — the mechanical guard that keeps the
  * invariant true as the schema grows.
  *
@@ -282,7 +282,7 @@ export interface RollupPayload {
 //
 // Walks a JSON Schema and returns a list of violations of the two structural rules that keep
 // the privacy invariant true: every object sets `additionalProperties:false`, and every string
-// is constrained by `pattern`, `enum`, `const` or `format`. Mirrors alsaas's `schemaViolations`
+// is constrained by `pattern`, `enum`, `const` or `format`. Mirrors cloud's `schemaViolations`
 // so the two repos check the identical property.
 
 type JsonSchemaNode = Record<string, unknown>
