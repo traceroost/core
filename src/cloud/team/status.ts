@@ -22,6 +22,15 @@ export interface QueueStats {
   paused: boolean
 }
 
+/** Transport transparency stats — how many hashed traces this machine has actually sent, over a
+ *  few windows. Absent on a host that hasn't wired up `TeamPanelDeps.traceSendStats` (or before
+ *  the panel's first status push resolves it). */
+export interface TraceSendStats {
+  last5Min: number
+  lastHour: number
+  allTime: number
+}
+
 export type TeamIndicator = 'unlinked' | 'reporting' | 'queued' | 'degraded'
 
 export interface TeamStatus {
@@ -63,6 +72,9 @@ export interface TeamStatus {
    *  successful sync. Lets the Pricing tab mark a row "Remote" vs "Local" without a dedicated
    *  round trip: this is local in-memory state, same invariant as the rest of this file. */
   cloudRateOverrides: Record<string, ModelRates>
+  /** Absent on an unlinked install (there is nothing to have sent) or on a host that doesn't
+   *  supply `TeamPanelDeps.traceSendStats`. */
+  traceSendStats?: TraceSendStats
 }
 
 function describeEndpoint(endpoint: string): TeamEnvironment | 'custom' {
@@ -72,7 +84,7 @@ function describeEndpoint(endpoint: string): TeamEnvironment | 'custom' {
   return known ?? 'custom'
 }
 
-export function getTeamStatus(queue?: QueueStats): TeamStatus {
+export function getTeamStatus(queue?: QueueStats, traceSendStats?: TraceSendStats): TeamStatus {
   const creds = loadCredentials()
   const version = clientVersion()
 
@@ -120,5 +132,6 @@ export function getTeamStatus(queue?: QueueStats): TeamStatus {
     lastRollupAt: queue?.lastSuccessAt ?? null,
     degradedReason,
     cloudRateOverrides: getCloudRateOverrides(),
+    traceSendStats,
   }
 }

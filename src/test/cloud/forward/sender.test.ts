@@ -68,6 +68,33 @@ suite('forward/sender', () => {
     assert.ok(readForwardState(home).lastSuccessAt)
   })
 
+  test('202 → recordSent called once with the batch total', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    new ForwardQueue(home).enqueue(payload(ID2))
+    stubFetch(() => new Response('', { status: 202 }))
+    const calls: Array<[number, number]> = []
+    await drainQueue({ baseHome: home, recordSent: (count, at) => calls.push([count, at]) })
+    assert.deepStrictEqual(calls.length, 1)
+    assert.strictEqual(calls[0][0], 2)
+    assert.ok(calls[0][1] > 0)
+  })
+
+  test('nothing eligible to send → recordSent is never called', async () => {
+    stubFetch(() => new Response('', { status: 202 }))
+    let called = false
+    const res = await drainQueue({ baseHome: home, recordSent: () => { called = true } })
+    assert.strictEqual(res.stopped, 'nothing-eligible')
+    assert.strictEqual(called, false)
+  })
+
+  test('400 → dropped, not sent → recordSent is never called', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    stubFetch(() => new Response('', { status: 400 }))
+    let called = false
+    await drainQueue({ baseHome: home, recordSent: () => { called = true } })
+    assert.strictEqual(called, false)
+  })
+
   test('a successful send records the item in the delivery ledger, scoped to the install it was sent to', async () => {
     new ForwardQueue(home).enqueue(payload(ID1))
     const key = scopedKey(CREDS.installId!, `session:${ID1}`)

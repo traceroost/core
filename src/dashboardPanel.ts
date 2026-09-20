@@ -536,6 +536,7 @@ export class DashboardPanel {
       // permanently unreachable by "Check for unsent traces". See sessionRepository.ts's
       // MAX_SESSIONS_TO_WEBVIEW doc comment and .staged-issues/reconcile-gap-and-latency.md.
       allLocalSessions: () => this.repo.listSessions({ limit: Infinity }),
+      traceSendStats: () => this.repo.queryTraceSendStats(Date.now()),
       buildPayloadPreview: (session) => buildPayloadPreviewText(session),
       onOpenTeamView: () => {
         const url = loadCredentials()?.endpoint ?? teamEndpoint()

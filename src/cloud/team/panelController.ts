@@ -6,7 +6,7 @@
  * install answers `getTeamStatus` without a single network request.
  */
 
-import { getTeamStatus, type QueueStats } from './status'
+import { getTeamStatus, type QueueStats, type TraceSendStats } from './status'
 import { linkInteractive, linkViaDevice, leave, refreshOrgNameIfStale } from './link'
 import { getQueueStats } from '../forward/currentQueueStats'
 import { syncForwardSchedulerToLinkState, drainForwardQueueSoon } from '../forward/scheduler'
@@ -37,6 +37,9 @@ export interface TeamPanelDeps {
   allLocalSessions?: () => SessionSummaryCard[]
   /** Live forwarding-queue stats (AL 04). Absent until that lands. */
   queueStats?: () => QueueStats | undefined
+  /** Local transport transparency stats — "hashed traces sent" over a few windows, read straight
+   *  from this machine's own SQLite DB. Absent on a host without one. */
+  traceSendStats?: () => TraceSendStats | undefined
   /**
    * Builds the exact wire bytes for a session, as `--explain-payload` prints them (AL 03).
    * Absent in builds before AL 03 — the panel then shows an honest "not yet available" note
@@ -130,14 +133,15 @@ async function reconcileLocalSessions(deps: TeamPanelDeps, reportProgress = fals
 
 function pushStatus(deps: TeamPanelDeps): void {
   const stats = deps.queueStats?.() ?? getQueueStats()
-  deps.post({ type: 'teamStatus', status: getTeamStatus(stats) })
+  const sendStats = deps.traceSendStats?.()
+  deps.post({ type: 'teamStatus', status: getTeamStatus(stats, sendStats) })
   // Opportunistic, cheap self-heal for a team name that never resolved at link time (see
   // refreshOrgNameIfStale) — a no-op once it has ever succeeded. Re-pushes status only when it
   // actually changed something, so the panel corrects itself without the user doing anything.
   void refreshOrgNameIfStale(deps.log).then((changed) => {
     if (!changed) return
     const freshStats = deps.queueStats?.() ?? getQueueStats()
-    deps.post({ type: 'teamStatus', status: getTeamStatus(freshStats) })
+    deps.post({ type: 'teamStatus', status: getTeamStatus(freshStats, sendStats) })
   })
 }
 

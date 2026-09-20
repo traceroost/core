@@ -70,6 +70,14 @@ export class DatabaseWriter {
     return this.drainPromise
   }
 
+  /** Records that `count` hashed traces were just successfully sent to the cloud (one row per
+   *  forwarding drain batch — see `cloud/forward/sender.ts`'s `recordSent`). Backs the Team
+   *  panel's transport transparency stats (`DatabaseReader.queryTraceSendStats`). */
+  recordTraceSent(count: number, at: number): void {
+    if (count <= 0) return
+    this.db.run('INSERT INTO trace_sends (sent_at, count) VALUES (?, ?)', [at, count])
+  }
+
   /**
    * Writes import cards directly in one synchronous transaction, bypassing the
    * async enqueue/drain pipeline. Safe to call while a drain is in progress

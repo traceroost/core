@@ -40,6 +40,8 @@ export function startForwardScheduler(opts: {
    *  a host needs to hook to keep that panel live instead of stale until the next time it's
    *  reopened. */
   onDrainComplete?: () => void
+  /** Forwarded to every `drainQueue` call's `DrainDeps.recordSent` — see there. */
+  recordSent?: DrainDeps['recordSent']
   /** Test-only — every other piece of `cloud/forward` already threads this through instead of
    *  always touching the real `~/.traceroost`; kept optional so no real caller needs to pass it. */
   baseHome?: string
@@ -58,7 +60,7 @@ export function startForwardScheduler(opts: {
     if (!loadCredentials()) { stop(); return }
     draining = true
     try {
-      let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete })
+      let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent })
       if (res.sent > 0 || res.droppedInvalid > 0) {
         opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
       }
@@ -73,7 +75,7 @@ export function startForwardScheduler(opts: {
       // not a real limit expected to bite.
       let iterations = 1
       while (res.stopped === null && res.remaining > 0 && iterations < MAX_DRAIN_ITERATIONS_PER_RUN) {
-        res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete })
+        res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent })
         iterations++
         if (res.sent > 0 || res.droppedInvalid > 0) {
           opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)

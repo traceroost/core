@@ -144,6 +144,38 @@ suite('DatabaseReader.queryLifetimeStats', () => {
   })
 })
 
+// ── queryTraceSendStats / recordTraceSent ────────────────────────────────────
+
+suite('DatabaseReader.queryTraceSendStats', () => {
+  test('returns zeros when nothing has ever been sent', async () => {
+    const db = await openDb()
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const stats = reader.queryTraceSendStats(Date.now())
+    assert.deepStrictEqual(stats, { last5Min: 0, lastHour: 0, allTime: 0 })
+  })
+
+  test('sums batch counts within each window, and excludes ones outside it', async () => {
+    const db = await openDb()
+    const writer = new DatabaseWriter(db, makeStorageUri(), () => {})
+    const now = Date.parse('2025-06-01T12:00:00.000Z')
+
+    writer.recordTraceSent(3, now - 60_000)          // 1 min ago — in every window
+    writer.recordTraceSent(5, now - 30 * 60_000)      // 30 min ago — in the hour, not the 5 min
+    writer.recordTraceSent(7, now - 2 * 60 * 60_000)  // 2 hours ago — only in all-time
+
+    const reader = new DatabaseReader(db, makeStorageUri())
+    assert.deepStrictEqual(reader.queryTraceSendStats(now), { last5Min: 3, lastHour: 8, allTime: 15 })
+  })
+
+  test('a batch of zero is not recorded', async () => {
+    const db = await openDb()
+    const writer = new DatabaseWriter(db, makeStorageUri(), () => {})
+    writer.recordTraceSent(0, Date.now())
+    const reader = new DatabaseReader(db, makeStorageUri())
+    assert.strictEqual(reader.queryTraceSendStats(Date.now()).allTime, 0)
+  })
+})
+
 // ── searchSessions ────────────────────────────────────────────────────────────
 
 suite('DatabaseReader.searchSessions', () => {

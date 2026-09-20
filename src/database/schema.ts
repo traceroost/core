@@ -170,5 +170,18 @@ CREATE TABLE IF NOT EXISTS instruction_dismissed (
 
 CREATE INDEX IF NOT EXISTS idx_instruction_dismissed_workspace ON instruction_dismissed (workspace);
 
+-- One row per successful forwarding drain (cloud/forward/sender.ts's recordSent), not per trace —
+-- a drain can send up to batchLimit (200) items in one round trip, so this stores the batch's
+-- count rather than inserting once per item. Backs the Team panel's "hashed traces sent" transport
+-- stats (last 5 min / last hour / all time): summing count where sent_at is within a window gives
+-- an exact count with one row per drain instead of one per trace, at negligible size long-term.
+CREATE TABLE IF NOT EXISTS trace_sends (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  sent_at INTEGER NOT NULL,
+  count   INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_trace_sends_sent_at ON trace_sends (sent_at);
+
 ${OUTCOMES_SCHEMA_SQL}
 `

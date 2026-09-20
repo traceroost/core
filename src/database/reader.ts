@@ -23,6 +23,14 @@ export interface LifetimeStats {
   newestSessionMs: number
 }
 
+/** Transport transparency stats for the Team panel — how many hashed traces this machine has
+ *  actually sent, over a few windows. Sourced from `trace_sends` (see schema.ts). */
+export interface TraceSendStats {
+  last5Min: number
+  lastHour: number
+  allTime: number
+}
+
 export interface SearchQuery {
   text?: string
   source?: string
@@ -293,6 +301,21 @@ export class DatabaseReader {
       totalCostUsd:   (col('total_cost_usd') as number) ?? 0,
       oldestSessionMs:(col('oldest_ms') as number) ?? 0,
       newestSessionMs:(col('newest_ms') as number) ?? 0,
+    }
+  }
+
+  /** Windowed + lifetime counts of hashed traces this machine has sent to the cloud, as of `now`.
+   *  One row in `trace_sends` per drain batch, not per trace, so this sums `count` rather than
+   *  counting rows. */
+  queryTraceSendStats(now: number): TraceSendStats {
+    const sumSince = (since: number): number => {
+      const rows = this.db.exec(`SELECT COALESCE(SUM(count), 0) AS total FROM trace_sends WHERE sent_at >= ${since}`)
+      return (rows[0]?.values[0]?.[0] as number) ?? 0
+    }
+    return {
+      last5Min: sumSince(now - 5 * 60_000),
+      lastHour: sumSince(now - 60 * 60_000),
+      allTime:  sumSince(0),
     }
   }
 

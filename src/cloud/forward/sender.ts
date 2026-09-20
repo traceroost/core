@@ -55,6 +55,10 @@ export interface DrainDeps {
    *  panel's count sat frozen at the pre-drain total for that whole time. Never called for an item
    *  that's merely backed off for retry (still queued, so the depth hasn't changed). */
   onItemDone?: () => void
+  /** Called once per drain that sent at least one item, with how many — never for a drain that
+   *  sent nothing. The host's hook for recording local "traces sent" transport stats (the Team
+   *  panel's transparency numbers); this module stays storage-agnostic otherwise. */
+  recordSent?: (count: number, at: number) => void
 }
 
 const BASE_BACKOFF_MS = 30_000
@@ -207,6 +211,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     // future restart's reconciliation (harmless, server-deduplicated), not a lost delivery.
     if (sent > 0) {
       writeForwardState({ lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null }, deps.baseHome)
+      deps.recordSent?.(sent, now())
     }
     return { attempted: batch.length, sent, droppedInvalid, remaining: queue.depth(), stopped }
   }

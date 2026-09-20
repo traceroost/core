@@ -31,6 +31,12 @@ export interface CloudRate {
   outputPerMTok: number
 }
 
+export interface TraceSendStats {
+  last5Min: number
+  lastHour: number
+  allTime: number
+}
+
 export interface TeamStatus {
   linked: boolean
   clientVersion: string
@@ -52,6 +58,7 @@ export interface TeamStatus {
   /** Org-provided rates (pricingSync.ts) currently overriding the local rate table, keyed by
    *  normalizeCostKey — empty on an unlinked install or before the first successful sync. */
   cloudRateOverrides: Record<string, CloudRate>
+  traceSendStats?: TraceSendStats
 }
 
 /** `orgName` is never unset once linked — it falls back to the raw `orgId` at link time if the
@@ -310,6 +317,7 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         <Row k="Endpoint" v={st.endpoint ?? ''} />
         <Row k="TraceRoost version" v={`v${st.clientVersion}`} />
         <Row k="Linked" v={st.linkedAt ? new Date(st.linkedAt).toLocaleDateString() : ''} />
+        {st.traceSendStats && <TransportStats stats={st.traceSendStats} />}
         <ReconcileButton />
       </Section>
       <Section title="What is being sent">
@@ -336,6 +344,32 @@ function LinkedBody({ st }: { st: TeamStatus }) {
         <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline.</div>
       </Section>
     </>
+  )
+}
+
+/** Transport transparency stats — how many hashed traces this machine has actually sent, over a
+ *  few windows. Reads straight from this machine's own local SQLite DB (never the cloud), so it's
+ *  as trustworthy an answer to "is it really only sending what it says?" as the payload preview
+ *  above is. */
+function TransportStats({ stats }: { stats: TraceSendStats }) {
+  const cells: Array<{ label: string; value: number }> = [
+    { label: 'Last 5 min', value: stats.last5Min },
+    { label: 'Last hour', value: stats.lastHour },
+    { label: 'All time', value: stats.allTime },
+  ]
+  return (
+    <div style="margin-top:10px">
+      <div style="font-size:11px;color:var(--muted)">Hashed traces sent</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-top:4px">
+        {cells.map(c => (
+          <div key={c.label} style="background:var(--vscode-editor-background);padding:8px 4px;text-align:center">
+            <div style="font-size:16px;font-weight:600;color:var(--fg)">{c.value.toLocaleString()}</div>
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px">{c.label}</div>
+          </div>
+        ))}
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">Counted locally, from this machine's own send log — never from the cloud.</div>
+    </div>
   )
 }
 

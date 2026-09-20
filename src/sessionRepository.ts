@@ -1,12 +1,12 @@
 import * as fs from 'fs'
 import * as vscode from 'vscode'
 import { SessionStore } from './sessionStore'
-import { DatabaseReader, type DailyStatRow, type LifetimeStats, type SearchQuery, type BurnRate, type Projection } from './database/reader'
+import { DatabaseReader, type DailyStatRow, type LifetimeStats, type SearchQuery, type BurnRate, type Projection, type TraceSendStats } from './database/reader'
 import { DatabaseWriter } from './database/writer'
 import { summarizeSpans } from './spanSummarizer'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
 
-export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection }
+export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection, TraceSendStats }
 
 /**
  * Ceiling on how many sessions `listSessions()` ever returns when no caller-supplied `limit` is
@@ -145,6 +145,16 @@ export class SessionRepository {
   /** Burn rate for an active session. Returns null if < 2 LLM entries with timestamps. */
   queryBurnRate(sessionId: string): { burnRate: BurnRate; projection: Projection | null } | null {
     return this.reader.queryBurnRate(sessionId)
+  }
+
+  /** Windowed + lifetime "hashed traces sent" transport stats for the Team panel. */
+  queryTraceSendStats(now: number): TraceSendStats {
+    return this.reader.queryTraceSendStats(now)
+  }
+
+  /** Records a successful forwarding drain of `count` traces, for the transport stats above. */
+  recordTraceSent(count: number, at: number): void {
+    this.writer.recordTraceSent(count, at)
   }
 
   /** Returns storage size stats for the DB file and blobs directory. */

@@ -623,6 +623,10 @@ export async function activate(context: vscode.ExtensionContext) {
     },
     log: (msg) => outputChannel?.appendLine(msg),
     onDrainComplete: () => DashboardPanel.pushTeamStatus(),
+    recordSent: (count, at) => {
+      repository?.recordTraceSent(count, at)
+      traceRoostDb?.save()
+    },
   })
   context.subscriptions.push({ dispose: () => forwardScheduler?.dispose() })
 
