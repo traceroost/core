@@ -1,13 +1,13 @@
 /**
- * Small persisted record of how forwarding is going (AL 04) — read by `team status`, the Team
- * panel's state dot, and `getTeamStatus()`. Kept separate from the queue file so a queue
+ * Small persisted record of how forwarding is going (AL 04) — read by `org status`, the Org
+ * panel's state dot, and `getOrgStatus()`. Kept separate from the queue file so a queue
  * rewrite and a status update never contend.
  */
 
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import type { QueueStats } from '../team/status'
+import type { QueueStats } from '../org/status'
 
 interface PersistedState {
   lastSuccessAt: string | null
@@ -57,7 +57,7 @@ export function clearForwardState(baseHome?: string): void {
   }
 }
 
-/** Assembles the `QueueStats` the Team panel and CLI render. */
+/** Assembles the `QueueStats` the Org panel and CLI render. */
 export function queueStats(depth: number, baseHome?: string): QueueStats {
   const s = readForwardState(baseHome)
   return {

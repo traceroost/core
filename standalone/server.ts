@@ -31,17 +31,17 @@ import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { listenWithFallback, writeResolvedPorts, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
-import { maybeEnqueueSession } from '../src/cloud/team/enqueueSession'
+import { maybeEnqueueSession } from '../src/cloud/org/enqueueSession'
 import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forward/scheduler'
-import { startPricingSync } from '../src/cloud/team/pricingSync'
-import { loadCredentials } from '../src/cloud/team/credentials'
-import { teamEndpoint } from '../src/cloud/team/config'
+import { startPricingSync } from '../src/cloud/org/pricingSync'
+import { loadCredentials } from '../src/cloud/org/credentials'
+import { orgEndpoint } from '../src/cloud/org/config'
 import { deriveRepoKey, repoHash } from '../src/cloud/forward/repoKey'
 import { resolveGithubUrl } from '../src/repoRemote'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
 
 // Load `.env` from the current working directory, if one exists — lets `npm run local` point at
-// a specific team environment (e.g. `TRACEROOST_TEAM_ENV=test`) without exporting shell vars.
+// a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
 // `quiet` suppresses dotenv's own startup banner; this is silent no-ops when no `.env` is present.
 loadDotenv({ quiet: true })
 
@@ -330,7 +330,7 @@ function runLogScan() {
     card.oneShotStats = computeOneShotStats(card)
     logSessions.set(card.sessionId, card)
     changed = true
-    // Pro: enqueue this session for forwarding. Hard no-op unless a team is linked.
+    // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
     void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
   }
   if (changed) pushUpdate()
@@ -403,7 +403,7 @@ async function startLogIngestion() {
     card.oneShotStats = computeOneShotStats(card)
     logSessions.set(card.sessionId, card)
     countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + 1)
-    // Pro: enqueue this session for forwarding. Hard no-op unless a team is linked. Needed
+    // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked. Needed
     // here, not just in runLogScan() — this loop's own file reads update the same LogReader's
     // fileState that scan() checks, so a historical file read here first is invisible to
     // scan() as "new" forever after (see the note above the main loop below).
@@ -426,7 +426,7 @@ async function startLogIngestion() {
         result.card.oneShotStats = computeOneShotStats(result.card)
         logSessions.set(result.card.sessionId, result.card)
         countByKey.set(file.agentKey, (countByKey.get(file.agentKey) ?? 0) + 1)
-        // Pro: enqueue this session for forwarding. Hard no-op unless a team is linked.
+        // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
         //
         // This has to happen here, not only in runLogScan(): this loop calls
         // logReader.parseFile() directly on every discovered file to build the dashboard's
@@ -840,14 +840,14 @@ function broadcastSse(payload: Record<string, unknown>): void {
   })
 }
 
-/** Pushes a fresh team status to every open dashboard tab — call after anything that can change
- *  what the Team panel shows without a user having triggered it directly (a background
+/** Pushes a fresh org status to every open dashboard tab — call after anything that can change
+ *  what the Org panel shows without a user having triggered it directly (a background
  *  forward-queue drain, in particular; see `forwardScheduler`'s `onDrainComplete` below). A no-op
  *  cheaply when nothing is linked. `openExternal` is a real no-op, not a stub standing in for one
- *  — `getTeamStatus` never opens anything, so nothing here should ever call it. */
-function pushTeamStatusToClients(): void {
-  const { handleTeamMessage } = require('../src/cloud/team/panelController') as typeof import('../src/cloud/team/panelController')
-  void handleTeamMessage({ type: 'getTeamStatus' }, {
+ *  — `getOrgStatus` never opens anything, so nothing here should ever call it. */
+function pushOrgStatusToClients(): void {
+  const { handleOrgMessage } = require('../src/cloud/org/panelController') as typeof import('../src/cloud/org/panelController')
+  void handleOrgMessage({ type: 'getOrgStatus' }, {
     post: (m) => broadcastSse(m),
     openExternal: () => {},
     recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
@@ -1234,19 +1234,19 @@ function getHtml(): string {
         getState: function() { return null; },
         setState: function() {},
         postMessage: function(msg) {
-          if (msg.type && (msg.type === 'getTeamStatus' || msg.type.indexOf('team') === 0)) {
-            fetch('/api/team', {
-              method: msg.type === 'getTeamStatus' ? 'GET' : 'POST',
+          if (msg.type && (msg.type === 'getOrgStatus' || msg.type.indexOf('org') === 0)) {
+            fetch('/api/org', {
+              method: msg.type === 'getOrgStatus' ? 'GET' : 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: msg.type === 'getTeamStatus' ? undefined : JSON.stringify(msg),
+              body: msg.type === 'getOrgStatus' ? undefined : JSON.stringify(msg),
             }).then(function(r) { return r.json(); }).then(function(data) {
               (data.messages || []).forEach(function(m) {
-                if (m.type === 'teamLinkUrl' && m.url) { window.open(m.url, '_blank'); }
+                if (m.type === 'orgLinkUrl' && m.url) { window.open(m.url, '_blank'); }
                 window.dispatchEvent(new MessageEvent('message', { data: m }));
               });
             }).catch(function() {
-              window.dispatchEvent(new MessageEvent('message', { data: { type: 'teamActionResult', ok: false, error: 'request failed' } }));
-              window.dispatchEvent(new MessageEvent('message', { data: { type: 'teamError', error: 'request failed' } }));
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'orgActionResult', ok: false, error: 'request failed' } }));
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'orgError', error: 'request failed' } }));
             });
             return;
           }
@@ -1891,31 +1891,34 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
-  // ── Team (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
+  // ── Org (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
   // GET returns the local status (no network). POST runs an action (link/leave/explain).
   // Both reply with an array of webview messages the polyfill re-dispatches.
-  if (url === '/api/team' && (req.method === 'GET' || req.method === 'POST')) {
+  if (url === '/api/org' && (req.method === 'GET' || req.method === 'POST')) {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', async () => {
-      const { handleTeamMessage } = require('../src/cloud/team/panelController') as typeof import('../src/cloud/team/panelController')
-      const { buildPayloadPreviewText } = require('../src/cloud/team/payloadPreview') as typeof import('../src/cloud/team/payloadPreview')
+      const { handleOrgMessage } = require('../src/cloud/org/panelController') as typeof import('../src/cloud/org/panelController')
+      const { buildPayloadPreviewTexts } = require('../src/cloud/org/payloadPreview') as typeof import('../src/cloud/org/payloadPreview')
       const outbox: Record<string, unknown>[] = []
       const msg = req.method === 'GET'
-        ? { type: 'getTeamStatus' }
-        : (() => { try { return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type: string } } catch { return { type: 'getTeamStatus' } } })()
+        ? { type: 'getOrgStatus' }
+        : (() => { try { return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type: string } } catch { return { type: 'getOrgStatus' } } })()
       try {
-        await handleTeamMessage(msg, {
+        await handleOrgMessage(msg, {
           post: (m) => outbox.push(m),
           openExternal: (u) => {
             const cmd = process.platform === 'darwin' ? `open "${u}"` : process.platform === 'win32' ? `start "" "${u}"` : `xdg-open "${u}"`
-            exec(cmd, () => { /* URL is also delivered as a teamLinkUrl message */ })
+            exec(cmd, () => { /* URL is also delivered as an orgLinkUrl message */ })
           },
           recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
           allLocalSessions: () => buildSessionSummary()?.sessions ?? [],
-          buildPayloadPreview: (session) => buildPayloadPreviewText(session),
-          onOpenTeamView: () => {
-            const url = loadCredentials()?.endpoint ?? teamEndpoint()
+          buildPayloadPreview: (sessions) => buildPayloadPreviewTexts(sessions),
+          onOpenOrgView: () => {
+            // Deep-links into the org's own dashboard, not the bare marketing root — see the
+            // matching comment on dashboardPanel.ts's onOpenOrgView.
+            const creds = loadCredentials()
+            const url = creds ? `${creds.endpoint}/${creds.orgId}` : orgEndpoint()
             const cmd = process.platform === 'darwin' ? `open "${url}"` : process.platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`
             exec(cmd, (err) => {
               if (err) console.warn(`[TraceRoost] Could not open ${url} in a browser: ${err.message}`)
@@ -1924,11 +1927,11 @@ const uiServer = http.createServer((req, res) => {
           log: (m) => console.log(m),
         })
       } catch (e) {
-        // `teamActionResult` is only listened for by link/leave — reconcile and the payload
-        // preview ignore it, so without `teamError` too, this host also left those buttons
+        // `orgActionResult` is only listened for by link/leave — reconcile and the payload
+        // preview ignore it, so without `orgError` too, this host also left those buttons
         // stuck on "Checking…"/"Building…" after a clean, caught backend error.
-        outbox.push({ type: 'teamActionResult', ok: false, error: String(e) })
-        outbox.push({ type: 'teamError', error: String(e) })
+        outbox.push({ type: 'orgActionResult', ok: false, error: String(e) })
+        outbox.push({ type: 'orgError', error: String(e) })
       }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ messages: outbox }))
@@ -2166,11 +2169,11 @@ async function startUiServer(): Promise<void> {
   // Start log ingestion after the server is ready
   startLogIngestion()
 
-  // Pro: forwarding scheduler. No timer runs unless a team is linked.
-  startForwardScheduler({ log: (msg) => console.log(msg), onDrainComplete: pushTeamStatusToClients })
+  // Pro: forwarding scheduler. No timer runs unless an org is linked.
+  startForwardScheduler({ log: (msg) => console.log(msg), onDrainComplete: pushOrgStatusToClients })
 
   // Pro: pricing sync — own (longer) interval, see pricingSync.ts.
-  startPricingSync({ onSync: pushTeamStatusToClients })
+  startPricingSync({ onSync: pushOrgStatusToClients })
 }
 
 void startOtlpServer()

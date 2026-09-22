@@ -44,9 +44,9 @@ Each of these is a reasonable-seeming decision that would quietly break the mode
   this. The wire schema ([`schema/rollup.v1.json`](../schema/rollup.v1.json)) has no free-text
   field.
 - An unlinked install makes no request to any TraceRoost service — no version ping, no "do you
-  have a team" check.
-- `traceroost --explain-payload` prints the exact bytes for a real session, always. Joining a
-  team is an explicit act; leaving is one command and takes effect immediately, even offline.
+  have an org" check.
+- `traceroost --explain-payload` prints the exact bytes for a real session, always. Joining an
+  org is an explicit act; leaving is one command and takes effect immediately, even offline.
 
 ## The hand-off
 

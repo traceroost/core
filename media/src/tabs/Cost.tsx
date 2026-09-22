@@ -90,12 +90,12 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
           text-anchor="middle" fill="var(--vscode-descriptionForeground,#888)" font-size="9"
         >Tokens</text>
 
-        {/* Y-axis title: Cost (right) */}
+        {/* Y-axis title: Estimated cost (right) */}
         <text
           x={W - 8} y={pad.top + chartH / 2}
           transform={`rotate(90,${W - 8},${pad.top + chartH / 2})`}
           text-anchor="middle" fill="var(--vscode-charts-green,#81c784)" font-size="9"
-        >Cost</text>
+        >Estimated cost</text>
 
         {/* Grid + left labels */}
         {gridLines.map(gl => (
@@ -105,7 +105,7 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
           </g>
         ))}
 
-        {/* Cost axis labels (right) */}
+        {/* Estimated cost axis labels (right) */}
         {[0, 1, 2, 3, 4].map(i => (
           <text key={i} x={W - pad.right + 4} y={pad.top + chartH * (1 - i / 4)} text-anchor="start" dominant-baseline="middle" fill="var(--vscode-charts-green,#81c784)" font-size="9">
             {'$' + (maxCost * i / 4).toFixed(maxCost < 0.1 ? 3 : 2)}
@@ -173,7 +173,7 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
           return <circle key={i} cx={cx(i)} cy={cy} r="1.5" fill="var(--vscode-charts-red,#e57373)" />
         })}
 
-        {/* Cost line overlay */}
+        {/* Estimated cost line overlay */}
         {rows.length > 1 && (
           <polyline points={costPoints.join(' ')} fill="none" stroke="var(--vscode-charts-green,#81c784)" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.9" />
         )}
@@ -191,7 +191,7 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
           ['var(--vscode-charts-green,#81c784)',  'Cache read',   false],
           ['var(--vscode-charts-yellow,#ffb74d)', 'Cache write',  false],
           ['var(--vscode-charts-red,#e57373)',    'Output tokens', true],
-          ['var(--vscode-charts-green,#81c784)', 'Cost',          true],
+          ['var(--vscode-charts-green,#81c784)', 'Estimated cost', true],
         ] as const).map(([color, label, isDashed]) => (
           <span key={label} style="display:flex;align-items:center;gap:4px">
             {isDashed
@@ -212,7 +212,7 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
           <div>Cache read: {formatCompact(hovRow.cacheReadTokens)}</div>
           <div>Cache write: {formatCompact(hovRow.cacheCreateTokens)}</div>
           <div>Output tokens: {formatCompact(hovRow.outputTokens)}</div>
-          <div style="margin-top:4px;color:var(--vscode-charts-green,#81c784)">Cost: <strong>{'$' + (hovRow.costUsd).toFixed(3)}</strong></div>
+          <div style="margin-top:4px;color:var(--vscode-charts-green,#81c784)">Estimated cost: <strong>{'$' + (hovRow.costUsd).toFixed(3)}</strong></div>
         </div>
       )}
     </div>

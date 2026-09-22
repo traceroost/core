@@ -7,14 +7,14 @@ This repository is **not** entirely MIT-licensed. Two license zones apply:
 | Everything **except** the paths below | MIT — see [LICENSE](LICENSE) |
 | `src/cloud/**`, `src/test/cloud/**`, `media/src/cloud/**`, `standalone/cloud/**` | Business Source License 1.1 — see [src/cloud/LICENSE](src/cloud/LICENSE) |
 
-`src/cloud/` is the TraceRoost Pro (team, cloud) feature set — see
+`src/cloud/` is the TraceRoost Pro (org, cloud) feature set — see
 [CLOUD_ARCHITECTURE.md](CLOUD_ARCHITECTURE.md) and
 [src/cloud/README.md](src/cloud/README.md) for what it is and why it's split
 out. The short version of the BSL grant: you can read it, self-host it, build
 on it, and use it as a normal part of the TraceRoost product — including its
 always-free, local-only features — for your own work. What it stops is
 someone taking this source and standing up a competing hosted version of the
-team/cloud service without a commercial agreement. Four years after
+org/cloud service without a commercial agreement. Four years after
 publication (or the stated Change Date, whichever is first) each version
 converts to Apache License 2.0.
 

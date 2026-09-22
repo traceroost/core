@@ -1,5 +1,5 @@
 /**
- * The derived repository key (AL 02) — the mechanism that lets every member of a team produce
+ * The derived repository key (AL 02) — the mechanism that lets every member of an org produce
  * matching hashes without any secret being stored, distributed, or transmitted.
  *
  * ```
@@ -43,7 +43,7 @@ import * as path from 'path'
 const execFileAsync = promisify(execFile)
 
 const GIT_TIMEOUT_MS = 5000
-// NEVER change this once a real team has linked a real repository — it's baked into every
+// NEVER change this once a real org has linked a real repository — it's baked into every
 // repo_key/repo_hash/repo_key_fp already derived, and changing it makes every existing repo
 // look like a brand-new one to the service, silently discontinuing its cohort history.
 const HKDF_INFO = 'traceroost/v1'

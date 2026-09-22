@@ -2,8 +2,8 @@
  * `traceroost --explain-payload` / `--dry-run` (AL 03).
  *
  * Prints the exact JSON that would be transmitted for a real session — not a synthetic example.
- * Works on a free install with no team linked (the repo key is then derived under a placeholder
- * salt, so the hashes are representative but not the ones a real team would produce). A test
+ * Works on a free install with no org linked (the repo key is then derived under a placeholder
+ * salt, so the hashes are representative but not the ones a real org would produce). A test
  * asserts this output is byte-identical to what the forwarding queue enqueues (AL 04).
  *
  * The repository key is never printed, including here and in any verbose mode.
@@ -14,13 +14,13 @@ import { loadAllSessions } from './sessionLoader'
 import { calcTokenCostUsd } from '../../src/pricing'
 import { classifySessionOutcome } from '../../src/gitOutcome'
 import { readServiceConfig, ensureInstallId } from '../../src/serviceConfig'
-import { loadCredentials } from '../../src/cloud/team/credentials'
+import { loadCredentials } from '../../src/cloud/org/credentials'
 import { deriveRepoKey } from '../../src/cloud/forward/repoKey'
 import { sessionRollupPayload, type SessionRollupInput } from '../../src/cloud/forward/buildSessionRollup'
 import { assertValidRollupPayload } from '../../src/cloud/forward/validate'
 import { stableStringify } from '../../src/cloud/forward/preview'
 import { ForwardQueue } from '../../src/cloud/forward/queue'
-import { SENT, NEVER_SENT } from '../../src/cloud/team/privacy'
+import { SENT, NEVER_SENT } from '../../src/cloud/org/privacy'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 export interface ExplainOptions {

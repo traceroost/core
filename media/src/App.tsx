@@ -30,7 +30,7 @@ import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
-import { TeamButton, TeamPanel, teamStatus, teamPayloadPreview, teamBusy, teamOpen, requestTeamStatus, teamReconcileResult, teamReconcileBusy, teamReconcileProgress, teamPayloadBusy } from './cloud/panels/TeamPanel'
+import { OrgButton, OrgPanel, orgStatus, orgPayloadPreview, orgBusy, orgOpen, requestOrgStatus, orgReconcileResult, orgReconcileBusy, orgReconcileProgress, orgPayloadBusy } from './cloud/panels/OrgPanel'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -248,7 +248,6 @@ function BellButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
-        title={count > 0 ? `${count} alert${count > 1 ? 's' : ''} triggered` : 'Alerts — none triggered'}
         onClick={() => { bellOpen.value = !bellOpen.value }}
       ><IconBell /></button>
       {count > 0 && <span class="alert-badge">{count}</span>}
@@ -314,7 +313,6 @@ function GearButton() {
   return (
     <button
       class={'icon-btn' + (active ? ' active' : '')}
-      title="Settings — Alerts & Automation"
       onClick={() => { configOpen.value = !configOpen.value }}
     ><IconGear /></button>
   )
@@ -325,7 +323,6 @@ function HelpButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
-      title="Help"
       onClick={() => { activeTab.value = 'help' }}
     ><IconHelp /></button>
   )
@@ -336,7 +333,6 @@ function PricingButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
-      title="Pricing — full rate table TraceRoost uses to estimate cost"
       onClick={() => { activeTab.value = 'pricing' }}
     ><IconDollar /></button>
   )
@@ -544,31 +540,31 @@ export function App() {
         dismissedIds.value = new Set((msg as unknown as {ids: string[]}).ids)
       } else if (msg.type === 'reconfigureOtelResult' && msg.results) {
         otelReconfigureResult.value = msg.results
-      } else if (msg.type === 'teamStatus') {
-        teamStatus.value = (msg as unknown as { status: typeof teamStatus.value }).status
-        teamBusy.value = null
-      } else if (msg.type === 'teamPayloadPreview') {
-        teamPayloadBusy.value = false
-        teamPayloadPreview.value = (msg as unknown as { preview: typeof teamPayloadPreview.value }).preview
-      } else if (msg.type === 'teamActionResult') {
-        teamBusy.value = null
-        requestTeamStatus()
-      } else if (msg.type === 'teamReconcileProgress') {
+      } else if (msg.type === 'orgStatus') {
+        orgStatus.value = (msg as unknown as { status: typeof orgStatus.value }).status
+        orgBusy.value = null
+      } else if (msg.type === 'orgPayloadPreview') {
+        orgPayloadBusy.value = false
+        orgPayloadPreview.value = (msg as unknown as { previews: typeof orgPayloadPreview.value }).previews
+      } else if (msg.type === 'orgActionResult') {
+        orgBusy.value = null
+        requestOrgStatus()
+      } else if (msg.type === 'orgReconcileProgress') {
         const p = msg as unknown as { done: number; total: number }
-        teamReconcileProgress.value = { done: p.done, total: p.total }
-      } else if (msg.type === 'teamReconcileResult') {
-        teamReconcileBusy.value = false
-        teamReconcileProgress.value = null
+        orgReconcileProgress.value = { done: p.done, total: p.total }
+      } else if (msg.type === 'orgReconcileResult') {
+        orgReconcileBusy.value = false
+        orgReconcileProgress.value = null
         const r = msg as unknown as { queued: number; error?: string }
-        teamReconcileResult.value = { queued: r.queued, error: r.error }
-      } else if (msg.type === 'teamError') {
+        orgReconcileResult.value = { queued: r.queued, error: r.error }
+      } else if (msg.type === 'orgError') {
         // Safety net for a handler that threw before it could post its normal reply — clears
-        // every team busy/loading state so a backend bug shows as a stalled action, not a
+        // every org busy/loading state so a backend bug shows as a stalled action, not a
         // permanently stuck "Checking…"/"Building…" button. See panelController.ts.
-        teamBusy.value = null
-        teamReconcileBusy.value = false
-        teamReconcileProgress.value = null
-        teamPayloadBusy.value = false
+        orgBusy.value = null
+        orgReconcileBusy.value = false
+        orgReconcileProgress.value = null
+        orgPayloadBusy.value = false
       } else if (msg.type === 'instructionApplied') {
         // Re-request applied list after successful apply — handled by appliedSuggestions message
       } else if (msg.type === 'searchResults' && msg.sessions != null) {
@@ -593,8 +589,8 @@ export function App() {
 
   // Ask once, on mount, so the tab-bar state dot is honest immediately. This is answered from
   // local data only — an unlinked install makes no request as a result of this.
-  useEffect(() => { requestTeamStatus() }, [])
-  void teamOpen.value
+  useEffect(() => { requestOrgStatus() }, [])
+  void orgOpen.value
 
   // Standalone only — VS Code updates through the Marketplace, never npm. The server already
   // refreshes its own npm-registry check on a long interval, so one fetch per page load is
@@ -633,7 +629,7 @@ export function App() {
         </button>
         {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
         <div style="margin-left:auto;display:flex;align-items:center;border-left:1px solid var(--border);padding-left:2px">
-          <TeamButton />
+          <OrgButton />
           {window.__STANDALONE__ === true && <UpdateButton />}
           <BellButton />
           <GearButton />
@@ -650,7 +646,7 @@ export function App() {
       </div>
 
       <ConfigPanel />
-      <TeamPanel />
+      <OrgPanel />
     </>
   )
 }
@@ -819,11 +815,10 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         </div>
       )}
 
-      {/* Status/Reset/paging all stay grouped together and right-aligned — margin-left:auto on
-          the wrapper (not the individual controls) pulls the whole row against whatever's
-          before it. Reset sits right next to PageSizeSelect (the "page size" control) rather
-          than off on its own. */}
-      <span class="tr-trailing-controls" style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
+      {/* Status/Reset/paging stay grouped together, immediately after the last filter control
+          (no margin-left:auto) so there's no dead gap before them. Reset sits right next to
+          PageSizeSelect (the "page size" control) rather than off on its own. */}
+      <span class="tr-trailing-controls" style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
         <span role="status" class="range-status" title={searchError ?? undefined}>
           {searchError ? `⚠ ${searchError}` : ''}
         </span>

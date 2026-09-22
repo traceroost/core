@@ -22,7 +22,7 @@ TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry f
 12. [Auto-Configuration](#12-auto-configuration)
 13. [Background Service Mode](#13-background-service-mode)
 14. [Build Pipeline](#14-build-pipeline)
-15. [TraceRoost Pro — team link](#15-traceroost-pro--team-link)
+15. [TraceRoost Pro — org link](#15-traceroost-pro--org-link)
 
 ---
 
@@ -1058,13 +1058,13 @@ worth knowing about since it's the one part of the codebase `check-types` doesn'
 
 ---
 
-## 15. TraceRoost Pro — team link
+## 15. TraceRoost Pro — org link
 
-Everything in `src/cloud/team/` is the **client half of TraceRoost Pro** — an optional layer that lets a
+Everything in `src/cloud/org/` is the **client half of TraceRoost Pro** — an optional layer that lets a
 lead see cross-developer aggregates. It is built against two rules:
 
 1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
-   TraceRoost service — no version ping, no "do you have a team" check. `getTeamStatus()` and
+   TraceRoost service — no version ping, no "do you have an org" check. `getOrgStatus()` and
    `loadCredentials()` touch local disk only. The wire format (AL 02) has no free-text field, so
    there is nothing for source code to travel in.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my machine, my
@@ -1075,23 +1075,23 @@ lead see cross-developer aggregates. It is built against two rules:
 
 | Module | Responsibility |
 |---|---|
-| `src/cloud/team/config.ts` | The one list of every URL the client can contact; `TeamCredentials` shape |
-| `src/cloud/team/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
-| `src/cloud/team/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
-| `src/cloud/team/credentials.ts` | `~/.traceroost/team.json`, mode 0600, keychain-ready via `CredentialStore` |
-| `src/cloud/team/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
-| `src/cloud/team/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
-| `src/cloud/team/status.ts` | `getTeamStatus()` — local-only status for the panel, dot and CLI |
-| `src/cloud/team/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
-| `src/cloud/team/panelController.ts` | Transport-agnostic handler for `team*` webview messages; `reconcileLocalSessions` runs a bounded 6-worker pool, not serially |
+| `src/cloud/org/config.ts` | The one list of every URL the client can contact; `OrgCredentials` shape |
+| `src/cloud/org/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
+| `src/cloud/org/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
+| `src/cloud/org/credentials.ts` | `~/.traceroost/team.json`, mode 0600, keychain-ready via `CredentialStore` |
+| `src/cloud/org/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
+| `src/cloud/org/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
+| `src/cloud/org/status.ts` | `getOrgStatus()` — local-only status for the panel, dot and CLI |
+| `src/cloud/org/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
+| `src/cloud/org/panelController.ts` | Transport-agnostic handler for `org*` webview messages; `reconcileLocalSessions` runs a bounded 6-worker pool, not serially |
 | `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
 | `src/cloud/forward/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
 | `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
 | `src/cloud/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
 | `src/cloud/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
 | `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders (AL 08) — prose fields structurally unreachable |
-| `src/cloud/team/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
-| `src/cloud/team/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
+| `src/cloud/org/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
+| `src/cloud/org/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
 
 **The split that makes AL 08 genuinely Pro:** the cloud finds the pattern (some file is read in
 62% of sessions by four of six developers), the machine writes the text (which file, and the
@@ -1103,8 +1103,8 @@ baseline. Apply loop: `traceroost advise --apply <id>` regenerates with real pat
 captures a baseline; `vscode://agentlens.agentlens-dashboard/advise?id=…` is the editor deep
 link — routed through VS Code's own URI scheme, not a custom-registered `agentlens://` one; see
 `src/extension.ts`'s "Deep links" comment.
-| `src/cloud/team/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
-| `src/cloud/team/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
+| `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
+| `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
 | `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
 | `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
 | `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
@@ -1112,7 +1112,7 @@ link — routed through VS Code's own URI scheme, not a custom-registered `agent
 
 `traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
 (`standalone/cloud/explainPayload.ts`) print the exact bytes for a real session, stable-key-ordered,
-on a free install with no team. A test asserts the printed JSON equals the queued JSON (AL 04).
+on a free install with no org. A test asserts the printed JSON equals the queued JSON (AL 04).
 
 The wire contract (AL 02) is owned **here**, in the client the sceptic already trusts, and the
 service validates against the identical document. `src/cloud/forward/` is a closed island: every field
@@ -1123,14 +1123,14 @@ is **not** in the payload — the service derives identity from the bearer token
 
 ### Surfaces
 
-- **Team panel** (`media/src/cloud/panels/TeamPanel.tsx`) — a slide-in beside Settings, opened from a
+- **Org panel** (`media/src/cloud/panels/OrgPanel.tsx`) — a slide-in beside Settings, opened from a
   new tab-bar icon carrying a state dot (grey unlinked / green reporting / amber queued or
   degraded). The unlinked state is what almost every install shows forever; it states plainly
   that nothing is sent and offers `Show the exact payload` *before* linking.
-- **CLI** — `traceroost team <link|status|leave> [--device]` (`standalone/cloud/team-cli.ts`).
-- **Command palette** — `TraceRoost: Link This Machine to a Team`, `… Team Link Status`,
-  `… Leave Team`.
-- **Standalone server** — `GET/POST /api/team`, dispatched through the same `panelController`.
+- **CLI** — `traceroost org <link|status|leave> [--device]` (`standalone/cloud/org-cli.ts`).
+- **Command palette** — `TraceRoost: Link This Machine to an Org`, `… Org Link Status`,
+  `… Leave Org`.
+- **Standalone server** — `GET/POST /api/org`, dispatched through the same `panelController`.
 
 ### The free/paid boundary (AL 09)
 
@@ -1144,7 +1144,7 @@ pinned by a test.
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
 machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
 and `vscode://agentlens.agentlens-dashboard/cohort?repo=<hash>&merged=…&window=…`.
-`src/cloud/team/resolveRepoHash.ts` re-derives
+`src/cloud/org/resolveRepoHash.ts` re-derives
 repo hashes for local clones only — it is not an oracle, and a deep link for an unknown repo
 makes no request.
 

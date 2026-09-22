@@ -3,19 +3,19 @@
  *
  * The local Advisor is free and unchanged. What this adds is the apply loop: regenerate a
  * suggestion with real paths, show the drafted line, append it to the instruction file, capture
- * a baseline, and — only when a team is linked — emit a `SuggestionEvent`.
+ * a baseline, and — only when an org is linked — emit a `SuggestionEvent`.
  */
 
 import * as crypto from 'crypto'
 import * as path from 'path'
 import { generateSuggestions, type SuggestionCard } from '../../src/instructionAdvisor'
 import { detectInstructionFiles, appendSuggestion, readAllInstructionContent } from '../../src/instructionFiles'
-import { recordApplied } from '../../src/cloud/team/suggestionLedgerStore'
-import { readLedger } from '../../src/cloud/team/suggestionLedgerStore'
-import { maybeEnqueueInstructionTelemetry } from '../../src/cloud/team/instructionTelemetry'
+import { recordApplied } from '../../src/cloud/org/suggestionLedgerStore'
+import { readLedger } from '../../src/cloud/org/suggestionLedgerStore'
+import { maybeEnqueueInstructionTelemetry } from '../../src/cloud/org/instructionTelemetry'
 import { drainForwardQueueSoon } from '../../src/cloud/forward/scheduler'
-import { loadCredentials } from '../../src/cloud/team/credentials'
-import { fetchClusterResolution, matchLocalSessions } from '../../src/cloud/team/clusterResolve'
+import { loadCredentials } from '../../src/cloud/org/credentials'
+import { fetchClusterResolution, matchLocalSessions } from '../../src/cloud/org/clusterResolve'
 import { loadSessionsForWorkspace, loadAllSessions } from './sessionLoader'
 
 function sha256(s: string): string {
@@ -74,7 +74,7 @@ async function runApply(workspace: string, idOrHash: string): Promise<number> {
   const enqueued = await maybeEnqueueInstructionTelemetry(workspace, sessions, readLedger(workspace))
   if (enqueued) {
     drainForwardQueueSoon()
-    console.log('  A suggestion event (id hashed, no prose) was queued for your team.')
+    console.log('  A suggestion event (id hashed, no prose) was queued for your org.')
   }
   return 0
 }
@@ -97,7 +97,7 @@ async function runCluster(args: string[]): Promise<number> {
   }
 
   if (!loadCredentials()) {
-    console.log('Not linked to a team — nothing to resolve. Run `traceroost team link` first.')
+    console.log('Not linked to an org — nothing to resolve. Run `traceroost org link` first.')
     return 1
   }
 

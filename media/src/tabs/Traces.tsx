@@ -103,7 +103,7 @@ function StepDetail({ step, idx, sessIdx, sessionModel }: { step: Step; idx: num
         )}
         {entryCost > 0 && (
           <div class="sw-detail-section">
-            <div class="sw-detail-heading">Cost</div>
+            <div class="sw-detail-heading">Estimated cost</div>
             <div class="sw-detail-value">{fmtUsd(entryCost)}</div>
           </div>
         )}

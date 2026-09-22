@@ -28,7 +28,7 @@ export_*.json
 .claude/settings.local.json
 # Local pnpm package store, when created inside the repo instead of pnpm's global location
 .pnpm-store/
-# Local environment overrides for `npm run local` (e.g. TRACEROOST_TEAM_ENV) — never committed
+# Local environment overrides for `npm run local` (e.g. TRACEROOST_ORG_ENV) — never committed
 .env
 # Browser UX artifacts
 test-results/

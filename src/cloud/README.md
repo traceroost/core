@@ -3,7 +3,7 @@
 If you're browsing the tree wondering why this exists outside the rest of
 `src/`, this is the short answer. For the deep architecture, see
 [CLOUD_ARCHITECTURE.md](../../CLOUD_ARCHITECTURE.md) and
-[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-pro--team-link). For
+[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-pro--org-link). For
 what shipped feature-by-feature, see CLOUD_ARCHITECTURE.md's "What ships
 where" table.
 
@@ -11,7 +11,7 @@ where" table.
 
 ```
 src/cloud/
-├── team/          the paid, networked half — OAuth link, credentials, the
+├── org/           the paid, networked half — OAuth link, credentials, the
 │                  panel/CLI controller that turns a session close into a
 │                  queued rollup
 ├── forward/       the wire format, the disk-backed queue, and the sender
@@ -28,7 +28,7 @@ code: `media/src/cloud/panels/` + `media/src/cloud/tabs/`, and
 
 ## Why one directory for two different things
 
-`team/`+`forward/` and `attribution/`+`turnover/` sit on opposite sides of
+`org/`+`forward/` and `attribution/`+`turnover/` sit on opposite sides of
 the free/paid line — see the two rules in CLOUD_ARCHITECTURE.md. They're
 grouped here anyway, because the axis this directory answers to isn't
 pricing, it's **provenance and disposition**: everything in `src/cloud/` was
@@ -52,12 +52,12 @@ Why: everything else in this repository — the dashboard, the log readers,
 the standalone server, the extension shell — is a local developer tool with
 no plan to be sold as a hosted service by anyone, TraceRoost included.
 `src/cloud/` is different: it's the client half of the one thing here that
-*is* a commercial hosted product (the team/cloud service), and its
+*is* a commercial hosted product (the org/cloud service), and its
 counterpart lives in a closed-source repo already. Shipping the client side
 under the same permissive MIT terms as the rest of the tool would mean
 anyone could take this source, stand up the hosted half, and compete with
 that product on day one — which the free/local features can't be undercut
-on (there's no hosted component to duplicate), but the team/cloud service
+on (there's no hosted component to duplicate), but the org/cloud service
 can. BSL's shape fits that specific risk: source stays visible and usable
 for your own work (self-host it, build on it, run it as part of TraceRoost
 itself, including its free features), but re-hosting it commercially without

@@ -232,7 +232,7 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
   return map
 })()
 
-// Optional override, populated only by a linked install's src/cloud/team/pricingSync.ts —
+// Optional override, populated only by a linked install's src/cloud/org/pricingSync.ts —
 // unset (empty) for every unlinked install, which is the overwhelming majority of usage. Checked
 // first in lookupRates below, falling back to the local RATES_BY_COST_KEY exactly as before when
 // empty or when a model isn't in it. This is the one and only seam cloud-sourced pricing enters

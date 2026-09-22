@@ -6,6 +6,7 @@ import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
           ))}
           <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
           <line x1={PAD.left} y1={PAD.top + ch} x2={PAD.left + cw} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
-          <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="10" fill="var(--muted)">Cost (USD)</text>
+          <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="10" fill="var(--muted)">Estimated cost (USD)</text>
           <text x={10} y={PAD.top + ch / 2} text-anchor="middle" font-size="10" fill="var(--muted)"
             transform={`rotate(-90,10,${PAD.top + ch / 2})`}>LLM calls</text>
           {xTicks.map(t => (
@@ -173,7 +174,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
                 <tr style="border-bottom:1px solid var(--border)">
                   <th style={thStyle('time')}   onClick={() => toggleSort('time')}>Start Time{arrow('time')}</th>
                   <th style={thStyle('prompt')} onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</th>
-                  <th style={`${thStyle('cost')};text-align:right`}  onClick={() => toggleSort('cost')}>Cost{arrow('cost')}</th>
+                  <th style={`${thStyle('cost')};text-align:right`}  onClick={() => toggleSort('cost')}>Estimated cost{arrow('cost')}</th>
                   <th style={`${thStyle('turns')};text-align:right`} onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</th>
                   <th style={`${thStyle('cache')};text-align:right`} onClick={() => toggleSort('cache')}>Cache hit{arrow('cache')}</th>
                 </tr>
@@ -426,10 +427,42 @@ function HotFiles({ sessions }: { sessions: SessionSummaryCard[] }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-const ACTION_KIND_ICON: Record<CostSavingAction['kind'], string> = {
-  cache_rate: '⚡',
-  loop_signal: '🔁',
-  hot_file: '📄',
+// Same stroke-icon convention as ../signalIcons.tsx (24x24 viewBox, stroke-width 2, 13x13
+// rendered) rather than emoji, for the two action kinds that aren't loop signals and so have no
+// icon of their own in the traces table's Signals column. Path data adapted from Lucide
+// (lucide.dev, ISC license): zap / file-text.
+function IconZap({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+    </svg>
+  )
+}
+
+function IconFileText({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M10 9H8" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+    </svg>
+  )
+}
+
+// Loop-signal actions draw the exact same glyph the traces table's Signals column uses for that
+// pattern (same convention as Insights.tsx's InsightIcon) so "how to spend less" and the Signals
+// column always agree on what a given struggle pattern looks like. Non-loop kinds get a plain
+// neutral icon since they have no traces-table equivalent.
+function ActionIcon({ a }: { a: CostSavingAction }) {
+  if (a.kind === 'loop_signal') {
+    const iconType = a.loopSignalType ? LOOP_SIGNAL_ICON_TYPE[a.loopSignalType] : undefined
+    const Icon = iconType ? SIGNAL_ICON[iconType] : undefined
+    if (Icon) return <Icon color={SIGNAL_SEVERITY_COLOR[a.loopSignalSeverity ?? 'warning']} />
+  }
+  if (a.kind === 'cache_rate') return <IconZap color="var(--fg)" />
+  return <IconFileText color="var(--fg)" />
 }
 
 /** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
@@ -457,7 +490,9 @@ function SaveMoneyCard({ sessions }: { sessions: SessionSummaryCard[] }) {
       <div style="display:flex;flex-direction:column;gap:10px">
         {shown.map(a => (
           <div key={a.id} style="display:flex;gap:8px;align-items:flex-start;font-size:12px">
-            <span style="flex-shrink:0">{ACTION_KIND_ICON[a.kind]}</span>
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0;margin-top:2px">
+              <ActionIcon a={a} />
+            </span>
             <div>
               <div style="font-weight:600">{a.title}</div>
               <div style="color:var(--muted);margin:2px 0">{a.evidence}</div>

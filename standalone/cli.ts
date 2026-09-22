@@ -3,7 +3,7 @@
 // (use the @latest tag — a bare `npx traceroost` re-runs npx's cached copy without checking npm for a newer release)
 // `traceroost service <install|uninstall|start|stop|restart|status|logs>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
-// `traceroost team <link|status|leave> [--device]` links this machine to a team (Pro, AL 01).
+// `traceroost org <link|status|leave> [--device]` links this machine to an org (Pro, AL 01).
 
 async function main() {
   const args = process.argv.slice(2)
@@ -12,9 +12,9 @@ async function main() {
     process.exitCode = await runServiceCli(args.slice(1))
     return
   }
-  if (args[0] === 'team') {
-    const { runTeamCli } = await import('./cloud/team-cli.js')
-    process.exitCode = await runTeamCli(args.slice(1))
+  if (args[0] === 'org') {
+    const { runOrgCli } = await import('./cloud/org-cli.js')
+    process.exitCode = await runOrgCli(args.slice(1))
     return
   }
   if (args[0] === 'advise' || args[0] === 'cluster') {

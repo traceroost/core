@@ -12,7 +12,7 @@
 
 import { drainQueue, type DrainDeps } from './sender'
 import { DEFAULT_MAX_ITEMS } from './queue'
-import { loadCredentials } from '../team/credentials'
+import { loadCredentials } from '../org/credentials'
 
 // The most batches a single drain run could ever need to fully empty a queue at the hard item
 // cap, at the default per-batch limit (`drainQueue`'s own `batchLimit ?? 200`) — a sanity
@@ -36,7 +36,7 @@ export function startForwardScheduler(opts: {
    *  right after each individual item leaves the queue (see `drainQueue`'s `onItemDone`), so a
    *  large backlog's count visibly ticks down as it sends instead of sitting frozen at its
    *  pre-drain total for however long the whole batch takes. The queue depth and connectivity
-   *  indicator shown in the Team panel only change as a result of these, so this is the one place
+   *  indicator shown in the Org panel only change as a result of these, so this is the one place
    *  a host needs to hook to keep that panel live instead of stale until the next time it's
    *  reopened. */
   onDrainComplete?: () => void
@@ -129,7 +129,7 @@ export function startForwardScheduler(opts: {
 }
 
 // A process-wide handle so surfaces that aren't wired to the host (the webview panel controller,
-// the standalone `/api/team` route) can nudge the scheduler after a link/leave without threading
+// the standalone `/api/org` route) can nudge the scheduler after a link/leave without threading
 // it through every constructor.
 let activeScheduler: ForwardScheduler | undefined
 

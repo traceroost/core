@@ -1,6 +1,6 @@
 import { useEffect } from 'preact/hooks'
 import { PRICING_LAST_UPDATED, RATES, PRICING_SECTIONS, normalizeCostKey, type ModelRates } from '../pricing'
-import { teamStatus, requestTeamStatus, displayOrgName, type CloudRate } from '../cloud/panels/TeamPanel'
+import { orgStatus, requestOrgStatus, displayOrgName, type CloudRate } from '../cloud/panels/OrgPanel'
 
 // Table styling matches the established convention duplicated per-component across
 // the codebase (see Help.tsx's CostSection, Cost.tsx) rather than a shared import.
@@ -39,8 +39,8 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
   const hasTier = (r: ModelRates) => r.inputAbove200kPerMTok !== undefined
   const anyTiered = modelKeys.some(k => RATES[k] && hasTier(RATES[k]))
   const anyPromo = modelKeys.some(k => RATES[k] && RATES[k].promoNote)
-  const overrides = teamStatus.value?.cloudRateOverrides ?? {}
-  const endpoint = teamStatus.value?.endpoint
+  const overrides = orgStatus.value?.cloudRateOverrides ?? {}
+  const endpoint = orgStatus.value?.endpoint
 
   return (
     <>
@@ -97,11 +97,11 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
 }
 
 export function Pricing() {
-  useEffect(() => { requestTeamStatus() }, [])
+  useEffect(() => { requestOrgStatus() }, [])
 
   const assignedKeys = new Set(PRICING_SECTIONS.flatMap(s => s.modelKeys))
   const unassignedKeys = Object.keys(RATES).filter(k => !assignedKeys.has(k))
-  const st = teamStatus.value
+  const st = orgStatus.value
   const overrideCount = st ? Object.keys(st.cloudRateOverrides).length : 0
 
   return (

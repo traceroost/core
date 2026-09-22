@@ -1,6 +1,6 @@
 # TraceRoost Cloud Architecture
 
-This is the entry point for the **cloud / team** feature set merged onto this branch from the
+This is the entry point for the **cloud / org** feature set merged onto this branch from the
 `pro/01`–`pro/09` series (`AL 01`–`AL 09` in the plan below). It indexes the deep-dive docs that
 already exist rather than repeating them, and adds the diagrams none of them have yet.
 
@@ -8,7 +8,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 
 | Doc | Covers |
 | --- | --- |
-| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--team-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
+| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--org-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
 | [`src/cloud/README.md`](src/cloud/README.md) | Why this code lives in one directory, and under a different license |
 | [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
 | [`docs/wire-schema.md`](docs/wire-schema.md) | The exact wire contract, and how to verify the privacy claim yourself |
@@ -26,7 +26,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 
 ## Two repositories, one contract
 
-The team feature spans two codebases. This repo owns the wire schema; the hosted service
+The org feature spans two codebases. This repo owns the wire schema; the hosted service
 (`cloud`, closed-source, not in this checkout) only validates against it — never the reverse,
 because the claim *"this client cannot send your code"* is only worth what it's worth in the
 repository a skeptical developer already trusts.
@@ -34,11 +34,11 @@ repository a skeptical developer already trusts.
 ```mermaid
 graph TB
     subgraph Machine["Developer machine — this repo"]
-        PANEL["Team panel (webview)<br/>media/src/cloud/panels/TeamPanel.tsx"]
-        CLI["CLI<br/>traceroost team link / status / leave"]
-        LINK["src/cloud/team/link.ts<br/>PKCE + device flow"]
-        CRED["src/cloud/team/credentials.ts<br/>~/.traceroost/team.json (0600)"]
-        ENQ["src/cloud/team/enqueueSession.ts<br/>session close -> rollup"]
+        PANEL["Org panel (webview)<br/>media/src/cloud/panels/OrgPanel.tsx"]
+        CLI["CLI<br/>traceroost org link / status / leave"]
+        LINK["src/cloud/org/link.ts<br/>PKCE + device flow"]
+        CRED["src/cloud/org/credentials.ts<br/>~/.traceroost/team.json (0600)"]
+        ENQ["src/cloud/org/enqueueSession.ts<br/>session close -> rollup"]
         SCHEMA["src/cloud/forward/schema.ts + buildSessionRollup.ts<br/>hash everything, no free text"]
         QUEUE["src/cloud/forward/queue.ts<br/>~/.traceroost/forward-queue.jsonl"]
         SCHED["src/cloud/forward/scheduler.ts<br/>timer, only while linked"]
@@ -70,7 +70,7 @@ graph TB
 and is inspectable by anyone. Nothing crosses to the right unless `credentials.ts` has a saved
 credential — `ENQ`, `SCHED`, and `SEND` all check that first and return before touching disk or
 network otherwise. `--explain-payload` (`standalone/cloud/explainPayload.ts`) prints exactly what
-`SCHEMA` would build for a real session, so the claim above is checkable without a team at all.
+`SCHEMA` would build for a real session, so the claim above is checkable without an org at all.
 
 ## The free tier: fully local, no such diagram needed for privacy — but here's the pipeline
 
@@ -104,23 +104,23 @@ the denominator rather than guessed at.
 
 | Surface | Entry point | Notes |
 | --- | --- | --- |
-| VS Code command palette | `TraceRoost: Link This Machine to a Team` / `… Team Link Status` / `… Leave Team` | `registerTeamCommands` in `src/extension.ts` |
-| VS Code webview | Team panel, a slide-in beside Settings | `media/src/cloud/panels/TeamPanel.tsx` + `src/cloud/team/panelController.ts` |
+| VS Code command palette | `TraceRoost: Link This Machine to an Org` / `… Org Link Status` / `… Leave Org` | `registerOrgCommands` in `src/extension.ts` |
+| VS Code webview | Org panel, a slide-in beside Settings | `media/src/cloud/panels/OrgPanel.tsx` + `src/cloud/org/panelController.ts` |
 | Dashboard tab (free) | **Outcomes** | `media/src/cloud/tabs/Outcomes.tsx`; opens automatically on first measurable cohort |
-| CLI | `traceroost team <link\|status\|leave> [--device]` | `standalone/cloud/team-cli.ts` |
+| CLI | `traceroost org <link\|status\|leave> [--device]` | `standalone/cloud/org-cli.ts` |
 | CLI | `traceroost --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` |
 | CLI | `traceroost advise --apply <id>` | `standalone/cloud/adviseCli.ts` — regenerates instruction text with real paths, appends, captures a baseline |
 | CLI | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/cloud/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo |
-| Standalone HTTP | `GET/POST /api/team` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview |
+| Standalone HTTP | `GET/POST /api/org` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview |
 | Deep links | `vscode://agentlens.agentlens-dashboard/advise?id=…`, `vscode://agentlens.agentlens-dashboard/cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source. Routed through VS Code's own URI scheme, not a custom-registered one — see `src/extension.ts`'s "Deep links" comment |
 
 ## One session, end to end (linked machine)
 
 1. A session closes; `SessionStore` writes the `SessionSummaryCard` to local SQLite — unchanged
    from the free path.
-2. `maybeEnqueueSession` (`src/cloud/team/enqueueSession.ts`) checks `loadCredentials()`. Unlinked →
+2. `maybeEnqueueSession` (`src/cloud/org/enqueueSession.ts`) checks `loadCredentials()`. Unlinked →
    returns immediately, nothing else in this list runs.
-3. Linked → `buildPayloadForCard` (`src/cloud/team/payloadPreview.ts`) turns the card into a
+3. Linked → `buildPayloadForCard` (`src/cloud/org/payloadPreview.ts`) turns the card into a
    `RollupPayload` via `buildSessionRollup.ts`: every field is a hash, enum, count, or timestamp;
    `repoKey.ts` derives the repository identifier from the local clone's root commit (HKDF/HMAC),
    never the repo name or path.
@@ -139,7 +139,7 @@ the server-side token revoke is even attempted, so leaving while offline still w
 
 ## "Check for unsent traces" (on-demand reconcile)
 
-The Team panel's button (also run automatically right after linking, and on every log-file
+The Org panel's button (also run automatically right after linking, and on every log-file
 rediscovery) calls `reconcileLocalSessions` (`panelController.ts`), which runs steps 2–4 above for
 *every* local session the host knows about, not just the one that just closed — so a newly linked
 machine (or one that was offline) backfills its whole history instead of only reporting forward
@@ -165,9 +165,9 @@ implemented; git history has it.
 
 - `src/test/cloud/forward/schema.test.ts` walks `schema/rollup.v1.json` and fails the build if any
   string field is left unconstrained (no accidental free-text field).
-- `src/test/cloud/team/privacy.test.ts` pins the exact `SENT` / `NEVER_SENT` lists shown on the
+- `src/test/cloud/org/privacy.test.ts` pins the exact `SENT` / `NEVER_SENT` lists shown on the
   consent screen.
-- `src/test/cloud/team/pricingBoundary.test.ts` pins `docs/pricing-boundary.md` against the
+- `src/test/cloud/org/pricingBoundary.test.ts` pins `docs/pricing-boundary.md` against the
   shipped copy so the pricing page and the repo can't drift apart.
 - `standalone/cloud/explainPayload.ts` + its test assert the printed `--explain-payload` JSON equals
   what actually gets queued — the transparency claim is enforced, not just documented.

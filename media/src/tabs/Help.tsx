@@ -52,7 +52,7 @@ const HELP_SECTIONS = {
   costs:      { href: '#help-costs',      heading: 'Costs' },
   settings:   { href: '#help-settings',   heading: 'Settings' },
   mcp:        { href: '#help-mcp',        heading: 'MCP' },
-  team:       { href: '#help-team',       heading: 'Team' },
+  org:        { href: '#help-org',        heading: 'Org' },
   export:     { href: '#help-export',     heading: 'Export' },
   import:     { href: '#help-import',     heading: 'Import' },
   badges:     { href: '#help-badges',     heading: 'Badges' },
@@ -795,7 +795,7 @@ function SettingsSection() {
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for seven signals. When a live trace crosses a threshold the bell badge increments and the alert appears in the status card. Five alerts use per-agent profiles so you can tune Claude Code, Copilot, and Codex independently; the daily cost threshold is a single global dollar figure across all agents.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Daily Cost Threshold <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when today's total estimated cost across all agents (UTC day) crosses the configured dollar threshold. Disabled by default. Default threshold: $20/day.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
@@ -933,15 +933,15 @@ and follow any correction prompt it returns before continuing.`}</pre>
   )
 }
 
-function TeamSection() {
+function OrgSection() {
   return (
-    <div class="help-section" id="help-team">
-      <h3 class="help-heading">{HELP_SECTIONS.team.heading}</h3>
+    <div class="help-section" id="help-org">
+      <h3 class="help-heading">{HELP_SECTIONS.org.heading}</h3>
       <div class="help-overview-body">
-        <p>TraceRoost Cloud links your machine to your team so a lead can see aggregate figures — cost, turnover, activity — across everyone's repositories, without seeing any individual's work. It's opt-in, off by default, and never required for the local dashboard to work.</p>
+        <p>TraceRoost Cloud links your machine to your org so a lead can see aggregate figures — cost, turnover, activity — across everyone's repositories, without seeing any individual's work. It's opt-in, off by default, and never required for the local dashboard to work.</p>
 
         <h4 style={subHeadStyle}>What gets sent</h4>
-        <p style={mutedP}>Only counts, enums, hashes and timestamps — never prompts, diffs, file contents, file paths, repository or branch names, or commit messages. The exact list is shown in the Team panel and printed verbatim by <code style={codeStyle}>traceroost team --explain-payload</code>, so you never have to take this page's word for it.</p>
+        <p style={mutedP}>Only counts, enums, hashes and timestamps — never prompts, diffs, file contents, file paths, repository or branch names, or commit messages. The exact list is shown in the Org panel and printed verbatim by <code style={codeStyle}>traceroost --explain-payload</code>, so you never have to take this page's word for it.</p>
 
         <h4 style={subHeadStyle}>How the hashing works</h4>
         <p style={mutedP}>Commit ids and file ids are never sent as-is. Each one is put through a one-way hash (HMAC-SHA256), keyed by a value derived from your repository's own root commit and your organization's id. Two things follow from that:</p>
@@ -960,9 +960,9 @@ function TeamSection() {
         <p style={mutedP}>Linking opens your browser once, for account setup — nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; there's no server-side step and nothing to wait for.</p>
 
         <h4 style={subHeadStyle}>Going offline</h4>
-        <p style={mutedP}>Your local dashboard — everything in Sessions, Cost, Patterns, Analytics — has no dependency on internet connectivity at all, linked or not. Trace capture is either OTEL received on your own machine or read directly from each agent's own on-disk log file (every currently supported source keeps one); neither needs a network connection, only TraceRoost itself running.</p>
+        <p style={mutedP}>Your local dashboard — everything in Sessions, Estimated cost, Patterns, Analytics — has no dependency on internet connectivity at all, linked or not. Trace capture is either OTEL received on your own machine or read directly from each agent's own on-disk log file (every currently supported source keeps one); neither needs a network connection, only TraceRoost itself running.</p>
         <p style={mutedP}>That log-file reading is also what makes the data complete rather than just live: because TraceRoost reads the agent's own persisted transcript rather than only capturing a live stream, a session recorded before you linked, before TraceRoost was running, or during any gap still shows up in full once TraceRoost next reads that file. Nothing about being offline erases what the agent itself already wrote to disk.</p>
-        <p style={mutedP}>The one thing connectivity affects is sending rollups to your team, if linked. Offline, or if the service is briefly unreachable, sessions queue locally instead of being lost, and send automatically once you're back — no action needed. The queue is capped (oldest first) so an install that never reconnects doesn't grow it without bound; use <strong>Check for unsent traces</strong> in this panel any time you want to confirm nothing's stuck.</p>
+        <p style={mutedP}>The one thing connectivity affects is sending rollups to your org, if linked. Offline, or if the service is briefly unreachable, sessions queue locally instead of being lost, and send automatically once you're back — no action needed. The queue is capped (oldest first) so an install that never reconnects doesn't grow it without bound; use <strong>Check for unsent traces</strong> in this panel any time you want to confirm nothing's stuck.</p>
       </div>
     </div>
   )
@@ -1116,7 +1116,7 @@ export function Help() {
         <CostSection />
         <SettingsSection />
         <McpSection />
-        <TeamSection />
+        <OrgSection />
         <ExportSection />
         <ImportSection />
         <BadgesSection />

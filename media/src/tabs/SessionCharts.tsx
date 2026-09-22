@@ -1,11 +1,12 @@
 import * as preact from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { sessionSummary, displaySessions, rangedSessions, agentFilteredSessions, filteredSessions, sessionTimelines, burnRateData, focusedSessionId, activeTab, CHART_MAX, COLORS, vscode, goToHelp, timeRange } from '../state'
+import { sessionSummary, displaySessions, rangedSessions, agentFilteredSessions, filteredSessions, sessionTimelines, gitOutcomes, burnRateData, focusedSessionId, activeTab, CHART_MAX, COLORS, vscode, goToHelp, timeRange } from '../state'
 import {
   getSessionGlobalNumber,
   formatMs, formatCompact, getAgentColor, getAgentSourceLabel, formatSessionTime, formatSessionTimeShort,
 } from '../utils'
-import type { SessionSummaryCard } from '../types'
+import type { SessionSummaryCard, GitOutcome, FileOutcome } from '../types'
+import { OUTCOME_META } from './Sessions'
 
 type HeatReason = { text: string; linkPhrase?: string; helpId?: string }
 
@@ -555,6 +556,90 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
         </div>
       )}
     </>
+  )
+}
+
+// ── Outcome vs. tokens — median tokens per git outcome bucket ─────────────────
+// Answers "did the sessions that spent more tokens tend to land?" for the local,
+// single-developer view. See .staged-issues/outcome-vs-tokens-chart.md.
+
+// Only the three buckets `gitOutcome.ts` actually classifies locally get a bar — 'ambiguous' has
+// no OUTCOME_META entry (nothing meaningful to show, per Sessions.tsx's own comment) and is
+// excluded here the same way it's excluded from every other OUTCOME_META consumer.
+const OUTCOME_BUCKETS: FileOutcome[] = ['merged', 'committed', 'abandoned']
+
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0
+  const sorted = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+export interface OutcomeTokenBucket { outcome: FileOutcome; medianTokens: number; count: number }
+
+/** Buckets `sessions` by resolved git outcome and computes median input+output tokens per bucket.
+ *  A session with no entry in `outcomes` yet (not requested, or still resolving) or a `null`/
+ *  `'ambiguous'` entry is simply omitted — never counted as zero — so the chart shows what's
+ *  resolved so far and grows as `requestGitOutcomesFor` fills in the rest. Exported for the
+ *  chart component below and for anything that wants the same bucketing without the SVG. */
+export function buildOutcomeTokenBuckets(
+  sessions: SessionSummaryCard[],
+  outcomes: Record<string, GitOutcome | null | undefined>,
+): OutcomeTokenBucket[] {
+  const tokensByOutcome: Partial<Record<FileOutcome, number[]>> = {}
+  for (const s of sessions) {
+    const go = outcomes[s.sessionId]
+    if (!go || !OUTCOME_BUCKETS.includes(go.overall)) continue
+    const list = tokensByOutcome[go.overall] ?? (tokensByOutcome[go.overall] = [])
+    list.push((s.inputTokens ?? 0) + (s.outputTokens ?? 0))
+  }
+  return OUTCOME_BUCKETS
+    .filter(o => (tokensByOutcome[o]?.length ?? 0) > 0)
+    .map(o => ({ outcome: o, medianTokens: median(tokensByOutcome[o]!), count: tokensByOutcome[o]!.length }))
+}
+
+export function OutcomeTokenChart({ sessions }: { sessions: SessionSummaryCard[] }) {
+  const buckets = buildOutcomeTokenBuckets(sessions, gitOutcomes.value)
+
+  if (buckets.length === 0) {
+    return <div class="empty-state" style="font-size:11px">No traces with a resolved outcome yet — merged, committed, or uncommitted, per local git.</div>
+  }
+
+  const W = 600, H = 150
+  const pad = { top: 14, right: 16, bottom: 22, left: 44 }
+  const chartW = W - pad.left - pad.right, chartH = H - pad.top - pad.bottom
+  const maxTokens = Math.max(...buckets.map(b => b.medianTokens), 1)
+  const slotW = chartW / buckets.length
+  const barW = Math.min(70, slotW * 0.5)
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style="width:100%;height:150px;display:block">
+      {[0, 1, 2, 3].map(i => {
+        const y = pad.top + chartH * i / 3
+        const val = maxTokens * (3 - i) / 3
+        return (
+          <g key={i}>
+            <line x1={pad.left} y1={y} x2={pad.left + chartW} y2={y} stroke="var(--vscode-panel-border,#333)" stroke-width="0.5" />
+            {val > 0 && <text x={pad.left - 6} y={y} text-anchor="end" dominant-baseline="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">{formatCompact(val)}</text>}
+          </g>
+        )
+      })}
+      {buckets.map((b, i) => {
+        const meta = OUTCOME_META[b.outcome]!
+        const x = pad.left + i * slotW + (slotW - barW) / 2
+        const barH = Math.max((b.medianTokens / maxTokens) * chartH, 1)
+        const y = pad.top + chartH - barH
+        return (
+          <g key={b.outcome}>
+            <rect x={x} y={y} width={barW} height={barH} fill={meta.color} rx="2" />
+            <text x={x + barW / 2} y={y - 4} text-anchor="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">
+              {formatCompact(b.medianTokens)} · {b.count}
+            </text>
+            <text x={x + barW / 2} y={pad.top + chartH + 13} text-anchor="middle" font-size="10" fill={meta.color}>{meta.label}</text>
+          </g>
+        )
+      })}
+    </svg>
   )
 }
 

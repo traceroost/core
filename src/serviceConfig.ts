@@ -23,7 +23,7 @@ export interface ServiceConfig {
   authToken: string
   /** Stable per-machine identifier for TraceRoost Pro (AL 02). A UUID generated once, at first
    *  run, and persisted here beside the auth token — present from schema version 1 even before
-   *  anything reads it, so a later team link never needs a schema change plus a backfill.
+   *  anything reads it, so a later org link never needs a schema change plus a backfill.
    *  Empty until `ensureInstallId` generates one, same rationale as `authToken`. It is NOT sent
    *  in the rollup body — the service derives the install from the bearer token — but it keys
    *  the client's own forwarding queue and `--explain-payload` output. */

@@ -35,7 +35,7 @@ type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 // check), not just wording — so they get their own letters rather than sharing one. 'ambiguous'
 // has no entry at all — there's nothing meaningful to show for it (a deleted/moved file, or
 // classification not applicable), so every consumer below renders blank rather than a "?" badge.
-const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string }>> = {
+export const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string }>> = {
   merged:    { icon: '✓', letter: 'M', color: 'var(--tr-merged)', label: 'Merged' },
   committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed' },
   abandoned: { icon: '◑', letter: 'U', color: '#f6a623',          label: 'Uncommitted' },
@@ -755,7 +755,7 @@ export function Sessions() {
             <th scope="col" style={thBase + ';text-align:center;color:var(--fg)'} title="Struggle/loop patterns detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.">Signals</th>
             {sortHeader('total_tokens', 'Tokens', true, 'Accumulated input and output tokens across all turns')}
             {sortHeader('duration_ms', 'Duration', true)}
-            {sortHeader('cost', 'Cost', true)}
+            {sortHeader('cost', 'Estimated cost', true)}
           </tr>
         </thead>
         <tbody>

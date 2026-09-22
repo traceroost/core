@@ -4,11 +4,11 @@ import * as os from 'os'
 import * as path from 'path'
 import { startForwardScheduler } from '../../../cloud/forward/scheduler'
 import { ForwardQueue } from '../../../cloud/forward/queue'
-import { setCredentialStore, type CredentialStore } from '../../../cloud/team/credentials'
-import type { TeamCredentials } from '../../../cloud/team/config'
+import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
+import type { OrgCredentials } from '../../../cloud/org/config'
 import type { RollupPayload } from '../../../cloud/forward/schema'
 
-const CREDS: TeamCredentials = {
+const CREDS: OrgCredentials = {
   endpoint: 'https://traceroost.com',
   orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
   perDeveloperVisibility: false,
@@ -16,7 +16,7 @@ const CREDS: TeamCredentials = {
   accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
 }
 
-function memStore(initial: TeamCredentials | null): CredentialStore {
+function memStore(initial: OrgCredentials | null): CredentialStore {
   let cur = initial
   return { load: () => cur, save: c => { cur = c }, clear: () => { cur = null } }
 }
@@ -31,6 +31,15 @@ const ID1 = '11111111-1111-4111-8111-111111111111'
 
 const realFetch = globalThis.fetch
 
+/** A stub for the batch ingest endpoint: every item in the request succeeds. */
+function stubBatchOk(onRequest?: () => void): typeof fetch {
+  return (async (_url: unknown, init?: unknown) => {
+    onRequest?.()
+    const items = (JSON.parse(String((init as RequestInit | undefined)?.body)) as { items: unknown[] }).items
+    return new Response(JSON.stringify({ results: items.map(() => ({ status: 202 })) }), { status: 200 })
+  }) as typeof fetch
+}
+
 suite('forward/scheduler', () => {
   let home: string
   setup(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-scheduler-')) })
@@ -43,7 +52,7 @@ suite('forward/scheduler', () => {
   test('onDrainComplete fires after the drain that starting with a linked credential triggers', async () => {
     setCredentialStore(memStore(CREDS))
     new ForwardQueue(home).enqueue(payload(ID1))
-    globalThis.fetch = (async () => new Response('', { status: 202 })) as typeof fetch
+    globalThis.fetch = stubBatchOk()
 
     let calls = 0
     const scheduler = startForwardScheduler({ baseHome: home, onDrainComplete: () => { calls++ } })
@@ -68,22 +77,24 @@ suite('forward/scheduler', () => {
     const q = new ForwardQueue(home)
     const ids = Array.from({ length: 7 }, (_, i) => `${(i + 1).toString().repeat(8)}-0000-4000-8000-000000000000`)
     for (const id of ids) q.enqueue(payload(id))
-    let sendCount = 0
-    globalThis.fetch = (async () => { sendCount++; return new Response('', { status: 202 }) }) as typeof fetch
+    let requestCount = 0
+    globalThis.fetch = stubBatchOk(() => { requestCount++ })
 
     // batchLimit: 2 simulates a real backlog (200+ items) using a small queue — 7 items across
-    // 2-item batches needs 4 batches to fully drain.
+    // 2-item batches needs 4 batches (drainQueue calls) to fully drain. Each batch's items still
+    // go out in one HTTP request (well under the default httpBatchSize of 25), so this also
+    // covers that a queue-level batch and an HTTP batch aren't the same thing.
     const scheduler = startForwardScheduler({ baseHome: home, batchLimit: 2, intervalMs: 5 * 60_000 })
     await new Promise(resolve => setTimeout(resolve, 200))
     scheduler.dispose()
 
     assert.strictEqual(new ForwardQueue(home).depth(), 0, 'the whole backlog should drain in one run, without waiting for further ticks')
-    assert.strictEqual(sendCount, 7)
+    assert.strictEqual(requestCount, 4)
   })
 
   test('drainSoon triggers onDrainComplete again, on top of the initial one', async () => {
     setCredentialStore(memStore(CREDS))
-    globalThis.fetch = (async () => new Response('', { status: 202 })) as typeof fetch
+    globalThis.fetch = stubBatchOk()
 
     let calls = 0
     const scheduler = startForwardScheduler({ baseHome: home, onDrainComplete: () => { calls++ } })

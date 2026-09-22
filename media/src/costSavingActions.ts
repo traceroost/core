@@ -23,6 +23,12 @@ export interface CostSavingAction {
   action: string
   affectedSessions: number
   priority: 'high' | 'medium' | 'low'
+  /** Only set for kind 'loop_signal' — which pattern this is, so callers can draw the exact same
+   *  glyph the traces table's Signals column uses for it (see ../signalIcons.ts). */
+  loopSignalType?: LoopSignalType
+  /** Only set for kind 'loop_signal' — worst severity seen across occurrences, same escalation
+   *  rule as Sessions.tsx's SignalsCell (any 'critical' occurrence wins). */
+  loopSignalSeverity?: 'warning' | 'critical'
 }
 
 const CACHE_RATE_LOW_THRESHOLD = 0.6
@@ -45,13 +51,14 @@ function aggregateCacheHitRate(sessions: SessionSummaryCard[]): CostSavingAction
 }
 
 function loopSignalActions(sessions: SessionSummaryCard[]): CostSavingAction[] {
-  const byType = new Map<LoopSignalType, { count: number; sessionIds: Set<string>; patternName: string; action: string }>()
+  const byType = new Map<LoopSignalType, { count: number; sessionIds: Set<string>; patternName: string; action: string; severity: 'warning' | 'critical' }>()
   for (const s of sessions) {
     const seenTypes = new Set<LoopSignalType>()
     for (const signal of s.loopSignals ?? []) {
       if (seenTypes.has(signal.type)) continue
       seenTypes.add(signal.type)
-      const entry = byType.get(signal.type) ?? { count: 0, sessionIds: new Set<string>(), patternName: signal.patternName, action: signal.action }
+      const entry = byType.get(signal.type) ?? { count: 0, sessionIds: new Set<string>(), patternName: signal.patternName, action: signal.action, severity: 'warning' as const }
+      if (signal.severity === 'critical') entry.severity = 'critical'
       entry.count++
       entry.sessionIds.add(s.sessionId)
       byType.set(signal.type, entry)
@@ -59,7 +66,7 @@ function loopSignalActions(sessions: SessionSummaryCard[]): CostSavingAction[] {
   }
 
   const results: CostSavingAction[] = []
-  for (const [type, { count, sessionIds, patternName, action }] of byType) {
+  for (const [type, { count, sessionIds, patternName, action, severity }] of byType) {
     const pct = sessionIds.size / sessions.length
     results.push({
       id: `loop_signal:${type}`,
@@ -69,6 +76,8 @@ function loopSignalActions(sessions: SessionSummaryCard[]): CostSavingAction[] {
       action,
       affectedSessions: sessionIds.size,
       priority: pct >= 0.2 ? 'high' : pct >= 0.08 ? 'medium' : 'low',
+      loopSignalType: type,
+      loopSignalSeverity: severity,
     })
   }
   return results.sort((a, b) => b.affectedSessions - a.affectedSessions)

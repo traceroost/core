@@ -9,7 +9,7 @@
 
 import * as path from 'path'
 import { loadAllSessions } from './sessionLoader'
-import { resolveRepoHash } from '../../src/cloud/team/resolveRepoHash'
+import { resolveRepoHash } from '../../src/cloud/org/resolveRepoHash'
 import { repoRootOf } from '../../src/cloud/attribution/commitScan'
 import { computeTurnover } from '../../src/cloud/turnover'
 import { toAttributionSessions } from '../../src/cloud/attribution/fromSessions'

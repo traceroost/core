@@ -84,16 +84,16 @@
         "title": "TraceRoost: Show Storage Stats"
       },
       {
-        "command": "traceRoost.teamLink",
-        "title": "TraceRoost: Link This Machine to a Team (Cloud)"
+        "command": "traceRoost.orgLink",
+        "title": "TraceRoost: Link This Machine to an Org (Cloud)"
       },
       {
-        "command": "traceRoost.teamStatus",
-        "title": "TraceRoost: Team Link Status (Cloud)"
+        "command": "traceRoost.orgStatus",
+        "title": "TraceRoost: Org Link Status (Cloud)"
       },
       {
-        "command": "traceRoost.teamLeave",
-        "title": "TraceRoost: Leave Team (Cloud)"
+        "command": "traceRoost.orgLeave",
+        "title": "TraceRoost: Leave Org (Cloud)"
       }
     ],
     "menus": {

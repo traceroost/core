@@ -87,7 +87,7 @@ export class SessionRepository {
 
   /** Returns merged session list: live window + historical DB, sorted newest-first.
    *  Capped at `MAX_SESSIONS_TO_WEBVIEW` when the caller doesn't supply its own `limit` — see that
-   *  constant's doc comment. Pass `limit: Infinity` to bypass the cap entirely (used by team
+   *  constant's doc comment. Pass `limit: Infinity` to bypass the cap entirely (used by org
    *  reconcile, which must see every local session, not just the most recent N). */
   listSessions(filter?: {
     source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
@@ -147,7 +147,7 @@ export class SessionRepository {
     return this.reader.queryBurnRate(sessionId)
   }
 
-  /** Windowed + lifetime "hashed traces sent" transport stats for the Team panel. */
+  /** Windowed + lifetime "hashed traces sent" transport stats for the Org panel. */
   queryTraceSendStats(now: number): TraceSendStats {
     return this.reader.queryTraceSendStats(now)
   }

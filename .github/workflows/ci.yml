@@ -8,9 +8,16 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      # Windows sits alongside Ubuntu, not behind it: this extension does real OS-sensitive work
+      # (path handling, spawning `git`, sql.js WASM, reading log locations under the user's home
+      # dir) that Ubuntu-only CI has never exercised — see the Windows-validation discussion this
+      # job follows up on. fail-fast: false so a Windows-only failure doesn't cancel the Ubuntu
+      # leg (and vice versa) — they're independent signals, not a single pass/fail gate.
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node-version: [24]
 
     steps:
@@ -51,6 +58,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: core-ux-report
+          name: core-ux-report-${{ matrix.os }}
           path: test-results/ux/
           retention-days: 14

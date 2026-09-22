@@ -6,8 +6,8 @@ const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
 // Baked in at build time, not read at runtime — so a real release install can't be pointed at a
-// non-production TraceRoost Pro environment just by setting TRACEROOST_TEAM_ENV/_URL in the
-// shell or a .env file. See src/cloud/team/config.ts's resolveTeamEnvironment().
+// non-production TraceRoost Pro environment just by setting TRACEROOST_ORG_ENV/_URL in the
+// shell or a .env file. See src/cloud/org/config.ts's resolveOrgEnvironment().
 const releaseDefine = { 'process.env.TRACEROOST_RELEASE_BUILD': production ? '"1"' : '""' };
 
 function copySqlWasm() {

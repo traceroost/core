@@ -60,7 +60,7 @@ interface AlertResult {
 }
 
 const DEFAULT_CONFIGS: AlertConfig[] = [
-  { id: 'daily_cost', label: 'Daily Cost Threshold', severity: 'warning', description: 'Fires when today\'s total estimated cost across all agents crosses the configured dollar threshold.', enabled: false, threshold: 20, unit: 'usd', min: 1, max: 500, step: 1 },
+  { id: 'daily_cost', label: 'Daily Estimated Cost Threshold', severity: 'warning', description: 'Fires when today\'s total estimated cost across all agents crosses the configured dollar threshold.', enabled: false, threshold: 20, unit: 'usd', min: 1, max: 500, step: 1 },
   { id: 'context_window', label: 'Context Window Filling Up', severity: 'warning', description: 'Fires when any session reaches the configured peak input-token threshold for that agent.', enabled: true, threshold: 170000, unit: 'tokens', min: 10000, max: 1000000, step: 1000, agentThresholds: { claude_code: 170000, copilot: 108800, codex: 340000, opencode: 170000, cursor: 170000 } },
   { id: 'high_turns', label: 'Too Many Turns Per Trace', severity: 'warning', description: 'Fires when any trace reaches its agent-specific LLM turn alert threshold. High turn counts often indicate scope creep or a task that should be split.', enabled: true, threshold: 200, unit: 'agent profile', min: 20, max: 500, step: 10 },
   { id: 'error_spike', label: 'Error Spike', severity: 'error', description: 'Fires when any session reaches its agent-specific error count threshold.', enabled: true, threshold: 5, unit: 'agent profile', min: 2, max: 20, step: 1 },

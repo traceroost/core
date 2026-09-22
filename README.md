@@ -585,7 +585,7 @@ TraceRoost was built primarily with [Claude](https://www.anthropic.com/claude). 
 ## License
 
 MIT, except the `src/cloud/`, `media/src/cloud/`, and `standalone/cloud/`
-directories (the Pro/cloud team feature) — see [NOTICE.md](NOTICE.md).
+directories (the Pro/cloud org feature) — see [NOTICE.md](NOTICE.md).
 
 ## Disclaimer
 

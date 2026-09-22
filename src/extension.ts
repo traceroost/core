@@ -20,15 +20,15 @@ import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
 import { startMcpHttpServer } from './mcpServer'
 import { InstructionRepository } from './database/instructionRepository'
-import { linkInteractive, leave } from './cloud/team/link'
-import { getTeamStatus } from './cloud/team/status'
-import { SENT, NEVER_SENT } from './cloud/team/privacy'
+import { linkInteractive, leave } from './cloud/org/link'
+import { getOrgStatus } from './cloud/org/status'
+import { SENT, NEVER_SENT } from './cloud/org/privacy'
 import { getQueueStats } from './cloud/forward/currentQueueStats'
-import { maybeEnqueueSession } from './cloud/team/enqueueSession'
-import { maybeEnqueueInstructionTelemetry, EMPTY_LEDGER } from './cloud/team/instructionTelemetry'
+import { maybeEnqueueSession } from './cloud/org/enqueueSession'
+import { maybeEnqueueInstructionTelemetry, EMPTY_LEDGER } from './cloud/org/instructionTelemetry'
 import { startForwardScheduler, type ForwardScheduler } from './cloud/forward/scheduler'
-import { startPricingSync } from './cloud/team/pricingSync'
-import { resolveRepoHash } from './cloud/team/resolveRepoHash'
+import { startPricingSync } from './cloud/org/pricingSync'
+import { resolveRepoHash } from './cloud/org/resolveRepoHash'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -162,7 +162,7 @@ export async function activate(context: vscode.ExtensionContext) {
             writeLastWriteSignal(context.globalStorageUri)
           }).catch(err => console.error('[TraceRoost] writer.drain error:', err))
           // Pro: build a rollup for this session and append it to the forwarding queue. A hard
-          // no-op unless a team is linked. The actual network send happens later, on a timer.
+          // no-op unless an org is linked. The actual network send happens later, on a timer.
           void maybeEnqueueSession({ ...card, workspace: card.workspace || workspace }, m => outputChannel?.appendLine(m))
             .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
           if (workspace) {
@@ -332,7 +332,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 const dk = files[i].agentKey === 'copilot_vscode_json' ? 'copilot_vscode' : files[i].agentKey
                 countByKey.set(dk, (countByKey.get(dk) ?? 0) + 1)
                 written++
-                // Pro: enqueue this session for forwarding. Hard no-op unless a team is
+                // Pro: enqueue this session for forwarding. Hard no-op unless an org is
                 // linked. Has to happen in this one-time historical load, not only wherever
                 // a live session close triggers it — lr.parseFile() above records this
                 // file's mtime/size into the same LogReader's fileState that a later
@@ -473,7 +473,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   )
 
-  registerTeamCommands(context)
+  registerOrgCommands(context)
   registerUriHandler(context, repo)
 
   context.subscriptions.push(
@@ -615,14 +615,14 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // ── Pro: forwarding scheduler ───────────────────────────────────────────────
-  // No timer runs unless a team is linked; `syncToLinkState` starts/stops it after link/leave.
+  // No timer runs unless an org is linked; `syncToLinkState` starts/stops it after link/leave.
   forwardScheduler = startForwardScheduler({
     notify: (message, kind) => {
       if (kind === 'warning') vscode.window.showWarningMessage(message)
       else vscode.window.showInformationMessage(message)
     },
     log: (msg) => outputChannel?.appendLine(msg),
-    onDrainComplete: () => DashboardPanel.pushTeamStatus(),
+    onDrainComplete: () => DashboardPanel.pushOrgStatus(),
     recordSent: (count, at) => {
       repository?.recordTraceSent(count, at)
       traceRoostDb?.save()
@@ -633,7 +633,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // ── Pro: pricing sync ────────────────────────────────────────────────────────
   // Same "no timer unless linked" invariant as the forwarding scheduler above, on its own
   // (longer) interval — see pricingSync.ts for why it isn't just piggybacked on the drain cadence.
-  const pricingSync = startPricingSync({ onSync: () => DashboardPanel.pushTeamStatus() })
+  const pricingSync = startPricingSync({ onSync: () => DashboardPanel.pushOrgStatus() })
   context.subscriptions.push({ dispose: () => pricingSync.dispose() })
 
   // ── Status bar ───────────────────────────────────────────────────────────────
@@ -667,20 +667,20 @@ export async function activate(context: vscode.ExtensionContext) {
   notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
 }
 
-// ── Team (TraceRoost Pro) commands ───────────────────────────────────────────
+// ── Org (TraceRoost Pro) commands ───────────────────────────────────────────
 //
-// Every capability here is inert until a team is explicitly linked. Registering the commands
-// does nothing on its own — `getTeamStatus()` and `loadCredentials()` touch only local disk.
+// Every capability here is inert until an org is explicitly linked. Registering the commands
+// does nothing on its own — `getOrgStatus()` and `loadCredentials()` touch only local disk.
 
-function registerTeamCommands(context: vscode.ExtensionContext): void {
+function registerOrgCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand('traceRoost.teamLink', async () => {
-      if (getTeamStatus().linked) {
-        vscode.window.showInformationMessage('TraceRoost: this machine is already linked. Run "TraceRoost: Leave Team" first to re-link.')
+    vscode.commands.registerCommand('traceRoost.orgLink', async () => {
+      if (getOrgStatus().linked) {
+        vscode.window.showInformationMessage('TraceRoost: this machine is already linked. Run "TraceRoost: Leave Org" first to re-link.')
         return
       }
       const proceed = await vscode.window.showInformationMessage(
-        'Link this machine to a TraceRoost Cloud team?\n\nSent: ' + SENT.join('; ') + '.\n\nNever sent: ' + NEVER_SENT.join('; ') + '.',
+        'Link this machine to a TraceRoost Cloud org?\n\nSent: ' + SENT.join('; ') + '.\n\nNever sent: ' + NEVER_SENT.join('; ') + '.',
         { modal: true },
         'Open browser to link',
       )
@@ -697,25 +697,25 @@ function registerTeamCommands(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`TraceRoost: link failed — ${(err as Error).message}. Nothing was changed.`)
       }
     }),
-    vscode.commands.registerCommand('traceRoost.teamStatus', () => {
-      const s = getTeamStatus(getQueueStats())
+    vscode.commands.registerCommand('traceRoost.orgStatus', () => {
+      const s = getOrgStatus(getQueueStats())
       vscode.window.showInformationMessage(
         s.linked
           ? `TraceRoost Cloud: linked to ${s.orgName} as ${s.role}. Queue depth ${s.queueDepth ?? 0}, last trace ${s.lastRollupAt ?? 'none yet'}.`
           : 'TraceRoost Cloud: not linked. TraceRoost is working locally and sending nothing anywhere.',
       )
     }),
-    vscode.commands.registerCommand('traceRoost.teamLeave', async () => {
-      if (!getTeamStatus().linked) {
+    vscode.commands.registerCommand('traceRoost.orgLeave', async () => {
+      if (!getOrgStatus().linked) {
         vscode.window.showInformationMessage('TraceRoost: this machine is not linked.')
         return
       }
       const confirm = await vscode.window.showWarningMessage(
-        'Leave the TraceRoost Cloud team? The local credential is deleted and this machine stops forwarding immediately.',
+        'Leave the TraceRoost Cloud org? The local credential is deleted and this machine stops forwarding immediately.',
         { modal: true },
-        'Leave team',
+        'Leave org',
       )
-      if (confirm !== 'Leave team') return
+      if (confirm !== 'Leave org') return
       const res = await leave()
       vscode.window.showInformationMessage(
         res.serverRevoked

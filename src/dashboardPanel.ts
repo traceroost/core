@@ -11,13 +11,13 @@ import { classifySessionOutcome, resolveOutcomeCacheKey, type GitOutcome } from 
 import { GitOutcomeRepository } from './database/gitOutcomeRepository'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
-import { handleTeamMessage, type TeamPanelDeps } from './cloud/team/panelController'
-import { buildPayloadPreviewText } from './cloud/team/payloadPreview'
-import { loadCredentials } from './cloud/team/credentials'
+import { handleOrgMessage, type OrgPanelDeps } from './cloud/org/panelController'
+import { buildPayloadPreviewTexts } from './cloud/org/payloadPreview'
+import { loadCredentials } from './cloud/org/credentials'
 import { deriveRepoKey, repoHash } from './cloud/forward/repoKey'
 import { resolveGithubUrl } from './repoRemote'
-import { teamEndpoint } from './cloud/team/config'
-import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/team/instructionTelemetry'
+import { orgEndpoint } from './cloud/org/config'
+import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/org/instructionTelemetry'
 import { drainForwardQueueSoon } from './cloud/forward/scheduler'
 
 /** The sql.js surface the turnover report needs for its caches. */
@@ -93,14 +93,14 @@ export class DashboardPanel {
     DashboardPanel.currentPanel?.dispose()
   }
 
-  /** Pushes a fresh team status to the open panel, if any — call after anything that can change
+  /** Pushes a fresh org status to the open panel, if any — call after anything that can change
    *  what it shows without the user having triggered it directly (a background forward-queue
    *  drain, in particular; see `forwardScheduler`'s `onDrainComplete` in extension.ts). A no-op,
    *  cheaply, when no panel is open. */
-  static pushTeamStatus() {
+  static pushOrgStatus() {
     const panel = DashboardPanel.currentPanel
     if (!panel) return
-    void handleTeamMessage({ type: 'getTeamStatus' }, panel.teamDeps())
+    void handleOrgMessage({ type: 'getOrgStatus' }, panel.orgDeps())
   }
 
   private constructor(
@@ -116,15 +116,15 @@ export class DashboardPanel {
     this.panel.webview.html = this.getHtml()
 
     this.panel.webview.onDidReceiveMessage(async msg => {
-      if (typeof msg.type === 'string' && (msg.type === 'getTeamStatus' || msg.type.startsWith('team'))) {
+      if (typeof msg.type === 'string' && (msg.type === 'getOrgStatus' || msg.type.startsWith('org'))) {
         try {
-          await handleTeamMessage(msg, this.teamDeps())
+          await handleOrgMessage(msg, this.orgDeps())
         } catch (err) {
-          // Belt-and-suspenders: individual team* cases reply on both success and failure, but if
+          // Belt-and-suspenders: individual org* cases reply on both success and failure, but if
           // one doesn't, this is what stops the webview's busy/loading state from hanging forever
-          // with no error shown (see App.tsx's `teamError` handler).
-          console.error('[TraceRoost] team message handler failed:', err)
-          this.panel.webview.postMessage({ type: 'teamError', error: (err as Error).message })
+          // with no error shown (see App.tsx's `orgError` handler).
+          console.error('[TraceRoost] org message handler failed:', err)
+          this.panel.webview.postMessage({ type: 'orgError', error: (err as Error).message })
         }
         return
       }
@@ -265,7 +265,7 @@ export class DashboardPanel {
   }
 
   /** Builds an instruction-telemetry rollup for `workspace` and queues it — a hard no-op unless
-   *  a team is linked. Called after any apply / dismiss / revert so the pooled evidence stays
+   *  an org is linked. Called after any apply / dismiss / revert so the pooled evidence stays
    *  current (AL 08). */
   private emitInstructionTelemetry(workspace: string): void {
     if (!this.instructionRepo) return
@@ -434,7 +434,7 @@ export class DashboardPanel {
   // matched up with its row in the cloud dashboard on sight. Unlinked installs get the same
   // 'unlinked-preview' salt buildPayloadForCard's own preview path already uses, so the value is
   // still stable and distinguishes repos from each other locally, it just won't match cloud until
-  // the team links.
+  // the org links.
   //
   // `name` is the git-resolved repo root's own basename (`rk.ctx.root`), prefixed with its parent
   // folder's name where one exists (e.g. "traceroost/core") — not the workspace path itself:
@@ -523,9 +523,9 @@ export class DashboardPanel {
     vscode.window.showTextDocument(doc, { preview: false })
   }
 
-  /** One source of truth for the Team panel's host dependencies — used both by the real webview
-   *  message handler and by `pushTeamStatus()`'s unprompted push, so they can never drift. */
-  private teamDeps(): TeamPanelDeps {
+  /** One source of truth for the Org panel's host dependencies — used both by the real webview
+   *  message handler and by `pushOrgStatus()`'s unprompted push, so they can never drift. */
+  private orgDeps(): OrgPanelDeps {
     return {
       post: (m) => { void this.panel.webview.postMessage(m) },
       openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)) },
@@ -537,9 +537,13 @@ export class DashboardPanel {
       // MAX_SESSIONS_TO_WEBVIEW doc comment and .staged-issues/reconcile-gap-and-latency.md.
       allLocalSessions: () => this.repo.listSessions({ limit: Infinity }),
       traceSendStats: () => this.repo.queryTraceSendStats(Date.now()),
-      buildPayloadPreview: (session) => buildPayloadPreviewText(session),
-      onOpenTeamView: () => {
-        const url = loadCredentials()?.endpoint ?? teamEndpoint()
+      buildPayloadPreview: (sessions) => buildPayloadPreviewTexts(sessions),
+      onOpenOrgView: () => {
+        // Deep-links straight into the org's own dashboard, not the bare marketing root —
+        // `[org]`'s route in `cloud` accepts either a slug or a raw org id (see currentOrg()
+        // there), so this works even though only the id, never a slug, is ever stored locally.
+        const creds = loadCredentials()
+        const url = creds ? `${creds.endpoint}/${creds.orgId}` : orgEndpoint()
         void vscode.env.openExternal(vscode.Uri.parse(url)).then(
           (opened) => { if (!opened) void vscode.window.showErrorMessage(`TraceRoost: could not open ${url} in your browser.`) },
           (err) => { void vscode.window.showErrorMessage(`TraceRoost: could not open ${url}: ${err instanceof Error ? err.message : err}`) },
