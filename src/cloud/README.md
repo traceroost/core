@@ -32,9 +32,9 @@ code: `media/src/cloud/panels/` + `media/src/cloud/tabs/`, and
 the free/paid line — see the two rules in CLOUD_ARCHITECTURE.md. They're
 grouped here anyway, because the axis this directory answers to isn't
 pricing, it's **provenance and disposition**: everything in `src/cloud/` was
-built as one connected effort (the `pro/01`–`pro/09` series, against the
-closed-source `cloud` service), ships as one thing, and is the part of this
-codebase that could be spun out or licensed differently from the rest.
+built as one connected effort (the `pro/01`–`pro/09` series), ships as one
+thing, and is the part of this codebase that could be spun out or licensed
+differently from the rest.
 Pricing tier is a property of a *feature*, documented per-feature in
 CLOUD_ARCHITECTURE.md's "what ships where" table — not a property of this
 directory boundary. Don't infer "under `src/cloud/`" to mean "behind a
@@ -52,10 +52,10 @@ Why: everything else in this repository — the dashboard, the log readers,
 the standalone server, the extension shell — is a local developer tool with
 no plan to be sold as a hosted service by anyone, TraceRoost included.
 `src/cloud/` is different: it's the client half of the one thing here that
-*is* a commercial hosted product (the org/cloud service), and its
-counterpart lives in a closed-source repo already. Shipping the client side
-under the same permissive MIT terms as the rest of the tool would mean
-anyone could take this source, stand up the hosted half, and compete with
+*is* a commercial hosted product (the org/cloud service). Shipping the
+client side under the same permissive MIT terms as the rest of the tool
+would mean anyone could take this source, stand up the hosted half, and
+compete with
 that product on day one — which the free/local features can't be undercut
 on (there's no hosted component to duplicate), but the org/cloud service
 can. BSL's shape fits that specific risk: source stays visible and usable

@@ -19,8 +19,9 @@ import { classifyOtlpPayload } from '../src/otlpParser'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
-import { classifySessionOutcome, resolveOutcomeCacheKey, type GitOutcome } from '../src/gitOutcome'
-import { GitOutcomeRepository } from '../src/database/gitOutcomeRepository'
+import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from '../src/gitOutcome'
+import { ReconciliationService, type ReconcileResult } from '../src/reconcile/reconciliationService'
+import { startBackgroundReconciliation, type BackgroundWatcher } from '../src/reconcile/backgroundWatcher'
 import { detectSessionRiskSignals } from '../src/sessionRiskSignals'
 import { temperLoopSignalSeverity } from '../src/loopDetector'
 import { generateSuggestions } from '../src/instructionAdvisor'
@@ -135,6 +136,10 @@ const DATA_FILE = path.join(DATA_DIR, 'spans.json')
 
 let spans: Span[] = []
 let sseClients: http.ServerResponse[] = []
+// Bumped on every mutation to `spans` or `logSessions` — buildSessionSummary() caches its
+// (expensive, ~50k-span) summarizeSpans() pass keyed on this instead of recomputing on every
+// call. See buildSessionSummary()'s doc comment for why that recompute was pegging the CPU.
+let dataVersion = 0
 
 // Load persisted spans on startup
 try {
@@ -166,6 +171,7 @@ function saveSpansNow(): boolean {
       const keep = Math.floor(spans.length / 2)
       const dropped = spans.length - keep
       spans.splice(0, dropped)
+      dataVersion++
       console.warn(`[TraceRoost] Save failed (spans array too large to serialize) — dropped oldest ${dropped} spans and retrying`)
       try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(spans))
@@ -192,6 +198,7 @@ function addSpan(span: Span) {
   spans.push(span)
   const dropped = pruneSpans(spans, MAX_SPANS)
   if (dropped > 0) console.warn(`[TraceRoost] Pruned ${dropped} oldest spans to stay under the ${MAX_SPANS}-span cap`)
+  dataVersion++
 }
 
 // ── Log file sessions ─────────────────────────────────────────────────────────
@@ -200,25 +207,46 @@ function addSpan(span: Span) {
 // when the same session ID appears in both, the OTEL version is used.
 let logSessions: Map<string, SessionSummaryCard> = new Map()
 
-// De-dupes concurrent/repeat requests for the life of the server process — holds in-flight
-// promises so two requests for the same not-yet-cached session don't both shell out to git.
-// Mirrors DashboardPanel's gitOutcomeCache. The durable cache is GitOutcomeRepository
-// (git_outcome table in outcomesDb), which is what survives a server restart.
-const gitOutcomeCache = new Map<string, Promise<GitOutcome | null>>()
+// Host-independent reconciliation (staged feature 10) — created once outcomesDb opens, in
+// startLogIngestion() below. Undefined only when sql.js failed to load; getGitOutcome falls back
+// to an in-flight-only, non-durable classification in that case, same posture as before this
+// feature (a permanent-until-restart Map has been replaced either way — see reconciliationService.ts).
+let reconciliationService: ReconciliationService | undefined
+let backgroundWatcher: BackgroundWatcher | undefined
+const fallbackInFlight = new Map<string, Promise<GitOutcome | null>>()
 
-async function loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[]): Promise<GitOutcome | null> {
-  if (outcomesDb && workspace && filesChanged.length > 0) {
-    const key = await resolveOutcomeCacheKey(workspace, filesChanged)
-    if (key) {
-      const repo = new GitOutcomeRepository(outcomesDb.raw)
-      const cached = repo.get(sessionId, key.cacheKey)
-      if (cached !== undefined) return cached
-      const outcome = await classifySessionOutcome(workspace, filesChanged)
-      if (outcome) repo.put(sessionId, key.root, key.cacheKey, outcome)
-      return outcome
-    }
+// Mirrors DashboardPanel's identical subscription — independent of reconciliationService (also
+// covers the uncached fallbackInFlight path above), so wire it unconditionally at module load
+// rather than inside startLogIngestion's conditional setup.
+onRunningGitCommandsChanged(commands => broadcastSse({ type: 'runningGitCommands', commands }))
+
+async function loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[], endTime: string): Promise<{ outcome: GitOutcome | null; revision: number | null; deferred: boolean }> {
+  if (reconciliationService) {
+    const result = await reconciliationService.reconcile({ sessionId, workspace, filesChanged, endTime })
+    return { outcome: result.outcome, revision: result.revision, deferred: result.deferred }
   }
-  return classifySessionOutcome(workspace, filesChanged)
+  let pending = fallbackInFlight.get(sessionId)
+  if (!pending) {
+    pending = classifySessionOutcome(workspace, filesChanged)
+    fallbackInFlight.set(sessionId, pending)
+  }
+  try {
+    return { outcome: await pending, revision: null, deferred: false }
+  } finally {
+    fallbackInFlight.delete(sessionId)
+  }
+}
+
+/** Pushes an unsolicited reconciliation result to every open tab, exactly like DashboardPanel's
+ *  pushGitOutcomeResult — the background watcher calls this via the service subscription below,
+ *  so "leave Traces open through multiple commits and a merge" converges without the tab
+ *  re-requesting anything. */
+function pushGitOutcomeResult(r: ReconcileResult): void {
+  const card = buildSessionSummary()?.sessions.find(s => s.sessionId === r.sessionId) ?? null
+  if (!card) return
+  const riskSignals = detectSessionRiskSignals(card, card.workspace)
+  const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], r.outcome)
+  broadcastSse({ type: 'gitOutcome', sessionId: r.sessionId, outcome: r.outcome, riskSignals, temperedLoopSignals, revision: r.revision })
 }
 
 // Repo info, keyed by workspace path. `hash` is repoKey.ts's repoHash — the same hash
@@ -329,6 +357,7 @@ function runLogScan() {
   for (const { card } of results) {
     card.oneShotStats = computeOneShotStats(card)
     logSessions.set(card.sessionId, card)
+    dataVersion++
     changed = true
     // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
     void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
@@ -367,6 +396,34 @@ async function startLogIngestion() {
     outcomesDb = await openOutcomesDb(DATA_DIR)
   } catch { /* falls back to uncached git-outcome classification, same as before this existed */ }
 
+  // Live trace reconciliation (staged feature 10) — runs from server lifecycle, not from any
+  // particular browser tab being open, so a commit/merge made while the tab is closed is already
+  // reconciled by the time it's reopened. See reconciliationService.ts and backgroundWatcher.ts.
+  if (outcomesDb) {
+    reconciliationService = new ReconciliationService(outcomesDb.raw)
+    const unsubscribe = reconciliationService.subscribe(pushGitOutcomeResult)
+    // See extension.ts's identical wiring — a background-detected revision change must reach the
+    // forwarding queue, not just the open tab's UI.
+    const unsubscribeForwarding = reconciliationService.subscribe((r) => {
+      if (!r.changed || r.revision === null) return
+      const card = buildSessionSummary()?.sessions.find(s => s.sessionId === r.sessionId)
+      if (!card) return
+      void maybeEnqueueSession(card, m => console.log(m), undefined, r.revision)
+        .then(res => { if (res.enqueued) drainForwardQueueSoon() })
+    })
+    backgroundWatcher = startBackgroundReconciliation({
+      service: reconciliationService,
+      listSessions: () => (buildSessionSummary()?.sessions ?? []).map(s => ({
+        sessionId: s.sessionId,
+        workspace: s.workspace,
+        filesChanged: s.filesChanged,
+        endTime: s.startTime && s.durationMs ? new Date(Date.parse(s.startTime) + s.durationMs).toISOString() : s.startTime,
+      })),
+      log: (msg) => console.log(msg),
+    })
+    process.once('exit', () => { unsubscribe(); unsubscribeForwarding(); backgroundWatcher?.dispose(); reconciliationService?.dispose() })
+  }
+
   // Register the poll first so it always runs, even if no files exist yet at startup.
   setInterval(runLogScan, 5_000)
   // Pro: catch sessions that never got a matching transcript file at all — see the doc
@@ -402,6 +459,7 @@ async function startLogIngestion() {
   for (const { card } of ocResults) {
     card.oneShotStats = computeOneShotStats(card)
     logSessions.set(card.sessionId, card)
+    dataVersion++
     countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + 1)
     // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked. Needed
     // here, not just in runLogScan() — this loop's own file reads update the same LogReader's
@@ -425,6 +483,7 @@ async function startLogIngestion() {
       for (const result of results) {
         result.card.oneShotStats = computeOneShotStats(result.card)
         logSessions.set(result.card.sessionId, result.card)
+        dataVersion++
         countByKey.set(file.agentKey, (countByKey.get(file.agentKey) ?? 0) + 1)
         // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
         //
@@ -780,7 +839,19 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
   return { dailyStats, lifetimeStats }
 }
 
+// Cache for buildSessionSummary() — summarizeSpans() is a real pass over every span (tens of
+// thousands once the store fills up) including per-span BigInt timestamp parsing, and
+// buildSessionSummary() used to run it fresh on every call: every HTTP request that touches
+// session data, plus the background reconciliation watcher's 60s fallback poll and its
+// 3s-after-any-git-activity debounce. With nothing invalidating between those, the event loop
+// stayed pinned redoing the same work, which is what made the dashboard (including simple
+// actions like opening a link) appear to hang. Keyed on dataVersion so a real change (new span,
+// updated log session, clear) still recomputes.
+let summaryCache: { version: number; summary: ReturnType<typeof summarizeSpans> | null } | null = null
+
 function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
+  if (summaryCache && summaryCache.version === dataVersion) return summaryCache.summary
+
   let summary: ReturnType<typeof summarizeSpans> | null = null
   try { summary = summarizeSpans(spans) } catch (e) { console.warn('[TraceRoost] summarizeSpans error:', e) }
 
@@ -802,6 +873,7 @@ function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
       summary = { ...(summary ?? { backgroundSpans: [], efficiency: { totalInputTokens: 0, totalOutputTokens: 0, totalLlmCalls: 0, avgInputPerCall: 0, avgTtft: 0, cacheHitRate: 0, toolDefWaste: 0, sysInstructionWaste: 0, topTokenConsumers: [] } }), sessions: merged }
     }
   }
+  summaryCache = { version: dataVersion, summary }
   return summary
 }
 
@@ -1405,8 +1477,20 @@ function getHtml(): string {
             })
               .then(function(r) { return r.json(); })
               .then(function(data) {
+                // A deferred reply (session still inside its active-session grace window): no git
+                // classification ran, so dispatch a distinct message rather than 'gitOutcome' —
+                // App.tsx uses it to keep the Outcome filter's pending-count spinner from counting
+                // this session (deferredGitOutcomeSessionIds in state.ts) without caching a
+                // premature answer. It'll resolve for real unsolicited over SSE once the grace
+                // timer revisits it, or on the next sessions refresh.
+                if (data.deferred) {
+                  window.dispatchEvent(new MessageEvent('message', {
+                    data: { type: 'gitOutcomeDeferred', sessionId: data.sessionId }
+                  }));
+                  return;
+                }
                 window.dispatchEvent(new MessageEvent('message', {
-                  data: { type: 'gitOutcome', sessionId: data.sessionId, outcome: data.outcome, riskSignals: data.riskSignals, temperedLoopSignals: data.temperedLoopSignals }
+                  data: { type: 'gitOutcome', sessionId: data.sessionId, outcome: data.outcome, riskSignals: data.riskSignals, temperedLoopSignals: data.temperedLoopSignals, revision: data.revision }
                 }));
               })
               .catch(function(e) {
@@ -1726,6 +1810,7 @@ const uiServer = http.createServer((req, res) => {
           if (logSessions.has(id)) { skipped++; continue }
           const card = buildImportCardStandalone(s)
           logSessions.set(id, card)
+          dataVersion++
           imported++
         }
         pushUpdate()
@@ -1742,6 +1827,7 @@ const uiServer = http.createServer((req, res) => {
   if (req.method === 'POST' && url === '/api/clear') {
     spans = []
     logSessions.clear()
+    dataVersion++
     logReader.clearFileState()
     try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
     pushUpdate()          // send cleared state to clients immediately
@@ -1842,6 +1928,7 @@ const uiServer = http.createServer((req, res) => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type?: string }
         if (body.type === 'clearAll') {
           spans = []
+          dataVersion++
           try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
           pushUpdate()
         } else if (body.type === 'reconfigureOtel') {
@@ -1954,29 +2041,39 @@ const uiServer = http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as {
-          sessionId?: string; workspace?: string; filesChanged?: string[]
+          sessionId?: string; workspace?: string; filesChanged?: string[]; endTime?: string
         }
         const sessionId = body.sessionId ?? ''
         if (!sessionId) { res.writeHead(400); res.end(); return }
         let outcome: GitOutcome | null
+        let revision: number | null = null
+        let deferred = false
         try {
-          let pending = gitOutcomeCache.get(sessionId)
-          if (!pending) {
-            pending = loadOrComputeGitOutcome(
-              sessionId,
-              body.workspace ?? '',
-              Array.isArray(body.filesChanged) ? body.filesChanged : [],
-            )
-            gitOutcomeCache.set(sessionId, pending)
-          }
-          outcome = await pending
+          const result = await loadOrComputeGitOutcome(
+            sessionId,
+            body.workspace ?? '',
+            Array.isArray(body.filesChanged) ? body.filesChanged : [],
+            body.endTime ?? '',
+          )
+          outcome = result.outcome
+          revision = result.revision
+          deferred = result.deferred
         } catch (err) {
           // See dashboardPanel.ts's sendGitOutcome for why a rejected classification must never
-          // stay cached (it would permanently poison this session's slot) or go unreported (the
-          // browser's Outcome-filter spinner counts down only on receiving a reply).
-          gitOutcomeCache.delete(sessionId)
+          // go unreported — the browser's Outcome-filter spinner counts down only on receiving a
+          // reply. Nothing here is durably cached on a throw either way (see
+          // reconciliationService.ts's in-flight-only discipline), so there's nothing to evict.
           console.warn(`[TraceRoost] git-outcome classification failed for session ${sessionId}:`, err)
           outcome = null
+        }
+        if (deferred) {
+          // Same "still in its active-session grace window" case dashboardPanel.ts's
+          // sendGitOutcome defers on — reply with a marker the fetch() call site (above)
+          // recognizes and turns into a `gitOutcomeDeferred` message, rather than prematurely
+          // caching an answer like 'not applicable'.
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ sessionId, deferred: true }))
+          return
         }
         // Post-hoc risk signals (hallucinated import, submitted-despite-a-failing-check) and
         // re-tempered loop-signal severity are both only knowable once the session's outcome is
@@ -1986,7 +2083,7 @@ const uiServer = http.createServer((req, res) => {
         const riskSignals = card ? detectSessionRiskSignals(card, body.workspace ?? '') : []
         const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals }))
+        res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals, revision }))
       } catch (e) {
         console.warn('[TraceRoost] Malformed /api/git-outcome body:', e)
         res.writeHead(400); res.end()
@@ -2170,7 +2267,7 @@ async function startUiServer(): Promise<void> {
   startLogIngestion()
 
   // Pro: forwarding scheduler. No timer runs unless an org is linked.
-  startForwardScheduler({ log: (msg) => console.log(msg), onDrainComplete: pushOrgStatusToClients })
+  startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients })
 
   // Pro: pricing sync — own (longer) interval, see pricingSync.ts.
   startPricingSync({ onSync: pushOrgStatusToClients })

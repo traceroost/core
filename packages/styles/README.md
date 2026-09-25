@@ -1,14 +1,14 @@
 # @traceroost/styles
 
 Shared CSS for TraceRoost's two UIs — the VS Code extension / standalone dashboard (this repo,
-`media/src/`) and the web dashboard (`traceroost-cloud`, a separate repo). Published from here
-because this repo is public; `traceroost-cloud` consumes it as an ordinary npm dependency.
+`media/src/`) and the web dashboard (a separate, private repo). Published from here because this
+repo is public; the web dashboard consumes it as an ordinary npm dependency.
 
 ## Why a package instead of copy-pasted files
 
 The two UIs are built with different frameworks (Preact here, React over there) against
 different design-token names (`--fg`/`--muted`/… here, `--c-ink`/`--c-muted`/… there), on
-independent release schedules. A published package gives `traceroost-cloud` a version to pin and
+independent release schedules. A published package gives the web dashboard a version to pin and
 bump deliberately, instead of a file that silently drifts or a copy someone forgot to update.
 
 ## How each file works
@@ -17,7 +17,7 @@ Every file here reads only its own small set of `--tr-*`-prefixed custom propert
 consumer's own design tokens directly. A consumer maps those few tokens **once**, to its own
 theme, and every component built from that file then renders identically in both products. See
 `src/pills.css`'s header comment for its specific token list and an example of what that mapping
-looks like (`media/src/styles/base.css`'s `:root` here; `globals.css` in `traceroost-cloud`).
+looks like (`media/src/styles/base.css`'s `:root` here; `globals.css` on the web dashboard side).
 
 The one thing components still pass in themselves, inline, is an *identity* value that's
 inherently per-instance — e.g. `pills.css`'s `--tr-pill-color`, an agent's brand color. Structure
@@ -25,7 +25,7 @@ inherently per-instance — e.g. `pills.css`'s `--tr-pill-color`, an agent's bra
 
 `agent-colors.css` is the one exception to "a consumer maps these to its own theme": its
 `--tr-agent-*` tokens are fixed identity colors (core's `getAgentColor()` values), not structural
-tokens, so a consumer's own alias for one (e.g. traceroost-cloud's `--agent-claude`) should point
+tokens, so a consumer's own alias for one (e.g. the web dashboard's `--agent-claude`) should point
 at it with the same value in every theme rather than remapping it per light/dark.
 
 ## Adding a new shared file
@@ -47,7 +47,7 @@ the same repo:
 import '../../packages/styles/src/pills.css'
 ```
 
-**traceroost-cloud** depends on the published package and imports by subpath:
+**The web dashboard** depends on the published package and imports by subpath:
 
 ```css
 @import '@traceroost/styles/pills.css';

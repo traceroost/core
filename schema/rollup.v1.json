@@ -131,7 +131,12 @@
         "outcome": { "$ref": "#/$defs/outcome" },
         "data_source": { "$ref": "#/$defs/data_source" },
         "initiator": { "$ref": "#/$defs/initiator" },
-        "conversation_hash": { "$ref": "#/$defs/hash" }
+        "conversation_hash": { "$ref": "#/$defs/hash" },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Durable, monotonically increasing local revision number for this session's canonical trace snapshot (staged feature 10). Absent on a legacy/first-cut send that predates the revision protocol -- the server treats an absent revision as the lowest possible one for replace-ordering purposes, never as newer than an already-acknowledged revisioned snapshot."
+        }
       }
     },
     "commit": {

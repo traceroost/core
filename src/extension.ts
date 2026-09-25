@@ -29,6 +29,8 @@ import { maybeEnqueueInstructionTelemetry, EMPTY_LEDGER } from './cloud/org/inst
 import { startForwardScheduler, type ForwardScheduler } from './cloud/forward/scheduler'
 import { startPricingSync } from './cloud/org/pricingSync'
 import { resolveRepoHash } from './cloud/org/resolveRepoHash'
+import { ReconciliationService } from './reconcile/reconciliationService'
+import { startBackgroundReconciliation, type BackgroundWatcher } from './reconcile/backgroundWatcher'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -36,6 +38,8 @@ let outputChannel: vscode.OutputChannel | undefined
 let traceRoostDb: TraceRoostDb | undefined
 let writer: DatabaseWriter | undefined
 let repository: SessionRepository | undefined
+let reconciliationService: ReconciliationService | undefined
+let backgroundWatcher: BackgroundWatcher | undefined
 let logReaderTimer: ReturnType<typeof setInterval> | undefined
 let runLogScanFn: (() => void) | undefined
 let forwardScheduler: ForwardScheduler | undefined
@@ -248,6 +252,37 @@ export async function activate(context: vscode.ExtensionContext) {
   // ── Panels ───────────────────────────────────────────────────────────────────
   const repo = repository ?? fallbackRepository(store)
   const provider = new SidebarPanel(repo, context.extensionUri)
+
+  // ── Live trace reconciliation (staged feature 10) ────────────────────────────
+  // One instance for the whole extension-host lifetime, independent of whether a Traces panel is
+  // open — see reconciliationService.ts and backgroundWatcher.ts. Requires the SQLite database
+  // (traceRoostDb); without it there's nothing durable to revision, so both stay undefined and
+  // DashboardPanel falls back to its uncached per-request path, same as before this feature.
+  if (traceRoostDb) {
+    reconciliationService = new ReconciliationService(traceRoostDb.raw)
+    // A revision change detected in the background (a commit, merge, edit, etc. while nothing was
+    // watching) must reach the forwarding queue, not just the UI — otherwise a corrected outcome
+    // sits correct locally but stale in Cloud until something else happens to re-enqueue this
+    // session. See enqueueSession.ts's `revision` param and queue.ts's replace-on-newer-revision.
+    const unsubscribeForwarding = reconciliationService.subscribe((r) => {
+      if (!r.changed || r.revision === null) return
+      const card = repo.listSessions().find(s => s.sessionId === r.sessionId)
+      if (!card) return
+      void maybeEnqueueSession(card, m => outputChannel?.appendLine(m), undefined, r.revision)
+        .then(res => { if (res.enqueued) forwardScheduler?.drainSoon() })
+    })
+    backgroundWatcher = startBackgroundReconciliation({
+      service: reconciliationService,
+      listSessions: () => repo.listSessions({ limit: Infinity }).map(s => ({
+        sessionId: s.sessionId,
+        workspace: s.workspace,
+        filesChanged: s.filesChanged,
+        endTime: s.startTime && s.durationMs ? new Date(Date.parse(s.startTime) + s.durationMs).toISOString() : s.startTime,
+      })),
+      log: (msg) => outputChannel!.appendLine(msg),
+    })
+    context.subscriptions.push({ dispose: () => { unsubscribeForwarding(); backgroundWatcher?.dispose(); reconciliationService?.dispose() } })
+  }
 
   // ── Log ingestion ─────────────────────────────────────────────────────────
   const enableLogIngestion = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableLogIngestion', true)
@@ -469,7 +504,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('traceRoost.openDashboard', () => {
       vscode.commands.executeCommand('workbench.view.extension.traceroost')
-      DashboardPanel.show(context, repo, provider, instructionRepo, traceRoostDb?.raw)
+      DashboardPanel.show(context, repo, provider, instructionRepo, traceRoostDb?.raw, reconciliationService)
     })
   )
 
@@ -622,6 +657,7 @@ export async function activate(context: vscode.ExtensionContext) {
       else vscode.window.showInformationMessage(message)
     },
     log: (msg) => outputChannel?.appendLine(msg),
+    onDrainStart: () => DashboardPanel.pushOrgStatus(),
     onDrainComplete: () => DashboardPanel.pushOrgStatus(),
     recordSent: (count, at) => {
       repository?.recordTraceSent(count, at)
@@ -676,7 +712,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('traceRoost.orgLink', async () => {
       if (getOrgStatus().linked) {
-        vscode.window.showInformationMessage('TraceRoost: this machine is already linked. Run "TraceRoost: Leave Org" first to re-link.')
+        vscode.window.showInformationMessage('TraceRoost: this machine is already linked. Run "TraceRoost: Unlink" first to re-link.')
         return
       }
       const proceed = await vscode.window.showInformationMessage(
@@ -711,11 +747,11 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
         return
       }
       const confirm = await vscode.window.showWarningMessage(
-        'Leave the TraceRoost Cloud org? The local credential is deleted and this machine stops forwarding immediately.',
+        'Unlink this machine from TraceRoost Cloud? The local credential is deleted and this machine stops forwarding immediately. This does not remove you from the org — a lead can still see you on the roster until they remove you there.',
         { modal: true },
-        'Leave org',
+        'Unlink',
       )
-      if (confirm !== 'Leave org') return
+      if (confirm !== 'Unlink') return
       const res = await leave()
       vscode.window.showInformationMessage(
         res.serverRevoked
@@ -767,6 +803,31 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
           return
         }
 
+        if (kind === 'patterns') {
+          const repoHash = (params.get('repo') ?? '').trim()
+          if (!HASH_RE.test(repoHash)) {
+            vscode.window.showWarningMessage('TraceRoost: that patterns link is malformed.')
+            return
+          }
+          void (async () => {
+            const workspaces = [
+              ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
+              ...new Set(repo.listSessions().map(s => s.workspace).filter(Boolean)),
+            ]
+            const root = await resolveRepoHash(repoHash, workspaces)
+            if (!root) {
+              vscode.window.showInformationMessage('TraceRoost: that repository is not on this machine. Nothing was requested.')
+              return
+            }
+            vscode.commands.executeCommand('traceRoost.openDashboard')
+            setTimeout(() => {
+              DashboardPanel.switchToTab('patterns')
+              DashboardPanel.sendFilter(undefined, undefined, root)
+            }, 250)
+          })()
+          return
+        }
+
         if (kind === 'cohort') {
           const repoHash = (params.get('repo') ?? '').trim()
           const merged = (params.get('merged') ?? '').trim()
@@ -790,6 +851,53 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
               DashboardPanel.switchToTab('outcomes')
               DashboardPanel.currentPanel?.postToWebview({ type: 'focusCohort', repoRoot: root, merged, windowDays: Number(window) })
             }, 250)
+          })()
+          return
+        }
+
+        if (kind === 'find') {
+          // One hash, two possible shapes (findCli.ts's own classify()): a session/trace id
+          // (an exact match against this machine's recorded sessions) or a repo_hash (resolved
+          // the same way 'patterns' above does). `reporter` is optional — cloud embeds the
+          // trace's reporting member's email when it has one (traces-table.tsx), purely so a
+          // miss here can point at the right machine instead of a bare "not found".
+          const hash = (params.get('hash') ?? params.get('repo') ?? params.get('id') ?? '').trim()
+          const reporter = (params.get('reporter') ?? '').trim()
+          if (!hash) {
+            vscode.window.showWarningMessage('TraceRoost: that find link is malformed.')
+            return
+          }
+          const elsewhereHint = reporter
+            ? ` It may be on ${reporter}'s linked machine instead of this one.`
+            : ' It may be on a different linked machine.'
+          void (async () => {
+            const session = repo.listSessions().find(s => s.sessionId === hash || s.traceId === hash)
+            if (session) {
+              vscode.commands.executeCommand('traceRoost.openDashboard')
+              setTimeout(() => {
+                DashboardPanel.switchToTab('sessions')
+                DashboardPanel.sendFilter(undefined, undefined, undefined, hash)
+              }, 250)
+              return
+            }
+            if (HASH_RE.test(hash)) {
+              const workspaces = [
+                ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
+                ...new Set(repo.listSessions().map(s => s.workspace).filter(Boolean)),
+              ]
+              const root = await resolveRepoHash(hash, workspaces)
+              if (root) {
+                vscode.commands.executeCommand('traceRoost.openDashboard')
+                setTimeout(() => {
+                  DashboardPanel.switchToTab('patterns')
+                  DashboardPanel.sendFilter(undefined, undefined, root)
+                }, 250)
+                return
+              }
+            }
+            vscode.window.showInformationMessage(
+              `TraceRoost: that hash/id isn't recorded on this machine.${elsewhereHint}`,
+            )
           })()
           return
         }

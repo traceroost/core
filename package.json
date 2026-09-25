@@ -93,7 +93,7 @@
       },
       {
         "command": "traceRoost.orgLeave",
-        "title": "TraceRoost: Leave Org (Cloud)"
+        "title": "TraceRoost: Unlink (Cloud)"
       }
     ],
     "menus": {
@@ -231,25 +231,29 @@
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "pnpm run check-types && pnpm run lint && node esbuild.js --production",
     "compile-tests": "tsc -p tsconfig.test.json",
+    "compile-tests:media": "tsc -p tsconfig.test.media.json",
+    "compile-tests:standalone": "tsc -p tsconfig.test.standalone.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "check-types": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json",
     "lint": "eslint src media/src",
     "test": "vscode-test",
-    "test:unit": "pnpm run compile-tests && mocha",
-    "test:ux": "node tests/ux/evaluate.mjs"
+    "test:unit": "pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && mocha",
+    "test:ux": "playwright test",
+    "test:ux:report": "playwright show-report"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.118.0",
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-electron": "^3.1.0",
     "esbuild": "^0.27.7",
     "eslint": "^9.39.4",
     "mocha": "^11.7.5",
     "npm-run-all": "^4.1.5",
-    "playwright": "^1.60.0",
+    "playwright": "^1.63.0",
     "sharp": "^0.35.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.2"

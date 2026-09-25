@@ -2,12 +2,12 @@ import * as assert from 'assert'
 import * as http from 'http'
 import { startCallbackServer } from '../../../cloud/org/callbackServer'
 
-function get(url: string): Promise<{ status: number; body: string }> {
+function get(url: string): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     http.get(url, res => {
       const chunks: Buffer[] = []
       res.on('data', c => chunks.push(c))
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString() }))
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString(), headers: res.headers }))
     }).on('error', reject)
   })
 }
@@ -66,14 +66,15 @@ suite('org/callbackServer', () => {
     assert.match(res.body, /Link failed/)
   })
 
-  test('a org_url matching orgOrigin appears as a link once finished', async () => {
+  test('a org_url matching orgOrigin redirects straight there once finished', async () => {
     const server = await startCallbackServer({ orgOrigin: 'https://test.traceroost.com' })
     const orgUrl = encodeURIComponent('https://test.traceroost.com/acme1')
     const reqPromise = get(`${server.redirectUri}?code=abc&state=s&org_url=${orgUrl}`)
     await server.waitForCallback()
     server.finish(true)
     const res = await reqPromise
-    assert.match(res.body, /href="https:\/\/test\.traceroost\.com\/acme1"/)
+    assert.strictEqual(res.status, 302)
+    assert.strictEqual(res.headers.location, 'https://test.traceroost.com/acme1')
   })
 
   test('a org_url on a different origin than orgOrigin is dropped, not linked', async () => {
@@ -83,6 +84,7 @@ suite('org/callbackServer', () => {
     await server.waitForCallback()
     server.finish(true)
     const res = await reqPromise
+    assert.strictEqual(res.status, 200)
     assert.ok(!res.body.includes('evil.example.com'))
     assert.match(res.body, /Machine linked/)
   })
@@ -94,6 +96,7 @@ suite('org/callbackServer', () => {
     await server.waitForCallback()
     server.finish(true)
     const res = await reqPromise
+    assert.strictEqual(res.status, 200)
     assert.ok(!res.body.includes('href='))
   })
 

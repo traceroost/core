@@ -74,6 +74,14 @@ export interface DrainDeps {
    *  sent nothing. The host's hook for recording local "traces sent" transport stats (the Org
    *  panel's transparency numbers); this module stays storage-agnostic otherwise. */
   recordSent?: (count: number, at: number) => void
+  /** Ignore each item's `nextEligibleAt` backoff and attempt every queued item right now. Only
+   *  for a deliberate, user-initiated retry ("Check for unsent traces") — never the automatic
+   *  timer tick, which must keep respecting backoff so a genuinely down server doesn't get
+   *  hammered. Fixing whatever was actually broken (e.g. a server-side bug) doesn't reset an
+   *  item's `attempts`/`lastAttemptAt`, so without this a backlog that failed identically many
+   *  times over can sit queued for up to an hour after the real fix has already landed, with no
+   *  way for the developer to confirm it themselves other than waiting. */
+  force?: boolean
 }
 
 const BASE_BACKOFF_MS = 30_000
@@ -111,7 +119,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     return { ...empty, stopped: 'rate-limited' }
   }
 
-  const pending = queue.list().filter(it => nextEligibleAt(it) <= now())
+  const pending = deps.force ? queue.list() : queue.list().filter(it => nextEligibleAt(it) <= now())
   if (pending.length === 0) return { ...empty, stopped: 'nothing-eligible' }
 
   const batch = pending.slice(0, deps.batchLimit ?? 200)

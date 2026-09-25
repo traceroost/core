@@ -2,19 +2,20 @@
 
 Thank you for your interest in contributing.
 
-## Project scope
+## Project scope and license zones
 
-TraceRoost the local agent — everything in this repo — is MIT-licensed and stays that way. Features
-that make it more useful for a single developer watching their own agent traces belong here, and PRs
-for them are welcome.
+Most of this repo — the local agent, the dashboard, the log/OTEL ingestion, the free local
+Outcomes/attribution engine — is MIT-licensed and stays that way. Features that make TraceRoost
+more useful for a single developer watching their own agent traces belong here, and PRs for them
+are welcome.
 
-A few features are out of scope for this repo, reserved for a separate, source-available team
-server built on top of the local agent: cross-machine trace aggregation, SSO/SCIM, RBAC,
-multi-team rollup views, extended retention and audit export, and license-key issuance. That's the
-boundary that funds the project's continued development — not a hedge against contributions, and
-not a signal that those features are unwanted in general. If you'd like to work on something in
-that list, open an issue first so we can talk about where it should live before you spend time on
-the PR.
+`src/cloud/`, `src/test/cloud/`, `media/src/cloud/`, and `standalone/cloud/` are a different
+license zone: Business Source License 1.1, not MIT. That's the client side of the org/cloud
+feature — cross-machine trace aggregation, team roster/link, and the forwarding pipeline that
+funds the project's continued development. See [NOTICE.md](NOTICE.md) for the exact scope and
+[src/cloud/README.md](src/cloud/README.md) for why it's split out this way. It isn't a hedge
+against contributions — PRs there are welcome too — but new work in that zone ships under BSL,
+not MIT, so if you're unsure which license your change would land under, open an issue first.
 
 ## Reporting bugs
 
@@ -55,6 +56,7 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 | `standalone/server.ts` | Standalone HTTP server |
 | `src/summarizers/` | Per-agent span → trace summarizers |
 | `src/otlpCollector.ts` | OTLP/HTTP ingestion for the VS Code extension |
+| `src/cloud/`, `media/src/cloud/`, `standalone/cloud/` | Org/cloud client — BSL-licensed, see [NOTICE.md](NOTICE.md) |
 
 ## Branching and commit conventions
 

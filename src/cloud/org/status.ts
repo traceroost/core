@@ -20,6 +20,14 @@ export interface QueueStats {
   lastErrorAt: string | null
   lastError: string | null
   paused: boolean
+  /** Count of queued items that have failed `STUCK_ATTEMPTS_THRESHOLD`-or-more times in a row
+   *  (queue.ts) — failing deterministically rather than hitting a transient blip. Tracked
+   *  separately from `lastErrorAt`/`lastSuccessAt` because those are drain-wide: an unrelated
+   *  item elsewhere in the same queue succeeding bumps `lastSuccessAt` and would otherwise mask a
+   *  subset that is never going to send on its own (see getOrgStatus below). */
+  stuckCount: number
+  /** The most recent error among the stuck items, if any — shown in `degradedReason`. */
+  stuckError: string | null
 }
 
 /** Transport transparency stats — how many hashed traces this machine has actually sent, over a
@@ -75,6 +83,11 @@ export interface OrgStatus {
   /** Absent on an unlinked install (there is nothing to have sent) or on a host that doesn't
    *  supply `OrgPanelDeps.traceSendStats`. */
   traceSendStats?: TraceSendStats
+  /** True while a drain attempt is actually in flight right now (scheduler.ts's
+   *  `isForwardQueueDraining`) — the only thing the state dot should blink for. Always false on an
+   *  unlinked install, and false between drains even when `indicator` is `'reporting'`: a healthy,
+   *  fully-synced state is a solid dot, not a pulsing one. */
+  sending: boolean
 }
 
 function describeEndpoint(endpoint: string): OrgEnvironment | 'custom' {
@@ -84,7 +97,7 @@ function describeEndpoint(endpoint: string): OrgEnvironment | 'custom' {
   return known ?? 'custom'
 }
 
-export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats): OrgStatus {
+export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats, sending = false): OrgStatus {
   const creds = loadCredentials()
   const version = clientVersion()
 
@@ -99,13 +112,21 @@ export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats
       environmentSource: resolved.source,
       environmentEditable: resolved.source === 'selected' || resolved.source === 'default',
       cloudRateOverrides: getCloudRateOverrides(),
+      sending: false,
     }
   }
 
   let indicator: OrgIndicator = 'reporting'
   let degradedReason: string | undefined
   if (queue) {
-    if (queue.lastErrorAt && (!queue.lastSuccessAt || queue.lastErrorAt > queue.lastSuccessAt)) {
+    if (queue.stuckCount > 0) {
+      // Checked ahead of the lastErrorAt/lastSuccessAt comparison below — that comparison only
+      // sees the single most recent outcome across the whole queue, so a healthy item sending
+      // fine elsewhere (bumping lastSuccessAt) would otherwise hide these being stuck forever.
+      indicator = 'degraded'
+      const plural = queue.stuckCount === 1 ? 'trace has' : 'traces have'
+      degradedReason = `${queue.stuckCount} ${plural} failed repeatedly: ${queue.stuckError ?? 'unknown error'}`
+    } else if (queue.lastErrorAt && (!queue.lastSuccessAt || queue.lastErrorAt > queue.lastSuccessAt)) {
       indicator = 'degraded'
       degradedReason = queue.lastError ?? 'the last send failed'
     } else if (queue.depth > 0) {
@@ -132,6 +153,7 @@ export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats
     lastRollupAt: queue?.lastSuccessAt ?? null,
     degradedReason,
     cloudRateOverrides: getCloudRateOverrides(),
+    sending,
     traceSendStats,
   }
 }

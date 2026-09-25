@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "module": "Node16",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "sourceMap": true,
+    "rootDir": ".",
+    "outDir": "out/test-media",
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node", "mocha"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "media/src/state.ts",
+    "media/src/sessionMetrics.ts",
+    "media/src/hash.ts",
+    "media/src/types.ts",
+    "media/src/agentProfiles.ts",
+    "media/src/pricing.ts",
+    "src/test/media/**/*.ts"
+  ]
+}

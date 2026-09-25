@@ -34,23 +34,30 @@ export interface EnqueueResult {
  *  calls that (it's the one place already doing network I/O; this function stays local-only by
  *  design). Until then, this just skips the ledger short-circuit and always enqueues — safe,
  *  since `ForwardQueue.enqueue` already dedupes by item key, and a redundant send is
- *  deduplicated server-side too. */
-export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void, cache?: PayloadBuildCache): Promise<EnqueueResult> {
+ *  deduplicated server-side too.
+ *
+ *  `revision`, when passed, marks this as a deliberate re-send triggered by a detected change to
+ *  the session's canonical trace snapshot (staged feature 10's reconciliation service — see
+ *  extension.ts's/server.ts's `reconciliation.subscribe` wiring), not the passive
+ *  restart-rediscovery path the delivery ledger exists to short-circuit. It therefore bypasses
+ *  the ledger check below (a session already marked "delivered" under an older revision must
+ *  still be resent once its outcome changes) and is carried onto the built payload so
+ *  `ForwardQueue.enqueue` can replace a still-unsent older revision instead of silently skipping
+ *  as a duplicate key — see queue.ts's `enqueue`. */
+export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void, cache?: PayloadBuildCache, revision?: number): Promise<EnqueueResult> {
   const creds = loadCredentials()
   if (!creds) return { enqueued: false, reason: 'not-linked' }
   // Matches the key a built session payload would get — see buildSessionRollup.ts's session_id
   // field and queue.ts's itemKey — without paying for the git-subprocess work just to discard it.
   if (
+    revision === undefined &&
     creds.installId &&
     new DeliveryLedger().isDelivered(scopedKey(creds.installId, `session:${toUuid(card.sessionId)}`))
   ) {
     return { enqueued: false, reason: 'already-delivered' }
   }
   try {
-    const built = await buildPayloadForCard(card, cache)
-    if (built.ungroupedReason) {
-      log?.(`[TraceRoost] session forwarded without repo grouping (${built.ungroupedReason}): ${card.workspace || card.projectPath || 'unknown workspace'}`)
-    }
+    const built = await buildPayloadForCard(card, cache, revision)
     const added = new ForwardQueue(undefined, undefined, log).enqueue(built.payload)
     return added ? { enqueued: true } : { enqueued: false, reason: 'duplicate' }
   } catch (err) {

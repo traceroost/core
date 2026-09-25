@@ -36,8 +36,6 @@ transmitted, logged, or written to disk — it is derived on demand from your ow
 ([`src/cloud/forward/repoKey.ts`](../src/cloud/forward/repoKey.ts)) and held only for the duration of a
 build.
 
-Grounding: `cloud/docs/decisions/0003-what-we-can-and-cannot-see.md`.
-
 ## Versioning
 
 Every record carries `schema_version` (currently `"1"`). The service accepts version *N* and

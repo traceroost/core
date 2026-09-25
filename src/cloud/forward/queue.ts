@@ -34,6 +34,12 @@ export interface QueueItem {
 
 export const DEFAULT_MAX_ITEMS = 5000
 
+// 3 failed attempts means the item has already been backed off and retried twice more (per
+// `nextEligibleAt`'s exponential schedule) and failed the same way each time — long enough to
+// rule out "just a single bad network blip," short enough to surface a real problem quickly
+// rather than waiting out the full hour-long backoff ceiling first.
+export const STUCK_ATTEMPTS_THRESHOLD = 3
+
 export function queuePath(baseHome: string = os.homedir()): string {
   return path.join(baseHome, '.traceroost', 'forward-queue.jsonl')
 }
@@ -98,11 +104,43 @@ export class ForwardQueue {
     return this.list().length
   }
 
-  /** Appends a payload if its key is not already queued. Returns whether it was added. */
+  /** Items that have failed at least `STUCK_ATTEMPTS_THRESHOLD` times in a row — failing
+   *  deterministically (a schema mismatch, a server-side bug) rather than hitting a one-off
+   *  network blip. See `currentQueueStats.ts`'s `stuckCount`/`stuckError` for why this needs to be
+   *  visible separately from `lastErrorAt`/`lastSuccessAt`: an unrelated item elsewhere in the
+   *  queue succeeding keeps bumping `lastSuccessAt`, which otherwise hides a subset of the queue
+   *  that is never going to send on its own. */
+  stuckItems(): QueueItem[] {
+    return this.list().filter(it => it.attempts >= STUCK_ATTEMPTS_THRESHOLD)
+  }
+
+  /** Appends a payload if its key is not already queued. If one already is, replaces it in place
+   *  — keeping its original `enqueuedAt`/`attempts`/retry identity — when the new payload carries
+   *  a strictly newer `session.revision` than the queued one (staged feature 10): an unsent
+   *  snapshot that's since been superseded by a real outcome change must not sit frozen at its
+   *  first-queued values until it's sent. A payload with no revision, or a revision no greater
+   *  than what's already queued, is treated as the legacy/no-op case and dropped (same as
+   *  before this feature) — there's nothing here to confirm it's actually newer. Returns whether
+   *  the queue changed. */
   enqueue(payload: RollupPayload): boolean {
     const key = itemKey(payload)
     const existing = this.list()
-    if (existing.some(it => it.key === key)) return false
+    const idx = existing.findIndex(it => it.key === key)
+    if (idx === -1) {
+      return this.appendNew(payload, key, existing)
+    }
+    const incomingRevision = payload.session?.revision
+    const queuedRevision = existing[idx].payload.session?.revision
+    if (incomingRevision === undefined || (queuedRevision !== undefined && incomingRevision <= queuedRevision)) {
+      return false
+    }
+    const next = [...existing]
+    next[idx] = { ...next[idx], payload }
+    this.writeAll(next)
+    return true
+  }
+
+  private appendNew(payload: RollupPayload, key: string, existing: QueueItem[]): boolean {
     const item: QueueItem = {
       key,
       payload,

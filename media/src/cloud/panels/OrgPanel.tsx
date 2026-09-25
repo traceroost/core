@@ -59,6 +59,9 @@ export interface OrgStatus {
    *  normalizeCostKey — empty on an unlinked install or before the first successful sync. */
   cloudRateOverrides: Record<string, CloudRate>
   traceSendStats?: TraceSendStats
+  /** True only while a drain is actually in flight — the state dot blinks for this, not for
+   *  `indicator === 'reporting'` on its own (a fully-synced, idle state is a solid dot). */
+  sending: boolean
 }
 
 /** `orgName` is never unset once linked — it falls back to the raw `orgId` at link time if the
@@ -112,13 +115,10 @@ export function requestOrgStatus(): void {
   vscode?.postMessage({ type: 'getOrgStatus' })
 }
 
-function IconUsers() {
+function IconCloud() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
     </svg>
   )
 }
@@ -126,14 +126,15 @@ function IconUsers() {
 export function OrgButton() {
   const st = orgStatus.value
   const indicator: OrgIndicator = st?.indicator ?? 'unlinked'
+  const sending = st?.sending ?? false
   const active = orgOpen.value
   return (
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (active ? ' active' : '')}
         onClick={() => { orgOpen.value = !orgOpen.value; if (orgOpen.value) requestOrgStatus() }}
-      ><IconUsers /></button>
-      <span style={`position:absolute;top:3px;right:2px;width:7px;height:7px;border-radius:50%;background:${DOT_COLOR[indicator]};box-shadow:0 0 0 1.5px var(--vscode-editor-background)`} />
+      ><IconCloud /></button>
+      <span style={`position:absolute;top:3px;right:2px;width:7px;height:7px;border-radius:50%;background:${DOT_COLOR[indicator]};box-shadow:0 0 0 1.5px var(--vscode-editor-background)${sending ? ';animation:tr-pulse 1.4s ease-in-out infinite' : ''}`} />
     </div>
   )
 }
@@ -147,8 +148,8 @@ function Section({ title, children }: { title?: string; children: preact.Compone
   )
 }
 
-function Dot({ indicator }: { indicator: OrgIndicator }) {
-  return <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${DOT_COLOR[indicator]};margin-right:6px;flex-shrink:0`} />
+function Dot({ indicator, sending }: { indicator: OrgIndicator; sending?: boolean }) {
+  return <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${DOT_COLOR[indicator]};margin-right:6px;flex-shrink:0${sending ? ';animation:tr-pulse 1.4s ease-in-out infinite' : ''}`} />
 }
 
 /** On-demand answer to "did everything actually make it?" — queues anything not yet confirmed
@@ -156,7 +157,7 @@ function Dot({ indicator }: { indicator: OrgIndicator }) {
  *  a resend) and reports back how many were missing. Complements the automatic reconciliation
  *  that already runs at link time and on every restart's log rediscovery — this is for checking
  *  right now, without waiting for either. */
-function ReconcileButton() {
+function ReconcileButton({ queueDepth }: { queueDepth: number }) {
   const busy = orgReconcileBusy.value
   const progress = orgReconcileProgress.value
   const result = orgReconcileResult.value
@@ -179,7 +180,14 @@ function ReconcileButton() {
         <span style={`font-size:11px;margin-left:8px;color:${result.error ? '#f14c4c' : 'var(--muted)'}`}>
           {result.error
             ? `Couldn't finish: ${result.error}`
-            : result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.` : 'Everything is already sent.'}
+            : result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.`
+            // This button only looks for local sessions never yet enqueued at all — a nonzero
+            // queueDepth here means some are already queued but haven't been *sent*, not that
+            // everything made it. Clicking still nudges the scheduler to retry them now (see
+            // reconcileLocalSessions), but a persistently failing item (see the Status row above)
+            // needs its own send fixed, not another click here.
+            : queueDepth > 0 ? `No new sessions found — ${queueDepth} already-queued trace(s) will retry shortly.`
+            : 'Everything is already sent.'}
         </span>
       )}
     </div>
@@ -264,10 +272,19 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
         >{busy === 'link' ? 'Opening your browser…' : 'Link this machine'}</button>
         <div style="font-size:10px;color:var(--muted);margin-top:6px">Opens your browser once. Headless box? Run <code>traceroost org link --device</code>.</div>
       </Section>
-      <Section title="If you linked this machine to TraceRoost Cloud">
+      <Section title="Why link">
+        <ul style="margin:0;padding-left:14px;color:var(--muted);font-size:11px;line-height:1.6">
+          <li>Gives your lead org-wide cost &amp; activity totals, without exposing anyone's code</li>
+          <li>Team totals only by default — individual numbers stay private unless your team turns that on</li>
+          <li>Opt-in and off by default; nothing is sent until you link</li>
+          <li>Reversible any time — unlinking deletes the local credential and stops sending immediately, even offline</li>
+          <li>Works offline — sessions queue locally and send automatically once you're back</li>
+        </ul>
+      </Section>
+      <Section title="Data privacy">
         <SentNeverSent />
         <div style="margin-top:8px">
-          <a onClick={() => goToHelp('help-org')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+          <a onClick={() => goToHelp('help-privacy')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
             How the hashing works, and what linking does →
           </a>
         </div>
@@ -292,9 +309,9 @@ function LinkedBody({ st }: { st: OrgStatus }) {
       </Section>
       <Section title="Status">
         <div style="display:flex;align-items:center;font-size:11px;padding:2px 0">
-          <Dot indicator={st.indicator} />
+          <Dot indicator={st.indicator} sending={st.sending} />
           <span style="color:var(--fg)">
-            {st.indicator === 'reporting' ? 'Synced — hashed traces sent to cloud'
+            {st.indicator === 'reporting' ? (st.sending ? 'Sending — hashed traces going to cloud' : 'Synced — hashed traces sent to cloud')
               : st.indicator === 'queued' ? `Queued — ${st.queueDepth ?? 0} hashed trace(s) waiting to sync`
               : `Paused — ${st.degradedReason ?? 'last send failed'}`}
           </span>
@@ -305,12 +322,12 @@ function LinkedBody({ st }: { st: OrgStatus }) {
         <Row k="TraceRoost version" v={`v${st.clientVersion}`} />
         <Row k="Linked" v={st.linkedAt ? new Date(st.linkedAt).toLocaleDateString() : ''} />
         {st.traceSendStats && <TransportStats stats={st.traceSendStats} />}
-        <ReconcileButton />
+        <ReconcileButton queueDepth={st.queueDepth ?? 0} />
       </Section>
       <Section title="What is being sent">
         <SentNeverSent />
         <div style="margin-top:8px">
-          <a onClick={() => goToHelp('help-org')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+          <a onClick={() => goToHelp('help-privacy')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
             How the hashing works, and what linking does →
           </a>
         </div>
@@ -322,13 +339,13 @@ function LinkedBody({ st }: { st: OrgStatus }) {
           style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
         >Open Team View →</button>
       </Section>
-      <Section title="Leave">
+      <Section title="Unlink">
         <button
           disabled={busy !== null}
           onClick={() => { orgBusy.value = 'leave'; vscode?.postMessage({ type: 'orgLeave' }) }}
           style="font-size:12px;padding:6px 14px;border:1px solid var(--error);border-radius:4px;background:transparent;color:var(--error);cursor:pointer"
-        >{busy === 'leave' ? 'Leaving…' : 'Leave team'}</button>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline.</div>
+        >{busy === 'leave' ? 'Unlinking…' : 'Unlink this machine'}</button>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until a lead removes you from the roster.</div>
       </Section>
     </>
   )

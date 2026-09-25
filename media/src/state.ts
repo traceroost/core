@@ -2,7 +2,7 @@ import { signal, computed } from '@preact/signals'
 import { calcSessionCost } from './sessionMetrics'
 import { formatTraceIdHash } from './hash'
 import type {
-  FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome,
+  FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
   DailyStatRow, LifetimeStats, BurnRate, Projection,
 } from './types'
@@ -12,7 +12,7 @@ export const CHART_MAX = 25
 
 // ── Time range navigation ─────────────────────────────────────────────────────
 
-export type TimePreset = '1h' | '6h' | '24h' | '7d' | '30d' | 'all'
+export type TimePreset = '1h' | '6h' | '24h' | '7d' | '30d' | 'all' | 'custom'
 
 export interface TimeRange {
   preset: TimePreset
@@ -27,12 +27,22 @@ export const TIME_PRESETS: Array<{ id: TimePreset; label: string; ms: number | n
   { id: '7d',   label: '7d',   ms: 7 * 86_400_000 },
   { id: '30d',  label: '30d',  ms: 30 * 86_400_000 },
   { id: 'all',  label: 'All',  ms: null },
+  // 'custom' deliberately excluded — it has no fixed lookback ms, and is constructed by
+  // makeCustomTimeRange below rather than looked up by id here.
 ]
 
 export function makeTimeRange(preset: TimePreset): TimeRange {
   const p = TIME_PRESETS.find(t => t.id === preset)!
   if (p.ms === null) return { preset }
   return { preset, since: Date.now() - p.ms }
+}
+
+// A user-picked start/end (TimeRangePicker's "Custom range" popover) — either bound may be
+// omitted (an open start or an open-ended "through now"), same optionality every other TimeRange
+// already allows. rangedSessions/Agents/Export etc. all already branch on `preset === 'all'` vs.
+// read `since`/`until` with a fallback, so 'custom' needs no special-casing anywhere downstream.
+export function makeCustomTimeRange(since: number | undefined, until: number | undefined): TimeRange {
+  return { preset: 'custom', since, until }
 }
 
 // Active time range — defaults to 'all' (no time bound, always live)
@@ -68,7 +78,7 @@ export const searchResults = signal<SearchResultData | null>(null)
 
 // ── Global session text filter + sort ─────────────────────────────────────────
 
-export type SortKey = 'start_time' | 'total_tokens' | 'duration_ms' | 'errors' | 'prompt' | 'model' | 'source' | 'cost' | 'workspace'
+export type SortKey = 'start_time' | 'total_tokens' | 'duration_ms' | 'errors' | 'prompt' | 'model' | 'source' | 'cost' | 'workspace' | 'turns' | 'outcome' | 'signals'
 export const sessionTextFilter = signal('')
 export const sessionSortKey = signal<SortKey>('start_time')
 export const sessionSortDir = signal<'asc' | 'desc'>('desc')
@@ -117,6 +127,19 @@ export const blobCache = signal<Record<string, string>>({})
 // (no git repo, no changed files, etc). Absent key = not yet requested. See gitOutcome.ts.
 export const gitOutcomes = signal<Record<string, GitOutcome | null>>({})
 
+// Sessions the host has told us are "deferred" — still inside their active-session grace window
+// (reconciliationService.ts's ACTIVE_GRACE_MS), so no git classification has run or will run for
+// them yet. Kept separate from `gitOutcomes` (which means "resolved, here's the answer") so the
+// Outcome filter's "resolving N outcomes" spinner — meant to reflect actual git CLI work in
+// progress, see GitCommandStatusBar — doesn't count a session that's simply waiting out a timer
+// with no git subprocess running. Cleared once a real `gitOutcome` reply lands for the session.
+export const deferredGitOutcomeSessionIds = makeSetSignal<string>()
+
+// Live snapshot of `git` command lines currently in flight on the host, pushed unsolicited by a
+// `runningGitCommands` message (gitOutcome.ts's onRunningGitCommandsChanged) — feeds the status
+// line under the Outcome filter's "resolving N outcomes" spinner. Empty when nothing is running.
+export const runningGitCommands = signal<string[]>([])
+
 // FileOutcome (this session's overall git classification) → the coarser Outcome filter bucket, or
 // null when there's nothing to filter on ('ambiguous', or "not applicable" — a null GitOutcome).
 // A null bucket never equals any pill's value, so those sessions simply don't match a specific
@@ -126,6 +149,24 @@ function outcomeToFilterBucket(overall: FileOutcome | null): Exclude<OutcomeFilt
   if (overall === 'committed') return 'committed'
   if (overall === 'abandoned') return 'abandoned'
   return null
+}
+
+// Same best-to-worst ordering as OUTCOME_META's own entries (Sessions.tsx) — 'merged' outranks
+// 'committed' outranks 'abandoned'. 'ambiguous' and a not-yet-resolved/not-applicable (null)
+// outcome both sort last, below every resolved outcome, since there's nothing to rank them by.
+const OUTCOME_RANK: Partial<Record<FileOutcome, number>> = { merged: 3, committed: 2, abandoned: 1 }
+function outcomeRank(overall: FileOutcome | null | undefined): number {
+  if (!overall) return -1
+  return OUTCOME_RANK[overall] ?? 0
+}
+
+// Worst-first score for the Signals column: any critical signal outranks any number of warnings,
+// then more signals outranks fewer — same "most/worst first" reading as the errors/tokens sorts.
+function signalsScore(signals: LoopSignal[] | undefined): number {
+  if (!signals || signals.length === 0) return 0
+  let critical = 0
+  for (const s of signals) if (s.severity === 'critical') critical++
+  return critical * 1000 + signals.length
 }
 
 // Caps how many not-yet-resolved sessions get a `getGitOutcome` request fired per call, and
@@ -530,10 +571,13 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
       case 'total_tokens': cmp = (b.inputTokens + b.outputTokens) - (a.inputTokens + a.outputTokens); break
       case 'duration_ms':  cmp = b.durationMs - a.durationMs; break
       case 'errors':       cmp = b.errors - a.errors; break
+      case 'turns':        cmp = b.turns - a.turns; break
       case 'prompt':       cmp = (a.userRequest ?? '').localeCompare(b.userRequest ?? ''); break
       case 'model':        cmp = (a.model ?? '').localeCompare(b.model ?? ''); break
       case 'source':       cmp = (a.source ?? '').localeCompare(b.source ?? ''); break
       case 'workspace':    cmp = a.workspace.localeCompare(b.workspace); break
+      case 'outcome':      cmp = outcomeRank(gitOutcomes.value[b.sessionId]?.overall ?? null) - outcomeRank(gitOutcomes.value[a.sessionId]?.overall ?? null); break
+      case 'signals':      cmp = signalsScore(b.loopSignals) - signalsScore(a.loopSignals); break
       case 'cost': {
         const costA = calcSessionCost(a).totalUsd
         const costB = calcSessionCost(b).totalUsd

@@ -83,6 +83,9 @@ export interface BuildContext {
   authorEmail?: string
   /** git-outcome verdict for the session, if known (`productive` / `reverted` / …). */
   outcome?: string
+  /** This session's current durable revision number, if known (staged feature 10) -- see
+   *  `SessionRollup.revision`'s doc comment. */
+  revision?: number
 }
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
@@ -186,6 +189,7 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
   }
   if (input.initiator) rollup.initiator = input.initiator
   if (input.conversationId) rollup.conversation_hash = sha256Hex(input.conversationId)
+  if (ctx.revision && ctx.revision > 0) rollup.revision = Math.round(ctx.revision)
 
   if (rk) {
     rollup.repo_hash = repoHash(rk)

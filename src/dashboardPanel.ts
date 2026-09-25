@@ -7,8 +7,8 @@ import { detectInstructionFiles, appendSuggestion, removeSuggestion } from './in
 import { computeBaseline } from './instructionEffectiveness'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
 import { serializeExport, exportFileExtension, type ExportFormat } from './exportFormats'
-import { classifySessionOutcome, resolveOutcomeCacheKey, type GitOutcome } from './gitOutcome'
-import { GitOutcomeRepository } from './database/gitOutcomeRepository'
+import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from './gitOutcome'
+import { ReconciliationService, type ReconcileResult } from './reconcile/reconciliationService'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
 import { handleOrgMessage, type OrgPanelDeps } from './cloud/org/panelController'
@@ -36,21 +36,26 @@ export class DashboardPanel {
   private disposables: vscode.Disposable[] = []
   private pendingUpdate: ReturnType<typeof setTimeout> | undefined
   // On-demand — see gitOutcome.ts for why this isn't computed eagerly for every loaded session.
-  // Two layers: this in-memory map is just to de-dupe concurrent/repeat requests within a single
-  // panel lifetime (also holds in-flight promises, so two clicks for the same not-yet-cached
-  // session don't both shell out to git); the durable cache is GitOutcomeRepository (git_outcome
-  // table), which is what actually survives a panel/window restart.
-  private gitOutcomeCache = new Map<string, Promise<GitOutcome | null>>()
-  // Same cutoff update() uses to decide a session is still "live" for burn-rate purposes — see
-  // sendGitOutcome.
-  private static readonly GIT_OUTCOME_ACTIVE_GRACE_MS = 2 * 60_000
+  // Host-independent, and deliberately *injected* rather than constructed here: extension.ts owns
+  // one instance for the whole extension-host lifetime and hands it to both this panel and the
+  // background watcher, so a watcher-detected change while this panel is open reaches this
+  // panel's subscription (see the constructor) instead of landing on a separate, panel-scoped
+  // instance no watcher publishes to. Undefined only when the SQLite database itself failed to
+  // open; sendGitOutcome falls back to an uncached, non-durable classification in that case.
+  // In-flight-only dedup for the no-database fallback path — mirrors ReconciliationService's own
+  // eviction discipline (deleted in `finally`, never a permanent success cache).
+  private fallbackInFlight = new Map<string, Promise<GitOutcome | null>>()
   // Keyed by workspace path rather than session — there are only ever a handful of distinct
   // workspaces open at once, unlike sessions, so this is cheap to compute for every one of them.
   // `name` is the git repo root's own basename, not the (possibly-a-subfolder) workspace path —
   // see sendRepoHash for why.
   private repoInfoCache = new Map<string, { name: string; hash: string; githubUrl: string | null } | null>()
+  // Cutoff for "still live" in update()'s burn-rate calculation — kept here rather than only in
+  // reconciliationService.ts (which has its own copy for the same window, ACTIVE_GRACE_MS) since
+  // this one has nothing to do with git-outcome reconciliation.
+  private static readonly GIT_OUTCOME_ACTIVE_GRACE_MS = 2 * 60_000
 
-  static show(context: vscode.ExtensionContext, repo: SessionRepository, sidebarProvider?: SidebarPanel, instructionRepo?: InstructionRepository, rawDb?: TurnoverDb) {
+  static show(context: vscode.ExtensionContext, repo: SessionRepository, sidebarProvider?: SidebarPanel, instructionRepo?: InstructionRepository, rawDb?: TurnoverDb, reconciliation?: ReconciliationService) {
     if (DashboardPanel.currentPanel) {
       DashboardPanel.currentPanel.panel.reveal()
       DashboardPanel.currentPanel.update()
@@ -66,7 +71,7 @@ export class DashboardPanel {
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       }
     )
-    DashboardPanel.currentPanel = new DashboardPanel(panel, context, repo, sidebarProvider, instructionRepo, rawDb)
+    DashboardPanel.currentPanel = new DashboardPanel(panel, context, repo, sidebarProvider, instructionRepo, rawDb, reconciliation)
   }
 
   static setRepository(repo: SessionRepository) {
@@ -85,8 +90,8 @@ export class DashboardPanel {
     void this.panel.webview.postMessage(message)
   }
 
-  static sendFilter(agentFilter?: string, sessionLimit?: number) {
-    DashboardPanel.currentPanel?.panel.webview.postMessage({ type: 'setFilter', agentFilter, sessionLimit })
+  static sendFilter(agentFilter?: string, sessionLimit?: number, workspaceFilter?: string, textFilter?: string) {
+    DashboardPanel.currentPanel?.panel.webview.postMessage({ type: 'setFilter', agentFilter, sessionLimit, workspaceFilter, textFilter })
   }
 
   static disposePanel() {
@@ -109,7 +114,8 @@ export class DashboardPanel {
     private repo: SessionRepository,
     private sidebarProvider?: SidebarPanel,
     private instructionRepo?: InstructionRepository,
-    private rawDb?: TurnoverDb,
+    rawDb?: TurnoverDb,
+    private reconciliation?: ReconciliationService,
   ) {
     this.panel = panel
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables)
@@ -262,6 +268,36 @@ export class DashboardPanel {
     this.disposables.push(pushDisposable)
     const interval = setInterval(() => this.update(), 10000)
     this.disposables.push({ dispose: () => clearInterval(interval) })
+
+    // Unsolicited pushes (staged feature 10, Stage 2): the background watcher (registered by
+    // extension.ts, outside this panel's lifetime) calls reconciliation.reconcileMany() for
+    // retained sessions whether or not this panel is even open. When it is, this is what makes a
+    // commit/merge/edit while Traces stays open show up without navigating away and back.
+    if (this.reconciliation) {
+      const unsubscribe = this.reconciliation.subscribe(r => this.pushGitOutcomeResult(r))
+      this.disposables.push({ dispose: unsubscribe })
+    }
+
+    // Independent of `reconciliation` — the uncached fallback path (fallbackInFlight, used when
+    // the database failed to open) runs git subprocesses too, and should still surface them.
+    const unsubscribeRunningCommands = onRunningGitCommandsChanged(commands => {
+      this.panel.webview.postMessage({ type: 'runningGitCommands', commands })
+    })
+    this.disposables.push({ dispose: unsubscribeRunningCommands })
+  }
+
+  /** Posts a reconciliation result to the webview in the same shape sendGitOutcome's
+   *  request/response path already uses — App.tsx's handler for `gitOutcome` messages doesn't
+   *  care whether it was solicited. */
+  private pushGitOutcomeResult(r: ReconcileResult): void {
+    const card = this.repo.listSessions().find(s => s.sessionId === r.sessionId) ?? null
+    if (!card) return // session no longer retained locally — nothing to update in the UI
+    const riskSignals = detectSessionRiskSignals(card, card.workspace)
+    const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], r.outcome)
+    this.panel.webview.postMessage({
+      type: 'gitOutcome', sessionId: r.sessionId, outcome: r.outcome, riskSignals, temperedLoopSignals,
+      revision: r.revision,
+    })
   }
 
   /** Builds an instruction-telemetry rollup for `workspace` and queues it — a hard no-op unless
@@ -369,32 +405,36 @@ export class DashboardPanel {
   }
 
   private async sendGitOutcome(sessionId: string, workspace: string, filesChanged: string[], endTime: string): Promise<void> {
-    // classifySessionOutcome has no "still in progress" state — a changed-but-not-yet-committed
-    // file reads as 'abandoned' whether the session ended five minutes ago or five seconds ago
-    // (see gitOutcome.ts). Sessions.tsx now requests an outcome for every visible session (not
-    // just ones a user opens), so a brand-new session with an uncommitted edit would otherwise be
-    // classified and durably cached as 'abandoned' before the agent has had a chance to commit.
-    // Skip (without caching) while the session's last known activity is still within the same
-    // "live" window update() uses for the active-session burn rate — it'll be requested again on
-    // the next sessions refresh once that window passes.
-    if (endTime && Date.now() - Date.parse(endTime) < DashboardPanel.GIT_OUTCOME_ACTIVE_GRACE_MS) {
-      return
-    }
     let outcome: GitOutcome | null
+    let revision: number | null = null
     try {
-      let pending = this.gitOutcomeCache.get(sessionId)
-      if (!pending) {
-        pending = this.loadOrComputeGitOutcome(sessionId, workspace, filesChanged)
-        this.gitOutcomeCache.set(sessionId, pending)
+      if (this.reconciliation) {
+        const result = await this.reconciliation.reconcile({ sessionId, workspace, filesChanged, endTime })
+        // A deferred (in-grace) result: no git classification ran, so don't cache/show it as an
+        // outcome (e.g. 'abandoned') before the agent has had a chance to commit. Tell the webview
+        // it's deferred (rather than staying silent) so the Outcome filter's pending-count spinner
+        // can stop counting it — see media/src/state.ts's deferredGitOutcomeSessionIds. It'll be
+        // requested again on the next sessions refresh, or pushed proactively once the grace timer
+        // revisits it (see reconciliationService.ts's scheduleGraceRevisit).
+        if (result.deferred) {
+          this.panel.webview.postMessage({ type: 'gitOutcomeDeferred', sessionId })
+          return
+        }
+        outcome = result.outcome
+        revision = result.revision
+      } else {
+        let pending = this.fallbackInFlight.get(sessionId)
+        if (!pending) {
+          pending = classifySessionOutcome(workspace, filesChanged)
+          this.fallbackInFlight.set(sessionId, pending)
+        }
+        try { outcome = await pending } finally { this.fallbackInFlight.delete(sessionId) }
       }
-      outcome = await pending
     } catch (err) {
-      // Never leave a rejected classification cached — that would permanently poison this
-      // session's slot (every future call re-rejects immediately, forever) and, since nothing
-      // downstream of a throw here ever posts a `gitOutcome` reply, permanently strand the
-      // Outcome filter's "resolving N outcomes" spinner above zero. Evict so it's retried next
-      // time, and still reply now (as "not applicable") so the spinner can count this one down.
-      this.gitOutcomeCache.delete(sessionId)
+      // Never leave a rejected classification cached — since nothing downstream of a throw here
+      // ever posts a `gitOutcome` reply, that would permanently strand the Outcome filter's
+      // "resolving N outcomes" spinner above zero. Reply now (as "not applicable") so the spinner
+      // can count this one down; it will be retried on the next request for this session.
       console.error(`[TraceRoost] git-outcome classification failed for session ${sessionId}:`, err)
       outcome = null
     }
@@ -405,28 +445,7 @@ export class DashboardPanel {
     const card = this.repo.listSessions().find(s => s.sessionId === sessionId) ?? null
     const riskSignals = card ? detectSessionRiskSignals(card, workspace) : []
     const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
-    this.panel.webview.postMessage({ type: 'gitOutcome', sessionId, outcome, riskSignals, temperedLoopSignals })
-  }
-
-  // Checks the durable git_outcome cache (keyed by session + resolveOutcomeCacheKey's doc comment)
-  // before shelling out to git — classifySessionOutcome's actual scan is the expensive part (see
-  // gitOutcome.ts), so this is what makes reopening the panel/window not rescan every session
-  // again. A row is reused as long as nothing relevant has moved since it was computed; once it
-  // has, the file's outcome (e.g. abandoned -> committed -> merged) may genuinely have changed, so
-  // it's recomputed rather than trusted forever.
-  private async loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[]): Promise<GitOutcome | null> {
-    if (this.rawDb && workspace && filesChanged.length > 0) {
-      const key = await resolveOutcomeCacheKey(workspace, filesChanged)
-      if (key) {
-        const repo = new GitOutcomeRepository(this.rawDb)
-        const cached = repo.get(sessionId, key.cacheKey)
-        if (cached !== undefined) return cached
-        const outcome = await classifySessionOutcome(workspace, filesChanged)
-        if (outcome) repo.put(sessionId, key.root, key.cacheKey, outcome)
-        return outcome
-      }
-    }
-    return classifySessionOutcome(workspace, filesChanged)
+    this.panel.webview.postMessage({ type: 'gitOutcome', sessionId, outcome, riskSignals, temperedLoopSignals, revision })
   }
 
   // `hash` is the same one traceroost-cloud shows in its own Repo column (repoKey.ts's repoHash,
@@ -557,6 +576,10 @@ export class DashboardPanel {
     DashboardPanel.currentPanel = undefined
     if (this.pendingUpdate) { clearTimeout(this.pendingUpdate); this.pendingUpdate = undefined }
     this.panel.dispose()
+    // Unsubscribes this panel's pushGitOutcomeResult listener (registered in the constructor) via
+    // the disposable pushed there — the ReconciliationService instance itself is owned and
+    // disposed by extension.ts, not this panel, since the background watcher keeps using it after
+    // this panel closes.
     this.disposables.forEach(d => d.dispose())
   }
 

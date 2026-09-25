@@ -47,6 +47,7 @@ body { font-family: var(--vscode-font-family); color: var(--fg); background: var
 #app { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
 @keyframes tr-spin { to { transform: rotate(360deg); } }
+@keyframes tr-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 
 .panel { display: none; }
 .panel.active { display: block; flex: 1; min-height: 0; overflow-y: auto; }
@@ -123,7 +124,7 @@ button:disabled { cursor: default; opacity: .5; }
 .time-range-bar > * { flex-shrink: 0; }
 .time-range-bar button { white-space: nowrap; }
 .search-filter-controls > * { flex-shrink: 0; }
-.trace-table { table-layout: fixed; min-width: 1100px; font-variant-numeric: tabular-nums; }
+.trace-table { table-layout: fixed; min-width: 780px; font-variant-numeric: tabular-nums; }
 /* No height/vertical-overflow here on purpose — `.panel.active` above is the one vertical scroll
  * region now; this box only ever needs its own (horizontal, from .h-scroll-hint) scrollbar for a
  * table wider than a narrow panel. Left unconstrained, it sizes to its content, so it never
@@ -157,23 +158,9 @@ button:disabled { cursor: default; opacity: .5; }
  * placeholder only; typed text keeps its own explicit color above. */
 .tr-header-input::placeholder { color: var(--fg); opacity: 0.7; }
 
-/* Time-range preset buttons (App.tsx's TimeRangePicker) — slightly larger than the Agent/Source
- * pills next to them since they're the primary control in this bar, with the same hover
- * affordance as `.tr-pill` (packages/styles/src/pills.css) for consistency even though these
- * aren't shared cross-product pills. */
-.tr-time-pill {
-  padding: 2px 8px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--muted);
-  transition: background-color 0.1s, color 0.1s;
-}
-.tr-time-pill[aria-pressed="true"] { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-.tr-time-pill:hover:not([aria-pressed="true"]) { background: var(--hover); color: var(--fg); }
+/* Time-range control (App.tsx's TimeRangePicker/TimeRangeMenu) is an unstyled <details>/<summary>
+ * popover trigger, styled inline rather than through a class — see TimeRangeMenu's own comment
+ * for why (mirrors traceroost-cloud's equivalent). No .tr-time-pill counterpart here anymore. */
 
 /* Reset button in the time-range bar (App.tsx) — kept visually small next to the refresh icon it
  * now sits beside, rather than the larger stand-alone call-to-action size it had when it lived

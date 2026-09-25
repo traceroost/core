@@ -11,8 +11,7 @@ import type { SessionSummaryCard, DailyStatRow } from '../types'
 
 export function fmtUsd(usd: number): string {
   if (usd === 0) return '$0.00'
-  if (usd < 0.001) return '<$0.001'
-  if (usd < 1) return '$' + usd.toFixed(3)
+  if (usd < 0.01) return '<$0.01'
   return '$' + usd.toFixed(2)
 }
 
@@ -212,7 +211,7 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
           <div>Cache read: {formatCompact(hovRow.cacheReadTokens)}</div>
           <div>Cache write: {formatCompact(hovRow.cacheCreateTokens)}</div>
           <div>Output tokens: {formatCompact(hovRow.outputTokens)}</div>
-          <div style="margin-top:4px;color:var(--vscode-charts-green,#81c784)">Estimated cost: <strong>{'$' + (hovRow.costUsd).toFixed(3)}</strong></div>
+          <div style="margin-top:4px;color:var(--vscode-charts-green,#81c784)">Estimated cost: <strong>{'$' + (hovRow.costUsd).toFixed(2)}</strong></div>
         </div>
       )}
     </div>

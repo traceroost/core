@@ -578,45 +578,33 @@ function SessionRow({ sess, showWorkspace, conversation }: {
         </td>
 
         {/* Chevron */}
-        <td style="padding:4px 4px 4px 8px;width:16px;color:var(--muted);font-size:9px;white-space:nowrap">
+        <td style="padding:4px 2px 4px 4px;width:16px;color:var(--muted);font-size:9px;white-space:nowrap">
           <button class="trace-expand" aria-label={expanded ? 'Collapse trace' : 'Expand trace'} aria-expanded={expanded} onClick={e => { e.stopPropagation(); toggle() }}>{expanded ? '▼' : '▶'}</button>
         </td>
 
-        {/* Agent dot + single-letter Source/From badges (colors match the Outcome bar's own
-            Source/From pills — see DATA_SOURCE_COLORS/INITIATOR_COLORS in utils.ts) */}
-        <td style="padding:4px 4px;width:auto;white-space:nowrap">
-          <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--agent-${sess.source === 'claude_code' ? 'claude' : sess.source},${color});flex-shrink:0;vertical-align:middle`} />
-          <span style="margin-left:4px;font-size:10px" title={getAgentSourceLabel(sess.source)}>{getAgentSourceLabel(sess.source)}</span>
-          <span style="margin-left:4px" dangerouslySetInnerHTML={{ __html: getDataSourceBadgeHtml(sess.dataSource ?? 'otel') }} />
+        {/* Agent / Start / Source / From, merged into one column, in that left-to-right order
+            (colors match the Outcome bar's own Source/From pills — see
+            DATA_SOURCE_COLORS/INITIATOR_COLORS in utils.ts) */}
+        <td style="padding:4px 2px;white-space:nowrap">
+          <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--agent-${sess.source === 'claude_code' ? 'claude' : sess.source},${color});flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(sess.source)} />
+          <span style="margin-left:6px;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums">{formatSessionTime(sess)}</span>
+          <span style="margin-left:6px" dangerouslySetInnerHTML={{ __html: getDataSourceBadgeHtml(sess.dataSource ?? 'otel') }} />
           <span dangerouslySetInnerHTML={{ __html: getInitiatorBadgeHtml(sess.initiator) }} />
         </td>
 
-        {/* Timestamp */}
-        <td style="padding:4px 6px;white-space:nowrap;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums">
-          {formatSessionTime(sess)}
+        {/* Model */}
+        <td style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:64px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
+          {sess.model || '—'}
+          {(sess.models?.length ?? 0) > 1 && (
+            <span
+              title={`Multiple models used in this trace: ${sess.models!.join(', ')}`}
+              style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:9px;vertical-align:middle"
+            >+{sess.models!.length - 1}</span>
+          )}
         </td>
 
-        {showWorkspace && (
-          <td
-            style="padding:4px 6px;font-size:10px;color:var(--muted);max-width:165px"
-            title={sess.workspace ? `${repoTooltipName(sess.workspace, repoInfo.value)}\nLocal: ${sess.workspace}` : undefined}
-          >
-            <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-              {sess.workspace ? repoDisplayName(sess.workspace, repoInfo.value) : '—'}
-            </span>
-          </td>
-        )}
-
-        {/* Git outcome — own column so the single-letter pill (GitOutcomeBadge) always lines up
-            under the "O" header instead of riding along inside the Repo cell. */}
-        {showWorkspace && (
-          <td style="padding:4px 6px;text-align:center">
-            {sess.workspace && <GitOutcomeBadge sessionId={sess.sessionId} />}
-          </td>
-        )}
-
         {/* Prompt (Trace ID) */}
-        <td style="padding:4px 6px;overflow:hidden;max-width:420px">
+        <td style="padding:4px 2px;overflow:hidden;max-width:140px">
           {prompt
             ? <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px" title={prompt}>
                 <span style="font-style:italic;color:var(--foreground)">
@@ -630,35 +618,49 @@ function SessionRow({ sess, showWorkspace, conversation }: {
           }
         </td>
 
-        {/* Model */}
-        <td style="padding:4px 6px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:92px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
-          {sess.model || '—'}
-          {(sess.models?.length ?? 0) > 1 && (
-            <span
-              title={`Multiple models used in this trace: ${sess.models!.join(', ')}`}
-              style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:9px;vertical-align:middle"
-            >+{sess.models!.length - 1}</span>
-          )}
-        </td>
+        {showWorkspace && (
+          <td
+            style="padding:4px 2px;font-size:10px;color:var(--muted);max-width:110px"
+            title={sess.workspace ? `${repoTooltipName(sess.workspace, repoInfo.value)}\nLocal: ${sess.workspace}` : undefined}
+          >
+            <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              {sess.workspace ? repoDisplayName(sess.workspace, repoInfo.value) : '—'}
+            </span>
+          </td>
+        )}
+
+        {/* Git outcome — own column so the single-letter pill (GitOutcomeBadge) always lines up
+            under the "O" header instead of riding along inside the Repo cell. */}
+        {showWorkspace && (
+          <td style="padding:4px 0;text-align:left">
+            {sess.workspace && <GitOutcomeBadge sessionId={sess.sessionId} />}
+          </td>
+        )}
 
         {/* Signals — own column, unconditional (unlike Repo/Outcome above, doesn't need a
             workspace) so a struggle pattern is visible regardless of showWorkspace. */}
-        <td style="padding:4px 6px;text-align:center">
+        <td style="padding:4px 2px 4px 8px;text-align:left">
           <SignalsCell signals={sess.loopSignals} />
         </td>
 
-        {/* Tokens */}
-        <td style="padding:4px 6px;text-align:right;white-space:nowrap;font-size:10px;color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in trace detail for actual context window size.' : undefined}>
-          {formatCompact(sess.inputTokens + sess.outputTokens)}
+        {/* Turns */}
+        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:10px;color:var(--muted)">
+          {sess.turns}
+          {sess.errors > 0 && <span style="color:var(--error)"> · {sess.errors} err</span>}
         </td>
 
         {/* Duration */}
-        <td style="padding:4px 6px;text-align:right;white-space:nowrap;font-size:10px;color:var(--muted)">
+        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:10px;color:var(--muted)">
           {formatMs(sess.durationMs)}
         </td>
 
+        {/* Tokens */}
+        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:10px;color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in trace detail for actual context window size.' : undefined}>
+          {formatCompact(sess.inputTokens + sess.outputTokens)}
+        </td>
+
         {/* Cost */}
-        <td style="padding:4px 8px 4px 6px;text-align:right;white-space:nowrap;font-size:10px">
+        <td style="padding:4px 6px 4px 2px;text-align:left;white-space:nowrap;font-size:10px">
           {!cost.modelUnknown && cost.totalUsd > 0
             ? <span style="color:var(--vscode-charts-green,#81c784)">{fmtUsd(cost.totalUsd)}</span>
             : sess.errors > 0
@@ -704,10 +706,10 @@ export function Sessions() {
     }
   }
 
-  const thBase = 'padding:3px 6px;font-size:10px;font-weight:600;white-space:nowrap;user-select:none'
+  const thBase = 'padding:3px 2px;font-size:10px;font-weight:600;white-space:nowrap;user-select:none'
   const thSort = thBase + ';cursor:pointer;color:var(--fg)'
-  function sortHeader(key: SortKey, label: string, right = false, title?: string) {
-    return <th scope="col" aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:' + (right ? 'right;' : 'left;') + thSort}>
+  function sortHeader(key: SortKey, label: string, align: 'left' | 'right' | 'center' = 'left', title?: string) {
+    return <th scope="col" aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:' + align + ';' + thSort}>
       <button class="sort-button" onClick={() => onSortClick(key)} title={title}>{label}{sortArrow(key)}</button>
     </th>
   }
@@ -717,8 +719,6 @@ export function Sessions() {
   // for why the clamping happens there rather than here.
   const { page, totalPages, pageSize } = getSessionsPagination(sessions.length)
   const pageSessions = sessions.slice(page * pageSize, (page + 1) * pageSize)
-  const rangeStart = sessions.length === 0 ? 0 : page * pageSize + 1
-  const rangeEnd = Math.min((page + 1) * pageSize, sessions.length)
   const conversationInfo = buildConversationInfo(sessions)
 
   // Fetches git outcomes for just the current page (bounded by pagination already, same cap/
@@ -731,31 +731,42 @@ export function Sessions() {
       <div role="region" aria-label="Traces table" tabIndex={0}>
       <table class="trace-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <colgroup>
-          <col style="width:8px" /><col style="width:28px" /><col style="width:108px" /><col style="width:144px" />
-          {showWorkspace && <col style="width:150px" />}
-          {showWorkspace && <col style="width:60px" />}
-          <col /><col style="width:92px" /><col style="width:78px" /><col style="width:80px" /><col style="width:85px" /><col style="width:80px" />
+          <col style="width:8px" /><col style="width:18px" /><col style="width:128px" /><col style="width:64px" />
+          <col style="width:140px" />
+          {showWorkspace && <col style="width:110px" />}
+          {showWorkspace && <col style="width:36px" />}
+          <col style="width:46px" /><col style="width:38px" /><col style="width:50px" /><col style="width:46px" /><col style="width:70px" />
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
             <th style="width:5px;padding:0" title="A colored bar marks traces that are really one conversation split into multiple rows by a long gap between them." />
-            <th style="width:16px;padding:3px 4px 3px 8px" />
-            {sortHeader('source', 'Agent/Src/From')}
-            {sortHeader('start_time', 'Start Time')}
+            <th style="width:16px;padding:3px 2px 3px 4px" />
+            <th scope="col" aria-sort={sortKey === 'start_time' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
+              <button class="sort-button" onClick={() => onSortClick('start_time')} title="Sorted by start time only — Agent/Source/From aren't part of the sort">
+                Agent / <strong style="font-weight:800">Start</strong> / Source / From{sortArrow('start_time')}
+              </button>
+            </th>
+            <th scope="col" aria-sort={sortKey === 'model' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort + ';padding-left:8px'}>
+              <button class="sort-button" onClick={() => onSortClick('model')}>Model{sortArrow('model')}</button>
+            </th>
+            {sortHeader('prompt', 'Prompt (ID)')}
             {showWorkspace && (
               <th scope="col" aria-sort={sortKey === 'workspace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
                 <button class="sort-button" onClick={() => onSortClick('workspace')} title="Sort by repo">Repo (ID){sortArrow('workspace')}</button>
               </th>
             )}
             {showWorkspace && (
-              <th scope="col" style={thBase + ';text-align:center;color:var(--tr-brand)'} title="Git outcome — whether each trace's changed files were committed, reverted, or left uncommitted, per local git history">Outcome</th>
+              <th scope="col" aria-sort={sortKey === 'outcome' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--tr-brand);padding-left:0;padding-right:0'}>
+                <button class="sort-button" onClick={() => onSortClick('outcome')} title="Git outcome — whether each trace's changed files were committed, reverted, or left uncommitted, per local git history">Out{sortArrow('outcome')}</button>
+              </th>
             )}
-            {sortHeader('prompt', 'Prompt (ID)')}
-            {sortHeader('model', 'Model')}
-            <th scope="col" style={thBase + ';text-align:center;color:var(--fg)'} title="Struggle/loop patterns detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.">Signals</th>
-            {sortHeader('total_tokens', 'Tokens', true, 'Accumulated input and output tokens across all turns')}
-            {sortHeader('duration_ms', 'Duration', true)}
-            {sortHeader('cost', 'Estimated cost', true)}
+            <th scope="col" aria-sort={sortKey === 'signals' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--fg);padding-left:0'}>
+              <button class="sort-button" onClick={() => onSortClick('signals')} title="Struggle/loop patterns detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.">Sig{sortArrow('signals')}</button>
+            </th>
+            {sortHeader('turns', 'Turns')}
+            {sortHeader('duration_ms', 'Duration')}
+            {sortHeader('total_tokens', 'Tokens', 'left', 'Accumulated input and output tokens across all turns')}
+            {sortHeader('cost', 'Est Cost')}
           </tr>
         </thead>
         <tbody>
@@ -766,10 +777,9 @@ export function Sessions() {
         </tbody>
       </table>
       </div>
-      <div class="trace-pagination" style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div class="trace-pagination" style="padding:6px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:8px">
         {window.__VERSION__ && <span title="TraceRoost version">v{window.__VERSION__}</span>}
-        <span style="display:flex;align-items:center;gap:8px">
-            <span style="display:inline-block;min-width:23ch">Showing {rangeStart}–{rangeEnd} of {sessions.length}</span>
+        <span style="display:flex;align-items:center;gap:8px;margin-left:auto">
             <PageSizeSelect />
             <>
               <button

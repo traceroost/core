@@ -13,7 +13,6 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 | [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
 | [`docs/wire-schema.md`](docs/wire-schema.md) | The exact wire contract, and how to verify the privacy claim yourself |
 | [`docs/pricing-boundary.md`](docs/pricing-boundary.md) | The free/paid line, word-for-word with the pricing page |
-| [`.staged-features/README.md`](.staged-features/README.md) | The phased plan this was built against, and the companion closed-source service repo (`cloud`) — local-only, gitignored; the numbered per-phase design docs it describes are deleted once each phase ships, so don't expect them all to exist |
 
 ## The two rules everything below answers to
 
@@ -24,12 +23,11 @@ already exist rather than repeating them, and adds the diagrams none of them hav
    commits, *my* repositories is free and complete. Paid is cross-developer aggregation — the one
    thing a local install genuinely cannot do itself. Nothing local is gated behind Pro.
 
-## Two repositories, one contract
+## The client owns the contract
 
-The org feature spans two codebases. This repo owns the wire schema; the hosted service
-(`cloud`, closed-source, not in this checkout) only validates against it — never the reverse,
-because the claim *"this client cannot send your code"* is only worth what it's worth in the
-repository a skeptical developer already trusts.
+This repo owns the wire schema; the hosted service only validates against it — never the
+reverse, because the claim *"this client cannot send your code"* is only worth what it's worth
+in the repository a skeptical developer already trusts.
 
 ```mermaid
 graph TB
@@ -46,7 +44,7 @@ graph TB
         LOCAL[("Local SQLite<br/>sessions, spans, attribution, turnover")]
     end
 
-    subgraph Service["TraceRoost Pro service — cloud (separate repo)"]
+    subgraph Service["TraceRoost Pro service (hosted)"]
         OAUTH["OAuth / PKCE authorization server"]
         INGEST["POST /api/ingest<br/>validates against schema/rollup.v1.json"]
         STORE[("Rollup storage")]

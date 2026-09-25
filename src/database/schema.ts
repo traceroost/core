@@ -61,6 +61,34 @@ CREATE TABLE IF NOT EXISTS git_outcome (
   reason       TEXT NOT NULL DEFAULT '',
   computed_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
+
+-- Canonical trace revision (staged feature 10, Stage 1). One durable monotonic revision number
+-- per session, allocated only when its classified outcome (the allowlisted, cloud-forwarded
+-- projection) actually changes value -- not on every reclassification. A reparse of identical
+-- evidence (unchanged fingerprint -> same outcome) updates checked_at only, so it never creates
+-- forwarding work or a false "something changed" signal. fingerprint is git_outcome's own cache
+-- key (resolveOutcomeCacheKey) at the time this revision was allocated -- kept here too so a
+-- caller can tell whether a stored revision is still current without re-deriving it. Lifecycle is
+-- reserved for future active/idle/completed tracking; this pass only ever writes 'active'.
+CREATE TABLE IF NOT EXISTS trace_revision (
+  session_id         TEXT PRIMARY KEY,
+  revision           INTEGER NOT NULL,
+  lifecycle          TEXT    NOT NULL DEFAULT 'active',
+  fingerprint         TEXT    NOT NULL,
+  outcome_overall     TEXT,
+  checked_at          INTEGER NOT NULL,
+  changed_at          INTEGER NOT NULL
+);
+
+-- Single global monotonic counter backing trace_revision.revision. One process (the editor's
+-- extension host, or the standalone server) owns its own on-disk database and therefore its own
+-- counter -- there is deliberately no attempt here to serialize revision allocation *across* the
+-- two processes when both are pointed at the same workspace; see reconciliationService.ts's doc
+-- comment for why that is out of scope for the current sql.js-backed storage layer.
+CREATE TABLE IF NOT EXISTS trace_revision_counter (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  next INTEGER NOT NULL DEFAULT 1
+);
 `
 
 export const SCHEMA_SQL = `

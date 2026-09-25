@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "module": "Node16",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "sourceMap": true,
+    "rootDir": ".",
+    "outDir": "out/test-standalone",
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node", "mocha"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "standalone/cloud/patternsCli.ts",
+    "standalone/cloud/traceCli.ts",
+    "standalone/cloud/findCli.ts",
+    "standalone/cloud/patternsCli.test.ts",
+    "standalone/cloud/traceCli.test.ts",
+    "standalone/cloud/findCli.test.ts"
+  ]
+}

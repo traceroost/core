@@ -5,7 +5,7 @@ import * as path from 'path'
 import { ForwardQueue, itemKey, queuePath } from '../../../cloud/forward/queue'
 import type { RollupPayload } from '../../../cloud/forward/schema'
 
-function payload(sessionId: string): RollupPayload {
+function payload(sessionId: string, revision?: number): RollupPayload {
   return {
     schema_version: '1',
     repo_key_fp: 'a'.repeat(64),
@@ -15,6 +15,7 @@ function payload(sessionId: string): RollupPayload {
       repo_hash: 'b'.repeat(64),
       started_at: '2026-03-01T00:00:00.000Z',
       duration_ms: 1,
+      ...(revision !== undefined ? { revision } : {}),
     },
   }
 }
@@ -69,6 +70,55 @@ suite('forward/queue', () => {
     q.recordFailure(key, 'boom')
     assert.strictEqual(q.list()[0].attempts, 2)
     assert.strictEqual(q.list()[0].lastError, 'boom')
+  })
+
+  test('staged feature 10: a strictly newer revision replaces a still-unsent item in place', () => {
+    const q = new ForwardQueue(home)
+    const id = '11111111-1111-4111-8111-111111111111'
+    assert.strictEqual(q.enqueue(payload(id, 1)), true)
+    assert.strictEqual(q.enqueue(payload(id, 2)), true, 'a newer revision must replace, not be dropped as a duplicate key')
+    assert.strictEqual(q.depth(), 1, 'replace happens in place, not as a second queued item')
+    assert.strictEqual(q.list()[0].payload.session?.revision, 2)
+  })
+
+  test('staged feature 10: an equal or older revision does not replace the queued item', () => {
+    const q = new ForwardQueue(home)
+    const id = '11111111-1111-4111-8111-111111111111'
+    q.enqueue(payload(id, 3))
+    assert.strictEqual(q.enqueue(payload(id, 3)), false, 'same revision is a no-op, not a replace')
+    assert.strictEqual(q.enqueue(payload(id, 2)), false, 'an older revision must never overwrite a newer queued one')
+    assert.strictEqual(q.list()[0].payload.session?.revision, 3)
+  })
+
+  test('staged feature 10: a revision-bearing payload supersedes a legacy (no-revision) queued item', () => {
+    const q = new ForwardQueue(home)
+    const id = '11111111-1111-4111-8111-111111111111'
+    q.enqueue(payload(id)) // legacy send, no revision field
+    assert.strictEqual(q.enqueue(payload(id, 1)), true, 'a revisioned snapshot must supersede a pre-revision-protocol queued item')
+    assert.strictEqual(q.list()[0].payload.session?.revision, 1)
+  })
+
+  test('staged feature 10: a payload with no revision never replaces an already-queued item, revisioned or not', () => {
+    const q = new ForwardQueue(home)
+    const id = '11111111-1111-4111-8111-111111111111'
+    q.enqueue(payload(id, 5))
+    assert.strictEqual(q.enqueue(payload(id)), false, 'cannot confirm a revision-less payload is newer, so it must not clobber a revisioned one')
+    assert.strictEqual(q.list()[0].payload.session?.revision, 5)
+  })
+
+  test('staged feature 10: replacing in place preserves retry identity (enqueuedAt, attempts)', () => {
+    const q = new ForwardQueue(home)
+    const id = '11111111-1111-4111-8111-111111111111'
+    q.enqueue(payload(id, 1))
+    const key = itemKey(payload(id, 1))
+    q.recordFailure(key, 'network blip')
+    const before = q.list()[0]
+    assert.strictEqual(before.attempts, 1)
+
+    q.enqueue(payload(id, 2))
+    const after = q.list()[0]
+    assert.strictEqual(after.enqueuedAt, before.enqueuedAt, 'a replace keeps the original enqueuedAt, not a fresh one')
+    assert.strictEqual(after.attempts, 1, 'a replace preserves in-flight retry state rather than resetting it')
   })
 
   test('eviction past the cap is logged, not silent', () => {

@@ -9,7 +9,7 @@
 import { getOrgStatus, type QueueStats, type TraceSendStats } from './status'
 import { linkInteractive, linkViaDevice, leave, refreshOrgNameIfStale } from './link'
 import { getQueueStats } from '../forward/currentQueueStats'
-import { syncForwardSchedulerToLinkState, drainForwardQueueSoon } from '../forward/scheduler'
+import { syncForwardSchedulerToLinkState, drainForwardQueueSoon, checkForwardQueueNow, isForwardQueueDraining } from '../forward/scheduler'
 import { syncPricingToLinkState } from './pricingSync'
 import { maybeEnqueueSession } from './enqueueSession'
 import { createPayloadBuildCache } from './payloadPreview'
@@ -132,6 +132,21 @@ async function reconcileLocalSessions(deps: OrgPanelDeps, reportProgress = false
   )
   if (queued > 0) {
     deps.log?.(`[TraceRoost] reconcile: queued ${queued} local session(s) not yet confirmed delivered`)
+  }
+  // Always nudge the scheduler, not just when new sessions were found — the on-demand button's
+  // whole point is "try to get things moving right now," and a backlog stuck retrying on its own
+  // backoff schedule (queue.ts's stuckItems) is exactly the case where clicking it should visibly
+  // do something, not silently no-op just because nothing *new* needed queuing.
+  if (reportProgress) {
+    // The on-demand click: force past backoff entirely and wait for it, so the `pushStatus` call
+    // right after `orgReconcile` returns reflects what actually just happened, not the pre-drain
+    // state. Without `force`, a backlog that failed identically many times (an old server bug the
+    // developer just fixed and redeployed) could sit backed off for up to an hour with the panel
+    // still reading "degraded" the whole time and no way to confirm the fix short of waiting.
+    await checkForwardQueueNow()
+  } else {
+    // The link-time call: fire-and-forget, backoff-respecting — nothing has had a chance to fail
+    // yet, so there's nothing to force past.
     drainForwardQueueSoon()
   }
   return queued
@@ -140,14 +155,14 @@ async function reconcileLocalSessions(deps: OrgPanelDeps, reportProgress = false
 function pushStatus(deps: OrgPanelDeps): void {
   const stats = deps.queueStats?.() ?? getQueueStats()
   const sendStats = deps.traceSendStats?.()
-  deps.post({ type: 'orgStatus', status: getOrgStatus(stats, sendStats) })
+  deps.post({ type: 'orgStatus', status: getOrgStatus(stats, sendStats, isForwardQueueDraining()) })
   // Opportunistic, cheap self-heal for an org name that never resolved at link time (see
   // refreshOrgNameIfStale) — a no-op once it has ever succeeded. Re-pushes status only when it
   // actually changed something, so the panel corrects itself without the user doing anything.
   void refreshOrgNameIfStale(deps.log).then((changed) => {
     if (!changed) return
     const freshStats = deps.queueStats?.() ?? getQueueStats()
-    deps.post({ type: 'orgStatus', status: getOrgStatus(freshStats, sendStats) })
+    deps.post({ type: 'orgStatus', status: getOrgStatus(freshStats, sendStats, isForwardQueueDraining()) })
   })
 }
 

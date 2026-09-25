@@ -4,9 +4,10 @@ import {
   sessionSummary, toolCalls,
   selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
   sessionTimelines, blobCache, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor,
+  runningGitCommands, deferredGitOutcomeSessionIds,
   repoInfo,
   dailyStats, lifetimeStats, burnRateData, searchResults, rangedSearchResults, exportSearchResults,
-  timeRange, makeTimeRange, TIME_PRESETS, CHART_MAX,
+  timeRange, makeTimeRange, makeCustomTimeRange, TIME_PRESETS, CHART_MAX, type TimePreset, type TimeRange,
   vscode, displaySessions, rangedSessions,
   sessionTextFilter, filteredSessions, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   sessionSortKey, sessionSortDir,
@@ -438,6 +439,8 @@ export function App() {
         tab?: string
         agentFilter?: AgentFilter
         sessionLimit?: number
+        workspaceFilter?: string
+        textFilter?: string
         sessionId?: string
         timeline?: TimelineEntry[]
         outcome?: GitOutcome | null
@@ -458,6 +461,7 @@ export function App() {
         otlpPort?: number
         currentWorkspace?: string | null
         results?: OtelReconfigureResult
+        commands?: string[]
       }
       if (msg.type === 'update') {
         if (msg.enableOtelIngestion !== undefined) enableOtelIngestion.value = msg.enableOtelIngestion
@@ -505,6 +509,15 @@ export function App() {
         sessionTimelines.value = { ...sessionTimelines.value, [msg.sessionId]: msg.timeline ?? [] }
       } else if (msg.type === 'gitOutcome' && msg.sessionId) {
         gitOutcomes.value = { ...gitOutcomes.value, [msg.sessionId]: msg.outcome ?? null }
+        if (deferredGitOutcomeSessionIds.has(msg.sessionId)) deferredGitOutcomeSessionIds.delete(msg.sessionId)
+      } else if (msg.type === 'gitOutcomeDeferred' && msg.sessionId) {
+        // Session is still inside its active-session grace window — no git classification ran or
+        // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
+        // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). It stays absent from
+        // gitOutcomes, so no outcome badge renders for it either.
+        deferredGitOutcomeSessionIds.add(msg.sessionId)
+      } else if (msg.type === 'runningGitCommands' && Array.isArray(msg.commands)) {
+        runningGitCommands.value = msg.commands
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
         const entry = (msg.name && msg.hash) ? { name: msg.name, hash: msg.hash, githubUrl: msg.githubUrl ?? null } : null
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
@@ -531,6 +544,12 @@ export function App() {
           sessionLimit.value = limit
           const sel = document.getElementById('session-limit') as HTMLSelectElement
           if (sel) sel.value = String(limit)
+        }
+        if (msg.workspaceFilter !== undefined) {
+          workspaceFilter.value = msg.workspaceFilter
+        }
+        if (msg.textFilter !== undefined) {
+          sessionTextFilter.value = msg.textFilter
         }
       } else if (msg.type === 'instructionFiles' && Array.isArray((msg as unknown as {files?: unknown}).files)) {
         instructionFiles.value = (msg as unknown as {files: typeof instructionFiles.value}).files
@@ -641,13 +660,47 @@ export function App() {
       {showFilterBars && <TimeRangePicker />}
       {showFilterBars && <SearchFilterBar />}
       {showFilterBars && <OutcomeFilterBar />}
+      {showFilterBars && <FilterActionsBar />}
       <div class="panel active h-scroll-hint">
         <ActivePanel />
+        {tab === 'sessions' && <GitCommandStatusBar />}
       </div>
 
       <ConfigPanel />
       <OrgPanel />
     </>
+  )
+}
+
+// Footer, visible only while the host has `git` subprocesses in flight (see gitOutcome.ts's
+// onRunningGitCommandsChanged) — gives the Outcome filter's "resolving N outcomes" spinner a
+// concrete, live detail instead of just spinning with no indication of progress or of a slow/
+// stuck classification. Always shows the most recently started command so the line reads as
+// "still moving" rather than replaying the whole in-flight set.
+//
+// Only mounted on the Traces (Sessions) tab — its caller below gates it on `tab === 'sessions'` —
+// since that's the one place the per-row git outcome badges actually resolve; showing raw git
+// command lines while looking at Analytics or Advisor would be confusing/irrelevant even though
+// classification can still be running in the background.
+//
+// Rendered as the last child inside `.panel.active` (not as a flex sibling after it) with
+// `position:sticky;bottom:0`, so it sits immediately below the tab's own content — right under
+// the version/paging row — rather than drifting down to the panel's full flex-filled height
+// whenever content is shorter than the viewport. Sticky still keeps it pinned to the visible
+// bottom edge while scrolling through long content.
+function GitCommandStatusBar() {
+  const commands = runningGitCommands.value
+  if (commands.length === 0) return null
+  const current = commands[commands.length - 1]
+  return (
+    <div
+      role="status"
+      style="position:sticky;bottom:0;flex-shrink:0;display:flex;align-items:center;gap:5px;padding:2px 8px;font-size:10px;font-family:var(--vscode-editor-font-family,monospace);color:var(--muted);background:var(--vscode-editor-background);border-top:1px solid var(--vscode-panel-border);overflow:hidden;white-space:nowrap"
+      title={commands.join('\n')}
+    >
+      <span style="overflow:hidden;text-overflow:ellipsis">{current}</span>
+      {commands.length > 1 && <span style="flex-shrink:0">+{commands.length - 1} more</span>}
+    </div>
   )
 }
 
@@ -664,6 +717,221 @@ const AGENT_FILTER_OPTIONS: Array<{ value: AgentFilter; label: string; color: st
   { value: 'cursor',     label: 'Cursor',   color: 'var(--agent-cursor,#B39DDB)' },
 ]
 
+// `YYYY-MM-DD` date input value + an optional `HH:MM` time input value <-> unix ms, treating both
+// as UTC — `since` from its first instant, `until` through its last, when no time is given — same
+// convention traceroost-cloud's own custom-range picker uses for the same two bounds, so the two
+// products resolve an identical date(+time) string to an identical instant. `time` empty falls
+// back to the day-boundary default; given, it's taken as that exact minute instead.
+function dateInputToMs(date: string, time: string, edge: 'start' | 'end'): number | undefined {
+  if (!date) return undefined
+  const iso = time
+    ? `${date}T${time}:00.000Z`
+    : `${date}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}Z`
+  const ms = Date.parse(iso)
+  return Number.isNaN(ms) ? undefined : ms
+}
+function msToDateInput(ms: number | undefined): string {
+  return ms ? new Date(ms).toISOString().slice(0, 10) : ''
+}
+// Blank unless `ms` carries a time other than its edge's own day-boundary default — so reopening
+// a date-only custom range shows an empty (not misleadingly "00:00"/"23:59") time field, matching
+// what was actually chosen. `time` input to unix ms is dateInputToMs's job; this is its inverse.
+function msToTimeInput(ms: number | undefined, edge: 'start' | 'end'): string {
+  if (!ms) return ''
+  const msOfDay = ((ms % 86_400_000) + 86_400_000) % 86_400_000
+  const boundaryMsOfDay = edge === 'start' ? 0 : 86_400_000 - 1
+  if (msOfDay === boundaryMsOfDay) return ''
+  const d = new Date(ms)
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+}
+function shortDate(ms: number): string {
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+// A bound's date, plus its time-of-day if it carries one other than the edge's own day-boundary
+// default — "Aug 1" or "Aug 1 14:30".
+function shortBound(ms: number, edge: 'start' | 'end'): string {
+  const time = msToTimeInput(ms, edge)
+  return time ? `${shortDate(ms)} ${time}` : shortDate(ms)
+}
+function timeRangeLabel(r: TimeRange): string {
+  if (r.preset === 'custom') {
+    if (r.since && r.until) return `${shortBound(r.since, 'start')}–${shortBound(r.until, 'end')}`
+    if (r.since) return `Since ${shortBound(r.since, 'start')}`
+    if (r.until) return `Until ${shortBound(r.until, 'end')}`
+    return 'Custom'
+  }
+  return TIME_PRESETS.find(p => p.id === r.preset)?.label ?? 'All'
+}
+
+const DATE_TIME_INPUT_STYLE =
+  'font-size:12px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;background:var(--vscode-input-background,#3c3c3c);color:var(--fg);box-sizing:border-box;flex:1;min-width:0;'
+
+/**
+ * Replaces what used to be six always-visible pills with one compact trigger (same footprint as
+ * a single pill) that opens a popover on click, so a custom date range doesn't widen the filter
+ * bar — the popover floats above the page and is never part of layout flow. Mirrors
+ * traceroost-cloud's own TimeRangeControl (trace-filter-controls.tsx) — same <details>/<summary>
+ * popover, same preset list on top with a custom range section below it — so both products offer
+ * this the same way.
+ */
+function TimeRangeMenu({ range, onSelectPreset, onApplyCustom }: {
+  range: TimeRange
+  onSelectPreset: (id: TimePreset) => void
+  onApplyCustom: (since: number | undefined, until: number | undefined) => void
+}) {
+  const rangeSince = range.preset === 'custom' ? range.since : undefined
+  const rangeUntil = range.preset === 'custom' ? range.until : undefined
+  const [sinceDate, setSinceDate] = useState(() => msToDateInput(rangeSince))
+  const [sinceTime, setSinceTime] = useState(() => msToTimeInput(rangeSince, 'start'))
+  const [untilDate, setUntilDate] = useState(() => msToDateInput(rangeUntil))
+  const [untilTime, setUntilTime] = useState(() => msToTimeInput(rangeUntil, 'end'))
+  // Re-syncs the draft inputs whenever the committed range changes from outside this popover
+  // (Clear Filters, a preset picked elsewhere) — not just on mount.
+  useEffect(() => {
+    setSinceDate(msToDateInput(rangeSince))
+    setSinceTime(msToTimeInput(rangeSince, 'start'))
+    setUntilDate(msToDateInput(rangeUntil))
+    setUntilTime(msToTimeInput(rangeUntil, 'end'))
+  }, [range.preset, rangeSince, rangeUntil])
+  const detailsRef = useRef<HTMLDetailsElement>(null)
+  const summaryRef = useRef<HTMLElement>(null)
+  // `position: fixed`, not `absolute` — `.time-range-bar` (base.css) sets `overflow-x: auto` so
+  // the filter row can scroll horizontally on a narrow panel, and per the CSS spec that silently
+  // computes overflow-y to `auto` too, clipping an absolutely-positioned popover at the row's own
+  // bottom edge instead of letting it float over the table below. `fixed`'s containing block is
+  // the viewport, not that ancestor, so it escapes the clip — the tradeoff is this now measures
+  // its own screen position instead of getting it for free from `top: 110%`.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  function openPopover() {
+    const rect = summaryRef.current?.getBoundingClientRect()
+    if (rect) setPos({ top: rect.bottom + 4, left: rect.left })
+  }
+
+  // A fixed popover doesn't move when the panel scrolls, but its trigger does — rather than
+  // tracking scroll to keep them in sync, just close it, same as most menu/combobox widgets do.
+  useEffect(() => {
+    if (!pos) return
+    function close() {
+      detailsRef.current?.removeAttribute('open')
+      setPos(null)
+    }
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [pos])
+
+  function choosePreset(id: TimePreset) {
+    onSelectPreset(id)
+    detailsRef.current?.removeAttribute('open')
+    setPos(null)
+  }
+  function applyCustom() {
+    if (!sinceDate && !untilDate) return
+    onApplyCustom(
+      dateInputToMs(sinceDate, sinceTime, 'start'),
+      dateInputToMs(untilDate, untilTime, 'end'),
+    )
+    detailsRef.current?.removeAttribute('open')
+    setPos(null)
+  }
+
+  return (
+    <details
+      ref={detailsRef}
+      onToggle={(e: Event) => {
+        if ((e.currentTarget as HTMLDetailsElement).open) openPopover()
+        else setPos(null)
+      }}
+    >
+      {/* Fixed width, not content-sized — "24h" and a custom "Aug 1–Aug 3" label are very
+          different lengths, and letting the trigger size to its own label would shift every
+          filter after it sideways on each selection (measured ~7px of exactly this jitter in
+          tests/ux/evaluate.mjs before this was pinned). Ellipsis truncates whatever doesn't fit
+          instead. */}
+      <summary ref={summaryRef} style={`list-style:none;cursor:pointer;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);color:${range.preset !== 'all' ? 'var(--accent)' : 'var(--muted)'};display:inline-flex;align-items:center;gap:2px;width:96px;box-sizing:border-box`}>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">{timeRangeLabel(range)}</span>
+        <span style="flex-shrink:0">▾</span>
+      </summary>
+      {/* class="tr-time-popover" — this panel and its contents mount/unmount with open/close,
+          which is expected, real UI motion (a user opened it), not jank; excluded from
+          tests/ux/evaluate.mjs's stationary-element check the same way .tr-trailing-controls
+          already is, for the same reason. `position: fixed` + `pos` (measured on open, see
+          above) rather than `top: 110%` — see openPopover's own comment for why. */}
+      {pos && (
+      <div class="tr-time-popover" style={`position:fixed;top:${pos.top}px;left:${pos.left}px;z-index:10;width:220px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);padding:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3)`}>
+        <div style="display:flex;flex-direction:column;gap:1px">
+          {TIME_PRESETS.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => choosePreset(p.id)}
+              style={`text-align:left;font-size:12px;padding:4px 6px;border-radius:4px;border:none;width:100%;cursor:pointer;background:${range.preset === p.id ? 'var(--vscode-button-background)' : 'transparent'};color:${range.preset === p.id ? 'var(--vscode-button-foreground)' : 'inherit'}`}
+            >{p.label}</button>
+          ))}
+        </div>
+        <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:8px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Custom range</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:10px;color:var(--muted)">Since</span>
+              <div style="display:flex;gap:4px">
+                <input
+                  type="date"
+                  aria-label="Custom range start date"
+                  value={sinceDate}
+                  max={untilDate || undefined}
+                  onInput={e => setSinceDate((e.target as HTMLInputElement).value)}
+                  style={DATE_TIME_INPUT_STYLE}
+                />
+                {/* Optional — only combined with the date above if both are set; a time typed
+                    with no date has nothing to anchor to and is dropped, not sent as-is. */}
+                <input
+                  type="time"
+                  aria-label="Custom range start time (optional)"
+                  value={sinceTime}
+                  onInput={e => setSinceTime((e.target as HTMLInputElement).value)}
+                  style={`${DATE_TIME_INPUT_STYLE}flex:none;width:76px`}
+                />
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:10px;color:var(--muted)">Until</span>
+              <div style="display:flex;gap:4px">
+                <input
+                  type="date"
+                  aria-label="Custom range end date"
+                  value={untilDate}
+                  min={sinceDate || undefined}
+                  onInput={e => setUntilDate((e.target as HTMLInputElement).value)}
+                  style={DATE_TIME_INPUT_STYLE}
+                />
+                <input
+                  type="time"
+                  aria-label="Custom range end time (optional)"
+                  value={untilTime}
+                  onInput={e => setUntilTime((e.target as HTMLInputElement).value)}
+                  style={`${DATE_TIME_INPUT_STYLE}flex:none;width:76px`}
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={!sinceDate && !untilDate}
+              onClick={applyCustom}
+              style={`font-size:12px;padding:4px 6px;border-radius:4px;border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent);cursor:${sinceDate || untilDate ? 'pointer' : 'not-allowed'};opacity:${sinceDate || untilDate ? 1 : 0.5}`}
+            >Apply</button>
+          </div>
+        </div>
+      </div>
+      )}
+    </details>
+  )
+}
+
 function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolean }) {
   const range = timeRange.value
   const agent = selectedAgentFilter.value
@@ -671,41 +939,6 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
   const responseTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
-  const tab = normalizeTabId(activeTab.value)
-  const showReset = tab !== 'help'
-  // Pagination only makes sense for the Sessions tab's own table — every other tab sharing this
-  // row has no notion of "pages." Mirrors the bottom footer's own controls in Sessions.tsx exactly
-  // (same styling, same sessionsPage signal) so the two never disagree.
-  const showPaging = tab === 'sessions'
-  const sessionCount = filteredSessions.value.length
-  const { page: sessPage, totalPages: sessTotalPages } = showPaging ? getSessionsPagination(sessionCount) : { page: 0, totalPages: 1 }
-
-  const isFiltered = sessionTextFilter.value !== '' ||
-    evidenceSessionIds.value !== null ||
-    selectedAgentFilter.value !== 'all' ||
-    initiatorFilter.value !== 'all' ||
-    dataSourceFilter.value !== 'all' ||
-    workspaceFilter.value !== '' ||
-    outcomeFilter.value !== 'all' ||
-    sessionLimit.value !== 25 ||
-    timeRange.value.preset !== 'all' ||
-    sessionSortKey.value !== 'start_time' ||
-    sessionSortDir.value !== 'desc'
-
-  function resetFilters() {
-    sessionTextFilter.value = ''
-    evidenceSessionIds.value = null
-    evidenceSessionPrompt.value = null
-    selectedAgentFilter.value = 'all'
-    initiatorFilter.value = 'all'
-    dataSourceFilter.value = 'all'
-    workspaceFilter.value = ''
-    outcomeFilter.value = 'all'
-    sessionLimit.value = 25
-    timeRange.value = { preset: 'all' }
-    sessionSortKey.value = 'start_time'
-    sessionSortDir.value = 'desc'
-  }
 
   function fireSearch(r: typeof timeRange.value) {
     if (r.preset === 'all') {
@@ -769,19 +1002,18 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
 
   return (
     <div class="time-range-bar" role="group" aria-label="Time and agent filters" style="display:flex;align-items:center;gap:0;padding:0 8px 6px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
-      {/* Time presets */}
+      {/* Time presets + custom range, collapsed into one popover trigger so a custom
+          date range never widens this bar — see TimeRangeMenu above. */}
       <span style="font-size:10px;color:var(--muted);margin-right:6px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Time</span>
-      <div style="display:flex;gap:1px">
-        {TIME_PRESETS.map(p => (
-          <button
-            key={p.id}
-            class="tr-time-pill"
-            aria-pressed={range.preset === p.id}
-            onClick={() => selectPreset(p.id)}
-            title={p.ms ? `Last ${p.label}` : 'All recorded traces'}
-          >{p.label}</button>
-        ))}
-      </div>
+      <TimeRangeMenu
+        range={range}
+        onSelectPreset={selectPreset}
+        onApplyCustom={(since, until) => {
+          const r = makeCustomTimeRange(since, until)
+          timeRange.value = r
+          fireSearch(r)
+        }}
+      />
 
       {/* Agent filter — hidden on tabs that don't need it */}
       {!hideAgentFilter && (
@@ -815,9 +1047,10 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         </div>
       )}
 
-      {/* Status/Reset/paging stay grouped together, immediately after the last filter control
-          (no margin-left:auto) so there's no dead gap before them. Reset sits right next to
-          PageSizeSelect (the "page size" control) rather than off on its own. */}
+      {/* Search status/loading stay grouped together, immediately after the last filter control
+          (no margin-left:auto) so there's no dead gap before them. Clear Filters and trace paging
+          live in their own row below the filter bars (FilterActionsBar) rather than here, so they
+          read as acting on the whole filter stack rather than looking scoped to just this row. */}
       <span class="tr-trailing-controls" style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
         <span role="status" class="range-status" title={searchError ?? undefined}>
           {searchError ? `⚠ ${searchError}` : ''}
@@ -828,40 +1061,90 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
             <IconSpinner />
           </span>
         )}
-
-        {showReset && (
-          <button
-            class="tr-reset-btn"
-            disabled={!isFiltered}
-            onClick={resetFilters}
-            style={
-              isFiltered
-                ? 'border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent)'
-                : 'border:1px solid var(--vscode-panel-border);background:transparent;color:var(--muted)'
-            }
-          >Clear Filters</button>
-        )}
-
-        {/* Trace paging — same controls, same styling, same signal as the table's own footer in
-            Sessions.tsx, just also reachable without scrolling down first. Keep the controls
-            mounted for short and empty results so the toolbar remains steady. */}
-        {showPaging && (
-          <>
-            <PageSizeSelect />
-            <button
-              onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
-              disabled={sessPage === 0}
-              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
-            >‹ Prev</button>
-            <span style="display:inline-block;min-width:11ch;text-align:center;font-variant-numeric:tabular-nums">Page {sessPage + 1} of {sessTotalPages}</span>
-            <button
-              onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
-              disabled={sessPage >= sessTotalPages - 1}
-              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
-            >Next ›</button>
-          </>
-        )}
       </span>
+    </div>
+  )
+}
+
+// Clear Filters + trace paging, on their own row directly above the table — pulled out of
+// TimeRangePicker's trailing controls (where they used to live) so they sit under every filter bar
+// (Time, Agent, Prompt, Source, From, Outcome) instead of looking scoped to just the top row.
+// Paging mirrors the table's own footer in Sessions.tsx exactly (same styling, same sessionsPage
+// signal) so the two never disagree; kept mounted for short/empty results so the row stays steady.
+function FilterActionsBar() {
+  const tab = normalizeTabId(activeTab.value)
+  const showReset = tab !== 'help'
+  // Pagination only makes sense for the Sessions tab's own table — every other tab sharing this
+  // row has no notion of "pages."
+  const showPaging = tab === 'sessions'
+  const sessionCount = filteredSessions.value.length
+  const { page: sessPage, totalPages: sessTotalPages, pageSize: sessPageSize } = showPaging
+    ? getSessionsPagination(sessionCount)
+    : { page: 0, totalPages: 1, pageSize: 0 }
+  const rangeStart = sessionCount === 0 ? 0 : sessPage * sessPageSize + 1
+  const rangeEnd = Math.min((sessPage + 1) * sessPageSize, sessionCount)
+
+  const isFiltered = sessionTextFilter.value !== '' ||
+    evidenceSessionIds.value !== null ||
+    selectedAgentFilter.value !== 'all' ||
+    initiatorFilter.value !== 'all' ||
+    dataSourceFilter.value !== 'all' ||
+    workspaceFilter.value !== '' ||
+    outcomeFilter.value !== 'all' ||
+    sessionLimit.value !== 25 ||
+    timeRange.value.preset !== 'all' ||
+    sessionSortKey.value !== 'start_time' ||
+    sessionSortDir.value !== 'desc'
+
+  function resetFilters() {
+    sessionTextFilter.value = ''
+    evidenceSessionIds.value = null
+    evidenceSessionPrompt.value = null
+    selectedAgentFilter.value = 'all'
+    initiatorFilter.value = 'all'
+    dataSourceFilter.value = 'all'
+    workspaceFilter.value = ''
+    outcomeFilter.value = 'all'
+    sessionLimit.value = 25
+    timeRange.value = { preset: 'all' }
+    sessionSortKey.value = 'start_time'
+    sessionSortDir.value = 'desc'
+  }
+
+  if (!showReset && !showPaging) return null
+
+  return (
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px;font-size:11px;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
+      {showReset && (
+        <button
+          class="tr-reset-btn"
+          disabled={!isFiltered}
+          onClick={resetFilters}
+          style={
+            isFiltered
+              ? 'border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent)'
+              : 'border:1px solid var(--vscode-panel-border);background:transparent;color:var(--muted)'
+          }
+        >Clear Filters</button>
+      )}
+
+      {showPaging && (
+        <span style="display:flex;align-items:center;gap:8px">
+          <span style="display:inline-block;min-width:23ch;font-variant-numeric:tabular-nums">Showing {rangeStart}–{rangeEnd} of {sessionCount}</span>
+          <PageSizeSelect />
+          <button
+            onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
+            disabled={sessPage === 0}
+            style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
+          >‹ Prev</button>
+          <span style="display:inline-block;min-width:11ch;text-align:center;font-variant-numeric:tabular-nums">Page {sessPage + 1} of {sessTotalPages}</span>
+          <button
+            onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
+            disabled={sessPage >= sessTotalPages - 1}
+            style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
+          >Next ›</button>
+        </span>
+      )}
     </div>
   )
 }
@@ -934,6 +1217,7 @@ function OutcomeFilterBar() {
   const filter = outcomeFilter.value
   const candidates = preOutcomeFilteredSessions.value
   const outcomes = gitOutcomes.value
+  const deferred = deferredGitOutcomeSessionIds.value
   const dsFilter = dataSourceFilter.value
   const iFilter = initiatorFilter.value
 
@@ -953,12 +1237,15 @@ function OutcomeFilterBar() {
   const showsOutcomeColumn = tab === 'sessions' &&
     new Set((sessionSummary.value?.sessions ?? []).map(s => s.workspace ?? '')).size > 1
   let pendingCount = 0
+  // Excludes deferred sessions (still inside their active-session grace window, see
+  // deferredGitOutcomeSessionIds in state.ts) — the spinner should reflect actual git CLI
+  // classification work in flight, not a session that's just waiting out a timer.
   if (filter !== 'all') {
-    pendingCount = candidates.filter(s => outcomes[s.sessionId] === undefined).length
+    pendingCount = candidates.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
   } else if (showsOutcomeColumn) {
     const { page, pageSize } = getSessionsPagination(filteredSessions.value.length)
     const pageSessions = filteredSessions.value.slice(page * pageSize, (page + 1) * pageSize)
-    pendingCount = pageSessions.filter(s => outcomes[s.sessionId] === undefined).length
+    pendingCount = pageSessions.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
   }
 
   // Repo dropdown suggestions — each distinct repo's git-derived name (falling back to a
@@ -1021,7 +1308,6 @@ function OutcomeFilterBar() {
         value={iFilter}
         onChange={v => { initiatorFilter.value = v }}
       />
-      <span role="status" style="margin-left:auto;min-width:10ch;text-align:right;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);white-space:nowrap;padding-right:2px">{filteredSessions.value.length} trace{filteredSessions.value.length !== 1 ? 's' : ''}</span>
     </div>
   )
 }

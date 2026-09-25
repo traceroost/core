@@ -22,8 +22,22 @@ const MAX_DRAIN_ITERATIONS_PER_RUN = Math.ceil(DEFAULT_MAX_ITEMS / 200)
 export interface ForwardScheduler {
   /** Re-evaluate whether the timer should be running (call after link / leave). */
   syncToLinkState(): void
-  /** Drain now, ignoring the interval (call after a session close enqueues something). */
+  /** Drain soon, ignoring the interval (call after a session close enqueues something) — still
+   *  respects each item's own backoff, same as the automatic timer, so this alone won't retry
+   *  something that failed recently. */
   drainSoon(): void
+  /** Immediately attempts every queued item, ignoring backoff — for a deliberate, user-initiated
+   *  "check for unsent traces" click, not automatic. See `DrainDeps.force`'s doc comment for why
+   *  this needs to exist separately from `drainSoon`: fixing whatever was actually broken doesn't
+   *  reset an item's own backoff clock, so without this a developer who just fixed and redeployed
+   *  the actual problem has no way to confirm it themselves short of waiting out up to an hour of
+   *  exponential backoff. Resolves once the drain (and any immediate follow-up batches) finishes,
+   *  so a caller can push a fresh status right after. A no-op on an unlinked install. */
+  checkNow(): Promise<void>
+  /** True for the duration of an actual drain attempt (from just before `drainQueue` is called to
+   *  just after it resolves) — the Org panel's state dot uses this to blink only while a trace is
+   *  actually in transit, rather than whenever the linked state is otherwise healthy. */
+  isDraining(): boolean
   dispose(): void
 }
 
@@ -40,6 +54,11 @@ export function startForwardScheduler(opts: {
    *  a host needs to hook to keep that panel live instead of stale until the next time it's
    *  reopened. */
   onDrainComplete?: () => void
+  /** Called right as a drain attempt starts (before the first `drainQueue` call), so a host can
+   *  push a status update that shows the state dot blinking while traces are actually in transit.
+   *  Never called for a tick skipped outright (already draining, or no credential) — same as
+   *  `onDrainComplete`. */
+  onDrainStart?: () => void
   /** Forwarded to every `drainQueue` call's `DrainDeps.recordSent` — see there. */
   recordSent?: DrainDeps['recordSent']
   /** Test-only — every other piece of `cloud/forward` already threads this through instead of
@@ -55,12 +74,13 @@ export function startForwardScheduler(opts: {
   let draining = false
   let soonTimer: ReturnType<typeof setTimeout> | undefined
 
-  const run = async () => {
+  const run = async (runOpts: { force?: boolean } = {}) => {
     if (draining) return
     if (!loadCredentials()) { stop(); return }
     draining = true
+    opts.onDrainStart?.()
     try {
-      let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent })
+      let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
       if (res.sent > 0 || res.droppedInvalid > 0) {
         opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
       }
@@ -75,7 +95,7 @@ export function startForwardScheduler(opts: {
       // not a real limit expected to bite.
       let iterations = 1
       while (res.stopped === null && res.remaining > 0 && iterations < MAX_DRAIN_ITERATIONS_PER_RUN) {
-        res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent })
+        res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
         iterations++
         if (res.sent > 0 || res.droppedInvalid > 0) {
           opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
@@ -118,6 +138,17 @@ export function startForwardScheduler(opts: {
       soonTimer = setTimeout(() => { void run() }, 3_000)
       soonTimer.unref?.()
     },
+    async checkNow() {
+      if (!loadCredentials()) return
+      // Cancel a pending drainSoon() — checkNow's own immediate, forced run makes it redundant,
+      // and without this the debounced one firing 3s later would re-drain (harmlessly, but
+      // pointlessly) right after this one already finished.
+      if (soonTimer) { clearTimeout(soonTimer); soonTimer = undefined }
+      await run({ force: true })
+    },
+    isDraining() {
+      return draining
+    },
     dispose() {
       stop()
       if (soonTimer) clearTimeout(soonTimer)
@@ -138,4 +169,11 @@ export function syncForwardSchedulerToLinkState(): void {
 }
 export function drainForwardQueueSoon(): void {
   activeScheduler?.drainSoon()
+}
+export async function checkForwardQueueNow(): Promise<void> {
+  await activeScheduler?.checkNow()
+}
+/** False on an unlinked install (no scheduler running at all) as well as a linked, idle one. */
+export function isForwardQueueDraining(): boolean {
+  return activeScheduler?.isDraining() ?? false
 }

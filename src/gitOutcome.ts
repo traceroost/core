@@ -14,6 +14,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as crypto from 'crypto'
 
 const execFileAsync = promisify(execFile)
 
@@ -58,16 +59,107 @@ function releaseSessionClassificationSlot(): void {
   else activeSessionClassifications--
 }
 
+// Live "what git command is this running right now" ticker, surfaced by the dashboard as a status
+// line under the "resolving N outcomes" spinner — without it, a slow or stuck classification (a
+// huge repo, a network-mounted working tree) just looks like a spinner that never moves. Module-
+// scoped rather than per-call-site since every classifySessionOutcome call, from any caller
+// (DashboardPanel, the standalone server, the background watcher), shares this one process's git
+// subprocess fan-out.
+const runningCommands = new Map<number, string>()
+let nextCommandId = 1
+const runningCommandListeners = new Set<(commands: string[]) => void>()
+let notifyScheduled: ReturnType<typeof setTimeout> | null = null
+
+// Coalesces a burst of fast git calls (many finish in single-digit milliseconds) into one snapshot
+// per tick, rather than a listener call — and a postMessage/SSE broadcast on top of that — per
+// subprocess. Leading-edge: the first call in a window notifies immediately, since most commands
+// here finish well inside the throttle window — a pure trailing-edge debounce would schedule its
+// only snapshot out at the full window, and by the time it fires, the map that started this call
+// would already be empty again, so the status line would sit blank through almost every burst. A
+// trailing call is still scheduled to pick up whatever state the map is in once the window closes
+// (a command still running past it, or a different one that started and finished mid-window).
+//
+// 500ms rather than something closer to real-time: this is a "what's TraceRoost doing right now"
+// readout for a human, not a progress bar that needs to track every subprocess. At 100ms (the
+// original value) a busy repo cycles the label faster than it can be read — each snapshot is
+// gone before its text even registers. 500ms is slow enough to actually read a line like "repo:
+// Finding the last commit that touched these files — git log …" while still feeling live.
+const RUNNING_COMMANDS_NOTIFY_THROTTLE_MS = 500
+let trailingNotifyNeeded = false
+
+function emitRunningCommandsSnapshot(): void {
+  const snapshot = [...new Set(runningCommands.values())]
+  for (const listener of runningCommandListeners) listener(snapshot)
+}
+
+function scheduleRunningCommandsNotify(): void {
+  if (notifyScheduled) {
+    trailingNotifyNeeded = true
+    return
+  }
+  emitRunningCommandsSnapshot()
+  notifyScheduled = setTimeout(() => {
+    notifyScheduled = null
+    if (trailingNotifyNeeded) {
+      trailingNotifyNeeded = false
+      emitRunningCommandsSnapshot()
+    }
+  }, RUNNING_COMMANDS_NOTIFY_THROTTLE_MS)
+}
+
+/** Subscribes to the live list of `git` command lines currently in flight (e.g. `git show
+ *  HEAD:src/foo.ts`), deduplicated and throttled — see RUNNING_COMMANDS_NOTIFY_THROTTLE_MS. Callers
+ *  post this straight through to the webview (DashboardPanel, standalone/server.ts) under a
+ *  `runningGitCommands` message so it can render next to the outcome-resolving spinner. */
+export function onRunningGitCommandsChanged(listener: (commands: string[]) => void): () => void {
+  runningCommandListeners.add(listener)
+  return () => { runningCommandListeners.delete(listener) }
+}
+
+/** Short, human-readable gloss for a git subcommand, shown ahead of the raw command line in the
+ *  status bar so "what is TraceRoost doing to my repo right now" reads as plain English rather
+ *  than requiring the viewer to parse git flags. Falls back to no gloss (just the raw command) for
+ *  anything not covered here — every call site in this file is listed, so an unrecognized args[0]
+ *  means a new call site was added without updating this list. */
+function describeGitCommand(args: string[]): string | null {
+  const [cmd, ...rest] = args
+  switch (cmd) {
+    case 'rev-parse':
+      return rest.includes('--show-toplevel') ? 'Finding the repo root' : 'Resolving a commit for the trunk branch'
+    case 'symbolic-ref':
+      return 'Detecting the default branch'
+    case 'show-ref':
+      return 'Checking whether a candidate trunk branch exists'
+    case 'log':
+      return 'Finding the last commit that touched these files'
+    case 'show':
+      return 'Reading a file’s content as of a specific commit'
+    default:
+      return null
+  }
+}
+
 async function runGit(cwd: string, args: string[]): Promise<string | null> {
+  const id = nextCommandId++
+  const raw = `git ${args.join(' ')}`
+  const gloss = describeGitCommand(args)
+  runningCommands.set(id, `${cwd}: ${gloss ? `${gloss} — ${raw}` : raw}`)
+  scheduleRunningCommandsNotify()
   try {
     const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 })
     return stdout
   } catch {
     return null
+  } finally {
+    runningCommands.delete(id)
+    scheduleRunningCommandsNotify()
   }
 }
 
-async function findRepoRoot(workspace: string): Promise<string | null> {
+/** Exported for the background watcher (reconciliationService's Stage-2 caller), which needs to
+ *  resolve a session's repo root once to decide which `.git` directory to watch — independent of
+ *  classifySessionOutcome's per-file work. */
+export async function findRepoRoot(workspace: string): Promise<string | null> {
   const out = await runGit(workspace, ['rev-parse', '--show-toplevel'])
   return out?.trim() || null
 }
@@ -118,16 +210,40 @@ async function resolveTrunkRef(root: string): Promise<string | null> {
   return null
 }
 
+// Cheap stand-in for "has this file's on-disk content changed" — a content hash rather than
+// mtime, since mtime survives things that don't actually change bytes (a touch, a checkout that
+// restores identical content) and can also be unreliable across some filesystems/clock skews. See
+// staged feature 10: "do not rely on mtime alone for correctness."
+function workingTreeContentDigest(root: string, relPaths: string[]): string {
+  const hash = crypto.createHash('sha256')
+  for (const relPath of relPaths) {
+    const content = currentContentOnDisk(root, relPath)
+    hash.update(relPath)
+    hash.update('\0')
+    hash.update(content === null ? '\0missing' : content)
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}
+
 /** Resolves the repo root and a cache key for `filesChanged` — combining the latest commit sha
- *  touching any of those specific files with the trunk branch's current tip sha (if resolvable).
- *  Used to key the on-disk outcome cache (GitOutcomeRepository) so a restart doesn't force a
- *  rescan unless something relevant has actually moved: either a new commit to *this session's own
- *  files*, or the trunk branch advancing (which can flip a file from 'committed' to 'merged'
- *  without touching the file again locally — e.g. a human merges the PR later). Deliberately
- *  scoped to those two things rather than the repo's overall HEAD: keying on HEAD meant an
+ *  touching any of those specific files, the trunk branch's current tip sha (if resolvable), and a
+ *  content digest of those files' current working-tree state. Used to key the on-disk outcome
+ *  cache (GitOutcomeRepository) so a restart doesn't force a rescan unless something relevant has
+ *  actually moved: a new commit to *this session's own files*, the trunk branch advancing (which
+ *  can flip a file from 'committed' to 'merged' without touching the file again locally — e.g. a
+ *  human merges the PR later), or an uncommitted edit to those files' working-tree content.
+ *  Deliberately scoped to those things rather than the repo's overall HEAD: keying on HEAD meant an
  *  unrelated commit anywhere else in the repo invalidated every other session's cached outcome at
- *  the same time, which read as a full reload rather than an isolated recompute. Returns null if
- *  none of the files are inside the repo (mirrors classifySessionOutcome's own "nothing to
+ *  the same time, which read as a full reload rather than an isolated recompute.
+ *
+ *  The working-tree digest is what makes an edit-without-a-commit (an 'abandoned' file becoming a
+ *  different 'abandoned' file, or a file staged back toward its committed content) invalidate the
+ *  cache — the commit/trunk shas alone are silent about that, since no commit occurred. The file
+ *  list itself is included too (via the digest's per-file structure and the relPaths this key is
+ *  computed from), so a session whose changed-file set has grown or shrunk since it was last
+ *  cached also invalidates rather than reusing a result computed for a different file set. Returns
+ *  null if none of the files are inside the repo (mirrors classifySessionOutcome's own "nothing to
  *  classify" case, so nothing gets cached for it either). */
 export async function resolveOutcomeCacheKey(workspace: string, filesChanged: string[]): Promise<{ root: string; cacheKey: string } | null> {
   const root = await findRepoRoot(workspace)
@@ -135,6 +251,7 @@ export async function resolveOutcomeCacheKey(workspace: string, filesChanged: st
   const relPaths = filesChanged
     .map(absPath => relativeToRoot(root, absPath))
     .filter((p): p is string => p !== null)
+    .sort()
     .slice(0, MAX_FILES)
   if (relPaths.length === 0) return null
 
@@ -143,7 +260,8 @@ export async function resolveOutcomeCacheKey(workspace: string, filesChanged: st
     resolveTrunkRef(root),
   ])
   const trunkSha = trunkRef ? await runGit(root, ['rev-parse', trunkRef]) : null
-  return { root, cacheKey: `${fileSha?.trim() ?? ''}:${trunkSha?.trim() ?? ''}` }
+  const workingDigest = workingTreeContentDigest(root, relPaths)
+  return { root, cacheKey: `${fileSha?.trim() ?? ''}:${trunkSha?.trim() ?? ''}:${workingDigest}` }
 }
 
 // Resolves symlinks where possible so paths compare consistently — `git rev-parse --show-toplevel`

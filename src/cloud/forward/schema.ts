@@ -171,6 +171,12 @@ export interface SessionRollup {
    *  opaque, high-entropy token (a uuid or an OTEL trace id), not a guessable path, so it needs no
    *  org-scoped salt to stay uncorrelatable. */
   conversation_hash?: Sha256
+  /** Durable, monotonically increasing local revision number for this session's canonical trace
+   *  snapshot (staged feature 10) -- see database/traceRevisionRepository.ts. Absent on a send
+   *  built without a known revision (no reconciliation service available, or the session's
+   *  outcome has never been classified) -- the server treats an absent revision as the lowest
+   *  possible one for replace-ordering, never as newer than an already-acknowledged one. */
+  revision?: number
 }
 
 export interface CommitRecord {

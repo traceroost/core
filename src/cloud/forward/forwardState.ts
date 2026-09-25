@@ -57,8 +57,9 @@ export function clearForwardState(baseHome?: string): void {
   }
 }
 
-/** Assembles the `QueueStats` the Org panel and CLI render. */
-export function queueStats(depth: number, baseHome?: string): QueueStats {
+/** Assembles the `QueueStats` the Org panel and CLI render. `stuck`, if given, is folded straight
+ *  through — see `currentQueueStats.ts`, the one real caller, for how it's computed. */
+export function queueStats(depth: number, baseHome?: string, stuck?: { stuckCount: number; stuckError: string | null }): QueueStats {
   const s = readForwardState(baseHome)
   return {
     depth,
@@ -66,5 +67,7 @@ export function queueStats(depth: number, baseHome?: string): QueueStats {
     lastErrorAt: s.lastErrorAt,
     lastError: s.lastError,
     paused: s.paused && (s.pausedUntil === null || s.pausedUntil > Date.now()),
+    stuckCount: stuck?.stuckCount ?? 0,
+    stuckError: stuck?.stuckError ?? null,
   }
 }

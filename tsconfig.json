@@ -16,5 +16,5 @@
 		"types": ["node"],
 		"skipLibCheck": true
 	},
-	"exclude": ["src/test", "media", "standalone", "demo", "scripts"]
+	"exclude": ["src/test", "media", "standalone", "demo", "scripts", "tests", "playwright.config.ts"]
 }

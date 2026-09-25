@@ -4,6 +4,9 @@
 // `traceroost service <install|uninstall|start|stop|restart|status|logs>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
 // `traceroost org <link|status|leave> [--device]` links this machine to an org (Pro, AL 01).
+// `traceroost find <repo hash | trace/session id>` resolves a cloud dashboard hash-handoff
+// locally (traces-table.tsx's HashHandoff) and prints what it finds, ending with a `vscode://`
+// deep link into the interactive view — doesn't start the server.
 
 async function main() {
   const args = process.argv.slice(2)
@@ -25,6 +28,11 @@ async function main() {
   if (args[0] === 'cohort') {
     const { runCohortCli } = await import('./cloud/cohortCli.js')
     process.exitCode = await runCohortCli(args.slice(1))
+    return
+  }
+  if (args[0] === 'find') {
+    const { runFindCli } = await import('./cloud/findCli.js')
+    process.exitCode = await runFindCli(args.slice(1))
     return
   }
   const { parseExplainFlags, runExplainPayload } = await import('./cloud/explainPayload.js')

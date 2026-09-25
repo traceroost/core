@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { classifySessionOutcome, createOutcomeRepoCache } from '../gitOutcome'
+import { classifySessionOutcome, createOutcomeRepoCache, onRunningGitCommandsChanged } from '../gitOutcome'
 
 // Builds a throwaway git repo per test so the classifier can be exercised against real git
 // history instead of mocks — commit timestamps are pinned via GIT_AUTHOR_DATE/GIT_COMMITTER_DATE
@@ -224,6 +224,51 @@ suite('gitOutcome', () => {
       assert.notStrictEqual(otherRootP, rootP1)
     } finally {
       fs.rmSync(other, { recursive: true, force: true })
+    }
+  })
+
+  test('onRunningGitCommandsChanged notifies immediately (leading edge), not only once a throttle window elapses', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+
+    // The throttle's "is a notify already scheduled" flag is process-wide, not per-test — a git
+    // call left over from a preceding test (in this file, or run alongside it) can still have a
+    // trailing window open. Waiting one out first isolates this test from that shared state.
+    // Must clear RUNNING_COMMANDS_NOTIFY_THROTTLE_MS (gitOutcome.ts).
+    await new Promise(resolve => setTimeout(resolve, 600))
+
+    const snapshots: string[][] = []
+    const unsubscribe = onRunningGitCommandsChanged(commands => snapshots.push(commands))
+    try {
+      // classifySessionOutcome's first git subprocess (finding the repo root) is spawned
+      // synchronously up to its own first `await`, so the leading-edge notify must already have
+      // fired by the time this call returns a promise — a pure trailing-edge debounce would report
+      // nothing here, since real git calls typically finish well inside the throttle window.
+      const pending = classifySessionOutcome(repoDir, [path.join(repoDir, file)])
+      assert.ok(snapshots.length > 0, 'expected a snapshot before the classification settled')
+      assert.ok(snapshots[0].length > 0, 'expected the first snapshot to report an in-flight command')
+      await pending
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  test('onRunningGitCommandsChanged eventually reports an empty snapshot once classification settles', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+
+    const snapshots: string[][] = []
+    const unsubscribe = onRunningGitCommandsChanged(commands => snapshots.push(commands))
+    try {
+      await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
+      // The trailing edge of the throttle (RUNNING_COMMANDS_NOTIFY_THROTTLE_MS) needs a moment to
+      // fire after the last subprocess exits.
+      await new Promise(resolve => setTimeout(resolve, 600))
+      assert.ok(snapshots.some(s => s.length === 0), 'expected a snapshot reporting no commands in flight once everything settled')
+    } finally {
+      unsubscribe()
     }
   })
 })

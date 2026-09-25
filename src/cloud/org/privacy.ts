@@ -34,4 +34,4 @@ export function whoSeesWhat(perDeveloperVisibility: boolean, orgName: string): s
     : `Your lead sees team totals only, by default. Individual numbers stay private.`
 }
 
-export const LEAVE_HINT = 'Unlink anytime, and instantly, with `traceroost org leave` or the Leave org button.'
+export const LEAVE_HINT = 'Unlink anytime, and instantly, with `traceroost org leave` or the Unlink button.'

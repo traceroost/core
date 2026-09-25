@@ -641,7 +641,7 @@ function AppliedCard({
 
           {hasAfter && (
             <div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">
-              <MetricRow label="Estimated cost" before={beforeCost} after={afterCost} pct={diffPct(beforeCost, afterCost)} fmt={v => `$${v.toFixed(3)}`} />
+              <MetricRow label="Estimated cost" before={beforeCost} after={afterCost} pct={diffPct(beforeCost, afterCost)} fmt={v => `$${v.toFixed(2)}`} />
               <MetricRow label="Turns" before={beforeTurns} after={afterTurns} pct={diffPct(beforeTurns, afterTurns)} fmt={v => v.toFixed(1)} />
               <MetricRow label="Errors" before={beforeErrors} after={afterErrors} pct={diffPct(beforeErrors, afterErrors)} fmt={v => v.toFixed(2)} />
               <MetricRow label="Loop %" before={beforeLoops} after={afterLoops} pct={diffPct(beforeLoops, afterLoops)} fmt={v => `${(v * 100).toFixed(0)}%`} />

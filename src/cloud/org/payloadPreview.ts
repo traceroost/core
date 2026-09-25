@@ -105,7 +105,7 @@ export interface PayloadForCard {
  * When no team is linked, hashes are derived under a placeholder org salt so the preview is
  * representative; nothing is ever sent.
  */
-export async function buildPayloadForCard(card: SessionSummaryCard, cache?: PayloadBuildCache): Promise<PayloadForCard> {
+export async function buildPayloadForCard(card: SessionSummaryCard, cache?: PayloadBuildCache, revision?: number): Promise<PayloadForCard> {
   const creds = loadCredentials()
   const orgId = creds?.orgId ?? 'unlinked-preview'
   const workspace = card.workspace || card.projectPath || process.cwd()
@@ -117,6 +117,7 @@ export async function buildPayloadForCard(card: SessionSummaryCard, cache?: Payl
     repoKey: rk.ok ? rk.ctx : undefined,
     branch: rk.ok ? await (cache ? cache.branch(rk.ctx.root) : currentBranch(rk.ctx.root)) : undefined,
     outcome: outcome?.overall,
+    revision,
   })
   assertValidRollupPayload(payload)
   return rk.ok ? { payload } : { payload, ungroupedReason: rk.reason }

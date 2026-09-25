@@ -26,9 +26,10 @@ export interface CallbackServer {
    * Completes the deferred response to the browser tab that hit the callback. Call this once
    * you know what the tab should be told — after the token exchange (and whatever it creates
    * server-side, e.g. the `installs` row a linked-machine check reads) has actually settled, not
-   * before. `ok: true` shows "Machine linked" plus the `org_url` link/redirect if the original
-   * request carried a trusted one; `ok: false` shows the same failure page an in-flight error
-   * does. A no-op if the callback never landed, or this has already been called.
+   * before. `ok: true` sends the browser straight to `org_url` (a 302) if the original request
+   * carried a trusted one, or the static "Machine linked" page otherwise, since there's nowhere
+   * to send it; `ok: false` shows the same failure page an in-flight error does. A no-op if the
+   * callback never landed, or this has already been called.
    *
    * Responding immediately (the previous behaviour) raced a `org_url` auto-redirect against the
    * exchange that creates the very row the destination page checks for — a tab could bounce back
@@ -53,17 +54,12 @@ export interface CallbackServer {
  * lands, before any of it reaches this function. An absent or untrusted URL falls back to the
  * plain static message, never a guess.
  */
-function successHtml(orgUrl?: string): string {
-  const cta = orgUrl
-    ? `<p style="margin-top:12px"><a href="${orgUrl}" style="color:#0969da">Open your org →</a></p>
-<meta http-equiv="refresh" content="2;url=${orgUrl}">`
-    : ''
-  return `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
+/** Shown only when there's no trusted `org_url` to send the browser to directly. */
+const SUCCESS_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
 <style>body{font:14px -apple-system,system-ui,sans-serif;color:#1f2328;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center;background:#f6f8fa}
 .card{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:32px 40px;text-align:center;max-width:360px}
 h1{font-size:16px;margin:0 0 8px}p{color:#656d76;margin:0}</style></head>
-<body><div class="card"><h1>Machine linked</h1><p>You can close this tab and return to TraceRoost.</p>${cta}</div></body></html>`
-}
+<body><div class="card"><h1>Machine linked</h1><p>You can close this tab and return to TraceRoost.</p></div></body></html>`
 
 /** Only ever trust a `org_url` whose origin matches the endpoint this CLI is configured against
  *  (`orgOrigin`, passed by `link.ts` from `orgEndpoint()`) — never an arbitrary redirect target
@@ -125,8 +121,17 @@ export async function startCallbackServer(opts: {
     const res = pendingRes
     pendingRes = undefined
     if (finishTimer) { clearTimeout(finishTimer); finishTimer = undefined }
-    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html' })
-    res.end(ok ? successHtml(pendingOrgUrl) : ERROR_HTML)
+    if (ok && pendingOrgUrl) {
+      // Skip the interstitial page entirely — the response was already held open until the
+      // caller confirmed the token exchange (and the DB rows it creates) settled, so it's safe
+      // to send the browser straight to the org now instead of showing a "Machine linked" card
+      // that then auto-redirects a moment later.
+      res.writeHead(302, { Location: pendingOrgUrl })
+      res.end()
+    } else {
+      res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html' })
+      res.end(ok ? SUCCESS_HTML : ERROR_HTML)
+    }
     close()
   }
 
