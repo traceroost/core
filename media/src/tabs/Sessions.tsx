@@ -22,8 +22,9 @@ import { Step, StepRow } from './Traces'
 import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
 import { LogIngestionNote } from './IngestionNote'
-import type { SessionSummaryCard, FileOutcome, LoopSignal } from '../types'
+import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
+import { SIGNAL_FORMULAS } from '../signalFormulas'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
@@ -80,13 +81,14 @@ const MAX_SIGNAL_ICONS = 3
 // same struggle pattern reads the same way in both products.
 function SignalsCell({ signals }: { signals: LoopSignal[] }) {
   if (!signals || signals.length === 0) return <span style="color:var(--muted)">—</span>
-  const byType = new Map<string, { severity: 'warning' | 'critical'; count: number; patterns: Map<string, number> }>()
+  const byType = new Map<string, { severity: 'warning' | 'critical'; count: number; patterns: Map<string, number>; signalTypes: Set<LoopSignalType> }>()
   for (const s of signals) {
     const iconType = LOOP_SIGNAL_ICON_TYPE[s.type] ?? s.type
-    const e = byType.get(iconType) ?? { severity: 'warning' as const, count: 0, patterns: new Map<string, number>() }
+    const e = byType.get(iconType) ?? { severity: 'warning' as const, count: 0, patterns: new Map<string, number>(), signalTypes: new Set<LoopSignalType>() }
     if (s.severity === 'critical') e.severity = 'critical'
     e.count += 1
     e.patterns.set(s.patternName, (e.patterns.get(s.patternName) ?? 0) + 1)
+    e.signalTypes.add(s.type)
     byType.set(iconType, e)
   }
   const severityRank = { warning: 0, critical: 1 }
@@ -96,6 +98,11 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
   const overflow = types.slice(MAX_SIGNAL_ICONS)
   const labelFor = (e: { patterns: Map<string, number> }) =>
     [...e.patterns.entries()].map(([name, n]) => n > 1 ? `${name} ×${n}` : name).join(' + ')
+  // One icon bucket can hold more than one distinct LoopSignalType (e.g. hallucinated_import and
+  // error_recurrence both draw the "retry-loop" icon — see LOOP_SIGNAL_ICON_TYPE's comment), so the
+  // formula shown is every distinct formula among the signal types actually present, not just one.
+  const formulaFor = (e: { signalTypes: Set<LoopSignalType> }) =>
+    [...e.signalTypes].map(t => SIGNAL_FORMULAS[t]?.formula).filter(Boolean).join(' | ')
   return (
     <span style="display:inline-flex;align-items:center;gap:3px">
       {shown.map(([type, e]) => {
@@ -107,7 +114,7 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
             key={type}
             role="img"
             aria-label={`${label} (${e.severity})`}
-            title={`${label} (${e.severity})`}
+            title={`${label} (${e.severity}) — ${formulaFor(e)}`}
             style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;flex-shrink:0"
           >
             {Icon ? <Icon color={color} /> : <span style={`font-size:9px;font-weight:700;color:${color}`}>?</span>}
@@ -116,7 +123,7 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
       })}
       {overflow.length > 0 && (
         <span
-          title={overflow.map(([, e]) => `${labelFor(e)} (${e.severity})`).join('\n')}
+          title={overflow.map(([, e]) => `${labelFor(e)} (${e.severity}) — ${formulaFor(e)}`).join('\n')}
           style="display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 2px;border-radius:3px;border:1px solid var(--muted);font-size:9px;font-weight:700;color:var(--muted);flex-shrink:0"
         >+{overflow.length}</span>
       )}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
 import { BrandMark } from '../BrandMark'
+import { SIGNAL_FORMULAS } from '../signalFormulas'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -114,8 +115,8 @@ function InsightBlock({ id, title, why, steps, impact }: {
   )
 }
 
-function LoopBlock({ id, title, why, example, steps, impact }: {
-  id: string; title: string; why: string; example: string; steps: string; impact: string
+function LoopBlock({ id, title, why, caveat, example, steps, impact }: {
+  id: string; title: string; why: string; caveat?: string; example: string; steps: string; impact: string
 }) {
   return (
     <div class="glossary-item" id={id} style="scroll-margin-top:12px;flex-direction:column;gap:6px">
@@ -125,6 +126,11 @@ function LoopBlock({ id, title, why, example, steps, impact }: {
         </dt>
         <dd class="glossary-def" dangerouslySetInnerHTML={{ __html: why }} />
       </div>
+      {caveat && (
+        <div style="padding-left:8px;font-size:10.5px;color:var(--muted);font-style:italic;line-height:1.5">
+          <span dangerouslySetInnerHTML={{ __html: caveat }} />
+        </div>
+      )}
       <div style="padding-left:8px;font-size:11px;color:var(--muted);line-height:1.5"><strong style="color:var(--fg)">Example: </strong><span dangerouslySetInnerHTML={{ __html: example }} /></div>
       <div style="padding-left:8px;font-size:11px;line-height:1.6">
         <p style="margin:0 0 3px"><strong style="color:var(--fg);font-size:11px">How to fix:</strong></p>
@@ -571,55 +577,64 @@ function SessionsSection() {
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-loop-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work. They appear in the Insights panel with warning or critical severity.</p>
         <div class="glossary">
           <LoopBlock id="help-tool-deadlock" title="Tool Call Deadlock"
-            why="The same tool call — identical name and arguments, identical result — was executed 30+ times in a row with no edit in between (critical at 50+). Thresholds are calibrated against real session history rather than guessed: a handful of repeats turned out to be completely ordinary on real coding sessions, so the bar is set well above that to flag genuine outliers instead of routine work."
+            why={SIGNAL_FORMULAS.exact_tool_repeat.formula}
+            caveat={SIGNAL_FORMULAS.exact_tool_repeat.caveat}
             example={`The agent ran <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
             steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>Pin non-deterministic commands to fixed output.</li><li>Stop the trace and restart with what was already read.</li>`}
             impact="Stopping this pattern prevents runaway token accumulation. 200K tokens looping → 20K tokens with a direct prompt."
           />
           <LoopBlock id="help-state-spiral" title="State Corruption Spiral"
-            why="A file was edited (A→B) then reverted (B→A). The agent oscillates because two constraints are mutually exclusive."
+            why={SIGNAL_FORMULAS.edit_revert_cycle.formula}
+            caveat={SIGNAL_FORMULAS.edit_revert_cycle.caveat}
             example="The agent added a null check (fixing one test), removed it (breaking another), then added it back — cycling."
             steps={`<li>Clarify success criteria with explicit priority ordering.</li><li>Provide the exact final file state if possible.</li><li>Check if tests assert contradictory behavior.</li><li>Use the Files tab to spot A→B→A patterns.</li>`}
             impact="Resolving the conflict takes 2–3 focused turns vs. 20–40 oscillating turns."
           />
           <LoopBlock id="help-hallucination" title="Hallucination Amplification Loop"
-            why="The same error appeared 3+ times. The agent's fix attempts fail because the root cause is something the model invented — a nonexistent package, wrong function name, or outdated API."
+            why={SIGNAL_FORMULAS.error_recurrence.formula}
+            caveat={SIGNAL_FORMULAS.error_recurrence.caveat}
             example={`A <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">ModuleNotFoundError</code> appeared five times as the agent tried different import paths for a package not installed.`}
             steps={`<li>Stop and verify the root cause yourself.</li><li>Tell the agent explicitly what exists.</li><li>Paste actual API responses or function signatures.</li><li>After 2 failures, resolve the underlying issue before re-prompting.</li>`}
             impact="Intervening after 2 recurrences instead of 6 saves ~120,000 tokens in a 30K-token trace."
           />
           <LoopBlock id="help-runaway-steps" title="Ambiguous Success / Escalating Scope"
-            why="The trace consumed far more LLM calls than expected. The prompt has no stopping condition, uses open-ended phrasing, or the agent expands scope on its own."
+            why={SIGNAL_FORMULAS.runaway_steps.formula}
+            caveat={SIGNAL_FORMULAS.runaway_steps.caveat}
             example={`"Fix the login bug" accumulated 90+ steps — the agent then noticed unrelated issues and updated 3 extra files.`}
             steps={`<li>Add explicit stopping conditions.</li><li>Avoid open-ended phrasing — name specific functions and files.</li><li>Specify scope: <em>"Only change files in src/auth/"</em>.</li><li>Monitor the context growth chart for steep rises.</li>`}
             impact="A 5-step prompt vs. a 90-step trace saves 85 tool calls — a 5–20x token reduction."
           />
           <LoopBlock id="help-context-accumulation" title="Infinite Loop — Context Accumulation"
-            why={`<a href="#gl-input-tokens">Input tokens</a> grew by 30,000+ across 4+ calls while <a href="#gl-output-ratio">output-to-input ratio</a> collapsed by 70%+. The agent is consuming context while producing less output.`}
+            why={SIGNAL_FORMULAS.token_runaway.formula}
+            caveat={SIGNAL_FORMULAS.token_runaway.caveat}
             example="First call: 8K in → 600 out (7.5%). Last call: 65K in → 80 out (0.12%). Five turns reading the same files without edits."
             steps={`<li>Stop immediately — cost compounds with no progress.</li><li>Start fresh with a focused prompt stating what was already read.</li><li>Include the specific target state, not just the problem.</li><li>Use the Traces tab to review what was accomplished.</li>`}
             impact="Catching at 4 calls instead of 10 saves ~390,000 input tokens at peak context size."
           />
           <LoopBlock id="help-chronic-tool-unreliability" title="Chronic Tool Unreliability"
-            why="An unusually high share of this trace's tool calls failed — 20%+ with at least 5 calls made, well above the ordinary rate of an occasional wrong path corrected along the way. Unlike the Hallucination Amplification Loop above, this doesn't require the same error to repeat — it catches a trace with many different one-off failures."
+            why={SIGNAL_FORMULAS.chronic_tool_failures.formula}
+            caveat={SIGNAL_FORMULAS.chronic_tool_failures.caveat}
             example="7 of 12 tool calls failed (58%): bash ×4 (command not found), read_file ×3 (path guessed incorrectly)."
             steps={`<li>Be explicit about file locations and the exact commands available.</li><li>State the package manager and runtime in use.</li><li>Verify paths and commands exist before prompting.</li>`}
             impact="Each eliminated failure saves a full LLM recovery turn — roughly 30,000 wasted tokens per cascade."
           />
           <LoopBlock id="help-context-flooding-risk" title="Context Flooding Risk"
-            why="A tool call returned a result over 10,000 characters, which gets appended to context in full and crowds out everything else for the rest of the trace."
+            why={SIGNAL_FORMULAS.context_flooding_risk.formula}
+            caveat={SIGNAL_FORMULAS.context_flooding_risk.caveat}
             example="A read_file call on a 300-line file added 45KB (~11,000 tokens) to every subsequent call in the trace."
             steps={`<li>Use line-range reads instead of whole files.</li><li>Tighten search patterns.</li><li>Pipe command output through something that limits it.</li>`}
             impact="Replacing a 300-line read with a 30-line read saves ~2,700 tokens per turn for the rest of the trace."
           />
           <LoopBlock id="help-fabricated-dependency" title="Fabricated Dependency"
-            why="An edit imports a package that isn't declared in the project's manifest (package.json, requirements.txt) and doesn't resolve on disk — a likely hallucinated dependency that will fail at install or runtime. Checked once the edit is complete, not mid-session like the signals above."
+            why={SIGNAL_FORMULAS.hallucinated_import.formula}
+            caveat={SIGNAL_FORMULAS.hallucinated_import.caveat}
             example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code> — no such package in package.json or node_modules.`}
             steps={`<li>Verify the package actually exists and is spelled correctly before asking the agent to use it.</li><li>Add it to the manifest yourself if it's intentional (e.g. you're about to run the install).</li>`}
             impact="Catching this before install/runtime avoids a confusing failure several steps later that looks unrelated to the actual cause."
           />
           <LoopBlock id="help-unverified-submission" title="Unverified Submission"
-            why="The last test/build check run in the session reported a failure, with no further fix attempt before the session ended. Precision-good, recall-poor by design: only the last tool call is checked, so a failing check followed by more edits (a real fix attempt) does not trigger this."
+            why={SIGNAL_FORMULAS.failed_check_submission.formula}
+            caveat={SIGNAL_FORMULAS.failed_check_submission.caveat}
             example="Session ends immediately after `pnpm test` prints 3 failing specs — no edits follow."
             steps={`<li>Ask the agent to re-run the check and confirm it passes before considering the task done.</li><li>Review the failure yourself before accepting the change.</li>`}
             impact="Catches work that looks finished but silently failed its own validation step."
