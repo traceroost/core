@@ -62,20 +62,24 @@ CREATE TABLE IF NOT EXISTS git_outcome (
   computed_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
--- Canonical trace revision (staged feature 10, Stage 1). One durable monotonic revision number
--- per session, allocated only when its classified outcome (the allowlisted, cloud-forwarded
--- projection) actually changes value -- not on every reclassification. A reparse of identical
--- evidence (unchanged fingerprint -> same outcome) updates checked_at only, so it never creates
--- forwarding work or a false "something changed" signal. fingerprint is git_outcome's own cache
--- key (resolveOutcomeCacheKey) at the time this revision was allocated -- kept here too so a
--- caller can tell whether a stored revision is still current without re-deriving it. Lifecycle is
--- reserved for future active/idle/completed tracking; this pass only ever writes 'active'.
+-- Canonical trace revision (staged feature 10, Stage 1, generalized). One durable monotonic
+-- revision number per session, allocated when either of two independent dimensions changes:
+-- the classified git outcome (fingerprint/outcome_overall, written by recordCheck) or the
+-- content of the full allowlisted cloud-forwarded projection (payload_hash, written by
+-- recordPayloadHash -- see reconcile/payloadHash.ts). A reparse of identical evidence on either
+-- dimension updates checked_at only, so it never creates forwarding work or a false
+-- "something changed" signal. fingerprint is git_outcome's own cache key (resolveOutcomeCacheKey)
+-- at the time the outcome dimension was last recorded. payload_hash is a canonical sha256 of the
+-- last-hashed SessionRollup (excluding its own revision field). Either write preserves the other
+-- dimension's stored value -- see traceRevisionRepository.ts. Lifecycle is reserved for future
+-- active/idle/completed tracking; this pass only ever writes 'active'.
 CREATE TABLE IF NOT EXISTS trace_revision (
   session_id         TEXT PRIMARY KEY,
   revision           INTEGER NOT NULL,
   lifecycle          TEXT    NOT NULL DEFAULT 'active',
   fingerprint         TEXT    NOT NULL,
   outcome_overall     TEXT,
+  payload_hash        TEXT,
   checked_at          INTEGER NOT NULL,
   changed_at          INTEGER NOT NULL
 );

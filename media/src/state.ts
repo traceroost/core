@@ -282,15 +282,8 @@ export type OtelReconfigureResult = {
 } | { error: string }
 export const otelReconfigureResult = signal<OtelReconfigureResult | null>(null)
 
-// ── Session retention signals ─────────────────────────────────────────────────
-
-export const swRetainedSessions = signal<SessionSummaryCard[]>([])
-export const swLastSessionCount = signal(0)
-
 // ── Set-based signals ─────────────────────────────────────────────────────────
 
-export const dismissedSpanIds = makeSetSignal<string>()
-export const lastSeenTraceIds = makeSetSignal<string>()
 export const ignoredInsightKeys = makeSetSignal<string>()
 
 // ── VS Code API handle ────────────────────────────────────────────────────────

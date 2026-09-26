@@ -127,29 +127,3 @@ export interface ImpactSummary {
   flat: number
   worse: number
 }
-
-export function computeImpactSummary(
-  appliedAtTimes: number[],
-  sessions: SessionSummaryCard[],
-): ImpactSummary {
-  const results = appliedAtTimes
-    .map(t => computeEffectiveness(sessions, t))
-    .filter(r => r.confidence !== 'none' && !r.baseline.insufficient)
-
-  const costChanges = results.map(r => r.costChangePct).filter((v): v is number => v !== null)
-  const turnsChanges = results.map(r => r.turnsChangePct).filter((v): v is number => v !== null)
-
-  const improving = results.filter(r => (r.costChangePct ?? 0) < -10).length
-  const worse     = results.filter(r => (r.costChangePct ?? 0) > 10).length
-  const flat      = results.length - improving - worse
-
-  return {
-    appliedCount: appliedAtTimes.length,
-    measuredCount: results.length,
-    avgCostChangePct:  costChanges.length  ? avg(costChanges)  : null,
-    avgTurnsChangePct: turnsChanges.length ? avg(turnsChanges) : null,
-    improving,
-    flat,
-    worse,
-  }
-}

@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import clsx from 'clsx'
 import { filteredSessions, sessionSummary, insightFilter, ignoredInsightKeys } from '../state'
-import { buildDisplaySummary, getAgentColor, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
+import { buildDisplaySummary, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
 import type { Insight, InsightFilter, SessionSummaryCard } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 
@@ -22,7 +22,7 @@ function insightScopeLabel(filter: InsightFilter): string {
 }
 
 function noActiveTakeawayText(filter: InsightFilter): string {
-  if (filter === 'loop') return 'No active loop or malfunction signals in this view.'
+  if (filter === 'loop') return 'No active signals in this view.'
   if (filter === 'efficiency') return 'No active efficiency issues in this view.'
   return 'No significant inefficiencies detected. Token usage looks healthy.'
 }
@@ -338,34 +338,8 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
   const session = ins.sessionIdx !== undefined ? sessions[ins.sessionIdx] : undefined
   const titleTraceMatch = ins.title.match(/^\[Trace\s+\d+\]\s*(.*)$/)
   const insightTitle = titleTraceMatch ? titleTraceMatch[1] : ins.title
-  const sessionAgentColor = session ? getAgentColor(session.source) : ''
   const sessionTimestamp = session ? formatSessionTime(session) : ''
-  const sessionPrompt = session?.userRequest || ''
   const [copied, setCopied] = useState(false)
-
-  function buildAiPrompt(): string {
-    const lines: string[] = [ins.title, '']
-    if (session?.userRequest && session.userRequest !== '[trace in progress]') {
-      lines.push('Task: "' + session.userRequest + '"', '')
-    }
-    if (ins.detail) lines.push(ins.detail, '')
-    if (session) {
-      const topTools = Object.entries(session.toolCounts ?? {})
-        .sort((a, b) => b[1] - a[1]).slice(0, 5)
-        .map(([t, n]) => '  ' + t + ' ×' + n).join('\n')
-      if (topTools) lines.push('Top tools used:\n' + topTools, '')
-      if (session.filesChanged.length > 0)
-        lines.push('Files changed: ' + session.filesChanged.slice(0, 5).join(', '), '')
-      const errors = session.timeline.filter(e => e.isError && e.errorMessage).slice(0, 3)
-      if (errors.length > 0)
-        lines.push('Error messages:\n' + errors.map(e => '  - ' + (e.errorMessage ?? '').slice(0, 120)).join('\n'), '')
-      lines.push('Trace stats: ' + session.totalLlmCalls + ' LLM calls, '
-        + session.totalToolCalls + ' tool calls, '
-        + (session.cacheHitRate * 100).toFixed(0) + '% cache hit rate', '')
-    }
-    lines.push('Action: ' + ins.action)
-    return lines.join('\n')
-  }
 
   function buildClipboardPrompt(): string {
     const lines: string[] = [
@@ -505,7 +479,7 @@ export function Insights() {
           <ul style="margin:0;padding:0 0 0 16px;list-style:disc">
             {takeaways.loopCount > 0 && (
               <li style="margin-bottom:2px">
-                {takeaways.loopCount} agent loop or malfunction signal{takeaways.loopCount > 1 ? 's' : ''} detected
+                {takeaways.loopCount} signal{takeaways.loopCount > 1 ? 's' : ''} detected
               </li>
             )}
             {takeaways.hasContextBloat && (

@@ -43,6 +43,15 @@ export type LoopSignalType =
   // git-outcome classification rather than eagerly for every session. See that file's docstring.
   | 'hallucinated_import'
   | 'failed_check_submission'
+  // Added from the 2026-09-26 signal-catalog research pass (.staged-issues/signal-catalog-*.md,
+  // stages 01-04) — all real-time, computed by loopDetector.ts alongside the nine above.
+  | 'tool_call_cycle'
+  | 'file_reread'
+  | 'cache_miss'
+  | 'ttl_expiry'
+  | 'low_cache_hit_ratio'
+  | 'budget_overrun'
+  | 'model_tier_mismatch'
 
 export interface LoopSignal {
   type: LoopSignalType

@@ -33,7 +33,7 @@ function memoryStore(initial: OrgCredentials | null): CredentialStore {
   return { load: () => cur, save: (c) => { cur = c }, clear: () => { cur = null } }
 }
 
-function makeCard(id: string, workspace: string): SessionSummaryCard {
+function makeCard(id: string, workspace: string, overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCard {
   return {
     sessionId: id, traceId: 'trace-' + id, source: 'copilot', dataSource: 'otel', workspace,
     userRequest: 'test', model: 'gpt-4o', turns: 1,
@@ -42,6 +42,7 @@ function makeCard(id: string, workspace: string): SessionSummaryCard {
     filesRead: [], filesSearched: [], filesChanged: [], filesWritten: [],
     toolCounts: {}, totalToolCalls: 0, totalLlmCalls: 1, errors: 0,
     outcome: 'text_response', timeline: [], backgroundSpans: [], loopSignals: [],
+    ...overrides,
   }
 }
 
@@ -111,5 +112,31 @@ suite('org/payloadPreview — createPayloadBuildCache', () => {
     const resultA = await buildPayloadForCard(makeCard('sA2', repoA), cache)
     const resultB = await buildPayloadForCard(makeCard('sB2', repoB), cache)
     assert.notStrictEqual(resultA.payload.repo_key_fp, resultB.payload.repo_key_fp)
+  })
+
+  test('a session still within the active-session grace window reports "in-progress" rather than classifying its (necessarily uncommitted-so-far) files as abandoned', async () => {
+    const changed = path.join(repoA, 'README.md')
+    fs.writeFileSync(changed, 'not yet committed\n')
+    const card = makeCard('sGrace', repoA, {
+      startTime: new Date().toISOString(),
+      durationMs: 0,
+      filesChanged: [changed],
+    })
+    const result = await buildPayloadForCard(card)
+    assert.strictEqual(result.payload.session?.outcome, 'in-progress')
+  })
+
+  test('once the grace window has passed, the same uncommitted file classifies for real', async () => {
+    const changed = path.join(repoA, 'README.md')
+    fs.writeFileSync(changed, 'not yet committed\n')
+    // Fixed, long-past startTime (same convention as makeCard's own default) rather than a
+    // relative one — this suite's system clock only needs to be *after* it, not close to it.
+    const card = makeCard('sPastGrace', repoA, {
+      startTime: '2026-01-01T00:00:00.000Z',
+      durationMs: 1000,
+      filesChanged: [changed],
+    })
+    const result = await buildPayloadForCard(card)
+    assert.strictEqual(result.payload.session?.outcome, 'abandoned')
   })
 })

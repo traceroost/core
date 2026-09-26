@@ -32,7 +32,6 @@ async function openInMemoryDb(): Promise<SqlDb> {
 }
 
 function makeStorageUri(): vscode.Uri {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('vscode').Uri.file('/tmp/traceroost-scalability-stress')
 }
 

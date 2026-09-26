@@ -39,6 +39,8 @@ import {
 } from '../gitOutcome'
 import { GitOutcomeRepository } from '../database/gitOutcomeRepository'
 import { TraceRevisionRepository } from '../database/traceRevisionRepository'
+import { hashSessionRollup } from './payloadHash'
+import type { SessionRollup } from '../cloud/forward/schema'
 
 interface WriteableDb {
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
@@ -121,6 +123,18 @@ export class ReconciliationService {
       })
     this.inFlight.set(input.sessionId, pending)
     return pending
+  }
+
+  /** Content-hash dimension of revision tracking (staged feature 10's generalization beyond
+   *  outcome-only, see payloadHash.ts and traceRevisionRepository.ts's `recordPayloadHash`).
+   *  Hashes `rollup` and allocates a new shared revision only if it differs from the last hash
+   *  recorded for this session -- independent of, and composable with, the git-outcome dimension
+   *  `reconcile()` tracks. Synchronous and cheap (no I/O beyond the same db this service already
+   *  owns); building `rollup` itself is the caller's job and the expensive part (real `git`
+   *  subprocesses) -- callers on a live/frequent path should debounce before calling this, not
+   *  because this call is expensive but because rebuilding `rollup` is. */
+  recordContentChange(sessionId: string, rollup: SessionRollup): { revision: number; changed: boolean } {
+    return this.revisions.recordPayloadHash(sessionId, hashSessionRollup(rollup))
   }
 
   /** Convenience for the background watcher (Stage 2): reconciles many sessions sharing one

@@ -47,6 +47,7 @@ export async function openOutcomesDb(dataDir: string): Promise<OutcomesDb | null
       db = new SQL.Database()
     }
     db.run(OUTCOMES_SCHEMA_SQL)
+    applyOutcomesMigrations(db)
 
     return {
       raw: db,
@@ -57,5 +58,18 @@ export async function openOutcomesDb(dataDir: string): Promise<OutcomesDb | null
     }
   } catch {
     return null
+  }
+}
+
+// trace_revision.payload_hash (staged feature 10's content-hash generalization) -- `CREATE TABLE
+// IF NOT EXISTS` in OUTCOMES_SCHEMA_SQL never adds a column to an already-existing table, so a
+// pre-existing outcomes-cache.db (created before this column existed) needs this same guarded
+// ALTER TABLE db.ts's applyMigrations() runs for the editor's traceroost.db.
+function applyOutcomesMigrations(db: SqlDatabase): void {
+  const cols = db.exec('PRAGMA table_info(trace_revision)')
+  if (!cols[0]) return
+  const colNames = cols[0].values.map(row => row[1] as string)
+  if (!colNames.includes('payload_hash')) {
+    db.run('ALTER TABLE trace_revision ADD COLUMN payload_hash TEXT')
   }
 }

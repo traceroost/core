@@ -21,6 +21,7 @@ import * as os from 'os'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import type { RollupPayload } from './schema'
+import { withFileLock } from './fileLock'
 
 export interface QueueItem {
   /** Idempotency key. The server deduplicates on the same value. */
@@ -122,22 +123,28 @@ export class ForwardQueue {
    *  than what's already queued, is treated as the legacy/no-op case and dropped (same as
    *  before this feature) — there's nothing here to confirm it's actually newer. Returns whether
    *  the queue changed. */
+  // Locked (see fileLock.ts): this file is shared by every TraceRoost host on the machine, not
+  // per-process, so the read-list-then-write-all below must run as one atomic section across
+  // hosts -- otherwise two hosts enqueuing around the same time can each read before either
+  // writes, and whichever writes second silently discards the first's addition.
   enqueue(payload: RollupPayload): boolean {
-    const key = itemKey(payload)
-    const existing = this.list()
-    const idx = existing.findIndex(it => it.key === key)
-    if (idx === -1) {
-      return this.appendNew(payload, key, existing)
-    }
-    const incomingRevision = payload.session?.revision
-    const queuedRevision = existing[idx].payload.session?.revision
-    if (incomingRevision === undefined || (queuedRevision !== undefined && incomingRevision <= queuedRevision)) {
-      return false
-    }
-    const next = [...existing]
-    next[idx] = { ...next[idx], payload }
-    this.writeAll(next)
-    return true
+    return withFileLock(this.file, () => {
+      const key = itemKey(payload)
+      const existing = this.list()
+      const idx = existing.findIndex(it => it.key === key)
+      if (idx === -1) {
+        return this.appendNew(payload, key, existing)
+      }
+      const incomingRevision = payload.session?.revision
+      const queuedRevision = existing[idx].payload.session?.revision
+      if (incomingRevision === undefined || (queuedRevision !== undefined && incomingRevision <= queuedRevision)) {
+        return false
+      }
+      const next = [...existing]
+      next[idx] = { ...next[idx], payload }
+      this.writeAll(next)
+      return true
+    })
   }
 
   private appendNew(payload: RollupPayload, key: string, existing: QueueItem[]): boolean {
@@ -161,19 +168,25 @@ export class ForwardQueue {
     return true
   }
 
-  /** Removes items by key (called after a 2xx or a permanent 400 drop). */
+  /** Removes items by key (called after a 2xx or a permanent 400 drop). Locked, same reason as
+   *  `enqueue` -- see fileLock.ts. */
   remove(keys: string[]): void {
-    const drop = new Set(keys)
-    this.writeAll(this.list().filter(it => !drop.has(it.key)))
+    withFileLock(this.file, () => {
+      const drop = new Set(keys)
+      this.writeAll(this.list().filter(it => !drop.has(it.key)))
+    })
   }
 
-  /** Records a failed attempt (bumps `attempts`, stores the error) without removing the item. */
+  /** Records a failed attempt (bumps `attempts`, stores the error) without removing the item.
+   *  Locked, same reason as `enqueue` -- see fileLock.ts. */
   recordFailure(key: string, error: string): void {
-    this.writeAll(this.list().map(it =>
-      it.key === key
-        ? { ...it, attempts: it.attempts + 1, lastAttemptAt: Date.now(), lastError: error }
-        : it,
-    ))
+    withFileLock(this.file, () => {
+      this.writeAll(this.list().map(it =>
+        it.key === key
+          ? { ...it, attempts: it.attempts + 1, lastAttemptAt: Date.now(), lastError: error }
+          : it,
+      ))
+    })
   }
 
   clear(): void {

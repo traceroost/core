@@ -22,7 +22,7 @@ pnpm run fixtures:check
 Fixture replay command:
 
 ```sh
-pnpm run standalone
+pnpm run local
 pnpm run demo -- --fixture agent-matrix --speed 8
 ```
 
@@ -33,7 +33,7 @@ Real captures are used to detect drift in agent telemetry schemas.
 Claude Code and Codex can be captured through the standalone server:
 
 ```sh
-pnpm run standalone
+pnpm run local
 pnpm run capture -- claude-task-api --duration 180 --clear
 ```
 
@@ -42,7 +42,7 @@ The agent should be run in a separate terminal with a fixed prompt. Capture must
 Capture procedure:
 
 1. Stop any VS Code TraceRoost collector or standalone server already using the OTLP port.
-2. Start `pnpm run standalone` and wait for `OTLP receiver -> http://127.0.0.1:4318`.
+2. Start `pnpm run local` and wait for `OTLP receiver -> http://127.0.0.1:4318`.
 3. Restart the agent terminal after standalone configures OTEL. Existing Claude/Codex processes keep their old telemetry settings.
 4. Start `pnpm run capture -- <fixture-name> --duration 180 --clear`.
 5. Send one prompt to the agent.

@@ -73,8 +73,11 @@ network otherwise. `--explain-payload` (`standalone/cloud/explainPayload.ts`) pr
 ## The free tier: fully local, no such diagram needed for privacy — but here's the pipeline
 
 `src/cloud/attribution/` and `src/cloud/turnover/` have no network path in their dependency graph at all —
-not gated, not disabled, structurally absent. This is the engine behind the **Outcomes** tab and
-is free forever.
+not gated, not disabled, structurally absent. It's free forever, and reachable directly via
+`traceroost cohort` — no org link required to run it yourself. There was previously a dedicated
+free **Outcomes** dashboard tab surfacing it automatically; retired in commit `0ee7842` in favor of
+inline git-outcome signal (merged/committed/abandoned) in the Sessions tab's Files sub-tab instead
+(see `ARCHITECTURE.md` §10). The engine's only current caller is the cohort hand-off below.
 
 ```mermaid
 graph LR
@@ -87,8 +90,7 @@ graph LR
     COH --> SURV["turnover/survival.ts<br/>surviving-AI-lines estimate"]
     SURV --> COMP["turnover/index.ts<br/>computeTurnover()"]
     COMP --> TDB[("turnoverRepository<br/>one row per repo")]
-    TDB --> REPORT["turnover/localReport.ts"]
-    REPORT --> TAB["Outcomes tab<br/>media/src/cloud/tabs/Outcomes.tsx"]
+    TDB --> CLI["cohortCli.ts<br/>traceroost cohort"]
 ```
 
 `computeTurnover()` returns `TurnoverResult | InsufficientData` — never a bare percentage without
@@ -104,11 +106,12 @@ the denominator rather than guessed at.
 | --- | --- | --- |
 | VS Code command palette | `TraceRoost: Link This Machine to an Org` / `… Org Link Status` / `… Leave Org` | `registerOrgCommands` in `src/extension.ts` |
 | VS Code webview | Org panel, a slide-in beside Settings | `media/src/cloud/panels/OrgPanel.tsx` + `src/cloud/org/panelController.ts` |
-| Dashboard tab (free) | **Outcomes** | `media/src/cloud/tabs/Outcomes.tsx`; opens automatically on first measurable cohort |
+| Dashboard tab (free) | Sessions → Files sub-tab: git outcome banner + per-file badges | `gitOutcome.ts`; no dedicated tab today — see `ARCHITECTURE.md` §10. Retired the earlier **Outcomes** tab (`0ee7842`) |
 | CLI | `traceroost org <link\|status\|leave> [--device]` | `standalone/cloud/org-cli.ts` |
 | CLI | `traceroost --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` |
 | CLI | `traceroost advise --apply <id>` | `standalone/cloud/adviseCli.ts` — regenerates instruction text with real paths, appends, captures a baseline |
 | CLI | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/cloud/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo |
+| CLI | `traceroost find <hash>` | `standalone/cloud/findCli.ts` — classifies a hash as a session/trace or a repo and dispatches to `traceCli.ts` (`--id`) or `patternsCli.ts` accordingly; both share `sessionLoader.ts` |
 | Standalone HTTP | `GET/POST /api/org` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview |
 | Deep links | `vscode://agentlens.agentlens-dashboard/advise?id=…`, `vscode://agentlens.agentlens-dashboard/cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source. Routed through VS Code's own URI scheme, not a custom-registered one — see `src/extension.ts`'s "Deep links" comment |
 
@@ -165,7 +168,8 @@ implemented; git history has it.
   string field is left unconstrained (no accidental free-text field).
 - `src/test/cloud/org/privacy.test.ts` pins the exact `SENT` / `NEVER_SENT` lists shown on the
   consent screen.
-- `src/test/cloud/org/pricingBoundary.test.ts` pins `docs/pricing-boundary.md` against the
-  shipped copy so the pricing page and the repo can't drift apart.
+- `src/test/cloud/org/pricingBoundary.test.ts` regex-pins fixed phrases inside
+  `docs/pricing-boundary.md` itself — not yet a cross-check against the rendered pricing page; the
+  test's own comment notes that becomes possible "when the cloud repo is reconciled."
 - `standalone/cloud/explainPayload.ts` + its test assert the printed `--explain-payload` JSON equals
   what actually gets queued — the transparency claim is enforced, not just documented.

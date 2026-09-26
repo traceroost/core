@@ -8,6 +8,13 @@ import {
   detectTokenRunaway,
   detectChronicToolFailures,
   detectContextFloodingRisk,
+  detectToolCallCycle,
+  detectFileReread,
+  detectCacheMiss,
+  detectTtlExpiry,
+  detectLowCacheHitRatio,
+  detectBudgetOverrun,
+  detectModelTierMismatch,
   inferTaskComplexity,
   getFileEditCounts,
   temperLoopSignalSeverity,
@@ -103,6 +110,22 @@ function makeResultTool(label: string, fullResult: string): TimelineEntry {
     isError: false,
     fullResult,
     timestamp: new Date().toISOString(),
+  }
+}
+
+function makeLlmCacheEntry(inputTokens: number, cacheReadTokens: number, cacheCreateTokens: number, timestamp: string): TimelineEntry {
+  return {
+    type: 'llm',
+    spanId: 'span-' + Math.random().toString(36).slice(2, 8),
+    label: 'claude-opus-5',
+    model: 'claude-opus-5',
+    inputTokens,
+    cacheReadTokens,
+    cacheCreateTokens,
+    outputTokens: 100,
+    durationMs: 1000,
+    isError: false,
+    timestamp,
   }
 }
 
@@ -965,6 +988,13 @@ suite('LOOP_SIGNAL_ACTIONS', () => {
     'token_runaway',
     'chronic_tool_failures',
     'context_flooding_risk',
+    'tool_call_cycle',
+    'file_reread',
+    'cache_miss',
+    'ttl_expiry',
+    'low_cache_hit_ratio',
+    'budget_overrun',
+    'model_tier_mismatch',
   ]
 
   test('has an action string for every signal type', () => {
@@ -1018,5 +1048,388 @@ suite('temperLoopSignalSeverity', () => {
     const result = temperLoopSignalSeverity([criticalSignal], outcome('merged'))
     assert.strictEqual(criticalSignal.severity, 'critical')
     assert.notStrictEqual(result[0], criticalSignal)
+  })
+})
+
+// ── detectToolCallCycle (signal-catalog stage 01) ────────────────────────────
+
+suite('detectToolCallCycle', () => {
+  test('no signal below the warning repeat threshold', () => {
+    const signals: LoopSignal[] = []
+    const timeline: TimelineEntry[] = []
+    for (let i = 0; i < 4; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    detectToolCallCycle(makeSession({ timeline }), signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('warning on a 2-step cycle repeated 5+ times with no edit in between', () => {
+    const signals: LoopSignal[] = []
+    const timeline: TimelineEntry[] = []
+    for (let i = 0; i < 5; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    detectToolCallCycle(makeSession({ timeline }), signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].type, 'tool_call_cycle')
+    assert.strictEqual(signals[0].severity, 'warning')
+    assert.strictEqual(signals[0].count, 5)
+  })
+
+  test('critical on a 2-step cycle repeated 10+ times', () => {
+    const signals: LoopSignal[] = []
+    const timeline: TimelineEntry[] = []
+    for (let i = 0; i < 10; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    detectToolCallCycle(makeSession({ timeline }), signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].severity, 'critical')
+  })
+
+  test('detects a 3-step cycle', () => {
+    const signals: LoopSignal[] = []
+    const timeline: TimelineEntry[] = []
+    for (let i = 0; i < 5; i++) { timeline.push(makeTool('read a'), makeTool('edit_check'), makeTool('run_tests')) }
+    detectToolCallCycle(makeSession({ timeline }), signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 5)
+  })
+
+  test('does not fire on a pure length-1 streak — that is exact_tool_repeat\'s signal', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array(20).fill(null).map(() => makeTool('read_file README')),
+    })
+    detectToolCallCycle(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('resets on a file edit, so runs on either side of it don\'t combine', () => {
+    const signals: LoopSignal[] = []
+    const timeline: TimelineEntry[] = []
+    for (let i = 0; i < 3; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    timeline.push(makeEdit('src/a.ts', 'x', 'y'))
+    for (let i = 0; i < 3; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    detectToolCallCycle(makeSession({ timeline }), signals)
+    assert.strictEqual(signals.length, 0)
+  })
+})
+
+// ── detectFileReread (signal-catalog stage 02) ───────────────────────────────
+
+suite('detectFileReread', () => {
+  test('no signal below the warning read count', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [makeTool('read_file src/foo.ts'), makeTool('read_file src/foo.ts')],
+    })
+    detectFileReread(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('warning when the same file is read 3+ times with no write in between', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array(3).fill(null).map(() => makeTool('read_file src/foo.ts')),
+    })
+    detectFileReread(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].type, 'file_reread')
+    assert.strictEqual(signals[0].severity, 'warning')
+    assert.strictEqual(signals[0].count, 3)
+  })
+
+  test('critical at 6+ reads', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array(6).fill(null).map(() => makeTool('read_file src/foo.ts')),
+    })
+    detectFileReread(session, signals)
+    assert.strictEqual(signals[0].severity, 'critical')
+  })
+
+  test('a different line range on the same path still counts', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [
+        makeTool('read_file src/foo.ts L1-50'),
+        makeTool('read_file src/foo.ts L40-90'),
+        makeTool('read_file src/foo.ts L90-140'),
+      ],
+    })
+    detectFileReread(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 3)
+  })
+
+  test('a run of reads doesn\'t carry over a write reset into a combined count', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [
+        makeTool('read_file src/foo.ts'),
+        makeTool('read_file src/foo.ts'),
+        makeEdit('src/foo.ts', 'old', 'new'),
+        makeTool('read_file src/foo.ts'),
+        makeTool('read_file src/foo.ts'),
+      ],
+    })
+    detectFileReread(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('ignores non-read tool calls', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array(3).fill(null).map(() => makeTool('bash cat src/foo.ts')),
+    })
+    detectFileReread(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+})
+
+// ── detectCacheMiss (signal-catalog stage 03) ────────────────────────────────
+
+suite('detectCacheMiss', () => {
+  test('no signal when cache-create share is below 5%', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [makeLlmCacheEntry(0, 190_000, 5_000, new Date().toISOString())],
+    })
+    detectCacheMiss(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('no signal when the re-written amount is below 2,000 tokens even if the share is high', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [makeLlmCacheEntry(0, 0, 1_500, new Date().toISOString())],
+    })
+    detectCacheMiss(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('warning reproduces the research\'s worked example (8,000/112,000/120,000 tokens)', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [makeLlmCacheEntry(0, 112_000, 8_000, new Date().toISOString())],
+    })
+    detectCacheMiss(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].severity, 'warning')
+    const expectedWasteUsd = (8_000 / 1_000_000) * 6.25 - (8_000 / 1_000_000) * 0.50
+    assert.ok(signals[0].evidence.includes(expectedWasteUsd.toFixed(3)), signals[0].evidence)
+  })
+
+  test('critical at 10,000+ re-written tokens', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [makeLlmCacheEntry(0, 90_000, 10_000, new Date().toISOString())],
+    })
+    detectCacheMiss(session, signals)
+    assert.strictEqual(signals[0].severity, 'critical')
+  })
+})
+
+// ── detectTtlExpiry (signal-catalog stage 03) ────────────────────────────────
+
+suite('detectTtlExpiry', () => {
+  test('no signal when the gap is under the TTL', () => {
+    const signals: LoopSignal[] = []
+    const t0 = new Date('2026-01-01T00:00:00Z')
+    const t1 = new Date(t0.getTime() + 5 * 60 * 1000)
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [
+        makeLlmCacheEntry(0, 100_000, 0, t0.toISOString()),
+        makeLlmCacheEntry(0, 90_000, 8_000, t1.toISOString()),
+      ],
+    })
+    detectTtlExpiry(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('warning when a cache miss follows a gap longer than the TTL', () => {
+    const signals: LoopSignal[] = []
+    const t0 = new Date('2026-01-01T00:00:00Z')
+    const t1 = new Date(t0.getTime() + 90 * 60 * 1000)
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [
+        makeLlmCacheEntry(0, 100_000, 0, t0.toISOString()),
+        makeLlmCacheEntry(0, 90_000, 8_000, t1.toISOString()),
+      ],
+    })
+    detectTtlExpiry(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].type, 'ttl_expiry')
+    assert.strictEqual(signals[0].count, 1)
+  })
+
+  test('does not fire when the gap is long but the later call is not a cache miss', () => {
+    const signals: LoopSignal[] = []
+    const t0 = new Date('2026-01-01T00:00:00Z')
+    const t1 = new Date(t0.getTime() + 90 * 60 * 1000)
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [
+        makeLlmCacheEntry(0, 100_000, 0, t0.toISOString()),
+        makeLlmCacheEntry(0, 100_000, 500, t1.toISOString()),
+      ],
+    })
+    detectTtlExpiry(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+})
+
+// ── detectLowCacheHitRatio (signal-catalog stage 03) ─────────────────────────
+
+suite('detectLowCacheHitRatio', () => {
+  test('no signal when there isn\'t enough cache activity to judge', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({ cacheReadTokens: 100, cacheCreateTokens: 100, cacheHitRate: 0 })
+    detectLowCacheHitRatio(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('no signal when the hit ratio is healthy', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({ cacheReadTokens: 50_000, cacheCreateTokens: 5_000, cacheHitRate: 0.9 })
+    detectLowCacheHitRatio(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('warning when hit ratio is under 30% with real cache activity', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({ cacheReadTokens: 3_000, cacheCreateTokens: 7_000, cacheHitRate: 0.2 })
+    detectLowCacheHitRatio(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].severity, 'warning')
+  })
+
+  test('critical when hit ratio is under 10%', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({ cacheReadTokens: 500, cacheCreateTokens: 9_500, cacheHitRate: 0.05 })
+    detectLowCacheHitRatio(session, signals)
+    assert.strictEqual(signals[0].severity, 'critical')
+  })
+})
+
+// ── detectBudgetOverrun (signal-catalog stage 04) ────────────────────────────
+
+suite('detectBudgetOverrun', () => {
+  const ENV_KEY = 'TRACEROOST_BUDGET_CAP_USD'
+  let original: string | undefined
+
+  setup(() => { original = process.env[ENV_KEY]; delete process.env[ENV_KEY] })
+  teardown(() => {
+    if (original === undefined) { delete process.env[ENV_KEY] } else { process.env[ENV_KEY] = original }
+  })
+
+  test('no signal when no cap is configured', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({ model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 100_000 })
+    detectBudgetOverrun(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('critical when session cost exceeds 2x the configured cap', () => {
+    process.env[ENV_KEY] = '1'
+    const signals: LoopSignal[] = []
+    // claude-opus-5: $5/M input + $25/M output -> 1M input + 100K output = $5 + $2.50 = $7.50
+    const session = makeSession({
+      model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 100_000, cacheReadTokens: 0, cacheCreateTokens: 0,
+    })
+    detectBudgetOverrun(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].type, 'budget_overrun')
+    assert.strictEqual(signals[0].severity, 'critical')
+  })
+
+  test('warning (not critical) just above the cap', () => {
+    process.env[ENV_KEY] = '7'
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 100_000, cacheReadTokens: 0, cacheCreateTokens: 0,
+    })
+    detectBudgetOverrun(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].severity, 'warning')
+  })
+
+  test('no signal when under the cap', () => {
+    process.env[ENV_KEY] = '100'
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 100_000, cacheReadTokens: 0, cacheCreateTokens: 0,
+    })
+    detectBudgetOverrun(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+})
+
+// ── detectModelTierMismatch (signal-catalog stage 04) ────────────────────────
+
+suite('detectModelTierMismatch', () => {
+  test('no signal when files were changed', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      filesChanged: ['a.ts'],
+      timeline: [makeTool('read_file a.ts'), makeTool('grep a.ts'), makeTool('read_file b.ts')],
+    })
+    detectModelTierMismatch(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('no signal when the model is not premium-tier', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-haiku-4-5',
+      filesChanged: [],
+      timeline: [makeTool('read_file a.ts'), makeTool('grep a.ts'), makeTool('read_file b.ts')],
+    })
+    detectModelTierMismatch(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('no signal when most tool calls are not read-only', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      filesChanged: [],
+      timeline: [makeTool('read_file a.ts'), makeTool('bash npm test'), makeTool('bash npm run build')],
+    })
+    detectModelTierMismatch(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('warning on a premium model running a long read-only, low-output stretch', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      filesChanged: [],
+      timeline: [
+        makeTool('read_file a.ts'), makeTool('grep a.ts'), makeTool('read_file b.ts'),
+        makeLlm(2000, 100), makeLlm(2000, 150),
+      ],
+    })
+    detectModelTierMismatch(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].type, 'model_tier_mismatch')
+    assert.strictEqual(signals[0].severity, 'warning')
+  })
+
+  test('no signal when output per call is high (real generation work, not just reads)', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      filesChanged: [],
+      timeline: [
+        makeTool('read_file a.ts'), makeTool('grep a.ts'), makeTool('read_file b.ts'),
+        makeLlm(2000, 1000), makeLlm(2000, 1200),
+      ],
+    })
+    detectModelTierMismatch(session, signals)
+    assert.strictEqual(signals.length, 0)
   })
 })

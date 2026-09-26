@@ -19,6 +19,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { withFileLock } from './fileLock'
 
 export const DEFAULT_MAX_ENTRIES = 20_000
 
@@ -102,12 +103,18 @@ export class DeliveryLedger {
     return this.readCached().set.has(key)
   }
 
-  /** Idempotent. A no-op if `key` is already recorded. */
+  /** Idempotent. A no-op if `key` is already recorded. Locked (see fileLock.ts): this file is
+   *  shared by every TraceRoost host on the machine, not per-process, so the
+   *  read-then-write-the-whole-array below must run as one atomic section across hosts --
+   *  otherwise two hosts marking different keys delivered around the same time can each read
+   *  before either writes, and whichever writes second silently discards the first's key. */
   markDelivered(key: string): void {
-    const existing = this.readCached()
-    if (existing.set.has(key)) return
-    const next = [...existing.keys, key]
-    this.writeAll(next.length > this.maxEntries ? next.slice(next.length - this.maxEntries) : next)
+    withFileLock(this.file, () => {
+      const existing = this.readCached()
+      if (existing.set.has(key)) return
+      const next = [...existing.keys, key]
+      this.writeAll(next.length > this.maxEntries ? next.slice(next.length - this.maxEntries) : next)
+    })
   }
 
   private writeAll(keys: string[]): void {

@@ -40,6 +40,13 @@ export type LoopSignalType =
   | 'context_flooding_risk'
   | 'hallucinated_import'
   | 'failed_check_submission'
+  | 'tool_call_cycle'
+  | 'file_reread'
+  | 'cache_miss'
+  | 'ttl_expiry'
+  | 'low_cache_hit_ratio'
+  | 'budget_overrun'
+  | 'model_tier_mismatch'
 
 export interface LoopSignal {
   type: LoopSignalType
@@ -242,13 +249,6 @@ export interface Insight {
   action: string
   helpId?: string
   _loopType?: LoopSignalType
-}
-
-// Span tree node used by Traces and Flow tabs
-export interface SpanTreeNode {
-  span: Span
-  children: SpanTreeNode[]
-  depth: number
 }
 
 // Response shape of GET /api/version-check (standalone only — see standalone/versionCheck.ts).

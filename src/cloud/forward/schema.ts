@@ -71,7 +71,13 @@ export function toWireAgent(source: string): WireAgent {
   }
 }
 
-/** Internal loop-signal type (`src/types.ts` `LoopSignalType`) → wire enum, or `null` to drop. */
+/** Internal loop-signal type (`src/types.ts` `LoopSignalType`) → wire enum, or `null` to drop.
+ *
+ * `budget_overrun` and `model_tier_mismatch` (added 2026-09-26, signal-catalog stage 04) are
+ * deliberately absent from this map and fall through to `null` — both are local-only
+ * cost-optimization tips, not loop/malfunction patterns, per .staged-issues/
+ * signal-catalog-04-budget-and-tier-mismatch.md's explicit design decision to keep them off the
+ * wire rather than force them into an existing bucket. */
 export function toWireLoopSignal(type: string): WireLoopSignal | null {
   const MAP: Record<string, WireLoopSignal> = {
     exact_tool_repeat: 'repeated-edit',
@@ -83,6 +89,15 @@ export function toWireLoopSignal(type: string): WireLoopSignal | null {
     context_flooding_risk: 'context-flooding',
     hallucinated_import: 'retry-loop',
     failed_check_submission: 'no-progress',
+    // Signal-catalog stages 01-03 (2026-09-26). tool_call_cycle is the same "going back and
+    // forth" pattern as edit_revert_cycle at a different granularity, so it shares oscillation.
+    // file_reread/cache_miss/ttl_expiry/low_cache_hit_ratio are the first local producers for
+    // context-thrash, defined in this enum ahead of any detector — see WIRE_LOOP_SIGNALS above.
+    tool_call_cycle: 'oscillation',
+    file_reread: 'context-thrash',
+    cache_miss: 'context-thrash',
+    ttl_expiry: 'context-thrash',
+    low_cache_hit_ratio: 'context-thrash',
   }
   return MAP[type] ?? null
 }

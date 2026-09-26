@@ -1,8 +1,7 @@
 import { useState } from 'preact/hooks'
 import { useEffect, useRef } from 'preact/hooks'
-import { sessionSummary, displaySessions, filteredSessions, dailyStats, lifetimeStats, selectedAgentFilter, timeRange, makeTimeRange, focusedSessionId, activeTab } from '../state'
-import type { TimePreset } from '../state'
-import { getAgentColor, getSessionGlobalNumber, formatCompact, getAgentSourceLabel, formatSessionTime } from '../utils'
+import { sessionSummary, filteredSessions, dailyStats, lifetimeStats, selectedAgentFilter, focusedSessionId, activeTab } from '../state'
+import { getAgentColor, formatCompact, formatSessionTime } from '../utils'
 import { calcSessionCost, dayKeyUtc } from '../sessionMetrics'
 import { PRICING_LAST_UPDATED } from '../pricing'
 import type { SessionSummaryCard, DailyStatRow } from '../types'
@@ -22,13 +21,6 @@ function fmtCredits(credits: number): string {
 }
 
 // ── 30-day history chart (SVG) ────────────────────────────────────────────────
-
-// day is 'YYYY-MM-DD HH' for hourly rows
-function rowHourMs(day: string): number {
-  // '2026-05-30 14' → parse as UTC hour
-  const [datePart, hourPart] = day.split(' ')
-  return new Date(datePart + 'T' + (hourPart ?? '00').padStart(2, '0') + ':00:00Z').getTime()
-}
 
 export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
   const [hovered, setHovered] = useState<number | null>(null)

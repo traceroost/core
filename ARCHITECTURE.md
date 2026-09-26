@@ -631,7 +631,7 @@ classDiagram
     class SessionSummaryCard {
         +sessionId: string
         +traceId: string
-        +source: copilot, claude_code, codex
+        +source: copilot, claude_code, codex, opencode, cursor
         +dataSource: otel, log
         +conversationId?: string
         +workspace: string
@@ -804,7 +804,7 @@ graph TD
 
 ### Tab component overview
 
-Five tabs in the sticky tab bar (Sessions, Analytics, Advisor, Export, Import), plus a Help icon button. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. A separate bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
+Five tabs in the sticky tab bar (Sessions, Analytics, Advisor, Export, Import). The header also carries a `$` icon (`Pricing.tsx` — the rate tables behind it) between the gear and Help icons, a Help icon button, and a bell icon. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. The bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
 
 ```mermaid
 graph LR
@@ -1052,9 +1052,13 @@ graph LR
 
 `standalone/tsconfig.json` covers `standalone/**` (including `cli.ts` and `service/**`) for
 editor IntelliSense and can be run manually via `tsc -p standalone/tsconfig.json --noEmit` — it
-isn't currently wired into `pnpm run compile`/`check-types`, so a `standalone`-only type error
-won't fail CI today. Pre-existing gap, not introduced by the background-service feature, but
-worth knowing about since it's the one part of the codebase `check-types` doesn't actually cover.
+isn't wired into `pnpm run compile`/`check-types`, so most of `standalone/**` still won't fail CI
+on a type error alone. One slice is covered a different way: `tsconfig.test.standalone.json`
+(`standalone/cloud/{patternsCli,traceCli,findCli}.ts` + their tests) is compiled by
+`compile-tests:standalone`, which `pnpm run test:unit` (CI's `mocha` step) runs before `mocha` —
+so a type error in those three files does fail CI today. The rest of `standalone/**`
+(`server.ts`, `cli.ts`, `service/**`, `org-cli.ts`, `adviseCli.ts`, `cohortCli.ts`,
+`explainPayload.ts`, `sessionLoader.ts`) is still uncovered — the remaining gap.
 
 ---
 
@@ -1165,14 +1169,15 @@ no transport — the engines have no network path at all — and nothing they pr
 | `src/cloud/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
 | `src/cloud/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
 | `src/database/turnoverRepository.ts` | One row per repo; recompute skipped when `HEAD` is unmoved |
-| `src/cloud/turnover/localReport.ts` | Per-repo report assembly for the free **Outcomes** tab |
-| `media/src/cloud/tabs/Outcomes.tsx` | The activation-event tab — `InsufficientData` panels are first-class; one Pro line, in the cohort footer only |
 
-The **Outcomes** tab is free forever, without qualification — it is the free tier's activation
-event and therefore the distribution channel. First-run routing (`DashboardPanel`) opens on it
-when a cohort is measurable and it has never been shown. Nothing in it is disabled, blurred,
-watermarked or upsell-gated; the share affordance omits the repository name unless the user
-opts in.
+There was previously a dedicated free **Outcomes** dashboard tab (`media/src/cloud/tabs/Outcomes.tsx`)
+surfacing this engine's output directly, billed as the free tier's activation event. It was retired
+in commit `0ee7842` in favor of folding outcome signal (merged/committed/abandoned, per-file) inline
+into the Sessions tab's Files sub-tab — see §10's tab overview, "git outcome banner + per-file
+badges." Its report-assembly file, `src/cloud/turnover/localReport.ts`, had no other caller and was
+removed with it. The attribution/turnover engine itself is unaffected by that retirement and is
+still free, local, and single-developer with no network path — reachable today via
+`traceroost cohort` (§15's "the hand-off"), not via a dashboard tab.
 
 Confidence is the honest part: **certain** (trailer, or a session lists the file and the commit
 lands in that session's own span), **probable** (session lists the file, commit within the
@@ -1216,7 +1221,16 @@ traceroost/
 │   ├── instructionEffectiveness.ts # Before/after baseline metrics for applied instruction suggestions
 │   ├── instructionFiles.ts       # Detects/reads/writes CLAUDE.md, copilot-instructions.md, AGENTS.md
 │   ├── serviceConfig.ts          # Background-service config file + launchd/systemd/Windows-task generators (pure, tested)
+│   ├── httpSecurity.ts           # Shared hardening for the 3 standalone servers (UI/OTLP/MCP): Host-header validation (anti-DNS-rebinding) + bearer-token auth
+│   ├── portResolver.ts           # Requested-vs-actually-bound port tracking so no consumer (auto-configure, dashboard URL, MCP endpoint) points at a dead port
+│   ├── repoRemote.ts             # Local-only GitHub remote lookup for the Sessions repo-column tooltip — never sent to traceroost-cloud
+│   ├── sessionRiskSignals.ts     # Post-hoc, on-demand risk detectors (session detail view) — malfunction patterns visible only once a session is complete
+│   ├── automationEngine.ts       # Server-side port of Automation's threshold evaluation for MCP tools — hand-kept in sync with media/src/tabs/Automation.tsx's own copy
+│   ├── claudeUsageLines.ts       # Selects whole cumulative usage snapshots from growing Claude Code output lines
 │   ├── types.ts                  # Shared extension-host types
+│   ├── reconcile/
+│   │   ├── reconciliationService.ts # Trace-outcome reconciliation (staged feature 10, Stage 1) — in-flight dedup over GitOutcomeRepository, not a long-lived cache
+│   │   └── backgroundWatcher.ts  # Debounced fs.watch + fallback-poll orchestrator driving reconciliationService
 │   ├── database/
 │   │   ├── schema.ts             # SCHEMA_SQL — CREATE TABLE statements + indexes
 │   │   ├── db.ts                 # TraceRoostDb — open, migrate, save, dispose
@@ -1225,6 +1239,9 @@ traceroost/
 │   │   ├── migration.ts          # migrateGlobalStateToSqlite (one-time)
 │   │   ├── retention.ts          # runRetention — DELETE old sessions + blob eviction
 │   │   ├── instructionRepository.ts # Applied/dismissed instruction-suggestion records
+│   │   ├── gitOutcomeRepository.ts # SQLite cache for per-session git-outcome classification; invalidated by cache key, not TTL
+│   │   ├── fileBlameRepository.ts # SQLite cache for per-file blame (AL 06) — re-blamed only when a file's blob sha changes
+│   │   ├── traceRevisionRepository.ts # Canonical trace revisions (staged feature 10, Stage 1) — advances only on a real outcome change
 │   │   └── types.ts              # Shared DB types
 │   ├── summarizers/
 │   │   ├── claude.ts             # Claude Code session builder
@@ -1266,6 +1283,12 @@ traceroost/
 │   │   ├── utils.ts              # Formatting helpers, agent colors, session labels
 │   │   ├── agentProfiles.ts      # Per-agent alert/automation thresholds incl. daily cost (localStorage)
 │   │   ├── AgentThresholdInputs.tsx  # Reusable form input components for threshold editing
+│   │   ├── signalFormulas.ts     # Hand-copied mirror of src/loopDetector.ts's SIGNAL_FORMULAS — webview can't import from src/, kept in sync by hand
+│   │   ├── signalIcons.tsx       # Loop-signal glyphs shared by Sessions' Signals column and Insights' Recommendations tab
+│   │   ├── hash.ts               # formatTraceIdHash — zero-dependency leaf module, avoids a state.ts/utils.ts import cycle
+│   │   ├── costSavingActions.ts  # Aggregates loop-signal/hot-file/cache-rate signals into one ranked "how to save money" list
+│   │   ├── BrandMark.tsx         # Inline brand mark SVG (currentColor) — mirrors media/brand/mark-currentcolor.svg
+│   │   ├── Wordmark.tsx          # "traceroost" wordmark as real text, not SVG, for crispness at small sizes
 │   │   ├── sidebarWebview.ts     # Sidebar JS (no JSX)
 │   │   ├── styles/
 │   │   │   ├── base.css          # Global variables, layout primitives
@@ -1300,6 +1323,7 @@ traceroost/
 │   │       ├── Settings.tsx      # OTEL/log ingestion toggles, MCP toggle, reconfigure button (in gear-icon ConfigPanel)
 │   │       ├── IngestionNote.tsx # Shared OTEL-vs-log-richness callout used by Help/Settings
 │   │       ├── Export.tsx        # Full or redacted export UI — format: JSON · CSV · Markdown
+│   │       ├── Pricing.tsx       # Rate tables behind the header's $ icon — reads from ../pricing and the Org panel's cloud rates
 │   │       └── Help.tsx          # Sticky TOC nav, glossary, OTEL setup guide
 │   ├── dashboard.js              # Compiled Preact bundle
 │   ├── dashboard.css             # Compiled styles

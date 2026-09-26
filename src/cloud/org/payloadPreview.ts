@@ -105,6 +105,29 @@ export interface PayloadForCard {
  * When no team is linked, hashes are derived under a placeholder org salt so the preview is
  * representative; nothing is ever sent.
  */
+// Mirrors reconciliationService.ts's ACTIVE_GRACE_MS (own copy, same reasoning as
+// dashboardPanel.ts's GIT_OUTCOME_ACTIVE_GRACE_MS) -- classifying a session this instant, seconds
+// after it ended, has had no realistic chance to be committed yet. gitOutcome.ts's classifyFile
+// reads uncommitted content as 'abandoned' regardless of *why* it's uncommitted, so without this
+// the very first payload built for almost every session -- the one built here, on the
+// store.onUpdate/runLogScan path, before reconciliationService's background watcher has had a
+// chance to run -- reported 'abandoned' for a change the developer simply hadn't committed yet in
+// the last few seconds. That eventually self-corrected once the watcher noticed the real commit
+// and re-forwarded, but Cloud showed the wrong reason for every session's first couple of minutes.
+// Reused for both `buildPayloadForCard` callers (the enqueue path and the content-change path),
+// so grace applies wherever a payload is actually built, not only where it happens to get called
+// from -- not reused *from* reconciliationService directly, since that module's own grace path
+// requires a live ReconciliationService instance this one doesn't have.
+const OUTCOME_GRACE_MS = 2 * 60_000
+
+// See backgroundWatcher.ts's WatchableSession.endTime doc comment -- a session still being
+// written to has no fixed end yet, so `durationMs` there tracks "elapsed so far," which keeps
+// this at effectively "now" (always within grace) for as long as the session keeps growing.
+function sessionEndedWithinGrace(card: SessionSummaryCard): boolean {
+  const endTime = Date.parse(card.startTime) + card.durationMs
+  return Date.now() - endTime < OUTCOME_GRACE_MS
+}
+
 export async function buildPayloadForCard(card: SessionSummaryCard, cache?: PayloadBuildCache, revision?: number): Promise<PayloadForCard> {
   const creds = loadCredentials()
   const orgId = creds?.orgId ?? 'unlinked-preview'
@@ -112,11 +135,12 @@ export async function buildPayloadForCard(card: SessionSummaryCard, cache?: Payl
 
   const rk = cache ? await cache.repoKey(workspace, orgId) : await deriveRepoKey(workspace, orgId)
 
-  const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [], cache?.outcome)
+  const inGrace = sessionEndedWithinGrace(card)
+  const outcome = inGrace ? null : await classifySessionOutcome(workspace, card.filesChanged ?? [], cache?.outcome)
   const payload = sessionRollupPayload(cardToInput(card), {
     repoKey: rk.ok ? rk.ctx : undefined,
     branch: rk.ok ? await (cache ? cache.branch(rk.ctx.root) : currentBranch(rk.ctx.root)) : undefined,
-    outcome: outcome?.overall,
+    outcome: inGrace ? 'in_progress' : outcome?.overall,
     revision,
   })
   assertValidRollupPayload(payload)

@@ -83,9 +83,6 @@ export function orgEndpoint(): string {
   return resolveOrgEnvironment().endpoint
 }
 
-/** Back-compat export — prefer `orgEndpoint()`, which is environment-aware. */
-export const DEFAULT_ORG_ENDPOINT = ORG_ENDPOINTS[DEFAULT_ORG_ENVIRONMENT]
-
 function stripTrailingSlash(u: string): string {
   return u.endsWith('/') ? u.slice(0, -1) : u
 }

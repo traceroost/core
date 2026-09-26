@@ -111,6 +111,16 @@ function applyMigrations(db: SqlDatabase): void {
     db.run('ALTER TABLE timeline_entries ADD COLUMN cache_create_tokens INTEGER')
   }
 
+  // trace_revision.payload_hash (staged feature 10's content-hash generalization) -- see
+  // schema.ts's doc comment on the table.
+  const trCols = db.exec('PRAGMA table_info(trace_revision)')
+  if (trCols[0]) {
+    const trColNames = trCols[0].values.map(row => row[1] as string)
+    if (!trColNames.includes('payload_hash')) {
+      db.run('ALTER TABLE trace_revision ADD COLUMN payload_hash TEXT')
+    }
+  }
+
   // instruction_applied table (feat-instruction-advisor)
   const appliedCols = db.exec('PRAGMA table_info(instruction_applied)')
   if (!appliedCols[0]) {

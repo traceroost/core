@@ -13,7 +13,7 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, currentWorkspace, availableWorkspaces, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  sessionsPage, getSessionsPagination,
+  getSessionsPagination,
 } from './state'
 import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse } from './types'
 import { Wordmark } from './Wordmark'
@@ -30,7 +30,7 @@ import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
-import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
+import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, orgStatus, orgPayloadPreview, orgBusy, orgOpen, requestOrgStatus, orgReconcileResult, orgReconcileBusy, orgReconcileProgress, orgPayloadBusy } from './cloud/panels/OrgPanel'
 
 
@@ -363,7 +363,14 @@ export function App() {
         tipEl.className = 'metric-tooltip'
         document.body.appendChild(tipEl)
       }
-      tipEl.textContent = text
+      // data-tip-html opts a target into a handful of hand-written <b> headings (e.g. the Signals
+      // column's formula/action text) — every other [title]/[data-tip] in the app keeps the
+      // textContent default so nothing else can have HTML text accidentally rendered as markup.
+      if (target.hasAttribute('data-tip-html')) {
+        tipEl.innerHTML = text
+      } else {
+        tipEl.textContent = text
+      }
       tipEl.style.display = 'block'
       const rect = target.getBoundingClientRect()
       const tipW = 220, tipH = tipEl.offsetHeight || 60
@@ -1132,17 +1139,7 @@ function FilterActionsBar() {
         <span style="display:flex;align-items:center;gap:8px">
           <span style="display:inline-block;min-width:23ch;font-variant-numeric:tabular-nums">Showing {rangeStart}–{rangeEnd} of {sessionCount}</span>
           <PageSizeSelect />
-          <button
-            onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
-            disabled={sessPage === 0}
-            style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
-          >‹ Prev</button>
-          <span style="display:inline-block;min-width:11ch;text-align:center;font-variant-numeric:tabular-nums">Page {sessPage + 1} of {sessTotalPages}</span>
-          <button
-            onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
-            disabled={sessPage >= sessTotalPages - 1}
-            style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
-          >Next ›</button>
+          <SessionsPager page={sessPage} totalPages={sessTotalPages} />
         </span>
       )}
     </div>

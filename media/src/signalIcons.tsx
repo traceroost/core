@@ -11,8 +11,13 @@ import type { LoopSignalType } from './types'
 // Signals column (traces-table.tsx) groups by, though the two don't share exact pictograms (see
 // SIGNAL_ICON below). This webview bundle can't import src/cloud/forward/schema.ts (a separate
 // bundle) — the map below mirrors that file's toWireLoopSignal MAP, just collapsed onto icon
-// choice rather than the full wire payload. "instruction-conflict" has no local signal that maps
-// to it (cloud-only, computed across sessions) so it never appears here.
+// choice rather than the full wire payload. "instruction-conflict" still has no local signal that
+// maps to it (cloud-only, computed across sessions) so it never appears here. "context-thrash" did
+// not either until 2026-09-26's signal-catalog stages 02-03 (file_reread/cache_miss/ttl_expiry/
+// low_cache_hit_ratio) — the first local signals to actually fill that wire slot; see
+// IconRefreshCcw below. budget_overrun/model_tier_mismatch (added the same pass) are local-only
+// and never reach toWireLoopSignal at all, but still need an entry here since this map is
+// exhaustive over LoopSignalType.
 export const LOOP_SIGNAL_ICON_TYPE: Record<LoopSignalType, string> = {
   exact_tool_repeat: 'repeated-edit',
   edit_revert_cycle: 'oscillation',
@@ -23,6 +28,21 @@ export const LOOP_SIGNAL_ICON_TYPE: Record<LoopSignalType, string> = {
   context_flooding_risk: 'context-flooding',
   hallucinated_import: 'retry-loop',
   failed_check_submission: 'no-progress',
+  // Added 2026-09-26 (signal-catalog stages 01-04). tool_call_cycle shares oscillation's bucket —
+  // both are "the agent is going back and forth" at different granularities (one file vs. a
+  // multi-step sequence). file_reread/cache_miss/ttl_expiry/low_cache_hit_ratio all land in
+  // context-thrash, the wire enum value schema.ts defined ahead of any producer — this is the
+  // first local signal set to actually fill it, so it needed a real icon (below) for the first
+  // time. budget_overrun/model_tier_mismatch are local-only (never sent to cloud, see
+  // toWireLoopSignal) but still need an icon bucket here since this map is exhaustive over
+  // LoopSignalType; both reuse runaway-cost since they're cost signals, not loop patterns.
+  tool_call_cycle: 'oscillation',
+  file_reread: 'context-thrash',
+  cache_miss: 'context-thrash',
+  ttl_expiry: 'context-thrash',
+  low_cache_hit_ratio: 'context-thrash',
+  budget_overrun: 'runaway-cost',
+  model_tier_mismatch: 'runaway-cost',
 }
 
 // No SIGNAL_LABEL map here on purpose — a label derived from LOOP_SIGNAL_ICON_TYPE's collapsed
@@ -118,6 +138,21 @@ function IconTrendingUp({ color }: { color: string }) {
   )
 }
 
+// Added 2026-09-26 for the context-thrash bucket (file_reread/cache_miss/ttl_expiry/
+// low_cache_hit_ratio) — distinct from IconRotateCw's single arrow (retry-loop) with a double
+// counter-rotating arrow (refresh-ccw), reading as "re-fetching the same thing" rather than
+// "retrying an attempt."
+function IconRefreshCcw({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+      <path d="M3 21v-5h5" />
+    </svg>
+  )
+}
+
 export const SIGNAL_ICON: Record<string, (props: { color: string }) => JSX.Element> = {
   'context-flooding': IconWaves,
   'repeated-edit': IconRepeat,
@@ -126,4 +161,5 @@ export const SIGNAL_ICON: Record<string, (props: { color: string }) => JSX.Eleme
   'no-progress': IconBrickWall,
   oscillation: IconArrowRightLeft,
   'runaway-cost': IconTrendingUp,
+  'context-thrash': IconRefreshCcw,
 }

@@ -1,14 +1,8 @@
-import * as preact from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { sessionSummary, displaySessions, rangedSessions, agentFilteredSessions, filteredSessions, sessionTimelines, gitOutcomes, burnRateData, focusedSessionId, activeTab, CHART_MAX, COLORS, vscode, goToHelp, timeRange } from '../state'
-import {
-  getSessionGlobalNumber,
-  formatMs, formatCompact, getAgentColor, getAgentSourceLabel, formatSessionTime, formatSessionTimeShort,
-} from '../utils'
+import { gitOutcomes, focusedSessionId, activeTab, COLORS, goToHelp } from '../state'
+import { getAgentColor, getAgentSourceLabel, formatCompact } from '../utils'
 import type { SessionSummaryCard, GitOutcome, FileOutcome } from '../types'
 import { OUTCOME_META } from './Sessions'
-
-type HeatReason = { text: string; linkPhrase?: string; helpId?: string }
 
 export function TurnsLink() {
   return (
@@ -325,108 +319,6 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
       <div style="text-align:center;font-size:9px;color:var(--muted);margin-top:4px">
         <TurnsLink />
       </div>
-    </>
-  )
-}
-
-const HELP_TOOLTIPS: Record<string, string> = {
-  'help-tool-failures':        'Failures come from guessed file paths or unavailable commands. Provide exact paths and tell the agent which tools and runtimes are available.',
-  'help-high-turns':           'Prompt describes the goal but not the location. Add explicit file paths, stopping conditions, and break multi-step tasks into separate prompts.',
-  'help-cache-rate':           'Cache breaks when the prompt prefix changes between calls. Keep static instructions identical at the top; avoid timestamps in instruction files.',
-  'help-large-context':        'Large instruction files make every session start expensive. Audit and trim instruction files; move reference docs out of instruction files.',
-  'help-context-bloat':        'Tool results and instruction files expand context each turn. Keep instruction files under 4 KB; use line-ranged reads instead of full file reads.',
-}
-
-function renderHeatReason(r: HeatReason): preact.JSX.Element {
-  if (!r.linkPhrase || !r.helpId) return <span style="color:var(--fg)">{r.text}</span>
-  const idx = r.text.indexOf(r.linkPhrase)
-  if (idx === -1) return <span style="color:var(--fg)">{r.text}</span>
-  const before = r.text.slice(0, idx)
-  const after  = r.text.slice(idx + r.linkPhrase.length)
-  const tip = HELP_TOOLTIPS[r.helpId] || ''
-  return (
-    <span style="color:var(--fg)">
-      {before}<span data-tip={tip} style="border-bottom:1px dotted currentColor;cursor:help">{r.linkPhrase}</span>{after}
-    </span>
-  )
-}
-
-function SessionDiagRow({ reasons }: { reasons: HeatReason[] }) {
-  return (
-    <tr>
-      <td colSpan={10} style="padding:0">
-        <div style="padding:8px 16px 12px 32px;background:var(--vscode-editorWidget-background,var(--bg));border-top:1px solid var(--border);font-size:11px">
-          <div style="font-weight:600;color:var(--muted);margin-bottom:4px;font-size:10px;text-transform:uppercase">What needs attention</div>
-          {reasons.map((r, i) => (
-            <div key={i} style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px">
-              <span style="color:var(--error);flex-shrink:0">•</span>
-              {renderHeatReason(r)}
-            </div>
-          ))}
-        </div>
-      </td>
-    </tr>
-  )
-}
-
-function SessionRow({ sess, idx, heat, expanded, onToggle }: {
-  sess: SessionSummaryCard; idx: number;
-  heat: { score: number; reasons: HeatReason[] }; expanded: boolean; onToggle: () => void
-}) {
-  const timeLabel = formatSessionTime(sess)
-  const cacheRate = sess.inputTokens > 0 ? ((sess.cacheReadTokens / sess.inputTokens) * 100).toFixed(0) : '—'
-  const agentDotColor = getAgentColor(sess.source)
-  const isFocused = focusedSessionId.value === sess.sessionId
-
-  let rowBg = ''
-  if (isFocused) rowBg = 'rgba(55,148,255,0.12)'
-  else if (heat.score > 60) rowBg = 'rgba(255,50,50,' + (0.15 + Math.min(heat.score - 60, 40) / 40 * 0.25) + ')'
-  else if (heat.score > 30) rowBg = 'rgba(255,140,0,' + (0.12 + (heat.score - 30) / 30 * 0.18) + ')'
-  else if (heat.score > 10) rowBg = 'rgba(255,180,50,' + (0.10 + (heat.score - 10) / 20 * 0.15) + ')'
-
-  function handleRowClick() {
-    focusedSessionId.value = isFocused ? null : sess.sessionId
-    onToggle()
-  }
-
-  return (
-    <>
-      <tr style={'background:' + (rowBg || 'transparent') + ';cursor:pointer' + (isFocused ? ';outline:1px solid var(--vscode-focusBorder,#007fd4)' : '')} onClick={handleRowClick}>
-        <td style="text-align:left;min-width:130px;padding:4px 8px">
-          <div style="display:flex;align-items:flex-start;gap:4px">
-            <span style="font-size:9px;color:var(--muted);flex-shrink:0;margin-top:2px">{expanded ? '▼' : '▶'}</span>
-            <span style={'display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:2px;background:' + agentDotColor} />
-            <div>
-              <div style="font-size:10px;color:var(--foreground);white-space:nowrap">{timeLabel}</div>
-              {(sess.userRequest ?? '').length > 0 && (
-                <div style="font-size:9px;color:var(--muted);margin-top:1px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic" title={sess.userRequest}>
-                  {(sess.userRequest ?? '').slice(0, 55)}{(sess.userRequest ?? '').length > 55 ? '…' : ''}
-                </div>
-              )}
-              {(() => {
-                const br = burnRateData.value
-                if (!br || br.sessionId !== sess.sessionId) return null
-                const tpm = br.burnRate.tokensPerMinute
-                const cph = br.burnRate.costPerHour
-                const label = formatCompact(Math.round(tpm)) + ' tok/min' + (cph > 0.001 ? ' · $' + cph.toFixed(2) + '/hr' : '')
-                return <span style="padding:1px 5px;background:var(--vscode-charts-green,#81c784);color:#000;border-radius:3px;font-size:9px;font-weight:600" data-tip={'Active session burn rate: ' + label}>{label}</span>
-              })()}
-            </div>
-          </div>
-        </td>
-        <td style="text-align:left;white-space:nowrap;color:var(--muted);font-size:10px" title={sess.model}>{sess.model ? sess.model.split('/').pop() : '—'}</td>
-        <td style="text-align:left;white-space:nowrap;font-size:10px;font-family:monospace;color:var(--muted)" title={sess.conversationId || ''}>
-          {sess.conversationId ? sess.conversationId.slice(0, 8) : '—'}
-        </td>
-        <td class="right">{sess.totalLlmCalls}</td>
-        <td class="right">{sess.totalToolCalls}</td>
-        <td class="right">{sess.inputTokens.toLocaleString()}</td>
-        <td class="right">{sess.outputTokens.toLocaleString()}</td>
-        <td class="right">{cacheRate}%</td>
-        <td class="right">{formatMs(sess.durationMs)}</td>
-        <td style={'text-align:right' + (sess.errors > 0 ? ';color:var(--error)' : '')}>{sess.errors}</td>
-      </tr>
-      {expanded && heat.reasons.length > 0 && <SessionDiagRow reasons={heat.reasons} />}
     </>
   )
 }

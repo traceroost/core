@@ -1,7 +1,7 @@
 name: Security & dependency review
 
 # Scheduled, not on push/PR — this is a periodic audit, not a merge gate.
-# See .staged-features/security-and-dependency-review.md for the design.
+# Design doc has since been removed from .staged-features/ (shipped, git history has it).
 on:
   schedule:
     - cron: '0 9 * * 1' # Monday 09:00 UTC

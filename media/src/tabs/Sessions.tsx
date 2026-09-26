@@ -4,12 +4,12 @@ import {
   focusedSessionId, vscode, ignoredInsightKeys,
   sessionSortKey, sessionSortDir, type SortKey,
   goToHelp,
-  sessionsPage, getSessionsPagination,
+  getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   repoInfo, repoDisplayName, repoTooltipName,
   requestGitOutcomesFor,
 } from '../state'
-import { PageSizeSelect } from './Settings'
+import { PageSizeSelect, SessionsPager } from './Settings'
 import {
   getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
   getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash,
@@ -36,10 +36,13 @@ type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 // check), not just wording — so they get their own letters rather than sharing one. 'ambiguous'
 // has no entry at all — there's nothing meaningful to show for it (a deleted/moved file, or
 // classification not applicable), so every consumer below renders blank rather than a "?" badge.
-export const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string }>> = {
-  merged:    { icon: '✓', letter: 'M', color: 'var(--tr-merged)', label: 'Merged' },
-  committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed' },
-  abandoned: { icon: '◑', letter: 'U', color: '#f6a623',          label: 'Uncommitted' },
+// `description` matches App.tsx's OUTCOME_FILTER_OPTIONS titles exactly (kept in sync by hand,
+// same as that map's own comment already notes) — the badge tooltip states the value first (bold
+// heading), then what it means, then (where available) the specific per-session reason.
+export const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string; description: string }>> = {
+  merged:    { icon: '✓', letter: 'M', color: 'var(--tr-merged)', label: 'Merged',    description: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history." },
+  committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed', description: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally." },
+  abandoned: { icon: '◑', letter: 'U', color: '#f6a623',          label: 'Uncommitted', description: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress." },
 }
 
 // Small one-letter badge for the session's overall git outcome — same visual language as the
@@ -56,7 +59,8 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   return (
     <span
       style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;flex-shrink:0`}
-      title={`Git outcome: ${meta.label} — ${go.reason}`}
+      title={`<b>${meta.label}</b>\n${meta.description}\n${go.reason}`}
+      data-tip-html
     >{meta.letter}</span>
   )
 }
@@ -101,8 +105,16 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
   // One icon bucket can hold more than one distinct LoopSignalType (e.g. hallucinated_import and
   // error_recurrence both draw the "retry-loop" icon — see LOOP_SIGNAL_ICON_TYPE's comment), so the
   // formula shown is every distinct formula among the signal types actually present, not just one.
+  // Uses SIGNAL_FORMULAS' short/tip fields (not the full bullets/caveat — that detail lives in
+  // Help.tsx) so the tooltip stays skimmable: what fired, then what to do about it. Bolds both as
+  // headings via data-tip-html (App.tsx's tooltip effect renders this as HTML instead of text) —
+  // safe because every interpolated piece here is a static label/short/tip string, never
+  // session-derived text.
   const formulaFor = (e: { signalTypes: Set<LoopSignalType> }) =>
-    [...e.signalTypes].map(t => SIGNAL_FORMULAS[t]?.formula).filter(Boolean).join(' | ')
+    [...e.signalTypes]
+      .map(t => SIGNAL_FORMULAS[t] ? `${SIGNAL_FORMULAS[t].short}\n<b>What to do:</b> ${SIGNAL_FORMULAS[t].tip}` : undefined)
+      .filter(Boolean)
+      .join('\n\n')
   return (
     <span style="display:inline-flex;align-items:center;gap:3px">
       {shown.map(([type, e]) => {
@@ -114,7 +126,8 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
             key={type}
             role="img"
             aria-label={`${label} (${e.severity})`}
-            title={`${label} (${e.severity}) — ${formulaFor(e)}`}
+            title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}`}
+            data-tip-html
             style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;flex-shrink:0"
           >
             {Icon ? <Icon color={color} /> : <span style={`font-size:9px;font-weight:700;color:${color}`}>?</span>}
@@ -123,7 +136,8 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
       })}
       {overflow.length > 0 && (
         <span
-          title={overflow.map(([, e]) => `${labelFor(e)} (${e.severity}) — ${formulaFor(e)}`).join('\n')}
+          title={overflow.map(([, e]) => `<b>${labelFor(e)}</b> (${e.severity})\n${formulaFor(e)}`).join('\n\n')}
+          data-tip-html
           style="display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 2px;border-radius:3px;border:1px solid var(--muted);font-size:9px;font-weight:700;color:var(--muted);flex-shrink:0"
         >+{overflow.length}</span>
       )}
@@ -436,7 +450,8 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   })()}
                   {gitOutcome && OUTCOME_META[gitOutcome.overall] && (
                     <div
-                      data-tip="Estimated from local git history: compares each file's content right before this trace against its content now. Not available without a local git repo, and doesn't cover files git can't see (e.g. gitignored)."
+                      data-tip={`<b>Estimated from local git history</b>\nCompares each file's content right before this trace against its content now. Not available without a local git repo, and doesn't cover files git can't see (e.g. gitignored).`}
+                      data-tip-html
                       style={`display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:2px;font-size:11px;color:${OUTCOME_META[gitOutcome.overall]!.color};cursor:help`}
                     >
                       <span>{OUTCOME_META[gitOutcome.overall]!.icon}</span>
@@ -456,7 +471,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                         <span style="color:var(--vscode-charts-green,#81c784);font-size:10px;flex-shrink:0">M</span>
                         <span style={`font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1${vscode ? ';color:var(--accent)' : ''}`}>{f}</span>
                         {meta && (
-                          <span style={`color:${meta.color};font-size:10px;flex-shrink:0`} title={meta.label}>{meta.icon} {meta.label}</span>
+                          <span style={`color:${meta.color};font-size:10px;flex-shrink:0`} title={`<b>${meta.label}</b>\n${meta.description}`} data-tip-html>{meta.icon} {meta.label}</span>
                         )}
                       </div>
                     )
@@ -717,7 +732,7 @@ export function Sessions() {
   const thSort = thBase + ';cursor:pointer;color:var(--fg)'
   function sortHeader(key: SortKey, label: string, align: 'left' | 'right' | 'center' = 'left', title?: string) {
     return <th scope="col" aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:' + align + ';' + thSort}>
-      <button class="sort-button" onClick={() => onSortClick(key)} title={title}>{label}{sortArrow(key)}</button>
+      <button class="sort-button" onClick={() => onSortClick(key)} title={title} {...(title ? { 'data-tip-html': true } : {})}>{label}{sortArrow(key)}</button>
     </th>
   }
 
@@ -746,10 +761,10 @@ export function Sessions() {
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
-            <th style="width:5px;padding:0" title="A colored bar marks traces that are really one conversation split into multiple rows by a long gap between them." />
+            <th style="width:5px;padding:0" title={`<b>Conversation marker</b>\nA colored bar marks traces that are really one conversation split into multiple rows by a long gap between them.`} data-tip-html />
             <th style="width:16px;padding:3px 2px 3px 4px" />
             <th scope="col" aria-sort={sortKey === 'start_time' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
-              <button class="sort-button" onClick={() => onSortClick('start_time')} title="Sorted by start time only — Agent/Source/From aren't part of the sort">
+              <button class="sort-button" onClick={() => onSortClick('start_time')} title={`<b>Agent / Start / Source / From</b>\nSorted by start time only — Agent/Source/From aren't part of the sort`} data-tip-html>
                 Agent / <strong style="font-weight:800">Start</strong> / Source / From{sortArrow('start_time')}
               </button>
             </th>
@@ -759,20 +774,20 @@ export function Sessions() {
             {sortHeader('prompt', 'Prompt (ID)')}
             {showWorkspace && (
               <th scope="col" aria-sort={sortKey === 'workspace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
-                <button class="sort-button" onClick={() => onSortClick('workspace')} title="Sort by repo">Repo (ID){sortArrow('workspace')}</button>
+                <button class="sort-button" onClick={() => onSortClick('workspace')} title={`<b>Repo (ID)</b>\nSort by repo`} data-tip-html>Repo (ID){sortArrow('workspace')}</button>
               </th>
             )}
             {showWorkspace && (
               <th scope="col" aria-sort={sortKey === 'outcome' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--tr-brand);padding-left:0;padding-right:0'}>
-                <button class="sort-button" onClick={() => onSortClick('outcome')} title="Git outcome — whether each trace's changed files were committed, reverted, or left uncommitted, per local git history">Out{sortArrow('outcome')}</button>
+                <button class="sort-button" onClick={() => onSortClick('outcome')} title={`<b>Git outcome</b>\nWhether each trace's changed files were committed, reverted, or left uncommitted, per local git history`} data-tip-html>Out{sortArrow('outcome')}</button>
               </th>
             )}
             <th scope="col" aria-sort={sortKey === 'signals' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--fg);padding-left:0'}>
-              <button class="sort-button" onClick={() => onSortClick('signals')} title="Struggle/loop patterns detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.">Sig{sortArrow('signals')}</button>
+              <button class="sort-button" onClick={() => onSortClick('signals')} title={`<b>Signals</b>\nBehavioral signals detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.`} data-tip-html>Sig{sortArrow('signals')}</button>
             </th>
             {sortHeader('turns', 'Turns')}
             {sortHeader('duration_ms', 'Duration')}
-            {sortHeader('total_tokens', 'Tokens', 'left', 'Accumulated input and output tokens across all turns')}
+            {sortHeader('total_tokens', 'Tokens', 'left', '<b>Tokens</b>\nAccumulated input and output tokens across all turns')}
             {sortHeader('cost', 'Est Cost')}
           </tr>
         </thead>
@@ -788,19 +803,7 @@ export function Sessions() {
         {window.__VERSION__ && <span title="TraceRoost version">v{window.__VERSION__}</span>}
         <span style="display:flex;align-items:center;gap:8px;margin-left:auto">
             <PageSizeSelect />
-            <>
-              <button
-                onClick={() => sessionsPage.value = Math.max(0, page - 1)}
-                disabled={page === 0}
-                style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page === 0 ? 'default' : 'pointer'};opacity:${page === 0 ? 0.4 : 1}`}
-              >‹ Prev</button>
-              <span style="display:inline-block;min-width:11ch;text-align:center">Page {page + 1} of {totalPages}</span>
-              <button
-                onClick={() => sessionsPage.value = Math.min(totalPages - 1, page + 1)}
-                disabled={page >= totalPages - 1}
-                style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${page >= totalPages - 1 ? 'default' : 'pointer'};opacity:${page >= totalPages - 1 ? 0.4 : 1}`}
-              >Next ›</button>
-            </>
+            <SessionsPager page={page} totalPages={totalPages} />
         </span>
       </div>
     </div>

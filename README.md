@@ -15,7 +15,7 @@ TraceRoost receives **OpenTelemetry traces** from Copilot, Claude Code, and Code
 
 Two things it does that a usage dashboard doesn't:
 
-- **Catches agents that are stuck.** Nine named loop and malfunction patterns — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--malfunction-detection)
+- **Catches agents that are stuck.** Nine named signals — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--signals)
 - **Tells you what to fix in your instructions file.** The Advisor reads across traces and suggests concrete additions to your CLAUDE.md or AGENTS.md — including hot files the agent rediscovers from scratch on every run. [More →](#features)
 
 **Quick start:**
@@ -50,7 +50,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - [Exporting and Importing Trace Data](#exporting-and-importing-trace-data)
   - [Export](#export)
   - [Import](#import)
-- [Recommendations \& Malfunction Detection](#recommendations--malfunction-detection)
+- [Recommendations \& Signals](#recommendations--signals)
 - [Ways to Run](#ways-to-run)
   - [Local (OTEL and log files)](#local-otel-and-log-files)
   - [VS Code Extension (OTEL and log files)](#vs-code-extension-otel-and-log-files)
@@ -84,7 +84,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, and top tools for Copilot, Claude, and Codex), estimated cost with a daily total overlay, token usage per trace, and context growth
 - **Advisor** — Project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Select a specific project from the filter for tailored suggestions; all-projects view surfaces only universal patterns.
 - **Cost Estimation** — Estimates trace cost for Copilot, Claude Code, and Codex (all token-based), broken down by model in a day-grouped table
-- **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and nine loop/malfunction patterns with suggested prompts to correct course
+- **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and sixteen signals with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for turns, errors, active time, repeat tool calls, and estimated daily cost — per-agent or shared
 - **Automated Prompts** — The gear-icon Settings panel's Automation section configures threshold-based automations (Loop Breaker, Turn Limit Wrap-up, Context Dump) that trigger a correction prompt when a trace crosses a limit — delivered as a VS Code notification or written to a file for agent consumption
 - **Export** — Export filtered traces as JSON, CSV, or Markdown (full or redacted); respects the active agent, source, time range, and text filters
@@ -132,8 +132,8 @@ The general picture above is the same for every agent — OTEL is richer, logs a
 
 Each file is one trace. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks.
 
-Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written.
-Not in logs: TTFT, per-tool latency, streaming speed, loop signals.
+Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written. Several signals can fire from this log alone (repeated tool calls, edit/revert cycles, runaway steps, hallucinated imports, degraded runaway-cost detection).
+Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, context flooding, failed check submission) — those need OTEL. See the in-app Help tab's Signals section for the per-signal breakdown.
 
 **OTEL** (richer, requires env config) — trace spans via `/v1/traces` and supplemental log records via `/v1/logs`.
 
@@ -169,9 +169,9 @@ Not in logs: input tokens per turn (estimated from shutdown totals), TTFT, cache
 
 OpenCode stores all trace data in a local SQLite database. TraceRoost reads this directly — no agent configuration or OTEL setup is required. The database uses WAL (Write-Ahead Log) mode; TraceRoost merges the WAL at read time so traces are visible immediately after each run.
 
-Available from the database: trace ID, user prompt (last user message), model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names and inputs/outputs, file paths accessed by tools.
+Available from the database: trace ID, user prompt (last user message), model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names, inputs/outputs, and per-tool error status. Unlike every other log source, that per-tool error status means most signals can actually fire from OpenCode's database alone — it's the one log-only exception noted throughout the in-app Help tab's Signals section.
 
-Not available: time-to-first-token, per-tool execution timing, streaming speed, loop detection signals, or structured error telemetry (no OTEL). Traces show a **Log** badge and a blue info banner in the Overview tab noting these limitations.
+Not available: time-to-first-token, per-tool execution timing, or streaming speed (no span timing data, since OpenCode has no OTEL path at all). Two signals still don't fire here — edit/revert cycles and hallucinated imports need before/after edit content only Claude Code (its own log, or OTEL) and Copilot (OTEL) capture; OpenCode's parser never records it. Traces show a **Log** badge and a blue info banner in the Overview tab noting the timing limitations.
 
 Override the default database location with the `OPENCODE_DATA_DIR` environment variable (comma-separated for multiple directories).
 
@@ -224,7 +224,7 @@ The **Import** tab loads traces from a previous TraceRoost **JSON** export file 
 
 Import works in both VS Code extension mode and standalone server mode.
 
-## Recommendations & Malfunction Detection
+## Recommendations & Signals
 
 The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categories of signal per trace:
 
@@ -235,7 +235,7 @@ The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categori
 - Tool failures, high turn count, oversized starting context
 - Low cache hit rate, tool definition overhead
 
-**Loop & malfunction signals** — patterns indicating the agent is stuck or spiraling. These appear first in the list with a ↺ icon:
+**Signals** — behavioral patterns indicating the agent is stuck or spiraling. These appear first in the list with a ↺ icon:
 
 | Signal | Description | Trigger |
 | ------ | ----------- | ------- |

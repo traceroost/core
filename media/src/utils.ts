@@ -1,5 +1,5 @@
-import type { Span, SpanAttribute, SpanTreeNode, SessionSummaryCard } from './types'
-import { sessionSummary, displaySessions, agentFilteredSessions, sessionLimit } from './state'
+import type { Span, SpanAttribute, SessionSummaryCard } from './types'
+import { sessionSummary, displaySessions } from './state'
 
 // ── HTML escape ───────────────────────────────────────────────────────────────
 
@@ -88,38 +88,7 @@ export function getOutputTokens(span: Span): number {
     || intAttr(attrs, 'codex.turn.token_usage.output_tokens')
 }
 
-export function getSpanTtft(span: Span): number {
-  return parseInt(String(
-    getAttr(span, 'copilot_chat.time_to_first_token')
-    ?? getAttr(span, 'ttft_ms')
-    ?? getAttr(span, 'codex.ttft_ms')
-    ?? 0
-  )) || 0
-}
-
-export function getTokenCount(span: Span): number {
-  let total = 0
-  let foundTotal = false
-  for (const a of span.attributes ?? []) {
-    if (/total.?tokens/i.test(a.key)) {
-      total = parseInt(String(a.value.intValue ?? a.value.stringValue ?? a.value.doubleValue)) || 0
-      foundTotal = true
-    }
-  }
-  if (foundTotal) return total
-  return getInputTokens(span) + getOutputTokens(span)
-}
-
 // ── Span classification ───────────────────────────────────────────────────────
-
-export function isSessionSpan(name: string): boolean {
-  return name.indexOf('invoke_agent') === 0
-    || name === 'claude_code.interaction'
-    || name === 'codex.user_prompt'
-    || name === 'codex.prompt'
-    || name === 'codex.user_message'
-    || name === 'codex.session_start'
-}
 
 export function isLlmSpanName(name: string): boolean {
   return name.indexOf('chat') === 0
@@ -137,15 +106,6 @@ export function isToolSpanName(name: string): boolean {
     || name === 'claude_code.tool'
     || name === 'exec_command'
     || name.indexOf('codex.tool') === 0
-}
-
-export function inferSpanSource(span: Span): string | null {
-  const name = span?.name ? String(span.name) : ''
-  if (name.indexOf('claude_code.') === 0) return 'claude_code'
-  if (name.indexOf('codex.') === 0) return 'codex'
-  if (getCodexSessionId(span)) return 'codex'
-  if (name.indexOf('invoke_agent') === 0 || name.indexOf('chat') === 0 || name.indexOf('execute_tool') === 0) return 'copilot'
-  return null
 }
 
 export function getCodexSessionId(span: Span): string {
@@ -167,19 +127,6 @@ export function getCodexSessionId(span: Span): string {
   return ''
 }
 
-export function getSessionUserRequest(span: Span): string {
-  return String(
-    getAttr(span, 'copilot_chat.user_request')
-    ?? getAttr(span, 'user_prompt')
-    ?? getAttr(span, 'prompt')
-    ?? getAttr(span, 'codex.user_prompt')
-    ?? getAttr(span, 'codex.prompt')
-    ?? getAttr(span, 'codex.user_message')
-    ?? getAttr(span, 'codex.input')
-    ?? ''
-  )
-}
-
 export function extractUserRequest(raw: string): string {
   if (!raw) return ''
   const trimmed = raw.trim()
@@ -192,51 +139,6 @@ export function extractUserRequest(raw: string): string {
   const stripped = trimmed.replace(/<ide_[^>]*>[\s\S]*?<\/ide_[^>]*>/gi, '').trim()
   return stripped || trimmed
 }
-
-export function spanColor(span: Span): string {
-  if (span.status?.code === 2) return 'var(--error)'
-  const n = span.name ?? ''
-  if (n.includes('llm') || n.includes('LLM')) return '#3794FF'
-  if (n.includes('tool') || n.indexOf('/') !== -1) return '#B8E986'
-  if (n.includes('agent') || n.includes('session')) return '#C49CFF'
-  if (n.includes('embed')) return '#FF85A1'
-  if (n.includes('search') || n.includes('retrieve')) return '#85E0D0'
-  return '#3794FF'
-}
-
-export function spanTypeBadge(span: Span): { label: string; color: string } {
-  const n = (span.name ?? '').toLowerCase()
-  const otelName = String(getAttr(span, 'otel.name') ?? '').toLowerCase()
-  if (getInputTokens(span) > 0 || getOutputTokens(span) > 0 || isLlmSpanName(span.name ?? '') || n === 'handle_responses') return { label: 'LLM', color: 'var(--accent)' }
-  if (n.includes('llm') || n.includes('chat') || n.includes('completion')) return { label: 'LLM', color: 'var(--accent)' }
-  if (isToolSpanName(span.name ?? '') || n.includes('tool')) return { label: 'TOOL', color: '#B8E986' }
-  if (n.includes('agent') || n.includes('session') || n.includes('turn') || otelName.includes('session_task')) return { label: 'AGENT', color: '#C49CFF' }
-  if (n.includes('embed')) return { label: 'EMBED', color: '#FF85A1' }
-  if (n.includes('search') || n.includes('retrieve')) return { label: 'RAG', color: '#85E0D0' }
-  return { label: 'SPAN', color: 'var(--muted)' }
-}
-
-// Attribute keys considered "interesting" — shown first in expanded detail.
-export const SPAN_ATTR_HIGHLIGHT = new Set([
-  'span.type', 'event.name', 'tool_name', 'full_command',
-  'gen_ai.tool.name', 'gen_ai.tool.call.arguments', 'gen_ai.tool.call.result',
-  'decision', 'source', 'success', 'duration_ms',
-  'gen_ai.system', 'gen_ai.provider.name', 'gen_ai.request.model', 'gen_ai.response.model',
-])
-
-// Attribute keys that are identity/SDK noise — suppressed behind a toggle.
-export const SPAN_ATTR_SUPPRESS = new Set([
-  'user.id', 'user.email', 'user.account_uuid', 'user.account_id',
-  'organization.id', 'session.id', 'copilot_chat.chat_session_id',
-  'host.name', 'service.name', 'service.version',
-  'telemetry.sdk.language', 'telemetry.sdk.name', 'telemetry.sdk.version', 'env',
-  'code.file.path', 'code.module.name', 'code.line.number',
-  'thread.id', 'thread.name', 'target', 'busy_ns', 'idle_ns',
-  'terminal.type', 'gen_ai.tool.type', 'gen_ai.tool.description',
-  'otel.trace_id',
-  // Rendered separately as a formatted "Response" block
-  'gen_ai.output.messages',
-])
 
 interface OutputBlock {
   type: 'text' | 'tool_use' | 'tool_call' | string
@@ -268,97 +170,10 @@ export function extractLlmResponseText(span: Span): string | null {
   return null
 }
 
-/** Returns tool names called in the response, or empty array. */
-export function extractLlmToolCalls(span: Span): string[] {
-  const raw = String(getAttr(span, 'gen_ai.output.messages') ?? '')
-  if (!raw) return []
-  try {
-    const msgs = JSON.parse(raw) as OutputMessage[]
-    const names: string[] = []
-    for (const msg of msgs) {
-      if (msg.role !== 'assistant') continue
-      const blocks: OutputBlock[] = msg.content ?? msg.parts ?? []
-      for (const b of blocks) {
-        if ((b.type === 'tool_use' || b.type === 'tool_call') && b.name) {
-          names.push(b.name)
-        }
-      }
-    }
-    return names
-  } catch { return [] }
-}
-
 /** Returns true if this span is an LLM turn from any agent. */
 export function isLlmSpan(span: Span): boolean {
   const name = span.name ?? ''
   return name === 'claude_code.llm_request' || name.startsWith('chat ')
-}
-
-// Returns a human-readable one-line detail describing what a tool span did,
-// or null when no useful detail is available.
-export function extractSpanSummary(span: Span): string | null {
-  const name = span.name ?? ''
-
-  // LLM turns — show model + outcome + token counts, or response text snippet
-  if (isLlmSpan(span)) {
-    const responseText = extractLlmResponseText(span)
-    if (responseText) {
-      const snippet = responseText.trim().replace(/\s+/g, ' ')
-      return snippet.length > 100 ? snippet.slice(0, 100) + '…' : snippet
-    }
-    const model = String(getAttr(span, 'gen_ai.request.model') ?? getAttr(span, 'gen_ai.response.model') ?? getAttr(span, 'model') ?? '')
-    const stop = String(getAttr(span, 'stop_reason') ?? getAttr(span, 'gen_ai.response.finish_reasons') ?? '')
-    const inTok = Number(getAttr(span, 'input_tokens') ?? 0)
-    const outTok = Number(getAttr(span, 'output_tokens') ?? 0)
-    const parts: string[] = []
-    if (model) parts.push(model)
-    if (stop) parts.push(stop)
-    if (inTok || outTok) parts.push(inTok.toLocaleString() + ' in → ' + outTok.toLocaleString() + ' out')
-    return parts.length > 0 ? parts.join(' · ') : null
-  }
-
-  // Claude Code: claude_code.tool carries tool_name + full_command
-  if (name === 'claude_code.tool') {
-    const tool = String(getAttr(span, 'tool_name') ?? '')
-    const cmd  = String(getAttr(span, 'full_command') ?? '')
-    if (tool && cmd) return tool + ': ' + (cmd.length > 120 ? cmd.slice(0, 120) + '…' : cmd)
-    return tool || null
-  }
-
-  // Copilot: execute_tool {name} — arguments are a JSON object
-  if (name.startsWith('execute_tool ')) {
-    const argsRaw = String(getAttr(span, 'gen_ai.tool.call.arguments') ?? '')
-    if (argsRaw) {
-      try {
-        const args = JSON.parse(argsRaw) as Record<string, unknown>
-        const key = ['command', 'filePath', 'dirPath', 'query', 'pattern', 'operation', 'id', 'path']
-          .find(k => typeof args[k] === 'string' && (args[k] as string).length > 0)
-        if (key) {
-          const val = args[key] as string
-          return val.length > 120 ? val.slice(0, 120) + '…' : val
-        }
-        const first = Object.values(args).find(v => typeof v === 'string' && (v as string).length > 0 && (v as string).length < 200)
-        if (first) return (first as string).slice(0, 120)
-      } catch { /* ignore */ }
-    }
-    return null
-  }
-
-  // Codex tool_decision: tool_name + decision + source
-  if (name === 'codex.tool_decision') {
-    const tool     = String(getAttr(span, 'tool_name') ?? '')
-    const decision = String(getAttr(span, 'decision') ?? '')
-    const source   = String(getAttr(span, 'source') ?? '')
-    if (tool && decision) return tool + ' → ' + decision + (source ? ' (via ' + source + ')' : '')
-    return tool || null
-  }
-
-  // Codex exec_command / apply_patch spans
-  if (name === 'exec_command' || name === 'apply_patch') {
-    return String(getAttr(span, 'tool_name') ?? '') || name
-  }
-
-  return null
 }
 
 // ── Data source / initiator badge helpers ───────────────────────────────────────
@@ -370,31 +185,34 @@ export function extractSpanSummary(span: Span): string | null {
 export const DATA_SOURCE_COLORS = { all: 'var(--fg)', otel: 'var(--fg)', log: '#90a4ae' } as const
 export const INITIATOR_COLORS = { all: 'var(--fg)', user: '#4a90d9', agent: '#90a4ae' } as const
 
+// name/description split (not one sentence) so the tooltip can state the value first, as a bold
+// heading, then what it means — matching the Signals column's tooltip format.
 const DATA_SOURCE_TOOLTIP = {
-  otel: 'OTEL — Full telemetry: timing, speed, TTFT, loop signals',
-  log:  'Log — Conversation logs: tokens, tool calls, messages (no timing or speed data)',
+  otel: { name: 'OTEL', description: 'Full telemetry: timing, speed, TTFT, loop signals' },
+  log:  { name: 'Log',  description: 'Conversation logs: tokens, tool calls, messages (no timing or speed data)' },
 }
 
 export function getDataSourceBadgeHtml(dataSource: 'otel' | 'log' | undefined): string {
   const ds = dataSource ?? 'otel'
   const label = ds === 'log' ? 'L' : 'O'
   const color = DATA_SOURCE_COLORS[ds]
-  const tooltip = DATA_SOURCE_TOOLTIP[ds]
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="${tooltip}">${label}</span>`
+  const { name, description } = DATA_SOURCE_TOOLTIP[ds]
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
 }
 
 // 'agent' and 'api' (isSidechain sub-tasks vs. non-interactive `claude -p` calls) collapse into
 // one "Agent" bucket here — see InitiatorFilter's own doc comment (types.ts) for why.
 const INITIATOR_TOOLTIP = {
-  user:  'Typed directly by a human in the chat',
-  agent: 'Agent-spawned sub-task, or a non-interactive API call (claude -p)',
+  user:  { name: 'User',  description: 'Typed directly by a human in the chat' },
+  agent: { name: 'Agent', description: 'Agent-spawned sub-task, or a non-interactive API call (claude -p)' },
 } as const
 
 export function getInitiatorBadgeHtml(initiator: 'user' | 'agent' | 'api' | undefined): string {
   const key = initiator === 'api' ? 'agent' : (initiator ?? 'user')
   const color = INITIATOR_COLORS[key]
   const label = key === 'user' ? 'U' : 'A'
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="${INITIATOR_TOOLTIP[key]}">${label}</span>`
+  const { name, description } = INITIATOR_TOOLTIP[key]
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
 }
 
 // ── Agent label / color helpers ───────────────────────────────────────────────
@@ -437,14 +255,6 @@ export function getConversationColor(conversationId: string): string {
 
 export { formatTraceIdHash } from './hash'
 
-export function getAgentShortLabel(source: string | null | undefined): string {
-  if (source === 'claude_code') return 'CL'
-  if (source === 'codex') return 'CX'
-  if (source === 'opencode') return 'OC'
-  if (source === 'cursor') return 'CU'
-  return 'CP'
-}
-
 // ── Session helpers (reads from signals) ──────────────────────────────────────
 
 export function getAllSessionsChronological(): SessionSummaryCard[] {
@@ -474,31 +284,6 @@ export function formatSessionTimeShort(sess: { startTime?: string }): string {
   const now = new Date()
   if (d.toDateString() === now.toDateString()) return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
   return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
-// Format an epoch ms value as a compact time/date label for chart axes.
-export function formatAxisTick(epochMs: number, spanMs: number): string {
-  const d = new Date(epochMs)
-  const p = (n: number) => String(n).padStart(2, '0')
-  if (spanMs < 86_400_000)         return `${p(d.getHours())}:${p(d.getMinutes())}`
-  if (spanMs < 7 * 86_400_000)     return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-  return `${p(d.getMonth()+1)}-${p(d.getDate())}`
-}
-
-// Generate 4-6 evenly-spaced tick positions for a time axis.
-export function generateTimeTicks(xMin: number, xMax: number): number[] {
-  const span = xMax - xMin
-  const intervals = [
-    60_000, 5*60_000, 10*60_000, 15*60_000, 30*60_000,
-    3600_000, 3*3600_000, 6*3600_000, 12*3600_000,
-    86_400_000, 2*86_400_000, 7*86_400_000,
-  ]
-  const target = span / 5
-  const interval = intervals.find(i => i >= target) ?? intervals[intervals.length - 1]
-  const start = Math.ceil(xMin / interval) * interval
-  const ticks: number[] = []
-  for (let t = start; t <= xMax; t += interval) ticks.push(t)
-  return ticks
 }
 
 // ISO date string "YYYY-MM-DD" for a session's start time.
@@ -533,13 +318,6 @@ export function getSessionGlobalNumber(sess: SessionSummaryCard): number {
   return 0
 }
 
-export function getSessionOffset(): number {
-  const all = agentFilteredSessions.value
-  const limit = sessionLimit.value
-  if (limit >= all.length) return 0
-  return all.length - limit
-}
-
 export function buildDisplaySummary(sessionsOverride?: SessionSummaryCard[]) {
   const sessions = sessionsOverride ?? displaySessions.value
   let totalInputTokens = 0, totalOutputTokens = 0, totalLlmCalls = 0, cacheRead = 0
@@ -560,30 +338,6 @@ export function buildDisplaySummary(sessionsOverride?: SessionSummaryCard[]) {
       toolDefWaste: sessionSummary.value?.efficiency?.toolDefWaste ?? 0,
     },
   }
-}
-
-// ── Agent key HTML builder ────────────────────────────────────────────────────
-
-export function buildAgentKeyHtml(sessions: SessionSummaryCard[], style: 'line' | 'dot'): string {
-  const sources: Record<string, { label: string; color: string }> = {}
-  sessions.forEach(sess => {
-    if (sess.source && !sources[sess.source]) {
-      sources[sess.source] = { label: getAgentSourceLabel(sess.source), color: getAgentColor(sess.source) }
-    }
-  })
-  const keys = Object.keys(sources)
-  if (keys.length === 0) return ''
-  let out = '<div style="display:flex;gap:14px;margin-bottom:8px;font-size:10px;color:var(--muted);align-items:center">'
-  out += '<span style="font-weight:600">Agent:</span>'
-  keys.forEach(src => {
-    if (style === 'line') {
-      out += `<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:16px;height:3px;border-radius:1px;background:${sources[src].color}"></span>${sources[src].label}</span>`
-    } else {
-      out += `<span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sources[src].color}"></span> ${sources[src].label}</span>`
-    }
-  })
-  out += '</div>'
-  return out
 }
 
 export function getAgentDotHtml(source: string | null | undefined): string {
@@ -695,33 +449,6 @@ export function formatToolResult(entry: { resultSummary?: string }): string {
   return rs
 }
 
-// ── Span tree builder ─────────────────────────────────────────────────────────
-
-export function buildSpanTree(traceSpans: Span[]): SpanTreeNode[] {
-  const byId: Record<string, SpanTreeNode> = {}
-  const roots: SpanTreeNode[] = []
-  traceSpans.forEach(s => { byId[s.spanId] = { span: s, children: [], depth: 0 } })
-  traceSpans.forEach(s => {
-    const node = byId[s.spanId]
-    if (s.parentSpanId && byId[s.parentSpanId]) {
-      byId[s.parentSpanId].children.push(node)
-    } else {
-      roots.push(node)
-    }
-  })
-  function setDepth(node: SpanTreeNode, d: number) {
-    node.depth = d
-    node.children.sort((a, b) => nanoToMs(a.span.startTime) - nanoToMs(b.span.startTime))
-    node.children.forEach(c => setDepth(c, d + 1))
-  }
-  roots.sort((a, b) => nanoToMs(a.span.startTime) - nanoToMs(b.span.startTime))
-  roots.forEach(r => setDepth(r, 0))
-  const flat: SpanTreeNode[] = []
-  function flatten(node: SpanTreeNode) { flat.push(node); node.children.forEach(flatten) }
-  roots.forEach(flatten)
-  return flat
-}
-
 // ── Sparkline / chart helpers ─────────────────────────────────────────────────
 
 export function drawSparkline(containerId: string, dataPoints: number[]): void {
@@ -733,12 +460,4 @@ export function drawSparkline(containerId: string, dataPoints: number[]): void {
     (i / (dataPoints.length - 1)) * w + ',' + (h - (v / max) * (h - 4) - 2)
   ).join(' ')
   el.innerHTML = `<svg width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0.7"/></svg>`
-}
-
-export function getAgentSourceClass(source: string | null | undefined): string {
-  if (source === 'claude_code') return 'session-agent-claude'
-  if (source === 'codex') return 'session-agent-codex'
-  if (source === 'opencode') return 'session-agent-opencode'
-  if (source === 'cursor') return 'session-agent-cursor'
-  return 'session-agent-copilot'
 }

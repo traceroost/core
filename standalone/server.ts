@@ -33,6 +33,7 @@ import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, 
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { listenWithFallback, writeResolvedPorts, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
 import { maybeEnqueueSession } from '../src/cloud/org/enqueueSession'
+import { maybeForwardOnContentChange } from '../src/reconcile/contentChangeForward'
 import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forward/scheduler'
 import { startPricingSync } from '../src/cloud/org/pricingSync'
 import { loadCredentials } from '../src/cloud/org/credentials'
@@ -360,7 +361,21 @@ function runLogScan() {
     dataVersion++
     changed = true
     // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
-    void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
+    //
+    // scan() already only returns sessions whose underlying log file actually changed since the
+    // last check (see LogReader's fileState), and this whole function is itself only reached on a
+    // 5s interval or a 300ms-debounced fs.watch event -- so no extra debounce is needed here, only
+    // in extension.ts's per-tick `onUpdate` (see contentChangeForward.ts). Once reconciliation is
+    // available, the content-hash gate (staged feature 10) replaces the plain ledger-gated
+    // enqueue: it re-forwards under a fresh revision whenever this session's rollup content
+    // actually changed (not just on its first send). Falls back to the old first-send-only
+    // behavior without a reconciliation service, same as before this feature.
+    if (reconciliationService) {
+      void maybeForwardOnContentChange(reconciliationService, card, m => console.log(m))
+        .then(r => { if (r.enqueued) drainForwardQueueSoon() })
+    } else {
+      void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
+    }
   }
   if (changed) pushUpdate()
 }

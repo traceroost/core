@@ -10,5 +10,7 @@
 .glossary-item:last-child { border-bottom: none; }
 .glossary-term { font-weight: 600; font-size: 13px; color: var(--accent); min-width: 180px; flex-shrink: 0; }
 .glossary-def { font-size: 13px; color: var(--fg); line-height: 1.5; }
+.glossary-def-list { margin: 0; padding-left: 18px; list-style: disc; }
+.glossary-def-list li + li { margin-top: 2px; }
 .help-section a { color: var(--vscode-textLink-foreground, var(--accent)); text-decoration: underline; text-underline-offset: 2px; }
 .help-section a:hover { color: var(--vscode-textLink-activeForeground, var(--accent)); }

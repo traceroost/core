@@ -100,12 +100,6 @@ export function ensureInstallId(config: ServiceConfig, baseHome?: string): Servi
   return withId
 }
 
-/** The stable per-machine install id, generating and persisting one on first call. The single
- *  entry point every other module uses. */
-export function getInstallId(baseHome?: string): string {
-  return ensureInstallId(readServiceConfig(baseHome), baseHome).installId
-}
-
 export function serviceLogPath(config: ServiceConfig): string {
   return path.join(config.dataDir, 'logs', 'service.log')
 }

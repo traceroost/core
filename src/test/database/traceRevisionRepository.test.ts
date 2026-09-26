@@ -139,4 +139,66 @@ suite('TraceRevisionRepository', () => {
     assert.strictEqual(repo.get('s1')?.outcomeOverall, 'merged')
     assert.strictEqual(repo.get('s2')?.outcomeOverall, 'abandoned')
   })
+
+  // ── recordPayloadHash() — the content-hash dimension (staged feature 10's generalization) ────
+
+  test('recordPayloadHash() on a brand-new session allocates revision 1 and reports changed', async () => {
+    const db = await openInMemoryDb()
+    const repo = new TraceRevisionRepository(db)
+    const result = repo.recordPayloadHash('s1', 'hash1')
+    assert.deepStrictEqual(result, { revision: 1, changed: true })
+    const row = repo.get('s1')
+    assert.strictEqual(row?.payloadHash, 'hash1')
+    assert.strictEqual(row?.fingerprint, '', 'no prior git-outcome check yet, so fingerprint stays the NOT NULL placeholder')
+    assert.strictEqual(row?.outcomeOverall, null)
+  })
+
+  test('recordPayloadHash() with an unchanged hash reuses the revision and does not move changed_at', async () => {
+    const db = await openInMemoryDb()
+    const repo = new TraceRevisionRepository(db)
+    repo.recordPayloadHash('s1', 'hash1')
+    const before = repo.get('s1')!
+
+    const result = repo.recordPayloadHash('s1', 'hash1')
+    assert.deepStrictEqual(result, { revision: 1, changed: false })
+    assert.strictEqual(repo.get('s1')?.changedAt, before.changedAt)
+  })
+
+  test('recordPayloadHash() with a different hash allocates a new revision', async () => {
+    const db = await openInMemoryDb()
+    const repo = new TraceRevisionRepository(db)
+    repo.recordPayloadHash('s1', 'hash1')
+    const result = repo.recordPayloadHash('s1', 'hash2')
+    assert.deepStrictEqual(result, { revision: 2, changed: true })
+    assert.strictEqual(repo.get('s1')?.payloadHash, 'hash2')
+  })
+
+  test('recordCheck() preserves a previously recorded payload_hash instead of clobbering it', async () => {
+    const db = await openInMemoryDb()
+    const repo = new TraceRevisionRepository(db)
+    repo.recordPayloadHash('s1', 'hash1')
+    repo.recordCheck('s1', 'fp1', 'merged') // different dimension changing must not touch payload_hash
+    assert.strictEqual(repo.get('s1')?.payloadHash, 'hash1')
+  })
+
+  test('recordPayloadHash() preserves a previously recorded git-outcome fingerprint/outcome', async () => {
+    const db = await openInMemoryDb()
+    const repo = new TraceRevisionRepository(db)
+    repo.recordCheck('s1', 'fp1', 'merged')
+    repo.recordPayloadHash('s1', 'hash1') // different dimension changing must not touch fingerprint/outcome
+    const row = repo.get('s1')
+    assert.strictEqual(row?.fingerprint, 'fp1')
+    assert.strictEqual(row?.outcomeOverall, 'merged')
+  })
+
+  test('the outcome and content-hash dimensions share one monotonic revision counter', async () => {
+    const db = await openInMemoryDb()
+    const repo = new TraceRevisionRepository(db)
+    const first = repo.recordCheck('s1', 'fp1', 'committed')
+    assert.strictEqual(first.revision, 1)
+    const second = repo.recordPayloadHash('s1', 'hash1')
+    assert.strictEqual(second.revision, 2, 'content-hash change on the same session still advances the shared counter')
+    const third = repo.recordCheck('s1', 'fp2', 'merged')
+    assert.strictEqual(third.revision, 3)
+  })
 })

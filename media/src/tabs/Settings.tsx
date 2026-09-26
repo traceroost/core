@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPageSize, setSessionsPageSize, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
+import { enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSize, setSessionsPageSize, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
 
 function sendConfig(key: string, value: boolean) {
   if (vscode) {
@@ -142,6 +142,74 @@ export function PageSizeSelect() {
     >
       {SESSIONS_PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}/page</option>)}
     </select>
+  )
+}
+
+function pagerBtnStyle(disabled: boolean): string {
+  return `padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${disabled ? 'default' : 'pointer'};opacity:${disabled ? 0.4 : 1}`
+}
+
+// First/Prev/[page]/Next/Last, shared by Sessions.tsx's table footer and App.tsx's
+// FilterActionsBar so the two paging rows never disagree — both just read/write the same
+// sessionsPage signal. The page number doubles as a jump-to-page input, mirroring
+// traceroost-cloud's own Pager (traces/traces-table.tsx) almost line for line.
+export function SessionsPager({ page, totalPages }: { page: number; totalPages: number }) {
+  const [pageInput, setPageInput] = useState(String(page + 1))
+  useEffect(() => { setPageInput(String(page + 1)) }, [page])
+
+  function commitPageInput() {
+    const n = Math.trunc(Number(pageInput))
+    if (Number.isFinite(n) && n >= 1) {
+      sessionsPage.value = Math.min(Math.max(n - 1, 0), totalPages - 1)
+    } else {
+      setPageInput(String(page + 1))
+    }
+  }
+
+  const atFirst = page === 0
+  const atLast = page >= totalPages - 1
+
+  return (
+    <>
+      <button
+        onClick={() => sessionsPage.value = 0}
+        disabled={atFirst}
+        title="First page"
+        style={pagerBtnStyle(atFirst)}
+      >« First</button>
+      <button
+        onClick={() => sessionsPage.value = Math.max(0, page - 1)}
+        disabled={atFirst}
+        style={pagerBtnStyle(atFirst)}
+      >‹ Prev</button>
+      <span style="display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums">
+        Page
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={totalPages}
+          value={pageInput}
+          onInput={e => setPageInput((e.target as HTMLInputElement).value)}
+          onBlur={commitPageInput}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+          aria-label="Jump to page"
+          style="width:4ch;font-size:11px;padding:1px 2px;border:1px solid var(--border);border-radius:3px;background:var(--vscode-dropdown-background,var(--card-bg));color:var(--fg);text-align:center"
+        />
+        of {totalPages}
+      </span>
+      <button
+        onClick={() => sessionsPage.value = Math.min(totalPages - 1, page + 1)}
+        disabled={atLast}
+        style={pagerBtnStyle(atLast)}
+      >Next ›</button>
+      <button
+        onClick={() => sessionsPage.value = totalPages - 1}
+        disabled={atLast}
+        title="Last page"
+        style={pagerBtnStyle(atLast)}
+      >Last »</button>
+    </>
   )
 }
 

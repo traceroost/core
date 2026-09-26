@@ -198,14 +198,3 @@ export async function computeTurnover(workspace: string, opts: ComputeTurnoverOp
 
   return { repoRoot: attribution.repoRoot, headSha: index.headSha, results, coverage: attribution.coverage }
 }
-
-/** The measured results as AL 03 `TurnoverInput`s (for the forwarding queue). Only fully-elapsed,
- *  above-floor cohorts appear here — `InsufficientData` never reaches the wire. */
-export function toTurnoverInputs(report: TurnoverReport): Array<{ sha: string; windowDays: 30 | 90; aiLinesAuthored: number; aiLinesSurviving: number }> {
-  const out: Array<{ sha: string; windowDays: 30 | 90; aiLinesAuthored: number; aiLinesSurviving: number }> = []
-  for (const r of report.results) {
-    if (r.kind !== 'measured' || r.cohortShas.length === 0) continue
-    out.push({ sha: r.cohortShas[0], windowDays: r.windowDays, aiLinesAuthored: r.aiLinesAuthored, aiLinesSurviving: r.aiLinesSurviving })
-  }
-  return out
-}

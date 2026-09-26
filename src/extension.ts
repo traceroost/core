@@ -31,6 +31,8 @@ import { startPricingSync } from './cloud/org/pricingSync'
 import { resolveRepoHash } from './cloud/org/resolveRepoHash'
 import { ReconciliationService } from './reconcile/reconciliationService'
 import { startBackgroundReconciliation, type BackgroundWatcher } from './reconcile/backgroundWatcher'
+import { maybeForwardOnContentChange } from './reconcile/contentChangeForward'
+import { KeyedDebouncer } from './reconcile/keyedDebouncer'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -40,6 +42,10 @@ let writer: DatabaseWriter | undefined
 let repository: SessionRepository | undefined
 let reconciliationService: ReconciliationService | undefined
 let backgroundWatcher: BackgroundWatcher | undefined
+// Coalesces bursty live onUpdate ticks for the same session before checking whether its rollup
+// content changed (staged feature 10) -- see keyedDebouncer.ts's doc comment for why: each check
+// rebuilds the payload via real `git` subprocesses.
+const contentChangeDebouncer = new KeyedDebouncer(3_000, 30_000)
 let logReaderTimer: ReturnType<typeof setInterval> | undefined
 let runLogScanFn: (() => void) | undefined
 let forwardScheduler: ForwardScheduler | undefined
@@ -167,8 +173,25 @@ export async function activate(context: vscode.ExtensionContext) {
           }).catch(err => console.error('[TraceRoost] writer.drain error:', err))
           // Pro: build a rollup for this session and append it to the forwarding queue. A hard
           // no-op unless an org is linked. The actual network send happens later, on a timer.
-          void maybeEnqueueSession({ ...card, workspace: card.workspace || workspace }, m => outputChannel?.appendLine(m))
-            .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
+          //
+          // Once reconciliation is available, the content-hash gate (staged feature 10) replaces
+          // the plain ledger-gated enqueue here: it re-forwards a session under a fresh revision
+          // whenever its rollup content actually changes (duration, tokens, tool calls, model
+          // mix, outcome, ...), not just on its first send -- see contentChangeForward.ts.
+          // Debounced per session so a burst of tool-call ticks coalesces into one check instead
+          // of one `git`-subprocess-driven rebuild per tick. Without reconciliation (no sqlite db)
+          // this falls back to the old first-send-only behavior, same as before this feature.
+          const fullCard = { ...card, workspace: card.workspace || workspace }
+          if (reconciliationService) {
+            const svc = reconciliationService
+            contentChangeDebouncer.schedule(fullCard.sessionId, () => {
+              void maybeForwardOnContentChange(svc, fullCard, m => outputChannel?.appendLine(m))
+                .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
+            })
+          } else {
+            void maybeEnqueueSession(fullCard, m => outputChannel?.appendLine(m))
+              .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
+          }
           if (workspace) {
             void maybeEnqueueInstructionTelemetry(workspace, repository!.listSessions(), EMPTY_LEDGER)
               .then(enq => { if (enq) forwardScheduler?.drainSoon() })
@@ -281,7 +304,7 @@ export async function activate(context: vscode.ExtensionContext) {
       })),
       log: (msg) => outputChannel!.appendLine(msg),
     })
-    context.subscriptions.push({ dispose: () => { unsubscribeForwarding(); backgroundWatcher?.dispose(); reconciliationService?.dispose() } })
+    context.subscriptions.push({ dispose: () => { unsubscribeForwarding(); backgroundWatcher?.dispose(); reconciliationService?.dispose(); contentChangeDebouncer.dispose() } })
   }
 
   // ── Log ingestion ─────────────────────────────────────────────────────────

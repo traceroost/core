@@ -5,7 +5,7 @@ Thank you for your interest in contributing.
 ## Project scope and license zones
 
 Most of this repo — the local agent, the dashboard, the log/OTEL ingestion, the free local
-Outcomes/attribution engine — is MIT-licensed and stays that way. Features that make TraceRoost
+attribution/turnover engine — is MIT-licensed and stays that way. Features that make TraceRoost
 more useful for a single developer watching their own agent traces belong here, and PRs for them
 are welcome.
 
