@@ -415,9 +415,22 @@ function realpathBestEffort(p: string): string {
   }
 }
 
+// git-for-windows' `rev-parse --show-toplevel` (findRepoRoot) reports its drive letter lowercase
+// (an MSYS convention), while a path built from Node's own os/path APIs keeps whatever case the
+// OS gave it (typically uppercase) -- path.relative is a pure string operation and treats `c:`
+// and `C:` as different drives, so every file looks "outside the repo" until this is normalized.
+// Only the drive-letter prefix is touched; the rest of the path keeps its real casing, since git
+// tree lookups (`git show HEAD:<relPath>`) are case-sensitive even on a case-insensitive filesystem.
+function normalizeDriveLetter(p: string): string {
+  return /^[a-zA-Z]:[\\/]/.test(p) ? p[0].toLowerCase() + p.slice(1) : p
+}
+
 // Relative path (posix separators) of `absPath` under `root`, or null if outside the repo.
 function relativeToRoot(root: string, absPath: string): string | null {
-  const rel = path.relative(realpathBestEffort(root), realpathBestEffort(absPath))
+  const rel = path.relative(
+    normalizeDriveLetter(realpathBestEffort(root)),
+    normalizeDriveLetter(realpathBestEffort(absPath)),
+  )
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
   return rel.split(path.sep).join('/')
 }
