@@ -62,6 +62,23 @@ CREATE TABLE IF NOT EXISTS git_outcome (
   computed_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
+-- What each session's git_outcome cache key (resolveOutcomeCacheKey) was last built from: the HEAD
+-- and trunk-tip shas its pass read once per repo root, a hash of its in-repo file list, and the
+-- resulting "git log -1 <head> -- <files>" sha. A later pass whose root HEAD and file list are
+-- unchanged reuses file_sha instead of spawning git per session. The working-tree digest part of
+-- the key is always recomputed from disk. Holds only the repo root, shas and hashes -- never file
+-- paths or content.
+CREATE TABLE IF NOT EXISTS git_outcome_key (
+  session_id     TEXT PRIMARY KEY,
+  repo_root      TEXT NOT NULL,
+  head_sha       TEXT NOT NULL,
+  trunk_sha      TEXT NOT NULL,
+  rel_paths_hash TEXT NOT NULL,
+  file_sha       TEXT NOT NULL,
+  cache_key      TEXT NOT NULL,
+  computed_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
+
 -- Canonical trace revision (staged feature 10, Stage 1, generalized). One durable monotonic
 -- revision number per session, allocated when either of two independent dimensions changes:
 -- the classified git outcome (fingerprint/outcome_overall, written by recordCheck) or the

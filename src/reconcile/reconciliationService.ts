@@ -34,10 +34,14 @@ import {
   classifySessionOutcome,
   resolveOutcomeCacheKey,
   createOutcomeRepoCache,
+  createRepoTipsSnapshot,
+  readRepoTips,
   type GitOutcome,
   type OutcomeRepoCache,
+  type RepoTipsSnapshot,
 } from '../gitOutcome'
 import { GitOutcomeRepository } from '../database/gitOutcomeRepository'
+import { OutcomeKeyRepository } from '../database/outcomeKeyRepository'
 import { TraceRevisionRepository } from '../database/traceRevisionRepository'
 import { hashSessionRollup } from './payloadHash'
 import type { SessionRollup } from '../cloud/forward/schema'
@@ -86,6 +90,7 @@ export type ReconcileListener = (result: ReconcileResult) => void
 export class ReconciliationService {
   private readonly outcomes: GitOutcomeRepository
   private readonly revisions: TraceRevisionRepository
+  private readonly keys: OutcomeKeyRepository
   private readonly inFlight = new Map<string, Promise<ReconcileResult>>()
   private readonly listeners = new Set<ReconcileListener>()
   // One pending "revisit at grace expiry" timer per session -- see reconcile()'s deferred branch.
@@ -96,6 +101,7 @@ export class ReconciliationService {
   constructor(db: WriteableDb) {
     this.outcomes = new GitOutcomeRepository(db)
     this.revisions = new TraceRevisionRepository(db)
+    this.keys = new OutcomeKeyRepository(db)
   }
 
   /** Notified after every completed (non-deferred, non-error) reconcile that produced a result --
@@ -116,11 +122,11 @@ export class ReconciliationService {
    *  revision on a real outcome change, and (unless deferred) notifies subscribers. In-flight
    *  calls for the same session share one promise; nothing about a resolved call is cached at
    *  this layer once it settles. */
-  async reconcile(input: ReconcileInput, opts: { cache?: OutcomeRepoCache; force?: boolean } = {}): Promise<ReconcileResult> {
+  async reconcile(input: ReconcileInput, opts: { cache?: OutcomeRepoCache; snapshot?: RepoTipsSnapshot; force?: boolean } = {}): Promise<ReconcileResult> {
     const existingInFlight = this.inFlight.get(input.sessionId)
     if (existingInFlight && !opts.force) return existingInFlight
 
-    const pending = this.doReconcile(input, opts.cache)
+    const pending = this.doReconcile(input, opts.cache, opts.snapshot)
       .finally(() => {
         if (this.inFlight.get(input.sessionId) === pending) this.inFlight.delete(input.sessionId)
       })
@@ -146,22 +152,46 @@ export class ReconciliationService {
    *  itself -- see gitOutcome.ts's OutcomeRepoCache doc comment on why it's scoped per burst. */
   async reconcileMany(inputs: ReconcileInput[]): Promise<ReconcileResult[]> {
     const cache = createOutcomeRepoCache()
-    // A bounded pool rather than one Promise.all over every input: each session check spawns its
-    // own `git` processes, and the startup catch-up pass hands this the whole history at once —
-    // hundreds of concurrent spawns that thrashed the machine (and could fail with EAGAIN).
+    // HEAD and the trunk tip are read once per repo root for the whole pass, not per session; with
+    // each session's stored key (OutcomeKeyRepository), an unchanged session costs no git spawn.
+    const snapshot = createRepoTipsSnapshot()
     const results: ReconcileResult[] = new Array(inputs.length)
-    let next = 0
-    const worker = async () => {
-      while (next < inputs.length) {
-        const i = next++
-        results[i] = await this.reconcile(inputs[i], { cache })
+    await this.runPool(inputs.map((_, i) => i), async i => {
+      results[i] = await this.reconcile(inputs[i], { cache, snapshot })
+    })
+
+    // End-of-pass recheck: if a root's HEAD or trunk tip moved while the pass ran, sessions checked
+    // against an earlier snapshot value described an already-superseded state. Re-read every root
+    // once (one spawn each) and redo that root's sessions against the new tips, so a pass's
+    // results always end up matching the repo as it is when the pass finishes — independent of
+    // the background watcher's .git watch firing a follow-up pass.
+    const moved = await snapshot.movedRoots(async root => readRepoTips(root, await cache.trunkRef(root)))
+    if (moved.size > 0) {
+      const redo: number[] = []
+      for (const [i, input] of inputs.entries()) {
+        const root = input.workspace ? await cache.root(input.workspace) : null
+        if (root && moved.has(root) && !results[i].deferred) redo.push(i)
       }
+      const fresh = createRepoTipsSnapshot()
+      await this.runPool(redo, async i => {
+        results[i] = await this.reconcile(inputs[i], { cache, snapshot: fresh })
+      })
     }
-    await Promise.all(Array.from({ length: Math.min(RECONCILE_MANY_CONCURRENCY, inputs.length) }, worker))
     return results
   }
 
-  private async doReconcile(input: ReconcileInput, cache: OutcomeRepoCache | undefined): Promise<ReconcileResult> {
+  // A bounded pool rather than one Promise.all over every input: each session check can spawn its
+  // own `git` processes, and the startup catch-up pass hands reconcileMany the whole history at
+  // once — hundreds of concurrent spawns that thrashed the machine (and could fail with EAGAIN).
+  private async runPool(indices: number[], fn: (i: number) => Promise<void>): Promise<void> {
+    let next = 0
+    const worker = async () => {
+      while (next < indices.length) await fn(indices[next++])
+    }
+    await Promise.all(Array.from({ length: Math.min(RECONCILE_MANY_CONCURRENCY, indices.length) }, worker))
+  }
+
+  private async doReconcile(input: ReconcileInput, cache: OutcomeRepoCache | undefined, snapshot: RepoTipsSnapshot | undefined): Promise<ReconcileResult> {
     const { sessionId, workspace, filesChanged, endTime } = input
 
     if (endTime && Date.now() - Date.parse(endTime) < ACTIVE_GRACE_MS) {
@@ -177,7 +207,7 @@ export class ReconciliationService {
     }
     this.clearGraceTimer(sessionId)
 
-    const result = await this.classifyWithGenerationCheck(sessionId, workspace, filesChanged, cache)
+    const result = await this.classifyWithGenerationCheck(sessionId, workspace, filesChanged, cache, snapshot)
     this.notify(result)
     return result
   }
@@ -187,9 +217,11 @@ export class ReconciliationService {
     workspace: string,
     filesChanged: string[],
     cache: OutcomeRepoCache | undefined,
+    snapshot: RepoTipsSnapshot | undefined,
     attempt = 0,
   ): Promise<ReconcileResult> {
-    const keyBefore = await resolveOutcomeCacheKey(workspace, filesChanged, cache)
+    const prior = snapshot ? this.keys.get(sessionId) : undefined
+    const keyBefore = await resolveOutcomeCacheKey(workspace, filesChanged, cache, snapshot && { snapshot, prior })
     if (!keyBefore) {
       // Nothing to classify (no repo, no in-repo files). Still record the check so a session that
       // *used* to resolve (e.g. its repo directory temporarily vanished) doesn't keep a stale
@@ -200,6 +232,8 @@ export class ReconciliationService {
       return { sessionId, outcome: null, revision: null, changed: false, deferred: false }
     }
 
+    if (snapshot) this.keys.putIfChanged(sessionId, prior, keyBefore)
+
     const cached = this.outcomes.get(sessionId, keyBefore.cacheKey)
     const outcome = cached !== undefined ? cached : await classifySessionOutcome(workspace, filesChanged, cache)
 
@@ -207,10 +241,12 @@ export class ReconciliationService {
     // merge landed mid-classification), the result we just computed already describes a
     // superseded world. Discard it and reclassify once more against the now-current state rather
     // than publish/cache a result that was correct only for an instant that's already passed.
+    // Within a pass this re-reads the root's HEAD/trunk tips live (and moves the pass's snapshot
+    // forward to them), so a mid-pass commit is caught here just as without a snapshot.
     if (cached === undefined) {
-      const keyAfter = await resolveOutcomeCacheKey(workspace, filesChanged, cache)
+      const keyAfter = await resolveOutcomeCacheKey(workspace, filesChanged, cache, snapshot && { snapshot, fresh: true, prior: keyBefore })
       if (keyAfter && keyAfter.cacheKey !== keyBefore.cacheKey && attempt < MAX_GENERATION_RETRIES) {
-        return this.classifyWithGenerationCheck(sessionId, workspace, filesChanged, cache, attempt + 1)
+        return this.classifyWithGenerationCheck(sessionId, workspace, filesChanged, cache, snapshot, attempt + 1)
       }
       if (outcome) this.outcomes.put(sessionId, keyBefore.root, keyBefore.cacheKey, outcome)
     }

@@ -125,7 +125,8 @@ function describeGitCommand(args: string[]): string | null {
   const [cmd, ...rest] = args
   switch (cmd) {
     case 'rev-parse':
-      return rest.includes('--show-toplevel') ? 'Finding the repo root' : 'Resolving a commit for the trunk branch'
+      if (rest.includes('--show-toplevel')) return 'Finding the repo root'
+      return rest.includes('HEAD') ? 'Resolving the current commit and the trunk branch tip' : 'Resolving a commit for the trunk branch'
     case 'symbolic-ref':
       return 'Detecting the default branch'
     case 'show-ref':
@@ -234,6 +235,100 @@ function workingTreeContentDigest(root: string, relPaths: string[]): string {
   return hash.digest('hex')
 }
 
+/** HEAD and trunk-tip shas of one repo root, as read at one moment. */
+export interface RepoTips {
+  head: string | null
+  trunk: string | null
+}
+
+/**
+ * Pass-scoped memo of each repo root's HEAD and trunk-tip shas — read once per root per
+ * reconcile pass rather than once per session (a `git rev-parse <trunk>` per session was half of
+ * a warm startup pass's git spawns). Create one per pass and drop it afterwards: nothing here
+ * notices HEAD or the trunk moving, which is what `refresh()` (the generation check, the end-of-
+ * pass recheck) and the next pass's fresh snapshot are for.
+ */
+export interface RepoTipsSnapshot {
+  tips(root: string, trunkRef: string | null): Promise<RepoTips>
+  /** Re-reads `root`'s tips now and makes that the memoized value for the rest of the pass. */
+  refresh(root: string, trunkRef: string | null): Promise<RepoTips>
+  /** Every root read so far: whether a refresh() already saw its tips move this pass, and whether
+   *  `current` (a live read taken after the pass) differs from any value handed out during it. */
+  movedRoots(current: (root: string) => Promise<RepoTips>): Promise<Set<string>>
+}
+
+function sameTips(a: RepoTips, b: RepoTips): boolean {
+  return a.head === b.head && a.trunk === b.trunk
+}
+
+export function createRepoTipsSnapshot(): RepoTipsSnapshot {
+  const memo = new Map<string, Promise<RepoTips>>()
+  const moved = new Set<string>()
+  const refreshChecks: Array<Promise<void>> = []
+  return {
+    tips(root, trunkRef) {
+      let p = memo.get(root)
+      if (!p) { p = readRepoTips(root, trunkRef); memo.set(root, p) }
+      return p
+    },
+    refresh(root, trunkRef) {
+      const before = memo.get(root)
+      const p = readRepoTips(root, trunkRef)
+      memo.set(root, p)
+      if (before) refreshChecks.push(Promise.all([before, p]).then(([a, b]) => { if (!sameTips(a, b)) moved.add(root) }))
+      return p
+    },
+    async movedRoots(current) {
+      await Promise.all(refreshChecks)
+      const result = new Set<string>()
+      for (const [root, p] of memo) {
+        if (moved.has(root) || !sameTips(await p, await current(root))) result.add(root)
+      }
+      return result
+    },
+  }
+}
+
+/** Live read of HEAD's sha and `trunkRef`'s sha — one `git rev-parse` for both in the usual case.
+ *  `trunk` is exactly what resolveOutcomeCacheKey's uncached path reads (`git rev-parse <trunkRef>`,
+ *  trimmed). `head` is null when HEAD doesn't resolve (an unborn branch). */
+export async function readRepoTips(root: string, trunkRef: string | null): Promise<RepoTips> {
+  const both = await runGit(root, trunkRef ? ['rev-parse', 'HEAD', trunkRef] : ['rev-parse', 'HEAD'])
+  if (both !== null) {
+    const [head, trunk] = both.split('\n').map(line => line.trim())
+    return { head: head || null, trunk: trunkRef ? trunk || null : null }
+  }
+  // One of the two failed (an unborn HEAD, or the trunk ref vanished) — read each on its own.
+  const [head, trunk] = await Promise.all([
+    runGit(root, ['rev-parse', 'HEAD']),
+    trunkRef ? runGit(root, ['rev-parse', trunkRef]) : Promise.resolve(null),
+  ])
+  return { head: head?.trim() || null, trunk: trunk?.trim() || null }
+}
+
+/** What a session's cache key was built from — persisted per session (OutcomeKeyRepository) so the
+ *  next pass can skip `git log` when none of the inputs to `fileSha` moved. */
+export interface OutcomeCacheKeyParts {
+  root: string
+  cacheKey: string
+  /** HEAD sha `fileSha` was computed at; null when it wasn't pinned to a known HEAD (no snapshot,
+   *  or HEAD didn't resolve) — such a key is never reused. */
+  headSha: string | null
+  trunkSha: string
+  relPathsHash: string
+  fileSha: string
+}
+
+export interface OutcomeCacheKeyOptions {
+  /** Read HEAD/trunk tips from this pass-scoped snapshot instead of once per call. */
+  snapshot: RepoTipsSnapshot
+  /** Re-read this root's tips first (and update the snapshot) — the generation check's read. */
+  fresh?: boolean
+  /** A previously computed key for this session: its `fileSha` is reused, with no `git log`, when
+   *  it was computed in the same repo root at the same HEAD for the same file list. */
+  prior?: Pick<OutcomeCacheKeyParts, 'root' | 'headSha' | 'relPathsHash' | 'fileSha'>
+}
+
 /** Resolves the repo root and a cache key for `filesChanged` — combining the latest commit sha
  *  touching any of those specific files, the trunk branch's current tip sha (if resolvable), and a
  *  content digest of those files' current working-tree state. Used to key the on-disk outcome
@@ -252,10 +347,17 @@ function workingTreeContentDigest(root: string, relPaths: string[]): string {
  *  computed from), so a session whose changed-file set has grown or shrunk since it was last
  *  cached also invalidates rather than reusing a result computed for a different file set. Returns
  *  null if none of the files are inside the repo (mirrors classifySessionOutcome's own "nothing to
- *  classify" case, so nothing gets cached for it either). */
-export async function resolveOutcomeCacheKey(workspace: string, filesChanged: string[], cache?: OutcomeRepoCache): Promise<{ root: string; cacheKey: string } | null> {
+ *  classify" case, so nothing gets cached for it either).
+ *
+ *  With `opts` (a reconcile pass), HEAD and the trunk tip come from the pass's snapshot, and the
+ *  file sha is `git log -1 <HEAD sha> -- <files>` — a pure function of that HEAD commit and the
+ *  file list, so `opts.prior`'s value is reused as-is when both match. The working-tree digest is
+ *  never reused: it's recomputed from disk on every call (no subprocess), so an uncommitted edit
+ *  is noticed exactly as without a snapshot. */
+export async function resolveOutcomeCacheKey(workspace: string, filesChanged: string[], cache?: OutcomeRepoCache, opts?: OutcomeCacheKeyOptions): Promise<OutcomeCacheKeyParts | null> {
   // `cache` memoizes only which repo and which trunk branch (as classifySessionOutcome's does) —
-  // the file and trunk-tip shas below are always read fresh, so the key still moves on a commit.
+  // the file and trunk-tip shas below are always read fresh (or, with `opts`, once per pass), so
+  // the key still moves on a commit.
   const root = cache ? await cache.root(workspace) : await findRepoRoot(workspace)
   if (!root) return null
   const relPaths = filesChanged
@@ -264,14 +366,34 @@ export async function resolveOutcomeCacheKey(workspace: string, filesChanged: st
     .sort()
     .slice(0, MAX_FILES)
   if (relPaths.length === 0) return null
+  const relPathsHash = crypto.createHash('sha256').update(relPaths.join('\0')).digest('hex')
 
-  const [fileSha, trunkRef] = await Promise.all([
-    runGit(root, ['log', '-1', '--format=%H', '--', ...relPaths]),
-    cache ? cache.trunkRef(root) : resolveTrunkRef(root),
-  ])
-  const trunkSha = trunkRef ? await runGit(root, ['rev-parse', trunkRef]) : null
+  let headSha: string | null = null
+  let fileSha: string
+  let trunkSha: string
+  if (opts) {
+    const trunkRef = cache ? await cache.trunkRef(root) : await resolveTrunkRef(root)
+    const tips = await (opts.fresh ? opts.snapshot.refresh(root, trunkRef) : opts.snapshot.tips(root, trunkRef))
+    headSha = tips.head
+    trunkSha = tips.trunk ?? ''
+    const prior = opts.prior
+    if (headSha && prior && prior.headSha === headSha && prior.root === root && prior.relPathsHash === relPathsHash) {
+      fileSha = prior.fileSha
+    } else {
+      const out = await runGit(root, headSha ? ['log', '-1', '--format=%H', headSha, '--', ...relPaths] : ['log', '-1', '--format=%H', '--', ...relPaths])
+      fileSha = out?.trim() ?? ''
+    }
+  } else {
+    const [fileOut, trunkRef] = await Promise.all([
+      runGit(root, ['log', '-1', '--format=%H', '--', ...relPaths]),
+      cache ? cache.trunkRef(root) : resolveTrunkRef(root),
+    ])
+    const trunkOut = trunkRef ? await runGit(root, ['rev-parse', trunkRef]) : null
+    fileSha = fileOut?.trim() ?? ''
+    trunkSha = trunkOut?.trim() ?? ''
+  }
   const workingDigest = workingTreeContentDigest(root, relPaths)
-  return { root, cacheKey: `${fileSha?.trim() ?? ''}:${trunkSha?.trim() ?? ''}:${workingDigest}` }
+  return { root, cacheKey: `${fileSha}:${trunkSha}:${workingDigest}`, headSha, trunkSha, relPathsHash, fileSha }
 }
 
 // Resolves symlinks where possible so paths compare consistently — `git rev-parse --show-toplevel`
