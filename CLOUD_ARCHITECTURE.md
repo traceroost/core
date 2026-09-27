@@ -11,8 +11,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 | [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--org-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
 | [`src/cloud/README.md`](src/cloud/README.md) | Why this code lives in one directory, and under a different license |
 | [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
-| [`docs/wire-schema.md`](docs/wire-schema.md) | The exact wire contract, and how to verify the privacy claim yourself |
-| [`docs/pricing-boundary.md`](docs/pricing-boundary.md) | The free/paid line, word-for-word with the pricing page |
+| [`schema/rollup.v1.json`](schema/rollup.v1.json) | The exact wire contract |
 
 ## The two rules everything below answers to
 
@@ -215,8 +214,5 @@ implemented; git history has it.
   string field is left unconstrained (no accidental free-text field).
 - `src/test/cloud/org/privacy.test.ts` pins the exact `SENT` / `NEVER_SENT` lists shown on the
   consent screen.
-- `src/test/cloud/org/pricingBoundary.test.ts` regex-pins fixed phrases inside
-  `docs/pricing-boundary.md` itself — not yet a cross-check against the rendered pricing page; the
-  test's own comment notes that becomes possible "when the cloud repo is reconciled."
 - `standalone/cloud/explainPayload.ts` + its test assert the printed `--explain-payload` JSON equals
   what actually gets queued — the transparency claim is enforced, not just documented.

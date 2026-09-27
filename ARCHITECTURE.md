@@ -1136,7 +1136,7 @@ on a free install with no org. A test asserts the printed JSON equals the queued
 The wire contract (AL 02) is owned **here**, in the client the sceptic already trusts, and the
 service validates against the identical document. `src/cloud/forward/` is a closed island: every field
 is a number, an enum, a hash or a timestamp, and a CI test walks `schema/rollup.v1.json` to fail
-the build if any string is left unconstrained. See [`docs/wire-schema.md`](docs/wire-schema.md).
+the build if any string is left unconstrained.
 `install_id` lives in `~/.traceroost/config.json` (`src/serviceConfig.ts` `ensureInstallId`) and
 is **not** in the payload — the service derives identity from the bearer token.
 
@@ -1156,9 +1156,8 @@ is **not** in the payload — the service derives identity from the bearer token
 **Free is my machine. Paid is everyone's** — structural, not administrative. A local install
 cannot see other machines, so there is no flag to patch out and no fork that recovers Pro. The
 full statement, and the four things the free tier will never do (no feature removed to force an
-upgrade, no quotas, no trial, no free self-hostable team server), is in
-[`docs/pricing-boundary.md`](docs/pricing-boundary.md) — the source of the pricing-page copy,
-pinned by a test.
+upgrade, no quotas, no trial, no free self-hostable team server), lives with the pricing-page
+copy.
 
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
 machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`

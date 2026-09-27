@@ -12,9 +12,9 @@ export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection, Tr
  * Ceiling on how many sessions `listSessions()` ever returns when no caller-supplied `limit` is
  * given — the unfiltered call `repository?.listSessions()` in extension.ts posts whole to the
  * webview. Search/Export already has real DB-level `LIMIT`/`OFFSET` (`DatabaseReader.
- * searchSessions()`) as an escape hatch for "give me everything"; this list doesn't, and
- * `docs/decisions/0001-session-list-pagination.md` explicitly declines to add DB-level pagination
- * here for now (a stress test at 7,300 sessions found no real cost problem at that size). This cap
+ * searchSessions()`) as an escape hatch for "give me everything"; this list doesn't, and DB-level
+ * pagination was deliberately not added here for now (a stress test at 7,300 sessions found no
+ * real cost problem at that size). This cap
  * is the backstop regardless of that finding — a known, tested ceiling, the same shape as
  * `spanStore.ts`'s `DEFAULT_MAX_SPANS`, so an unusually large history degrades to "most recent N
  * sessions" instead of risking V8's ~512MB max string length on the webview `postMessage` payload.

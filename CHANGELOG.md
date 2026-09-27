@@ -6,7 +6,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Decided
 
-- **The model/agent cost-per-outcome comparator will not be a local/free feature** — real local session history shows near-zero within-agent model diversity per repo, so a single developer's history structurally can't supply the "same task, different model" comparison this needs. See [docs/decisions/0002](docs/decisions/0002-model-cost-per-outcome-comparator-scope.md). No user-facing change; nothing was built or removed.
+- **The model/agent cost-per-outcome comparator will not be a local/free feature** — real local session history shows near-zero within-agent model diversity per repo, so a single developer's history structurally can't supply the "same task, different model" comparison this needs. No user-facing change; nothing was built or removed.
 
 ### Added
 
