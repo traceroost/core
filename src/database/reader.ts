@@ -4,6 +4,7 @@ import * as vscode from 'vscode'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarizers/summarizerTypes'
 import type { OneShotStats } from '../oneShotRate'
 import { lookupRates, calcAggregateTokenCostUsd } from '../pricing'
+import { sessionsVersion } from './sessionsVersion'
 
 export interface DailyStatRow {
   day: string              // 'YYYY-MM-DD'
@@ -65,6 +66,11 @@ export class DatabaseReader {
     private readonly db: ReadableDb,
     private readonly storageUri: vscode.Uri,
   ) {}
+
+  /** Changes whenever the `sessions` table this reader reads is written (see sessionsVersion.ts). */
+  sessionsVersion(): number {
+    return sessionsVersion(this.db)
+  }
 
   listSessions(filter?: {
     source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'

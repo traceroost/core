@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { extractUserRequest, isTaskNotificationOnly, summarizeTaskNotification, findProjectRoot, commonPathPrefix } from '../summarizers/helpers'
+import { extractUserRequest, isTaskNotificationOnly, summarizeTaskNotification, findProjectRoot, commonPathPrefix, isAbsoluteFilePath, fileBaseName } from '../summarizers/helpers'
 
 suite('findProjectRoot', () => {
   let tmpRoot: string
@@ -70,6 +70,49 @@ suite('commonPathPrefix', () => {
       commonPathPrefix(['/Users/rogerreed/repo-a/x.ts', '/Users/rogerreed/repo-b/y.ts']),
       '/Users/rogerreed',
     )
+  })
+
+  // Windows-style inputs, run on every OS by passing the platform explicitly.
+  test('win32: drive-letter paths with either separator', () => {
+    assert.strictEqual(
+      commonPathPrefix(['C:\\Users\\dev\\proj\\src\\a.ts', 'C:/Users/dev/proj/src/b.ts'], 'win32'),
+      'C:\\Users\\dev\\proj\\src',
+    )
+  })
+
+  test('win32: drive letters and segments compare case-insensitively, keeping the first path\'s casing', () => {
+    assert.strictEqual(
+      commonPathPrefix(['C:\\Users\\Dev\\Proj\\a.ts', 'c:\\users\\dev\\proj\\lib\\b.ts'], 'win32'),
+      'C:\\Users\\Dev\\Proj',
+    )
+  })
+
+  test('win32: different drives, or only the drive in common, share no prefix', () => {
+    assert.strictEqual(commonPathPrefix(['C:\\a\\x.ts', 'D:\\a\\y.ts'], 'win32'), '')
+    assert.strictEqual(commonPathPrefix(['C:\\a\\x.ts', 'C:\\b\\y.ts'], 'win32'), '')
+  })
+
+  test('win32: UNC paths and relative paths', () => {
+    assert.strictEqual(
+      commonPathPrefix(['\\\\server\\share\\proj\\a.ts', '\\\\server\\share\\proj\\b.ts'], 'win32'),
+      '\\\\server\\share\\proj',
+    )
+    assert.strictEqual(commonPathPrefix(['src\\a.ts', 'C:rel\\b.ts'], 'win32'), '')
+  })
+
+  test('POSIX: Windows-looking paths are not absolute, backslashes are not separators, case matters', () => {
+    assert.strictEqual(commonPathPrefix(['C:\\Users\\dev\\a.ts', 'C:\\Users\\dev\\b.ts'], 'linux'), '')
+    assert.strictEqual(commonPathPrefix(['/home/Dev/p/a.ts', '/home/dev/p/b.ts'], 'darwin'), '/home')
+    assert.strictEqual(commonPathPrefix(['/srv/a\\b/x.ts', '/srv/a\\b/y.ts'], 'linux'), '/srv/a\\b')
+  })
+
+  test('isAbsoluteFilePath / fileBaseName follow the same platform rules', () => {
+    assert.strictEqual(isAbsoluteFilePath('C:\\x\\y.ts', 'win32'), true)
+    assert.strictEqual(isAbsoluteFilePath('C:\\x\\y.ts', 'linux'), false)
+    assert.strictEqual(isAbsoluteFilePath('/x/y.ts', 'win32'), true)
+    assert.strictEqual(fileBaseName('C:\\x\\y.ts', 'win32'), 'y.ts')
+    assert.strictEqual(fileBaseName('C:/x/y.ts', 'win32'), 'y.ts')
+    assert.strictEqual(fileBaseName('/x/a\\y.ts', 'linux'), 'a\\y.ts')
   })
 })
 

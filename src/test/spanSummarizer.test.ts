@@ -449,6 +449,27 @@ suite('SpanSummarizer', () => {
       assert.ok(claude?.filesChangedNote?.includes('tool arguments'))
     })
 
+    test('derives a Claude workspace from Windows file paths (win32)', () => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      try {
+        const tool = (spanId: string, toolName: string, filePath: string) => makeSpan({
+          traceId: 'claude-win', spanId, parentSpanId: 'cw-root', name: 'claude_code.tool',
+          attributes: [makeAttr('tool_name', toolName), makeAttr('file_path', filePath)],
+        })
+        const result = summarizeSpans([
+          makeSpan({ traceId: 'claude-win', spanId: 'cw-root', name: 'claude_code.interaction', attributes: [makeAttr('user_prompt', 'fix it')] }),
+          tool('cw-1', 'Edit', 'C:\\Users\\dev\\proj\\src\\app.ts'),
+          tool('cw-2', 'Read', 'c:/users/dev/proj/src/util/helpers.ts'),
+        ])
+        const claude = result.sessions.find(s => s.source === 'claude_code')
+        assert.strictEqual(claude?.workspace, 'C:\\Users\\dev\\proj\\src')
+        assert.deepStrictEqual(claude?.filesRead, ['helpers.ts'])
+      } finally {
+        Object.defineProperty(process, 'platform', platform)
+      }
+    })
+
     test('marks a Claude session agent-initiated when a child span carries is_sidechain', () => {
       const root = makeSpan({
         traceId: 'claude-trace-sidechain',
@@ -645,6 +666,34 @@ suite('SpanSummarizer', () => {
       assert.ok(codex)
       assert.strictEqual(codex?.workspace, '/repo/core')
       assert.deepStrictEqual(codex?.filesChanged, ['/repo/core/src/summarizers/codex.ts'])
+    })
+
+    test('keeps a Windows cwd as the workspace and resolves relative paths against it', () => {
+      const patch = ['*** Begin Patch', '*** Update File: src/app.ts', '@@', '-a', '+b', '*** End Patch'].join('\n')
+      const cwd = 'C:\\repo\\core'
+      const spans: Span[] = [
+        makeSpan({
+          traceId: 'codex-win-cwd-trace',
+          spanId: 'cx-root-win',
+          name: 'codex.user_message',
+          attributes: [makeAttr('user_prompt', 'Fix it'), makeAttr('cwd', cwd)],
+        }),
+        makeSpan({
+          traceId: 'codex-win-cwd-trace',
+          spanId: 'cx-tool-win',
+          name: 'codex.tool_result',
+          attributes: [
+            makeAttr('tool_name', 'apply_patch'),
+            makeAttr('arguments', JSON.stringify({ input: patch })),
+            makeAttr('cwd', cwd),
+          ],
+        }),
+      ]
+
+      const codex = summarizeSpans(spans).sessions.find(s => s.source === 'codex')
+      assert.ok(codex)
+      assert.strictEqual(codex?.workspace, cwd)
+      assert.deepStrictEqual(codex?.filesChanged, ['C:\\repo\\core\\src\\app.ts'])
     })
 
     test('treats a read-only shell command as a file read, not a change', () => {

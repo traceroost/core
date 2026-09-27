@@ -38,6 +38,11 @@ export class SessionStore {
     }}
   }
 
+  // Bumped on every change to `spans` (or a span in it), so readers can tell whether something
+  // derived from getSpans() is still current — see SessionRepository.listSessions's memo.
+  private _version = 0
+  get version(): number { return this._version }
+
   private notifyUpdate(traceId?: string): void {
     for (const fn of this.onUpdateCallbacks) { fn(traceId) }
   }
@@ -50,6 +55,7 @@ export class SessionStore {
 
   addSpan(span: Span) {
     if (span.receivedAt === undefined) { span.receivedAt = this.now() }
+    this._version++
     this.spans.push(span)
     this.trackTrace(span)
     this.updateSummary(span)
@@ -215,11 +221,13 @@ export class SessionStore {
     } else {
       span.attributes.push({ key, value: { stringValue: value } })
     }
+    this._version++
     this.notifyUpdate(traceId)
     return true
   }
   
   clear() {
+    this._version++
     this.spans = []
     this.summary = this.emptySummary()
     this.traceLastActivity.clear()

@@ -291,7 +291,8 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
 
     const workspace = traceSpans
       .map(s => getFirstAttr(s, ['cwd']))
-      .find(v => v && v.startsWith('/')) || ''
+      // The agent machine's cwd, in its own path flavor: POSIX `/…`, or Windows `C:\…` / UNC.
+      .find(v => v && /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(v)) || ''
 
     const startMs = rootSpan
       ? (nanoToMs(rootSpan.startTime) || rootSpan.receivedAt || 0)

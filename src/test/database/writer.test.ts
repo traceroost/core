@@ -476,3 +476,90 @@ suite('DatabaseWriter — OTEL downgrade guard', () => {
     db.close()
   })
 })
+
+suite('DatabaseWriter — unchanged rewrites are skipped', () => {
+  const withTimeline = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
+    timeline: [
+      { type: 'llm', spanId: 'sp-a', label: 'LLM', durationMs: 10, isError: false, timestamp: 't1' },
+      { type: 'tool', spanId: 'sp-b', label: 'Edit', durationMs: 5, isError: false, timestamp: 't2',
+        editDetails: [{ filePath: 'x.ts', toolName: 'Edit' }] },
+    ],
+    ...overrides,
+  })
+  const timelineIds = (db: SqlDb) => JSON.stringify(db.exec('SELECT id FROM timeline_entries ORDER BY position')[0]?.values)
+  const snapshot = (db: SqlDb) => JSON.stringify([
+    db.exec('SELECT session_id, model, input_tokens, workspace FROM sessions ORDER BY session_id')[0]?.values,
+    db.exec('SELECT session_id, span_id, position, label FROM timeline_entries ORDER BY session_id, position')[0]?.values,
+    db.exec('SELECT e.file_path, t.position FROM edit_details e JOIN timeline_entries t ON t.id = e.timeline_entry_id')[0]?.values,
+  ])
+  async function write(w: DatabaseWriter, card: SessionSummaryCard, ws = 'ws') {
+    w.enqueue(card, ws)
+    await w.drain()
+  }
+
+  test('an identical card leaves its rows in place but still refreshes created_at, as a rewrite would', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    await write(w, withTimeline())
+    const ids = timelineIds(db), before = snapshot(db)
+    db.run('UPDATE sessions SET created_at = 0')
+    await write(w, withTimeline())
+    assert.strictEqual(timelineIds(db), ids, 'timeline rows were rewritten')
+    assert.strictEqual(snapshot(db), before)
+    assert.ok(queryInt(db, 'SELECT created_at FROM sessions') > 0, 'created_at not refreshed')
+    db.close()
+  })
+
+  test('any change to the card, or the fallback workspace it resolves to, is written', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    await write(w, withTimeline())
+    const ids = timelineIds(db)
+    await write(w, withTimeline({ inputTokens: 1234 }))
+    assert.notStrictEqual(timelineIds(db), ids)
+    assert.strictEqual(queryInt(db, 'SELECT input_tokens FROM sessions'), 1234)
+    await write(w, withTimeline({ inputTokens: 1234 }), 'other-ws')
+    assert.strictEqual(queryValue(db, 'SELECT workspace FROM sessions'), 'other-ws')
+    const edited = withTimeline({ inputTokens: 1234 })
+    edited.timeline[1].editDetails![0].filePath = 'y.ts'
+    await write(w, edited, 'other-ws')
+    assert.strictEqual(queryValue(db, 'SELECT file_path FROM edit_details'), 'y.ts')
+    db.close()
+  })
+
+  test('a row deleted since (retention, clearAll) or replaced by an import is written again', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    await write(w, withTimeline())
+    const full = snapshot(db)
+    db.run(`DELETE FROM sessions WHERE session_id = 'sess-1'`)
+    await write(w, withTimeline())
+    assert.strictEqual(snapshot(db), full)
+    w.clearAll()
+    await write(w, withTimeline())
+    assert.strictEqual(snapshot(db), full)
+    w.importCards([makeCard({ model: 'imported' })])
+    await write(w, withTimeline())
+    assert.strictEqual(snapshot(db), full)
+    db.close()
+  })
+
+  test('a card whose blob write failed is written again next time, so the blob is retried', async () => {
+    let fail = true
+    const written: string[] = []
+    const fakeFs = {
+      stat:      (uri: vscode.Uri) => written.includes(uri.path) ? Promise.resolve({}) : Promise.reject(new Error('not found')),
+      writeFile: (uri: vscode.Uri) => { if (fail) return Promise.reject(new Error('disk full')); written.push(uri.path); return Promise.resolve() },
+    }
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri('blob-retry'), () => {}, fakeFs as unknown as typeof import('vscode').workspace.fs)
+    const card = () => makeCard({
+      timeline: [{ type: 'llm', spanId: 'sp-retry', label: 'LLM', durationMs: 1, isError: false, timestamp: '', responseText: 'x'.repeat(600) }],
+    })
+    await write(w, card())
+    fail = false
+    await write(w, card())
+    assert.ok(written.some(p => p.includes('sp-retry-response.txt')))
+    db.close()
+  })
+})

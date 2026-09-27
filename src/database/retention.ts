@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import { bumpSessionsVersion } from './sessionsVersion'
 
 interface RetentionDb {
   run(sql: string, params?: unknown[]): void
@@ -28,6 +29,8 @@ export async function runRetention(
   } catch (err) {
     log(`TraceRoost retention: delete error — ${err}`)
     return
+  } finally {
+    bumpSessionsVersion(db)
   }
 
   // The blob sweep below reads every timeline row (over a second on a large history), so it runs

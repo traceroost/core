@@ -1,6 +1,8 @@
+import * as crypto from 'crypto'
 import * as vscode from 'vscode'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarizers/summarizerTypes'
 import { calcSessionCostUsd } from '../pricing'
+import { bumpSessionsVersion } from './sessionsVersion'
 
 // Strings below this length are kept inline in the DB row rather than written to a blob file.
 const BLOB_MIN_LENGTH = 512
@@ -32,6 +34,9 @@ const INSERT_SESSION_SQL = `INSERT OR REPLACE INTO sessions (
         files_read, files_changed, files_written, files_searched, files_changed_note, cost_usd,
         data_source, models, one_shot_stats, initiator, conversation_id
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+
+// sessions.created_at's column default (schema.ts) — what every INSERT OR REPLACE of a row sets.
+const CREATED_AT_NOW_SQL = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
 
 const INSERT_TIMELINE_SQL = `INSERT INTO timeline_entries (
         session_id, span_id, position, type, label, model,
@@ -99,6 +104,11 @@ export class DatabaseWriter {
   private writing = false
   private _generation = 0  // incremented by clearAll() to abort in-flight drains
   private readonly vscodeFs: typeof vscode.workspace.fs
+  // sessionId → fingerprint of every value the last complete _writeOnce of that session put in
+  // the database (session row, timeline rows, edit rows) — see _writeOnce. The 30 s log tick
+  // re-parses a growing transcript whole and hands back every gap-split segment of it, nearly all
+  // unchanged; this is what lets those be skipped instead of deleted and reinserted row by row.
+  private readonly writtenFingerprints = new Map<string, string>()
 
   constructor(
     private readonly db: WriteableDb,
@@ -147,6 +157,7 @@ export class DatabaseWriter {
         [traceId],
       )
     } catch { /* ignore — non-fatal */ }
+    bumpSessionsVersion(this.db)
   }
 
   async drain(): Promise<void> {
@@ -173,6 +184,7 @@ export class DatabaseWriter {
     this.db.run('BEGIN')
     try {
       for (const card of cards) {
+        this.writtenFingerprints.delete(card.sessionId)
         this._writeSessionRow(stmts, card, card.workspace)
       }
       stmts.freeAll()
@@ -181,6 +193,8 @@ export class DatabaseWriter {
       stmts.freeAll()
       try { this.db.run('ROLLBACK') } catch { /* ignore */ }
       throw err
+    } finally {
+      bumpSessionsVersion(this.db)
     }
   }
 
@@ -189,6 +203,7 @@ export class DatabaseWriter {
     // see the mismatch and abort before writing further sessions to the DB.
     this._generation++
     this.pending.clear()
+    this.writtenFingerprints.clear()
     try {
       // Delete order respects FK constraints (child tables first).
       // CASCADE would handle it, but explicit order is clearer.
@@ -198,6 +213,7 @@ export class DatabaseWriter {
     } catch (err) {
       this.log(`DatabaseWriter.clearAll error: ${err}`)
     }
+    bumpSessionsVersion(this.db)
   }
 
   dispose(): void {
@@ -277,23 +293,41 @@ export class DatabaseWriter {
       this.log(`DatabaseWriter: kept stored session ${card.sessionId} — incoming card has fewer calls`)
       return
     }
+    // Everything the rows below will hold, computed up front: if it's exactly what this writer
+    // last wrote for this session, and that row is still there (nothing but this writer rewrites
+    // a session's rows; a delete — retention, an OTEL card covering a log row — removes them
+    // outright), rewriting would only reproduce the same rows, so skip it. Blob files are
+    // write-once per span id, and a fingerprint is only recorded once they were all written.
+    const sessionParams = this._sessionRowParams(card, workspace)
+    const timelineParams = card.timeline.map((entry, i) => this._timelineEntryParams(card.sessionId, entry, i))
+    const editParams = card.timeline.map(entry => entry.editDetails?.map(ed => this._editDetailParams(ed)))
+    const fingerprint = crypto.createHash('sha1')
+      .update(JSON.stringify([sessionParams, timelineParams, editParams]))
+      .digest('base64')
+    const unchanged = this.writtenFingerprints.get(card.sessionId) === fingerprint && this._sessionRowExists(card.sessionId)
+    this.writtenFingerprints.delete(card.sessionId)
+
     const stmts = new StatementCache(this.db)
     this.db.run('BEGIN')
     try {
       this._deleteClaudeLogRowsCoveredBy(card)
-      this._writeSessionRow(stmts, card, workspace)
-      // Delete-then-reinsert: no stable PK on timeline_entries to upsert against.
-      // CASCADE on the FK handles edit_details cleanup.
-      this.db.run('DELETE FROM timeline_entries WHERE session_id = ?', [card.sessionId])
+      if (unchanged) {
+        // The one value a rewrite would still have changed: REPLACE re-applies the column default.
+        this.db.run(`UPDATE sessions SET created_at = ${CREATED_AT_NOW_SQL} WHERE session_id = ?`, [card.sessionId])
+      } else {
+        stmts.run(INSERT_SESSION_SQL, sessionParams)
+        // Delete-then-reinsert: no stable PK on timeline_entries to upsert against.
+        // CASCADE on the FK handles edit_details cleanup.
+        this.db.run('DELETE FROM timeline_entries WHERE session_id = ?', [card.sessionId])
 
-      for (let i = 0; i < card.timeline.length; i++) {
-        const entry = card.timeline[i]
-        this._writeTimelineEntry(stmts, card.sessionId, entry, i)
-        const entryId = stmts.lastInsertRowId()
-
-        if (entry.editDetails) {
-          for (const ed of entry.editDetails) {
-            this._writeEditDetail(stmts, entryId, ed)
+        for (let i = 0; i < card.timeline.length; i++) {
+          stmts.run(INSERT_TIMELINE_SQL, timelineParams[i])
+          const edits = editParams[i]
+          if (edits) {
+            const entryId = stmts.lastInsertRowId()
+            for (const params of edits) {
+              stmts.run(INSERT_EDIT_SQL, [entryId, ...params])
+            }
           }
         }
       }
@@ -303,55 +337,69 @@ export class DatabaseWriter {
       stmts.freeAll()
       try { this.db.run('ROLLBACK') } catch { /* ignore rollback errors */ }
       throw err
+    } finally {
+      bumpSessionsVersion(this.db)
+    }
+    if (unchanged) {
+      this.writtenFingerprints.set(card.sessionId, fingerprint)
+      return
     }
 
     // Blob writes are async and intentionally outside the transaction.
+    let blobsWritten = true
     for (const entry of card.timeline) {
-      await this._writeBlobsForEntry(entry)
+      if (!await this._writeBlobsForEntry(entry)) blobsWritten = false
     }
+    if (blobsWritten) this.writtenFingerprints.set(card.sessionId, fingerprint)
+  }
+
+  private _sessionRowExists(sessionId: string): boolean {
+    const rows = this.db.exec('SELECT 1 FROM sessions WHERE session_id = ?', [sessionId])
+    return (rows[0]?.values.length ?? 0) > 0
   }
 
   private _writeSessionRow(stmts: StatementCache, card: SessionSummaryCard, workspace: string): void {
+    stmts.run(INSERT_SESSION_SQL, this._sessionRowParams(card, workspace))
+  }
+
+  private _sessionRowParams(card: SessionSummaryCard, workspace: string): unknown[] {
     const costUsd = this._computeSessionCost(card)
-    stmts.run(
-      INSERT_SESSION_SQL,
-      [
-        card.sessionId,
-        card.traceId,
-        card.source,
-        workspace,
-        null,           // project_path — not yet on SessionSummaryCard
-        card.model,
-        Date.parse(card.startTime) || 0,
-        card.durationMs,
-        card.turns,
-        card.inputTokens,
-        card.outputTokens,
-        card.cacheReadTokens,
-        card.cacheCreateTokens,
-        card.cacheHitRate,
-        card.totalToolCalls,
-        card.totalLlmCalls,
-        card.errors,
-        card.outcome,
-        0,              // is_sidechain — not yet on SessionSummaryCard
-        null,           // speed — not yet on SessionSummaryCard
-        card.userRequest,
-        JSON.stringify(card.toolCounts),
-        JSON.stringify(card.loopSignals),
-        JSON.stringify(card.filesRead),
-        JSON.stringify(card.filesChanged),
-        JSON.stringify((card.filesWritten ?? []).slice(0, 50)),
-        JSON.stringify(card.filesSearched),
-        card.filesChangedNote ?? null,
-        costUsd,
-        card.dataSource,
-        JSON.stringify(card.models ?? (card.model ? [card.model] : [])),
-        JSON.stringify(card.oneShotStats ?? {}),
-        card.initiator ?? null,
-        claudeConversationKey(card),
-      ]
-    )
+    return [
+      card.sessionId,
+      card.traceId,
+      card.source,
+      workspace,
+      null,           // project_path — not yet on SessionSummaryCard
+      card.model,
+      Date.parse(card.startTime) || 0,
+      card.durationMs,
+      card.turns,
+      card.inputTokens,
+      card.outputTokens,
+      card.cacheReadTokens,
+      card.cacheCreateTokens,
+      card.cacheHitRate,
+      card.totalToolCalls,
+      card.totalLlmCalls,
+      card.errors,
+      card.outcome,
+      0,              // is_sidechain — not yet on SessionSummaryCard
+      null,           // speed — not yet on SessionSummaryCard
+      card.userRequest,
+      JSON.stringify(card.toolCounts),
+      JSON.stringify(card.loopSignals),
+      JSON.stringify(card.filesRead),
+      JSON.stringify(card.filesChanged),
+      JSON.stringify((card.filesWritten ?? []).slice(0, 50)),
+      JSON.stringify(card.filesSearched),
+      card.filesChangedNote ?? null,
+      costUsd,
+      card.dataSource,
+      JSON.stringify(card.models ?? (card.model ? [card.model] : [])),
+      JSON.stringify(card.oneShotStats ?? {}),
+      card.initiator ?? null,
+      claudeConversationKey(card),
+    ]
   }
 
   /**
@@ -365,46 +413,42 @@ export class DatabaseWriter {
     return calcSessionCostUsd(card)
   }
 
-  private _writeTimelineEntry(stmts: StatementCache, sessionId: string, entry: TimelineEntry, position: number): void {
+  private _timelineEntryParams(sessionId: string, entry: TimelineEntry, position: number): unknown[] {
     const hasBlob = [entry.responseText, entry.thinking, entry.toolInput, entry.fullResult]
       .some(v => v && v.length >= BLOB_MIN_LENGTH)
 
-    stmts.run(
-      INSERT_TIMELINE_SQL,
-      [
-        sessionId,
-        entry.spanId,
-        position,
-        entry.type,
-        entry.label,
-        entry.model ?? null,
-        entry.inputTokens ?? null,
-        entry.outputTokens ?? null,
-        entry.cacheReadTokens ?? null,
-        entry.cacheCreateTokens ?? null,
-        entry.ttft ?? null,
-        entry.durationMs,
-        entry.action ?? null,
-        entry.decision ?? null,
-        entry.isError ? 1 : 0,
-        entry.errorMessage ?? null,
-        entry.timestamp,
-        hasBlob ? 1 : 0,
-      ]
-    )
+    return [
+      sessionId,
+      entry.spanId,
+      position,
+      entry.type,
+      entry.label,
+      entry.model ?? null,
+      entry.inputTokens ?? null,
+      entry.outputTokens ?? null,
+      entry.cacheReadTokens ?? null,
+      entry.cacheCreateTokens ?? null,
+      entry.ttft ?? null,
+      entry.durationMs,
+      entry.action ?? null,
+      entry.decision ?? null,
+      entry.isError ? 1 : 0,
+      entry.errorMessage ?? null,
+      entry.timestamp,
+      hasBlob ? 1 : 0,
+    ]
   }
 
-  private _writeEditDetail(stmts: StatementCache, timelineEntryId: number, ed: EditDetail): void {
+  /** INSERT_EDIT_SQL's parameters after the leading timeline_entry_id. */
+  private _editDetailParams(ed: EditDetail): unknown[] {
     const hasBlob = [ed.oldString, ed.newString, ed.content]
       .some(v => v && v.length >= BLOB_MIN_LENGTH)
-
-    stmts.run(
-      INSERT_EDIT_SQL,
-      [timelineEntryId, ed.filePath, ed.toolName ?? null, hasBlob ? 1 : 0]
-    )
+    return [ed.filePath, ed.toolName ?? null, hasBlob ? 1 : 0]
   }
 
-  private async _writeBlobsForEntry(entry: TimelineEntry): Promise<void> {
+  /** False when any blob write failed (already logged). */
+  private async _writeBlobsForEntry(entry: TimelineEntry): Promise<boolean> {
+    let ok = true
     const entryFields: Array<[string | undefined, string]> = [
       [entry.responseText, `${entry.spanId}-response.txt`],
       [entry.thinking,     `${entry.spanId}-thinking.txt`],
@@ -413,7 +457,7 @@ export class DatabaseWriter {
     ]
     for (const [value, filename] of entryFields) {
       if (value && value.length >= BLOB_MIN_LENGTH) {
-        await this._writeBlob(filename, value)
+        if (!await this._writeBlob(filename, value)) ok = false
       }
     }
 
@@ -427,25 +471,29 @@ export class DatabaseWriter {
         ]
         for (const [value, filename] of edFields) {
           if (value && value.length >= BLOB_MIN_LENGTH) {
-            await this._writeBlob(filename, value)
+            if (!await this._writeBlob(filename, value)) ok = false
           }
         }
       }
     }
+    return ok
   }
 
-  private async _writeBlob(filename: string, content: string): Promise<void> {
+  /** False when the write failed (logged here). */
+  private async _writeBlob(filename: string, content: string): Promise<boolean> {
     const fileUri = vscode.Uri.joinPath(this.storageUri, 'blobs', filename)
     try {
       await this.vscodeFs.stat(fileUri)
-      return  // already exists; span content is immutable
+      return true  // already exists; span content is immutable
     } catch {
       // file absent — proceed to write
     }
     try {
       await this.vscodeFs.writeFile(fileUri, Buffer.from(content, 'utf8'))
+      return true
     } catch (err) {
       this.log(`DatabaseWriter: blob write failed for ${filename}: ${err}`)
+      return false
     }
   }
 }

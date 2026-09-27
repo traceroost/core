@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   sessionSummary, toolCalls,
   selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
-  sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor,
+  sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds,
   repoInfo,
   dailyStats, lifetimeStats, burnRateData, searchResults, rangedSearchResults, exportSearchResults,
@@ -462,6 +462,7 @@ export function App() {
       pendingOutcomes = null
       gitOutcomes.value = { ...gitOutcomes.value, ...pending }
       for (const id in pending) {
+        gitOutcomeRequestSettled(id)
         if (deferredGitOutcomeSessionIds.has(id)) deferredGitOutcomeSessionIds.delete(id)
       }
     }
@@ -574,6 +575,7 @@ export function App() {
         // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
         // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). It stays absent from
         // gitOutcomes, so no outcome badge renders for it either.
+        gitOutcomeRequestSettled(msg.sessionId)
         deferredGitOutcomeSessionIds.add(msg.sessionId)
       } else if (msg.type === 'runningGitCommands' && Array.isArray(msg.commands)) {
         runningGitCommands.value = msg.commands
