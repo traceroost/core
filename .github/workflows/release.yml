@@ -91,6 +91,9 @@ jobs:
             const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
             p.name = id.name;
             p.publisher = id.publisher;
+            // `files` is the npm tarball's allowlist; the VSIX's contents come from .vscodeignore,
+            // and vsce refuses to package a manifest that has both.
+            delete p.files;
             fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
             console.log(`vsce identity: ${id.publisher}.${id.name}`);
           '

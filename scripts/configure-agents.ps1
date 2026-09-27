@@ -45,7 +45,7 @@ function Configure-Claude {
         if ($content) {
             try {
                 $parsed = $content | ConvertFrom-Json
-                $settings = @{}
+                $settings = [ordered]@{}
                 $parsed.PSObject.Properties | ForEach-Object { $settings[$_.Name] = $_.Value }
                 if ($null -eq $settings["env"]) {
                     $settings["env"] = [ordered]@{}
