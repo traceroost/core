@@ -109,10 +109,20 @@ export class DeliveryLedger {
    *  otherwise two hosts marking different keys delivered around the same time can each read
    *  before either writes, and whichever writes second silently discards the first's key. */
   markDelivered(key: string): void {
+    this.markDeliveredMany([key])
+  }
+
+  /** `markDelivered` for several keys in one locked read-modify-write — see sender.ts, which
+   *  records a whole batch response's confirmed sends at once. */
+  markDeliveredMany(keys: string[]): void {
     withFileLock(this.file, () => {
       const existing = this.readCached()
-      if (existing.set.has(key)) return
-      const next = [...existing.keys, key]
+      const added = new Set<string>()
+      for (const key of keys) {
+        if (!existing.set.has(key)) added.add(key)
+      }
+      if (added.size === 0) return
+      const next = [...existing.keys, ...added]
       this.writeAll(next.length > this.maxEntries ? next.slice(next.length - this.maxEntries) : next)
     })
   }

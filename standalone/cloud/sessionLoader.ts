@@ -41,9 +41,11 @@ export function loadAllSessions(): SessionSummaryCard[] {
     .sort((a, b) => Date.parse(b.startTime) - Date.parse(a.startTime))
 }
 
-export function loadSessionsForWorkspace(workspace: string): SessionSummaryCard[] {
+/** `all` lets a caller that already ran `loadAllSessions()` filter that instead of re-reading and
+ *  re-parsing every log file a second time. */
+export function loadSessionsForWorkspace(workspace: string, all: SessionSummaryCard[] = loadAllSessions()): SessionSummaryCard[] {
   const abs = path.resolve(workspace)
-  return loadAllSessions().filter(s => {
+  return all.filter(s => {
     const ws = (s.workspace ?? '').replace(/^file:\/\//, '')
     return ws === abs || ws.startsWith(abs + path.sep) || abs.startsWith(ws)
   })

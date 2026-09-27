@@ -21,14 +21,15 @@ export function findSessionById(sessions: SessionSummaryCard[], id: string): Ses
   return sessions.find(s => s.sessionId === id || s.traceId === id)
 }
 
-export async function runTraceCli(args: string[]): Promise<number> {
+/** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it. */
+export async function runTraceCli(args: string[], loaded?: SessionSummaryCard[]): Promise<number> {
   const id = (valueAfter(args, '--id') ?? '').trim()
   if (!id) {
     console.log('Usage: traceroost trace --id <sessionId>')
     return 1
   }
 
-  const found = findSessionById(loadAllSessions(), id)
+  const found = findSessionById(loaded ?? loadAllSessions(), id)
   if (!found) {
     console.log(`No trace matching "${id}" on this machine — try a machine that recorded this session.`)
     return 1

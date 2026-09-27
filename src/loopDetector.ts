@@ -453,27 +453,30 @@ const EXACT_REPEAT_WARNING_STREAK = 30
 const EXACT_REPEAT_CRITICAL_STREAK = 50
 
 export function detectExactToolRepeat(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const streaks: Record<string, number> = {}
-  const maxStreaks: Record<string, number> = {}
-  const lastResult: Record<string, string | undefined> = {}
+  // An edit resets every label's streak. Rather than zeroing each one (O(labels) per edit), a
+  // streak only counts while it was last extended in the current edit-free run (`run`).
+  const streaks = new Map<string, { n: number; run: number }>()
+  const maxStreaks = new Map<string, number>()
+  const lastResult = new Map<string, string | undefined>()
+  let run = 0
 
   for (const entry of session.timeline) {
-    if (entry.editDetails && entry.editDetails.length > 0) {
-      for (const key of Object.keys(streaks)) { streaks[key] = 0 }
-    }
+    if (entry.editDetails && entry.editDetails.length > 0) { run++ }
     if (entry.type !== 'tool') { continue }
     const key = (entry.label || '').trim()
     if (!key) { continue }
 
-    const prevResult = lastResult[key]
+    const prevResult = lastResult.get(key)
     const contentChanged = prevResult !== undefined && entry.fullResult !== undefined && entry.fullResult !== prevResult
 
-    streaks[key] = contentChanged ? 1 : (streaks[key] || 0) + 1
-    maxStreaks[key] = Math.max(maxStreaks[key] || 0, streaks[key])
-    lastResult[key] = entry.fullResult
+    const streak = streaks.get(key)
+    const n = contentChanged ? 1 : (streak && streak.run === run ? streak.n : 0) + 1
+    if (streak) { streak.n = n; streak.run = run } else { streaks.set(key, { n, run }) }
+    maxStreaks.set(key, Math.max(maxStreaks.get(key) || 0, n))
+    lastResult.set(key, entry.fullResult)
   }
 
-  const repeated = Object.entries(maxStreaks)
+  const repeated = Object.entries(toOrderedRecord(maxStreaks))
     .filter(([, n]) => n >= EXACT_REPEAT_WARNING_STREAK)
     .sort((a, b) => b[1] - a[1])
 
@@ -489,6 +492,15 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
     patternName: PATTERN_NAMES.exact_tool_repeat,
     action: LOOP_SIGNAL_ACTIONS.exact_tool_repeat,
   })
+}
+
+/** A Map's entries as a plain object, so `Object.entries` enumerates them in exactly the order a
+ *  Record built key by key would (integer-like keys first) — detectExactToolRepeat tracks with Maps
+ *  for speed but keeps its original tie-breaking order. */
+function toOrderedRecord(map: Map<string, number>): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [k, v] of map) { out[k] = v }
+  return out
 }
 
 // ── Shared: per-file edit extraction ─────────────────────────────────────────

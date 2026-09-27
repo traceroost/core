@@ -197,13 +197,16 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
   fallbackTimer.unref?.()
 
   // Startup/resume catch-up: reconcile everything once immediately rather than waiting for the
-  // first watch event or the first fallback tick.
-  requestPass(null)
+  // first watch event or the first fallback tick. On the next macrotask, not inline: the pass
+  // starts by listing every stored session synchronously (hundreds of ms on a large history),
+  // which otherwise ran on the extension's activation stack.
+  const startupPass = setImmediate(() => requestPass(null))
 
   return {
     refreshNow() { requestPass(null) },
     dispose() {
       disposed = true
+      clearImmediate(startupPass)
       clearInterval(fallbackTimer)
       if (debounceTimer) clearTimeout(debounceTimer)
       for (const w of gitWatchers.values()) w.close()

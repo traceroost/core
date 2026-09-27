@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { findSessionById } from './traceCli'
+import { findSessionById, runTraceCli } from './traceCli'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 function makeCard(overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCard {
@@ -54,5 +54,20 @@ suite('findSessionById', () => {
   test('does not partial-match — an id that is only a substring of a real one does not match', () => {
     const sessions = [makeCard({ sessionId: 'abcdef' })]
     assert.strictEqual(findSessionById(sessions, 'abc'), undefined)
+  })
+})
+
+suite('runTraceCli', () => {
+  test('uses already-loaded sessions when given them (find passes its own load through)', async () => {
+    const log = console.log
+    const lines: string[] = []
+    console.log = (...a: unknown[]) => { lines.push(a.join(' ')) }
+    try {
+      assert.strictEqual(await runTraceCli(['--id', 'preloaded'], [makeCard({ sessionId: 'preloaded', workspace: '/preloaded-repo' })]), 0)
+      assert.strictEqual(await runTraceCli(['--id', 'missing'], [makeCard({ sessionId: 'preloaded' })]), 1)
+    } finally {
+      console.log = log
+    }
+    assert.ok(lines.some(l => l.includes('/preloaded-repo')))
   })
 })

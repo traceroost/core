@@ -116,6 +116,31 @@ function makeSetSignal<T>() {
 export const sessionSummary = signal<FullSummary | null>(window.__INITIAL_SESSION_SUMMARY__ ?? null)
 export const toolCalls = signal<Record<string, number>>(window.__INITIAL_TOOL_CALLS__ ?? {})
 
+// Incremental `update` payload from the extension host — see src/webviewSessionSync.ts, which
+// only sends the cards that changed since its last post (and the id order, only when that changed).
+export interface SessionDelta {
+  upserts: SessionSummaryCard[]
+  order?: string[]
+  efficiency: FullSummary['efficiency']
+}
+
+/** The summary `delta` brings `prev` to, or null when `delta` names a session `prev` doesn't hold
+ *  (the caller then asks the host for a full resync). Unchanged cards keep their identity. */
+export function applySessionDelta(prev: FullSummary | null, delta: SessionDelta): FullSummary | null {
+  if (!prev && !delta.order) return null
+  const byId = new Map<string, SessionSummaryCard>()
+  for (const s of prev?.sessions ?? []) byId.set(s.sessionId, s)
+  for (const s of delta.upserts) byId.set(s.sessionId, s)
+  const order = delta.order ?? prev!.sessions.map(s => s.sessionId)
+  const sessions: SessionSummaryCard[] = []
+  for (const id of order) {
+    const s = byId.get(id)
+    if (!s) return null
+    sessions.push(s)
+  }
+  return { sessions, backgroundSpans: [], efficiency: delta.efficiency }
+}
+
 // ── Lazy timeline cache: sessionId → loaded timeline entries ──────────────────
 // Populated by sessionDetail messages from the extension host.
 
@@ -556,6 +581,8 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
   const key = sessionSortKey.value
   const dir = sessionSortDir.value
   if (key === 'start_time') return dir === 'asc' ? [...sessions].reverse() : sessions
+  // Priced once per session up front, not twice per comparison.
+  const costs = key === 'cost' ? new Map(sessions.map(s => [s, calcSessionCost(s).totalUsd])) : null
   return [...sessions].sort((a, b) => {
     let cmp = 0
     switch (key) {
@@ -570,8 +597,8 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
       case 'outcome':      cmp = outcomeRank(gitOutcomes.value[b.sessionId]?.overall ?? null) - outcomeRank(gitOutcomes.value[a.sessionId]?.overall ?? null); break
       case 'signals':      cmp = signalsScore(b.loopSignals) - signalsScore(a.loopSignals); break
       case 'cost': {
-        const costA = calcSessionCost(a).totalUsd
-        const costB = calcSessionCost(b).totalUsd
+        const costA = costs!.get(a)!
+        const costB = costs!.get(b)!
         cmp = costB - costA
         break
       }

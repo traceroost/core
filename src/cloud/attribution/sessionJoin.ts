@@ -18,38 +18,46 @@ export const DEFAULT_LOOKBACK_HOURS = 72
 // form `git rev-parse --show-toplevel` reports, which the JS implementation leaves as-is — the two
 // sides would otherwise never compare equal. A path that doesn't exist (a deleted file) resolves
 // its nearest existing ancestor.
-function realpathBestEffort(p: string): string {
+// `memo` caches resolutions for the duration of one join — every candidate session re-resolves the
+// same repo root and mostly the same workspace/file paths, one realpath syscall chain each.
+function realpathBestEffort(p: string, memo?: Map<string, string>): string {
+  const hit = memo?.get(p)
+  if (hit !== undefined) return hit
   const abs = path.resolve(p)
   const rest: string[] = []
+  let resolved = abs
   for (let dir = abs; ; dir = path.dirname(dir)) {
     try {
-      return path.join(fs.realpathSync.native(dir), ...rest)
+      resolved = path.join(fs.realpathSync.native(dir), ...rest)
+      break
     } catch {
-      if (path.dirname(dir) === dir) return abs
+      if (path.dirname(dir) === dir) break
       rest.unshift(path.basename(dir))
     }
   }
+  memo?.set(p, resolved)
+  return resolved
 }
 
-function workspaceToPath(workspace: string): string {
+function workspaceToPath(workspace: string, memo?: Map<string, string>): string {
   let p = workspace
   if (p.startsWith('file://')) {
     try { p = decodeURIComponent(new URL(p).pathname) } catch { /* leave as-is */ }
   }
-  return realpathBestEffort(p)
+  return realpathBestEffort(p, memo)
 }
 
 /** True when `session.workspace` is inside (or equal to) `repoRoot`. */
-export function sessionIsInRepo(session: AttributionSession, repoRoot: string): boolean {
-  const ws = workspaceToPath(session.workspace)
-  const root = realpathBestEffort(repoRoot)
+export function sessionIsInRepo(session: AttributionSession, repoRoot: string, memo?: Map<string, string>): boolean {
+  const ws = workspaceToPath(session.workspace, memo)
+  const root = realpathBestEffort(repoRoot, memo)
   const rel = path.relative(root, ws)
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
 }
 
 /** repo-relative POSIX path of an absolute file path under `repoRoot`, or null. */
-export function repoRelative(repoRoot: string, absPath: string): string | null {
-  const rel = path.relative(realpathBestEffort(repoRoot), realpathBestEffort(absPath))
+export function repoRelative(repoRoot: string, absPath: string, memo?: Map<string, string>): string | null {
+  const rel = path.relative(realpathBestEffort(repoRoot, memo), realpathBestEffort(absPath, memo))
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
   return rel.split(path.sep).join('/')
 }
@@ -77,17 +85,19 @@ export function joinCommitToSessions(
   const sessionIds = new Set<string>()
   let withinSessionSpan = false
 
+  const memo = new Map<string, string>()
   for (const s of sessions) {
-    if (!sessionIsInRepo(s, repoRoot)) continue
     // The commit must land at or after the session ends, within the lookback window …
     const endsBefore = s.endMs <= commitMs && commitMs - s.endMs <= lookbackMs
     // … or the commit lands inside the session's own span (a stronger signal).
     const insideSpan = s.startMs <= commitMs && commitMs <= s.endMs
     if (!endsBefore && !insideSpan) continue
+    // Checked after the time window: it touches the filesystem, the window doesn't.
+    if (!sessionIsInRepo(s, repoRoot, memo)) continue
 
     let matched = false
     for (const abs of s.filesChanged) {
-      const rel = repoRelative(repoRoot, abs)
+      const rel = repoRelative(repoRoot, abs, memo)
       if (rel && commitFiles.has(rel)) {
         agentTouchedFiles.add(rel)
         matched = true

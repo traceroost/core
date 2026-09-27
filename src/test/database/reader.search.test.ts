@@ -5,6 +5,7 @@ import { SCHEMA_SQL } from '../../database/schema'
 import { DatabaseWriter } from '../../database/writer'
 import { DatabaseReader, type SearchQuery } from '../../database/reader'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import type { SqlStatement } from '../../database/db'
 
 // searchSessions is the real backend query builder behind the webview's bounded-time-range
 // fetch (media/src/App.tsx's TimeRangePicker.fireSearch) and the uncapped Export path — the
@@ -17,6 +18,7 @@ import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
 }

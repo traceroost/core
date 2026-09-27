@@ -30,22 +30,31 @@ export async function runRetention(
     return
   }
 
+  // The blob sweep below reads every timeline row (over a second on a large history), so it runs
+  // on a later turn of the event loop: everything above has already happened, synchronously, by
+  // the time runRetention() returns its promise — activation doesn't wait for the sweep.
+  await new Promise<void>(resolve => setImmediate(resolve))
+
   // Blob eviction: collect all span IDs still in timeline_entries, then delete orphans.
   try {
-    const result = db.exec('SELECT DISTINCT span_id FROM timeline_entries')
+    if (!fs.existsSync(blobsDir)) return
+
+    // Filenames: <spanId>-response.txt  or  <spanId>-<editIdx>-old.txt  etc.
+    // spanId is the portion before the first recognised suffix token.
+    const candidates = fs.readdirSync(blobsDir)
+      .map(filename => ({ filename, spanId: extractSpanId(filename) }))
+      .filter((c): c is { filename: string; spanId: string } => c.spanId !== null)
+    if (candidates.length === 0) return
+
+    // No DISTINCT: the Set dedupes, and DISTINCT made SQLite sort every row first (~2x slower).
+    const result = db.exec('SELECT span_id FROM timeline_entries')
     const knownSpanIds = new Set<string>(
       result[0]?.values.map(row => row[0] as string) ?? []
     )
 
-    if (!fs.existsSync(blobsDir)) return
-
-    const files = fs.readdirSync(blobsDir)
     let deleted = 0
-    for (const filename of files) {
-      // Filenames: <spanId>-response.txt  or  <spanId>-<editIdx>-old.txt  etc.
-      // spanId is the portion before the first recognised suffix token.
-      const spanId = extractSpanId(filename)
-      if (spanId && !knownSpanIds.has(spanId)) {
+    for (const { filename, spanId } of candidates) {
+      if (!knownSpanIds.has(spanId)) {
         try {
           fs.unlinkSync(path.join(blobsDir, filename))
           deleted++

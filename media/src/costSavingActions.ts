@@ -92,12 +92,21 @@ function loopSignalActions(sessions: SessionSummaryCard[]): CostSavingAction[] {
  *  just needs to know whether that tab has something worth pointing at. */
 function hotFileAction(sessions: SessionSummaryCard[], existingInstructionText: string): CostSavingAction | null {
   if (sessions.length < 5) return null
+  const existingLower = existingInstructionText.toLowerCase()
+  // Whether each distinct path is eligible, decided once — the same few files recur across
+  // thousands of sessions, and re-scanning the instruction text for each occurrence dominated.
+  const eligible = new Map<string, boolean>()
   const fileSessionIds = new Map<string, Set<string>>()
   for (const s of sessions) {
     for (const f of [...(s.filesRead ?? []), ...(s.filesChanged ?? [])]) {
-      const basename = f.replace(/\\/g, '/').split('/').pop() ?? f
-      if (basename.length < 4 || basename === 'index.ts' || basename === 'index.js') continue
-      if (existingInstructionText.toLowerCase().includes(basename.toLowerCase())) continue
+      let ok = eligible.get(f)
+      if (ok === undefined) {
+        const basename = f.replace(/\\/g, '/').split('/').pop() ?? f
+        ok = !(basename.length < 4 || basename === 'index.ts' || basename === 'index.js')
+          && !existingLower.includes(basename.toLowerCase())
+        eligible.set(f, ok)
+      }
+      if (!ok) continue
       if (!fileSessionIds.has(f)) fileSessionIds.set(f, new Set())
       fileSessionIds.get(f)!.add(s.sessionId)
     }

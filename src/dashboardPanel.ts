@@ -20,6 +20,7 @@ import { orgEndpoint } from './cloud/org/config'
 import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/org/instructionTelemetry'
 import { drainForwardQueueSoon } from './cloud/forward/scheduler'
 import { getNonce, safeJsonForScript } from './webviewHtml'
+import { WebviewSessionSync } from './webviewSessionSync'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {
@@ -89,6 +90,8 @@ export class DashboardPanel {
   // reconciliationService.ts (which has its own copy for the same window, ACTIVE_GRACE_MS) since
   // this one has nothing to do with git-outcome reconciliation.
   private static readonly GIT_OUTCOME_ACTIVE_GRACE_MS = 2 * 60_000
+  // What the webview already holds, so update() posts only what changed.
+  private readonly sessionSync = new WebviewSessionSync()
 
   static show(context: vscode.ExtensionContext, repo: SessionRepository, sidebarProvider?: SidebarPanel, instructionRepo?: InstructionRepository, rawDb?: TurnoverDb, reconciliation?: ReconciliationService) {
     if (DashboardPanel.currentPanel) {
@@ -169,7 +172,12 @@ export class DashboardPanel {
         }
         return
       }
-      if (msg.type === 'loadSessionDetail' && msg.sessionId) {
+      if (msg.type === 'requestFullUpdate') {
+        // The webview's copy no longer matches what this panel last posted (reloaded, or a post
+        // was missed) — start over from a full post.
+        this.sessionSync.reset()
+        this.update()
+      } else if (msg.type === 'loadSessionDetail' && msg.sessionId) {
         const timeline = this.repo.loadSessionTimeline(msg.sessionId as string)
         this.panel.webview.postMessage({ type: 'sessionDetail', sessionId: msg.sessionId, timeline })
       } else if (msg.type === 'getGitOutcome' && msg.sessionId) {
@@ -375,9 +383,6 @@ export class DashboardPanel {
   update() {
     const sessions = this.repo.listSessions()
     const summary = this.repo.store_.getSummary()
-    const sessionSummary = sessions.length > 0
-      ? { sessions, backgroundSpans: [], efficiency: buildEfficiency(sessions) }
-      : null
 
     // Analytics data: 7-day hourly stats + lifetime totals.
     const since7d = Date.now() - 7 * 86_400_000
@@ -391,15 +396,21 @@ export class DashboardPanel {
       ? this.repo.queryBurnRate(activeSession.sessionId)
       : null
 
+    // Only what changed since the last post — see webviewSessionSync.ts.
+    const sync = this.sessionSync.next(
+      sessions,
+      () => buildEfficiency(sessions),
+      { dailyStats, lifetimeStats },
+      burnRateResult
+        ? { sessionId: activeSession!.sessionId, ...burnRateResult }
+        : null,
+    )
+
     const cfg = vscode.workspace.getConfiguration('traceRoost')
     this.panel.webview.postMessage({
       type: 'update',
       summary,
-      sessionSummary,
-      analyticsData: { dailyStats, lifetimeStats },
-      burnRate: burnRateResult
-        ? { sessionId: activeSession!.sessionId, ...burnRateResult }
-        : null,
+      ...sync,
       enableOtelIngestion: cfg.get<boolean>('enableOtelIngestion', true),
       enableLogIngestion: cfg.get<boolean>('enableLogIngestion', true),
       otlpPort: cfg.get<number>('otlpPort', 4318),
@@ -641,6 +652,7 @@ export class DashboardPanel {
     const sessionSummary = sessions.length > 0
       ? { sessions, backgroundSpans: [], efficiency: buildEfficiency(sessions) }
       : null
+    const sessionRev = this.sessionSync.seed(sessions)
 
     const mcpEnabled = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableMcpServer', true)
     const mcpPort    = DashboardPanel.boundMcpPort ?? vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
@@ -648,6 +660,7 @@ export class DashboardPanel {
     const initialData = `<script nonce="${nonce}">
         window.__INITIAL_TOOL_CALLS__ = ${safeJsonForScript(summary.toolCalls)};
         window.__INITIAL_SESSION_SUMMARY__ = ${safeJsonForScript(sessionSummary)};
+        window.__INITIAL_SESSION_REV__ = ${sessionRev};
         window.__VERSION__ = ${safeJsonForScript(this.context.extension.packageJSON.version)};
         window.__MCP_ENABLED__ = ${mcpEnabled};
         window.__MCP_PORT__ = ${mcpPort};

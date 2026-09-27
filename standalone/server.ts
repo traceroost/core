@@ -211,6 +211,15 @@ function addSpan(span: Span) {
 // when the same session ID appears in both, the OTEL version is used.
 let logSessions: Map<string, SessionSummaryCard> = new Map()
 
+/** The one way a card enters `logSessions` — bumps `dataVersion` and drops any cached serialized
+ *  form of the card (see `strippedCardJson`), in case a producer ever hands back the same object
+ *  updated in place rather than a fresh one. */
+function setLogSession(card: SessionSummaryCard): void {
+  logSessions.set(card.sessionId, card)
+  strippedCardJson.delete(card)
+  dataVersion++
+}
+
 // Host-independent reconciliation (staged feature 10) — created once outcomesDb opens, in
 // startLogIngestion() below. Undefined only when sql.js failed to load; getGitOutcome falls back
 // to an in-flight-only, non-durable classification in that case, same posture as before this
@@ -360,8 +369,7 @@ function runLogScan() {
   let changed = false
   for (const { card } of results) {
     card.oneShotStats = computeOneShotStats(card)
-    logSessions.set(card.sessionId, card)
-    dataVersion++
+    setLogSession(card)
     changed = true
     // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
     //
@@ -380,7 +388,7 @@ function runLogScan() {
       void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
     }
   }
-  if (changed) pushUpdate()
+  if (changed) schedulePushUpdate()
 }
 
 // Debounced scan triggered by fs.watch events — fires 300 ms after the last event.
@@ -476,8 +484,7 @@ async function startLogIngestion() {
   const ocResults = logReader.scanOpenCode()
   for (const { card } of ocResults) {
     card.oneShotStats = computeOneShotStats(card)
-    logSessions.set(card.sessionId, card)
-    dataVersion++
+    setLogSession(card)
     countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + 1)
     // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked. Needed
     // here, not just in runLogScan() — this loop's own file reads update the same LogReader's
@@ -500,8 +507,7 @@ async function startLogIngestion() {
       const results = logReader.parseFile(file.filePath, file.agentKey)
       for (const result of results) {
         result.card.oneShotStats = computeOneShotStats(result.card)
-        logSessions.set(result.card.sessionId, result.card)
-        dataVersion++
+        setLogSession(result.card)
         countByKey.set(file.agentKey, (countByKey.get(file.agentKey) ?? 0) + 1)
         // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
         //
@@ -702,18 +708,30 @@ function processLogs(payload: unknown, collectorPath = '/v1/logs'): number {
 // ── SSE push ──────────────────────────────────────────────────────────────────
 
 function safeJson(data: unknown): string {
-  return JSON.stringify(data)
+  return safeJsonText(JSON.stringify(data))
+}
+
+function safeJsonText(json: string): string {
+  return json
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/\$\{/g, '\\${')
 }
 
-function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSpans: Span[]) {
+/** Newest-first by startTime — the same order (ties included) as sorting with a
+ *  `Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')` comparator, with each
+ *  timestamp parsed once instead of on every comparison (~20× fewer parses at 20k sessions). */
+function sortNewestFirst<T extends { startTime: string }>(sessions: T[]): T[] {
+  const times = sessions.map(s => Date.parse(s.startTime || '0'))
+  return sessions.map((_, i) => i).sort((a, b) => times[b] - times[a]).map(i => sessions[i])
+}
+
+/** The part of computeSidebarPayload that depends only on the data, not the clock or live pricing
+ *  — computed once per dataVersion (see derivedViews). */
+function sidebarPayloadBase(summary: ReturnType<typeof summarizeSpans>, allSpans: Span[]) {
   const sessions = summary.sessions
   // newest-first (summarizeSpans returns in arbitrary order — sort by startTime)
-  const sorted = [...sessions].sort((a, b) =>
-    Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')
-  )
+  const sorted = sortNewestFirst(sessions)
   const latest = sorted[0] ?? null
 
   const AGENT_ORDER = ['copilot', 'claude_code', 'codex']
@@ -729,7 +747,6 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     const ms = span.receivedAt ?? 0
     if (ms > lastMs) lastMs = ms
   }
-  const isActive = lastMs > 0 && (Date.now() - lastMs) < 20_000
 
   // Turn input tokens for sparkline from timeline
   const turnInputTokens = latest
@@ -738,6 +755,18 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
         .map(e => e.inputTokens ?? 0)
     : []
 
+  const avgInputTokens = sorted.length > 0
+    ? sorted.reduce((s, x) => s + x.inputTokens, 0) / sorted.length : 1
+  const avgOutputTokens = sorted.length > 0
+    ? sorted.reduce((s, x) => s + x.outputTokens, 0) / sorted.length : 1
+
+  return { sessionCount: sessions.length, latest, agentSources, lastMs, turnInputTokens, avgInputTokens, avgOutputTokens }
+}
+
+function computeSidebarPayload(base: ReturnType<typeof sidebarPayloadBase>) {
+  const { latest, agentSources, lastMs, turnInputTokens, avgInputTokens, avgOutputTokens } = base
+  const isActive = lastMs > 0 && (Date.now() - lastMs) < 20_000
+
   // Simple burn rate estimate for active sessions
   let burnRate: { tokensPerMinute: number; costPerHour: number } | null = null
   if (latest && isActive && latest.durationMs > 10_000) {
@@ -745,11 +774,6 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     const tpm = (totalTokens / latest.durationMs) * 60_000
     burnRate = { tokensPerMinute: Math.round(tpm), costPerHour: 0 }
   }
-
-  const avgInputTokens = sorted.length > 0
-    ? sorted.reduce((s, x) => s + x.inputTokens, 0) / sorted.length : 1
-  const avgOutputTokens = sorted.length > 0
-    ? sorted.reduce((s, x) => s + x.outputTokens, 0) / sorted.length : 1
 
   const currentSession = latest ? {
     source: latest.source,
@@ -769,7 +793,7 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     costUsd: calcSessionCostUsd(latest),
   } : null
 
-  return { isActive, lastActivityMs: lastMs, sessionCount: sessions.length, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens }
+  return { isActive, lastActivityMs: lastMs, sessionCount: base.sessionCount, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens }
 }
 
 // Legacy shape kept for data the Preact dashboard still reads
@@ -877,8 +901,7 @@ function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
       return false
     })
     if (logOnly.length > 0) {
-      const merged = [...logOnly, ...(summary?.sessions ?? [])]
-        .sort((a, b) => Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0'))
+      const merged = sortNewestFirst([...logOnly, ...(summary?.sessions ?? [])])
       summary = { ...(summary ?? { backgroundSpans: [], efficiency: { totalInputTokens: 0, totalOutputTokens: 0, totalLlmCalls: 0, avgInputPerCall: 0, avgTtft: 0, cacheHitRate: 0, toolDefWaste: 0, sysInstructionWaste: 0, topTokenConsumers: [] } }), sessions: merged }
     }
   }
@@ -886,28 +909,103 @@ function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
   return summary
 }
 
-function stripTimelines(summary: ReturnType<typeof summarizeSpans> | null): ReturnType<typeof summarizeSpans> | null {
-  if (!summary) return null
-  return { ...summary, sessions: summary.sessions.map(s => ({ ...s, timeline: [] })) }
+/** Each log-sourced card's `JSON.stringify({ ...card, timeline: [] })`. Log cards outlive any one
+ *  dataVersion (only the few that changed are replaced per scan), so re-serializing all of them
+ *  for every update — tens of MB at 20k sessions — was most of what one OTLP post cost. Keyed on
+ *  the card object and dropped whenever a card (re-)enters `logSessions` (setLogSession). OTEL
+ *  cards are rebuilt by every summarizeSpans() pass, so they're serialized fresh. */
+const strippedCardJson = new WeakMap<SessionSummaryCard, string>()
+
+/** The summary with every session's timeline emptied (`{ ...summary, sessions: sessions.map(s =>
+ *  ({ ...s, timeline: [] })) }`), as JSON — byte for byte what stringifying that would give, but
+ *  reusing strippedCardJson. Timelines are loaded lazily via /api/timeline/:sessionId instead. */
+function strippedSummaryJson(summary: ReturnType<typeof summarizeSpans> | null): string {
+  if (!summary) return 'null'
+  const cards = summary.sessions.map(s => {
+    const reusable = logSessions.get(s.sessionId) === s
+    let json = reusable ? strippedCardJson.get(s) : undefined
+    if (json === undefined) {
+      json = JSON.stringify({ ...s, timeline: [] })
+      if (reusable) strippedCardJson.set(s, json)
+    }
+    return json
+  })
+  // Serialize everything but `sessions` normally (keeping its key position), then splice the
+  // cached card array in where a unique placeholder string landed.
+  const placeholder = `__traceroost_sessions_${process.pid}_${dataVersion}__`
+  const shell = JSON.stringify({ ...summary, sessions: placeholder })
+  const at = shell.indexOf(`"${placeholder}"`)
+  return shell.slice(0, at) + '[' + cards.join(',') + ']' + shell.slice(at + placeholder.length + 2)
+}
+
+/** Everything the dashboard's update payload, the inlined first-paint HTML and /api/summary derive
+ *  from the session data — recomputed once per dataVersion instead of once per HTTP request/SSE
+ *  push (each of which used to re-sort, re-aggregate and re-serialize every session). Only the
+ *  clock/pricing-dependent sidebar bits (computeSidebarPayload) are still computed per use. */
+interface DerivedViews {
+  version: number
+  summary: ReturnType<typeof summarizeSpans> | null
+  strippedJson: string
+  /** safeJson() of the same value, for inlining into a <script>. Built on first use. */
+  strippedSafeJson: string | null
+  sidebarJson: string
+  analyticsJson: string
+  sidebarBase: ReturnType<typeof sidebarPayloadBase> | null
+}
+let derivedCache: DerivedViews | null = null
+
+function derivedViews(): DerivedViews {
+  const summary = buildSessionSummary()
+  if (derivedCache && derivedCache.version === dataVersion && derivedCache.summary === summary) return derivedCache
+  derivedCache = {
+    version: dataVersion,
+    summary,
+    strippedJson: strippedSummaryJson(summary),
+    strippedSafeJson: null,
+    sidebarJson: JSON.stringify(summary ? computeSidebarData(summary, spans) : null),
+    analyticsJson: JSON.stringify(summary ? computeAnalyticsData(summary.sessions) : null),
+    sidebarBase: summary ? sidebarPayloadBase(summary, spans) : null,
+  }
+  return derivedCache
 }
 
 function buildUpdatePayload(): string {
-  const sessionSummary = buildSessionSummary()
-  const stripped = stripTimelines(sessionSummary)
-  const sidebar = sessionSummary ? computeSidebarData(sessionSummary, spans) : null
-  const sidebarLive = sessionSummary ? computeSidebarPayload(sessionSummary, spans) : null
-  const analyticsData = sessionSummary ? computeAnalyticsData(sessionSummary.sessions) : null
-  return JSON.stringify({
-    type: 'update', summary: { toolCalls: {} }, sessionSummary: stripped, sidebar, analyticsData,
-    ...(sidebarLive ?? {}),
-  })
+  const views = derivedViews()
+  const sidebarLive = views.sidebarBase ? computeSidebarPayload(views.sidebarBase) : null
+  // Same JSON as stringifying { type, summary, sessionSummary, sidebar, analyticsData,
+  // ...sidebarLive } in one go, assembled from the cached pieces.
+  return '{"type":"update","summary":{"toolCalls":{}},"sessionSummary":' + views.strippedJson +
+    ',"sidebar":' + views.sidebarJson + ',"analyticsData":' + views.analyticsJson +
+    (sidebarLive ? ',' + JSON.stringify(sidebarLive).slice(1) : '}')
 }
 
 function pushUpdate() {
+  if (pushUpdateTimer) { clearTimeout(pushUpdateTimer); pushUpdateTimer = null }
+  lastPushUpdateAt = Date.now()
+  if (sseClients.length === 0) return // nobody to tell — a tab that connects later gets a fresh payload
+  const started = performance.now()
   const data = buildUpdatePayload()
   sseClients = sseClients.filter(client => {
     try { client.write(`data: ${data}\n\n`); return true } catch { return false }
   })
+  lastPushUpdateCostMs = performance.now() - started
+}
+
+// Ingest-driven pushes (every OTLP POST, every changed log file) are coalesced: at most one full
+// update per PUSH_UPDATE_MIN_INTERVAL_MS — or per 3× what the last one cost, on a history large
+// enough that building and writing the payload takes a while — always ending on the latest state.
+// Pushing on every POST rebuilt and re-sent the whole summary each time, which on a large history
+// kept the event loop busy for as long as an agent kept exporting.
+const PUSH_UPDATE_MIN_INTERVAL_MS = 250
+let pushUpdateTimer: ReturnType<typeof setTimeout> | null = null
+let lastPushUpdateAt = 0
+let lastPushUpdateCostMs = 0
+
+function schedulePushUpdate(): void {
+  if (pushUpdateTimer) return
+  const wait = lastPushUpdateAt + Math.max(PUSH_UPDATE_MIN_INTERVAL_MS, 3 * lastPushUpdateCostMs) - Date.now()
+  if (wait <= 0) { pushUpdate(); return }
+  pushUpdateTimer = setTimeout(pushUpdate, wait)
 }
 
 /** Sends an arbitrary message to every open dashboard tab, exactly as `vscode.postMessage` would
@@ -939,11 +1037,11 @@ function pushOrgStatusToClients(): void {
 // ── Dashboard HTML ────────────────────────────────────────────────────────────
 
 function getHtml(): string {
-  const sessionSummary = buildSessionSummary()
+  const views = derivedViews()
   // Strip full timeline arrays before inlining — they can be many MB across sessions.
   // Timelines are loaded lazily via /api/timeline/:sessionId after first paint.
-  const sessionSummaryJson = safeJson(stripTimelines(sessionSummary))
-  const sidebarLive = sessionSummary ? computeSidebarPayload(sessionSummary, spans) : {
+  const sessionSummaryJson = views.strippedSafeJson ??= safeJsonText(views.strippedJson)
+  const sidebarLive = views.sidebarBase ? computeSidebarPayload(views.sidebarBase) : {
     isActive: false, lastActivityMs: 0, sessionCount: 0, agentSources: [], currentSession: null, burnRate: null,
   }
   const sidebarInitJson = safeJson(sidebarLive)
@@ -1823,8 +1921,7 @@ const uiServer = http.createServer((req, res) => {
           if (!id || !VALID_SOURCES.has(s['source'] as string)) continue
           if (logSessions.has(id)) { skipped++; continue }
           const card = buildImportCardStandalone(s)
-          logSessions.set(id, card)
-          dataVersion++
+          setLogSession(card)
           imported++
         }
         pushUpdate()
@@ -1971,9 +2068,8 @@ const uiServer = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && url === '/api/summary') {
-    const summary = buildSessionSummary()
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(stripTimelines(summary)))
+    res.end(derivedViews().strippedJson)
     return
   }
 
@@ -2216,7 +2312,7 @@ const otlpServer = http.createServer((req, res) => {
       } else {
         console.warn(`[TraceRoost] ignored POST ${req.url ?? '/'}: unrecognized OTLP JSON payload`)
       }
-      pushUpdate()
+      schedulePushUpdate()
       scheduleSave()
     } catch (e) {
       console.error('[TraceRoost] Parse error:', e)

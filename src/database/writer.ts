@@ -13,6 +13,70 @@ const CLAUDE_OVERLAP_SLACK_MS = 60_000
 interface WriteableDb {
   run(sql: string, params?: unknown[]): void
   exec(sql: string, params?: unknown[]): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): PreparedStatement
+}
+interface PreparedStatement {
+  run(params?: unknown[]): void
+  step(): boolean
+  get(): unknown[]
+  reset(): void
+  free(): void
+}
+
+const INSERT_SESSION_SQL = `INSERT OR REPLACE INTO sessions (
+        session_id, trace_id, source, workspace, project_path, model,
+        start_time, duration_ms, turns, input_tokens, output_tokens,
+        cache_read_tokens, cache_create_tokens, cache_hit_rate,
+        total_tool_calls, total_llm_calls, errors, outcome,
+        is_sidechain, speed, user_request, tool_counts, loop_signals,
+        files_read, files_changed, files_written, files_searched, files_changed_note, cost_usd,
+        data_source, models, one_shot_stats, initiator, conversation_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+
+const INSERT_TIMELINE_SQL = `INSERT INTO timeline_entries (
+        session_id, span_id, position, type, label, model,
+        input_tokens, output_tokens, cache_read_tokens, cache_create_tokens,
+        ttft, duration_ms, action, decision,
+        is_error, error_message, timestamp, has_blob
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+
+const INSERT_EDIT_SQL = `INSERT INTO edit_details (timeline_entry_id, file_path, tool_name, has_blob)
+       VALUES (?,?,?,?)`
+
+/**
+ * Prepares each distinct statement once for the length of one synchronous write transaction —
+ * compiling the SQL again for every timeline row was most of the cost of a write. Statements
+ * must not outlive the synchronous block: sql.js frees them all on export() (every save).
+ */
+class StatementCache {
+  private readonly stmts = new Map<string, PreparedStatement>()
+  constructor(private readonly db: WriteableDb) {}
+  get(sql: string): PreparedStatement {
+    let stmt = this.stmts.get(sql)
+    if (!stmt) {
+      stmt = this.db.prepare(sql)
+      this.stmts.set(sql, stmt)
+    }
+    return stmt
+  }
+  run(sql: string, params: unknown[]): void {
+    this.get(sql).run(params)
+  }
+  lastInsertRowId(): number {
+    const stmt = this.get('SELECT last_insert_rowid()')
+    try {
+      stmt.step()
+      return (stmt.get()[0] as number) ?? 0
+    } finally {
+      stmt.reset()
+    }
+  }
+  freeAll(): void {
+    for (const stmt of this.stmts.values()) {
+      try { stmt.free() } catch { /* already freed */ }
+    }
+    this.stmts.clear()
+  }
 }
 
 /**
@@ -105,13 +169,16 @@ export class DatabaseWriter {
    */
   importCards(cards: SessionSummaryCard[]): void {
     if (cards.length === 0) return
+    const stmts = new StatementCache(this.db)
     this.db.run('BEGIN')
     try {
       for (const card of cards) {
-        this._writeSessionRow(card, card.workspace)
+        this._writeSessionRow(stmts, card, card.workspace)
       }
+      stmts.freeAll()
       this.db.run('COMMIT')
     } catch (err) {
+      stmts.freeAll()
       try { this.db.run('ROLLBACK') } catch { /* ignore */ }
       throw err
     }
@@ -210,28 +277,30 @@ export class DatabaseWriter {
       this.log(`DatabaseWriter: kept stored session ${card.sessionId} — incoming card has fewer calls`)
       return
     }
+    const stmts = new StatementCache(this.db)
     this.db.run('BEGIN')
     try {
       this._deleteClaudeLogRowsCoveredBy(card)
-      this._writeSessionRow(card, workspace)
+      this._writeSessionRow(stmts, card, workspace)
       // Delete-then-reinsert: no stable PK on timeline_entries to upsert against.
       // CASCADE on the FK handles edit_details cleanup.
       this.db.run('DELETE FROM timeline_entries WHERE session_id = ?', [card.sessionId])
 
       for (let i = 0; i < card.timeline.length; i++) {
         const entry = card.timeline[i]
-        this._writeTimelineEntry(card.sessionId, entry, i)
-        const rows = this.db.exec('SELECT last_insert_rowid()')
-        const entryId = rows[0]?.values[0]?.[0] as number ?? 0
+        this._writeTimelineEntry(stmts, card.sessionId, entry, i)
+        const entryId = stmts.lastInsertRowId()
 
         if (entry.editDetails) {
           for (const ed of entry.editDetails) {
-            this._writeEditDetail(entryId, ed)
+            this._writeEditDetail(stmts, entryId, ed)
           }
         }
       }
+      stmts.freeAll()
       this.db.run('COMMIT')
     } catch (err) {
+      stmts.freeAll()
       try { this.db.run('ROLLBACK') } catch { /* ignore rollback errors */ }
       throw err
     }
@@ -242,18 +311,10 @@ export class DatabaseWriter {
     }
   }
 
-  private _writeSessionRow(card: SessionSummaryCard, workspace: string): void {
+  private _writeSessionRow(stmts: StatementCache, card: SessionSummaryCard, workspace: string): void {
     const costUsd = this._computeSessionCost(card)
-    this.db.run(
-      `INSERT OR REPLACE INTO sessions (
-        session_id, trace_id, source, workspace, project_path, model,
-        start_time, duration_ms, turns, input_tokens, output_tokens,
-        cache_read_tokens, cache_create_tokens, cache_hit_rate,
-        total_tool_calls, total_llm_calls, errors, outcome,
-        is_sidechain, speed, user_request, tool_counts, loop_signals,
-        files_read, files_changed, files_written, files_searched, files_changed_note, cost_usd,
-        data_source, models, one_shot_stats, initiator, conversation_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    stmts.run(
+      INSERT_SESSION_SQL,
       [
         card.sessionId,
         card.traceId,
@@ -304,17 +365,12 @@ export class DatabaseWriter {
     return calcSessionCostUsd(card)
   }
 
-  private _writeTimelineEntry(sessionId: string, entry: TimelineEntry, position: number): void {
+  private _writeTimelineEntry(stmts: StatementCache, sessionId: string, entry: TimelineEntry, position: number): void {
     const hasBlob = [entry.responseText, entry.thinking, entry.toolInput, entry.fullResult]
       .some(v => v && v.length >= BLOB_MIN_LENGTH)
 
-    this.db.run(
-      `INSERT INTO timeline_entries (
-        session_id, span_id, position, type, label, model,
-        input_tokens, output_tokens, cache_read_tokens, cache_create_tokens,
-        ttft, duration_ms, action, decision,
-        is_error, error_message, timestamp, has_blob
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    stmts.run(
+      INSERT_TIMELINE_SQL,
       [
         sessionId,
         entry.spanId,
@@ -338,13 +394,12 @@ export class DatabaseWriter {
     )
   }
 
-  private _writeEditDetail(timelineEntryId: number, ed: EditDetail): void {
+  private _writeEditDetail(stmts: StatementCache, timelineEntryId: number, ed: EditDetail): void {
     const hasBlob = [ed.oldString, ed.newString, ed.content]
       .some(v => v && v.length >= BLOB_MIN_LENGTH)
 
-    this.db.run(
-      `INSERT INTO edit_details (timeline_entry_id, file_path, tool_name, has_blob)
-       VALUES (?,?,?,?)`,
+    stmts.run(
+      INSERT_EDIT_SQL,
       [timelineEntryId, ed.filePath, ed.toolName ?? null, hasBlob ? 1 : 0]
     )
   }

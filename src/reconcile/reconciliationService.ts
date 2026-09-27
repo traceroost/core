@@ -77,6 +77,9 @@ const ACTIVE_GRACE_MS = 2 * 60_000
 // under a classification pass -- a live repo under constant activity could otherwise retry
 // forever instead of settling.
 const MAX_GENERATION_RETRIES = 2
+// Sessions reconcileMany() checks at once. Classification itself is further gated in gitOutcome.ts
+// (MAX_CONCURRENT_SESSION_CLASSIFICATIONS); this bounds the cache-key lookups in front of it.
+const RECONCILE_MANY_CONCURRENCY = 8
 
 export type ReconcileListener = (result: ReconcileResult) => void
 
@@ -143,7 +146,19 @@ export class ReconciliationService {
    *  itself -- see gitOutcome.ts's OutcomeRepoCache doc comment on why it's scoped per burst. */
   async reconcileMany(inputs: ReconcileInput[]): Promise<ReconcileResult[]> {
     const cache = createOutcomeRepoCache()
-    return Promise.all(inputs.map(input => this.reconcile(input, { cache })))
+    // A bounded pool rather than one Promise.all over every input: each session check spawns its
+    // own `git` processes, and the startup catch-up pass hands this the whole history at once —
+    // hundreds of concurrent spawns that thrashed the machine (and could fail with EAGAIN).
+    const results: ReconcileResult[] = new Array(inputs.length)
+    let next = 0
+    const worker = async () => {
+      while (next < inputs.length) {
+        const i = next++
+        results[i] = await this.reconcile(inputs[i], { cache })
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(RECONCILE_MANY_CONCURRENCY, inputs.length) }, worker))
+    return results
   }
 
   private async doReconcile(input: ReconcileInput, cache: OutcomeRepoCache | undefined): Promise<ReconcileResult> {
@@ -174,7 +189,7 @@ export class ReconciliationService {
     cache: OutcomeRepoCache | undefined,
     attempt = 0,
   ): Promise<ReconcileResult> {
-    const keyBefore = await resolveOutcomeCacheKey(workspace, filesChanged)
+    const keyBefore = await resolveOutcomeCacheKey(workspace, filesChanged, cache)
     if (!keyBefore) {
       // Nothing to classify (no repo, no in-repo files). Still record the check so a session that
       // *used* to resolve (e.g. its repo directory temporarily vanished) doesn't keep a stale
@@ -193,7 +208,7 @@ export class ReconciliationService {
     // superseded world. Discard it and reclassify once more against the now-current state rather
     // than publish/cache a result that was correct only for an instant that's already passed.
     if (cached === undefined) {
-      const keyAfter = await resolveOutcomeCacheKey(workspace, filesChanged)
+      const keyAfter = await resolveOutcomeCacheKey(workspace, filesChanged, cache)
       if (keyAfter && keyAfter.cacheKey !== keyBefore.cacheKey && attempt < MAX_GENERATION_RETRIES) {
         return this.classifyWithGenerationCheck(sessionId, workspace, filesChanged, cache, attempt + 1)
       }

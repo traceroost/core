@@ -258,6 +258,23 @@ suite('detectExactToolRepeat', () => {
     assert.strictEqual(signals.length, 0)
   })
 
+  test('a label idle across several edits restarts from zero when it resumes', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [
+        ...Array.from({ length: 20 }, () => makeTool('run_tests')),
+        makeEdit('src/a.ts', 'x', 'y'),
+        makeTool('lint'),
+        makeEdit('src/a.ts', 'y', 'z'),
+        ...Array.from({ length: 30 }, () => makeTool('run_tests')),
+      ],
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 30)
+    assert.strictEqual(signals[0].severity, 'warning')
+  })
+
   test('does not sum partial streaks across an edit boundary', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({

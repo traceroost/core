@@ -75,14 +75,15 @@ export function groupedSignals(sessions: SessionSummaryCard[]): SignalGroup[] {
     .sort((a, b) => b.sessions - a.sessions || b.count - a.count)
 }
 
-export async function runPatternsCli(args: string[]): Promise<number> {
+/** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it. */
+export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard[]): Promise<number> {
   const repoArg = (valueAfter(args, '--repo') ?? '').trim()
   if (!repoArg) {
     console.log('Usage: traceroost patterns --repo <hash|name>')
     return 1
   }
 
-  const allSessions = loadAllSessions()
+  const allSessions = loaded ?? loadAllSessions()
   const workspaces = [...new Set(allSessions.map(s => s.workspace).filter(Boolean))]
   const root = await resolveRepo(repoArg, workspaces)
   if (!root) {
@@ -90,7 +91,7 @@ export async function runPatternsCli(args: string[]): Promise<number> {
     return 1
   }
 
-  const sessions = loadSessionsForWorkspace(root)
+  const sessions = loadSessionsForWorkspace(root, allSessions)
   if (sessions.length === 0) {
     console.log(`\nRepository: ${root}\nNo recorded sessions for this repo on this machine yet.`)
     return 0

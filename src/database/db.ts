@@ -7,8 +7,18 @@ import { SCHEMA_SQL } from './schema'
 interface SqlDatabase {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
+}
+/** A sql.js prepared statement. Every statement is freed by `export()` (i.e. by every save), so
+ *  hold one only for the length of a synchronous block — see DatabaseWriter. */
+export interface SqlStatement {
+  run(params?: unknown[]): void
+  step(): boolean
+  get(): unknown[]
+  reset(): void
+  free(): void
 }
 export interface SqlJsStatic {
   Database: new (data?: Buffer | Uint8Array) => SqlDatabase
@@ -20,6 +30,11 @@ const BLOBS_DIR = 'blobs'
 // Held by the one extension host (VS Code window) allowed to write traceroost.db — see
 // TraceRoostDb's doc comment. Contains the owner's pid.
 const OWNER_LOCK_SUFFIX = '.owner'
+// saveSoon() coalesces save requests to at most one save per this many ms. Every save serializes
+// and rewrites the whole database (well over 100 MB for a long history, ~0.4 s of blocked
+// extension host each), and ingestion used to ask for one per OTLP payload and per 10 log files.
+// Kept equal to the other windows' last-write poll interval so they don't see changes any later.
+export const SAVE_COALESCE_MS = 2_000
 
 /**
  * Opens (or creates) the TraceRoost SQLite database at storagePath/traceroost.db
@@ -132,6 +147,11 @@ function isProcessAlive(pid: number): boolean {
 export class TraceRoostDb {
   private owner = false
   private lastStamp: FileStamp
+  /** Minimum gap between two saves made through saveSoon(). Public so tests can shorten it. */
+  saveCoalesceMs = SAVE_COALESCE_MS
+  private lastSaveMs = 0
+  private saveTimer: ReturnType<typeof setTimeout> | undefined
+  private saveCallbacks: Array<(saved: boolean) => void> = []
 
   constructor(
     private readonly db: SqlDatabase,
@@ -190,11 +210,16 @@ export class TraceRoostDb {
   save(): boolean {
     if (!this.owner && !this.tryAcquireOwnership()) return false
     const data = this.db.export()
+    // sql.js's export() closes and reopens the connection, which resets per-connection pragmas —
+    // without this, foreign keys (and every ON DELETE CASCADE the schema relies on: retention,
+    // INSERT OR REPLACE of a session) silently stopped working after the first save.
+    this.db.run('PRAGMA foreign_keys = ON')
     const tmpPath = `${this.dbPath}.${process.pid}.tmp`
     try {
       const fd = fs.openSync(tmpPath, 'w')
       try {
-        fs.writeSync(fd, Buffer.from(data))
+        // Straight from the exported bytes — Buffer.from(data) copied the whole database first.
+        fs.writeSync(fd, data)
         fs.fsyncSync(fd)
       } finally {
         fs.closeSync(fd)
@@ -205,13 +230,45 @@ export class TraceRoostDb {
       throw err
     }
     this.lastStamp = statOrNull(this.dbPath)
+    this.lastSaveMs = Date.now()
     return true
+  }
+
+  /**
+   * Asks for a save without doing it now: requests are coalesced so the database is written at
+   * most once per `saveCoalesceMs` (the first request after a quiet period is saved on the next
+   * macrotask). `onSaved` runs after the save that covers this request, with save()'s result —
+   * use it for anything that must only happen once the data is on disk. dispose() flushes a
+   * pending save.
+   */
+  saveSoon(onSaved?: (saved: boolean) => void): void {
+    if (onSaved) this.saveCallbacks.push(onSaved)
+    if (this.saveTimer) return
+    const delay = Math.max(0, this.lastSaveMs + this.saveCoalesceMs - Date.now())
+    this.saveTimer = setTimeout(() => this.flushSaveSoon(), delay)
+  }
+
+  private flushSaveSoon(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer)
+    this.saveTimer = undefined
+    const callbacks = this.saveCallbacks
+    this.saveCallbacks = []
+    let saved = false
+    try {
+      saved = this.save()
+    } catch (err) {
+      this.log(`TraceRoost: database save failed: ${err}`)
+    }
+    for (const cb of callbacks) {
+      try { cb(saved) } catch (err) { this.log(`TraceRoost: after-save callback failed: ${err}`) }
+    }
   }
 
   /** Save and close. Added to context.subscriptions so VS Code calls it on deactivation. */
   dispose(): void {
     try {
-      this.save()
+      if (this.saveTimer || this.saveCallbacks.length > 0) this.flushSaveSoon()
+      else this.save()
     } finally {
       this.db.close()
       if (this.owner) {

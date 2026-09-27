@@ -58,8 +58,8 @@ export async function runFindCli(args: string[]): Promise<number> {
   const sessions = loadAllSessions()
   const code =
     classify(hash, sessions) === 'trace'
-      ? await runTraceCli(['--id', hash])
-      : await runPatternsCli(['--repo', hash])
+      ? await runTraceCli(['--id', hash], sessions)
+      : await runPatternsCli(['--repo', hash], sessions)
 
   if (code !== 0) {
     // patternsCli/traceCli already printed their own "not found" line — this just adds the one

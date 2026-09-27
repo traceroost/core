@@ -157,12 +157,23 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   // crash between the two just means a redundant, harmless resend later (idempotent both locally
   // and server-side), never a lost one.
   function recordSuccess(key: string): void {
-    queue.remove([key])
+    recordSuccesses([key])
+  }
+
+  // Several confirmed sends at once (one batch response's worth). Each still leaves the queue on
+  // its own, right before its own `onItemDone` (see there), but they're recorded delivered with
+  // one ledger write for the lot rather than a full rewrite of the ledger per item. Still
+  // remove-then-record, so the crash window is the same harmless-resend one as above.
+  function recordSuccesses(keys: string[]): void {
+    if (keys.length === 0) return
+    for (const key of keys) {
+      queue.remove([key])
+      deps.onItemDone?.()
+    }
     if (installId) {
       const ledger = new DeliveryLedger(deps.baseHome)
-      ledger.markDelivered(scopedKey(installId, key))
+      ledger.markDeliveredMany(keys.map(key => scopedKey(installId, key)))
     }
-    deps.onItemDone?.()
   }
 
   function dropInvalid(key: string, detail: string): void {
@@ -179,7 +190,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   }
 
   function backOffAll(items: QueueItem[], error: string): void {
-    for (const item of items) queue.recordFailure(item.key, error)
+    queue.recordFailures(items.map(item => item.key), error)
     writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: error }, deps.baseHome)
     sawTransientFailure = true
   }
@@ -310,10 +321,11 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       return 'continue'
     }
 
+    const succeeded: string[] = []
     chunk.forEach((item, idx) => {
       const r = results![idx]
       if (r.status === 202 || r.status === 200) {
-        recordSuccess(item.key)
+        succeeded.push(item.key)
         sent++
       } else if (r.status === 400) {
         dropInvalid(item.key, r.error ?? '')
@@ -322,6 +334,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         sawTransientFailure = true
       }
     })
+    recordSuccesses(succeeded)
     return 'continue'
   }
 

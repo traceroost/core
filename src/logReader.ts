@@ -1,4 +1,4 @@
-import { claudeUsageLines } from './claudeUsageLines'
+import { claudeUsageRows } from './claudeUsageLines'
 /**
  * Reads local session logs for Claude Code, Codex, Copilot CLI, Copilot Chat (VS Code sidebar),
  * and Cursor CLI, and synthesises SessionSummaryCard records.
@@ -428,13 +428,16 @@ export class LogReader {
   private _parseClaudeFile(filePath: string): LogSessionResult[] {
     const rawLines = this._readNewLines(filePath)
     if (!rawLines) return []
-    const lines = dedupeByUuid(rawLines)
+    // Every line is JSON.parse'd once here and the parsed rows are shared by the dedupe, the
+    // split and the segment parser — each used to parse every line again (5x in all), which was
+    // most of the cost of reading a transcript.
+    const { lines, parsed } = dedupeParsedByUuid(rawLines, rawLines.map(parseLogLine))
 
     const baseSessionId = path.basename(filePath, '.jsonl')
-    const segments = splitClaudeLinesOnPromptGaps(lines)
+    const boundaries = promptGapBoundaries(parsed, isClaudePromptBoundary)
     const results: LogSessionResult[] = []
-    segments.forEach((segmentLines, segmentIndex) => {
-      const result = this._parseClaudeSegment(segmentLines, claudeSegmentSessionId(baseSessionId, segmentIndex))
+    boundaries.forEach(([start, end], segmentIndex) => {
+      const result = this._parseClaudeSegment(lines.slice(start, end), parsed.slice(start, end), claudeSegmentSessionId(baseSessionId, segmentIndex))
       if (result) results.push(result)
     })
     // Tag every segment with the file they came from, but only when the file actually split into
@@ -447,7 +450,8 @@ export class LogReader {
     return results
   }
 
-  private _parseClaudeSegment(lines: string[], sessionId: string): LogSessionResult | null {
+  /** `parsed[i]` is `lines[i]` already JSON.parse'd (undefined when it doesn't parse). */
+  private _parseClaudeSegment(lines: string[], parsed: unknown[], sessionId: string): LogSessionResult | null {
     let workspace = ''
     let claudeSessionId = ''
     let model = ''
@@ -470,11 +474,11 @@ export class LogReader {
     const timeline: TimelineEntry[] = []
     let idx = 0
     let initiator: 'user' | 'agent' | 'api' = 'user'
-    const usageLines = claudeUsageLines(lines)
+    const usageLines = claudeUsageRows(parsed)
 
-    for (const [lineIndex, line] of lines.entries()) {
-      let entry: Record<string, unknown>
-      try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (parsed[lineIndex] === undefined) continue
+      const entry = parsed[lineIndex] as Record<string, unknown>
 
       const ts = entry['timestamp'] as string | undefined
       if (ts) { if (!firstTimestamp) firstTimestamp = ts; lastTimestamp = ts }
@@ -1877,18 +1881,30 @@ interface CardAccum {
  * the source of this problem.
  */
 export function dedupeByUuid(lines: string[]): string[] {
+  return dedupeParsedByUuid(lines, lines.map(parseLogLine)).lines
+}
+
+/** JSON.parse of one log line, or undefined when it doesn't parse (JSON never yields undefined). */
+function parseLogLine(line: string): unknown {
+  try { return JSON.parse(line) as unknown } catch { return undefined }
+}
+
+/** dedupeByUuid over lines the caller already parsed (`parsed[i]` is `lines[i]` parsed, see
+ *  parseLogLine); returns the kept lines alongside their parsed rows. */
+function dedupeParsedByUuid(lines: string[], parsed: unknown[]): { lines: string[]; parsed: unknown[] } {
   const seen = new Set<string>()
   const result: string[] = []
-  for (const line of lines) {
-    let entry: Record<string, unknown>
-    try { entry = JSON.parse(line) as Record<string, unknown> } catch { result.push(line); continue }
-    const uuid = entry['uuid']
-    if (typeof uuid !== 'string') { result.push(line); continue }
+  const resultParsed: unknown[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const keep = () => { result.push(lines[i]); resultParsed.push(parsed[i]) }
+    if (parsed[i] === undefined) { keep(); continue }
+    const uuid = (parsed[i] as Record<string, unknown>)['uuid']
+    if (typeof uuid !== 'string') { keep(); continue }
     if (seen.has(uuid)) continue
     seen.add(uuid)
-    result.push(line)
+    keep()
   }
-  return result
+  return { lines: result, parsed: resultParsed }
 }
 
 // A gap between two consecutive user prompts longer than this starts a new session segment.
@@ -1944,10 +1960,22 @@ function splitLinesOnPromptGaps(
   isPromptBoundary: (entry: Record<string, unknown>) => boolean,
   getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
 ): string[][] {
-  if (lines.length === 0) return []
+  return promptGapBoundaries(lines.map(parseLogLine), isPromptBoundary, getBoundaryTimestampMs)
+    .map(([start, end]) => lines.slice(start, end))
+}
 
-  const timestamps: Array<number | null> = lines.map(line => {
-    try { return defaultLineTimestampMs(JSON.parse(line) as Record<string, unknown>) } catch { return null }
+/** splitLinesOnPromptGaps over already-parsed lines (see parseLogLine), as [start, end) index
+ *  ranges into them. */
+function promptGapBoundaries(
+  parsed: unknown[],
+  isPromptBoundary: (entry: Record<string, unknown>) => boolean,
+  getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
+): Array<[number, number]> {
+  if (parsed.length === 0) return []
+
+  const timestamps: Array<number | null> = parsed.map(entry => {
+    if (entry === undefined) return null
+    try { return defaultLineTimestampMs(entry as Record<string, unknown>) } catch { return null }
   })
 
   const boundaries: number[] = [0]
@@ -1958,9 +1986,9 @@ function splitLinesOnPromptGaps(
   // last value keeps a single such anomaly from corrupting the gap baseline for every comparison
   // after it.
   let maxTs: number | null = null
-  for (let i = 0; i < lines.length; i++) {
-    let entry: Record<string, unknown>
-    try { entry = JSON.parse(lines[i]) as Record<string, unknown> } catch { continue }
+  for (let i = 0; i < parsed.length; i++) {
+    if (parsed[i] === undefined) continue
+    const entry = parsed[i] as Record<string, unknown>
     if (!isPromptBoundary(entry)) continue
 
     const tsMs = getBoundaryTimestampMs(entry)
@@ -1984,17 +2012,21 @@ function splitLinesOnPromptGaps(
     maxTs = Math.max(maxTs ?? tsMs, tsMs)
   }
 
-  const segments: string[][] = []
+  const segments: Array<[number, number]> = []
   for (let b = 0; b < boundaries.length; b++) {
     const start = boundaries[b]
-    const end = b + 1 < boundaries.length ? boundaries[b + 1] : lines.length
-    segments.push(lines.slice(start, end))
+    const end = b + 1 < boundaries.length ? boundaries[b + 1] : parsed.length
+    segments.push([start, end])
   }
   return segments
 }
 
+function isClaudePromptBoundary(entry: Record<string, unknown>): boolean {
+  return entry['type'] === 'user'
+}
+
 export function splitClaudeLinesOnPromptGaps(lines: string[]): string[][] {
-  return splitLinesOnPromptGaps(lines, entry => entry['type'] === 'user')
+  return splitLinesOnPromptGaps(lines, isClaudePromptBoundary)
 }
 
 // Also treats turn_aborted as a boundary trigger, not just user_message. Confirmed on real data:

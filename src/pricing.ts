@@ -261,6 +261,20 @@ export function getCloudRateOverrides(): Record<string, ModelRates> {
   return Object.fromEntries(cloudRateOverrides)
 }
 
+// normalizeCostKey runs three regexes, and pricing a session list looks up the same handful of
+// model IDs over and over (every card, every timeline LLM entry) — memoize it. Capped, since model
+// IDs come from telemetry rather than a fixed list.
+const costKeyCache = new Map<string, string>()
+function cachedCostKey(modelId: string): string {
+  let key = costKeyCache.get(modelId)
+  if (key === undefined) {
+    if (costKeyCache.size >= 1000) costKeyCache.clear()
+    key = normalizeCostKey(modelId)
+    costKeyCache.set(modelId, key)
+  }
+  return key
+}
+
 // Exact match only, after normalization — no prefix-matching fallback. A previous
 // version fell back to substring-prefix matching ("versioned or aliased model IDs"),
 // but that let an unrecognized *newer* model silently inherit an unrelated *older*
@@ -272,9 +286,10 @@ export function getCloudRateOverrides(): Record<string, ModelRates> {
 // visible gap.
 export function lookupRates(modelId: string): ModelRates | null {
   if (!modelId) return null
-  const cloudRate = cloudRateOverrides.get(normalizeCostKey(modelId))
+  const key = cachedCostKey(modelId)
+  const cloudRate = cloudRateOverrides.get(key)
   if (cloudRate) return cloudRate
-  return RATES_BY_COST_KEY.get(normalizeCostKey(modelId)) ?? null
+  return RATES_BY_COST_KEY.get(key) ?? null
 }
 
 // ── Cost math ────────────────────────────────────────────────────────────────

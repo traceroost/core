@@ -117,6 +117,11 @@ async function main() {
 		sourcesContent: false,
 		platform: 'node',
 		outfile: 'standalone/cli.js',
+		// cli.ts only reaches the server via `import('./server.js')` — left external, that's a
+		// runtime require of the sibling standalone/server.js (built just above, and shipped next to
+		// cli.js in the npm package), instead of a second copy of the whole server bundle inlined
+		// here that every `traceroost <subcommand>` had to read and compile before doing anything.
+		external: ['./server.js'],
 		define: releaseDefine,
 		alias: nodeAlias,
 		logLevel: 'silent',

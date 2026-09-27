@@ -13,7 +13,7 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, currentWorkspace, availableWorkspaces, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  getSessionsPagination,
+  getSessionsPagination, applySessionDelta, type SessionDelta,
 } from './state'
 import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse } from './types'
 import { Wordmark } from './Wordmark'
@@ -53,6 +53,9 @@ const TABS = [
   { id: 'export',     label: 'Export',     title: 'Export raw or redacted trace data as JSON files.' },
   { id: 'import',     label: 'Import',     title: 'Import trace data from a TraceRoost export file.' },
 ]
+
+// See flushOutcomes in App's message handler.
+const GIT_OUTCOME_FLUSH_MS = 50
 
 function ActivePanel() {
   const tab = normalizeTabId(activeTab.value)
@@ -438,11 +441,39 @@ export function App() {
   // Handle messages from the extension host
   useEffect(() => {
     let initialLoadDone = false
+    // Revision of the host-side state this webview holds (webviewSessionSync.ts). Undefined under
+    // the standalone server, which never sends one and always posts sessions in full.
+    let sessionRev = window.__INITIAL_SESSION_REV__
+    let resyncPending = false
+    const requestResync = () => {
+      if (resyncPending) return
+      resyncPending = true
+      vscode?.postMessage({ type: 'requestFullUpdate' })
+    }
+    // Git outcomes arrive one message per session — thousands, a couple of ms apart, on a cold
+    // start — and copying the whole map for each one was quadratic (a 20k-session history pinned
+    // the webview's main thread for the whole warm-up). Replies are applied in one copy per
+    // GIT_OUTCOME_FLUSH_MS window instead; any other message flushes them first, so ordering
+    // against gitOutcomeDeferred/update is unchanged.
+    let pendingOutcomes: Record<string, GitOutcome | null> | null = null
+    const flushOutcomes = () => {
+      const pending = pendingOutcomes
+      if (!pending) return
+      pendingOutcomes = null
+      gitOutcomes.value = { ...gitOutcomes.value, ...pending }
+      for (const id in pending) {
+        if (deferredGitOutcomeSessionIds.has(id)) deferredGitOutcomeSessionIds.delete(id)
+      }
+    }
     const handler = (e: MessageEvent) => {
+      if (pendingOutcomes && (e.data as { type?: unknown } | null)?.type !== 'gitOutcome') flushOutcomes()
       const msg = e.data as {
         type: string
         summary?: { toolCalls?: Record<string, number> }
         sessionSummary?: typeof sessionSummary.value
+        sessionDelta?: SessionDelta
+        base?: number
+        rev?: number
         tab?: string
         agentFilter?: AgentFilter
         sessionLimit?: number
@@ -478,14 +509,32 @@ export function App() {
         if (msg.summary?.toolCalls) toolCalls.value = msg.summary.toolCalls
         if (msg.sessionSummary !== undefined) {
           sessionSummary.value = msg.sessionSummary
-          // Warm the git-outcome cache in the background as soon as sessions load, rather than
-          // waiting for the Outcome filter to be engaged (OutcomeFilterBar below) or the Outcome
-          // column to scroll into view (Sessions.tsx). Both of those still fire their own request
-          // on top of this — requestGitOutcomesFor already skips anything already resolved or
-          // in flight, so that's a cheap no-op once this has run. This is what makes turning the
-          // Outcome filter on feel instant on a repeat visit instead of kicking off a fresh batch
-          // of git subprocesses right when the user asks to see results.
-          if (msg.sessionSummary) requestGitOutcomesFor(msg.sessionSummary.sessions)
+          sessionRev = msg.rev
+          resyncPending = false
+        } else if (msg.base !== undefined && (resyncPending || msg.base !== sessionRev)) {
+          requestResync()
+        } else if (msg.sessionDelta) {
+          const next = applySessionDelta(sessionSummary.peek(), msg.sessionDelta)
+          if (next) {
+            sessionSummary.value = next
+            sessionRev = msg.rev
+          } else {
+            requestResync()
+          }
+        } else if (msg.rev !== undefined) {
+          sessionRev = msg.rev
+        }
+        // Warm the git-outcome cache in the background as soon as sessions load, rather than
+        // waiting for the Outcome filter to be engaged (OutcomeFilterBar below) or the Outcome
+        // column to scroll into view (Sessions.tsx). Both of those still fire their own request
+        // on top of this — requestGitOutcomesFor already skips anything already resolved or
+        // in flight, so that's a cheap no-op once this has run. This is what makes turning the
+        // Outcome filter on feel instant on a repeat visit instead of kicking off a fresh batch
+        // of git subprocesses right when the user asks to see results. Re-run on every update,
+        // unchanged sessions included — it's also what re-asks for sessions the host deferred.
+        if (msg.sessionSummary !== null && (msg.sessionSummary !== undefined || msg.rev !== undefined)) {
+          const current = sessionSummary.peek()
+          if (current) requestGitOutcomesFor(current.sessions)
         }
         if (msg.analyticsData) {
           dailyStats.value = msg.analyticsData.dailyStats
@@ -515,8 +564,11 @@ export function App() {
       } else if (msg.type === 'sessionDetail' && msg.sessionId) {
         sessionTimelines.value = { ...sessionTimelines.value, [msg.sessionId]: msg.timeline ?? [] }
       } else if (msg.type === 'gitOutcome' && msg.sessionId) {
-        gitOutcomes.value = { ...gitOutcomes.value, [msg.sessionId]: msg.outcome ?? null }
-        if (deferredGitOutcomeSessionIds.has(msg.sessionId)) deferredGitOutcomeSessionIds.delete(msg.sessionId)
+        if (!pendingOutcomes) {
+          pendingOutcomes = {}
+          setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
+        }
+        pendingOutcomes[msg.sessionId] = msg.outcome ?? null
       } else if (msg.type === 'gitOutcomeDeferred' && msg.sessionId) {
         // Session is still inside its active-session grace window — no git classification ran or
         // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
@@ -1237,8 +1289,7 @@ function OutcomeFilterBar() {
   // reflects real in-flight requests instead of spinning forever over off-screen sessions nothing
   // is fetching.
   const tab = normalizeTabId(activeTab.value)
-  const showsOutcomeColumn = tab === 'sessions' &&
-    new Set((sessionSummary.value?.sessions ?? []).map(s => s.workspace ?? '')).size > 1
+  const showsOutcomeColumn = tab === 'sessions' && availableWorkspaces.value.length > 1
   let pendingCount = 0
   // Excludes deferred sessions (still inside their active-session grace window, see
   // deferredGitOutcomeSessionIds in state.ts) — the spinner should reflect actual git CLI

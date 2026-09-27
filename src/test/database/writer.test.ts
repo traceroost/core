@@ -5,12 +5,14 @@ import { SCHEMA_SQL } from '../../database/schema'
 import { DatabaseWriter } from '../../database/writer'
 import { calcTokenCostUsd } from '../../pricing'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import type { SqlStatement } from '../../database/db'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
 }
@@ -153,6 +155,60 @@ suite('DatabaseWriter', () => {
     await w.drain()
     assert.strictEqual(countRows(db, 'timeline_entries'), 1)
     assert.strictEqual(countRows(db, 'edit_details'), 2)
+    db.close()
+  })
+
+  test('each edit_details row points at its own timeline entry (prepared-statement row ids)', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    const entry = (spanId: string, files: string[]) => ({
+      type: 'tool' as const, spanId, label: 'Edit', durationMs: 1, isError: false, timestamp: '',
+      editDetails: files.map(filePath => ({ filePath, toolName: 'Edit' })),
+    })
+    w.enqueue(makeCard({ sessionId: 'a', timeline: [entry('a1', ['x.ts']), entry('a2', []), entry('a3', ['y.ts', 'z.ts'])] }), 'ws')
+    w.enqueue(makeCard({ sessionId: 'b', timeline: [entry('b1', ['w.ts'])] }), 'ws')
+    await w.drain()
+    const rows = db.exec(`SELECT te.span_id, ed.file_path FROM edit_details ed
+      JOIN timeline_entries te ON te.id = ed.timeline_entry_id ORDER BY ed.id`)[0].values
+    assert.deepStrictEqual(rows, [['a1', 'x.ts'], ['a3', 'y.ts'], ['a3', 'z.ts'], ['b1', 'w.ts']])
+    db.close()
+  })
+
+  test('writes keep working after export() (which frees every prepared statement)', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    const tl = [{ type: 'llm' as const, spanId: 'sp', label: 'LLM', durationMs: 1, isError: false, timestamp: '' }]
+    w.enqueue(makeCard({ sessionId: 's1', timeline: tl }), 'ws')
+    await w.drain()
+    db.export()
+    w.enqueue(makeCard({ sessionId: 's2', timeline: tl }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 2)
+    assert.strictEqual(countRows(db, 'timeline_entries'), 2)
+    db.close()
+  })
+
+  test('a write that fails part-way is rolled back whole', async () => {
+    const db = await openInMemoryDb()
+    const logs: string[] = []
+    const w = new DatabaseWriter(db, makeStorageUri(), (m) => logs.push(m))
+    const bad = makeCard({
+      sessionId: 'bad',
+      timeline: [
+        { type: 'llm', spanId: 'ok', label: 'LLM', durationMs: 1, isError: false, timestamp: '' },
+        // NOT NULL span_id — fails on the second row, after the session row and one entry.
+        { type: 'llm', spanId: null as unknown as string, label: 'LLM', durationMs: 1, isError: false, timestamp: '' },
+      ],
+    })
+    w.enqueue(bad, 'ws')
+    await w.drain()
+    assert.ok(logs.some(m => m.includes('write error for session bad')))
+    assert.strictEqual(countRows(db, 'sessions'), 0)
+    assert.strictEqual(countRows(db, 'timeline_entries'), 0)
+    // The connection is still usable afterwards.
+    w.enqueue(makeCard({ sessionId: 'good' }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
     db.close()
   })
 

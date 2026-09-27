@@ -29,6 +29,14 @@ suite('forward/deliveryLedger', () => {
     assert.strictEqual(raw.filter(k => k === 'session:a').length, 1)
   })
 
+  test('markDeliveredMany records every new key once, in order, in one write', () => {
+    const ledger = new DeliveryLedger(home)
+    ledger.markDelivered('session:a')
+    ledger.markDeliveredMany(['session:b', 'session:a', 'session:c', 'session:b'])
+    const raw = JSON.parse(fs.readFileSync(ledgerPath(home), 'utf-8')) as string[]
+    assert.deepStrictEqual(raw, ['session:a', 'session:b', 'session:c'])
+  })
+
   test('the file is user-only (0600)', () => {
     new DeliveryLedger(home).markDelivered('session:a')
     const mode = fs.statSync(ledgerPath(home)).mode & 0o777

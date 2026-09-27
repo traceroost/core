@@ -7,7 +7,7 @@ import {
   getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   repoInfo, repoDisplayName, repoTooltipName,
-  requestGitOutcomesFor,
+  requestGitOutcomesFor, availableWorkspaces,
 } from '../state'
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
@@ -708,8 +708,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 export function Sessions() {
   const sessions = filteredSessions.value
   const hasAny = (sessionSummary.value?.sessions?.length ?? 0) > 0
-  const uniqueWorkspaces = new Set((sessionSummary.value?.sessions ?? []).map(s => s.workspace ?? ''))
-  const showWorkspace = uniqueWorkspaces.size > 1
+  const showWorkspace = availableWorkspaces.value.length > 1
 
   const sortKey = sessionSortKey.value
   const sortDir = sessionSortDir.value

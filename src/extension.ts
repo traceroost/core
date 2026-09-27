@@ -14,7 +14,7 @@ import { DatabaseWriter } from './database/writer'
 import { migrateGlobalStateToSqlite } from './database/migration'
 import { runRetention } from './database/retention'
 import { SessionRepository } from './sessionRepository'
-import { summarizeSpans } from './spanSummarizer'
+import { summarizeSpans, summarizeTraces } from './spanSummarizer'
 import { LogReader, type FileState } from './logReader'
 import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
@@ -26,6 +26,7 @@ import { SENT, NEVER_SENT } from './cloud/org/privacy'
 import { getQueueStats } from './cloud/forward/currentQueueStats'
 import { maybeEnqueueSession } from './cloud/org/enqueueSession'
 import { maybeEnqueueInstructionTelemetry, EMPTY_LEDGER } from './cloud/org/instructionTelemetry'
+import { isLinked } from './cloud/org/credentials'
 import { startForwardScheduler, type ForwardScheduler } from './cloud/forward/scheduler'
 import { startPricingSync } from './cloud/org/pricingSync'
 import { resolveRepoHash } from './cloud/org/resolveRepoHash'
@@ -46,6 +47,8 @@ let backgroundWatcher: BackgroundWatcher | undefined
 // content changed (staged feature 10) -- see keyedDebouncer.ts's doc comment for why: each check
 // rebuilds the payload via real `git` subprocesses.
 const contentChangeDebouncer = new KeyedDebouncer(3_000, 30_000)
+// How long reconciliation revision changes are collected before being forwarded as one batch.
+const REVISION_FORWARD_BATCH_MS = 1_000
 let logReaderTimer: ReturnType<typeof setInterval> | undefined
 let runLogScanFn: (() => void) | undefined
 let forwardScheduler: ForwardScheduler | undefined
@@ -158,9 +161,10 @@ export async function activate(context: vscode.ExtensionContext) {
     // while the migrated rows stay in an in-memory copy that is never saved.
     if (traceRoostDb.isOwner) await migrateGlobalStateToSqlite(context, writer, log)
 
-    // Initial retention run on activation.
+    // Initial retention run on activation. Its session deletes run synchronously inside this call;
+    // only the orphaned-blob sweep (a full timeline scan) is left to finish after activation.
     const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
-    await runRetention(traceRoostDb.raw, retentionDays, traceRoostDb.blobsDir, log)
+    void runRetention(traceRoostDb.raw, retentionDays, traceRoostDb.blobsDir, log)
 
     // Periodic retention: once per 24 hours while the extension is active.
     const retentionTimer = setInterval(() => {
@@ -177,16 +181,17 @@ export async function activate(context: vscode.ExtensionContext) {
       const traceIds = [...pendingTraceIds]
       pendingTraceIds.clear()
       if (!writer || !repository || traceIds.length === 0) return
-      const { sessions } = summarizeSpans(store!.getSpans())
+      const sessions = summarizeTraces(store!.getSpans(), traceIds)
       let wrote = false
       for (const traceId of traceIds) {
         const card = sessions.find(s => s.traceId === traceId)
         if (card && persistLiveCard(card)) wrote = true
       }
       if (!wrote) return
-      // After drain, save DB to disk and write the cross-window signal.
+      // After drain, save DB to disk and write the cross-window signal. Coalesced: agents export
+      // a payload every few seconds each, and every save rewrites the whole database file.
       void writer.drain().then(() => {
-        if (traceRoostDb?.save()) writeLastWriteSignal(context.globalStorageUri)
+        traceRoostDb?.saveSoon(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
       }).catch(err => console.error('[TraceRoost] writer.drain error:', err))
     }
     const persistLiveCard = (card: ReturnType<typeof summarizeSpans>['sessions'][number]): boolean => {
@@ -215,7 +220,10 @@ export async function activate(context: vscode.ExtensionContext) {
         void maybeEnqueueSession(fullCard, m => outputChannel?.appendLine(m))
           .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
       }
-      if (workspace) {
+      // isLinked() first: maybeEnqueueInstructionTelemetry is a no-op without an org, but its
+      // listSessions() argument (every stored session, plus a re-summarize of the live window —
+      // hundreds of ms on a large history) was built for it on every live OTLP payload anyway.
+      if (workspace && isLinked()) {
         void maybeEnqueueInstructionTelemetry(workspace, repository!.listSessions(), EMPTY_LEDGER)
           .then(enq => { if (enq) forwardScheduler?.drainSoon() })
           .catch(() => { /* best-effort */ })
@@ -316,12 +324,31 @@ export async function activate(context: vscode.ExtensionContext) {
     // watching) must reach the forwarding queue, not just the UI — otherwise a corrected outcome
     // sits correct locally but stale in Cloud until something else happens to re-enqueue this
     // session. See enqueueSession.ts's `revision` param and queue.ts's replace-on-newer-revision.
+    //
+    // Changes arrive one reconciled session at a time — thousands of them from the startup pass over
+    // a long history, where every session's first check counts as a change. Each used to list every
+    // stored session to find its card (hundreds of ms apiece); they're now collected briefly and
+    // looked up against one listing per burst, and skipped outright when no org is linked
+    // (maybeEnqueueSession is a no-op then).
+    const pendingRevisions = new Map<string, number>()
+    let revisionFlushTimer: ReturnType<typeof setTimeout> | undefined
+    const flushRevisions = () => {
+      revisionFlushTimer = undefined
+      const batch = [...pendingRevisions]
+      pendingRevisions.clear()
+      const cards = new Map<string, ReturnType<typeof repo.listSessions>[number]>()
+      for (const s of repo.listSessions()) if (!cards.has(s.sessionId)) cards.set(s.sessionId, s)
+      for (const [sessionId, revision] of batch) {
+        const card = cards.get(sessionId)
+        if (!card) continue
+        void maybeEnqueueSession(card, m => outputChannel?.appendLine(m), undefined, revision)
+          .then(res => { if (res.enqueued) forwardScheduler?.drainSoon() })
+      }
+    }
     const unsubscribeForwarding = reconciliationService.subscribe((r) => {
-      if (!r.changed || r.revision === null) return
-      const card = repo.listSessions().find(s => s.sessionId === r.sessionId)
-      if (!card) return
-      void maybeEnqueueSession(card, m => outputChannel?.appendLine(m), undefined, r.revision)
-        .then(res => { if (res.enqueued) forwardScheduler?.drainSoon() })
+      if (!r.changed || r.revision === null || !isLinked()) return
+      pendingRevisions.set(r.sessionId, Math.max(r.revision, pendingRevisions.get(r.sessionId) ?? 0))
+      revisionFlushTimer ??= setTimeout(flushRevisions, REVISION_FORWARD_BATCH_MS)
     })
     backgroundWatcher = startBackgroundReconciliation({
       service: reconciliationService,
@@ -333,7 +360,7 @@ export async function activate(context: vscode.ExtensionContext) {
       })),
       log: (msg) => outputChannel!.appendLine(msg),
     })
-    context.subscriptions.push({ dispose: () => { unsubscribeForwarding(); backgroundWatcher?.dispose(); reconciliationService?.dispose(); contentChangeDebouncer.dispose() } })
+    context.subscriptions.push({ dispose: () => { unsubscribeForwarding(); if (revisionFlushTimer) clearTimeout(revisionFlushTimer); backgroundWatcher?.dispose(); reconciliationService?.dispose(); contentChangeDebouncer.dispose() } })
   }
 
   // ── Log ingestion ─────────────────────────────────────────────────────────
@@ -392,11 +419,12 @@ export async function activate(context: vscode.ExtensionContext) {
         writer!.enqueue(card, workspace || ws)
       }
       void writer!.drain().then(() => {
-        const saved = traceRoostDb?.save()
         provider.refresh()
         DashboardPanel.currentPanel?.update()
-        if (saved) writeLastWriteSignal(context.globalStorageUri)
-        persistFileState()
+        traceRoostDb?.saveSoon(saved => {
+          if (saved) writeLastWriteSignal(context.globalStorageUri)
+          persistFileState()
+        })
       }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
     }
 
@@ -469,7 +497,9 @@ export async function activate(context: vscode.ExtensionContext) {
           }
           if (written > 0) {
             void writer!.drain().then(() => {
-              traceRoostDb?.save()
+              // Coalesced — this runs every 10 files of the initial load, and each save rewrites
+              // the whole database file.
+              traceRoostDb?.saveSoon()
               provider.refresh()
             }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
           }
@@ -503,11 +533,21 @@ export async function activate(context: vscode.ExtensionContext) {
       const fastFiles = allFiles.filter(f => f.agentKey !== 'copilot_vscode_json' && f.agentKey !== 'opencode')
       const slowFiles = allFiles.filter(f => f.agentKey === 'copilot_vscode_json')
 
+      // Saves are coalesced (saveSoon), so the cross-window signal and the processed-files record
+      // wait for the save that actually covers everything enqueued so far.
+      const afterSaved = (after: (saved: boolean) => void) => {
+        void writer!.drain().then(() => traceRoostDb!.saveSoon(after))
+          .catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
+      }
+
       processGroup(fastFiles, 10, 0, () => {
-        if (traceRoostDb?.isOwner) writeLastWriteSignal(context.globalStorageUri)
+        afterSaved(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
         // Slow-pass: legacy .json snapshots loaded at low priority after fast pass completes.
         processGroup(slowFiles, 2, 50, () => {
-          if (traceRoostDb?.isOwner) writeLastWriteSignal(context.globalStorageUri)
+          afterSaved(saved => {
+            if (saved) writeLastWriteSignal(context.globalStorageUri)
+            persistFileState()
+          })
           const total = [...countByKey.values()].reduce((s, n) => s + n, 0)
           if (total > 0) {
             const breakdown = [...countByKey.entries()]
@@ -516,7 +556,6 @@ export async function activate(context: vscode.ExtensionContext) {
               .join(', ')
             outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
           }
-          persistFileState()
           onAllDone?.()
         })
       })
@@ -750,7 +789,7 @@ export async function activate(context: vscode.ExtensionContext) {
     onDrainComplete: () => DashboardPanel.pushOrgStatus(),
     recordSent: (count, at) => {
       repository?.recordTraceSent(count, at)
-      traceRoostDb?.save()
+      traceRoostDb?.saveSoon()
     },
   })
   context.subscriptions.push({ dispose: () => forwardScheduler?.dispose() })
@@ -1004,6 +1043,7 @@ function fallbackRepository(store: SessionStore): SessionRepository {
   const noop = {
     run: () => {},
     exec: () => [],
+    prepare: () => ({ run: () => {}, step: () => false, get: () => [], reset: () => {}, free: () => {} }),
   }
   const noopStorageUri = vscode.Uri.file('/tmp')
   const fakeReader = new DatabaseReader(noop, noopStorageUri)

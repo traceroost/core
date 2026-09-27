@@ -307,6 +307,20 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
   return map
 })()
 
+// normalizeCostKey runs three regexes, and pricing a session list looks up the same handful of
+// model IDs over and over (every card, every timeline LLM entry) — memoize it. Capped, since model
+// IDs come from telemetry rather than a fixed list.
+const costKeyCache = new Map<string, string>()
+function cachedCostKey(modelId: string): string {
+  let key = costKeyCache.get(modelId)
+  if (key === undefined) {
+    if (costKeyCache.size >= 1000) costKeyCache.clear()
+    key = normalizeCostKey(modelId)
+    costKeyCache.set(modelId, key)
+  }
+  return key
+}
+
 // Exact match only, after normalization — no prefix-matching fallback. A previous
 // version fell back to substring-prefix matching ("versioned or aliased model IDs"),
 // but that let an unrecognized *newer* model silently inherit an unrelated *older*
@@ -318,7 +332,7 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
 // visible gap. Kept in sync with the same fix in src/pricing.ts.
 export function lookupRates(modelId: string): ModelRates | null {
   if (!modelId) return null
-  return RATES_BY_COST_KEY.get(normalizeCostKey(modelId)) ?? null
+  return RATES_BY_COST_KEY.get(cachedCostKey(modelId)) ?? null
 }
 
 // ── Cost math ────────────────────────────────────────────────────────────────────────────────────

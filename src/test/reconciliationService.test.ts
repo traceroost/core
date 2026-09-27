@@ -219,4 +219,34 @@ suite('reconciliationService', () => {
     assert.strictEqual(result.revision, null)
     assert.strictEqual(result.changed, false)
   })
+  test('reconcileMany: results in input order, same outcomes as one-by-one, and a later commit still invalidates', async () => {
+    const db = await openInMemoryDb()
+    const service = new ReconciliationService(db)
+    // More sessions than the pool's concurrency, over a handful of files: some committed, one dirty.
+    for (let i = 0; i < 5; i++) writeFile(`m${i}.txt`, `v${i}`)
+    commitAll('initial', '2026-01-01T00:00:00Z')
+    writeFile('m4.txt', 'uncommitted edit')
+    const inputs = Array.from({ length: 20 }, (_, i) => ({
+      sessionId: `many-${i}`,
+      workspace: repoDir,
+      filesChanged: [path.join(repoDir, `m${i % 5}.txt`)],
+      endTime: LONG_AGO,
+    }))
+    const results = await service.reconcileMany(inputs)
+    assert.deepStrictEqual(results.map(r => r.sessionId), inputs.map(i => i.sessionId))
+    for (const [i, r] of results.entries()) {
+      assert.strictEqual(r.outcome?.overall, i % 5 === 4 ? 'abandoned' : 'merged', r.sessionId)
+      assert.strictEqual(r.changed, true)
+    }
+    const other = new ReconciliationService(await openInMemoryDb())
+    const oneByOne = await Promise.all(inputs.map(i => other.reconcile(i)))
+    assert.deepStrictEqual(results.map(r => r.outcome), oneByOne.map(r => r.outcome))
+
+    commitAll('commit the edit', '2026-01-02T00:00:00Z')
+    const again = await service.reconcileMany(inputs)
+    for (const [i, r] of again.entries()) {
+      assert.strictEqual(r.outcome?.overall, 'merged', r.sessionId)
+      assert.strictEqual(r.changed, i % 5 === 4, r.sessionId)
+    }
+  })
 })

@@ -106,3 +106,79 @@ suite('TraceRoostDb (multi-window safety)', () => {
     assert.strictEqual(sessionCount(dir, SQL), 1)
   })
 })
+
+suite('TraceRoostDb (saving)', () => {
+  let SQL: SqlJsStatic
+  suiteSetup(async () => { SQL = await loadSqlJs() })
+
+  function timelineCount(raw: { exec(sql: string): Array<{ values: unknown[][] }> }): number {
+    return raw.exec('SELECT COUNT(*) FROM timeline_entries')[0].values[0][0] as number
+  }
+
+  test('foreign keys (and ON DELETE CASCADE) stay on after a save', () => {
+    const dir = tmpDir()
+    const a = openDatabaseWith(SQL, dir)
+    insertSession(a.raw, 's1')
+    a.raw.run(`INSERT INTO timeline_entries (session_id, span_id, position, type) VALUES ('s1', 'sp1', 0, 'llm')`)
+    // sql.js's export() reopens the connection; foreign_keys used to reset to off right here.
+    a.save()
+    assert.strictEqual(a.raw.exec('PRAGMA foreign_keys')[0].values[0][0], 1)
+    a.raw.run(`DELETE FROM sessions WHERE session_id = 's1'`)
+    assert.strictEqual(timelineCount(a.raw), 0, 'timeline rows cascade-deleted with their session')
+    a.dispose()
+  })
+
+  test('saveSoon coalesces a burst of requests into one save and runs every callback after it', async () => {
+    const dir = tmpDir()
+    const a = openDatabaseWith(SQL, dir)
+    a.saveCoalesceMs = 50
+    let saves = 0
+    const realSave = a.save.bind(a)
+    a.save = () => { saves++; return realSave() }
+    const results: boolean[] = []
+    insertSession(a.raw, 's1')
+    a.saveSoon(saved => results.push(saved))
+    insertSession(a.raw, 's2')
+    a.saveSoon(saved => results.push(saved))
+    a.saveSoon()
+    assert.strictEqual(saves, 0, 'nothing is written synchronously')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.strictEqual(saves, 1)
+    assert.deepStrictEqual(results, [true, true])
+    assert.strictEqual(sessionCount(dir, SQL), 2)
+
+    // A request right after a save waits out the coalescing interval rather than saving again.
+    insertSession(a.raw, 's3')
+    a.saveSoon()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.strictEqual(saves, 1)
+    await new Promise(resolve => setTimeout(resolve, 80))
+    assert.strictEqual(saves, 2)
+    assert.strictEqual(sessionCount(dir, SQL), 3)
+    a.dispose()
+  })
+
+  test('dispose flushes a pending saveSoon and runs its callback', () => {
+    const dir = tmpDir()
+    const a = openDatabaseWith(SQL, dir)
+    a.saveCoalesceMs = 60_000
+    a.save()
+    insertSession(a.raw, 's1')
+    let called: boolean | undefined
+    a.saveSoon(saved => { called = saved })
+    a.dispose()
+    assert.strictEqual(called, true)
+    assert.strictEqual(sessionCount(dir, SQL), 1)
+  })
+
+  test('saveSoon on a window that does not own the file writes nothing and reports false', async () => {
+    const dir = tmpDir()
+    fs.writeFileSync(path.join(dir, 'traceroost.db.owner'), String(OTHER_LIVE_PID))
+    const reader = openDatabaseWith(SQL, dir)
+    insertSession(reader.raw, 's1')
+    const saved = await new Promise<boolean>(resolve => reader.saveSoon(resolve))
+    assert.strictEqual(saved, false)
+    assert.ok(!fs.existsSync(path.join(dir, 'traceroost.db')))
+    reader.dispose()
+  })
+})

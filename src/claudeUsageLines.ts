@@ -6,11 +6,19 @@ type Row = Record<string, unknown>;
  * non-monotonic producer formats are outside this reconciliation contract.
  */
 export function claudeUsageLines(lines: string[]): Set<number> {
+  return claudeUsageRows(lines.map(line => {
+    try { return JSON.parse(line) as unknown } catch { return undefined }
+  }))
+}
+
+/** claudeUsageLines() over lines the caller already parsed: `rows[i]` is line i's JSON.parse
+ *  result, or undefined when it didn't parse. */
+export function claudeUsageRows(rows: unknown[]): Set<number> {
   const selected = new Map<string, { index: number; output: number }>()
   const result = new Set<number>()
-  lines.forEach((line, index) => {
-    let row: Row
-    try { row = JSON.parse(line) as Row } catch { return }
+  rows.forEach((parsed, index) => {
+    if (parsed === undefined) return
+    const row = parsed as Row
     if (!row || row.type !== 'assistant') return
     const msg = row.message as Row | undefined
     const usage = msg?.usage as Row | undefined

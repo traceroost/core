@@ -253,8 +253,10 @@ function workingTreeContentDigest(root: string, relPaths: string[]): string {
  *  cached also invalidates rather than reusing a result computed for a different file set. Returns
  *  null if none of the files are inside the repo (mirrors classifySessionOutcome's own "nothing to
  *  classify" case, so nothing gets cached for it either). */
-export async function resolveOutcomeCacheKey(workspace: string, filesChanged: string[]): Promise<{ root: string; cacheKey: string } | null> {
-  const root = await findRepoRoot(workspace)
+export async function resolveOutcomeCacheKey(workspace: string, filesChanged: string[], cache?: OutcomeRepoCache): Promise<{ root: string; cacheKey: string } | null> {
+  // `cache` memoizes only which repo and which trunk branch (as classifySessionOutcome's does) —
+  // the file and trunk-tip shas below are always read fresh, so the key still moves on a commit.
+  const root = cache ? await cache.root(workspace) : await findRepoRoot(workspace)
   if (!root) return null
   const relPaths = filesChanged
     .map(absPath => relativeToRoot(root, absPath))
@@ -265,7 +267,7 @@ export async function resolveOutcomeCacheKey(workspace: string, filesChanged: st
 
   const [fileSha, trunkRef] = await Promise.all([
     runGit(root, ['log', '-1', '--format=%H', '--', ...relPaths]),
-    resolveTrunkRef(root),
+    cache ? cache.trunkRef(root) : resolveTrunkRef(root),
   ])
   const trunkSha = trunkRef ? await runGit(root, ['rev-parse', trunkRef]) : null
   const workingDigest = workingTreeContentDigest(root, relPaths)

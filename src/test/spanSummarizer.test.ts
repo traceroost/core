@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { summarizeSpans } from '../spanSummarizer'
+import { summarizeSpans, summarizeTraces } from '../spanSummarizer'
 import { Span } from '../types'
 
 // ── Test helpers ──
@@ -1203,5 +1203,62 @@ suite('SpanSummarizer', () => {
       assert.strictEqual(codex.totalLlmCalls, 1)
       assert.strictEqual(codex.timeline.filter(e => e.type === 'llm').length, 1)
     })
+  })
+})
+
+suite('summarizeTraces', () => {
+  // A window mixing Claude, Copilot and Codex traces (the demo fixture shapes), several times over.
+  // makeSpan() pins traceId to 'trace-1'; these spans need their own trace ids.
+  const makeTraceSpan = (o: Partial<Span> & { name: string; traceId: string; spanId: string }): Span =>
+    ({ ...makeSpan(o), traceId: o.traceId, spanId: o.spanId })
+
+  function mixedWindow(): Span[] {
+    const spans: Span[] = []
+    for (let rep = 0; rep < 3; rep++) {
+      const t = (n: number) => String(1_700_000_000_000_000_000n + BigInt(rep * 60_000 + n) * 1_000_000n)
+      const claude = `claude-${rep}`, copilot = `copilot-${rep}`, codex = `codex-${rep}`
+      spans.push(
+        makeTraceSpan({ traceId: claude, spanId: `ci-${rep}`, name: 'claude_code.interaction', startTime: t(0), endTime: t(9000), attributes: [makeAttr('user_prompt', `claude task ${rep}`)] }),
+        makeTraceSpan({ traceId: claude, spanId: `cl-${rep}`, parentSpanId: `ci-${rep}`, name: 'claude_code.llm_request', startTime: t(10), endTime: t(2000), attributes: [makeAttr('model', 'claude-sonnet-4-5'), makeAttr('input_tokens', 100), makeAttr('output_tokens', 50)] }),
+        makeTraceSpan({ traceId: claude, spanId: `ct-${rep}`, parentSpanId: `ci-${rep}`, name: 'claude_code.tool', startTime: t(2100), endTime: t(3000), attributes: [makeAttr('tool_name', 'Bash')] }),
+        makeTraceSpan({ traceId: copilot, spanId: `ia-${rep}`, name: 'invoke_agent', startTime: t(100), endTime: t(5000), attributes: [makeAttr('copilot_chat.user_request', `copilot task ${rep}`)] }),
+        makeTraceSpan({ traceId: copilot, spanId: `ch-${rep}`, parentSpanId: `ia-${rep}`, name: 'chat gpt-4o', startTime: t(200), endTime: t(1000) }),
+        makeTraceSpan({ traceId: codex, spanId: `cx-${rep}`, name: 'codex.user_prompt', startTime: t(300), endTime: t(300), attributes: [makeAttr('conversation.id', 'conv'), makeAttr('prompt', `codex task ${rep}`)] }),
+        makeTraceSpan({ traceId: codex, spanId: `cy-${rep}`, name: 'codex.sse_event', startTime: t(400), endTime: t(400), attributes: [makeAttr('conversation.id', 'conv'), makeAttr('input_token_count', 10)] }),
+      )
+    }
+    // An in-progress Claude trace with no interaction root yet (synthesized root path).
+    spans.push(makeTraceSpan({ traceId: 'claude-open', spanId: 'co-1', parentSpanId: 'not-here', name: 'claude_code.llm_request', attributes: [makeAttr('input_tokens', 7)] }))
+    return spans
+  }
+
+  function expected(spans: Span[], traceIds: string[]) {
+    return summarizeSpans(spans).sessions.filter(s => traceIds.includes(s.traceId))
+  }
+
+  test('Claude-only traces: same cards as summarizing the whole window', () => {
+    const spans = mixedWindow()
+    for (const ids of [['claude-1'], ['claude-0', 'claude-2'], ['claude-open'], ['claude-2', 'claude-open']]) {
+      const got = summarizeTraces(spans, ids)
+      assert.ok(got.length > 0)
+      assert.deepStrictEqual(got, expected(spans, ids))
+    }
+  })
+
+  test('traces that need the whole window (Copilot, Codex) fall back to it', () => {
+    const spans = mixedWindow()
+    for (const ids of [['copilot-1'], ['claude-0', 'copilot-2'], ['codex-0'], [...new Set(spans.map(s => s.traceId))]]) {
+      assert.deepStrictEqual(summarizeTraces(spans, ids), expected(spans, ids))
+    }
+  })
+
+  test('a Claude-named span carrying Codex session attributes is not summarized on its own', () => {
+    const spans = mixedWindow()
+    spans.push(makeTraceSpan({ traceId: 'claude-codexish', spanId: 'cc-1', name: 'claude_code.llm_request', attributes: [makeAttr('codex.session.id', 'codex:conv:prompt-1')] }))
+    assert.deepStrictEqual(summarizeTraces(spans, ['claude-codexish']), expected(spans, ['claude-codexish']))
+  })
+
+  test('unknown trace ids yield no cards', () => {
+    assert.deepStrictEqual(summarizeTraces(mixedWindow(), ['nope']), [])
   })
 })

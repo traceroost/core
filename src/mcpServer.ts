@@ -180,10 +180,10 @@ function handleGetWorkspacePatterns(
 
   // File frequency
   const fileFreq = new Map<string, number>()
+  const countFile = (f: string) => fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1)
   for (const s of filtered) {
-    for (const f of [...(s.filesRead ?? []), ...(s.filesChanged ?? [])]) {
-      fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1)
-    }
+    for (const f of s.filesRead ?? []) countFile(f)
+    for (const f of s.filesChanged ?? []) countFile(f)
   }
   const hotFiles = [...fileFreq.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -213,20 +213,21 @@ function handleGetWorkspacePatterns(
     .sort((a, b) => b[1] - a[1])
     .map(([type, count]) => ({ type, count }))
 
-  // Averages
-  const totalCost  = filtered.reduce((s, sess) => s + sessionCost(sess), 0)
+  // Averages — each session priced once (sessionCost walks its whole timeline), reused below.
+  const costs      = filtered.map(sessionCost)
+  const totalCost  = costs.reduce((s, c) => s + c, 0)
   const totalTurns = filtered.reduce((s, sess) => s + sess.totalLlmCalls, 0)
   const totalCache = filtered.reduce((s, sess) => s + sess.cacheHitRate, 0)
   const errorSess  = filtered.filter(s => s.errors > 0).length
 
   // Agent/model breakdown
   const agentMap = new Map<string, { sessions: number; cost: number; turns: number }>()
-  for (const s of filtered) {
+  filtered.forEach((s, i) => {
     const key = `${s.source}/${s.model}`
     const e = agentMap.get(key) ?? { sessions: 0, cost: 0, turns: 0 }
-    e.sessions++; e.cost += sessionCost(s); e.turns += s.totalLlmCalls
+    e.sessions++; e.cost += costs[i]; e.turns += s.totalLlmCalls
     agentMap.set(key, e)
-  }
+  })
   const agentBreakdown = [...agentMap.entries()]
     .sort((a, b) => b[1].sessions - a[1].sessions)
     .slice(0, 6)
@@ -283,13 +284,16 @@ function handleGetEfficiencyReport(
   const cutoff = Date.now() - cutoffDays * 86_400_000
   const recent = sessions.filter(s => Date.parse(s.startTime) >= cutoff)
   if (recent.length === 0) return { message: `No sessions in the last ${cutoffDays} days.` }
+  // Each session priced (sessionCost walks its whole timeline) and dated once, reused below.
+  const costOf = new Map(recent.map(s => [s, sessionCost(s)]))
+  const startOf = new Map(recent.map(s => [s, Date.parse(s.startTime)]))
 
   // Week-over-week cost trend (split into two halves)
   const mid = Date.now() - (cutoffDays / 2) * 86_400_000
-  const firstHalf  = recent.filter(s => Date.parse(s.startTime) < mid)
-  const secondHalf = recent.filter(s => Date.parse(s.startTime) >= mid)
-  const avgFirst  = firstHalf.length  > 0 ? firstHalf.reduce((s, x)  => s + sessionCost(x), 0) / firstHalf.length  : 0
-  const avgSecond = secondHalf.length > 0 ? secondHalf.reduce((s, x) => s + sessionCost(x), 0) / secondHalf.length : 0
+  const firstHalf  = recent.filter(s => startOf.get(s)! < mid)
+  const secondHalf = recent.filter(s => startOf.get(s)! >= mid)
+  const avgFirst  = firstHalf.length  > 0 ? firstHalf.reduce((s, x)  => s + costOf.get(x)!, 0) / firstHalf.length  : 0
+  const avgSecond = secondHalf.length > 0 ? secondHalf.reduce((s, x) => s + costOf.get(x)!, 0) / secondHalf.length : 0
   const trend = avgFirst === 0 ? 'no data'
     : avgSecond > avgFirst * 1.15 ? 'increasing ↑'
     : avgSecond < avgFirst * 0.85 ? 'decreasing ↓'
@@ -311,7 +315,7 @@ function handleGetEfficiencyReport(
   for (const s of recent) {
     const key = `${s.source}/${s.model || 'unknown'}`
     const e = agentMap.get(key) ?? { n: 0, totalCost: 0, totalTurns: 0, errors: 0 }
-    e.n++; e.totalCost += sessionCost(s); e.totalTurns += s.totalLlmCalls; e.errors += s.errors
+    e.n++; e.totalCost += costOf.get(s)!; e.totalTurns += s.totalLlmCalls; e.errors += s.errors
     agentMap.set(key, e)
   }
   const agentRanking = [...agentMap.entries()]
@@ -328,7 +332,7 @@ function handleGetEfficiencyReport(
     period:       `last ${cutoffDays} days`,
     sessionCount: recent.length,
     costTrend:    trend,
-    avgCostUsd:   +(recent.reduce((s, x) => s + sessionCost(x), 0) / recent.length).toFixed(4),
+    avgCostUsd:   +(recent.reduce((s, x) => s + costOf.get(x)!, 0) / recent.length).toFixed(4),
     avgTurns:     +(recent.reduce((s, x) => s + x.totalLlmCalls, 0) / recent.length).toFixed(1),
     errorRate:    Math.round(recent.filter(s => s.errors > 0).length / recent.length * 100) + '%',
     topLoopSignals: topSignals,
