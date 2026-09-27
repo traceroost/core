@@ -4,13 +4,17 @@
  */
 
 import { exec } from 'child_process'
+import { recordAction } from '../../actionLog'
 
 export type UrlOpener = (url: string) => void | Promise<void>
 
-export const systemBrowserOpener: UrlOpener = (url: string) => {
+export const systemBrowserOpener: UrlOpener = async (url: string) => {
   const cmd =
     process.platform === 'darwin' ? `open "${url}"`
     : process.platform === 'win32' ? `start "" "${url}"`
     : `xdg-open "${url}"`
-  exec(cmd, () => { /* if this fails the caller has already printed the URL to paste manually */ })
+  await recordAction('system', 'Opening your browser to sign in', cmd, () => new Promise<void>(resolve => {
+    // if this fails the caller has already printed the URL to paste manually
+    exec(cmd, () => resolve())
+  }))
 }

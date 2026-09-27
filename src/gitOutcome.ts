@@ -15,6 +15,7 @@ import { promisify } from 'util'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
+import { recordAction, onRunningActionsChanged } from './actionLog'
 
 const execFileAsync = promisify(execFile)
 
@@ -59,62 +60,13 @@ function releaseSessionClassificationSlot(): void {
   else activeSessionClassifications--
 }
 
-// Live "what git command is this running right now" ticker, surfaced by the dashboard as a status
-// line under the "resolving N outcomes" spinner — without it, a slow or stuck classification (a
-// huge repo, a network-mounted working tree) just looks like a spinner that never moves. Module-
-// scoped rather than per-call-site since every classifySessionOutcome call, from any caller
-// (DashboardPanel, the standalone server, the background watcher), shares this one process's git
-// subprocess fan-out.
-const runningCommands = new Map<number, string>()
-let nextCommandId = 1
-const runningCommandListeners = new Set<(commands: string[]) => void>()
-let notifyScheduled: ReturnType<typeof setTimeout> | null = null
-
-// Coalesces a burst of fast git calls (many finish in single-digit milliseconds) into one snapshot
-// per tick, rather than a listener call — and a postMessage/SSE broadcast on top of that — per
-// subprocess. Leading-edge: the first call in a window notifies immediately, since most commands
-// here finish well inside the throttle window — a pure trailing-edge debounce would schedule its
-// only snapshot out at the full window, and by the time it fires, the map that started this call
-// would already be empty again, so the status line would sit blank through almost every burst. A
-// trailing call is still scheduled to pick up whatever state the map is in once the window closes
-// (a command still running past it, or a different one that started and finished mid-window).
-//
-// 500ms rather than something closer to real-time: this is a "what's TraceRoost doing right now"
-// readout for a human, not a progress bar that needs to track every subprocess. At 100ms (the
-// original value) a busy repo cycles the label faster than it can be read — each snapshot is
-// gone before its text even registers. 500ms is slow enough to actually read a line like "repo:
-// Finding the last commit that touched these files — git log …" while still feeling live.
-const RUNNING_COMMANDS_NOTIFY_THROTTLE_MS = 500
-let trailingNotifyNeeded = false
-
-function emitRunningCommandsSnapshot(): void {
-  const snapshot = [...new Set(runningCommands.values())]
-  for (const listener of runningCommandListeners) listener(snapshot)
-}
-
-function scheduleRunningCommandsNotify(): void {
-  if (notifyScheduled) {
-    trailingNotifyNeeded = true
-    return
-  }
-  emitRunningCommandsSnapshot()
-  notifyScheduled = setTimeout(() => {
-    notifyScheduled = null
-    if (trailingNotifyNeeded) {
-      trailingNotifyNeeded = false
-      emitRunningCommandsSnapshot()
-    }
-  }, RUNNING_COMMANDS_NOTIFY_THROTTLE_MS)
-}
-
-/** Subscribes to the live list of `git` command lines currently in flight (e.g. `git show
- *  HEAD:src/foo.ts`), deduplicated and throttled — see RUNNING_COMMANDS_NOTIFY_THROTTLE_MS. Callers
- *  post this straight through to the webview (DashboardPanel, standalone/server.ts) under a
- *  `runningGitCommands` message so it can render next to the outcome-resolving spinner. */
-export function onRunningGitCommandsChanged(listener: (commands: string[]) => void): () => void {
-  runningCommandListeners.add(listener)
-  return () => { runningCommandListeners.delete(listener) }
-}
+/** Subscribes to the live list of command lines currently in flight (e.g. `git show
+ *  HEAD:src/foo.ts`) — now backed by actionLog.ts's generalized tracker (action-log.md), which
+ *  every shell-out call site routes through, not just this file's own `runGit`. Callers post this
+ *  straight through to the webview (DashboardPanel, standalone/server.ts) under a
+ *  `runningGitCommands` message so it can render next to the outcome-resolving spinner. Kept as a
+ *  re-export under its original name so existing call sites don't need to change their import. */
+export const onRunningGitCommandsChanged = onRunningActionsChanged
 
 /** Short, human-readable gloss for a git subcommand, shown ahead of the raw command line in the
  *  status bar so "what is TraceRoost doing to my repo right now" reads as plain English rather
@@ -149,19 +101,16 @@ async function runGit(cwd: string, args: string[]): Promise<string | null> {
 /** runGit, also saying whether a failure was only the output exceeding GIT_MAX_BUFFER (a file too
  *  large to read back through `git show`) rather than git itself failing. */
 async function runGitDetailed(cwd: string, args: string[]): Promise<{ stdout: string | null; tooLarge: boolean }> {
-  const id = nextCommandId++
   const raw = `git ${args.join(' ')}`
   const gloss = describeGitCommand(args)
-  runningCommands.set(id, `${cwd}: ${gloss ? `${gloss} — ${raw}` : raw}`)
-  scheduleRunningCommandsNotify()
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER })
+    const stdout = await recordAction(cwd, gloss, raw, async () => {
+      const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER })
+      return stdout
+    })
     return { stdout, tooLarge: false }
   } catch (err) {
     return { stdout: null, tooLarge: (err as NodeJS.ErrnoException).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }
-  } finally {
-    runningCommands.delete(id)
-    scheduleRunningCommandsNotify()
   }
 }
 

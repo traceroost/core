@@ -9,6 +9,7 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { recordAction } from '../../actionLog'
 import { classifySessionOutcome, createOutcomeRepoCache, type OutcomeRepoCache } from '../../gitOutcome'
 import { deriveRepoKey, type RepoKeyResult } from '../forward/repoKey'
 import { sessionRollupPayload, type SessionRollupInput } from '../forward/buildSessionRollup'
@@ -48,7 +49,10 @@ function cardToInput(card: SessionSummaryCard): SessionRollupInput {
 
 async function currentBranch(cwd: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, timeout: 5000 })
+    const stdout = await recordAction(cwd, 'Finding the current branch', 'git rev-parse --abbrev-ref HEAD', async () => {
+      const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, timeout: 5000 })
+      return stdout
+    })
     return stdout.trim() || 'HEAD'
   } catch {
     return 'HEAD'

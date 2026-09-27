@@ -28,8 +28,11 @@ export interface CallbackServer {
    * server-side, e.g. the `installs` row a linked-machine check reads) has actually settled, not
    * before. `ok: true` sends the browser straight to `org_url` (a 302) if the original request
    * carried a trusted one, or the static "Machine linked" page otherwise, since there's nowhere
-   * to send it; `ok: false` shows the same failure page an in-flight error does. A no-op if the
-   * callback never landed, or this has already been called.
+   * to send it; `ok: false` shows the failure page, substituting `message` (e.g. the free-tier
+   * cap rejection from `assertCanLinkMachine`) for the generic "something went wrong" text when
+   * one is given — this tab is the only place a user who isn't watching the CLI/panel output
+   * ever sees why linking failed. A no-op if the callback never landed, or this has already been
+   * called.
    *
    * Responding immediately (the previous behaviour) raced a `org_url` auto-redirect against the
    * exchange that creates the very row the destination page checks for — a tab could bounce back
@@ -38,7 +41,7 @@ export interface CallbackServer {
    * the exchange is one HTTP round trip plus a couple of inserts, so the tab sees at most a brief
    * pause, not a hang — and a safety timer answers anyway if `finish()` is never reached.
    */
-  finish(ok: boolean): void
+  finish(ok: boolean, message?: string): void
   /** Idempotent. Safe to call from any exit path — completes any still-open response with the
    *  plain failure page first, so a forgotten `finish()` can never hang the browser tab. */
   close(): void
@@ -54,12 +57,21 @@ export interface CallbackServer {
  * lands, before any of it reaches this function. An absent or untrusted URL falls back to the
  * plain static message, never a guess.
  */
-/** Shown only when there's no trusted `org_url` to send the browser to directly. */
+/**
+ * Shown only when there's no trusted `org_url` to send the browser to directly. Attempts to
+ * close its own tab a moment after paint — reliable in practice because this page is always the
+ * sole history entry in a freshly opened tab/window (never navigated to `window.open()`, which
+ * is what browsers normally require before allowing a script-initiated close), which is the same
+ * condition other CLIs' OAuth landing pages rely on. The visible message is the fallback for the
+ * browsers/configurations where it's still blocked, not dead copy.
+ */
 const SUCCESS_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
 <style>body{font:14px -apple-system,system-ui,sans-serif;color:#1f2328;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center;background:#f6f8fa}
 .card{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:32px 40px;text-align:center;max-width:360px}
 h1{font-size:16px;margin:0 0 8px}p{color:#656d76;margin:0}</style></head>
-<body><div class="card"><h1>Machine linked</h1><p>You can close this tab and return to TraceRoost.</p></div></body></html>`
+<body><div class="card"><h1>Machine linked</h1><p>You can close this tab and return to TraceRoost.</p></div>
+<script>setTimeout(function(){ try { window.close() } catch (e) {} }, 600)</script>
+</body></html>`
 
 /** Only ever trust a `org_url` whose origin matches the endpoint this CLI is configured against
  *  (`orgOrigin`, passed by `link.ts` from `orgEndpoint()`) — never an arbitrary redirect target
@@ -75,11 +87,19 @@ function isTrustedOrgUrl(raw: string | null, orgOrigin: string | undefined): str
   }
 }
 
-const ERROR_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+}
+
+/** `message`, when given, replaces the generic body text — e.g. the free-tier machine-cap
+ *  rejection from `assertCanLinkMachine`, which is otherwise invisible to a user who links from a
+ *  context (a headless box, a teammate walking them through it) where they never see the
+ *  CLI/panel's own error output. */
+const errorHtml = (message?: string) => `<!doctype html><html><head><meta charset="utf-8"><title>TraceRoost</title>
 <style>body{font:14px -apple-system,system-ui,sans-serif;color:#1f2328;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center;background:#f6f8fa}
 .card{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:32px 40px;text-align:center;max-width:360px}
 h1{font-size:16px;margin:0 0 8px}p{color:#656d76;margin:0}</style></head>
-<body><div class="card"><h1>Link failed</h1><p>Something went wrong. Return to TraceRoost and try again.</p></div></body></html>`
+<body><div class="card"><h1>Link failed</h1><p>${message ? escapeHtml(message) : 'Something went wrong. Return to TraceRoost and try again.'}</p></div></body></html>`
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 // Bounds how long a good callback's response stays open waiting for finish() — comfortably above
@@ -116,7 +136,7 @@ export async function startCallbackServer(opts: {
   let pendingOrgUrl: string | undefined
   let finishTimer: ReturnType<typeof setTimeout> | undefined
 
-  const finish = (ok: boolean) => {
+  const finish = (ok: boolean, message?: string) => {
     if (!pendingRes) return
     const res = pendingRes
     pendingRes = undefined
@@ -130,7 +150,7 @@ export async function startCallbackServer(opts: {
       res.end()
     } else {
       res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html' })
-      res.end(ok ? SUCCESS_HTML : ERROR_HTML)
+      res.end(ok ? SUCCESS_HTML : errorHtml(message))
     }
     close()
   }
@@ -147,7 +167,7 @@ export async function startCallbackServer(opts: {
     if (error || !code) {
       // Nothing further to wait for — respond immediately, same as always.
       res.writeHead(400, { 'Content-Type': 'text/html' })
-      res.end(ERROR_HTML)
+      res.end(errorHtml(error ? `Authorization server returned "${error}".` : undefined))
       deliverError(new Error(error ? `authorization server returned "${error}"` : 'callback missing authorization code'))
       return
     }

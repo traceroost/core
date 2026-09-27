@@ -4,7 +4,7 @@ import { formatTraceIdHash } from './hash'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
-  DailyStatRow, LifetimeStats, BurnRate, Projection,
+  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry,
 } from './types'
 
 // Maximum sessions rendered in any single chart or table
@@ -165,6 +165,13 @@ export const deferredGitOutcomeSessionIds = makeSetSignal<string>()
 // `runningGitCommands` message (gitOutcome.ts's onRunningGitCommandsChanged) — feeds the status
 // line under the Outcome filter's "resolving N outcomes" spinner. Empty when nothing is running.
 export const runningGitCommands = signal<string[]>([])
+
+// action-log.md: persistent history of every shell command TraceRoost's host has run (git or
+// otherwise), newest last — pushed unsolicited by an `actionLog` message (actionLog.ts's
+// onActionLogChanged), including once up front when the panel/tab first connects. Unlike
+// `runningGitCommands` above, this survives past the moment each command finishes. Feeds the Log
+// panel, not the in-flight status line.
+export const actionLog = signal<ActionLogEntry[]>([])
 
 // FileOutcome (this session's overall git classification) → the coarser Outcome filter bucket, or
 // null when there's nothing to filter on ('ambiguous', or "not applicable" — a null GitOutcome).

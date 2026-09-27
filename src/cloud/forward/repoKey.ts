@@ -39,6 +39,7 @@ import { promisify } from 'util'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
+import { recordAction } from '../../actionLog'
 
 const execFileAsync = promisify(execFile)
 
@@ -50,8 +51,10 @@ const HKDF_INFO = 'traceroost/v1'
 
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 })
-    return stdout
+    return await recordAction(cwd, 'Deriving this repo\'s privacy key', `git ${args.join(' ')}`, async () => {
+      const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 })
+      return stdout
+    })
   } catch {
     return null
   }

@@ -4,7 +4,7 @@ import {
   sessionSummary, toolCalls,
   selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
   sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
-  runningGitCommands, deferredGitOutcomeSessionIds,
+  runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
   dailyStats, lifetimeStats, burnRateData, searchResults, rangedSearchResults, exportSearchResults,
   timeRange, makeTimeRange, makeCustomTimeRange, TIME_PRESETS, CHART_MAX, type TimePreset, type TimeRange,
@@ -15,7 +15,7 @@ import {
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   getSessionsPagination, applySessionDelta, type SessionDelta,
 } from './state'
-import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse } from './types'
+import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS } from './utils'
 
@@ -39,6 +39,7 @@ import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage }
 // sidebar (toggled via workbench commands, not this panel) defaults to open.
 const sidebarOpen = signal(window.__STANDALONE__ !== true)
 const configOpen = signal(false)
+const actionLogOpen = signal(false)
 const bellOpen = signal(false)
 const versionCheckOpen = signal(false)
 const versionCheck = signal<VersionCheckResponse | null>(null)
@@ -135,6 +136,66 @@ function ConfigPanel() {
 }
 
 
+function relativeTime(ms: number): string {
+  const deltaSec = Math.round((Date.now() - ms) / 1000)
+  if (deltaSec < 5) return 'just now'
+  if (deltaSec < 60) return `${deltaSec}s ago`
+  const deltaMin = Math.round(deltaSec / 60)
+  if (deltaMin < 60) return `${deltaMin}m ago`
+  const deltaHr = Math.round(deltaMin / 60)
+  return `${deltaHr}h ago`
+}
+
+function ActionLogRow({ entry }: { entry: ActionLogEntry }) {
+  const running = entry.finishedAt === null
+  return (
+    <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted)">
+        <span>{relativeTime(entry.startedAt)}</span>
+        {running ? <span style="color:#4fc3f7">running…</span> : entry.failed ? <span style="color:#f44747">failed</span> : null}
+      </div>
+      <div style="color:var(--fg);margin-top:2px">{entry.gloss ?? entry.raw}</div>
+      <div style="color:var(--muted);font-family:var(--vscode-editor-font-family,monospace);margin-top:2px;overflow-wrap:break-word">
+        {entry.cwd}: {entry.raw}
+      </div>
+    </div>
+  )
+}
+
+// action-log.md: "what happened," not a replacement for GitCommandStatusBar's "what's happening
+// right now" footer ticker — this panel is the persistent history, that ticker stays as-is.
+function ActionLogPanel() {
+  const open = actionLogOpen.value
+
+  useEffect(() => {
+    if (!open) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') actionLogOpen.value = false }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  const entries = actionLog.value
+  return (
+    <div
+      inert={!open}
+      aria-hidden={!open}
+      style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
+    >
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Action log</span>
+        <button
+          onClick={() => actionLogOpen.value = false}
+          style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
+          title="Close (Esc)"
+        >×</button>
+      </div>
+      {entries.length === 0
+        ? <div style="padding:14px;font-size:11px;color:var(--muted)">Nothing has run yet this session.</div>
+        : [...entries].reverse().map(e => <ActionLogRow key={e.id} entry={e} />)}
+    </div>
+  )
+}
+
 const SEV_COLOR: Record<string, string> = {
   error:   '#f44747',
   warning: '#f6a623',
@@ -175,6 +236,15 @@ function IconHelp() {
       <circle cx="12" cy="12" r="10" />
       <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
       <line x1="12" y1="17" x2="12.01" y2="17" stroke-width="3" />
+    </svg>
+  )
+}
+
+function IconLog() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M8 6h13M8 12h13M8 18h13" />
+      <path d="M3 6h.01M3 12h.01M3 18h.01" />
     </svg>
   )
 }
@@ -329,6 +399,17 @@ function HelpButton() {
       class={'icon-btn' + (isActive ? ' active' : '')}
       onClick={() => { activeTab.value = 'help' }}
     ><IconHelp /></button>
+  )
+}
+
+function LogButton() {
+  const active = actionLogOpen.value
+  return (
+    <button
+      class={'icon-btn' + (active ? ' active' : '')}
+      title="Action log — every command TraceRoost has run on your machine"
+      onClick={() => { actionLogOpen.value = !actionLogOpen.value }}
+    ><IconLog /></button>
   )
 }
 
@@ -501,6 +582,7 @@ export function App() {
         currentWorkspace?: string | null
         results?: OtelReconfigureResult
         commands?: string[]
+        entries?: ActionLogEntry[]
       }
       // Org panel (TraceRoost Pro) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
@@ -581,6 +663,8 @@ export function App() {
         deferredGitOutcomeSessionIds.add(msg.sessionId)
       } else if (msg.type === 'runningGitCommands' && Array.isArray(msg.commands)) {
         runningGitCommands.value = msg.commands
+      } else if (msg.type === 'actionLog' && Array.isArray(msg.entries)) {
+        actionLog.value = msg.entries
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
         const entry = msg.name ? { name: msg.name, hash: msg.hash ?? null, githubUrl: msg.githubUrl ?? null } : null
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
@@ -684,6 +768,7 @@ export function App() {
           <OrgButton />
           {window.__STANDALONE__ === true && <UpdateButton />}
           <BellButton />
+          <LogButton />
           <GearButton />
           <PricingButton />
           <HelpButton />
@@ -700,6 +785,7 @@ export function App() {
       </div>
 
       <ConfigPanel />
+      <ActionLogPanel />
       <OrgPanel />
     </>
   )

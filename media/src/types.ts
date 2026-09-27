@@ -47,6 +47,7 @@ export type LoopSignalType =
   | 'low_cache_hit_ratio'
   | 'budget_overrun'
   | 'model_tier_mismatch'
+  | 'skipped_checks'
 
 export interface LoopSignal {
   type: LoopSignalType
@@ -66,6 +67,17 @@ export interface GitOutcome {
   overall: FileOutcome
   files: Record<string, FileOutcome>
   reason: string
+}
+
+// Mirrors src/actionLog.ts's ActionLogEntry — see action-log.md. Pushed via an `actionLog` message.
+export interface ActionLogEntry {
+  id: number
+  cwd: string
+  gloss: string | null
+  raw: string
+  startedAt: number
+  finishedAt: number | null
+  failed: boolean
 }
 
 export interface SessionSummaryCard {

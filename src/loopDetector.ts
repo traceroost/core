@@ -67,6 +67,7 @@ export const PATTERN_NAMES: Record<LoopSignalType, string> = {
   low_cache_hit_ratio:  'Poor Cache Utilization',
   budget_overrun:       'Budget Overrun',
   model_tier_mismatch:  'Model Tier Mismatch',
+  skipped_checks:       'Unverified Ship',
 }
 
 // ── Actionable recommendations per signal type ──────────────────────────────
@@ -146,6 +147,10 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
   model_tier_mismatch:
     'A premium-tier model ran a long stretch of read-only calls with no edits and short output — the kind of work a cheaper model typically handles just as well. '
     + 'Consider routing read/search-heavy turns to a smaller model and reserving the premium one for edits.',
+
+  skipped_checks:
+    'This session\'s changes reached the shared branch, but no recognized test or build command ever ran during the session. '
+    + 'Run the project\'s test/build command yourself before trusting the change, or ask the agent to verify its own work next time before finishing.',
 }
 
 // ── Formula/caveat text per signal type ─────────────────────────────────────
@@ -294,8 +299,8 @@ export const SIGNAL_FORMULAS: Record<
       'A 2-to-5-step tool-call sequence (same labels, and same results when captured) repeats 5+ times in a row with no file edit in between → warning',
       '10+ repeats → critical',
     ],
-    caveat: 'Newly added (2026-09-26), unconfirmed — the 5/10-repeat thresholds are borrowed from Gemini CLI\'s own default, not calibrated against this project\'s session history yet. Run scripts/calibrateSignals.ts once enough sessions have this signal computed.',
-    short: 'A multi-step sequence (e.g. run tests → read log → run tests → read log) repeated 5+ times with no edit.',
+    caveat: 'Ran through scripts/calibrateSignals.ts (2026-09-26) against 908 real sessions — zero firings. The 5/10-repeat thresholds (borrowed from Gemini CLI\'s own default) are left as-is per calibration guidance: no data either way, could mean the threshold is too strict or this codebase\'s sessions genuinely don\'t hit a 2-5-step cycle this long. Revisit if that changes.',
+    short: 'A multi-step sequence (e.g. edit → build → edit → build) repeated 5+ times.',
     tip: 'Explain what changed between attempts, or step in with the missing information.',
     dataSource: 'both',
     dataSourceNote:
@@ -306,7 +311,7 @@ export const SIGNAL_FORMULAS: Record<
       'The same file is read 3+ times with no write to it in between (matched by path, not literal call label, so a different line range still counts) → warning',
       '6+ times → critical',
     ],
-    caveat: 'Newly added (2026-09-26), unconfirmed — the 3/6-read thresholds are a guess, not calibrated against real sessions. Path extraction from toolInput/label is heuristic and may undercount on sources that don\'t expose a clean path field.',
+    caveat: 'Ran through scripts/calibrateSignals.ts (2026-09-26) against 908 real sessions — zero firings. The 3/6-read thresholds are left as-is per calibration guidance (no data either way). Path extraction from toolInput/label is heuristic and may undercount on sources that don\'t expose a clean path field, which could also explain the zero.',
     short: 'The same file was read 3+ times with no write in between.',
     tip: 'Ask the agent to summarize what it already knows instead of rereading.',
     dataSource: 'otel',
@@ -316,9 +321,9 @@ export const SIGNAL_FORMULAS: Record<
   cache_miss: {
     bullets: [
       'An LLM call re-writes 5%+ of its prefix as new cache-write tokens, and that re-written share is 2,000+ tokens → warning (the first call on each model is skipped — nothing is cached yet, so writing its prefix is the normal cold start, not a miss)',
-      '10,000+ re-written tokens → critical',
+      '90,000+ re-written tokens → critical',
     ],
-    caveat: 'Newly added (2026-09-26), unconfirmed — the 5%/2,000-token rule is copied verbatim from Claude Code\'s own published /usage rule, not calibrated against this project\'s own session history.',
+    caveat: 'Calibrated (2026-09-26, 908 real sessions): fires on 14% of sessions, but with a -7pp outcome lift (26% bad-outcome rate vs. a 33.1% baseline) — it does not predict trouble, consistent with this being a cost-efficiency signal rather than a reliability one, not evidence it\'s miscalibrated. The critical cutoff was raised from 10,000 to 90,000 tokens (~p90 of the real fired-session waste distribution) because the old bar sat below the *median* firing, marking 81% of all firings critical regardless of severity.',
     short: 'A call re-wrote context it could plausibly have read from cache.',
     tip: 'Keep tool definitions, system prompt, and thinking/effort settings stable across turns.',
     dataSource: 'both',
@@ -330,7 +335,7 @@ export const SIGNAL_FORMULAS: Record<
       'A cache_miss (above) where the gap since the previous LLM call exceeds a 1-hour TTL → warning',
       '3+ such gaps in one session → critical',
     ],
-    caveat: 'Newly added (2026-09-26), unconfirmed. The 1-hour TTL is a single conservative constant (Claude Code\'s subscription TTL) — this codebase has no per-session record of subscription vs. API-key auth to pick the shorter 5-minute API TTL instead, so a real API-key expiry can go unflagged until the gap is this large. Chose the longer TTL deliberately: it undercounts real expiries rather than mislabeling a still-live cache as expired.',
+    caveat: 'Ran through scripts/calibrateSignals.ts (2026-09-26) against 908 real sessions — fired on only 4 of them, none with a resolvable outcome, too few to calibrate one way or the other. The 1-hour TTL is a single conservative constant (Claude Code\'s subscription TTL) — this codebase has no per-session record of subscription vs. API-key auth to pick the shorter 5-minute API TTL instead, so a real API-key expiry can go unflagged until the gap is this large. Chose the longer TTL deliberately: it undercounts real expiries rather than mislabeling a still-live cache as expired.',
     short: 'A cache miss followed a gap longer than the cache\'s TTL.',
     tip: 'Work in tighter bursts, or accept the re-processing cost for spaced-out turns.',
     dataSource: 'both',
@@ -342,7 +347,7 @@ export const SIGNAL_FORMULAS: Record<
       'The session reports at least 2,000 combined cache-read + cache-write tokens (real cache activity, not just a source that never reports caching), and cache-read tokens are under 30% of the session’s total input tokens → warning',
       'under 10% → critical',
     ],
-    caveat: 'Newly added (2026-09-26), unconfirmed — the 30%/10% cutoffs and the 2,000-token activity floor are guesses, not calibrated against real sessions.',
+    caveat: 'Ran through scripts/calibrateSignals.ts (2026-09-26) against 908 real sessions — fired on only 3 of them, none with a resolvable outcome, too few to calibrate. The 30%/10% cutoffs and the 2,000-token activity floor are left as guesses.',
     short: 'Little of this session\'s context came from cache.',
     tip: 'Check what\'s invalidating the cached prefix turn to turn.',
     dataSource: 'both',
@@ -355,7 +360,7 @@ export const SIGNAL_FORMULAS: Record<
       '2× that cap → critical',
       'Disabled unless TRACEROOST_BUDGET_CAP_USD is set — there is no default cap',
     ],
-    caveat: 'Newly added (2026-09-26), unconfirmed. Deliberately has no default threshold to calibrate — unlike every other signal here, the right cap is a dollar figure the user should set for themselves (SWE-agent\'s own default is $3/task, offered only as a reference point, not shipped as this signal\'s default).',
+    caveat: 'Deliberately has no default threshold to calibrate — unlike every other signal here, the right cap is a dollar figure the user should set for themselves (SWE-agent\'s own default is $3/task, offered only as a reference point, not shipped as this signal\'s default). Outcome-based calibration doesn\'t apply: with no TRACEROOST_BUDGET_CAP_USD set, the 2026-09-26 calibration pass (908 sessions) never exercised this detector at all — there is no threshold here for that method to validate.',
     short: 'Session cost exceeded the configured budget cap.',
     tip: 'Check whether a loop or retry pattern elsewhere in this list is driving the cost.',
     dataSource: 'both',
@@ -367,12 +372,31 @@ export const SIGNAL_FORMULAS: Record<
       'No file was edited this session, 90%+ of tool calls are read-only (grep/search/glob/list/read), the model\'s input rate is $3+/M tokens (pricing.ts), and average output per LLM call is under 300 tokens → warning',
       'No critical tier — this is a cost-optimization tip, not a malfunction',
     ],
-    caveat: 'Newly added (2026-09-26), unconfirmed — every cutoff here (the 90% read-only share, the $3/M premium-tier line, the 300-token output ceiling) is a guess, not calibrated against real sessions.',
+    caveat: 'Ran through scripts/calibrateSignals.ts (2026-09-26) against 908 real sessions — zero firings. Every cutoff here (the 90% read-only share, the $3/M premium-tier line, the 300-token output ceiling) is left as a guess; the zero result could mean the thresholds are too strict, or that a premium-tier model rarely runs a long read-only stretch in this codebase\'s own usage.',
     short: 'A premium-tier model ran a long, read-only, low-output stretch.',
     tip: 'Route read/search-heavy turns to a smaller model.',
     dataSource: 'both',
     dataSourceNote:
       'Needs per-call model tags and output tokens, the same constraint token_runaway has: log-capable from Claude Code (degraded) and OpenCode, not from Codex, Copilot CLI/Chat, or Cursor logs.',
+  },
+  skipped_checks: {
+    bullets: [
+      'The session\'s git outcome resolves to \'merged\' (its content matches the tip of the remote-tracked trunk branch) and no recognized test/build runner call appears anywhere in the timeline → warning',
+      'No critical tier — absence of a check isn\'t itself proof of a bug, just proof nothing was verified',
+    ],
+    caveat: 'Added (2026-09-26, signal-catalog-05) — not calibrated against real session history yet '
+      + '(scripts/calibrateSignals.ts doesn\'t compute GitOutcome per session the way a live dashboard does, so this signal needs its own pass). '
+      + 'Datadog\'s own published rule is `commit_count > 0 && push_count > 0 && test_fix_cycle_count == 0`; this codebase has no direct way to '
+      + 'observe a `git push` (default telemetry redacts Bash command arguments — see the doc\'s spike), so \'merged\' (content already reached '
+      + 'the remote-tracked trunk, per gitOutcome.ts\'s existing origin-preferring trunk-ref resolution) stands in for "pushed" instead. That\'s a '
+      + 'solid proxy in this product\'s single-developer scope, but a genuine risk: a task with nothing to test (a docs fix, a config tweak) will '
+      + 'always fire this, so expect a real false-positive rate until calibrated.',
+    short: 'Changes reached the shared branch with no test/build check run.',
+    tip: 'Run the check yourself before trusting it — nothing verified this session\'s own work.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Only needs tool labels (same fields exact_tool_repeat/runaway_steps use), not captured output, so it\'s log-capable from Claude Code, '
+      + 'OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all.',
   },
 }
 
@@ -1049,7 +1073,14 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
 
 const CACHE_MISS_MIN_SHARE = 0.05
 const CACHE_MISS_MIN_TOKENS = 2000
-const CACHE_MISS_CRITICAL_TOKENS = 10_000
+// Calibrated (2026-09-26, scripts/calibrateSignals.ts against 908 real sessions): the original
+// 10,000-token critical bar was below the *median* fired session (p50=17,483), so 81% of firings
+// (105 of 130) were marked critical regardless of severity — not a useful triage split. Raised to
+// ~p90 of the real fired-session waste distribution (p50=17,483, p75=38,109, p90=94,834,
+// p95=150,445, max=454,942) so critical marks the real tail again. See the SIGNAL_FORMULAS caveat
+// for this signal's outcome-lift result — it doesn't predict bad outcomes (-7pp vs. baseline),
+// consistent with this being a cost-efficiency signal, not a reliability one.
+const CACHE_MISS_CRITICAL_TOKENS = 90_000
 // See the SIGNAL_FORMULAS caveat: this project has no per-session record of subscription vs.
 // API-key auth, so there's no way to pick Claude Code's shorter 5-minute API TTL instead. The
 // longer 1-hour subscription TTL is used everywhere as a deliberate choice to undercount real

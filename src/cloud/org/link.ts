@@ -151,7 +151,7 @@ export async function linkInteractive(opts: InteractiveLinkOptions = {}): Promis
       })
       result = await persistFromTokens(tokens)
     } catch (err) {
-      server.finish(false)
+      server.finish(false, (err as Error).message)
       throw err
     }
     server.finish(true)

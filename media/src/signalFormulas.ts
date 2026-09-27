@@ -217,6 +217,25 @@ export const SIGNAL_FORMULAS: Record<
     dataSourceNote:
       'Needs per-call model tags and output tokens, the same constraint token_runaway has: log-capable from Claude Code (degraded) and OpenCode, not from Codex, Copilot CLI/Chat, or Cursor logs.',
   },
+  skipped_checks: {
+    bullets: [
+      'The session\'s git outcome resolves to \'merged\' (its content matches the tip of the remote-tracked trunk branch) and no recognized test/build runner call appears anywhere in the timeline → warning',
+      'No critical tier — absence of a check isn\'t itself proof of a bug, just proof nothing was verified',
+    ],
+    caveat: 'Added (2026-09-26, signal-catalog-05) — not calibrated against real session history yet '
+      + '(scripts/calibrateSignals.ts doesn\'t compute GitOutcome per session the way a live dashboard does, so this signal needs its own pass). '
+      + 'Datadog\'s own published rule is `commit_count > 0 && push_count > 0 && test_fix_cycle_count == 0`; this codebase has no direct way to '
+      + 'observe a `git push` (default telemetry redacts Bash command arguments — see the doc\'s spike), so \'merged\' (content already reached '
+      + 'the remote-tracked trunk, per gitOutcome.ts\'s existing origin-preferring trunk-ref resolution) stands in for "pushed" instead. That\'s a '
+      + 'solid proxy in this product\'s single-developer scope, but a genuine risk: a task with nothing to test (a docs fix, a config tweak) will '
+      + 'always fire this, so expect a real false-positive rate until calibrated.',
+    short: 'Changes reached the shared branch with no test/build check run.',
+    tip: 'Run the check yourself before trusting it — nothing verified this session\'s own work.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Only needs tool labels (same fields exact_tool_repeat/runaway_steps use), not captured output, so it\'s log-capable from Claude Code, '
+      + 'OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all.',
+  },
 }
 
 /** Renders a signal's bullets as the `<ul>` HTML string LoopBlock's `why` prop expects. */

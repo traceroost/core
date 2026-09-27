@@ -8,6 +8,7 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { recordAction } from '../actionLog'
 import type { ScannedCommit } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -42,8 +43,10 @@ export function hasAgentTrailer(message: string): boolean {
 
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 })
-    return stdout
+    return await recordAction(cwd, 'Scanning commit history for AI authorship', `git ${args.join(' ')}`, async () => {
+      const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 })
+      return stdout
+    })
   } catch {
     return null
   }
