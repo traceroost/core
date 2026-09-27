@@ -310,22 +310,42 @@ docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 `
   traceroost/traceroost
 ```
 
-Open <http://localhost:3000> after the container starts.
+The image binds to `0.0.0.0` inside the container, so — exactly like a native run with
+`BIND_HOST=0.0.0.0` — **every request to the dashboard, the OTLP receiver and MCP needs the access
+token** TraceRoost generates on first start. Without it the dashboard shows an "Unauthorized" page
+and agents' exports are rejected with `401`. To get it:
+
+```bash
+# The startup log prints the dashboard URL with the token included — open that URL once and the
+# browser keeps a cookie, so plain http://localhost:3000 works afterwards.
+docker logs <container> 2>&1 | grep -m1 'token='
+
+# Or read it from the config file (HOME is /data in the image, so it lives on the volume and
+# survives container re-creation when you mount one):
+docker exec <container> cat /data/.traceroost/config.json   # "authToken": "…"
+```
+
+Then pass it to the setup scripts below (`--token` / `-Token`, or `TRACEROOST_TOKEN`), or add it
+by hand as `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>` (Codex: a
+`headers = { "Authorization" = "Bearer <token>" }` entry inside each `otlp-http = { … }` table).
 
 #### Configuring Agents for Local / Docker
 
-Use the included setup scripts to configure agents automatically, or see [Manual Configuration](#manual-configuration) for the manual steps.
+Use the included setup scripts to configure agents automatically, or see [Manual Configuration](#manual-configuration) for the manual steps. For a local native run on `127.0.0.1` (the default) no token is needed; for Docker or LAN mode, add the token:
 
 ```bash
 # macOS / Linux
 chmod +x scripts/configure-agents.sh
-./scripts/configure-agents.sh
+./scripts/configure-agents.sh                        # native, loopback-bound
+./scripts/configure-agents.sh --token <token>        # Docker / BIND_HOST=0.0.0.0
+./scripts/configure-agents.sh --host 192.168.1.20 --token <token>   # TraceRoost on another machine
 ```
 
 ```powershell
 # Windows (PowerShell)
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\scripts\configure-agents.ps1
+.\scripts\configure-agents.ps1 -Token <token>       # Docker / BIND_HOST=0.0.0.0
 ```
 
 ## Upgrading from AgentLens
@@ -435,8 +455,18 @@ Environment variables:
 | `UI_PORT` | `3000` | Dashboard port |
 | `MCP_PORT` | `4316` | MCP endpoint for Claude Code and other MCP-compatible agents |
 | `DATA_DIR` | `~/.traceroost` | Directory for persistent span data |
-| `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access |
+| `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
 | `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
+
+**LAN mode / security.** On the default `127.0.0.1` bind only processes on your machine can connect,
+so no token is required; the servers still refuse requests from web pages (a foreign `Origin`
+header, a DNS-rebinding `Host`, or an OTLP body sent as `text/plain`/form data). With
+`BIND_HOST=0.0.0.0` (or `::`) any `Host` name is accepted — LAN IP, hostname, Docker service name —
+and every request instead needs the bearer token from `~/.traceroost/config.json` (`authToken`),
+printed with the dashboard URL at startup. Browsers: open `http://<host>:3000/?token=<token>` once
+(a cookie keeps you signed in). Agents: `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>`,
+or `scripts/configure-agents.sh --host <host> --token <token>`. MCP clients: send the same
+`Authorization: Bearer <token>` header.
 
 The local server uses the same port as the VS Code extension — only one can run at a time. To run both simultaneously, use different ports:
 
@@ -505,6 +535,10 @@ Quick-start commands are in [Ways to Run](#docker-otel-only). Additional options
 ```bash
 docker run --pull=always -p 3000:3000 -p 4318:4318 -v ~/.traceroost:/data traceroost/traceroost
 ```
+
+Other devices then open `http://<your-ip>:3000/?token=<token>` and point agents at
+`http://<your-ip>:4318` with the token (see [token](#docker-otel-only) above). Add `-p 4316:4316`
+to expose the MCP endpoint too.
 
 **Custom ports** — if `4318` is already in use by the VS Code extension:
 

@@ -1,6 +1,10 @@
 import * as assert from 'assert'
 import * as http from 'http'
-import { linkInteractive, leave, refreshOrgNameIfStale } from '../../../cloud/org/link'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
+import { ForwardQueue } from '../../../cloud/forward/queue'
+import { linkInteractive, leave, refreshOrgNameIfStale, resetRoleCheckForTests } from '../../../cloud/org/link'
 import { getOrgStatus } from '../../../cloud/org/status'
 import { setCredentialStore, loadCredentials } from '../../../cloud/org/credentials'
 import type { CredentialStore } from '../../../cloud/org/credentials'
@@ -89,13 +93,20 @@ suite('org/link', () => {
     assert.strictEqual(loadCredentials(), null)
   })
 
-  test('leave clears the credential even when the server is unreachable', async () => {
+  test('leave clears the credential and the org-salted queue, even when the server is unreachable', async () => {
     await linkInteractive({ openUrl: fakeBrowser(), timeoutMs: 2000 })
-    globalThis.fetch = (() => { throw new Error('offline') }) as typeof fetch
-    const res = await leave()
-    assert.strictEqual(res.wasLinked, true)
-    assert.strictEqual(res.serverRevoked, false)
-    assert.strictEqual(loadCredentials(), null)
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-leave-'))
+    try {
+      new ForwardQueue(home).enqueue({ schema_version: '1', repo_key_fp: 'a'.repeat(64), session: { session_id: '11111111-1111-4111-8111-111111111111', agent: 'claude-code', started_at: '2026-03-01T00:00:00.000Z', duration_ms: 1 } })
+      globalThis.fetch = (() => { throw new Error('offline') }) as typeof fetch
+      const res = await leave(home)
+      assert.strictEqual(res.wasLinked, true)
+      assert.strictEqual(res.serverRevoked, false)
+      assert.strictEqual(loadCredentials(), null)
+      assert.strictEqual(new ForwardQueue(home).depth(), 0)
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true })
+    }
   })
 
   test('refreshOrgNameIfStale heals a credential whose orgName fell back to orgId', async () => {
@@ -140,6 +151,24 @@ suite('org/link', () => {
     globalThis.fetch = (() => { throw new Error('must not be called — nothing is stale') }) as typeof fetch
     const changed = await refreshOrgNameIfStale()
     assert.strictEqual(changed, false)
+  })
+
+  test('refreshOrgNameIfStale re-reads the role once per process — an admin cached as a member is corrected', async () => {
+    resetRoleCheckForTests()
+    setCredentialStore((() => {
+      let cur: OrgCredentials | null = {
+        endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'Acme Corp', email: 'dev@example.com',
+        memberId: 'mem-1', role: 'developer', perDeveloperVisibility: false,
+        accessToken: 'access-1', refreshToken: 'refresh-1',
+        accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
+      }
+      return { load: () => cur, save: (c: OrgCredentials) => { cur = c }, clear: () => { cur = null } }
+    })())
+    globalThis.fetch = (async () => new Response(JSON.stringify({ org_name: 'Acme Corp', role: 'admin', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })) as typeof fetch
+    assert.strictEqual(await refreshOrgNameIfStale(), true)
+    assert.strictEqual(loadCredentials()?.role, 'admin')
+    globalThis.fetch = (() => { throw new Error('checked once already') }) as typeof fetch
+    assert.strictEqual(await refreshOrgNameIfStale(), false)
   })
 
   test('refreshOrgNameIfStale logs and stays stale when the roster fetch keeps failing', async () => {

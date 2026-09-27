@@ -64,6 +64,9 @@ function isPathInside(parent: string, child: string): boolean {
 
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined
+  /** The port the MCP server actually bound (set by extension.ts) — it can differ from the
+   *  configured traceRoost.mcpPort when that port was busy and listenWithFallback moved on. */
+  public static boundMcpPort: number | undefined
   private readonly panel: vscode.WebviewPanel
   private disposables: vscode.Disposable[] = []
   private pendingUpdate: ReturnType<typeof setTimeout> | undefined
@@ -178,16 +181,6 @@ export class DashboardPanel {
         ).catch(err => console.error('[TraceRoost] sendGitOutcome failed:', err))
       } else if (msg.type === 'getRepoHash' && msg.workspace) {
         void this.sendRepoHash(msg.workspace as string)
-      } else if (msg.type === 'loadBlob' && msg.spanId && msg.field) {
-        const content = await this.repo.loadBlob(
-          msg.spanId as string,
-          msg.field as 'response' | 'thinking' | 'tool-input' | 'full-result' | 'edit-old' | 'edit-new',
-          msg.editIndex as number | undefined,
-        )
-        this.panel.webview.postMessage({ type: 'blobContent', spanId: msg.spanId, field: msg.field, content })
-      } else if (msg.type === 'askAI' && msg.prompt) {
-        const prompt = `The following efficiency issue was detected in my AI coding trace. Help me fix it:\n\n${msg.prompt}`
-        openAIChat(prompt, msg.agent)
       } else if (msg.type === 'alert' && msg.label) {
         handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider, rawDb)
       } else if (msg.type === 'automation' && msg.prompt) {
@@ -209,8 +202,6 @@ export class DashboardPanel {
         vscode.window.showTextDocument(uri, { preview: true }).then(undefined, () => {
           vscode.window.showWarningMessage(`Could not open file: ${msg.filePath}`)
         })
-      } else if (msg.type === 'agentFilterChanged' && this.sidebarProvider) {
-        this.sidebarProvider.setAgentFilter(msg.value || 'all')
       } else if (msg.type === 'searchSessions' && msg.query) {
         const result = this.repo.searchSessions(msg.query as import('./sessionRepository').SearchQuery)
         this.panel.webview.postMessage({
@@ -652,7 +643,7 @@ export class DashboardPanel {
       : null
 
     const mcpEnabled = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableMcpServer', true)
-    const mcpPort    = vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
+    const mcpPort    = DashboardPanel.boundMcpPort ?? vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
 
     const initialData = `<script nonce="${nonce}">
         window.__INITIAL_TOOL_CALLS__ = ${safeJsonForScript(summary.toolCalls)};
@@ -773,17 +764,6 @@ async function handleAlertNotification(
       })
     }
   })
-}
-
-async function openAIChat(prompt: string, agent?: string): Promise<void> {
-  const commands = await vscode.commands.getCommands(true)
-  if (agent === 'copilot') {
-    const cmd = ['github.copilot.chat.open', 'workbench.action.chat.open'].find(c => commands.includes(c))
-    if (cmd) { vscode.commands.executeCommand(cmd, { query: prompt }); return }
-  }
-  await vscode.env.clipboard.writeText(prompt)
-  const label = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'AI'
-  vscode.window.showInformationMessage(`TraceRoost: Prompt copied — paste into your ${label} session.`)
 }
 
 async function writeAutomationPrompt(agent: string, label: string, fullPrompt: string): Promise<string | undefined> {

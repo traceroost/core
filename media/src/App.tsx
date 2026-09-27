@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   sessionSummary, toolCalls,
   selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
-  sessionTimelines, blobCache, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor,
+  sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor,
   runningGitCommands, deferredGitOutcomeSessionIds,
   repoInfo,
   dailyStats, lifetimeStats, burnRateData, searchResults, rangedSearchResults, exportSearchResults,
@@ -31,7 +31,7 @@ import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
-import { OrgButton, OrgPanel, orgStatus, orgPayloadPreview, orgBusy, orgOpen, requestOrgStatus, orgReconcileResult, orgReconcileBusy, orgReconcileProgress, orgPayloadBusy } from './cloud/panels/OrgPanel'
+import { OrgButton, OrgPanel, orgStatus, orgPayloadPreview, orgBusy, orgOpen, requestOrgStatus, orgReconcileResult, orgReconcileBusy, orgReconcileProgress, orgPayloadBusy, orgLinkUrl, orgDevicePrompt, orgActionError } from './cloud/panels/OrgPanel'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -528,11 +528,6 @@ export function App() {
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
         const entry = (msg.name && msg.hash) ? { name: msg.name, hash: msg.hash, githubUrl: msg.githubUrl ?? null } : null
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
-      } else if (msg.type === 'blobContent' && msg.spanId && msg.field) {
-        const key = `${msg.spanId}:${msg.field}`
-        if (msg.content != null) {
-          blobCache.value = { ...blobCache.value, [key]: msg.content }
-        }
       } else if (msg.type === 'switchTab' && msg.tab) {
         const tab = normalizeTabId(msg.tab)
         if (tab === 'alerts' || tab === 'automation' || tab === 'settings-automation') {
@@ -572,8 +567,19 @@ export function App() {
       } else if (msg.type === 'orgPayloadPreview') {
         orgPayloadBusy.value = false
         orgPayloadPreview.value = (msg as unknown as { previews: typeof orgPayloadPreview.value }).previews
+      } else if (msg.type === 'orgLinkUrl') {
+        orgLinkUrl.value = (msg as unknown as { url?: string }).url ?? null
+      } else if (msg.type === 'orgDevicePrompt') {
+        const p = msg as unknown as { userCode?: string; verificationUri?: string; verificationUriComplete?: string }
+        orgDevicePrompt.value = p.userCode && p.verificationUri
+          ? { userCode: p.userCode, verificationUri: p.verificationUri, verificationUriComplete: p.verificationUriComplete }
+          : null
       } else if (msg.type === 'orgActionResult') {
+        const r = msg as unknown as { ok?: boolean; error?: string }
         orgBusy.value = null
+        orgLinkUrl.value = null
+        orgDevicePrompt.value = null
+        orgActionError.value = r.ok === false ? (r.error || 'unknown error') : null
         requestOrgStatus()
       } else if (msg.type === 'orgReconcileProgress') {
         const p = msg as unknown as { done: number; total: number }

@@ -85,7 +85,7 @@ suite('turnover', () => {
     fs.writeFileSync(path.join(young, 'a.txt'), Array.from({ length: 300 }, (_, i) => `a-${i}`).join('\n'))
     const env = { ...process.env, GIT_AUTHOR_DATE: iso(T0), GIT_COMMITTER_DATE: iso(T0) }
     execFileSync('git', ['add', '-A'], { cwd: young })
-    execFileSync('git', ['commit', '-m', 'x\n\nCo-Authored-By: Claude <n@anthropic.com>'], { cwd: young, env })
+    execFileSync('git', ['commit', '-m', 'x\n\nCo-Authored-By: Claude <noreply@anthropic.com>'], { cwd: young, env })
     try {
       const report = await computeTurnover(young, { now: T0 + 5 * 86_400_000, windows: [90] })
       assert.ok(report.results.every(r => r.kind === 'insufficient'))

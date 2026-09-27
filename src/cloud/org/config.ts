@@ -44,7 +44,7 @@ export interface ResolvedEnvironment {
  * Resolves in order: a release build (locked to production, full stop — see below), then an
  * explicit full URL (`TRACEROOST_ORG_URL`, for pointing at `cloud`'s own `pnpm dev` on
  * localhost, or any other one-off target), then a named environment
- * (`TRACEROOST_ORG_ENV=test|stage|production`, settable via `.env` for `npm run local`), then a
+ * (`TRACEROOST_ORG_ENV=test|stage|production`, settable via `.env` for `pnpm run local`), then a
  * selection persisted from the Org panel (`environmentSelection.ts`), then
  * `DEFAULT_ORG_ENVIRONMENT` (`test`). A non-release (development) build therefore talks to the
  * test stack unless told otherwise; only a release build is pinned to production.

@@ -35,7 +35,11 @@ const CACHE_RATE_LOW_THRESHOLD = 0.6
 const HOT_FILE_THRESHOLD = 0.4
 
 function aggregateCacheHitRate(sessions: SessionSummaryCard[]): CostSavingAction | null {
-  const withCalls = sessions.filter(s => s.totalLlmCalls > 0)
+  // Only sessions that report any cache activity: a source that never reports caching (Cursor,
+  // Copilot CLI/Chat) reads as a 0% hit rate, which is "no data", not "poor caching" — averaging it
+  // in would drag the figure down and raise this action for nothing (same floor idea as the
+  // low_cache_hit_ratio signal).
+  const withCalls = sessions.filter(s => s.totalLlmCalls > 0 && (s.cacheReadTokens + (s.cacheCreateTokens ?? 0)) > 0)
   if (withCalls.length < 3) return null
   const avg = withCalls.reduce((sum, s) => sum + s.cacheHitRate, 0) / withCalls.length
   if (avg >= CACHE_RATE_LOW_THRESHOLD) return null
@@ -43,7 +47,7 @@ function aggregateCacheHitRate(sessions: SessionSummaryCard[]): CostSavingAction
     id: 'cache_rate',
     kind: 'cache_rate',
     title: `Prompt cache hit rate is ${Math.round(avg * 100)}%`,
-    evidence: `Average across ${withCalls.length} session${withCalls.length === 1 ? '' : 's'} in view. Cached tokens cost roughly 10× less than fresh tokens.`,
+    evidence: `Average across ${withCalls.length} session${withCalls.length === 1 ? '' : 's'} in view that report prompt caching. Cached tokens cost roughly 10× less than fresh tokens.`,
     action: 'Going from 0% to 60% cache hit rate cuts trace cost by 80–90% with no change to model behavior — keep instruction files and early-turn context stable between calls so the cache stays warm.',
     affectedSessions: withCalls.length,
     priority: avg < 0.3 ? 'high' : 'medium',

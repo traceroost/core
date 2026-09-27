@@ -46,7 +46,7 @@ graph TB
 
     subgraph Service["TraceRoost Pro service (hosted)"]
         OAUTH["OAuth / PKCE authorization server"]
-        INGEST["POST /api/ingest<br/>validates against schema/rollup.v1.json"]
+        INGEST["POST /api/ingest (+ /batch)<br/>validates against schema/rollup.v1.json"]
         STORE[("Rollup storage")]
         VIEWS["Team view, cohorts, weekly digest"]
     end
@@ -115,6 +115,32 @@ the denominator rather than guessed at.
 | Standalone HTTP | `GET/POST /api/org` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview |
 | Deep links | `vscode://agentlens.agentlens-dashboard/advise?id=…`, `vscode://agentlens.agentlens-dashboard/cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source. Routed through VS Code's own URI scheme, not a custom-registered one — see `src/extension.ts`'s "Deep links" comment |
 
+## Every endpoint a linked machine calls
+
+The full list — `src/cloud/org/config.ts` names each URL. All bearer calls authenticate with the
+machine's access token, and the service scopes every one of them to that token's own
+org/member/install; nothing takes an org, member or install id from the request. The client
+requests no OAuth `scope` — the service issues one kind of machine token and doesn't enforce
+scopes, so the endpoint list below *is* what a token can do.
+
+| Endpoint | Caller | What it's for |
+| --- | --- | --- |
+| `GET /oauth/authorize` → loopback callback, `POST /oauth/token` (`authorization_code`) | `link.ts` (`linkInteractive`) | PKCE link. Mints a fresh install on every link. |
+| `POST /oauth/device/code`, `POST /oauth/device/token` | `link.ts` (`linkViaDevice`) | RFC 8628 fallback for headless boxes. |
+| `POST /oauth/token` (`refresh_token`) | `tokenRefresh.ts` | Rotates the pair. Under the credential file's lock, re-reading it first, so two hosts on one machine never rotate the same token (the loser's `invalid_grant` would otherwise unlink the machine). Proactive when `accessTokenExpiresAt` is within a minute. |
+| `POST /oauth/revoke` | `link.ts` (`leave`) | Best-effort, after the local credential and queue are already gone; also revokes the install. |
+| `POST /api/ingest/batch`, `POST /api/ingest` (fallback on 404) | `sender.ts` | Rollup delivery. 401 = expired/unknown token (refresh and retry once); 403 = install revoked (stop, clear credential and queue); 413 = too large (split / drop). |
+| `GET /api/roster/me` | `oauthClient.ts` (`fetchRosterSelf`) | Org name, own role (`admin`/`developer`) and email for the Org panel. |
+| `GET /api/installs/me` | `traceroost org verify` | How many sessions the service holds for *this install* — compared against the local count. A re-link's backfill moves already-stored sessions to the new install, so the counts line up again. |
+| `GET /api/rates/effective` | `pricingSync.ts` (hourly) | The org's own rate table (central defaults + admin overrides). Only models with a real rate are listed; anything else keeps core's local rate. |
+| `GET /api/clusters/resolve` | `traceroost cluster` (`clusterResolve.ts`) | A Repeat work cluster's session ids, matched locally through the same `toUuid` the rollups use. |
+
+What goes over `/api/ingest` today: session rollups, and per-repo instruction telemetry
+(`instructionTelemetry.ts`: instruction-file presence/line counts, which the service stores, plus
+file footprints and suggestion events, which it accepts and does not yet store). The schema also
+has commit and turnover records (`buildCommitRecords.ts`), but nothing builds and sends them yet —
+which is why the consent list (`privacy.ts`, identical in both repos) doesn't promise line counts.
+
 ## One session, end to end (linked machine)
 
 1. A session closes; `SessionStore` writes the `SessionSummaryCard` to local SQLite — unchanged
@@ -128,9 +154,16 @@ the denominator rather than guessed at.
 4. `ForwardQueue.enqueue()` appends it to `~/.traceroost/forward-queue.jsonl` (0600) if the
    idempotency key isn't already queued.
 5. On its own timer — started only while linked — `drainQueue()` (`src/cloud/forward/sender.ts`) sends
-   eligible items in batches, refreshing the access token on a 401, backing off with jitter on
-   failure, dropping (never retrying) a 400 the schema rejects, and stopping entirely with one
-   notice if membership was revoked (403).
+   eligible items in batches (at most 25 items and ~400 KiB per request, under the service's
+   512 KiB body cap), refreshing the access token just before it expires or on a 401, backing off
+   with jitter on failure, dropping (never retrying) a 400 the schema rejects, splitting a batch
+   the service answers 413 and dropping a single record that is too large on its own, and
+   stopping entirely with one notice when the credential is gone for good — a 403 (the service's
+   answer for a revoked install: an admin unlinked it, the member was removed, or the machine
+   left) or a refresh rejected with `invalid_grant`. Both of those also **clear the queue**: every
+   queued rollup was hashed with that org's salt and must never ship to the next org this machine
+   links to (reconciliation re-enqueues after a re-link, hashed for the new org). `leave()` clears
+   it the same way.
 6. A 2xx removes the item from the queue. If the service is unreachable indefinitely, the queue
    just grows (capped at 5,000 items, oldest-first eviction — logged when it happens, not silent)
    — the developer's local dashboard is completely unaffected either way.

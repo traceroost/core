@@ -4,8 +4,7 @@
  *
  * This is a parallel implementation, not a shared import — media/src/tabs/Automation.tsx has its
  * own copy of this same logic (webview code can't import from src/, see media/tsconfig.json's
- * rootDir). Keep the two in sync by hand if the detection rules or defaults change (the existing
- * src/instructionAdvisor.ts / media/src/tabs/Instructions.tsx split follows the same pattern).
+ * rootDir). Keep the two in sync by hand if the detection rules or defaults change.
  *
  * Known simplification vs. the webview version: there is no server-side equivalent of the
  * per-user threshold customization stored in the browser's localStorage (traceRoost.automationConfigs,
@@ -51,11 +50,16 @@ export type AutomationId = 'context_compaction' | 'loop_break' | 'error_cascade'
 interface AutomationConfig {
   id: AutomationId
   label: string
-  threshold: number // context_compaction only — the other three use per-agent profile thresholds
+  threshold: number // context_compaction fallback — the other three use per-agent profile thresholds
+  /** Per-agent thresholds (context_compaction only) — 70% of each agent's context window, matching
+   *  media/src/tabs/Automation.tsx's agentThresholds. A flat 140K would never fire for Copilot's
+   *  128K window. */
+  agentThresholds?: Partial<Record<AgentSource, number>>
 }
 
 const DEFAULT_AUTOMATION_CONFIGS: AutomationConfig[] = [
-  { id: 'context_compaction', label: 'Context Compaction', threshold: 140000 },
+  { id: 'context_compaction', label: 'Context Compaction', threshold: 140000,
+    agentThresholds: { claude_code: 140000, copilot: 89600, codex: 280000, opencode: 140000, cursor: 140000 } },
   { id: 'loop_break',         label: 'Loop Breaker',        threshold: 3 },
   { id: 'error_cascade',      label: 'Error Cascade Stop',  threshold: 3 },
   { id: 'high_turns',         label: 'Turn Limit Wrap-up',  threshold: 120 },
@@ -157,10 +161,11 @@ function evaluateAutomation(cfg: AutomationConfig, session: SessionSummaryCard, 
   switch (cfg.id) {
     case 'context_compaction': {
       const peakTokens = getPeakContextTokens(session, timeline)
+      const threshold = cfg.agentThresholds?.[session.source] ?? cfg.threshold
       return {
-        triggered: peakTokens >= cfg.threshold,
+        triggered: peakTokens >= threshold,
         stage: 'nudge',
-        threshold: cfg.threshold,
+        threshold,
         unit: 'tokens',
         evidence: `peak context ${peakTokens.toLocaleString()} tokens`,
       }
@@ -279,6 +284,18 @@ export interface AutomationTrigger {
 // identical prompt. Process-lifetime only — resets on server restart, not persisted to disk.
 const firedSet = new Set<string>()
 
+/** True when `sessionWs` is `workspace` or inside it — on a path-segment boundary, so `/repo`
+ *  doesn't match `/repo-other`. An empty `workspace` matches nothing (it used to match every
+ *  session, since every string starts with ''). */
+export function workspaceMatches(sessionWs: string, workspace: string): boolean {
+  if (!workspace || !sessionWs) return false
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '')
+  const a = norm(sessionWs)
+  const b = norm(workspace)
+  if (!b) return false
+  return a === b || a.startsWith(b + '/')
+}
+
 /**
  * Evaluates the four built-in automations against a workspace's currently in-progress,
  * recently-active session(s), using default thresholds (see module doc comment for why these
@@ -289,10 +306,7 @@ export function checkAutomationTriggers(
   workspace: string,
   getTimeline: (sessionId: string) => TimelineEntry[],
 ): AutomationTrigger[] {
-  const inProgress = sessions.filter(s =>
-    s.outcome === 'unknown'
-    && ((s.workspace ?? '') === workspace || s.workspace?.startsWith(workspace))
-  )
+  const inProgress = sessions.filter(s => s.outcome === 'unknown' && workspaceMatches(s.workspace ?? '', workspace))
   if (!inProgress.length) return []
 
   const now = Date.now()

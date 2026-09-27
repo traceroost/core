@@ -730,6 +730,7 @@ export async function activate(context: vscode.ExtensionContext) {
       )
       context.subscriptions.push({ dispose: () => mcpServer.close() })
       const boundMcpPort = (mcpServer.address() as { port: number }).port
+      DashboardPanel.boundMcpPort = boundMcpPort
       outputChannel.appendLine(`TraceRoost MCP server → http://127.0.0.1:${boundMcpPort}/mcp`)
     } catch (err) {
       outputChannel.appendLine(`Failed to start MCP server on port ${mcpPort}: ${err}`)

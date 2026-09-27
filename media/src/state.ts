@@ -118,10 +118,8 @@ export const toolCalls = signal<Record<string, number>>(window.__INITIAL_TOOL_CA
 
 // ── Lazy timeline cache: sessionId → loaded timeline entries ──────────────────
 // Populated by sessionDetail messages from the extension host.
-// blobCache: `${spanId}:${field}` → content string
 
 export const sessionTimelines = signal<Record<string, TimelineEntry[]>>({})
-export const blobCache = signal<Record<string, string>>({})
 
 // Lazy git-outcome cache: sessionId → classification, or null once fetched but not applicable
 // (no git repo, no changed files, etc). Absent key = not yet requested. See gitOutcome.ts.

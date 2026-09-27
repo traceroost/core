@@ -13,11 +13,32 @@ import type { ScannedCommit } from './types'
 const execFileAsync = promisify(execFile)
 const GIT_TIMEOUT_MS = 20_000
 
-// Trailers / co-authors that name an AI agent. Case-insensitive, matched against the full
-// commit message. Deliberately conservative — a false "certain" is worse than a missed one.
-const AGENT_TRAILER_RE =
-  /(?:^|\n)\s*(?:co-authored-by|assisted-by|generated-by)\s*:\s*[^\n]*(claude|anthropic|copilot|github-actions\[bot\]|codex|openai|cursor|aider|devin|gemini)/i
-const AGENT_GENERATED_RE = /🤖\s*generated with|generated with \[?claude code\]?|co-authored-by:\s*claude/i
+// Trailers / co-authors that name an AI agent — deliberately conservative, a false "certain" is
+// worse than a missed one. A trailer counts only in a known agent form (by the email or bot login
+// the agent itself writes), never because a co-author's name merely contains "claude" or
+// "copilot": `Co-authored-by: Claude Dupont <claude@example.com>` is a person.
+const AGENT_TRAILER_LINE_RE = /^[ \t]*(?:co-authored-by|assisted-by|generated-by)[ \t]*:[ \t]*(.+)$/gim
+const AGENT_TRAILER_VALUE_RES: RegExp[] = [
+  /<noreply@anthropic\.com>/i,                                                // Claude Code: Claude <noreply@anthropic.com>
+  /^claude (?:code|opus|sonnet|haiku|fable|mythos)\b[^<]*<[^>]+>/i,            // Claude Opus 4.5 <…>, Claude Sonnet 4 <…>
+  /<(?:\d+\+)?copilot@users\.noreply\.github\.com>/i,                          // GitHub Copilot coding agent
+  /copilot-swe-agent\[bot\]/i,
+  /chatgpt-codex-connector\[bot\]|<[^>]*codex[^>]*@openai\.com>|<noreply@openai\.com>/i, // OpenAI Codex
+  /<cursoragent@cursor\.com>/i,                                                // Cursor background agent
+  /<noreply@aider\.chat>/i,                                                    // aider
+  /devin-ai-integration\[bot\]/i,                                             // Devin
+  /gemini-code-assist\[bot\]|google-labs-jules\[bot\]/i,                        // Gemini / Jules
+]
+const AGENT_GENERATED_RE = /🤖\s*generated with|generated with \[?claude code\]?/i
+
+export function hasAgentTrailer(message: string): boolean {
+  if (AGENT_GENERATED_RE.test(message)) return true
+  for (const m of message.matchAll(AGENT_TRAILER_LINE_RE)) {
+    const value = m[1].trim()
+    if (AGENT_TRAILER_VALUE_RES.some(re => re.test(value))) return true
+  }
+  return false
+}
 
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
@@ -82,7 +103,7 @@ export async function scanCommits(repoRoot: string, opts: { sinceIso?: string; m
       authoredAt,
       authorEmail,
       isMerge: parents.length > 1,
-      subjectHadAgentTrailer: AGENT_TRAILER_RE.test(message) || AGENT_GENERATED_RE.test(message),
+      subjectHadAgentTrailer: hasAgentTrailer(message),
       files,
       linesAdded,
       linesRemoved,

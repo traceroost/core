@@ -140,30 +140,38 @@ async function filesTouched(repoRoot: string, sha: string, memo: Map<string, str
   return files
 }
 
-/** Where each of `files` (as of `from`) lives at `to`: renamed paths are followed, deleted paths
- *  dropped. One `git diff` per cohort/window, not per file. */
+/** Where each of `files` (as of commit `from`) lives at commit `to`: renames are followed commit
+ *  by commit (so a rename with edits on either side of it is still caught), deletions dropped.
+ *  One `git log` per commit/window pair, not per file. */
 async function pathsAt(repoRoot: string, from: string, to: string, files: Set<string>): Promise<string[]> {
-  const out = await gitOut(repoRoot, ['diff', '--name-status', '-M', '-z', from, to])
+  if (from === to) return [...files]
+  const out = await gitOut(repoRoot, ['log', '--reverse', '--format=', '--name-status', '-M', '-z', `${from}..${to}`])
   if (out === null) return [...files]
-  const moved = new Map<string, string | null>()
+  const current = new Map<string, string>([...files].map(f => [f, f]))  // original → current path
+  const byCurrent = new Map<string, string>([...files].map(f => [f, f]))  // current → original
   const parts = out.split('\0')
   for (let i = 0; i < parts.length;) {
-    const status = parts[i]
+    const status = parts[i].trim()
     if (!status) { i++; continue }
     if (status.startsWith('R') || status.startsWith('C')) {
-      if (status.startsWith('R')) moved.set(parts[i + 1], parts[i + 2])
+      const [oldPath, newPath] = [parts[i + 1], parts[i + 2]]
+      const orig = byCurrent.get(oldPath)
+      if (status.startsWith('R') && orig !== undefined) {
+        byCurrent.delete(oldPath)
+        byCurrent.set(newPath, orig)
+        current.set(orig, newPath)
+      }
       i += 3
     } else {
-      if (status === 'D') moved.set(parts[i + 1], null)
+      const orig = byCurrent.get(parts[i + 1])
+      if (status === 'D' && orig !== undefined) {
+        byCurrent.delete(parts[i + 1])
+        current.delete(orig)
+      }
       i += 2
     }
   }
-  const result: string[] = []
-  for (const f of files) {
-    const to = moved.has(f) ? moved.get(f) : f
-    if (to) result.push(to)
-  }
-  return result
+  return [...current.values()]
 }
 
 function sameShas(a: string[], b: string[]): boolean {

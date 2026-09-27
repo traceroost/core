@@ -131,4 +131,15 @@ suite('forward/queue', () => {
     assert.strictEqual(logs.length, 1)
     assert.match(logs[0], /evicting 1 oldest unsent item/)
   })
+
+  test('an instruction-telemetry payload is keyed on its instruction-file state', () => {
+    const instr = (lines: number) => ({
+      schema_version: '1' as const,
+      repo_key_fp: 'f'.repeat(64),
+      instruction_files: [{ repo_hash: 'a'.repeat(64), present: true, kind: 'claude_md' as const, line_count: lines }],
+    })
+    assert.match(itemKey(instr(10)), /^instructions:/)
+    assert.strictEqual(itemKey(instr(10)), itemKey(instr(10)))
+    assert.notStrictEqual(itemKey(instr(10)), itemKey(instr(11)))
+  })
 })

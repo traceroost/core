@@ -45,7 +45,7 @@ import {
   extractCookieToken, authCookieHeader,
 } from '../src/httpSecurity'
 
-// Load `.env` from the current working directory, if one exists — lets `npm run local` point at
+// Load `.env` from the current working directory, if one exists — lets `pnpm run local` point at
 // a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
 // `quiet` suppresses dotenv's own startup banner; this is silent no-ops when no `.env` is present.
 loadDotenv({ quiet: true })

@@ -4,7 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import { attributeRepository, memoryAttributionCache } from '../../../cloud/attribution'
-import { scanCommits } from '../../../cloud/attribution/commitScan'
+import { scanCommits, hasAgentTrailer } from '../../../cloud/attribution/commitScan'
 import type { AttributionSession } from '../../../cloud/attribution/types'
 
 let repo: string
@@ -117,7 +117,7 @@ suite('attribution', () => {
 
   test('the cache is consulted and populated', async () => {
     write('src/g.ts', 7, 'g')
-    const sha = commit('feat: g\n\nCo-Authored-By: Claude <x@anthropic.com>', at(0))
+    const sha = commit('feat: g\n\nCo-Authored-By: Claude <noreply@anthropic.com>', at(0))
     const cache = memoryAttributionCache()
     await attributeRepository(repo, { sessions: [], cache })
     assert.ok(cache.get(sha))
@@ -125,6 +125,40 @@ suite('attribution', () => {
     cache.put({ ...cache.get(sha)!, aiLines: 999 })
     const res = await attributeRepository(repo, { sessions: [], cache })
     assert.strictEqual(res.commits.find(c => c.sha === sha)?.aiLines, 999)
+  })
+
+  test('a cached unknown is re-evaluated once a matching session appears', async () => {
+    write('src/h.ts', 11, 'h')
+    const sha = commit('add h', at(30))
+    const cache = memoryAttributionCache()
+    const first = await attributeRepository(repo, { sessions: [], cache })
+    assert.strictEqual(first.commits.find(c => c.sha === sha)?.attribution, 'unknown')
+    const sessions: AttributionSession[] = [
+      { sessionId: 'late', workspace: repo, startMs: clock + 20 * 60_000, endMs: clock + 40 * 60_000, filesChanged: [path.join(repo, 'src/h.ts')] },
+    ]
+    const second = await attributeRepository(repo, { sessions, cache })
+    assert.strictEqual(second.commits.find(c => c.sha === sha)?.attribution, 'certain')
+    assert.strictEqual(cache.get(sha)?.attribution, 'certain')
+  })
+
+  test('agent trailers are matched only in known agent forms', () => {
+    for (const msg of [
+      'x\n\nCo-Authored-By: Claude <noreply@anthropic.com>',
+      'x\n\nCo-authored-by: Claude Opus 4.5 <noreply@anthropic.com>',
+      'x\n\nCo-authored-by: Claude Sonnet 4 <someone@example.com>',
+      'x\n\nCo-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>',
+      'x\n\nCo-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>',
+      'x\n\nCo-authored-by: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>',
+      'x\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>',
+      'x\n\nCo-authored-by: aider (gpt-5) <noreply@aider.chat>',
+      'x\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)',
+    ]) assert.ok(hasAgentTrailer(msg), msg)
+    for (const msg of [
+      'x\n\nCo-authored-by: Claude Dupont <claude.dupont@example.com>',
+      'x\n\nCo-authored-by: Claudia Copilotti <cc@example.com>',
+      'x\n\nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>',
+      'fix: handle claude and copilot logs',
+    ]) assert.ok(!hasAgentTrailer(msg), msg)
   })
 
   test('only the local author\'s commits are attributed by default', async () => {
