@@ -156,9 +156,41 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
   }
 }
 
-const TRACEROOST_HOOK_MARKER = '.traceroost/pending-prompt.txt'
-const TRACEROOST_HOOK_COMMAND =
-  'f=$HOME/.traceroost/pending-prompt.txt; [ -f "$f" ] && cat "$f" && rm "$f"'
+// Earlier versions installed a Claude Code Stop hook that printed ~/.traceroost/pending-prompt.txt
+// into the session. Nothing writes that file any more, and any local process could, so the hook
+// is no longer installed and existing copies are removed below.
+const LEGACY_STOP_HOOK_MARKER = '.traceroost/pending-prompt.txt'
+
+/** Strips TraceRoost's legacy Stop hook from Claude settings, leaving every other hook as is.
+ *  Returns true when something was removed. */
+export function removeLegacyStopHook(settings: Record<string, unknown>): boolean {
+  const hooks = settings.hooks
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return false
+  const byEvent = hooks as Record<string, unknown>
+  const stop = byEvent.Stop
+  if (!Array.isArray(stop)) return false
+
+  let removed = false
+  const kept: unknown[] = []
+  for (const entry of stop) {
+    const inner = (entry as { hooks?: unknown } | null)?.hooks
+    if (!Array.isArray(inner)) { kept.push(entry); continue }
+    const remaining = inner.filter(h => {
+      const command = (h as { command?: unknown } | null)?.command
+      const isLegacy = typeof command === 'string' && command.includes(LEGACY_STOP_HOOK_MARKER)
+      if (isLegacy) removed = true
+      return !isLegacy
+    })
+    if (remaining.length > 0) kept.push({ ...(entry as object), hooks: remaining })
+    else if (remaining.length === inner.length) kept.push(entry)
+  }
+  if (!removed) return false
+
+  if (kept.length > 0) byEvent.Stop = kept
+  else delete byEvent.Stop
+  if (Object.keys(byEvent).length === 0) delete settings.hooks
+  return true
+}
 
 export async function autoConfigureClaudeCode(port: number): Promise<ConfigResult> {
   const settingsPath = path.join(os.homedir(), '.claude', 'settings.json')
@@ -223,19 +255,7 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
       }
     }
 
-    // Add Stop hook for standalone automation prompt injection (idempotent)
-    type HookEntry = { matcher: string; hooks: Array<{ type: string; command: string }> }
-    const hooks = (settings.hooks as Record<string, HookEntry[]> | undefined) ?? {}
-    const stopHooks: HookEntry[] = hooks['Stop'] ?? []
-    const hookAlreadyPresent = stopHooks.some(entry =>
-      entry.hooks?.some(h => h.command?.includes(TRACEROOST_HOOK_MARKER))
-    )
-    if (!hookAlreadyPresent) {
-      stopHooks.push({ matcher: '', hooks: [{ type: 'command', command: TRACEROOST_HOOK_COMMAND }] })
-      hooks['Stop'] = stopHooks
-      settings.hooks = hooks
-      changed = true
-    }
+    if (removeLegacyStopHook(settings)) changed = true
 
     if (!changed) {
       return { changed: false, warning }

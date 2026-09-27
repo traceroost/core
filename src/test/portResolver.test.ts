@@ -94,19 +94,29 @@ suite('portResolver', () => {
     })
 
     test('exhausting the bounded scan throws PortScanExhaustedError rather than hanging', async () => {
-      const blockers: http.Server[] = []
-      const server = http.createServer()
+      let blockers: http.Server[] = []
+      let base = 0
       try {
-        await listenPlain(server, 0, '127.0.0.1')
-        const base = (server.address() as { port: number }).port
-        await close(server)
-
-        // Occupy base..base+2 so a cap of 2 has no free port left in range.
-        for (let i = 0; i <= 2; i++) {
-          const b = http.createServer()
-          await listenPlain(b, base + i, '127.0.0.1')
-          blockers.push(b)
+        // Occupy base..base+2 so a cap of 2 has no free port left in range. The OS only promises
+        // that `base` itself was free, so pick a new base if a neighbour is already taken.
+        for (let attempt = 0; attempt < 20 && blockers.length < 3; attempt++) {
+          for (const b of blockers) { await close(b) }
+          blockers = []
+          const server = http.createServer()
+          await listenPlain(server, 0, '127.0.0.1')
+          base = (server.address() as { port: number }).port
+          await close(server)
+          for (let i = 0; i <= 2; i++) {
+            const b = http.createServer()
+            try {
+              await listenPlain(b, base + i, '127.0.0.1')
+            } catch {
+              break
+            }
+            blockers.push(b)
+          }
         }
+        assert.strictEqual(blockers.length, 3, 'could not reserve three consecutive ports')
 
         const probe = http.createServer()
         try {

@@ -35,6 +35,40 @@ suite('autoConfigNode', () => {
       assert.strictEqual(fs.existsSync(settingsPath() + '.traceroost.bak'), false)
     })
 
+    test('does not install a Stop hook', async () => {
+      await autoConfigureClaudeCode(4318)
+      const written = JSON.parse(fs.readFileSync(settingsPath(), 'utf-8'))
+      assert.strictEqual(written.hooks, undefined)
+    })
+
+    test('removes the legacy pending-prompt Stop hook but keeps the user\'s own hooks', async () => {
+      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true })
+      const legacy = { type: 'command', command: 'f=$HOME/.traceroost/pending-prompt.txt; [ -f "$f" ] && cat "$f" && rm "$f"' }
+      const mine = { type: 'command', command: 'say done' }
+      fs.writeFileSync(settingsPath(), JSON.stringify({
+        env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://localhost:4318' },
+        hooks: {
+          Stop: [{ matcher: '', hooks: [legacy] }, { matcher: '', hooks: [mine, legacy] }],
+          PreToolUse: [{ matcher: 'Bash', hooks: [mine] }],
+        },
+      }))
+      const result = await autoConfigureClaudeCode(4318)
+      assert.strictEqual(result.changed, true)
+      const written = JSON.parse(fs.readFileSync(settingsPath(), 'utf-8'))
+      assert.deepStrictEqual(written.hooks.Stop, [{ matcher: '', hooks: [mine] }])
+      assert.deepStrictEqual(written.hooks.PreToolUse, [{ matcher: 'Bash', hooks: [mine] }])
+    })
+
+    test('drops the hooks key entirely when the legacy Stop hook was the only hook', async () => {
+      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true })
+      fs.writeFileSync(settingsPath(), JSON.stringify({
+        hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command: 'cat ~/.traceroost/pending-prompt.txt' }] }] },
+      }))
+      await autoConfigureClaudeCode(4318)
+      const written = JSON.parse(fs.readFileSync(settingsPath(), 'utf-8'))
+      assert.strictEqual(written.hooks, undefined)
+    })
+
     test('leaves an unparseable file byte-for-byte untouched and reports an error', async () => {
       fs.mkdirSync(path.dirname(settingsPath()), { recursive: true })
       const original = '{\n  // my comment\n  "model": "opus",\n}\n'
