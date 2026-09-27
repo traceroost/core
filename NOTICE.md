@@ -18,10 +18,6 @@ org/cloud service without a commercial agreement. Four years after
 publication (or the stated Change Date, whichever is first) each version
 converts to Apache License 2.0.
 
-**Status:** the BSL text at `src/cloud/LICENSE` is a draft pending legal
-review — see the banner at the top of that file. Treat this NOTICE as
-describing the intended structure, not yet a finalized legal position.
-
 This split exists because `src/cloud/` is the part of the codebase that could
 plausibly be commercialized as a standalone hosted product; everything else —
 the local dashboard, the free local Outcomes/attribution engine's *product

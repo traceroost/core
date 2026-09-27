@@ -41,15 +41,15 @@ suite('findProjectRoot', () => {
   })
 
   test('reports no signal (empty string) when the walk collapses to exactly the home directory', () => {
-    assert.strictEqual(findProjectRoot('/Users/rogerreed', '/Users/rogerreed'), '')
+    assert.strictEqual(findProjectRoot('/Users/devuser', '/Users/devuser'), '')
   })
 
   test('reports no signal when startDir is an ancestor of the home directory', () => {
-    assert.strictEqual(findProjectRoot('/Users', '/Users/rogerreed'), '')
+    assert.strictEqual(findProjectRoot('/Users', '/Users/devuser'), '')
   })
 
   test('reports no signal when startDir is the filesystem root', () => {
-    assert.strictEqual(findProjectRoot('/', '/Users/rogerreed'), '')
+    assert.strictEqual(findProjectRoot('/', '/Users/devuser'), '')
   })
 })
 
@@ -60,15 +60,15 @@ suite('commonPathPrefix', () => {
 
   test('returns the shared directory ancestor of multiple absolute paths', () => {
     assert.strictEqual(
-      commonPathPrefix(['/Users/rogerreed/proj/src/a.ts', '/Users/rogerreed/proj/src/b.ts']),
-      '/Users/rogerreed/proj/src',
+      commonPathPrefix(['/Users/devuser/proj/src/a.ts', '/Users/devuser/proj/src/b.ts']),
+      '/Users/devuser/proj/src',
     )
   })
 
   test('collapses to a shallow prefix when paths diverge early', () => {
     assert.strictEqual(
-      commonPathPrefix(['/Users/rogerreed/repo-a/x.ts', '/Users/rogerreed/repo-b/y.ts']),
-      '/Users/rogerreed',
+      commonPathPrefix(['/Users/devuser/repo-a/x.ts', '/Users/devuser/repo-b/y.ts']),
+      '/Users/devuser',
     )
   })
 

@@ -67,7 +67,7 @@ export function commonPathPrefix(paths: string[], platform: NodeJS.Platform = pr
  * except when it's at or above the user's home directory. That shape only shows up when the
  * caller's `startDir` was already an overly shallow guess (e.g. commonPathPrefix collapsing to
  * almost nothing because a session touched only two files in unrelated subtrees) — it *looks* like
- * a real project path but isn't one, and displaying it (e.g. "Users/rogerreed") is more misleading
+ * a real project path but isn't one, and displaying it (e.g. "Users/devuser") is more misleading
  * than showing nothing. `homeDir` is injectable for tests; defaults to the real home directory.
  */
 export function findProjectRoot(startDir: string, homeDir: string = os.homedir()): string {

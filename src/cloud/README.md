@@ -62,7 +62,7 @@ CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Pro, and
 This is the one directory in the repository **not** covered by the root
 [MIT LICENSE](../../LICENSE). See [NOTICE.md](../../NOTICE.md) for the exact
 scope and [LICENSE](LICENSE) here for the terms (Business Source License
-1.1 — currently a draft pending legal review).
+1.1).
 
 Why: everything else in this repository — the dashboard, the log readers,
 the standalone server, the extension shell — is a local developer tool with

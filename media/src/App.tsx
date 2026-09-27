@@ -1380,7 +1380,7 @@ function OutcomeFilterBar() {
             placeholder="Name or ID"
             value={workspaceFilter.value}
             onInput={e => { workspaceFilter.value = (e.target as HTMLInputElement).value }}
-            title="Matches a repo's name or its hash — the same hash shown in traceroost-cloud's Repo column. Pick one from the list, or type to narrow further."
+            title="Matches a repo's name or its hash. Pick one from the list, or type to narrow further."
             style="flex:none;width:110px"
           />
           <datalist id="tr-repo-options">
