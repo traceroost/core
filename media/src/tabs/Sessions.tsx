@@ -7,7 +7,7 @@ import {
   getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   repoInfo, repoDisplayName, repoTooltipName,
-  requestGitOutcomesFor, availableWorkspaces,
+  requestGitOutcomesFor, availableWorkspaces, hasAnyWorkspace,
 } from '../state'
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
@@ -534,8 +534,8 @@ function isSameIdSet(current: Set<string> | null, ids: string[]): boolean {
 // for the id suffix within the column's own max-width.
 const PROMPT_PREVIEW_CHARS = 60
 
-function SessionRow({ sess, showWorkspace, conversation }: {
-  sess: SessionSummaryCard; showWorkspace: boolean
+function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
+  sess: SessionSummaryCard; showWorkspace: boolean; showOutcome: boolean
   conversation?: { color: string; index: number; total: number; memberIds: string[]; firstPrompt: string }
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -653,7 +653,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 
         {/* Git outcome — own column so the single-letter pill (GitOutcomeBadge) always lines up
             under the "O" header instead of riding along inside the Repo cell. */}
-        {showWorkspace && (
+        {showOutcome && (
           <td style="padding:4px 0;text-align:left">
             {sess.workspace && <GitOutcomeBadge sessionId={sess.sessionId} />}
           </td>
@@ -694,7 +694,7 @@ function SessionRow({ sess, showWorkspace, conversation }: {
 
       {expanded && (
         <tr style="border-bottom:1px solid var(--vscode-panel-border)">
-          <td colspan={showWorkspace ? 12 : 10} style="padding:0">
+          <td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0)} style="padding:0">
             <SessionDetail sess={sess} />
           </td>
         </tr>
@@ -709,6 +709,7 @@ export function Sessions() {
   const sessions = filteredSessions.value
   const hasAny = (sessionSummary.value?.sessions?.length ?? 0) > 0
   const showWorkspace = availableWorkspaces.value.length > 1
+  const showOutcome = hasAnyWorkspace.value
 
   const sortKey = sessionSortKey.value
   const sortDir = sessionSortDir.value
@@ -745,7 +746,7 @@ export function Sessions() {
   // Fetches git outcomes for just the current page (bounded by pagination already, same cap/
   // stagger the Outcome filter uses — see requestGitOutcomesFor) so the one-letter outcome badge
   // next to each repo name has data without computing it for every off-screen session.
-  useEffect(() => { if (showWorkspace) requestGitOutcomesFor(pageSessions) }, [showWorkspace, pageSessions])
+  useEffect(() => { if (showOutcome) requestGitOutcomesFor(pageSessions) }, [showOutcome, pageSessions])
 
   return (
     <div id="sessions-content" style="padding-top:8px">
@@ -755,7 +756,7 @@ export function Sessions() {
           <col style="width:8px" /><col style="width:18px" /><col style="width:128px" /><col style="width:64px" />
           <col style="width:140px" />
           {showWorkspace && <col style="width:110px" />}
-          {showWorkspace && <col style="width:36px" />}
+          {showOutcome && <col style="width:36px" />}
           <col style="width:46px" /><col style="width:38px" /><col style="width:50px" /><col style="width:46px" /><col style="width:70px" />
         </colgroup>
         <thead>
@@ -776,7 +777,7 @@ export function Sessions() {
                 <button class="sort-button" onClick={() => onSortClick('workspace')} title={`<b>Repo (ID)</b>\nSort by repo`} data-tip-html>Repo (ID){sortArrow('workspace')}</button>
               </th>
             )}
-            {showWorkspace && (
+            {showOutcome && (
               <th scope="col" aria-sort={sortKey === 'outcome' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--tr-brand);padding-left:0;padding-right:0'}>
                 <button class="sort-button" onClick={() => onSortClick('outcome')} title={`<b>Git outcome</b>\nWhether each trace's changed files were committed, reverted, or left uncommitted, per local git history`} data-tip-html>Out{sortArrow('outcome')}</button>
               </th>
@@ -791,9 +792,9 @@ export function Sessions() {
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colspan={showWorkspace ? 12 : 10}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
+          {sessions.length === 0 && <tr><td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
           {pageSessions.map(sess => (
-            <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} conversation={conversationInfo.get(sess.sessionId)} />
+            <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} showOutcome={showOutcome} conversation={conversationInfo.get(sess.sessionId)} />
           ))}
         </tbody>
       </table>

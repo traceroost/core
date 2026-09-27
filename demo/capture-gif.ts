@@ -15,6 +15,8 @@
  *   pnpm run demo:gif -- --speed 2          # faster tour -> shorter capture
  *   pnpm run demo:gif -- --headed           # show the browser while it records (debugging)
  *   pnpm run demo:gif -- --theme light      # capture in light mode instead of the dark default
+ *   pnpm run demo:gif -- --edition full     # record the full edition (default: core, what releases ship)
+ *   pnpm run demo:gif -- --no-outcomes      # skip the scratch git repo — no Outcome column/chart data
  *
  * Safety, and why it's structured this way: see .staged-issues/demo-gif-capture.md. In
  * short — the standalone server this spawns is started with TRACEROOST_NO_AUTOCONFIG=1
@@ -53,6 +55,15 @@ if (THEME !== 'dark' && THEME !== 'light') {
   err(`--theme must be "dark" or "light", got "${THEME}"`)
   process.exit(1)
 }
+const EDITION  = flag('edition', 'core')
+if (EDITION !== 'core' && EDITION !== 'full') {
+  err(`--edition must be "core" or "full", got "${EDITION}"`)
+  process.exit(1)
+}
+// On by default: the replay seeds a scratch git repo so Claude/Codex sessions get real merged /
+// committed / uncommitted outcomes (demo/replay.ts --demo-repo), backdated past the dashboard's
+// 2-minute active-session grace window so they resolve while the tour is still recording.
+const OUTCOMES = !hasFlag('no-outcomes')
 const OUT      = path.resolve(flag('out', path.join(__dirname, '..', 'media', 'demo.gif')))
 
 // Distinct from the default 3000/4318 on purpose — a real `pnpm run local` instance can
@@ -152,8 +163,8 @@ async function main() {
   let exitCode = 0
 
   try {
-    log('Building the standalone bundle (node esbuild.js --production)…')
-    const build = spawnSync(process.execPath, [path.join(__dirname, '..', 'esbuild.js'), '--production'], {
+    log(`Building the standalone bundle (node esbuild.js --production --edition=${EDITION})…`)
+    const build = spawnSync(process.execPath, [path.join(__dirname, '..', 'esbuild.js'), '--production', `--edition=${EDITION}`], {
       cwd: path.join(__dirname, '..'),
       stdio: 'inherit',
     })
@@ -210,6 +221,7 @@ async function main() {
       '--port', String(OTLP_PORT),
       '--scenario', SCENARIO,
       ...(AGENTS ? ['--agents', AGENTS] : []),
+      ...(OUTCOMES ? ['--demo-repo', path.join(scratchRoot, 'pethaven'), '--backdate-min', '5'] : []),
     ]
     replayProc = spawn(process.execPath, [path.join(__dirname, 'run-ts.js'), ...replayArgs], {
       cwd: path.join(__dirname, '..'),

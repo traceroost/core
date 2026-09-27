@@ -513,6 +513,11 @@ export const availableWorkspaces = computed<string[]>(() => {
   )
 })
 
+// Whether any trace has a workspace at all — the Traces table's Outcome column needs one to
+// classify against git. Unlike the Repo column (availableWorkspaces.length > 1, since with a
+// single repo there's nothing to tell apart), a single repo is exactly where outcomes matter.
+export const hasAnyWorkspace = computed<boolean>(() => availableWorkspaces.value.some(ws => ws !== ''))
+
 export const agentFilteredSessions = computed<SessionSummaryCard[]>(() => {
   let all = sessionSummary.value?.sessions ?? []
   const filter = selectedAgentFilter.value

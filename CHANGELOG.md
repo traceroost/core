@@ -22,6 +22,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Changed
 
+- **The Traces table's Out (git outcome) column now shows with a single repo** — it used to appear only once traces came from two or more workspaces, alongside the Repo column, so anyone working in one project never saw it. It now shows whenever any trace has a workspace; the Repo column and Repo filter still need two or more repos to have anything to tell apart.
 - **The free, local engines and CLI commands moved out of the `cloud/` directories, and are now MIT-licensed** — `src/cloud/attribution/` → `src/attribution/`, `src/cloud/turnover/` → `src/turnover/`, and `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` → `standalone/local/` (with their tests). They were under the BSL zone only because of where they sat; they are covered by the root MIT `LICENSE` from this version on. The `cloud/` directories (BSL) now hold only TraceRoost Pro's org linking and uploading. No behavior change.
 
 ### Removed

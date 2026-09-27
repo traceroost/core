@@ -11,7 +11,7 @@ import {
   vscode, displaySessions, rangedSessions,
   sessionTextFilter, filteredSessions, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   sessionSortKey, sessionSortDir,
-  workspaceFilter, currentWorkspace, availableWorkspaces, requestRepoHash, shortWorkspaceName,
+  workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   getSessionsPagination, applySessionDelta, type SessionDelta,
 } from './state'
@@ -1343,7 +1343,7 @@ function OutcomeFilterBar() {
   // reflects real in-flight requests instead of spinning forever over off-screen sessions nothing
   // is fetching.
   const tab = normalizeTabId(activeTab.value)
-  const showsOutcomeColumn = tab === 'sessions' && availableWorkspaces.value.length > 1
+  const showsOutcomeColumn = tab === 'sessions' && hasAnyWorkspace.value
   let pendingCount = 0
   // Excludes deferred sessions (still inside their active-session grace window, see
   // deferredGitOutcomeSessionIds in state.ts) — the spinner should reflect actual git CLI

@@ -70,7 +70,11 @@ pnpm run demo:gif -- --out /tmp/x.gif   # write elsewhere instead, for review fi
 pnpm run demo:gif -- --dry-run          # run the tour, skip recording — for tuning pause lengths
 pnpm run demo:gif -- --speed 2          # faster tour -> shorter capture
 pnpm run demo:gif -- --headed           # show the browser while it records (debugging)
+pnpm run demo:gif -- --edition full     # record the full edition (default: core, what releases ship)
+pnpm run demo:gif -- --no-outcomes      # skip the scratch git repo (no Outcome column/chart data)
 ```
+
+By default the replay also seeds a scratch git repo (`demo/replay.ts --demo-repo`) — some story files merged into `main`, some only committed on a feature branch, some left uncommitted — and backdates the sessions past the dashboard's 2-minute active-session grace window, so the Traces table's Out column and Analytics' Outcome vs. Tokens chart show real merged / committed / uncommitted verdicts for the Claude and Codex sessions. (Copilot's OTEL spans carry no workspace, so its rows stay unclassified.)
 
 Requires `npx playwright install chromium` (once) and `ffmpeg` on `PATH` (`brew install ffmpeg` / `apt install ffmpeg`) — the conversion from the recorded video to an optimized, palette-based GIF shells out to it in two passes. See `demo/capture-gif.ts`'s header comment for why it's built this way (two independent layers keep it from ever touching the real machine's agent config, not just one).
 
