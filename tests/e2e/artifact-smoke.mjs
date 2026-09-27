@@ -189,10 +189,15 @@ async function serviceRoundTrip(inst, edition) {
     ...process.env,
     PATH: `${inst.binDir}${path.delimiter}${process.env.PATH}`,
     // `service install` from a global npm install first runs `npm install -g traceroost@latest`
-    // so a re-install upgrades. Here that would replace the tarball under test with whatever is
-    // published; this guard (set by the npx bootstrap's re-exec, see serviceConfig.ts) makes it
-    // register exactly the running copy instead.
-    TRACEROOST_SERVICE_BOOTSTRAPPED: '1',
+    // so a re-install upgrades. Point npm's global prefix at the tarball install and its registry
+    // at a dead port: the service CLI must still recognize its own global install (it resolves it
+    // with `npm root -g` — which never worked on Windows before npmInvocation), report the failed
+    // download, and register exactly the tarball under test.
+    npm_config_prefix: inst.prefix,
+    npm_config_registry: 'http://127.0.0.1:9/',
+    npm_config_fetch_retries: '0',
+    npm_config_fetch_timeout: '3000',
+    npm_config_update_notifier: 'false',
   }
   const dataDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), `traceroost-svc-${edition}-`)))
   const logFile = path.join(dataDir, 'logs', 'service.log')
@@ -204,6 +209,16 @@ async function serviceRoundTrip(inst, edition) {
     console.log(inst1.stdout + inst1.stderr)
     assertEqual(inst1.status, 0, `service install exits 0\n${inst1.stdout}${inst1.stderr}\n--- service log ---\n${dumpLog()}`)
     installed = true
+    const fetched = inst1.stdout.includes('Fetching the latest traceroost from npm')
+    if (IS_WIN) {
+      assert(fetched, 'service install recognized it runs from the global npm install')
+      assert(/Keeping the version already installed \(v\d/.test(inst1.stdout + inst1.stderr), 'failed download falls back to the installed version')
+    } else if (!fetched) {
+      // Known, not Windows-specific: launched through the npm bin symlink, process.argv[1] is the
+      // symlink (<prefix>/bin/traceroost), so isRunningFromGlobalInstall() never matches the
+      // package dir and install skips its upgrade step. Reported, not asserted, here.
+      notice('service install did not detect its global npm install (argv[1] is the bin symlink) — the upgrade-on-reinstall step is skipped on this OS')
+    }
     const healthy = await waitFor('`service status` to report the service healthy', () => traceroost(inst, ['service', 'status'], env).status === 0, { timeoutMs: 60_000, intervalMs: 2000 })
       .catch(e => { throw new Error(`${e.message}\n--- service log ---\n${dumpLog()}`) })
     assert(healthy, 'service healthy')
@@ -214,6 +229,11 @@ async function serviceRoundTrip(inst, edition) {
     assertEqual((await request('POST', `http://127.0.0.1:${otlp}/v1/traces`, { body: fx.otlp })).status, 200, 'service OTLP port accepted a trace')
     await waitFor('the service to list the ingested session', async () =>
       ((await getJson(`http://127.0.0.1:${ui}/api/summary`))?.sessions ?? []).some(s => s.sessionId === fx.rootSpanId), { timeoutMs: 30_000 })
+    // `service update` with the registry unreachable: a clean "couldn't download", exit 1, and
+    // never "npm was not found on your PATH" (what a bare execFileSync('npm') gave on Windows).
+    const upd = traceroost(inst, ['service', 'update'], env)
+    assertEqual(upd.status, 1, 'service update exits 1 when the registry is unreachable')
+    assert(/Couldn't download the latest traceroost from npm: npm exited with code/.test(upd.stdout + upd.stderr), `update reports npm's failure (got: ${(upd.stdout + upd.stderr).slice(-600)})`)
     const logs = traceroost(inst, ['service', 'logs'], env)
     assertEqual(logs.status, 0, 'service logs exits 0')
     assert(/OTLP receiver/.test(logs.stdout), `service log has the startup banner (got: ${logs.stdout.slice(-500)})`)

@@ -2,6 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { execFileSync } from 'child_process'
 import {
   defaultServiceConfig, serviceConfigPath, readServiceConfig, writeServiceConfig,
   serviceLogPath, parseServiceInstallFlags, isRunningFromNpx,
@@ -9,7 +10,7 @@ import {
   generateLaunchdPlist, generateSystemdUnit, generateWindowsWrapperScript,
   launchdLabel, SYSTEMD_UNIT_NAME, WINDOWS_TASK_NAME,
   generateAuthToken, ensureAuthToken, readPackageManifest,
-  describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure,
+  describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure, npmInvocation,
   type ServiceProgram,
 } from '../serviceConfig'
 
@@ -402,6 +403,32 @@ suite('serviceConfig', () => {
       assert.ok(msg.includes('offline'))
       assert.ok(/nothing is installed/i.test(msg))
       assert.ok(!msg.includes('v'.concat('undefined')))
+    })
+  })
+
+  suite('npmInvocation', () => {
+    test('runs npm.cmd through the shell on Windows, plain npm elsewhere', () => {
+      assert.deepStrictEqual(npmInvocation(['root', '-g'], 'win32'), { file: 'npm.cmd', args: ['root', '-g'], shell: true })
+      assert.deepStrictEqual(npmInvocation(['root', '-g'], 'darwin'), { file: 'npm', args: ['root', '-g'], shell: false })
+      assert.deepStrictEqual(npmInvocation(['install', '-g', 'traceroost@latest'], 'linux'), { file: 'npm', args: ['install', '-g', 'traceroost@latest'], shell: false })
+    })
+
+    test('refuses arguments a shell would interpret', () => {
+      for (const bad of ['a b', 'x&calc', 'x|y', '"q"', '%PATH%', 'a;b']) {
+        assert.throws(() => npmInvocation(['install', '-g', bad], 'win32'), /not shell-safe/)
+      }
+    })
+
+    // The regression itself, on whatever OS this runs (ci.yml runs the unit tests on Windows too):
+    // `service install`/`update` resolve the global npm root this way. A bare
+    // execFileSync('npm', ...) threw ENOENT on Windows.
+    test('actually runs npm on this platform', () => {
+      const npm = npmInvocation(['--version'])
+      const out = execFileSync(npm.file, npm.args, { encoding: 'utf-8', shell: npm.shell }).trim()
+      assert.match(out, /^\d+\.\d+\.\d+/)
+      if (process.platform === 'win32') {
+        assert.throws(() => execFileSync('npm', ['--version'], { stdio: 'ignore' }), 'a bare npm is not spawnable on Windows — the bug npmInvocation fixes')
+      }
     })
   })
 })

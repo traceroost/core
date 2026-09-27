@@ -198,6 +198,20 @@ export function childEnvForReexec(parentEnv: NodeJS.ProcessEnv): NodeJS.ProcessE
 // unreachable, npm missing, a permissions error) the service still starts on whatever version is
 // already installed — these pure helpers build the warning so that path is loud instead of silent.
 
+/** How to run `npm <args>` with `child_process.execFileSync` on `platform`. On Windows npm is
+ *  `npm.cmd`, a batch file: CreateProcess never finds a bare `npm` (it only tries .com/.exe), so
+ *  `execFileSync('npm', …)` failed with ENOENT there — `service update` always reported "npm was
+ *  not found on your PATH", and `service install` never recognized (or refreshed) the global
+ *  install. Node also refuses to spawn a .cmd without a shell (CVE-2024-27980), so it goes
+ *  through the shell on Windows; every caller passes only fixed, shell-safe arguments
+ *  (`root -g`, `install -g <package>@latest`). */
+export function npmInvocation(args: string[], platform: NodeJS.Platform = process.platform): { file: string; args: string[]; shell: boolean } {
+  if (args.some(a => !/^[A-Za-z0-9@._\/:=-]+$/.test(a))) {
+    throw new Error(`npm argument is not shell-safe: ${JSON.stringify(args)}`)
+  }
+  return platform === 'win32' ? { file: 'npm.cmd', args, shell: true } : { file: 'npm', args, shell: false }
+}
+
 /** Condenses whatever `child_process` threw when `npm install -g` failed into one short clause
  *  for the "couldn't download" warning. */
 export function describeNpmFailure(err: unknown): string {

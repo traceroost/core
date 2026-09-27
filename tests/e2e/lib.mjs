@@ -4,7 +4,7 @@
 // (.github/workflows/windows-e2e.yml) — including against a globally-installed npm tarball, where
 // none of this repo's node_modules are on the resolution path.
 
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -347,13 +347,14 @@ export function run(cmd, args, opts = {}) {
   return execFileSync(file, quoted, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts, shell })
 }
 
-/** run() that returns { status, stdout, stderr } instead of throwing on a non-zero exit. */
+/** Like run(), but never throws on a non-zero exit: returns { status, stdout, stderr } (both streams captured). */
 export function tryRun(cmd, args, opts = {}) {
-  try {
-    return { status: 0, stdout: run(cmd, args, opts), stderr: '' }
-  } catch (e) {
-    return { status: e.status ?? 1, stdout: String(e.stdout ?? ''), stderr: String(e.stderr ?? e.message) }
-  }
+  const shell = IS_WIN && !/\.(exe|com)$/i.test(cmd) && !path.isAbsolute(cmd) ? true : (opts.shell ?? false)
+  const quoted = shell ? args.map(a => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)) : args
+  const file = shell && /\s/.test(cmd) ? `"${cmd}"` : cmd
+  log(`$ ${cmd} ${args.join(' ')}`)
+  const r = spawnSync(file, quoted, { encoding: 'utf8', ...opts, shell, stdio: ['ignore', 'pipe', 'pipe'] })
+  return { status: r.status ?? 1, stdout: r.stdout ?? '', stderr: (r.stderr ?? '') + (r.error ? String(r.error) : '') }
 }
 
 /** Runs `fn` as a named step; prints PASS/FAIL, collects the failure instead of throwing, so a
