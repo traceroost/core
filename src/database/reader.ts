@@ -90,8 +90,11 @@ export class DatabaseReader {
       sql += ' WHERE ' + conditions.join(' AND ')
     }
     sql += ' ORDER BY start_time DESC'
-    if (filter?.limit !== null && filter?.limit !== undefined) {
-      sql += ` LIMIT ${filter.limit}`
+    // `limit: Infinity` means "no cap" (SessionRepository.listSessions' documented bypass, used by
+    // background reconciliation and org reconcile) — interpolated as-is it was `LIMIT Infinity`,
+    // which SQLite rejects ("no such column: Infinity"), so those callers got nothing at all.
+    if (filter?.limit !== null && filter?.limit !== undefined && Number.isFinite(filter.limit)) {
+      sql += ` LIMIT ${Math.max(0, Math.floor(filter.limit))}`
     }
 
     const results = this.db.exec(sql)

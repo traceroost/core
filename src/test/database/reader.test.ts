@@ -119,6 +119,16 @@ suite('DatabaseReader', () => {
     db.close()
   })
 
+  test('listSessions with limit: Infinity returns every row (no LIMIT clause)', async () => {
+    const db = await openDb()
+    await seedDb(db, [makeCard({ sessionId: 'a' }), makeCard({ sessionId: 'b' }), makeCard({ sessionId: 'c' })])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    assert.strictEqual(reader.listSessions({ limit: Infinity }).length, 3)
+    assert.strictEqual(reader.listSessions({ limit: 2 }).length, 2)
+    assert.strictEqual(reader.listSessions({ limit: 1.7 }).length, 1)
+    db.close()
+  })
+
   test('loadSessionTimeline returns entries in position order', async () => {
     const db = await openDb()
     await seedDb(db, [makeCard()])
