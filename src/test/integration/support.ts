@@ -159,7 +159,7 @@ export function outputChannelText(cfg: ItConfig): string {
 /** Lines of the TraceRoost Output channel that report a failure. */
 export function outputChannelErrors(text: string): string[] {
   return text.split(/\r?\n/).filter(l =>
-    /Failed to|could not load|Could not|error:|Error:|EADDRINUSE|ENOENT|EPERM|EACCES|Cannot find module|auto-configure .* failed/i.test(l),
+    /Failed to|could not load|Could not|\bfailed:|error:|Error:|EADDRINUSE|ENOENT|EPERM|EACCES|Cannot find module|auto-configure .* failed/i.test(l),
   )
 }
 
