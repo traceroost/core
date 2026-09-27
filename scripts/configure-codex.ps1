@@ -4,11 +4,11 @@
 # Usage:
 #   .\scripts\configure-codex.ps1              # uses port 4318 (default)
 #   .\scripts\configure-codex.ps1 -Port 4319   # custom port
-#   .\scripts\configure-codex.ps1 -Token <token>   # Docker / LAN mode (BIND_HOST=0.0.0.0) — see README -> Docker
+#   .\scripts\configure-codex.ps1 -Token <token>   # Docker / LAN mode (BIND_HOST=0.0.0.0) - see README -> Docker
 
 param(
     [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 }),
-    # Bearer token — required when TraceRoost is bound beyond localhost (Docker / LAN mode).
+    # Bearer token - required when TraceRoost is bound beyond localhost (Docker / LAN mode).
     [string]$Token = $env:TRACEROOST_TOKEN,
     [string]$HostName = $(if ($env:TRACEROOST_HOST) { $env:TRACEROOST_HOST } else { "localhost" })
 )
@@ -46,7 +46,8 @@ exporter = { otlp-http = { endpoint = "$Endpoint", protocol = "json"$Headers } }
 trace_exporter = { otlp-http = { endpoint = "$Endpoint", protocol = "json"$Headers } }
 "@
 
-$block | Out-File -FilePath $ConfigPath -Append -Encoding UTF8
+# Appended as UTF-8 without a byte-order mark (Out-File -Encoding UTF8 adds one on Windows PowerShell 5.1).
+[System.IO.File]::AppendAllText($ConfigPath, $block + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding $false))
 
 Write-Host "Updated $ConfigPath"
 Write-Host ""

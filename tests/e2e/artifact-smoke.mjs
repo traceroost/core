@@ -121,17 +121,24 @@ async function serverRoundTrip(inst, edition) {
     await waitFor('auto-config to write ~/.codex/config.toml', () =>
       fs.readFileSync(path.join(home.home, '.codex', 'config.toml'), 'utf8').includes(`endpoint = "http://localhost:${otlp}"`), { timeoutMs: 20_000 })
 
-    // OTLP ingest.
+    // The transcript first: it was on disk before the server started, so the startup log scan lists it.
+    const isTranscriptCard = x => x.dataSource === 'log' && (x.claudeSessionId === fx.sessionId || x.sessionId === fx.sessionId)
+    const logCard = await waitFor('the transcript session in /api/summary', async () =>
+      ((await getJson(`${base}/api/summary`))?.sessions ?? []).find(isTranscriptCard), { timeoutMs: 60_000 })
+
+    // Then the same conversation over OTLP. OTEL wins: the transcript card must drop out, leaving
+    // one session for the conversation (claudeConversation.ts — the rule the extension's writer uses).
     const res = await request('POST', `http://127.0.0.1:${otlp}/v1/traces`, { body: fx.otlp })
     assertEqual(res.status, 200, 'OTLP /v1/traces accepted the fixture')
-
-    const sessions = await waitFor('both the OTEL and the transcript session in /api/summary', async () => {
+    const sessions = await waitFor('the OTEL session to replace the transcript one in /api/summary', async () => {
       const s = (await getJson(`${base}/api/summary`))?.sessions ?? []
       const otel = s.find(x => x.sessionId === fx.rootSpanId)
-      const logCard = s.find(x => x.dataSource === 'log' && (x.claudeSessionId === fx.sessionId || x.sessionId === fx.sessionId))
-      return otel && logCard ? { all: s, otel, logCard } : null
+      return otel && !s.some(isTranscriptCard) ? { all: s, otel } : null
     }, { timeoutMs: 60_000 })
-    for (const [kind, card] of [['OTEL', sessions.otel], ['transcript', sessions.logCard]]) {
+    const forConversation = sessions.all.filter(x => x.claudeSessionId === fx.sessionId || x.sessionId === fx.sessionId || x.sessionId === fx.rootSpanId)
+    assertEqual(forConversation.length, 1, 'one session for the conversation (OTEL + transcript deduped)')
+    assertEqual(sessions.otel.claudeSessionId, fx.sessionId, 'the OTEL card carries the Claude session id from the resource attributes')
+    for (const [kind, card] of [['OTEL', sessions.otel], ['transcript', logCard]]) {
       assertEqual(card.source, 'claude_code', `${kind} card source`)
       assert(samePath(card.workspace, repo), `${kind} card workspace is the fixture repo (got ${card.workspace}, want ${repo})`)
       assertEqual(card.model, 'claude-sonnet-4-6', `${kind} card model`)
@@ -204,6 +211,7 @@ async function serviceRoundTrip(inst, edition) {
   const dumpLog = () => { try { return fs.readFileSync(logFile, 'utf8').slice(-4000) } catch { return '(no service log)' } }
   let installed = false
   let currentUi = ui
+  let primaryError
   try {
     const inst1 = traceroost(inst, ['service', 'install', '--ui-port', String(ui), '--otlp-port', String(otlp), '--mcp-port', String(mcp), '--data-dir', dataDir], env)
     console.log(inst1.stdout + inst1.stderr)
@@ -244,7 +252,11 @@ async function serviceRoundTrip(inst, edition) {
     currentUi = ui2
     await waitFor('the re-installed service on its new UI port', async () => (await request('GET', `http://127.0.0.1:${ui2}/health`).catch(() => ({ status: 0 }))).status === 200, { timeoutMs: 60_000, intervalMs: 2000 })
       .catch(e => { throw new Error(`${e.message}\n--- service log ---\n${dumpLog()}`) })
+  } catch (e) {
+    primaryError = e
+    throw e
   } finally {
+    try {
     if (installed) {
       const un = traceroost(inst, ['service', 'uninstall'], env)
       console.log(un.stdout + un.stderr)
@@ -256,8 +268,14 @@ async function serviceRoundTrip(inst, edition) {
       if (IS_WIN) assert(tryRun('schtasks', ['/query', '/tn', 'TraceRoost']).status !== 0, 'the TraceRoost scheduled task is gone')
       assert(!fs.existsSync(path.join(dataDir, 'service', 'run.cmd')), 'the Windows wrapper script is removed (never created elsewhere)')
     }
-    await sleep(500)
-    rmrf(dataDir)
+    } catch (cleanupError) {
+      // Don't let a cleanup assertion hide the failure that got us here.
+      if (!primaryError) throw cleanupError
+      console.error(`(also failed during cleanup: ${cleanupError.message})`)
+    } finally {
+      await sleep(500)
+      rmrf(dataDir)
+    }
   }
 }
 

@@ -83,6 +83,21 @@ export async function mcpCall(port: number, name: string, args: Record<string, u
   throw new Error(`MCP ${name}: no result in ${res.text.slice(0, 300)}`)
 }
 
+/**
+ * A copy of an OTLP trace payload with fresh trace/span ids — a new session as far as the collector
+ * is concerned. Re-posting the *same* payload is deduplicated by span id and changes nothing, so it
+ * can't be used to make the extension write (and save) its database.
+ */
+export function freshTrace(otlp: unknown): unknown {
+  const text = JSON.stringify(otlp)
+  const ids = new Map<string, string>()
+  const rand = (len: number) => Array.from({ length: len }, () => Math.floor(Math.random() * 16).toString(16)).join('')
+  return JSON.parse(text.replace(/"(traceId|spanId|parentSpanId)":"([0-9a-f]+)"/g, (_m, k: string, id: string) => {
+    if (!ids.has(id)) ids.set(id, rand(id.length))
+    return `"${k}":"${ids.get(id)}"`
+  }))
+}
+
 /** Where VS Code keeps this extension's globalStorage for the isolated --user-data-dir. */
 export function globalStorageDir(cfg: ItConfig, ext: vscode.Extension<unknown>): string {
   return path.join(cfg.userDataDir, 'User', 'globalStorage', ext.id.toLowerCase())

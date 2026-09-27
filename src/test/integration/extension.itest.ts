@@ -13,7 +13,7 @@ import { execFileSync } from 'child_process'
 import * as vscode from 'vscode'
 import {
   loadConfig, waitFor, httpRequest, mcpCall, globalStorageDir, queryDb, outputChannelText, outputChannelErrors,
-  samePath, sleep, type ItConfig, type Row,
+  samePath, sleep, freshTrace, type ItConfig, type Row,
 } from './support'
 
 suite('TraceRoost extension (end to end)', () => {
@@ -96,17 +96,21 @@ suite('TraceRoost extension (end to end)', () => {
 
   test('resolves a git outcome for the session in the fixture repo', async () => {
     // A new commit wakes the background reconciliation watcher on the repo's .git (3 s debounce;
-    // it also re-polls every 60 s). Its result is saved with the next database write, which the
-    // repeated fixture post below triggers.
+    // it also re-polls every 60 s). Its result lives in the in-memory database until the next
+    // save, which a fresh (new-id) trace post triggers — re-posting identical spans changes nothing.
     fs.writeFileSync(path.join(cfg.repo, 'later.txt'), 'later\n')
     execFileSync('git', ['add', '-A'], { cwd: cfg.repo })
     execFileSync('git', ['commit', '-q', '-m', 'later'], { cwd: cfg.repo })
     const outcome = await waitFor('a git_outcome row for the session', async () => {
-      await httpRequest('POST', `http://127.0.0.1:${cfg.otlpPort}/v1/traces`, cfg.fixture.otlp)
-      await sleep(1500)
+      await httpRequest('POST', `http://127.0.0.1:${cfg.otlpPort}/v1/traces`, freshTrace(cfg.fixture.otlp))
+      await sleep(2500)
       const r = await queryDb(ext.extensionPath, dbPath, 'SELECT overall, reason, repo_root FROM git_outcome WHERE session_id = ?', [cfg.fixture.rootSpanId])
       return r[0]
-    }, 180_000, 5_000)
+    }, 180_000, 5_000).catch(async e => {
+      const outcomes = await queryDb(ext.extensionPath, dbPath, 'SELECT session_id, overall, reason, repo_root FROM git_outcome')
+      const sessions = await queryDb(ext.extensionPath, dbPath, 'SELECT session_id, workspace, files_changed, start_time, duration_ms FROM sessions')
+      throw new Error(`${e.message}\ngit_outcome: ${JSON.stringify(outcomes)}\nsessions: ${JSON.stringify(sessions)}\n--- output ---\n${outputChannelText(cfg).slice(-3000)}`)
+    })
     assert.ok(['committed', 'merged'].includes(String(outcome.overall)), `outcome committed/merged (got ${outcome.overall}: ${outcome.reason})`)
     assert.ok(samePath(String(outcome.repo_root), cfg.repo), `outcome repo root is the fixture repo (got ${outcome.repo_root})`)
   })

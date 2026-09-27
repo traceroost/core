@@ -107,6 +107,57 @@ export function serviceLogPath(config: ServiceConfig): string {
   return path.join(config.dataDir, 'logs', 'service.log')
 }
 
+// ── Service process record ───────────────────────────────────────────────────
+//
+// On Windows the Scheduled Task runs a wrapper .cmd, and node is that cmd.exe's child — `schtasks
+// /end` terminates only the cmd.exe, so the server kept running (and holding its ports) after
+// `service stop` / `uninstall` / a port-changing reinstall. A server started as the service
+// records its pid here so the Windows service manager can end the server itself. Lives beside
+// config.json (always under the default data dir, like it) so a `--data-dir` change between
+// installs can't hide the old instance's record.
+
+export interface ServiceProcessRecord {
+  pid: number
+  /** Executable name of the process (e.g. `node.exe`), checked before killing a recorded pid so a
+   *  reused pid belonging to something else is never touched. */
+  image: string
+}
+
+export function servicePidPath(baseHome?: string): string {
+  return path.join(defaultDataDir(baseHome), 'service.pid')
+}
+
+export function writeServiceProcessRecord(record: ServiceProcessRecord, baseHome?: string): void {
+  const p = servicePidPath(baseHome)
+  fs.mkdirSync(path.dirname(p), { recursive: true })
+  fs.writeFileSync(p, JSON.stringify(record) + '\n', 'utf-8')
+}
+
+export function readServiceProcessRecord(baseHome?: string): ServiceProcessRecord | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(servicePidPath(baseHome), 'utf-8')) as Partial<ServiceProcessRecord>
+    if (typeof parsed.pid === 'number' && Number.isInteger(parsed.pid) && parsed.pid > 0 && typeof parsed.image === 'string' && parsed.image) {
+      return { pid: parsed.pid, image: parsed.image }
+    }
+  } catch { /* none recorded */ }
+  return undefined
+}
+
+/** Removes the record — only if it still names `pid` (a newer instance may have replaced it). */
+export function clearServiceProcessRecord(pid: number, baseHome?: string): void {
+  if (readServiceProcessRecord(baseHome)?.pid !== pid) return
+  try { fs.rmSync(servicePidPath(baseHome), { force: true }) } catch { /* best effort */ }
+}
+
+/** True when `tasklist /FO CSV /NH` output for one pid shows a process with executable `image`
+ *  (case-insensitive) — the pid-reuse guard before `taskkill`. */
+export function tasklistShowsImage(tasklistCsv: string, pid: number, image: string): boolean {
+  return tasklistCsv.split(/\r?\n/).some(line => {
+    const cols = line.split('","').map(c => c.replace(/^"|"$/g, ''))
+    return cols.length >= 2 && cols[0].toLowerCase() === image.toLowerCase() && Number(cols[1]) === pid
+  })
+}
+
 /** Reads `name`/`version` out of the nearest `package.json` relative to `fromDir`, trying a
  *  couple of candidate depths since callers sit at different distances from the package root
  *  (e.g. `standalone/` vs. `standalone/service/`). Returns `{}` if neither candidate parses —

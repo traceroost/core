@@ -112,6 +112,16 @@ async function main() {
 
   const { step, summary } = stepRunner()
 
+  await step('scripts/*.ps1 are ASCII-only (Windows PowerShell 5.1 reads BOM-less files as ANSI)', () => {
+    // A UTF-8 em dash is E2 80 94; read as Windows-1252 the 0x94 is a curly quote, which PowerShell
+    // treats as a string delimiter, so a dash inside a string broke parsing of the whole script.
+    for (const f of fs.readdirSync(SCRIPTS).filter(f => f.endsWith('.ps1'))) {
+      const buf = fs.readFileSync(path.join(SCRIPTS, f))
+      const bad = buf.findIndex(b => b > 0x7f)
+      assert(bad < 0, `${f} has a non-ASCII byte at offset ${bad} (line ${buf.subarray(0, bad).toString('latin1').split('\n').length})`)
+    }
+  })
+
   for (const shell of shells) {
     // ── configure-claude.ps1 ───────────────────────────────────────────────
     await step(`${shell}: configure-claude.ps1 on a fresh profile (default port)`, () => {
@@ -187,8 +197,9 @@ async function main() {
       try {
         mustRun(shell, home, 'configure-codex.ps1', ['-Port', '4777'])
         const file = path.join(home.home, '.codex', 'config.toml')
+        assertNoBom(file)
         const first = readRaw(file)
-        const lines = first.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim() !== '')
+        const lines = first.split(/\r?\n/).filter(l => l.trim() !== '')
         assertEqual(lines.join('\n'), codexBlock('http://localhost:4777').join('\n'), 'config.toml contents')
         const again = ps(shell, home, 'configure-codex.ps1', ['-Port', '4777'])
         assertEqual(again.status, 0, 're-run exits 0')

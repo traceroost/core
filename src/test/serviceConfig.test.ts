@@ -11,6 +11,7 @@ import {
   launchdLabel, SYSTEMD_UNIT_NAME, WINDOWS_TASK_NAME,
   generateAuthToken, ensureAuthToken, readPackageManifest,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure, npmInvocation,
+  servicePidPath, writeServiceProcessRecord, readServiceProcessRecord, clearServiceProcessRecord, tasklistShowsImage,
   type ServiceProgram,
 } from '../serviceConfig'
 
@@ -429,6 +430,49 @@ suite('serviceConfig', () => {
       if (process.platform === 'win32') {
         assert.throws(() => execFileSync('npm', ['--version'], { stdio: 'ignore' }), 'a bare npm is not spawnable on Windows — the bug npmInvocation fixes')
       }
+    })
+  })
+
+  suite('service process record (Windows stop/uninstall)', () => {
+    test('round-trips under the default data dir, beside config.json', () => {
+      const home = tmpHome()
+      try {
+        assert.strictEqual(servicePidPath(home), path.join(home, '.traceroost', 'service.pid'))
+        assert.strictEqual(readServiceProcessRecord(home), undefined)
+        writeServiceProcessRecord({ pid: 4242, image: 'node.exe' }, home)
+        assert.deepStrictEqual(readServiceProcessRecord(home), { pid: 4242, image: 'node.exe' })
+      } finally { fs.rmSync(home, { recursive: true, force: true }) }
+    })
+
+    test('clear only removes the record for the pid that wrote it', () => {
+      const home = tmpHome()
+      try {
+        writeServiceProcessRecord({ pid: 10, image: 'node.exe' }, home)
+        clearServiceProcessRecord(11, home)
+        assert.deepStrictEqual(readServiceProcessRecord(home), { pid: 10, image: 'node.exe' }, 'a newer instance\'s record survives')
+        clearServiceProcessRecord(10, home)
+        assert.strictEqual(readServiceProcessRecord(home), undefined)
+      } finally { fs.rmSync(home, { recursive: true, force: true }) }
+    })
+
+    test('a malformed record reads as none', () => {
+      const home = tmpHome()
+      try {
+        fs.mkdirSync(path.join(home, '.traceroost'), { recursive: true })
+        for (const bad of ['', 'nope', '{"pid":-1,"image":"node.exe"}', '{"pid":12}', '{"pid":1.5,"image":"x"}']) {
+          fs.writeFileSync(servicePidPath(home), bad)
+          assert.strictEqual(readServiceProcessRecord(home), undefined, bad)
+        }
+      } finally { fs.rmSync(home, { recursive: true, force: true }) }
+    })
+
+    test('tasklistShowsImage matches pid and image (pid-reuse guard)', () => {
+      const out = '"node.exe","4242","Console","1","52,340 K"\r\n'
+      assert.strictEqual(tasklistShowsImage(out, 4242, 'node.exe'), true)
+      assert.strictEqual(tasklistShowsImage(out, 4242, 'NODE.EXE'), true)
+      assert.strictEqual(tasklistShowsImage(out, 4243, 'node.exe'), false)
+      assert.strictEqual(tasklistShowsImage('"notepad.exe","4242","Console","1","1 K"', 4242, 'node.exe'), false, 'reused pid, different program')
+      assert.strictEqual(tasklistShowsImage('INFO: No tasks are running which match the specified criteria.', 4242, 'node.exe'), false)
     })
   })
 })

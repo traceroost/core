@@ -3,13 +3,14 @@ import * as vscode from 'vscode'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarizers/summarizerTypes'
 import { calcSessionCostUsd } from '../pricing'
 import { bumpSessionsVersion } from './sessionsVersion'
+import { claudeConversationKey, CLAUDE_OVERLAP_SLACK_MS } from '../claudeConversation'
 
 // Strings below this length are kept inline in the DB row rather than written to a blob file.
 const BLOB_MIN_LENGTH = 512
 
-// Slack when matching a Claude log card's [start, end] against OTEL interactions' ranges: the
-// interaction span starts a beat before the transcript's first line is written.
-const CLAUDE_OVERLAP_SLACK_MS = 60_000
+// The Claude OTEL/log dedupe key and overlap slack are shared with the standalone server's merge
+// (see claudeConversation.ts), so both surfaces count a Claude session once.
+export { claudeConversationKey }
 
 // Minimal sql.js surface needed for write operations.
 interface WriteableDb {
@@ -82,20 +83,6 @@ class StatementCache {
     }
     this.stmts.clear()
   }
-}
-
-/**
- * The Claude Code session a card belongs to — the shared key between the two ways a Claude
- * session is ingested. Claude's OTEL cards are one per interaction (sessionId = interaction
- * spanId) and carry Claude Code's `session.id`; its log cards are one per transcript (or per
- * gap-split segment, `<id>#<n>`), whose lines carry the same id as `sessionId` (and whose file
- * name is that id, for a main transcript). The two never share a session_id, so without this
- * both were stored and every Claude session was counted twice.
- */
-export function claudeConversationKey(card: SessionSummaryCard): string | null {
-  if (card.source !== 'claude_code') return null
-  if (card.claudeSessionId) return card.claudeSessionId
-  return card.dataSource === 'log' ? card.sessionId.replace(/#\d+$/, '') : null
 }
 
 export class DatabaseWriter {

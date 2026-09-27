@@ -16,7 +16,7 @@ import * as path from 'path'
 import { execFileSync, spawn } from 'child_process'
 import * as vscode from 'vscode'
 import {
-  loadConfig, waitFor, httpRequest, mcpCall, globalStorageDir, queryDb, outputChannelText, samePath, sleep,
+  loadConfig, waitFor, httpRequest, freshTrace, mcpCall, globalStorageDir, queryDb, outputChannelText, samePath, sleep,
   type ItConfig, type Row,
 } from './support'
 
@@ -149,7 +149,7 @@ suite('Real agents → TraceRoost (end to end)', () => {
     execFileSync('git', ['add', '-A'], { cwd: repo })
     execFileSync('git', ['commit', '-q', '-m', `${agent} change`], { cwd: repo })
     const outcome = await waitFor(`${agent} git outcome`, async () => {
-      await httpRequest('POST', `http://127.0.0.1:${cfg.otlpPort}/v1/traces`, cfg.fixture.otlp)
+      await httpRequest('POST', `http://127.0.0.1:${cfg.otlpPort}/v1/traces`, freshTrace(cfg.fixture.otlp))
       await sleep(1500)
       return (await queryDb(ext.extensionPath, dbPath, 'SELECT overall, reason FROM git_outcome WHERE session_id = ?', [row.session_id]))[0]
     }, 180_000, 5_000)

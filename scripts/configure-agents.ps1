@@ -7,7 +7,7 @@
 #   .\scripts\configure-agents.ps1 -Agent codex           # Codex only
 #   .\scripts\configure-agents.ps1 -Port 4319             # custom port
 #   .\scripts\configure-agents.ps1 -Agent claude -Port 4319
-#   .\scripts\configure-agents.ps1 -Token <token>          # Docker / LAN mode (BIND_HOST=0.0.0.0) — see README -> Docker
+#   .\scripts\configure-agents.ps1 -Token <token>          # Docker / LAN mode (BIND_HOST=0.0.0.0) - see README -> Docker
 #   .\scripts\configure-agents.ps1 -HostName 192.168.1.20 -Token <token>
 
 param(
@@ -15,7 +15,7 @@ param(
     # all = Claude + Codex + Copilot CLI
     [string]$Agent = "all",
     [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 }),
-    # Bearer token — required when TraceRoost is bound beyond localhost (Docker / LAN mode).
+    # Bearer token - required when TraceRoost is bound beyond localhost (Docker / LAN mode).
     [string]$Token = $env:TRACEROOST_TOKEN,
     [string]$HostName = $(if ($env:TRACEROOST_HOST) { $env:TRACEROOST_HOST } else { "localhost" })
 )
@@ -32,7 +32,7 @@ Write-Host "TraceRoost Agent Configuration"
 Write-Host "Endpoint: $Endpoint  |  Agent: $Agent$(if ($Token) { '  |  with auth token' })"
 Write-Host ""
 
-# ── Claude Code ────────────────────────────────────────────────────────────────
+# -- Claude Code ----------------------------------------------------------------
 
 function Configure-Claude {
     Write-Host "Configuring Claude Code..."
@@ -55,7 +55,7 @@ function Configure-Claude {
                     $settings["env"] = $envHash
                 }
             } catch {
-                Write-Host "  Error: $SettingsPath is not valid JSON ($_) — fix it and re-run"
+                Write-Host "  Error: $SettingsPath is not valid JSON ($_) - fix it and re-run"
                 return
             }
         }
@@ -75,19 +75,22 @@ function Configure-Claude {
     $dir = Split-Path $SettingsPath
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 
-    $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsPath -Encoding UTF8
+    # UTF-8 *without* a byte-order mark: Windows PowerShell 5.1's `Set-Content -Encoding UTF8`
+    # writes one, and Node's JSON.parse (Claude Code, TraceRoost's auto-config) rejects it.
+    $json = ($settings | ConvertTo-Json -Depth 10) + [Environment]::NewLine
+    [System.IO.File]::WriteAllText($SettingsPath, $json, (New-Object System.Text.UTF8Encoding $false))
     Write-Host "  Updated $SettingsPath"
-    Write-Host "  Restart: CLI — exit session and reopen | VS Code — Reload Window"
+    Write-Host "  Restart: CLI - exit session and reopen | VS Code - Reload Window"
 }
 
-# ── Codex ───────────────────────────────────────────────────────────────
+# -- Codex ---------------------------------------------------------------
 
 function Configure-Codex {
     Write-Host "Configuring Codex..."
     $ConfigPath = Join-Path $env:USERPROFILE ".codex\config.toml"
 
     if ((Test-Path $ConfigPath) -and (Select-String -Path $ConfigPath -Pattern '^\[otel\]' -Quiet)) {
-        Write-Host "  [otel] section already present — no changes made."
+        Write-Host "  [otel] section already present - no changes made."
         Write-Host "  Verify endpoint in ${ConfigPath}: endpoint = `"$Endpoint`""
         if ($Token) { Write-Host "  and that both exporters carry: headers = { `"Authorization`" = `"Bearer $Token`" }" }
         return
@@ -103,20 +106,21 @@ log_user_prompt = true
 exporter = { otlp-http = { endpoint = "$Endpoint", protocol = "json"$Headers } }
 trace_exporter = { otlp-http = { endpoint = "$Endpoint", protocol = "json"$Headers } }
 "@
-    $block | Out-File -FilePath $ConfigPath -Append -Encoding UTF8
+    # Appended as UTF-8 without a byte-order mark (Out-File -Encoding UTF8 adds one on Windows PowerShell 5.1).
+    [System.IO.File]::AppendAllText($ConfigPath, $block + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding $false))
     Write-Host "  Updated $ConfigPath"
-    Write-Host "  Restart: CLI — exit session and reopen | VS Code — Reload Window"
+    Write-Host "  Restart: CLI - exit session and reopen | VS Code - Reload Window"
 }
 
-# ── GitHub Copilot CLI ─────────────────────────────────────────────────────────
+# -- GitHub Copilot CLI ---------------------------------------------------------
 
 function Configure-Copilot {
     Write-Host "Configuring GitHub Copilot CLI..."
-    Write-Host "  (The Copilot VS Code extension is configured automatically by TraceRoost — no script needed.)"
+    Write-Host "  (The Copilot VS Code extension is configured automatically by TraceRoost - no script needed.)"
 
     $existing = [System.Environment]::GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", "User")
     if ($existing) {
-        Write-Host "  OTEL_EXPORTER_OTLP_ENDPOINT already set ($existing) — skipping."
+        Write-Host "  OTEL_EXPORTER_OTLP_ENDPOINT already set ($existing) - skipping."
         if ($existing -ne $Endpoint) {
             Write-Host "  Updating to: $Endpoint"
             [System.Environment]::SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", $Endpoint, "User")
@@ -140,7 +144,7 @@ function Configure-Copilot {
     Write-Host "  Open a new terminal to pick up the env vars, then restart Copilot CLI."
 }
 
-# ── Dispatch ───────────────────────────────────────────────────────────────────
+# -- Dispatch -------------------------------------------------------------------
 
 switch ($Agent) {
     "claude"  { Configure-Claude }
