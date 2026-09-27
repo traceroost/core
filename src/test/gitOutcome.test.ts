@@ -55,6 +55,27 @@ suite('gitOutcome', () => {
     assert.strictEqual(result!.overall, 'merged')
   })
 
+  test('a CRLF working-tree copy of an LF-committed file is not abandoned (Windows autocrlf)', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'line one\nline two\n')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+    writeFile(file, 'line one\r\nline two\r\n')
+
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
+    assert.ok(result)
+    assert.strictEqual(result!.overall, 'merged')
+  })
+
+  test('a committed file too large to read back through git is ambiguous, not abandoned', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'x'.repeat(11 * 1024 * 1024))
+    commitAll('initial', '2026-01-01T00:00:00Z')
+
+    const result = await classifySessionOutcome(repoDir, [path.join(repoDir, file)])
+    assert.ok(result)
+    assert.strictEqual(result!.overall, 'ambiguous')
+  })
+
   test('classifies a file as committed (not merged) when it only exists on a feature branch', async () => {
     const file = `file${fileCounter}.txt`
     writeFile(file, 'v1')

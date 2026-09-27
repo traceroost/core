@@ -52,7 +52,7 @@ export interface OrgStatus {
   /** This member's own login email — absent for a credential written before this field existed,
    *  until `refreshOrgNameIfStale` backfills it (see `link.ts`). */
   email?: string
-  role?: 'lead' | 'member'
+  role?: 'admin' | 'developer'
   perDeveloperVisibility?: boolean
   linkedAt?: string
   queueDepth?: number

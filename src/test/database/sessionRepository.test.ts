@@ -19,6 +19,14 @@ function makeCard(id: string, startTime: string, overrides: Partial<SessionSumma
 }
 
 suite('mergeSessions', () => {
+  test('a stored card with more calls beats a partial live card of the same session', () => {
+    const db = [makeCard('s1', '2024-01-01T00:00:00.000Z', { totalLlmCalls: 40, totalToolCalls: 30, model: 'db-model' })]
+    const live = [makeCard('s1', '2024-01-01T00:00:00.000Z', { totalLlmCalls: 3, totalToolCalls: 2, model: 'live-model' })]
+    const result = mergeSessions(db, live)
+    assert.strictEqual(result.length, 1)
+    assert.strictEqual(result[0].model, 'db-model')
+  })
+
   test('live sessions win on conflict with the same sessionId', () => {
     const db = [makeCard('s1', '2024-01-01T00:00:00.000Z', { model: 'db-model' })]
     const live = [makeCard('s1', '2024-01-01T00:00:00.000Z', { model: 'live-model' })]

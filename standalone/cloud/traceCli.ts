@@ -1,8 +1,8 @@
 /**
  * The trace/session-id half of `traceroost find` (findCli.ts) — the local half of the cloud
- * Traces table's Trace ID hand-off (traces-table.tsx's HashHandoff, verb="find"). Not reachable
- * as its own CLI verb; `find` dispatches here once `findSessionById` confirms the hash matches a
- * recorded session. Unlike repo_hash, the `session_id` cloud holds is the raw, unhashed id (a
+ * Traces table's Trace ID hand-off (traces-table.tsx's HashHandoff, verb="find"). `find`
+ * dispatches here once `findSessionById` confirms the hash matches a recorded session; cli.ts
+ * also routes `traceroost trace --id <id>` here directly. Unlike repo_hash, the `session_id` cloud holds is the raw, unhashed id (a
  * plain rollups column) — not a one-way hash needing resolution — so this is a direct match
  * against locally recorded sessions, not a hash reversal.
  */

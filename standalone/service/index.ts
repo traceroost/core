@@ -1,9 +1,10 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { isIPv6 } from 'net'
 import { execFileSync, spawn } from 'child_process'
 import {
-  parseServiceInstallFlags, isRunningFromNpx, writeServiceConfig, readServiceConfig,
+  parseServiceInstallFlags, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
   shouldBlockRepeatedBootstrap, childEnvForReexec, readPackageManifest,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure,
   type ServiceConfig, type ServiceProgram,
@@ -59,7 +60,8 @@ function safeIsInstalled(platformService: PlatformService): boolean {
 }
 
 function dashboardUrl(config: ServiceConfig): string {
-  return `http://${config.bindHost}:${config.uiPort}` + (config.authToken ? `/?token=${config.authToken}` : '')
+  const host = isIPv6(config.bindHost) ? `[${config.bindHost}]` : config.bindHost
+  return `http://${host}:${config.uiPort}` + (config.authToken ? `/?token=${config.authToken}` : '')
 }
 
 function getPlatformService(): PlatformService {
@@ -255,6 +257,10 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
   return 0
 }
 
+function readFileOrNull(filePath: string): Buffer | null {
+  try { return fs.readFileSync(filePath) } catch { return null }
+}
+
 function printLogs(program: ServiceProgram, platformService: PlatformService, follow: boolean): void {
   const logPath = platformService.logsPath(program)
   if (!fs.existsSync(logPath)) {
@@ -307,6 +313,10 @@ export async function runServiceCli(args: string[]): Promise<number> {
       if (safeIsInstalled(platformService)) {
         console.log('[TraceRoost] An existing background service was found — replacing it (ports/data-dir updated, access token kept).')
       }
+      // config.json has to be on disk before install() — the service's server reads it (and
+      // persists the token into it) as soon as it starts — so remember what was there to put back
+      // if registration fails, rather than leaving the new ports/data-dir behind.
+      const previousConfigRaw = readFileOrNull(serviceConfigPath())
       writeServiceConfig(config)
 
       try {
@@ -314,8 +324,13 @@ export async function runServiceCli(args: string[]): Promise<number> {
       } catch (e) {
         // install() writes the service-definition file before registering it, so a failure here
         // can leave that file orphaned — roll it back so `service status` doesn't report a
-        // service that was never actually started.
+        // service that was never actually started. uninstall() runs first: on Windows it reads
+        // config.json to find the wrapper script it wrote under the new data dir.
         try { platformService.uninstall() } catch { /* best effort */ }
+        try {
+          if (previousConfigRaw === null) { fs.rmSync(serviceConfigPath(), { force: true }) }
+          else { fs.writeFileSync(serviceConfigPath(), previousConfigRaw) }
+        } catch { /* best effort */ }
         console.error(`[TraceRoost] Couldn't register the background service with ${serviceManagerName()}: ${describeServiceManagerFailure(e, serviceManagerName())}`)
         console.error('[TraceRoost] Rolled back — nothing is left half-installed. Fix the cause above, then re-run `traceroost service install`.')
         return 1

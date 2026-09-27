@@ -7,12 +7,23 @@
  * |-----------------------|---------------------------------------------------------------------|
  * | Service unreachable / 5xx | keep the item(s), back off, retry next tick. No UI change.     |
  * | 401, refresh transiently fails | refresh once; on failure, one dismissible notice, keep queueing. |
- * | 401, refresh token/client rejected (`invalid_grant`/`invalid_client`) | stop forwarding, clear the credential, tell the developer once — same as membership-gone below, since this credential will never refresh again. |
- * | 403 / membership gone  | stop forwarding, clear the credential, tell the developer once.   |
+ * | 401, refresh token/client rejected (`invalid_grant`/`invalid_client`) | stop forwarding, clear the credential *and the queue*, tell the developer once — same as membership-gone below, since this credential will never refresh again. |
+ * | 403 / install revoked  | stop forwarding, clear the credential and the queue, tell the developer once. |
  * | 400 / schema rejected  | drop the record, log locally with the error, never retry.         |
+ * | 413 / too large        | split the batch and resend the halves; a single record that is    |
+ * |                       | itself too large is dropped and logged, never retried.             |
  * | 429                   | back off per `Retry-After`, stop the whole drain (the server just  |
  * |                       | told us to).                                                       |
  * | Disk full             | stop queueing, keep working (handled in `queue.ts`).              |
+ *
+ * Clearing the queue whenever the credential is gone for good matters because every queued rollup
+ * was hashed with the linked org's salt (`repoKey.ts`): kept, it would ship to whatever org this
+ * machine links to next. Nothing is lost locally — after a re-link, reconciliation re-enqueues
+ * whatever the new install hasn't received, hashed for the new org.
+ *
+ * The access token is refreshed proactively when it's about to expire (`accessTokenExpiresAt`),
+ * and every refresh goes through `tokenRefresh.ts`'s locked refresh, so two hosts on the same
+ * machine can't rotate the same refresh token at once and unlink it.
  *
  * Items are sent to `/api/ingest/batch` several at a time (`HTTP_BATCH_SIZE`) instead of one
  * request per item — with N queued items each paying its own public-internet round trip, a
@@ -39,8 +50,9 @@
 import { ForwardQueue, type QueueItem } from './queue'
 import { DeliveryLedger, scopedKey } from './deliveryLedger'
 import { readForwardState, writeForwardState, clearForwardState } from './forwardState'
-import { loadCredentials, saveCredentials, clearCredentials, ensureInstallId } from '../org/credentials'
-import { refreshTokens, TokenRefreshError } from '../org/oauthClient'
+import { loadCredentials, clearCredentials, ensureInstallId } from '../org/credentials'
+import { TokenRefreshError } from '../org/oauthClient'
+import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
 import { ingestUrl, batchIngestUrl } from '../org/config'
 import { clientVersion } from '../org/oauthClient'
 
@@ -63,6 +75,8 @@ export interface DrainDeps {
   /** Test-only override for how many items go into one HTTP batch request (default 25) — lets a
    *  test exercise the multi-chunk-per-drain path without needing 25 real queued items. */
   httpBatchSize?: number
+  /** Test-only override for `DEFAULT_MAX_BATCH_BYTES`. */
+  maxBatchBytes?: number
   /** Called right after each item leaves the queue — a confirmed send or a permanent (400) drop —
    *  so a host can push a fresh queue depth to the Org panel as it happens, not just once the
    *  whole drain finishes. A backlog can take a while to drain, during which the on-disk queue
@@ -87,6 +101,10 @@ export interface DrainDeps {
 const BASE_BACKOFF_MS = 30_000
 const MAX_BACKOFF_MS = 60 * 60 * 1000
 const DEFAULT_HTTP_BATCH_SIZE = 25
+/** Request-body budget for one batch. The ingest routes reject a body over 512 KiB with a 413
+ *  (cloud `MAX_BODY_BYTES`); 25 items of a session with a long file list can exceed that, so a
+ *  chunk also closes once its serialized items would pass this — comfortably under the cap. */
+export const DEFAULT_MAX_BATCH_BYTES = 400 * 1024
 
 /** When an item with `attempts` failures becomes eligible to retry again. */
 export function nextEligibleAt(item: QueueItem): number {
@@ -148,9 +166,15 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   }
 
   function dropInvalid(key: string, detail: string): void {
+    dropPermanently(key, `schema rejected: ${detail.slice(0, 200)}`)
+  }
+
+  // A record the server will never accept (schema-rejected, or too large on its own) — removed,
+  // counted, and logged locally with the reason, never retried.
+  function dropPermanently(key: string, reason: string): void {
     queue.remove([key])
     droppedInvalid++
-    writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: `schema rejected: ${detail.slice(0, 200)}` }, deps.baseHome)
+    writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: reason }, deps.baseHome)
     deps.onItemDone?.()
   }
 
@@ -176,6 +200,42 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     return { attempted: batch.length, sent, droppedInvalid, remaining: queue.depth(), stopped }
   }
 
+  // The credential is gone for good (refresh rejected, or the install revoked): stop, and drop
+  // everything that was queued for it — see this file's header on why the queue can't be kept.
+  function unlinkAndClear(stopped: 'auth-failed' | 'membership-revoked', message: string): DrainResult {
+    const result = finish(stopped)
+    queue.clear()
+    clearCredentials()
+    clearForwardState(deps.baseHome)
+    deps.notify?.(message, 'warning')
+    return { ...result, remaining: 0 }
+  }
+
+  // At most one refresh per drain, through the locked refresh in tokenRefresh.ts (which returns
+  // another host's already-rotated credential rather than racing it). Returns undefined once
+  // `creds` holds a usable token, or the drain's final result when it must stop.
+  async function refreshOnce(): Promise<DrainResult | undefined> {
+    refreshedThisDrain = true
+    try {
+      creds = await refreshCredentials(creds!, now)
+      return undefined
+    } catch (err) {
+      if (err instanceof TokenRefreshError && err.permanent) {
+        // The server rejected the refresh token/client itself — retrying later with the same
+        // credential would just fail the same way forever. The Org panel drops back to "Unlinked"
+        // with its "Link this machine" button, instead of staying stuck on "Paused".
+        return unlinkAndClear('auth-failed', 'TraceRoost: your org credential is no longer valid. Re-link this machine in the Org panel to resume forwarding.')
+      }
+      deps.notify?.('TraceRoost: could not refresh your org credential. Rollups are queued and will retry automatically.', 'warning')
+      writeForwardState({ paused: true, pausedUntil: null, lastErrorAt: new Date().toISOString(), lastError: 'token refresh failed' }, deps.baseHome)
+      return finish('auth-failed')
+    }
+  }
+
+  function membershipRevoked(): DrainResult {
+    return unlinkAndClear('membership-revoked', 'TraceRoost: your org membership was revoked. This machine has stopped forwarding.')
+  }
+
   // Sends one chunk to the batch endpoint. Returns 'continue' to move on to the next chunk,
   // 'fallback' if the batch endpoint isn't available (404) so the caller should retry this same
   // chunk item-by-item, or `{ stop }` when the whole drain must end now (401-after-failed-refresh,
@@ -194,39 +254,34 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     if (res.status === 404) return 'fallback'
 
     if (res.status === 401 && !refreshedThisDrain) {
-      refreshedThisDrain = true
-      try {
-        const t = await refreshTokens(creds!.refreshToken, creds!.endpoint)
-        creds = { ...creds!, accessToken: t.accessToken, refreshToken: t.refreshToken, accessTokenExpiresAt: now() + t.expiresInSeconds * 1000 }
-        saveCredentials(creds)
-        // Retry this same chunk immediately with the fresh token.
-        res = await postBatch(creds.accessToken, chunk).catch(() => res)
-      } catch (err) {
-        if (err instanceof TokenRefreshError && err.permanent) {
-          // The server rejected the refresh token/client itself — retrying later with the same
-          // credential would just fail the same way forever. Clear it (like the 403 branch
-          // below) so the Org panel drops back to "Unlinked" with its "Link this machine"
-          // button, instead of staying stuck on "Paused" with no way forward short of "Leave
-          // org" first. The queue is left intact — the locally queued rollups are still good
-          // data, just waiting on a fresh credential to send them with.
-          const result = finish('auth-failed')
-          clearCredentials()
-          clearForwardState(deps.baseHome)
-          deps.notify?.('TraceRoost: your org credential is no longer valid. Re-link this machine in the Org panel to resume forwarding.', 'warning')
-          return { stop: result }
-        }
-        deps.notify?.('TraceRoost: could not refresh your org credential. Rollups are queued and will retry automatically.', 'warning')
-        writeForwardState({ paused: true, pausedUntil: null, lastErrorAt: new Date().toISOString(), lastError: 'token refresh failed' }, deps.baseHome)
-        return { stop: finish('auth-failed') }
-      }
+      const stop = await refreshOnce()
+      if (stop) return { stop }
+      // Retry this same chunk immediately with the fresh token.
+      res = await postBatch(creds!.accessToken, chunk).catch(() => res)
     }
 
-    if (res.status === 403) {
-      queue.clear()
-      clearCredentials()
-      clearForwardState(deps.baseHome)
-      deps.notify?.('TraceRoost: your org membership was revoked. This machine has stopped forwarding.', 'warning')
-      return { stop: { attempted: batch.length, sent, droppedInvalid, remaining: 0, stopped: 'membership-revoked' } }
+    if (res.status === 403) return { stop: membershipRevoked() }
+
+    if (res.status === 413) {
+      // Over the server's body cap despite the byte budget (a single huge record, or a smaller
+      // cap server-side). Split and resend; one record alone that's still too large can never be
+      // accepted, so it's dropped and logged rather than retried forever.
+      if (chunk.length === 1) {
+        dropPermanently(chunk[0].key, 'payload too large (HTTP 413)')
+        return 'continue'
+      }
+      const mid = Math.ceil(chunk.length / 2)
+      for (const half of [chunk.slice(0, mid), chunk.slice(mid)]) {
+        const outcome = await sendChunkBatched(half)
+        if (typeof outcome === 'object') return outcome
+        if (outcome === 'fallback') {
+          for (const item of half) {
+            const o = await sendItemSequentially(item)
+            if (o) return o
+          }
+        }
+      }
+      return 'continue'
     }
 
     if (res.status === 429) {
@@ -290,33 +345,17 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
 
     if (res.status === 401 && !refreshedThisDrain) {
-      refreshedThisDrain = true
-      try {
-        const t = await refreshTokens(creds!.refreshToken, creds!.endpoint)
-        creds = { ...creds!, accessToken: t.accessToken, refreshToken: t.refreshToken, accessTokenExpiresAt: now() + t.expiresInSeconds * 1000 }
-        saveCredentials(creds)
-        res = await postPayload(creds.accessToken, item).catch(() => res)
-        if (res.status === 202 || res.status === 200) { recordSuccess(item.key); sent++; return }
-      } catch (err) {
-        if (err instanceof TokenRefreshError && err.permanent) {
-          const result = finish('auth-failed')
-          clearCredentials()
-          clearForwardState(deps.baseHome)
-          deps.notify?.('TraceRoost: your org credential is no longer valid. Re-link this machine in the Org panel to resume forwarding.', 'warning')
-          return { stop: result }
-        }
-        deps.notify?.('TraceRoost: could not refresh your org credential. Rollups are queued and will retry automatically.', 'warning')
-        writeForwardState({ paused: true, pausedUntil: null, lastErrorAt: new Date().toISOString(), lastError: 'token refresh failed' }, deps.baseHome)
-        return { stop: finish('auth-failed') }
-      }
+      const stop = await refreshOnce()
+      if (stop) return { stop }
+      res = await postPayload(creds!.accessToken, item).catch(() => res)
+      if (res.status === 202 || res.status === 200) { recordSuccess(item.key); sent++; return }
     }
 
-    if (res.status === 403) {
-      queue.clear()
-      clearCredentials()
-      clearForwardState(deps.baseHome)
-      deps.notify?.('TraceRoost: your org membership was revoked. This machine has stopped forwarding.', 'warning')
-      return { stop: { attempted: batch.length, sent, droppedInvalid, remaining: 0, stopped: 'membership-revoked' } }
+    if (res.status === 403) return { stop: membershipRevoked() }
+
+    if (res.status === 413) {
+      dropPermanently(item.key, 'payload too large (HTTP 413)')
+      return
     }
 
     if (res.status === 400) {
@@ -337,8 +376,22 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     return
   }
 
-  for (let i = 0; i < batch.length; i += httpBatchSize) {
-    const chunk = batch.slice(i, i + httpBatchSize)
+  // A drain's first request would otherwise go out with a token that's already expired (or about
+  // to be) — refresh first instead of spending a guaranteed 401. A transient failure here isn't
+  // fatal: the token may still be good for a few seconds, and a real 401 retries the refresh.
+  if (accessTokenExpiring(creds, now)) {
+    try {
+      creds = await refreshCredentials(creds, now)
+      refreshedThisDrain = true
+    } catch (err) {
+      if (err instanceof TokenRefreshError && err.permanent) {
+        refreshedThisDrain = true
+        return unlinkAndClear('auth-failed', 'TraceRoost: your org credential is no longer valid. Re-link this machine in the Org panel to resume forwarding.')
+      }
+    }
+  }
+
+  for (const chunk of chunkByCountAndBytes(batch, httpBatchSize, deps.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES)) {
 
     if (useBatchEndpoint) {
       const outcome = await sendChunkBatched(chunk)
@@ -400,4 +453,25 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return ''
   }
+}
+
+/** Splits `items` into request-sized chunks: at most `maxItems` each, and closing a chunk before
+ *  its serialized payloads would pass `maxBytes` (a record larger than that on its own still gets
+ *  a chunk of its own — the server's 413 decides its fate, see `sendChunkBatched`). */
+export function chunkByCountAndBytes(items: QueueItem[], maxItems: number, maxBytes: number): QueueItem[][] {
+  const chunks: QueueItem[][] = []
+  let current: QueueItem[] = []
+  let bytes = 0
+  for (const item of items) {
+    const size = Buffer.byteLength(JSON.stringify(item.payload)) + 1 // + the separating comma
+    if (current.length > 0 && (current.length >= maxItems || bytes + size > maxBytes)) {
+      chunks.push(current)
+      current = []
+      bytes = 0
+    }
+    current.push(item)
+    bytes += size
+  }
+  if (current.length > 0) chunks.push(current)
+  return chunks
 }

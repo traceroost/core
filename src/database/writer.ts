@@ -1,14 +1,32 @@
 import * as vscode from 'vscode'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarizers/summarizerTypes'
-import { calcTokenCostUsd } from '../pricing'
+import { calcSessionCostUsd } from '../pricing'
 
 // Strings below this length are kept inline in the DB row rather than written to a blob file.
 const BLOB_MIN_LENGTH = 512
 
+// Slack when matching a Claude log card's [start, end] against OTEL interactions' ranges: the
+// interaction span starts a beat before the transcript's first line is written.
+const CLAUDE_OVERLAP_SLACK_MS = 60_000
+
 // Minimal sql.js surface needed for write operations.
 interface WriteableDb {
   run(sql: string, params?: unknown[]): void
-  exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  exec(sql: string, params?: unknown[]): Array<{ columns: string[]; values: unknown[][] }>
+}
+
+/**
+ * The Claude Code session a card belongs to — the shared key between the two ways a Claude
+ * session is ingested. Claude's OTEL cards are one per interaction (sessionId = interaction
+ * spanId) and carry Claude Code's `session.id`; its log cards are one per transcript (or per
+ * gap-split segment, `<id>#<n>`), whose lines carry the same id as `sessionId` (and whose file
+ * name is that id, for a main transcript). The two never share a session_id, so without this
+ * both were stored and every Claude session was counted twice.
+ */
+export function claudeConversationKey(card: SessionSummaryCard): string | null {
+  if (card.source !== 'claude_code') return null
+  if (card.claudeSessionId) return card.claudeSessionId
+  return card.dataSource === 'log' ? card.sessionId.replace(/#\d+$/, '') : null
 }
 
 export class DatabaseWriter {
@@ -42,10 +60,11 @@ export class DatabaseWriter {
     // exists for the same session, skip it so we never downgrade richer data.
     if (card.dataSource === 'log') {
       try {
-        const rows = this.db.exec(
-          `SELECT data_source FROM sessions WHERE session_id = '${card.sessionId.replace(/'/g, "''")}'`
-        )
+        const rows = this.db.exec('SELECT data_source FROM sessions WHERE session_id = ?', [card.sessionId])
         if (rows[0]?.values[0]?.[0] === 'otel') return
+        // Same rule for Claude, whose OTEL and log cards are keyed differently — skip a log
+        // segment when OTEL interactions of the same conversation fall inside its time range.
+        if (this._claudeOtelCovers(card)) return
       } catch { /* non-fatal — proceed to enqueue */ }
     }
     const resolvedWorkspace = card.workspace || workspace
@@ -135,9 +154,65 @@ export class DatabaseWriter {
     this.writing = false
   }
 
+  /** True when an OTEL row of the same Claude session overlaps this log card's time range. */
+  private _claudeOtelCovers(card: SessionSummaryCard): boolean {
+    const key = claudeConversationKey(card)
+    const startMs = Date.parse(card.startTime)
+    if (!key || !startMs) return false
+    const endMs = startMs + (card.durationMs || 0)
+    const rows = this.db.exec(
+      `SELECT 1 FROM sessions
+        WHERE conversation_id = ? AND source = 'claude_code' AND data_source = 'otel'
+          AND start_time <= ? AND start_time + duration_ms >= ? LIMIT 1`,
+      [key, endMs + CLAUDE_OVERLAP_SLACK_MS, startMs - CLAUDE_OVERLAP_SLACK_MS],
+    )
+    return (rows[0]?.values.length ?? 0) > 0
+  }
+
+  /**
+   * The reverse of _claudeOtelCovers, for when the log card was stored first: an OTEL Claude
+   * interaction replaces the log card(s) of its session whose time range overlaps it. Rows
+   * stored before conversation_id existed are matched by transcript id (session_id `<id>`
+   * or `<id>#<n>`).
+   */
+  private _deleteClaudeLogRowsCoveredBy(card: SessionSummaryCard): void {
+    const key = claudeConversationKey(card)
+    const startMs = Date.parse(card.startTime)
+    if (!key || !startMs || card.dataSource !== 'otel') return
+    const endMs = startMs + (card.durationMs || 0)
+    this.db.run(
+      `DELETE FROM sessions
+        WHERE source = 'claude_code' AND data_source = 'log'
+          AND (conversation_id = ? OR session_id = ? OR session_id LIKE ? ESCAPE '\\')
+          AND start_time <= ? AND start_time + duration_ms >= ?`,
+      [key, key, key.replace(/[\\%_]/g, m => '\\' + m) + '#%',
+        endMs + CLAUDE_OVERLAP_SLACK_MS, startMs - CLAUDE_OVERLAP_SLACK_MS],
+    )
+  }
+
+  /**
+   * An OTEL card is re-summarized from the in-memory span window on every update. If that window
+   * ever lost part of a run (the store's hard memory cap), the new card would have fewer calls
+   * than the row already stored — never let it replace that richer row.
+   */
+  private _isDowngradeOfStoredOtelRow(card: SessionSummaryCard): boolean {
+    if (card.dataSource !== 'otel') return false
+    const rows = this.db.exec(
+      `SELECT total_llm_calls + total_tool_calls FROM sessions WHERE session_id = ? AND data_source = 'otel'`,
+      [card.sessionId],
+    )
+    const stored = Number(rows[0]?.values[0]?.[0] ?? -1)
+    return stored > card.totalLlmCalls + card.totalToolCalls
+  }
+
   private async _writeOnce(card: SessionSummaryCard, workspace: string): Promise<void> {
+    if (this._isDowngradeOfStoredOtelRow(card)) {
+      this.log(`DatabaseWriter: kept stored session ${card.sessionId} — incoming card has fewer calls`)
+      return
+    }
     this.db.run('BEGIN')
     try {
+      this._deleteClaudeLogRowsCoveredBy(card)
       this._writeSessionRow(card, workspace)
       // Delete-then-reinsert: no stable PK on timeline_entries to upsert against.
       // CASCADE on the FK handles edit_details cleanup.
@@ -177,8 +252,8 @@ export class DatabaseWriter {
         total_tool_calls, total_llm_calls, errors, outcome,
         is_sidechain, speed, user_request, tool_counts, loop_signals,
         files_read, files_changed, files_written, files_searched, files_changed_note, cost_usd,
-        data_source, models, one_shot_stats, initiator
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        data_source, models, one_shot_stats, initiator, conversation_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         card.sessionId,
         card.traceId,
@@ -213,39 +288,20 @@ export class DatabaseWriter {
         JSON.stringify(card.models ?? (card.model ? [card.model] : [])),
         JSON.stringify(card.oneShotStats ?? {}),
         card.initiator ?? null,
+        claudeConversationKey(card),
       ]
     )
   }
 
   /**
    * Sessions can span more than one model (a Task-tool subagent on a cheaper model,
-   * a mid-session /model switch, etc.). Pricing the whole session's aggregate tokens
-   * at one model's rate silently mis-bills whichever portion ran on a different model.
-   * When timeline entries carry more than one distinct model, price each entry at its
-   * own model and sum — otherwise this reduces to the old aggregate calculation
-   * (also correctly applies Anthropic's >200K tiered surcharge per call rather than
-   * to the session's cumulative total).
+   * a mid-session /model switch, etc.), and long-context surcharges are per API call —
+   * so whenever the timeline carries per-call tokens, each call is priced at its own
+   * model (tier included) and summed. Only without per-call data does this fall back to
+   * the aggregate totals at flat rates. Shared with the webview via calcSessionCostUsd.
    */
   private _computeSessionCost(card: SessionSummaryCard): number {
-    const llmEntries = card.timeline.filter(e => e.type === 'llm')
-    const distinctModels = new Set(llmEntries.map(e => e.model).filter((m): m is string => Boolean(m)))
-
-    if (distinctModels.size <= 1) {
-      return calcTokenCostUsd(
-        Math.max(0, card.inputTokens - card.cacheReadTokens - card.cacheCreateTokens),
-        card.cacheReadTokens,
-        card.cacheCreateTokens,
-        card.outputTokens,
-        card.model,
-      )
-    }
-
-    return llmEntries.reduce((sum, entry) => {
-      const cacheRead = entry.cacheReadTokens ?? 0
-      const cacheCreate = entry.cacheCreateTokens ?? 0
-      const rawInput = Math.max(0, (entry.inputTokens ?? 0) - cacheRead - cacheCreate)
-      return sum + calcTokenCostUsd(rawInput, cacheRead, cacheCreate, entry.outputTokens ?? 0, entry.model || card.model)
-    }, 0)
+    return calcSessionCostUsd(card)
   }
 
   private _writeTimelineEntry(sessionId: string, entry: TimelineEntry, position: number): void {

@@ -54,7 +54,8 @@ export function buildAuthorizeUrl(opts: {
   authorizeEndpoint: string
   clientId: string
   redirectUri: string
-  scope: string
+  /** Optional — the TraceRoost client doesn't request one (see config.ts). */
+  scope?: string
   challenge: string
   state: string
 }): string {
@@ -62,7 +63,7 @@ export function buildAuthorizeUrl(opts: {
   u.searchParams.set('response_type', 'code')
   u.searchParams.set('client_id', opts.clientId)
   u.searchParams.set('redirect_uri', opts.redirectUri)
-  u.searchParams.set('scope', opts.scope)
+  if (opts.scope) u.searchParams.set('scope', opts.scope)
   u.searchParams.set('code_challenge', opts.challenge)
   u.searchParams.set('code_challenge_method', 'S256')
   u.searchParams.set('state', opts.state)

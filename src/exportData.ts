@@ -2,6 +2,19 @@ import * as vscode from 'vscode'
 import { Span, SpanAttribute } from './types'
 import { summarizeSpans } from './spanSummarizer'
 
+/**
+ * Reduces an attacker-influenced label (span-supplied collector path, agent name) to a safe
+ * filename fragment: no path separators of either OS, no `..`, nothing but [A-Za-z0-9.-].
+ */
+export function safeFilenamePart(raw: string, fallback: string): string {
+  const cleaned = raw
+    .replace(/[^A-Za-z0-9.-]+/g, '-')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^[.-]+|[.-]+$/g, '')
+    .slice(0, 64)
+  return cleaned || fallback
+}
+
 export async function exportSpans(spans: Span[], baseUri: vscode.Uri, prefix = 'export'): Promise<string[]> {
   const sessions = summarizeSpans(spans).sessions
   const traceAgent: Record<string, string> = {}
@@ -16,8 +29,8 @@ export async function exportSpans(spans: Span[], baseUri: vscode.Uri, prefix = '
     if (!agent) { continue }
     const attrs: SpanAttribute[] = Array.isArray(span.attributes) ? span.attributes : []
     const rawPath = attrs.find((a: SpanAttribute) => a.key === '_traceroost.collector_path')?.value?.stringValue || ''
-    const endpoint = rawPath ? rawPath.replace(/^\//, '').replace(/\//g, '-') : 'main'
-    const key = `${endpoint}__${agent}`
+    const endpoint = safeFilenamePart(rawPath, 'main')
+    const key = `${endpoint}__${safeFilenamePart(agent, 'unknown')}`
     if (!groups[key]) { groups[key] = [] }
     groups[key].push(span)
   }
@@ -47,6 +60,9 @@ const CONTENT_KEYS = new Set([
   'tool_input', 'tool_result',
   'user_prompt', 'system_prompt',
   'input', 'output',
+  // OTel GenAI semantic conventions — full conversation / tool I/O content
+  'gen_ai.input.messages', 'gen_ai.output.messages', 'gen_ai.system_instructions',
+  'gen_ai.tool.call.arguments', 'gen_ai.tool.call.result',
 ])
 
 // Keys whose values contain personal/org identity
@@ -57,10 +73,11 @@ const PII_KEYS = new Set([
   'github.copilot.user', 'github.user',
 ])
 
-function shouldRedact(key: string): boolean {
+export function shouldRedact(key: string): boolean {
   if (CONTENT_KEYS.has(key)) { return true }
   if (PII_KEYS.has(key)) { return true }
   if (key.endsWith('.content')) { return true }
+  if (key.endsWith('.messages') || key.endsWith('.arguments') || key.endsWith('.instructions')) { return true }
   // pattern matches for content
   if (key.includes('prompt') || key.includes('tool_input') || key.includes('tool_result')) { return true }
   // pattern matches for PII

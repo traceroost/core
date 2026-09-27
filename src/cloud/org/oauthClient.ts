@@ -11,7 +11,6 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {
   OAUTH_CLIENT_ID,
-  OAUTH_SCOPE,
   authorizeUrl,
   tokenUrl,
   revokeUrl,
@@ -120,7 +119,6 @@ export function interactiveAuthorizeUrl(opts: {
     authorizeEndpoint: authorizeUrl(),
     clientId: OAUTH_CLIENT_ID,
     redirectUri: opts.redirectUri,
-    scope: OAUTH_SCOPE,
     challenge: opts.challenge,
     state: opts.state,
   })
@@ -236,7 +234,7 @@ export async function pollDeviceFlow(deviceCode: string): Promise<DevicePollResu
 
 export interface RosterSelf {
   orgName: string
-  role: 'lead' | 'member'
+  role: 'admin' | 'developer'
   perDeveloperVisibility: boolean
   /** This member's own login email — reading it back is not a roster leak (AL 02): the server
    *  scopes `/api/roster/me` to the bearer token's own member row, never another member's. */
@@ -255,7 +253,8 @@ export async function fetchRosterSelf(accessToken: string, endpoint = orgEndpoin
     const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>
     return {
       orgName: typeof raw.org_name === 'string' ? raw.org_name : '',
-      role: raw.role === 'lead' ? 'lead' : 'member',
+      // `admin` / `developer` since cloud's 0031 rename; an older server's `lead` is the same role.
+      role: raw.role === 'admin' || raw.role === 'lead' ? 'admin' : 'developer',
       perDeveloperVisibility: raw.per_developer_visibility === true,
       email: typeof raw.email === 'string' ? raw.email : '',
     }

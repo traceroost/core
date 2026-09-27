@@ -19,6 +19,7 @@ import { resolveGithubUrl } from './repoRemote'
 import { orgEndpoint } from './cloud/org/config'
 import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/org/instructionTelemetry'
 import { drainForwardQueueSoon } from './cloud/forward/scheduler'
+import { getNonce, safeJsonForScript } from './webviewHtml'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {
@@ -28,6 +29,37 @@ export interface TurnoverDb {
 
 function isExportFormat(value: unknown): value is ExportFormat {
   return value === 'json' || value === 'csv' || value === 'markdown'
+}
+
+// ── Webview message guards ───────────────────────────────────────────────────
+// Messages come from a webview that renders span data (prompts, tool output) — treat their
+// fields as untrusted input, not as commands the extension host obeys verbatim.
+
+/** True when `key` (unprefixed, e.g. `enableMcpServer`) is a `traceRoost.*` setting this extension
+ *  declares in package.json, and `value` has that setting's declared JSON type. */
+function isDeclaredSettingUpdate(packageJSON: unknown, key: string, value: unknown): boolean {
+  const contributes = (packageJSON as { contributes?: { configuration?: unknown } } | undefined)?.contributes
+  const sections = Array.isArray(contributes?.configuration) ? contributes.configuration : [contributes?.configuration]
+  for (const section of sections) {
+    const props = (section as { properties?: Record<string, { type?: string | string[] }> } | undefined)?.properties
+    const decl = props && Object.prototype.hasOwnProperty.call(props, `traceRoost.${key}`) ? props[`traceRoost.${key}`] : undefined
+    if (!decl) { continue }
+    const types = Array.isArray(decl.type) ? decl.type : decl.type ? [decl.type] : []
+    if (types.length === 0) { return true }
+    return types.some(t =>
+      t === 'integer' ? Number.isInteger(value)
+        : t === 'array' ? Array.isArray(value)
+        : t === 'null' ? value === null
+        : t === 'object' ? typeof value === 'object' && value !== null && !Array.isArray(value)
+        : typeof value === t)
+  }
+  return false
+}
+
+/** `child` resolves to `parent` itself or somewhere beneath it. */
+function isPathInside(parent: string, child: string): boolean {
+  const rel = path.relative(path.resolve(parent), path.resolve(child))
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
 }
 
 export class DashboardPanel {
@@ -160,7 +192,19 @@ export class DashboardPanel {
         handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider, rawDb)
       } else if (msg.type === 'automation' && msg.prompt) {
         handleAutomation(msg as { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; prompt: string })
-      } else if (msg.type === 'openFile' && msg.filePath) {
+      } else if (msg.type === 'openFile' && typeof msg.filePath === 'string' && msg.filePath) {
+        // Only files in an open workspace folder, in a workspace some recorded session ran in, or
+        // in an agent's own config/log directory — never an arbitrary path the webview names.
+        const home = require('os').homedir() as string
+        const roots = [
+          ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
+          ...this.repo.listSessions().map(s => s.workspace).filter((w): w is string => typeof w === 'string' && path.isAbsolute(w)),
+          path.join(home, '.claude'), path.join(home, '.codex'), path.join(home, '.traceroost'),
+        ]
+        if (!path.isAbsolute(msg.filePath) || !roots.some(r => isPathInside(r, msg.filePath))) {
+          vscode.window.showWarningMessage(`TraceRoost: Not opening ${msg.filePath} — it is outside your workspace.`)
+          return
+        }
         const uri = vscode.Uri.file(msg.filePath)
         vscode.window.showTextDocument(uri, { preview: true }).then(undefined, () => {
           vscode.window.showWarningMessage(`Could not open file: ${msg.filePath}`)
@@ -197,6 +241,7 @@ export class DashboardPanel {
           vscode.commands.executeCommand('traceRoost.clearSessions')
         }
       } else if (msg.type === 'setVsCodeConfig' && typeof msg.key === 'string') {
+        if (!isDeclaredSettingUpdate(this.context.extension.packageJSON, msg.key, msg.value)) { return }
         void vscode.workspace.getConfiguration('traceRoost').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
       } else if (msg.type === 'reconfigureOtel') {
         const port = vscode.workspace.getConfiguration('traceRoost').get<number>('otlpPort', 4318)
@@ -224,7 +269,13 @@ export class DashboardPanel {
         }
         const wsFolders = vscode.workspace.workspaceFolders
         const wsRoot = wsFolders?.[0]?.uri.fsPath ?? workspace
-        const absPath = require('path').join(wsRoot, targetFile)
+        const absPath = path.resolve(wsRoot, String(targetFile ?? ''))
+        // targetFile names an instruction file in the workspace (CLAUDE.md, AGENTS.md, …);
+        // `../../.bashrc` or an absolute path elsewhere must not become a write target.
+        if (!targetFile || typeof targetFile !== 'string' || absPath === path.resolve(wsRoot) || !isPathInside(wsRoot, absPath)) {
+          vscode.window.showErrorMessage(`TraceRoost: Refusing to apply suggestion — ${targetFile} is outside the workspace.`)
+          return
+        }
         try {
           appendSuggestion(absPath, appliedText, id)
           const sessions = this.repo.listSessions().filter(s => (s.workspace ?? '') === workspace)
@@ -255,7 +306,7 @@ export class DashboardPanel {
           const wsFolders = vscode.workspace.workspaceFolders
           const wsRoot = wsFolders?.[0]?.uri.fsPath ?? workspace
           const absPath = require('path').join(wsRoot, applied.appliedTo)
-          removeSuggestion(absPath, id)
+          removeSuggestion(absPath, id, applied.appliedText)
           this.instructionRepo.removeApplied(id)
           const records = this.instructionRepo.getApplied(workspace)
           this.panel.webview.postMessage({ type: 'appliedSuggestions', records })
@@ -781,18 +832,3 @@ async function handleAutomation(msg: { label: string; writePromptsFile: boolean;
   }
 }
 
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let nonce = ''
-  for (let i = 0; i < 32; i++) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return nonce
-}
-
-function safeJsonForScript(data: unknown): string {
-  return JSON.stringify(data)
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--')
-    .replace(/\$\{/g, '\\${')
-}

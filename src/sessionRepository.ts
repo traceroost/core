@@ -58,16 +58,24 @@ export function resolveWorkspacesFromLogs(sessions: SessionSummaryCard[]): void 
 
 /**
  * Merges historical sessions from SQLite with live sessions from the in-memory
- * span window. Live sessions always win on conflict (same sessionId) — they are
- * fresher. Result is sorted by startTime DESC.
+ * span window. Live sessions win on conflict (same sessionId) — they are fresher —
+ * unless the stored card has recorded more calls than the live one: the live card is
+ * rebuilt from whatever spans are still in memory, so a partial window must not hide
+ * a fuller card already persisted. Result is sorted by startTime DESC.
  */
 export function mergeSessions(
   dbSessions: SessionSummaryCard[],
   liveSessions: SessionSummaryCard[],
 ): SessionSummaryCard[] {
-  const liveIds = new Set(liveSessions.map(s => s.sessionId))
+  const calls = (s: SessionSummaryCard) => s.totalLlmCalls + s.totalToolCalls
+  const dbById = new Map(dbSessions.map(s => [s.sessionId, s]))
+  const liveWinners = liveSessions.filter(s => {
+    const stored = dbById.get(s.sessionId)
+    return !stored || calls(stored) <= calls(s)
+  })
+  const liveIds = new Set(liveWinners.map(s => s.sessionId))
   return [
-    ...liveSessions,
+    ...liveWinners,
     ...dbSessions.filter(s => !liveIds.has(s.sessionId)),
   ].sort((a, b) => Date.parse(b.startTime) - Date.parse(a.startTime))
 }

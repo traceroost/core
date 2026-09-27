@@ -327,9 +327,18 @@ export function buildClaudeSessions(
         + `Claude Code redacts tool arguments by default. Add OTEL_LOG_TOOL_DETAILS=1 to your Claude environment variables (alongside CLAUDE_CODE_ENABLE_TELEMETRY=1) and restart to enable path tracking.`
       : undefined
 
+    // Claude Code stamps its own session id (the transcript's `sessionId`) on every span, usually
+    // via resource attributes; the interaction span may be synthesized without attributes, so
+    // take it from any span in the trace. It's the key the writer uses to keep this OTEL card and
+    // the same conversation's log card from both being counted — see claudeConversationKey.
+    const claudeSessionId = getAttrStr(interaction, 'session.id')
+      || traceSpans.map(s => getAttrStr(s, 'session.id')).find(Boolean)
+      || ''
+
     return {
       sessionId: interaction.spanId,
       traceId: interaction.traceId || '',
+      claudeSessionId: claudeSessionId || undefined,
       source: 'claude_code' as const,
       dataSource: 'otel' as const,
       // is_sidechain marks a turn spawned by the Task tool rather than typed by a human. The

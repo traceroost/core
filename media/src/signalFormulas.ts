@@ -138,7 +138,7 @@ export const SIGNAL_FORMULAS: Record<
       '10+ repeats → critical',
     ],
     caveat: 'Newly added (2026-09-26), unconfirmed — the 5/10-repeat thresholds are borrowed from Gemini CLI\'s own default, not calibrated against this project\'s session history yet. Run scripts/calibrateSignals.ts once enough sessions have this signal computed.',
-    short: 'A multi-step sequence (e.g. edit → build → edit → build) repeated 5+ times.',
+    short: 'A multi-step sequence (e.g. run tests → read log → run tests → read log) repeated 5+ times with no edit.',
     tip: 'Explain what changed between attempts, or step in with the missing information.',
     dataSource: 'both',
     dataSourceNote:
@@ -158,7 +158,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   cache_miss: {
     bullets: [
-      'An LLM call re-writes 5%+ of its prefix as new cache-write tokens, and that re-written share is 2,000+ tokens → warning',
+      'An LLM call re-writes 5%+ of its prefix as new cache-write tokens, and that re-written share is 2,000+ tokens → warning (the first call on each model is skipped — nothing is cached yet, so writing its prefix is the normal cold start, not a miss)',
       '10,000+ re-written tokens → critical',
     ],
     caveat: 'Newly added (2026-09-26), unconfirmed — the 5%/2,000-token rule is copied verbatim from Claude Code\'s own published /usage rule, not calibrated against this project\'s own session history.',
@@ -182,7 +182,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   low_cache_hit_ratio: {
     bullets: [
-      'The session reports at least 2,000 combined cache-read + cache-write tokens (real cache activity, not just a source that never reports caching), and the hit ratio among those is under 30% → warning',
+      'The session reports at least 2,000 combined cache-read + cache-write tokens (real cache activity, not just a source that never reports caching), and cache-read tokens are under 30% of the session’s total input tokens → warning',
       'under 10% → critical',
     ],
     caveat: 'Newly added (2026-09-26), unconfirmed — the 30%/10% cutoffs and the 2,000-token activity floor are guesses, not calibrated against real sessions.',
@@ -194,7 +194,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   budget_overrun: {
     bullets: [
-      'Session cost (computed from token totals + model via pricing.ts) exceeds a configured cap → warning',
+      'Session cost (each LLM call priced at its own model via pricing.ts where per-call tokens exist, otherwise the session’s token totals at flat rates) exceeds a configured cap → warning',
       '2× that cap → critical',
       'Disabled unless TRACEROOST_BUDGET_CAP_USD is set — there is no default cap',
     ],

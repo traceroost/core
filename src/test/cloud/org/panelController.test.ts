@@ -80,7 +80,7 @@ suite('org/panelController — link back-fill and reconciliation', () => {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'New Team', role: 'member', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'New Team', role: 'developer', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
       }
       throw new Error(`unexpected fetch in test: ${url}`)
     }) as typeof fetch
@@ -172,7 +172,7 @@ suite('org/panelController — link back-fill and reconciliation', () => {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'New Team', role: 'member', per_developer_visibility: false, email: 'dev2@example.com' }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'New Team', role: 'developer', per_developer_visibility: false, email: 'dev2@example.com' }), { status: 200 })
       }
       throw new Error(`unexpected fetch in test: ${url}`)
     }) as typeof fetch
@@ -280,7 +280,7 @@ suite('org/panelController — link back-fill and reconciliation', () => {
         }), { status: 200 })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'New Team', role: 'member', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'New Team', role: 'developer', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
       }
       throw new Error(`unexpected fetch in test: ${url}`)
     }) as typeof fetch

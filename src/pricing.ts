@@ -277,6 +277,11 @@ export function lookupRates(modelId: string): ModelRates | null {
   return RATES_BY_COST_KEY.get(normalizeCostKey(modelId)) ?? null
 }
 
+// ── Cost math ────────────────────────────────────────────────────────────────
+// Everything from tieredCost through calcSessionCostUsd is copied byte-for-byte into
+// media/src/pricing.ts — the webview can't import this file (media/tsconfig.json's rootDir), so
+// both carry it and src/test/media/pricing.test.ts fails if the two copies drift. Edit both together.
+
 // Applies two-tier pricing: tokens up to the threshold at baseRate, remainder at aboveRate.
 function tieredCost(tokens: number, threshold: number, baseRatePerMTok: number, aboveRatePerMTok: number): number {
   if (tokens <= threshold) return (tokens / 1_000_000) * baseRatePerMTok
@@ -284,15 +289,15 @@ function tieredCost(tokens: number, threshold: number, baseRatePerMTok: number, 
        + ((tokens - threshold) / 1_000_000) * aboveRatePerMTok
 }
 
-export function calcTokenCostUsd(
+// Prices ONE API call. The long-context tier is a per-call surcharge, so it is only ever applied
+// here — never to a sum of several calls (see calcAggregateCostWithRates).
+export function calcCallCostWithRates(
   inputTokens: number,
   cacheReadTokens: number,
   cacheWriteTokens: number,
   outputTokens: number,
-  modelId: string,
+  rates: ModelRates,
 ): number {
-  const rates = lookupRates(modelId)
-  if (!rates) return 0
   if (rates.inputAboveThresholdPerMTok !== undefined) {
     // Threshold defaults to 200K if above-threshold rates are set without an explicit threshold
     // (kept for claude-sonnet-4 parity — every model added since has set this explicitly).
@@ -304,8 +309,105 @@ export function calcTokenCostUsd(
          + tieredCost(cacheWriteTokens, threshold, rates.cacheWritePerMTok, rates.cacheWriteAboveThresholdPerMTok ?? rates.cacheWritePerMTok)
          + tieredCost(outputTokens,     threshold, rates.outputPerMTok,     rates.outputAboveThresholdPerMTok ?? rates.outputPerMTok)
   }
+  return calcAggregateCostWithRates(inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens, rates)
+}
+
+// Prices a token total that may span MANY API calls (a whole session, a day, a projection) at the
+// flat base rates. The long-context tier is deliberately NOT applied: a session's cumulative cache
+// reads routinely exceed 200K/272K even when no single call came near it, so tiering a total would
+// bill the surcharge on calls that never qualified for it. Where per-call token counts exist, use
+// calcSessionCostUsd instead, which prices each call (tier included) and sums.
+export function calcAggregateCostWithRates(
+  inputTokens: number,
+  cacheReadTokens: number,
+  cacheWriteTokens: number,
+  outputTokens: number,
+  rates: ModelRates,
+): number {
   return (inputTokens     / 1_000_000) * rates.inputPerMTok
        + (cacheReadTokens / 1_000_000) * rates.cacheReadPerMTok
        + (cacheWriteTokens/ 1_000_000) * rates.cacheWritePerMTok
        + (outputTokens    / 1_000_000) * rates.outputPerMTok
+}
+
+/** The per-call token fields calcSessionCostUsd reads — structurally satisfied by TimelineEntry. */
+export interface CostTimelineEntry {
+  type: string
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheCreateTokens?: number
+}
+
+/** The session fields calcSessionCostUsd reads — structurally satisfied by SessionSummaryCard. */
+export interface CostSession {
+  model?: string
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreateTokens?: number
+  timeline?: CostTimelineEntry[]
+}
+
+function hasCallTokens(e: CostTimelineEntry): boolean {
+  return (e.inputTokens ?? 0) > 0 || (e.outputTokens ?? 0) > 0
+      || (e.cacheReadTokens ?? 0) > 0 || (e.cacheCreateTokens ?? 0) > 0
+}
+
+/** Cost of one timeline LLM entry. `inputTokens` is inclusive of cache reads/writes (as stored);
+ *  the raw, uncached portion is what gets the input rate. */
+export function calcEntryCostUsd(entry: CostTimelineEntry, sessionModel: string): number {
+  const rates = lookupRates(entry.model || sessionModel)
+  if (!rates) return 0
+  const cacheRead   = entry.cacheReadTokens   ?? 0
+  const cacheCreate = entry.cacheCreateTokens ?? 0
+  const rawInput    = Math.max(0, (entry.inputTokens ?? 0) - cacheRead - cacheCreate)
+  return calcCallCostWithRates(rawInput, cacheRead, cacheCreate, entry.outputTokens ?? 0, rates)
+}
+
+/**
+ * A session's cost. Whenever the timeline carries per-call token counts, each LLM call is priced
+ * on its own (at its own model, long-context tier included) and summed — that's the only way to
+ * apply a per-call surcharge correctly, and it also handles sessions that span more than one
+ * model. Only when no per-call data exists does it fall back to pricing the session's aggregate
+ * totals at the session model's flat rates (no long-context tier — see calcAggregateCostWithRates).
+ */
+export function calcSessionCostUsd(session: CostSession): number {
+  const modelId = session.model || ''
+  const llmEntries = (session.timeline ?? []).filter(e => e.type === 'llm')
+  if (llmEntries.some(hasCallTokens)) {
+    return llmEntries.reduce((sum, e) => sum + calcEntryCostUsd(e, modelId), 0)
+  }
+  const rates = lookupRates(modelId)
+  if (!rates) return 0
+  const cacheCreate = session.cacheCreateTokens ?? 0
+  const rawInput = Math.max(0, session.inputTokens - session.cacheReadTokens - cacheCreate)
+  return calcAggregateCostWithRates(rawInput, session.cacheReadTokens, cacheCreate, session.outputTokens, rates)
+}
+
+/** Prices ONE API call's tokens (long-context tier applied). Returns 0 for an unknown model. */
+export function calcTokenCostUsd(
+  inputTokens: number,
+  cacheReadTokens: number,
+  cacheWriteTokens: number,
+  outputTokens: number,
+  modelId: string,
+): number {
+  const rates = lookupRates(modelId)
+  if (!rates) return 0
+  return calcCallCostWithRates(inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens, rates)
+}
+
+/** Prices a multi-call token total at flat rates (no long-context tier). Returns 0 for an unknown model. */
+export function calcAggregateTokenCostUsd(
+  inputTokens: number,
+  cacheReadTokens: number,
+  cacheWriteTokens: number,
+  outputTokens: number,
+  modelId: string,
+): number {
+  const rates = lookupRates(modelId)
+  if (!rates) return 0
+  return calcAggregateCostWithRates(inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens, rates)
 }

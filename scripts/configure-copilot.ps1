@@ -7,13 +7,21 @@
 # Usage:
 #   .\scripts\configure-copilot.ps1              # uses port 4318 (default)
 #   .\scripts\configure-copilot.ps1 -Port 4319   # custom port
+#   .\scripts\configure-copilot.ps1 -Token <token>   # Docker / LAN mode (BIND_HOST=0.0.0.0) — see README -> Docker
 
 param(
-    [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 })
+    [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 }),
+    # Bearer token — required when TraceRoost is bound beyond localhost (Docker / LAN mode).
+    [string]$Token = $env:TRACEROOST_TOKEN,
+    [string]$HostName = $(if ($env:TRACEROOST_HOST) { $env:TRACEROOST_HOST } else { "localhost" })
 )
 
 $ErrorActionPreference = "Stop"
-$Endpoint = "http://localhost:$Port"
+$Endpoint = "http://${HostName}:$Port"
+if ($Token -and ($Token -notmatch '^[A-Za-z0-9._~-]+$')) {
+    Write-Host "Error: the token may only contain letters, digits and . _ ~ -"
+    exit 1
+}
 
 Write-Host "Configuring GitHub Copilot CLI for TraceRoost at $Endpoint..."
 
@@ -40,6 +48,11 @@ $existingCapture = [System.Environment]::GetEnvironmentVariable("OTEL_INSTRUMENT
 if (-not $existingCapture) {
     [System.Environment]::SetEnvironmentVariable("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "true", "User")
     Write-Host "  Set OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT = true"
+}
+
+if ($Token) {
+    [System.Environment]::SetEnvironmentVariable("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer $Token", "User")
+    Write-Host "  Set OTEL_EXPORTER_OTLP_HEADERS = Authorization=Bearer <token>"
 }
 
 Write-Host ""

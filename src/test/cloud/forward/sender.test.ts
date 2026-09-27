@@ -12,7 +12,7 @@ import type { RollupPayload } from '../../../cloud/forward/schema'
 
 const CREDS: OrgCredentials = {
   endpoint: 'https://traceroost.com',
-  orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
+  orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'developer',
   perDeveloperVisibility: false,
   accessToken: 'access-1', refreshToken: 'refresh-1',
   accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
@@ -170,7 +170,7 @@ suite('forward/sender', () => {
     assert.strictEqual(new ForwardQueue(home).depth(), 0)
   })
 
-  test('401 with the refresh token rejected (invalid_grant) → credential cleared, queue kept, one notice', async () => {
+  test('401 with the refresh token rejected (invalid_grant) → credential and queue cleared, one notice', async () => {
     const store = memStore(CREDS)
     setCredentialStore(store)
     new ForwardQueue(home).enqueue(payload(ID1))
@@ -187,9 +187,90 @@ suite('forward/sender', () => {
     // button) rather than staying stuck on "Paused" forever.
     assert.strictEqual(store.load(), null)
     assert.strictEqual(readForwardState(home).paused, false)
-    // The queued rollup itself is still good data — only the credential died — so it's kept for
-    // whenever this machine gets re-linked.
-    assert.strictEqual(new ForwardQueue(home).depth(), 1)
+    // Every queued rollup was hashed with this org's salt — kept, it would ship to whatever org
+    // this machine links to next. Reconciliation re-enqueues after a re-link instead.
+    assert.strictEqual(new ForwardQueue(home).depth(), 0)
+    assert.strictEqual(res.remaining, 0)
+  })
+
+  test('invalid_grant after another host already rotated the token → uses its tokens, stays linked', async () => {
+    // Another process refreshed between this drain loading the credential and refreshing it: its
+    // new pair is on disk, and the old refresh token this drain presents is (rightly) rejected.
+    let cur: OrgCredentials | null = CREDS
+    const store: CredentialStore = { load: () => cur, save: c => { cur = c }, clear: () => { cur = null } }
+    setCredentialStore(store)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    stubFetch((url, init) => {
+      if (url.endsWith('/oauth/token')) {
+        cur = { ...CREDS, accessToken: 'access-other', refreshToken: 'refresh-other' }
+        return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })
+      }
+      const auth = (init?.headers as Record<string, string>)?.Authorization
+      if (auth !== 'Bearer access-other') return new Response('', { status: 401 })
+      return batchOk(batchItems(init), () => ({ status: 202 }))
+    })
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.sent, 1)
+    assert.strictEqual(store.load()?.refreshToken, 'refresh-other')
+  })
+
+  test('an access token about to expire is refreshed before the first request', async () => {
+    const store = memStore({ ...CREDS, accessTokenExpiresAt: Date.now() + 5_000 })
+    setCredentialStore(store)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    const seen: string[] = []
+    stubFetch((url, init) => {
+      if (url.endsWith('/oauth/token')) {
+        seen.push('token')
+        return new Response(JSON.stringify({ access_token: 'access-2', refresh_token: 'refresh-2', expires_in: 3600, member_id: 'm-1', org_id: 'org-1', install_id: 'install-1' }), { status: 200 })
+      }
+      seen.push((init?.headers as Record<string, string>)?.Authorization ?? '')
+      return batchOk(batchItems(init), () => ({ status: 202 }))
+    })
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.sent, 1)
+    assert.deepStrictEqual(seen, ['token', 'Bearer access-2'])
+    assert.ok((store.load()?.accessTokenExpiresAt ?? 0) > Date.now() + 3000_000)
+  })
+
+  test('batches close on a byte budget, not only on item count', async () => {
+    for (const id of [ID1, ID2, ID3]) new ForwardQueue(home).enqueue(payload(id))
+    const sizes: number[] = []
+    stubFetch((_url, init) => {
+      const items = batchItems(init)
+      sizes.push(items.length)
+      return batchOk(items, () => ({ status: 202 }))
+    })
+    const oneItem = Buffer.byteLength(JSON.stringify(payload(ID1))) + 1
+    const res = await drainQueue({ baseHome: home, maxBatchBytes: oneItem * 2 })
+    assert.strictEqual(res.sent, 3)
+    assert.deepStrictEqual(sizes, [2, 1])
+  })
+
+  test('413 on a batch → split and resent; a single item that is still 413 is dropped, not retried', async () => {
+    for (const id of [ID1, ID2, ID3]) new ForwardQueue(home).enqueue(payload(id))
+    const requests: string[][] = []
+    stubFetch((_url, init) => {
+      const items = batchItems(init)
+      requests.push(items.map(p => p.session!.session_id))
+      // ID2 alone is "too large"; any batch containing it is too.
+      if (items.some(p => p.session!.session_id === ID2)) return new Response('', { status: 413 })
+      return batchOk(items, () => ({ status: 202 }))
+    })
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.sent, 2)
+    assert.strictEqual(res.droppedInvalid, 1)
+    assert.strictEqual(new ForwardQueue(home).depth(), 0)
+    assert.deepStrictEqual(requests, [[ID1, ID2, ID3], [ID1, ID2], [ID1], [ID2], [ID3]])
+    assert.match(readForwardState(home).lastError ?? '', /413/)
+  })
+
+  test('413 on the single-item fallback route → dropped, not retried', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    stubFetch((url) => url.endsWith('/api/ingest/batch') ? new Response('', { status: 404 }) : new Response('', { status: 413 }))
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.droppedInvalid, 1)
+    assert.strictEqual(new ForwardQueue(home).depth(), 0)
   })
 
   test('401 with a transient refresh failure (5xx from the token endpoint) → paused, one notice, credential kept', async () => {

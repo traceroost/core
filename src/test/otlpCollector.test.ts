@@ -74,6 +74,27 @@ function postRaw(port: number, path: string, body: string): Promise<{ status: nu
   })
 }
 
+function request(port: number, opts: {
+  method?: string; path?: string; body?: string; headers?: Record<string, string>
+}): Promise<{ status: number }> {
+  return new Promise((resolve, reject) => {
+    const body = opts.body ?? ''
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: opts.path ?? '/v1/traces',
+      method: opts.method ?? 'POST',
+      headers: { 'Content-Length': Buffer.byteLength(body), ...opts.headers },
+    }, (res) => {
+      res.on('data', () => {})
+      res.on('end', () => resolve({ status: res.statusCode! }))
+    })
+    req.on('error', reject)
+    req.write(body)
+    req.end()
+  })
+}
+
 // ── Test data ──
 
 function validOtlpPayload(spans: Array<{ name: string; traceId?: string; spanId?: string }>) {
@@ -218,6 +239,69 @@ suite('OtlpCollector', () => {
     const res = await postJson(TEST_PORT, '/v1/traces', { resourceSpans: [] })
     assert.strictEqual(res.status, 200)
     assert.strictEqual(store.addedSpans.length, 0)
+  })
+
+  test('handles null elements at every level without hanging the socket', async () => {
+    const cases: unknown[] = [
+      { resourceSpans: [null] },
+      { resourceSpans: [{ scopeSpans: [null] }] },
+      { resourceSpans: [{ scopeSpans: { spans: [] } }] },
+      { resourceSpans: [{ scopeSpans: [{ spans: [null, 1, 'x'] }] }] },
+      { resourceSpans: [{ resource: { attributes: [null] }, scopeSpans: [{ spans: [
+        { traceId: 't', spanId: 's', name: 'n', attributes: [null, { key: 'a', value: { stringValue: 'b' } }] },
+      ] }] }] },
+      { resourceLogs: [null, { scopeLogs: [null, { logRecords: [null] }] }] },
+      { resourceLogs: [{ scopeLogs: [{ logRecords: [{ attributes: [null], body: { kvlistValue: { values: [null] } } }] }] }] },
+      { resourceMetrics: [null, { scopeMetrics: [null, { metrics: [null] }] }] },
+    ]
+    for (const payload of cases) {
+      const res = await postJson(TEST_PORT, '/v1/traces', payload)
+      assert.strictEqual(res.status, 200, JSON.stringify(payload))
+    }
+    // Only the one well-formed span among the cases is stored, with the null attribute skipped.
+    assert.strictEqual(store.addedSpans.length, 1)
+    const span = store.addedSpans[0] as { attributes: Array<{ key: string }> }
+    assert.ok(span.attributes.some(a => a.key === 'a'))
+  })
+
+  test('rejects cross-origin browser requests', async () => {
+    const body = JSON.stringify(validOtlpPayload([{ name: 'fake' }]))
+    const res = await request(TEST_PORT, {
+      body, headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+    })
+    assert.strictEqual(res.status, 403)
+    const nullOrigin = await request(TEST_PORT, {
+      body, headers: { 'Content-Type': 'application/json', Origin: 'null' },
+    })
+    assert.strictEqual(nullOrigin.status, 403)
+    assert.strictEqual(store.addedSpans.length, 0)
+  })
+
+  test('rejects the no-preflight text/plain and form content types', async () => {
+    const body = JSON.stringify(validOtlpPayload([{ name: 'fake' }]))
+    for (const type of ['text/plain', 'text/plain;charset=UTF-8', 'application/x-www-form-urlencoded', 'multipart/form-data; boundary=x']) {
+      const res = await request(TEST_PORT, { body, headers: { 'Content-Type': type } })
+      assert.strictEqual(res.status, 415, type)
+    }
+    assert.strictEqual(store.addedSpans.length, 0)
+  })
+
+  test('rejects a DNS-rebinding Host header', async () => {
+    const res = await request(TEST_PORT, {
+      body: JSON.stringify(validOtlpPayload([{ name: 'fake' }])),
+      headers: { 'Content-Type': 'application/json', Host: 'attacker.example:4318' },
+    })
+    assert.strictEqual(res.status, 403)
+    assert.strictEqual(store.addedSpans.length, 0)
+  })
+
+  test('accepts JSON from a loopback Origin', async () => {
+    const res = await request(TEST_PORT, {
+      body: JSON.stringify(validOtlpPayload([{ name: 'ok' }])),
+      headers: { 'Content-Type': 'application/json; charset=utf-8', Origin: 'http://localhost:3000' },
+    })
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(store.addedSpans.length, 1)
   })
 
   test('handles malformed resourceSpans structure', async () => {

@@ -699,9 +699,9 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.cache_miss.caveat}
             dataSource={SIGNAL_FORMULAS.cache_miss.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.cache_miss.dataSourceNote}
-            example="A call re-wrote 8,000 of a 120,000-token cached prefix because a tool definition changed between turns — writing it cost roughly 25× what reading it would have."
+            example="A call re-wrote 8,000 of a 120,000-token cached prefix because a tool definition changed between turns — writing it (1.25× the input rate for a 5-minute cache write) cost roughly 12.5× what reading it back (0.1× input) would have."
             steps={`<li>Keep tool definitions, system prompt, and thinking/effort settings stable across turns in the same session.</li><li>Avoid adding images or changing tool_choice mid-session if you can help it.</li><li>Check whether a timestamp or counter is embedded in a cached part of the prompt.</li>`}
-            impact="Avoiding one 8,000-token miss on a cache-write-priced model saves roughly the gap between cache-write and cache-read rates — often 10–25× that many tokens' worth of ordinary input cost."
+            impact="Avoiding one 8,000-token miss on a cache-write-priced model saves roughly the gap between cache-write and cache-read rates — about 1.15× that many tokens' worth of ordinary input cost (1.9× for 1-hour cache writes)."
           />
           <LoopBlock id="help-ttl-expiry" title="Cache TTL Expiry" signalType="ttl_expiry"
             why={formulaHtml(SIGNAL_FORMULAS.ttl_expiry.bullets)}
@@ -805,7 +805,7 @@ function PatternsSection() {
             <dd class="glossary-def" style="display:block">Triggered when a significant share of traces exceed 1.5× the average turn count, indicating missing upfront context. Works for all agent types including Copilot.</dd>
           </div>
         </div>
-        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost never edits your instruction file itself</strong> — nothing here writes to disk; every suggestion is copy-and-paste only, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it).</p>
+        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost only writes to your instruction file when you click Apply</strong> — it appends the suggestion as a block wrapped in <code>&lt;!-- TraceRoost suggestion … --&gt;</code> markers, and Remove deletes exactly that block, never text you wrote around it. Copy-and-paste works too, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it).</p>
 
         <h4 style={subHeadStyle}>Efficiency Map</h4>
         <p style={mutedP}>A scatter plot where each dot is one trace. Right = more expensive. Up = more LLM calls. Color = cache hit rate (green ≥60%, orange 20–60%, red &lt;20%). Click a dot to navigate to that trace. The table below shows the top 10 traces sorted by the active column — click any column header to re-sort.</p>

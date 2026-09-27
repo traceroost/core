@@ -1,16 +1,34 @@
 import * as vscode from 'vscode'
 import { Span, SpanAttribute, SessionSummary } from './types'
 import { nanoToMs } from './summarizers/helpers'
+import { pruneSpans, DEFAULT_MAX_SPANS } from './spanStore'
 
 export type { Span, SessionSummary } from './types'
+
+// Ceiling on spans held in memory regardless of the retention rules below — the same cap the
+// standalone server uses for its own span list.
+export const MAX_LIVE_SPANS = DEFAULT_MAX_SPANS
 
 export class SessionStore {
   private spans: Span[] = []
   private summary: SessionSummary = this.emptySummary()
   private onUpdateCallbacks: Array<(traceId?: string) => void> = []
-  // Rolling window: spans older than this are dropped from memory once their
-  // sessions have been persisted to SQLite by the phase-2 writer.
+  // Rolling window: a trace's spans are dropped from memory once nothing has arrived for that
+  // trace for this long (its sessions have been persisted to SQLite by the phase-2 writer).
+  // Retention is per trace, not per span: trimming individual spans older than the window
+  // meant any run longer than 5 minutes was summarized — and persisted — from only its last
+  // 5 minutes of spans, since the writer re-summarizes the whole card from this window.
   private readonly SPAN_WINDOW_MS = 5 * 60 * 1000
+  // A trace whose root span (claude_code.interaction / invoke_agent) hasn't arrived yet is still
+  // running — its children can be separated by long quiet stretches (a slow tool call, a
+  // permission prompt), so it's kept up to this long past its last activity instead.
+  private readonly OPEN_TRACE_MAX_IDLE_MS = 6 * 60 * 60 * 1000
+  // trimSpans is O(n); run it at most this often rather than on every single span.
+  private readonly TRIM_INTERVAL_MS = 1_000
+  private lastTrimMs = 0
+  private readonly traceLastActivity = new Map<string, number>()
+  private readonly openTraces = new Set<string>()
+  private readonly closedTraces = new Set<string>()
 
   onUpdate(fn: (traceId?: string) => void): { dispose(): void } {
     this.onUpdateCallbacks.push(fn)
@@ -26,22 +44,67 @@ export class SessionStore {
 
   constructor(
     _context: vscode.ExtensionContext,
+    private readonly now: () => number = Date.now,
+    private readonly maxSpans: number = MAX_LIVE_SPANS,
   ) {}
 
   addSpan(span: Span) {
-    if (span.receivedAt === undefined) { span.receivedAt = Date.now() }
+    if (span.receivedAt === undefined) { span.receivedAt = this.now() }
     this.spans.push(span)
+    this.trackTrace(span)
     this.updateSummary(span)
     this.trimSpans()
     this.notifyUpdate(span.traceId)
   }
 
+  private trackTrace(span: Span): void {
+    const traceId = span.traceId
+    if (!traceId) { return }
+    const at = span.receivedAt ?? this.now()
+    if (at > (this.traceLastActivity.get(traceId) ?? 0)) { this.traceLastActivity.set(traceId, at) }
+    if (span.name === 'claude_code.interaction' || span.name.startsWith('invoke_agent')) {
+      this.closedTraces.add(traceId)
+      this.openTraces.delete(traceId)
+    } else if (!this.closedTraces.has(traceId) && (
+      span.name === 'claude_code.llm_request' || span.name === 'claude_code.tool'
+      || span.name.startsWith('chat') || span.name.startsWith('execute_tool')
+    )) {
+      this.openTraces.add(traceId)
+    }
+  }
+
   private trimSpans(): void {
-    const cutoff = Date.now() - this.SPAN_WINDOW_MS
+    const now = this.now()
+    // Hard memory cap first — cheap length check, so it's enforced on every span.
+    if (pruneSpans(this.spans, this.maxSpans) > 0) { this.forgetMissingTraces() }
+    if (now - this.lastTrimMs < this.TRIM_INTERVAL_MS) { return }
+    this.lastTrimMs = now
+    const cutoff = now - this.SPAN_WINDOW_MS
+    const openCutoff = now - this.OPEN_TRACE_MAX_IDLE_MS
+    const before = this.spans.length
     this.spans = this.spans.filter(s => {
+      if (s.traceId) {
+        const last = this.traceLastActivity.get(s.traceId) ?? 0
+        if (last === 0 || last > cutoff) { return true }
+        return this.openTraces.has(s.traceId) && last > openCutoff
+      }
       const ms = s.receivedAt ?? nanoToMs(s.startTime)
       return ms === 0 || ms > cutoff
     })
+    if (this.spans.length !== before) { this.forgetMissingTraces() }
+  }
+
+  /** Drops per-trace bookkeeping for traces that no longer have any span in memory. */
+  private forgetMissingTraces(): void {
+    const present = new Set<string>()
+    for (const s of this.spans) { if (s.traceId) { present.add(s.traceId) } }
+    for (const id of [...this.traceLastActivity.keys()]) {
+      if (!present.has(id)) {
+        this.traceLastActivity.delete(id)
+        this.openTraces.delete(id)
+        this.closedTraces.delete(id)
+      }
+    }
   }
 
   private updateSummary(span: Span) {
@@ -159,6 +222,9 @@ export class SessionStore {
   clear() {
     this.spans = []
     this.summary = this.emptySummary()
+    this.traceLastActivity.clear()
+    this.openTraces.clear()
+    this.closedTraces.clear()
   }
 
   private emptySummary(): SessionSummary {

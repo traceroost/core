@@ -51,7 +51,7 @@ suite('org/link', () => {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'Acme Corp', role: 'member', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'Acme Corp', role: 'developer', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
       }
       if (url.endsWith('/oauth/revoke')) return new Response('{"ok":true}', { status: 200 })
       throw new Error(`unexpected fetch in test: ${url}`)
@@ -104,7 +104,7 @@ suite('org/link', () => {
     setCredentialStore((() => {
       let cur: OrgCredentials | null = {
         endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'org-1',
-        memberId: 'mem-1', role: 'member', perDeveloperVisibility: false,
+        memberId: 'mem-1', role: 'developer', perDeveloperVisibility: false,
         accessToken: 'access-1', refreshToken: 'refresh-1',
         accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
       }
@@ -123,7 +123,7 @@ suite('org/link', () => {
     setCredentialStore((() => {
       let cur: OrgCredentials | null = {
         endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'Acme Corp',
-        memberId: 'mem-1', role: 'member', perDeveloperVisibility: false,
+        memberId: 'mem-1', role: 'developer', perDeveloperVisibility: false,
         accessToken: 'access-1', refreshToken: 'refresh-1',
         accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
       }
@@ -146,7 +146,7 @@ suite('org/link', () => {
     setCredentialStore((() => {
       let cur: OrgCredentials | null = {
         endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'org-1',
-        memberId: 'mem-1', role: 'member', perDeveloperVisibility: false,
+        memberId: 'mem-1', role: 'developer', perDeveloperVisibility: false,
         accessToken: 'access-1', refreshToken: 'refresh-1',
         accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
       }

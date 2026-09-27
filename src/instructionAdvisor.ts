@@ -4,7 +4,7 @@
  */
 
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
-import { calcTokenCostUsd } from './pricing'
+import { calcSessionCostUsd } from './pricing'
 
 export type SuggestionCategory = 'context' | 'behavior' | 'prompting'
 
@@ -24,13 +24,7 @@ export interface SuggestionCard {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function sessionCost(s: SessionSummaryCard): number {
-  return calcTokenCostUsd(
-    s.inputTokens - s.cacheReadTokens - (s.cacheCreateTokens ?? 0),
-    s.cacheReadTokens,
-    s.cacheCreateTokens ?? 0,
-    s.outputTokens,
-    s.model,
-  )
+  return calcSessionCostUsd(s)
 }
 
 function subsystemFromPath(p: string): string {

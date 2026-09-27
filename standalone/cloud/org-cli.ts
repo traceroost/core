@@ -12,6 +12,7 @@ import { SENT, NEVER_SENT, whoSeesWhat, LEAVE_HINT } from '../../src/cloud/org/p
 import { loadCredentials } from '../../src/cloud/org/credentials'
 import { orgEndpoint } from '../../src/cloud/org/config'
 import { fetchInstallStats } from '../../src/cloud/org/oauthClient'
+import { freshCredentials } from '../../src/cloud/org/tokenRefresh'
 import { readServiceConfig } from '../../src/serviceConfig'
 
 function printPromise(): void {
@@ -119,7 +120,9 @@ async function runVerify(): Promise<number> {
     }
   } catch { /* server not running or unreachable — reported below */ }
 
-  const cloudStats = await fetchInstallStats(creds.accessToken, creds.endpoint)
+  // A CLI run usually finds the access token long expired (it lives an hour) — refresh it first.
+  const fresh = (await freshCredentials()) ?? creds
+  const cloudStats = await fetchInstallStats(fresh.accessToken, fresh.endpoint)
 
   if (localCount === null) {
     console.log("Could not reach the local dashboard (is `traceroost` / the standalone server running?).")

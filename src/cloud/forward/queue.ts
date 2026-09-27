@@ -8,8 +8,9 @@
  * - Stored in `~/.traceroost/forward-queue.jsonl`, one JSON object per line, user-only (0600),
  *   surviving restarts and sleep.
  * - Idempotent on the item key (`session:<uuid>`, `commits:<fp>:<digest>`,
- *   `turnover:<fp>:<digest>`), so a retry after an ambiguous failure is free and the server
- *   deduplicates.
+ *   `turnover:<fp>:<digest>`, `instructions:<fp>:<digest>`), so the same record is never queued
+ *   twice; a retry after an ambiguous failure is free because the server deduplicates on its own,
+ *   per-record receipt keys (see `itemKey`).
  * - Hard cap on entries with oldest-first eviction, so an install that never reconnects does
  *   not grow without bound.
  * - Holds built rollups only — records that have already passed through AL 03's hashing. There
@@ -45,7 +46,12 @@ export function queuePath(baseHome: string = os.homedir()): string {
   return path.join(baseHome, '.traceroost', 'forward-queue.jsonl')
 }
 
-/** Derives the idempotency key for a payload — matches `cloud` `receiptKeys()`. */
+/** Derives this queue's own dedupe key for a payload. Not the server's idempotency key: cloud's
+ *  `receiptKeys()` (persist.ts) keys each record separately and scopes it to the org (and, for a
+ *  session, to its revision), so this only has to be stable enough that the same record isn't
+ *  queued twice — the server is what makes a resend harmless. An instruction-telemetry payload is
+ *  keyed on its instruction-file state, so a changed state queues behind (rather than being
+ *  dropped as a duplicate of) an older one still waiting to send. */
 export function itemKey(payload: RollupPayload): string {
   if (payload.session) return `session:${payload.session.session_id}`
   if (payload.commits && payload.commits.length > 0) {
@@ -53,6 +59,9 @@ export function itemKey(payload: RollupPayload): string {
   }
   if (payload.turnover && payload.turnover.length > 0) {
     return `turnover:${payload.repo_key_fp}:${digest(payload.turnover.map(t => `${t.commit_hash}:${t.window_days}`))}`
+  }
+  if (payload.instruction_files && payload.instruction_files.length > 0) {
+    return `instructions:${payload.repo_key_fp}:${digest(payload.instruction_files.map(f => JSON.stringify(f)))}`
   }
   return `empty:${payload.repo_key_fp}`
 }

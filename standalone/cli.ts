@@ -6,7 +6,22 @@
 // `traceroost org <link|status|leave> [--device]` links this machine to an org (Pro, AL 01).
 // `traceroost find <repo hash | trace/session id>` resolves a cloud dashboard hash-handoff
 // locally (traces-table.tsx's HashHandoff) and prints what it finds, ending with a `vscode://`
-// deep link into the interactive view — doesn't start the server.
+// deep link into the interactive view — doesn't start the server. `traceroost trace --id <id>`
+// and `traceroost patterns --repo <hash|name>` run either half of `find` directly.
+// Any other bare word is an unknown subcommand: print usage and exit non-zero rather than
+// silently starting the server. No arguments (or flags only) starts the server.
+
+const USAGE = `Usage:
+  traceroost                                   start the server (UI, OTLP receiver, MCP)
+  traceroost --explain-payload [--last|--all|--session <id>|--since <date>] [--dry-run]
+  traceroost service <install|uninstall|start|stop|restart|status|logs|update>
+  traceroost org <link|status|leave> [--device]
+  traceroost find <repo hash | trace/session id> [--reporter <email>]
+  traceroost trace --id <sessionId>
+  traceroost patterns --repo <hash|name>
+  traceroost advise <--list|--apply <id>> [--repo <path>]
+  traceroost cluster --repo <hash> --id <id>
+  traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]`
 
 async function main() {
   const args = process.argv.slice(2)
@@ -33,6 +48,21 @@ async function main() {
   if (args[0] === 'find') {
     const { runFindCli } = await import('./cloud/findCli.js')
     process.exitCode = await runFindCli(args.slice(1))
+    return
+  }
+  if (args[0] === 'trace') {
+    const { runTraceCli } = await import('./cloud/traceCli.js')
+    process.exitCode = await runTraceCli(args.slice(1))
+    return
+  }
+  if (args[0] === 'patterns') {
+    const { runPatternsCli } = await import('./cloud/patternsCli.js')
+    process.exitCode = await runPatternsCli(args.slice(1))
+    return
+  }
+  if (args[0] !== undefined && !args[0].startsWith('-')) {
+    console.error(`Unknown command: ${args[0]}\n\n${USAGE}`)
+    process.exitCode = 1
     return
   }
   const { parseExplainFlags, runExplainPayload } = await import('./cloud/explainPayload.js')

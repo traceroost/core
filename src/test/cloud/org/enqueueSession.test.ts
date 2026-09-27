@@ -13,7 +13,7 @@ import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 
 function memoryStore(overrides: Partial<OrgCredentials> = {}): CredentialStore {
   let cur: OrgCredentials | null = {
-    endpoint: 'https://test.traceroost.com', orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
+    endpoint: 'https://test.traceroost.com', orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'developer',
     perDeveloperVisibility: false, accessToken: 'a', refreshToken: 'r',
     accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
     ...overrides,

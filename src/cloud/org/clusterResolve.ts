@@ -8,14 +8,15 @@
  * because only it ever had that information to begin with.
  *
  * Same resilience philosophy as pricingSync.ts's fetchAndCacheRates: every failure mode (unlinked,
- * offline, 401/5xx, malformed body) returns `null` rather than throwing — there's no cached
+ * offline, 401 after a refresh, 5xx, malformed body) returns `null` rather than throwing — there's no cached
  * fallback to fall back to here (unlike pricing), so the caller just reports "couldn't resolve"
  * and exits, never a stale or a guessed answer.
  */
 
-import { loadCredentials } from './credentials'
 import { clusterResolveUrl } from './config'
 import { clientVersion } from './oauthClient'
+import { fetchWithFreshToken } from './tokenRefresh'
+import { toUuid } from '../forward/buildSessionRollup'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export interface ClusterResolution {
@@ -31,30 +32,33 @@ export async function fetchClusterResolution(
   repoHash: string,
   clusterId: string,
 ): Promise<ClusterResolution | null> {
-  const creds = loadCredentials()
-  if (!creds) return null // AL 01 — an unlinked install never touches the network
-
-  const url = new URL(clusterResolveUrl(creds.endpoint))
-  url.searchParams.set('repo', repoHash)
-  url.searchParams.set('id', clusterId)
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20_000)
-  let res: Response
+  // AL 01 — an unlinked install never touches the network (`fetchWithFreshToken` returns null
+  // before any request). A token that's expired — the usual state for a CLI run on a machine
+  // whose editor has been closed for an hour — is refreshed first, and a 401 refreshes once.
+  let res: Response | null
   try {
-    res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        'User-Agent': `traceroost-client/${clientVersion()}`,
-      },
-      signal: controller.signal,
+    res = await fetchWithFreshToken(async (creds) => {
+      const url = new URL(clusterResolveUrl(creds.endpoint))
+      url.searchParams.set('repo', repoHash)
+      url.searchParams.set('id', clusterId)
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 20_000)
+      try {
+        return await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${creds.accessToken}`,
+            'User-Agent': `traceroost-client/${clientVersion()}`,
+          },
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timer)
+      }
     })
   } catch {
     return null // offline / DNS / dropped connection
-  } finally {
-    clearTimeout(timer)
   }
-  if (!res.ok) return null // 401/404/429/5xx — no refresh-and-retry here, same call as pricingSync
+  if (!res || !res.ok) return null // unlinked, or 401-after-refresh/403/404/429/5xx
 
   let body: Partial<ClusterResolution>
   try {
@@ -88,15 +92,19 @@ export interface ResolvedLocalSession {
  * two distinct members). Every matched session already carries its real workspace/prompt/files —
  * no re-hashing or re-matching against the cluster's file-hash set needed, since local session ids
  * are already precise.
+ *
+ * The wire carries each session id through `toUuid` (buildSessionRollup.ts) — a lowercased UUID
+ * as-is, anything else (a Codex rollout id, an OTEL trace id) as a name-based UUID of it — so the
+ * local ids are mapped the same way before comparing, or every non-UUID session would go unmatched.
  */
 export function matchLocalSessions(
   resolution: ClusterResolution,
   localSessions: SessionSummaryCard[],
 ): { matched: ResolvedLocalSession[]; unmatchedCount: number } {
-  const bySessionId = new Map(localSessions.map((s) => [s.sessionId, s]))
+  const bySessionId = new Map(localSessions.map((s) => [toUuid(s.sessionId), s]))
   const matched: ResolvedLocalSession[] = []
   for (const id of resolution.sessionIds) {
-    const s = bySessionId.get(id)
+    const s = bySessionId.get(id.toLowerCase())
     if (s) {
       matched.push({
         sessionId: s.sessionId,

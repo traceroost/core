@@ -36,7 +36,7 @@ function hostLabel(endpoint: string): string {
 }
 
 function RatesTable({ modelKeys }: { modelKeys: string[] }) {
-  const hasTier = (r: ModelRates) => r.inputAbove200kPerMTok !== undefined
+  const hasTier = (r: ModelRates) => r.inputAboveThresholdPerMTok !== undefined
   const anyTiered = modelKeys.some(k => RATES[k] && hasTier(RATES[k]))
   const anyPromo = modelKeys.some(k => RATES[k] && RATES[k].promoNote)
   const overrides = orgStatus.value?.cloudRateOverrides ?? {}
@@ -84,7 +84,7 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
       </table>
       {anyTiered && (
         <div style="font-size:10px;color:var(--muted);margin:-4px 0 12px">
-          † Tiered — a higher rate applies above 200K tokens in a single call. Not broken out in this table; see <code>PRICING_SOURCES.md</code> for the full tier.
+          † Tiered — a higher rate applies to the part of a single call above the model's long-context threshold (200K or 272K). Not broken out in this table; see <code>PRICING_SOURCES.md</code> for the full tier.
         </div>
       )}
       {anyPromo && (

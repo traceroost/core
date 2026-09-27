@@ -206,6 +206,63 @@ suite('detectHallucinatedImports', () => {
     const session = makeSession({ timeline: [makeEdit('src/a.ts', "import foo from 'bar'")] })
     assert.strictEqual(detectHallucinatedImports(session, ''), null)
   })
+
+  test('does not flag vscode in a VS Code extension workspace', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ engines: { vscode: '^1.90.0' }, dependencies: {} }))
+    const session = makeSession({ timeline: [makeEdit('src/ext.ts', "import * as vscode from 'vscode'")] })
+    assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('does not flag tsconfig path aliases or @/ ~/ # specifiers', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: {} }))
+    fs.writeFileSync(path.join(dir, 'tsconfig.json'), `{
+      // comment
+      "compilerOptions": { "paths": { "@app/*": ["src/app/*"], "shared": ["src/shared"], }, },
+    }`)
+    const session = makeSession({
+      timeline: [makeEdit('src/a.ts', [
+        "import a from '@/lib/a'", "import b from '~/b'", "import c from '#internal'",
+        "import d from '@app/thing'", "import e from 'shared'",
+      ].join('\n'))],
+    })
+    assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('Python: stdlib modules like __future__, types, ast, concurrent are not flagged', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'requirements.txt'), 'requests\n')
+    const code = 'from __future__ import annotations\nimport types\nimport ast\nfrom concurrent.futures import ThreadPoolExecutor\n'
+    const session = makeSession({ timeline: [makeEdit('app.py', code)] })
+    assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('Python: import names that differ from their distribution names resolve', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'requirements.txt'), 'PyYAML==6.0\nPillow\nscikit-learn>=1.3\nopencv-python-headless\nbeautifulsoup4\n')
+    const code = 'import yaml\nfrom PIL import Image\nfrom sklearn import svm\nimport cv2\nfrom bs4 import BeautifulSoup\n'
+    const session = makeSession({ timeline: [makeEdit('app.py', code)] })
+    assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('Python: a local module on disk or written in this session is not flagged; a missing one is', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'requirements.txt'), 'requests\n')
+    fs.mkdirSync(path.join(dir, 'pkg'))
+    fs.writeFileSync(path.join(dir, 'pkg', 'helpers.py'), '')
+    fs.mkdirSync(path.join(dir, 'mylib'))
+    const session = makeSession({
+      timeline: [
+        makeEdit(path.join(dir, 'pkg', 'main.py'), 'import helpers\nimport mylib\nimport newmod\nimport ghost_pkg\n'),
+        makeEdit('pkg/newmod.py', 'X = 1\n'),
+      ],
+    })
+    const signal = detectHallucinatedImports(session, dir)
+    assert.ok(signal)
+    assert.strictEqual(signal!.count, 1)
+    assert.ok(signal!.examples[0].startsWith('ghost_pkg'))
+  })
 })
 
 // ── detectSessionRiskSignals ────────────────────────────────────────────────

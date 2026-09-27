@@ -1,6 +1,6 @@
 import type { SessionSummaryCard, TimelineEntry, OneShotStats } from './types'
 import { getAgentProfiles, resolveAgentProfile, type AgentThresholdProfiles } from './agentProfiles'
-import { lookupRates, calcTokenCost } from './pricing'
+import { lookupRates, calcEntryCostUsd, calcSessionCostUsd } from './pricing'
 
 // Mirrors src/oneShotRate.ts — see there for why this metric exists and its honest limitations
 // (edit-pass counting, not a correctness signal).
@@ -21,12 +21,7 @@ export function fmtUsd(usd: number): string {
 }
 
 export function calcEntryCost(entry: TimelineEntry, sessionModel: string): number {
-  const rates = lookupRates(entry.model || sessionModel)
-  if (!rates) return 0
-  const cacheRead   = entry.cacheReadTokens   ?? 0
-  const cacheCreate = entry.cacheCreateTokens ?? 0
-  const rawInput    = Math.max(0, (entry.inputTokens ?? 0) - cacheRead - cacheCreate)
-  return calcTokenCost(rawInput, cacheRead, cacheCreate, entry.outputTokens ?? 0, rates)
+  return calcEntryCostUsd(entry, sessionModel)
 }
 
 export interface SessionCost {
@@ -41,11 +36,6 @@ export function calcSessionCost(session: SessionSummaryCard): SessionCost {
   const rates = lookupRates(modelId)
   const llmEntries = (session.timeline ?? []).filter(e => e.type === 'llm')
 
-  // Sessions can span more than one model (a Task-tool subagent on a cheaper model, a
-  // mid-session /model switch) — when the timeline shows more than one distinct model,
-  // price each LLM entry at its own model and sum, instead of pricing the session's
-  // aggregate tokens at one model's rate. Mirrors src/database/writer.ts's server-side
-  // calculation; single-model sessions fall back to the original aggregate calc.
   const distinctModels = new Set(llmEntries.map(e => e.model).filter((m): m is string => Boolean(m)))
   const anyRateUnknown = distinctModels.size > 0
     ? [...distinctModels].some(m => !lookupRates(m))
@@ -57,12 +47,11 @@ export function calcSessionCost(session: SessionSummaryCard): SessionCost {
     return cum
   })
 
-  const rawInput = Math.max(0, session.inputTokens - session.cacheReadTokens - session.cacheCreateTokens)
-  const totalUsd = distinctModels.size > 1
-    ? byTurn[byTurn.length - 1] ?? 0
-    : rates
-      ? calcTokenCost(rawInput, session.cacheReadTokens, session.cacheCreateTokens, session.outputTokens, rates)
-      : 0
+  // Same function the extension host stores cost_usd with (src/pricing.ts's copy of
+  // calcSessionCostUsd): per-call pricing (long-context tier, per-entry model) whenever the
+  // timeline has per-call tokens, flat aggregate pricing otherwise — so the dashboard, the
+  // sidebar, and the stored session cost agree.
+  const totalUsd = calcSessionCostUsd(session)
 
   return { totalUsd, aiCredits: totalUsd / 0.01, byTurn, modelUnknown: anyRateUnknown }
 }

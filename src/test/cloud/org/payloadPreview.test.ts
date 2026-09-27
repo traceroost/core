@@ -48,7 +48,7 @@ function makeCard(id: string, workspace: string, overrides: Partial<SessionSumma
 
 const CREDS: OrgCredentials = {
   endpoint: 'https://traceroost.com',
-  orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
+  orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'developer',
   perDeveloperVisibility: false,
   accessToken: 'access-1', refreshToken: 'refresh-1',
   accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),

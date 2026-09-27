@@ -465,6 +465,19 @@ suite('SpanSummarizer', () => {
       assert.strictEqual(claude?.initiator, 'agent')
     })
 
+    test('carries Claude Code\'s session.id (the key shared with its transcript)', () => {
+      // The interaction span is often synthesized with no attributes; session.id then comes from
+      // a child (resource attributes are merged onto every span by the collector).
+      const llmCall = makeSpan({
+        traceId: 'claude-trace-session-id',
+        name: 'claude_code.llm_request',
+        attributes: [makeAttr('session.id', '7f1c2b9e-claude-session')],
+      })
+      const result = summarizeSpans([llmCall])
+      const claude = result.sessions.find(s => s.source === 'claude_code')
+      assert.strictEqual(claude?.claudeSessionId, '7f1c2b9e-claude-session')
+    })
+
     test('a Claude session with no is_sidechain signal defaults to user-initiated', () => {
       const root = makeSpan({
         traceId: 'claude-trace-plain',

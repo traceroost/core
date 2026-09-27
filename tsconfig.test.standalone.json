@@ -20,6 +20,8 @@
     "standalone/cloud/findCli.ts",
     "standalone/cloud/patternsCli.test.ts",
     "standalone/cloud/traceCli.test.ts",
-    "standalone/cloud/findCli.test.ts"
+    "standalone/cloud/findCli.test.ts",
+    "standalone/service/health.ts",
+    "standalone/service/health.test.ts"
   ]
 }

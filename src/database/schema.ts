@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   data_source         TEXT    NOT NULL DEFAULT 'otel',
   models              TEXT    NOT NULL DEFAULT '[]',
   one_shot_stats      TEXT    NOT NULL DEFAULT '{}',
+  conversation_id     TEXT,
   created_at          INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
 );
 

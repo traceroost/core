@@ -377,3 +377,33 @@ suite('DatabaseReader.searchSessions — pagination', () => {
     db.close()
   })
 })
+
+suite('DatabaseReader.searchSessions — untrusted input', () => {
+  test('LIKE wildcards in the text filter match literally', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'pct', userRequest: 'reach 100% coverage' }),
+      makeCard({ sessionId: 'plain', userRequest: 'reach 1000 coverage' }),
+      makeCard({ sessionId: 'under', userRequest: 'rename my_var' }),
+      makeCard({ sessionId: 'nounder', userRequest: 'rename myXvar' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    assert.deepStrictEqual(ids(reader.searchSessions({ text: '100%' }).sessions), ['pct'])
+    assert.deepStrictEqual(ids(reader.searchSessions({ text: 'my_var' }).sessions), ['under'])
+    db.close()
+  })
+
+  test('non-numeric since/minCostUsd/limit/offset are ignored rather than spliced into SQL', async () => {
+    const db = await openDb()
+    await seedDb(db, [makeCard({ sessionId: 'a' }), makeCard({ sessionId: 'b' })])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const hostile = {
+      since: '0 OR 1=1) --', minCostUsd: 'x', limit: '1; DROP TABLE sessions', offset: -5,
+    } as unknown as SearchQuery
+    const result = reader.searchSessions(hostile)
+    assert.strictEqual(result.totalCount, 2)
+    assert.strictEqual(result.sessions.length, 2)
+    assert.strictEqual(reader.searchSessions({ limit: 1 }).sessions.length, 1)
+    db.close()
+  })
+})

@@ -3,13 +3,14 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { fetchClusterResolution, matchLocalSessions, type ClusterResolution } from '../../../cloud/org/clusterResolve'
+import { toUuid } from '../../../cloud/forward/buildSessionRollup'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
 import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 
 const CREDS: OrgCredentials = {
   endpoint: 'https://traceroost.com',
-  orgId: 'org-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
+  orgId: 'org-1', orgName: 'Acme', memberId: 'm-1', role: 'developer',
   perDeveloperVisibility: false,
   accessToken: 'access-1', refreshToken: 'refresh-1',
   accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
@@ -99,7 +100,8 @@ suite('org/clusterResolve', () => {
   })
 
   suite('matchLocalSessions', () => {
-    const resolution: ClusterResolution = { sessionIds: ['s1', 's2', 's3'], sessions: 3, members: 2, files: 2, topTools: ['Read'] }
+    // Cloud hands back the ids as they went over the wire — through toUuid, like every rollup.
+    const resolution: ClusterResolution = { sessionIds: ['s1', 's2', 's3'].map(toUuid), sessions: 3, members: 2, files: 2, topTools: ['Read'] }
 
     test('matches the subset of cluster session ids this machine actually recorded', () => {
       const local = [session({ sessionId: 's1' }), session({ sessionId: 's3', workspace: '/other' })]
@@ -111,11 +113,18 @@ suite('org/clusterResolve', () => {
 
     test('carries the real workspace, prompt, and file list for a matched session', () => {
       const local = [session({ sessionId: 's1', workspace: '/repo/core', userRequest: 'add tests', filesChanged: ['x.ts', 'y.ts'] })]
-      const { matched } = matchLocalSessions({ ...resolution, sessionIds: ['s1'] }, local)
+      const { matched } = matchLocalSessions({ ...resolution, sessionIds: [toUuid('s1')] }, local)
       assert.deepStrictEqual(matched[0], {
         sessionId: 's1', workspace: '/repo/core', userRequest: 'add tests',
         filesChanged: ['x.ts', 'y.ts'], startTime: '2026-01-01T00:00:00.000Z',
       })
+    })
+
+    test('a local UUID session id matches its wire form regardless of case', () => {
+      const id = 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'
+      const { matched } = matchLocalSessions({ ...resolution, sessionIds: [id.toLowerCase()] }, [session({ sessionId: id })])
+      assert.strictEqual(matched.length, 1)
+      assert.strictEqual(matched[0].sessionId, id)
     })
 
     test('every session id unrecognized locally counts toward unmatchedCount, not an error', () => {

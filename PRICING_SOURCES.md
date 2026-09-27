@@ -63,8 +63,12 @@ Copilot uses token-based AI Credits billing only.
 - Per-model "long context" surcharge tiers for some models — 2x input/cache-read/cache-write, 1.5x
   output above a per-model token-per-call threshold (272K for GPT-5.4/5.5/5.6-Sol/5.6-Terra, 200K
   for GPT-5.6-Luna/Gemini 3.1 Pro/Grok 4.5). Modeled in `RATES` via `longContextThresholdTokens` +
-  the `*AboveThresholdPerMTok` fields (`src/pricing.ts` only — `media/src/pricing.ts`'s
-  session-level estimate stays flat-rate, see that file's own comment for why).
+  the `*AboveThresholdPerMTok` fields, identically in `src/pricing.ts` and `media/src/pricing.ts`.
+  The tier is only ever applied to a single API call's tokens: a session's cost is the sum of its
+  LLM calls priced one by one (`calcSessionCostUsd`, shared by the extension host and the webview)
+  whenever the timeline has per-call token counts. Only a session with no per-call data falls back
+  to pricing its aggregate totals, and then at flat rates with no tier — a session's cumulative
+  cache reads cross 200K/272K long before any single call does, so tiering a total overbills.
 
 **Formula:**
 
@@ -200,7 +204,7 @@ than a multiplied one.
 | Cache write    | $3.75/MTok | $7.50/MTok |
 | Cache read     | $0.30/MTok | $0.60/MTok |
 
-The threshold applies per API call, not cumulatively across a session. `calcTokenCostUsd` in `src/pricing.ts` applies this tiered rate per turn (which corresponds to one API call). The session-level `calcTokenCost` in `media/src/pricing.ts` uses flat rates as an approximation because it operates on session totals rather than per-call counts.
+The threshold applies per API call, not cumulatively across a session. `calcSessionCostUsd` (the same code in `src/pricing.ts` and `media/src/pricing.ts`) prices each LLM call in the timeline on its own — tier included — and sums them. When a session has no per-call token data, its aggregate totals are priced at flat rates without the tier (a slight underestimate for sessions that really did make >200K calls, rather than the large overestimate of tiering the cumulative total).
 
 **Deprecated models (for historical sessions):**
 

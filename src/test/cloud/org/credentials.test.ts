@@ -10,7 +10,7 @@ const SAMPLE: OrgCredentials = {
   orgId: 'org_1',
   orgName: 'Acme',
   memberId: 'mem_1',
-  role: 'member',
+  role: 'developer',
   perDeveloperVisibility: false,
   accessToken: 'at',
   refreshToken: 'rt',
@@ -35,6 +35,17 @@ suite('org/credentials', () => {
     assert.deepStrictEqual(store.load(), SAMPLE)
     const mode = fs.statSync(credentialsPath(home)).mode & 0o777
     assert.strictEqual(mode, 0o600)
+  })
+
+  test('a credential file from before the lead → admin rename still loads, in the current role names', () => {
+    const store = fileCredentialStore(home)
+    fs.mkdirSync(path.dirname(credentialsPath(home)), { recursive: true })
+    fs.writeFileSync(credentialsPath(home), JSON.stringify({ ...SAMPLE, role: 'lead' }))
+    assert.strictEqual(store.load()?.role, 'admin')
+    fs.writeFileSync(credentialsPath(home), JSON.stringify({ ...SAMPLE, role: 'member' }))
+    assert.strictEqual(store.load()?.role, 'developer')
+    fs.writeFileSync(credentialsPath(home), JSON.stringify({ ...SAMPLE, role: 'owner' }))
+    assert.strictEqual(store.load(), null)
   })
 
   test('clear deletes the credential and is idempotent', () => {

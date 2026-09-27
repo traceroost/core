@@ -17,7 +17,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import type { OrgCredentials } from './config'
-import { refreshTokens } from './oauthClient'
+import { refreshCredentials } from './tokenRefresh'
 
 export function traceroostDir(baseHome: string = os.homedir()): string {
   return path.join(baseHome, '.traceroost')
@@ -31,18 +31,26 @@ export interface CredentialStore {
   load(): OrgCredentials | null
   save(creds: OrgCredentials): void
   clear(): void
+  /** The on-disk file every host on this machine shares, if any — `tokenRefresh.ts` locks it
+   *  around a refresh-then-save. Absent for a store with nothing shared to lock (tests' in-memory
+   *  stores). */
+  lockTarget?: string
 }
 
 /** File-backed store. `baseHome` is injectable so tests never touch a real home directory. */
 export function fileCredentialStore(baseHome?: string): CredentialStore {
   const file = credentialsPath(baseHome)
   return {
+    lockTarget: file,
     load() {
       try {
         const raw = fs.readFileSync(file, 'utf-8')
-        const parsed = JSON.parse(raw) as Partial<OrgCredentials>
-        if (!isCompleteCredential(parsed)) return null
-        return parsed
+        const parsed = JSON.parse(raw) as Partial<OrgCredentials> & { role?: unknown }
+        const role = normalizeRole(parsed.role)
+        if (!role) return null
+        const creds = { ...parsed, role }
+        if (!isCompleteCredential(creds)) return null
+        return creds
       } catch {
         return null
       }
@@ -100,6 +108,16 @@ export function isLinked(): boolean {
   return loadCredentials() !== null
 }
 
+/** The server's two roles are `admin` and `developer` (cloud migration 0031 renamed `lead` →
+ *  `admin`). A credential file written before that says `lead` / `member` — read those as the
+ *  roles they always meant rather than rejecting an otherwise-valid credential; the next roster
+ *  lookup (`link.ts`'s `refreshOrgNameIfStale`) rewrites it in the current vocabulary. */
+export function normalizeRole(role: unknown): OrgCredentials['role'] | null {
+  if (role === 'admin' || role === 'lead') return 'admin'
+  if (role === 'developer' || role === 'member') return 'developer'
+  return null
+}
+
 /**
  * Self-heal for a credential written before `installId` existed. `deliveryLedger.ts` needs it
  * to scope "already delivered" correctly (see its doc comment); a credential lacking it just
@@ -114,16 +132,9 @@ export function isLinked(): boolean {
 export async function ensureInstallId(creds: OrgCredentials): Promise<OrgCredentials> {
   if (creds.installId) return creds
   try {
-    const t = await refreshTokens(creds.refreshToken, creds.endpoint)
-    const next: OrgCredentials = {
-      ...creds,
-      installId: t.installId,
-      accessToken: t.accessToken,
-      refreshToken: t.refreshToken,
-      accessTokenExpiresAt: Date.now() + t.expiresInSeconds * 1000,
-    }
-    saveCredentials(next)
-    return next
+    // Through the locked refresh (tokenRefresh.ts), which also fills in `installId` from the
+    // token response — a bare refresh here could race another host's and unlink this machine.
+    return await refreshCredentials(creds)
   } catch {
     return creds
   }
@@ -135,7 +146,7 @@ function isCompleteCredential(c: Partial<OrgCredentials>): c is OrgCredentials {
     typeof c.orgId === 'string' &&
     typeof c.orgName === 'string' &&
     typeof c.memberId === 'string' &&
-    (c.role === 'lead' || c.role === 'member') &&
+    (c.role === 'admin' || c.role === 'developer') &&
     typeof c.perDeveloperVisibility === 'boolean' &&
     typeof c.accessToken === 'string' &&
     typeof c.refreshToken === 'string' &&

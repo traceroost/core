@@ -139,17 +139,25 @@ function describeGitCommand(args: string[]): string | null {
   }
 }
 
+const GIT_MAX_BUFFER = 10 * 1024 * 1024
+
 async function runGit(cwd: string, args: string[]): Promise<string | null> {
+  return (await runGitDetailed(cwd, args)).stdout
+}
+
+/** runGit, also saying whether a failure was only the output exceeding GIT_MAX_BUFFER (a file too
+ *  large to read back through `git show`) rather than git itself failing. */
+async function runGitDetailed(cwd: string, args: string[]): Promise<{ stdout: string | null; tooLarge: boolean }> {
   const id = nextCommandId++
   const raw = `git ${args.join(' ')}`
   const gloss = describeGitCommand(args)
   runningCommands.set(id, `${cwd}: ${gloss ? `${gloss} — ${raw}` : raw}`)
   scheduleRunningCommandsNotify()
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 })
-    return stdout
-  } catch {
-    return null
+    const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER })
+    return { stdout, tooLarge: false }
+  } catch (err) {
+    return { stdout: null, tooLarge: (err as NodeJS.ErrnoException).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }
   } finally {
     runningCommands.delete(id)
     scheduleRunningCommandsNotify()
@@ -295,9 +303,19 @@ function currentContentOnDisk(root: string, relPath: string): string | null {
   }
 }
 
+// Git blobs are usually stored with LF endings while a Windows checkout (core.autocrlf) has CRLF
+// on disk — compare line-ending-insensitively, or every committed file there reads as modified.
+function normalizeEol(content: string | null): string | null {
+  return content === null ? null : content.replace(/\r\n/g, '\n')
+}
+
 async function classifyFile(root: string, relPath: string, trunkRef: string | null): Promise<FileOutcome> {
-  const onDisk = currentContentOnDisk(root, relPath)
-  const headContent = await runGit(root, ['show', 'HEAD:' + relPath])
+  const onDisk = normalizeEol(currentContentOnDisk(root, relPath))
+  const head = await runGitDetailed(root, ['show', 'HEAD:' + relPath])
+  // Too large to read back from git: we can't tell whether it's committed, which is not evidence
+  // that it was abandoned.
+  if (head.tooLarge) return 'ambiguous'
+  const headContent = normalizeEol(head.stdout)
   const after = onDisk !== null ? onDisk : headContent
   if (after === null) return 'ambiguous' // deleted, moved, or never committed and gone
 
@@ -316,7 +334,7 @@ async function classifyFile(root: string, relPath: string, trunkRef: string | nu
   // merge gives the trunk copy of a commit a different sha than the local one, so ancestry checks
   // would miss those. Comparing file content at the trunk tip catches "this exact content is on
   // the shared branch now" regardless of how it got there.
-  const trunkContent = await runGit(root, ['show', trunkRef + ':' + relPath])
+  const trunkContent = normalizeEol(await runGit(root, ['show', trunkRef + ':' + relPath]))
   return trunkContent === after ? 'merged' : 'committed'
 }
 

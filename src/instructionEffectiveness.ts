@@ -4,7 +4,7 @@
  */
 
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
-import { calcTokenCostUsd } from './pricing'
+import { calcSessionCostUsd } from './pricing'
 
 export interface BaselineSnapshot {
   sessionCount: number
@@ -33,13 +33,7 @@ export interface EffectivenessResult {
 }
 
 function cost(s: SessionSummaryCard): number {
-  return calcTokenCostUsd(
-    s.inputTokens - s.cacheReadTokens - (s.cacheCreateTokens ?? 0),
-    s.cacheReadTokens,
-    s.cacheCreateTokens ?? 0,
-    s.outputTokens,
-    s.model,
-  )
+  return calcSessionCostUsd(s)
 }
 
 function avg(arr: number[]): number {

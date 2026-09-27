@@ -323,3 +323,100 @@ suite('DatabaseWriter', () => {
     db.close()
   })
 })
+
+// ── Claude OTEL + log double counting ────────────────────────────────────────
+// Claude's OTEL cards are per interaction (session_id = interaction spanId) while its log cards
+// are per transcript (session_id = transcript id = Claude Code's session.id). The shared key is
+// claudeConversationKey — OTEL wins whichever order the two arrive in.
+
+suite('DatabaseWriter — Claude OTEL/log dedupe', () => {
+  const T0 = '2024-01-01T00:00:00.000Z'
+  const T0_PLUS_2M = '2024-01-01T00:02:00.000Z'
+  const otelInteraction = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
+    sessionId: 'interaction-span-1', traceId: 'trace-1', dataSource: 'otel',
+    claudeSessionId: 'claude-session-uuid', startTime: T0_PLUS_2M, durationMs: 30_000, ...overrides,
+  })
+  const logTranscript = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
+    sessionId: 'claude-session-uuid', traceId: 'claude-session-uuid', dataSource: 'log',
+    startTime: T0, durationMs: 10 * 60_000, ...overrides,
+  })
+
+  test('a log card arriving after OTEL of the same conversation is skipped', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelInteraction(), 'ws')
+    await w.drain()
+    w.enqueue(logTranscript(), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
+    assert.strictEqual(queryValue(db, `SELECT data_source FROM sessions`), 'otel')
+    db.close()
+  })
+
+  test('an OTEL interaction replaces an already-stored log card of the same conversation', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(logTranscript(), 'ws')
+    await w.drain()
+    w.enqueue(otelInteraction(), 'ws')
+    await w.drain()
+    // The same interaction written again (re-summarized on the next update) stays one row.
+    w.enqueue(otelInteraction(), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
+    assert.strictEqual(queryValue(db, `SELECT session_id FROM sessions`), 'interaction-span-1')
+    db.close()
+  })
+
+  test('a gap-split log segment outside every OTEL interaction is kept', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelInteraction(), 'ws')
+    await w.drain()
+    w.enqueue(logTranscript({ sessionId: 'claude-session-uuid#1', startTime: '2024-01-02T00:00:00.000Z' }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 2)
+    db.close()
+  })
+
+  test('a subagent transcript (its own file, parent session id inside) is covered by the parent\'s OTEL', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelInteraction({ startTime: T0, durationMs: 10 * 60_000 }), 'ws')
+    await w.drain()
+    w.enqueue(logTranscript({
+      sessionId: 'agent-a16e8e506b6303ff4', claudeSessionId: 'claude-session-uuid',
+      startTime: T0_PLUS_2M, durationMs: 60_000,
+    }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
+    db.close()
+  })
+
+  test('different conversations are never deduped against each other', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelInteraction({ claudeSessionId: 'another-session' }), 'ws')
+    await w.drain()
+    w.enqueue(logTranscript(), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 2)
+    db.close()
+  })
+})
+
+suite('DatabaseWriter — OTEL downgrade guard', () => {
+  test('a card with fewer calls never replaces a richer stored OTEL row', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(makeCard({ totalLlmCalls: 40, totalToolCalls: 30, inputTokens: 90_000 }), 'ws')
+    await w.drain()
+    w.enqueue(makeCard({ totalLlmCalls: 4, totalToolCalls: 3, inputTokens: 9_000 }), 'ws')
+    await w.drain()
+    assert.strictEqual(queryInt(db, `SELECT input_tokens FROM sessions WHERE session_id = 'sess-1'`), 90_000)
+    w.enqueue(makeCard({ totalLlmCalls: 41, totalToolCalls: 30, inputTokens: 95_000 }), 'ws')
+    await w.drain()
+    assert.strictEqual(queryInt(db, `SELECT input_tokens FROM sessions WHERE session_id = 'sess-1'`), 95_000)
+    db.close()
+  })
+})

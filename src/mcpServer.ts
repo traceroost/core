@@ -22,12 +22,15 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { calcTokenCostUsd } from './pricing'
+import { calcSessionCostUsd } from './pricing'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
 import { generateSuggestions } from './instructionAdvisor'
 import { readAllInstructionContent } from './instructionFiles'
 import { checkAutomationTriggers } from './automationEngine'
-import { isAllowedHostHeader, isAuthorized, isLoopbackHost } from './httpSecurity'
+import { isAllowedHostHeader, isAllowedOrigin, isAuthorized, isLoopbackHost } from './httpSecurity'
+
+/** Largest MCP request body accepted (413 above it). Tool calls are tiny JSON-RPC messages. */
+export const MAX_MCP_BODY_BYTES = 4 * 1024 * 1024
 
 // ── Session accessor ──────────────────────────────────────────────────────────
 
@@ -38,13 +41,7 @@ export type SessionAccessor = () => SessionSummaryCard[]
 // ── Cost helper ───────────────────────────────────────────────────────────────
 
 function sessionCost(s: SessionSummaryCard): number {
-  return calcTokenCostUsd(
-    s.inputTokens - s.cacheReadTokens - (s.cacheCreateTokens ?? 0),
-    s.cacheReadTokens,
-    s.cacheCreateTokens ?? 0,
-    s.outputTokens,
-    s.model,
-  )
+  return calcSessionCostUsd(s)
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
@@ -458,10 +455,26 @@ export function handleMcpRequest(
     return
   }
 
-  // Buffer and parse the body before passing to the transport.
-  let raw = ''
-  req.on('data', (chunk: Buffer) => { raw += chunk.toString() })
+  // Buffer and parse the body before passing to the transport — capped, so a runaway or hostile
+  // client can't make this process buffer an unbounded request in memory.
+  const chunks: Buffer[] = []
+  let size = 0
+  let tooLarge = false
+  req.on('data', (chunk: Buffer) => {
+    if (tooLarge) return
+    size += chunk.length
+    if (size > MAX_MCP_BODY_BYTES) {
+      tooLarge = true
+      chunks.length = 0
+      res.writeHead(413, { 'Content-Type': 'text/plain', 'Connection': 'close' })
+      res.end('Payload Too Large')
+      return
+    }
+    chunks.push(chunk)
+  })
   req.on('end', () => {
+    if (tooLarge) return
+    const raw = Buffer.concat(chunks).toString('utf-8')
     let parsedBody: unknown
     try { parsedBody = raw ? JSON.parse(raw) : undefined } catch { parsedBody = undefined }
 
@@ -504,10 +517,12 @@ export async function startMcpHttpServer(
     if (!isAllowedHostHeader(req.headers.host, bindHost)) {
       res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
     }
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id, Authorization')
-    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
+    // No CORS headers at all: MCP clients aren't browsers, and a browser page must not be able to
+    // read session prompts, paths and costs off this port. Browsers always send Origin on the
+    // cross-origin POST such a page would need, so reject any Origin that isn't local.
+    if (!isAllowedOrigin(req.headers.origin)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+    }
     if (requireToken && !isAuthorized(req, authToken)) {
       res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Unauthorized'); return
     }

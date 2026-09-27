@@ -13,9 +13,9 @@ import * as path from 'path'
 import { exec } from 'child_process'
 import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
-import { calcTokenCostUsd } from '../src/pricing'
+import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
-import { classifyOtlpPayload } from '../src/otlpParser'
+import { classifyOtlpPayload, objectItems } from '../src/otlpParser'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
@@ -40,7 +40,10 @@ import { loadCredentials } from '../src/cloud/org/credentials'
 import { orgEndpoint } from '../src/cloud/org/config'
 import { deriveRepoKey, repoHash } from '../src/cloud/forward/repoKey'
 import { resolveGithubUrl } from '../src/repoRemote'
-import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
+import {
+  isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
+  extractCookieToken, authCookieHeader,
+} from '../src/httpSecurity'
 
 // Load `.env` from the current working directory, if one exists — lets `npm run local` point at
 // a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
@@ -545,11 +548,9 @@ async function startLogIngestion() {
 type RawAttr = { key: string; value: Record<string, unknown> }
 
 function toAttrs(raw: unknown): RawAttr[] {
-  if (!Array.isArray(raw)) return []
-  return raw.filter((a): a is RawAttr => {
-    const o = a as Record<string, unknown>
-    return typeof o.key === 'string' && typeof o.value === 'object' && o.value !== null
-  })
+  return objectItems(raw).filter((o): o is RawAttr =>
+    typeof o.key === 'string' && typeof o.value === 'object' && o.value !== null
+  )
 }
 
 function attrStr(attrs: RawAttr[], ...keys: string[]): string {
@@ -583,8 +584,7 @@ function attrsFromBodyKv(body: unknown): RawAttr[] {
   const values = kv?.values
   if (!Array.isArray(values)) return []
   const attrs: RawAttr[] = []
-  for (const value of values) {
-    const entry = value as Record<string, unknown>
+  for (const entry of objectItems(values)) {
     const key = typeof entry.key === 'string' ? entry.key : ''
     const attrValue = entry.value as Record<string, unknown> | undefined
     if (!key || typeof attrValue !== 'object' || attrValue === null) continue
@@ -615,9 +615,9 @@ function agentLabelFromSpanName(name: string): string {
 
 function processTraces(payload: unknown, collectorPath = '/v1/traces'): { count: number; agent: string } {
   const p = payload as { resourceSpans?: Array<{ scopeSpans?: Array<{ spans?: unknown[] }> }> }
-  const rawSpans = p?.resourceSpans?.flatMap(rs =>
-    rs.scopeSpans?.flatMap(ss => ss.spans ?? []) ?? []
-  ) ?? []
+  const rawSpans = objectItems<{ scopeSpans?: unknown }>(p?.resourceSpans).flatMap(rs =>
+    objectItems<{ spans?: unknown }>(rs.scopeSpans).flatMap(ss => objectItems(ss.spans))
+  )
   let count = 0
   let agent = 'unknown'
   for (const raw of rawSpans) {
@@ -648,11 +648,11 @@ function processLogs(payload: unknown, collectorPath = '/v1/logs'): number {
   const p = payload as { resourceLogs?: RL[] }
   const fallback = `codex-${Date.now()}`
   let n = 0
-  for (const rl of p?.resourceLogs ?? []) {
+  for (const rl of objectItems<RL>(p?.resourceLogs)) {
     const resourceAttrs = toAttrs(rl.resource?.attributes)
-    for (const sl of rl.scopeLogs ?? []) {
+    for (const sl of objectItems<SL>(rl.scopeLogs)) {
       const scopeAttrs = toAttrs((sl as { scope?: { attributes?: unknown } }).scope?.attributes)
-      for (const rec of sl.logRecords ?? []) {
+      for (const rec of objectItems(sl.logRecords)) {
         const r = rec as Record<string, unknown>
         const attrs = mergeAttrs(toAttrs(r.attributes), attrsFromBodyKv(r.body), scopeAttrs, resourceAttrs)
         const name = attrStr(attrs, 'event.name', 'event_name', 'name', 'event')
@@ -766,13 +766,7 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     outputTokens: latest.outputTokens,
     cacheReadTokens: latest.cacheReadTokens,
     cacheCreateTokens: latest.cacheCreateTokens,
-    costUsd: calcTokenCostUsd(
-      Math.max(0, latest.inputTokens - latest.cacheReadTokens - latest.cacheCreateTokens),
-      latest.cacheReadTokens,
-      latest.cacheCreateTokens,
-      latest.outputTokens,
-      latest.model,
-    ),
+    costUsd: calcSessionCostUsd(latest),
   } : null
 
   return { isActive, lastActivityMs: lastMs, sessionCount: sessions.length, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens }
@@ -1788,7 +1782,12 @@ const uiServer = http.createServer((req, res) => {
       res.setHeader('Set-Cookie', authCookieHeader(AUTH_TOKEN))
     }
   }
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  // No CORS: the dashboard is same-origin, and on loopback (no token) a wildcard
+  // Access-Control-Allow-Origin let any website read every session off /api/*. State-changing
+  // requests from a foreign page (e.g. POST /action clearAll) are refused outright.
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !isAllowedOrigin(req.headers.origin, req.headers.host)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+  }
 
   if (url === '/events') {
     res.writeHead(200, {
@@ -2161,6 +2160,9 @@ const uiServer = http.createServer((req, res) => {
 
 // ── OTLP server ───────────────────────────────────────────────────────────────
 
+/** Same cap as the VS Code extension's collector (src/otlpCollector.ts). */
+const MAX_OTLP_BODY_BYTES = 50 * 1024 * 1024
+
 const otlpServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
@@ -2175,10 +2177,31 @@ const otlpServer = http.createServer((req, res) => {
   if (REQUIRE_TOKEN_EVERYWHERE && !isAuthorized(req, AUTH_TOKEN)) {
     res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Unauthorized'); return
   }
+  // Agents' exporters never send Origin; a web page POSTing fake spans always does, and must use a
+  // no-preflight Content-Type (text/plain, form) to get its request through — refuse both.
+  if (!isAllowedOrigin(req.headers.origin)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+  }
   if (req.method !== 'POST') { res.writeHead(200); res.end(); return }
+  if (!isAllowedOtlpContentType(req.headers['content-type'])) {
+    res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type'); return
+  }
   const chunks: Buffer[] = []
-  req.on('data', (c: Buffer) => chunks.push(c))
+  let size = 0
+  let tooLarge = false
+  req.on('data', (c: Buffer) => {
+    if (tooLarge) return
+    size += c.length
+    if (size > MAX_OTLP_BODY_BYTES) {
+      tooLarge = true
+      chunks.length = 0
+      res.writeHead(413, { 'Content-Type': 'text/plain', 'Connection': 'close' }); res.end('Payload Too Large')
+      return
+    }
+    chunks.push(c)
+  })
   req.on('end', () => {
+    if (tooLarge) return
     try {
       const payload = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
       const kind = classifyOtlpPayload(payload)
@@ -2231,6 +2254,9 @@ async function startOtlpServer(): Promise<void> {
       autoConfigureCodex(bound),
       autoConfigureCopilotStandalone(bound),
     ]).then(([claudeResult, codexResult, copilotResults]) => {
+      if (claudeResult.warning) {
+        console.warn(`[TraceRoost] ${claudeResult.warning}`)
+      }
       if (claudeResult.error) {
         console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
       } else if (claudeResult.changed) {
