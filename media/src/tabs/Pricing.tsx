@@ -1,6 +1,6 @@
 import { useEffect } from 'preact/hooks'
 import { PRICING_LAST_UPDATED, RATES, PRICING_SECTIONS, normalizeCostKey, type ModelRates } from '../pricing'
-import { orgStatus, requestOrgStatus, displayOrgName, type CloudRate } from '../cloud/panels/OrgPanel'
+import { orgStatus, requestOrgStatus, displayOrgName, type CloudRate } from '../orgPanel'
 
 // Table styling matches the established convention duplicated per-component across
 // the codebase (see Help.tsx's CostSection, Cost.tsx) rather than a shared import.

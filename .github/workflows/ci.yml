@@ -49,6 +49,11 @@ jobs:
       - name: Build production bundle
         run: pnpm run package
 
+      # The full build must still carry every Pro marker the core check looks for — otherwise a
+      # stale marker list would let the core-edition job below pass on anything.
+      - name: Check edition markers (full)
+        run: node scripts/check-edition.mjs full
+
       - name: Install browser
         run: pnpm exec playwright install --with-deps chromium
 
@@ -61,3 +66,57 @@ jobs:
           name: core-ux-report-${{ matrix.os }}
           path: test-results/ux/
           retention-days: 14
+
+  # The core edition (no TraceRoost Pro — org link + upload — code at all) is built from the same
+  # sources with `--edition=core`; see runbooks/RELEASING.md → "Editions". This job proves no cloud
+  # code reaches the core bundles or the core-prepared package, and that the core CLI still runs.
+  # Unit tests run against the TypeScript sources (both editions share them), so the tests for the
+  # cloud modules keep running here and in build-and-test above.
+  core-edition:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build core edition (production)
+        run: node esbuild.js --production --edition=core
+
+      - name: Check core bundles and core manifest carry no Pro code
+        run: |
+          node scripts/prepare-edition.mjs core --out "$RUNNER_TEMP/package.core.json"
+          node scripts/check-edition.mjs core --package "$RUNNER_TEMP/package.core.json"
+
+      - name: Check the core npm tarball ships no cloud files
+        run: |
+          node scripts/prepare-edition.mjs core
+          npm pack --dry-run --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/pack.txt"
+          node scripts/prepare-edition.mjs restore
+          if grep -i 'cloud/' "$RUNNER_TEMP/pack.txt"; then
+            echo "core npm tarball lists a cloud file"
+            exit 1
+          fi
+
+      - name: Smoke-test the core CLI
+        run: |
+          node standalone/cli.js --help
+          if node standalone/cli.js org status; then
+            echo "expected 'traceroost org' to be unavailable in the core edition"
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: pnpm run test:unit

@@ -4,7 +4,7 @@
  * or response text.
  */
 
-import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import type { SessionSummaryCard } from '../summarizers/summarizerTypes'
 import type { AttributionSession } from './types'
 
 export function toAttributionSessions(cards: SessionSummaryCard[]): AttributionSession[] {

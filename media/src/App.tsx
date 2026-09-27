@@ -31,7 +31,7 @@ import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
-import { OrgButton, OrgPanel, orgStatus, orgPayloadPreview, orgBusy, orgOpen, requestOrgStatus, orgReconcileResult, orgReconcileBusy, orgReconcileProgress, orgPayloadBusy, orgLinkUrl, orgDevicePrompt, orgActionError } from './cloud/panels/OrgPanel'
+import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -502,6 +502,8 @@ export function App() {
         results?: OtelReconfigureResult
         commands?: string[]
       }
+      // Org panel (TraceRoost Pro) messages — see orgPanel.ts; the core edition's stub handles none.
+      if (handleOrgPanelMessage(msg)) return
       if (msg.type === 'update') {
         if (msg.enableOtelIngestion !== undefined) enableOtelIngestion.value = msg.enableOtelIngestion
         if (msg.enableLogIngestion !== undefined) enableLogIngestion.value = msg.enableLogIngestion
@@ -580,7 +582,7 @@ export function App() {
       } else if (msg.type === 'runningGitCommands' && Array.isArray(msg.commands)) {
         runningGitCommands.value = msg.commands
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
-        const entry = (msg.name && msg.hash) ? { name: msg.name, hash: msg.hash, githubUrl: msg.githubUrl ?? null } : null
+        const entry = msg.name ? { name: msg.name, hash: msg.hash ?? null, githubUrl: msg.githubUrl ?? null } : null
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
       } else if (msg.type === 'switchTab' && msg.tab) {
         const tab = normalizeTabId(msg.tab)
@@ -615,42 +617,6 @@ export function App() {
         dismissedIds.value = new Set((msg as unknown as {ids: string[]}).ids)
       } else if (msg.type === 'reconfigureOtelResult' && msg.results) {
         otelReconfigureResult.value = msg.results
-      } else if (msg.type === 'orgStatus') {
-        orgStatus.value = (msg as unknown as { status: typeof orgStatus.value }).status
-        orgBusy.value = null
-      } else if (msg.type === 'orgPayloadPreview') {
-        orgPayloadBusy.value = false
-        orgPayloadPreview.value = (msg as unknown as { previews: typeof orgPayloadPreview.value }).previews
-      } else if (msg.type === 'orgLinkUrl') {
-        orgLinkUrl.value = (msg as unknown as { url?: string }).url ?? null
-      } else if (msg.type === 'orgDevicePrompt') {
-        const p = msg as unknown as { userCode?: string; verificationUri?: string; verificationUriComplete?: string }
-        orgDevicePrompt.value = p.userCode && p.verificationUri
-          ? { userCode: p.userCode, verificationUri: p.verificationUri, verificationUriComplete: p.verificationUriComplete }
-          : null
-      } else if (msg.type === 'orgActionResult') {
-        const r = msg as unknown as { ok?: boolean; error?: string }
-        orgBusy.value = null
-        orgLinkUrl.value = null
-        orgDevicePrompt.value = null
-        orgActionError.value = r.ok === false ? (r.error || 'unknown error') : null
-        requestOrgStatus()
-      } else if (msg.type === 'orgReconcileProgress') {
-        const p = msg as unknown as { done: number; total: number }
-        orgReconcileProgress.value = { done: p.done, total: p.total }
-      } else if (msg.type === 'orgReconcileResult') {
-        orgReconcileBusy.value = false
-        orgReconcileProgress.value = null
-        const r = msg as unknown as { queued: number; error?: string }
-        orgReconcileResult.value = { queued: r.queued, error: r.error }
-      } else if (msg.type === 'orgError') {
-        // Safety net for a handler that threw before it could post its normal reply — clears
-        // every org busy/loading state so a backend bug shows as a stalled action, not a
-        // permanently stuck "Checking…"/"Building…" button. See panelController.ts.
-        orgBusy.value = null
-        orgReconcileBusy.value = false
-        orgReconcileProgress.value = null
-        orgPayloadBusy.value = false
       } else if (msg.type === 'instructionApplied') {
         // Re-request applied list after successful apply — handled by appliedSuggestions message
       } else if (msg.type === 'searchResults' && msg.sessions != null) {

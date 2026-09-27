@@ -15,13 +15,13 @@
  * outcome change already does.
  */
 
-import { ForwardQueue } from '../cloud/forward/queue'
-import { assertValidRollupPayload } from '../cloud/forward/validate'
-import { buildPayloadForCard, type PayloadBuildCache } from '../cloud/org/payloadPreview'
-import { loadCredentials } from '../cloud/org/credentials'
-import type { EnqueueResult } from '../cloud/org/enqueueSession'
-import type { ReconciliationService } from './reconciliationService'
-import type { SessionSummaryCard } from '../summarizers/summarizerTypes'
+import { ForwardQueue } from './queue'
+import { assertValidRollupPayload } from './validate'
+import { buildPayloadForCard, type PayloadBuildCache } from '../org/payloadPreview'
+import { loadCredentials } from '../org/credentials'
+import type { EnqueueResult } from '../org/enqueueSession'
+import type { ReconciliationService } from '../../reconcile/reconciliationService'
+import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export async function maybeForwardOnContentChange(
   reconciliation: ReconciliationService,

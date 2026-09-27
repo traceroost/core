@@ -3,8 +3,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { computeTurnover, MIN_ATTRIBUTED_LINES } from '../../../cloud/turnover'
-import { turnoverCacheKey } from '../../../cloud/turnover/cached'
+import { computeTurnover, MIN_ATTRIBUTED_LINES } from '../../turnover'
+import { turnoverCacheKey } from '../../turnover/cached'
 
 let repo: string
 const T0 = Date.UTC(2026, 0, 15) // 2026-01-15

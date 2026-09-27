@@ -14,32 +14,48 @@ src/cloud/
 ├── org/           the paid, networked half — OAuth link, credentials, the
 │                  panel/CLI controller that turns a session close into a
 │                  queued rollup
-├── forward/       the wire format, the disk-backed queue, and the sender
-│                  that drains it to the hosted service — only while linked
-├── attribution/   free, local-only — who wrote which surviving lines,
-│                  from git history + session records, no network
-└── turnover/      free, local-only — the cohort/survival engine behind the
-                   Outcomes tab, built on attribution/'s output
+└── forward/       the wire format, the disk-backed queue, and the sender
+                   that drains it to the hosted service — only while linked
 ```
 
 Two mirrored directories carry the webview and CLI surfaces for the same
-code: `media/src/cloud/panels/` + `media/src/cloud/tabs/`, and
-`standalone/cloud/`.
+code: `media/src/cloud/panels/` (the Org panel) and `standalone/cloud/`
+(`org`, `--explain-payload`, `cluster`, and the telemetry step of
+`advise --apply`).
 
-## Why one directory for two different things
+## Why this directory is only the cloud
 
-`org/`+`forward/` and `attribution/`+`turnover/` sit on opposite sides of
-the free/paid line — see the two rules in CLOUD_ARCHITECTURE.md. They're
-grouped here anyway, because the axis this directory answers to isn't
-pricing, it's **provenance and disposition**: everything in `src/cloud/` was
-built as one connected effort (the `pro/01`–`pro/09` series), ships as one
-thing, and is the part of this codebase that could be spun out or licensed
-differently from the rest.
-Pricing tier is a property of a *feature*, documented per-feature in
-CLOUD_ARCHITECTURE.md's "what ships where" table — not a property of this
-directory boundary. Don't infer "under `src/cloud/`" to mean "behind a
-paywall"; `attribution/` and `turnover/` are free forever and always will be,
-per the free/paid rule linked above.
+Everything under `src/cloud/`, `media/src/cloud/` and `standalone/cloud/` is
+TraceRoost Pro's linking and uploading — and nothing else. The free, local
+features that used to sit beside it were moved out:
+
+| Was | Now | What it is |
+| --- | --- | --- |
+| `src/cloud/attribution/` | `src/attribution/` | who wrote which surviving lines, from git history + session records, no network |
+| `src/cloud/turnover/` | `src/turnover/` | the cohort/survival engine behind `traceroost cohort`, built on `attribution/`'s output |
+| `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` | `standalone/local/` | the local CLI analysis commands |
+
+Where a local command has one optional cloud step — resolving a cloud
+`repo_hash` back to a local clone for `find`/`patterns`/`cohort`, or queueing
+an instruction-telemetry event after `advise --apply` — the local module takes
+that step as a parameter (`standalone/local/repoResolve.ts`'s
+`RepoHashResolver`, `adviseCli.ts`'s `AfterApplyHook`) and `standalone/cli.ts`
+passes the cloud implementation in. Local code never imports from a `cloud/`
+directory.
+
+Everything else reaches these directories only through three seams —
+`src/cloudBridge.ts` (implemented here by `bridge.ts`), `media/src/orgPanel.ts`
+and `standalone/cliCloud.ts` (implemented by `standalone/cloud/cliBridge.ts`) —
+each with an inert core stub beside it.
+
+That makes the directory boundary mean one thing: **leave every `cloud/`
+directory out and the free product still builds and works** — which is exactly
+what the core edition does (`node esbuild.js --edition=core`; see
+CONTRIBUTING.md → Editions). The directory is the
+unit the core build leaves out, and the unit covered by the different license
+below. The free/paid rule itself is unchanged — see
+CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Pro, and
+`attribution/` and `turnover/` are free forever.
 
 ## The license split
 
@@ -60,7 +76,7 @@ that product on day one — which the free/local features can't be undercut
 on (there's no hosted component to duplicate), but the org/cloud service
 can. BSL's shape fits that specific risk: source stays visible and usable
 for your own work (self-host it, build on it, run it as part of TraceRoost
-itself, including its free features), but re-hosting it commercially without
+itself), but re-hosting it commercially without
 an agreement is what's fenced off — and it still converts to a normal open
 license (Apache 2.0) after the Change Date, so the fence isn't permanent.
 

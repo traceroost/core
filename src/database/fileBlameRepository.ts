@@ -7,7 +7,7 @@
  * blame output or file content.
  */
 
-import type { FileBlameCache } from '../cloud/turnover/survival'
+import type { FileBlameCache } from '../turnover/survival'
 
 interface WriteableDb {
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>

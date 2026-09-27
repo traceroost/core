@@ -10,6 +10,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Added
 
+- **A core edition, built without any TraceRoost Pro code** — `node esbuild.js --edition=core` builds the VSIX, npm package and Docker image with no org linking or uploading compiled in at all (not a runtime switch): no Org panel or Org commands, and `traceroost org`, `--explain-payload` and `cluster` print "not available in the TraceRoost core edition". Every free, local feature is unchanged. The build refuses to bundle anything from a `cloud/` directory, and `scripts/check-edition.mjs` (run in CI and on every release) checks the shipped bundles and manifest. Releases ship the core edition until TraceRoost Pro launches — see `runbooks/RELEASING.md` → Editions.
 - **The Cost tab now points to Advisor's "How to spend less" card** — closing the gap where the 30-day cost chart and per-trace cost table had no action attached to any number on the screen.
 - **Cursor CLI (`cursor-agent`) sessions are now fully wired through the UI** — agent filter pills, per-agent Settings thresholds, Alerts/Automation configs, the Agents tab comparison, and a Sessions-tab banner explaining Cursor's real data gaps (no token/cost/model data exists in its local transcript format, confirmed by hands-on testing, not guessed) now all recognize `source: 'cursor'` instead of silently falling back to Copilot's styling. Also fixed a real turn-counting bug found via a live multi-turn `cursor-agent --resume` session: resuming removes the previous turn's `turn_ended` marker, so counting `turn_ended` lines undercounted real turns — now counted from `user`-role lines instead, which persist across a resume.
 
@@ -22,6 +23,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **`traceroost service uninstall` on Windows** no longer fails when the scheduled task is already gone, and removes the generated `run.cmd`. A failed `service install` now restores the previous `~/.traceroost/config.json` instead of leaving the new ports/data dir behind.
 - **`traceroost service status` with an IPv6 or wildcard `--bind-host`** — `::`/`0.0.0.0` are probed on loopback and IPv6 addresses are bracketed, instead of always reporting "not reachable".
 - **The npm package shipped the whole repo** (CLAUDE.md, Dockerfile, docs, runbooks, scripts, `packages/`) — `package.json` now has a `files` allowlist; the VSIX's `.vscodeignore` drops the same dev-only files.
+
+### Changed
+
+- **The free, local engines and CLI commands moved out of the `cloud/` directories, and are now MIT-licensed** — `src/cloud/attribution/` → `src/attribution/`, `src/cloud/turnover/` → `src/turnover/`, and `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` → `standalone/local/` (with their tests). They were under the BSL zone only because of where they sat; they are covered by the root MIT `LICENSE` from this version on. The `cloud/` directories (BSL) now hold only TraceRoost Pro's org linking and uploading. No behavior change.
 
 ### Removed
 

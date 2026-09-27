@@ -11,14 +11,9 @@ import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } 
 import { ReconciliationService, type ReconcileResult } from './reconcile/reconciliationService'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
-import { handleOrgMessage, type OrgPanelDeps } from './cloud/org/panelController'
-import { buildPayloadPreviewTexts } from './cloud/org/payloadPreview'
-import { loadCredentials } from './cloud/org/credentials'
-import { deriveRepoKey, repoHash } from './cloud/forward/repoKey'
 import { resolveGithubUrl } from './repoRemote'
-import { orgEndpoint } from './cloud/org/config'
-import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/org/instructionTelemetry'
-import { drainForwardQueueSoon } from './cloud/forward/scheduler'
+// TraceRoost Pro (org panel, upload) — only ever through this seam; see cloudBridge.ts.
+import { cloud, type OrgPanelDeps, type SuggestionLedger } from './cloudBridge'
 import { getNonce, safeJsonForScript } from './webviewHtml'
 import { WebviewSessionSync } from './webviewSessionSync'
 
@@ -85,7 +80,7 @@ export class DashboardPanel {
   // workspaces open at once, unlike sessions, so this is cheap to compute for every one of them.
   // `name` is the git repo root's own basename, not the (possibly-a-subfolder) workspace path —
   // see sendRepoHash for why.
-  private repoInfoCache = new Map<string, { name: string; hash: string; githubUrl: string | null } | null>()
+  private repoInfoCache = new Map<string, { name: string; hash: string | null; githubUrl: string | null } | null>()
   // Cutoff for "still live" in update()'s burn-rate calculation — kept here rather than only in
   // reconciliationService.ts (which has its own copy for the same window, ACTIVE_GRACE_MS) since
   // this one has nothing to do with git-outcome reconciliation.
@@ -143,7 +138,7 @@ export class DashboardPanel {
   static pushOrgStatus() {
     const panel = DashboardPanel.currentPanel
     if (!panel) return
-    void handleOrgMessage({ type: 'getOrgStatus' }, panel.orgDeps())
+    void cloud.handleOrgMessage({ type: 'getOrgStatus' }, panel.orgDeps())
   }
 
   private constructor(
@@ -162,7 +157,7 @@ export class DashboardPanel {
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (typeof msg.type === 'string' && (msg.type === 'getOrgStatus' || msg.type.startsWith('org'))) {
         try {
-          await handleOrgMessage(msg, this.orgDeps())
+          await cloud.handleOrgMessage(msg, this.orgDeps())
         } catch (err) {
           // Belt-and-suspenders: individual org* cases reply on both success and failure, but if
           // one doesn't, this is what stops the webview's busy/loading state from hanging forever
@@ -367,8 +362,8 @@ export class DashboardPanel {
       reverted: [],
     }
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? workspace
-    void maybeEnqueueInstructionTelemetry(wsRoot, this.repo.listSessions(), ledger)
-      .then(enqueued => { if (enqueued) drainForwardQueueSoon() })
+    void cloud.enqueueInstructionTelemetry(wsRoot, this.repo.listSessions(), ledger)
+      .then(enqueued => { if (enqueued) cloud.drainUploadsSoon() })
       .catch(() => { /* telemetry is best-effort */ })
   }
 
@@ -506,7 +501,8 @@ export class DashboardPanel {
   // matched up with its row in the cloud dashboard on sight. Unlinked installs get the same
   // 'unlinked-preview' salt buildPayloadForCard's own preview path already uses, so the value is
   // still stable and distinguishes repos from each other locally, it just won't match cloud until
-  // the org links.
+  // the org links. The core edition has no cloud to match and sends `hash: null` (name only) —
+  // see cloudBridge.ts's describeRepo.
   //
   // `name` is the git-resolved repo root's own basename (`rk.ctx.root`), prefixed with its parent
   // folder's name where one exists (e.g. "traceroost/core") — not the workspace path itself:
@@ -518,18 +514,16 @@ export class DashboardPanel {
   // in the UI before this async result arrives — swapping to a bare basename once it lands would
   // otherwise make the displayed name shrink out from under the user.
   private async sendRepoHash(workspace: string): Promise<void> {
-    let info: { name: string; hash: string; githubUrl: string | null } | null
+    let info: { name: string; hash: string | null; githubUrl: string | null } | null
     if (this.repoInfoCache.has(workspace)) {
       info = this.repoInfoCache.get(workspace) ?? null
     } else {
-      const creds = loadCredentials()
-      const orgId = creds?.orgId ?? 'unlinked-preview'
-      const [rk, githubUrl] = await Promise.all([deriveRepoKey(workspace, orgId), resolveGithubUrl(workspace)])
-      if (rk.ok) {
-        const rootName = path.basename(rk.ctx.root) || 'repository'
-        const parentName = path.basename(path.dirname(rk.ctx.root))
+      const [repo, githubUrl] = await Promise.all([cloud.describeRepo(workspace), resolveGithubUrl(workspace)])
+      if (repo) {
+        const rootName = path.basename(repo.root) || 'repository'
+        const parentName = path.basename(path.dirname(repo.root))
         const name = parentName ? `${parentName}/${rootName}` : rootName
-        info = { name, hash: repoHash(rk.ctx), githubUrl }
+        info = { name, hash: repo.hash, githubUrl }
       } else {
         info = null
       }
@@ -609,13 +603,10 @@ export class DashboardPanel {
       // MAX_SESSIONS_TO_WEBVIEW doc comment and .staged-issues/reconcile-gap-and-latency.md.
       allLocalSessions: () => this.repo.listSessions({ limit: Infinity }),
       traceSendStats: () => this.repo.queryTraceSendStats(Date.now()),
-      buildPayloadPreview: (sessions) => buildPayloadPreviewTexts(sessions),
+      buildPayloadPreview: (sessions) => cloud.buildPayloadPreview(sessions),
       onOpenOrgView: () => {
-        // Deep-links straight into the org's own dashboard, not the bare marketing root —
-        // `[org]`'s route in `cloud` accepts either a slug or a raw org id (see currentOrg()
-        // there), so this works even though only the id, never a slug, is ever stored locally.
-        const creds = loadCredentials()
-        const url = creds ? `${creds.endpoint}/${creds.orgId}` : orgEndpoint()
+        // Deep-links straight into the org's own dashboard — see cloud/bridge.ts's orgViewUrl.
+        const url = cloud.orgViewUrl()
         void vscode.env.openExternal(vscode.Uri.parse(url)).then(
           (opened) => { if (!opened) void vscode.window.showErrorMessage(`TraceRoost: could not open ${url} in your browser.`) },
           (err) => { void vscode.window.showErrorMessage(`TraceRoost: could not open ${url}: ${err instanceof Error ? err.message : err}`) },

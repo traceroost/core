@@ -33,3 +33,6 @@ export_*.json
 # Browser UX artifacts
 test-results/
 playwright-report/
+# scripts/prepare-edition.mjs's backups while a core-edition manifest is swapped in for packing
+.package.json.edition-backup
+.vscodeignore.edition-backup

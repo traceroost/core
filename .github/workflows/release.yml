@@ -4,9 +4,28 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual run: builds (and uploads as an artifact) a VSIX of the chosen edition without creating a
+  # release or publishing anything — publishing only ever happens from a pushed `v*` tag.
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: 'Edition to build — core (no TraceRoost Pro code) or full (with org link + upload)'
+        type: choice
+        options: [core, full]
+        default: core
 
 permissions:
   contents: write
+
+# Which edition this run ships (see runbooks/RELEASING.md → "Editions"). A manual run uses its
+# `edition` input; a tag push uses the TRACEROOST_RELEASE_EDITION repository variable, and `core`
+# when that isn't set. Until TraceRoost Pro launches every tagged release is `core`: the VSIX, the
+# npm package and the Docker image carry no org-link/upload code at all.
+# To ship `full` at launch: set the repository variable TRACEROOST_RELEASE_EDITION=full
+# (Settings → Secrets and variables → Actions → Variables) — docker.yml reads the same variable —
+# or change the `'core'` fallback below (and in docker.yml) to `'full'`.
+env:
+  EDITION: ${{ github.event_name == 'workflow_dispatch' && inputs.edition || vars.TRACEROOST_RELEASE_EDITION || 'core' }}
 
 jobs:
   package:
@@ -30,6 +49,8 @@ jobs:
         # Mirrors release-styles.yml. docker.yml runs the same check, so a tag
         # pushed without bumping package.json can't publish a VSIX, npm package,
         # or Docker `:latest` built from a different version than the tag names.
+        # Skipped for manual workflow_dispatch runs, which publish nothing.
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           PKG_VERSION="$(node -p "require('./package.json').version")"
@@ -49,6 +70,13 @@ jobs:
 
       - name: Unit tests
         run: pnpm run test:unit
+
+      # Rewrites package.json for the edition being released: for `core` it drops the Org commands
+      # and the cloud directories' files, and points `vscode:prepublish` at `package:core` so
+      # `vsce package` below builds the core bundles and runs scripts/check-edition.mjs. A no-op for
+      # `full`. This checkout is discarded after the job, so there's nothing to restore.
+      - name: Prepare the ${{ env.EDITION }} edition manifest
+        run: node scripts/prepare-edition.mjs "$EDITION"
 
       # package.json carries the npm identity (`traceroost`). The VS Code
       # Marketplace identity lives in vsce-identity.json and is patched in here,
@@ -73,6 +101,11 @@ jobs:
       - name: Package VSIX
         run: vsce package --no-dependencies
 
+      # Belt and braces: `package:core` already ran this during `vsce package`; re-run it on what
+      # actually got packed (and, for `full`, confirm the Pro code really is there).
+      - name: Check the ${{ env.EDITION }} edition bundles
+        run: node scripts/check-edition.mjs "$EDITION"
+
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -80,6 +113,7 @@ jobs:
           path: '*.vsix'
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: '*.vsix'
@@ -170,6 +204,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Same manifest the VSIX was packed from — `npm publish`'s prepublishOnly then builds and
+      # checks this edition (package:core for `core`).
+      - name: Prepare the ${{ env.EDITION }} edition manifest
+        run: node scripts/prepare-edition.mjs "$EDITION"
 
       - name: Publish to npm
         # Trusted Publishing: npm exchanges the GitHub Actions OIDC token for a

@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from 'child_process'
-import { loadAllSessions } from './sessionLoader'
+import { loadAllSessions } from '../local/sessionLoader'
 import { classifySessionOutcome } from '../../src/gitOutcome'
 import { readServiceConfig, ensureInstallId } from '../../src/serviceConfig'
 import { loadCredentials } from '../../src/cloud/org/credentials'

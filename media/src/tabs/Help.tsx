@@ -62,7 +62,11 @@ const HELP_SECTIONS = {
   glossary:   { href: '#help-glossary',   heading: 'Glossary' },
 } as const
 
-const TOC_SECTIONS = Object.values(HELP_SECTIONS)
+// The core edition (no TraceRoost Pro built in — see media/src/orgPanel.ts) leaves out the Cloud and
+// Privacy sections, which only describe linking and what a linked machine sends. A literal
+// `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) so the core bundle drops them.
+const TOC_SECTIONS = Object.values(HELP_SECTIONS).filter(s =>
+  process.env.TRACEROOST_EDITION !== 'core' || (s !== HELP_SECTIONS.cloud && s !== HELP_SECTIONS.privacy))
 
 const AGENT_OTEL_SHAPES: Array<{
   agent: string
@@ -1243,8 +1247,8 @@ export function Help() {
         <CostSection />
         <SettingsSection />
         <McpSection />
-        <CloudSection />
-        <PrivacySection />
+        {process.env.TRACEROOST_EDITION !== 'core' && <CloudSection />}
+        {process.env.TRACEROOST_EDITION !== 'core' && <PrivacySection />}
         <ExportSection />
         <ImportSection />
         <BadgesSection />
