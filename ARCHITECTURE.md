@@ -1003,6 +1003,16 @@ touches `~/.traceroost`'s data or config, matching the same separation the exten
 
 Five independent esbuild targets produce five output bundles.
 
+**Editions.** `node esbuild.js --edition=full|core` (default `full`) picks which of two products
+the five bundles are. `core` resolves the three Pro seams — `src/cloudBridge.ts` →
+`src/cloudBridge.core.ts`, `media/src/orgPanel.ts` → `media/src/orgPanel.core.tsx`,
+`standalone/cliCloud.ts` → `standalone/cliCloud.core.ts` — to inert stubs, defines
+`process.env.TRACEROOST_EDITION` (both editions, all bundles) so literal edition checks fold away,
+turns on syntax-level minification for the two standalone bundles (so those dead branches are
+really dropped), and fails the build if any module under `src/cloud/`, `media/src/cloud/` or
+`standalone/cloud/` would be loaded. `scripts/check-edition.mjs` re-checks the output; see
+CONTRIBUTING.md → Editions and runbooks/RELEASING.md → Editions.
+
 ```mermaid
 graph LR
     subgraph Source
@@ -1068,7 +1078,9 @@ so a type error in those files does fail CI today. The rest of `standalone/**`
 ## 15. TraceRoost Pro — org link
 
 Everything in `src/cloud/org/` is the **client half of TraceRoost Pro** — an optional layer that lets a
-lead see cross-developer aggregates. It is built against two rules:
+lead see cross-developer aggregates. The rest of the codebase reaches it only through
+`src/cloudBridge.ts` (implemented by `src/cloud/bridge.ts`), `media/src/orgPanel.ts` and
+`standalone/cliCloud.ts`, so the core edition (§14) can be built without any of it. It is built against two rules:
 
 1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
    TraceRoost service — no version ping, no "do you have an org" check. `getOrgStatus()` and
@@ -1251,6 +1263,9 @@ traceroost/
 │   ├── attribution/              # Free, local commit attribution (AL 05) — git + session records, no network (§15)
 │   ├── turnover/                 # Free, local cohort/survival engine (AL 06/07) built on attribution/ (§15)
 │   ├── cloud/                    # TraceRoost Pro client — org link (org/) + upload (forward/); BSL, see NOTICE.md (§15)
+│   ├── cloudBridge.ts            # The one seam to cloud/ (interface + full impl via cloud/bridge.ts); §14 Editions
+│   ├── cloudBridge.core.ts       # Core edition's inert CloudBridge — swapped in by `esbuild.js --edition=core`
+│   ├── edition.ts                # NOT_AVAILABLE_IN_CORE message
 │   ├── summarizers/
 │   │   ├── claude.ts             # Claude Code session builder
 │   │   ├── copilot.ts            # Copilot session builder
@@ -1348,7 +1363,9 @@ traceroost/
 │   │   ├── cohortCli.ts          # `cohort` — the turnover engine (src/turnover/) on the CLI
 │   │   ├── adviseCli.ts          # `advise --list|--apply`
 │   │   └── repoResolve.ts        # `--repo <name|hash>`; hash resolution is injected from cloud/
+│   ├── cliCloud.ts               # CLI seam to cloud/ (core stub: cliCloud.core.ts)
 │   ├── cloud/                    # Pro (org link + upload) CLI surfaces (BSL, see NOTICE.md)
+│   │   ├── cliBridge.ts          # Full edition's CliCloud
 │   │   ├── org-cli.ts            # `org link|status|leave|verify`
 │   │   ├── explainPayload.ts     # `--explain-payload`
 │   │   ├── clusterCli.ts         # `cluster`
@@ -1359,7 +1376,7 @@ traceroost/
 │       ├── macos.ts              # launchd install/uninstall/start/stop/restart
 │       ├── linux.ts              # systemd --user install/uninstall/start/stop/restart
 │       └── windows.ts            # Scheduled Task install/uninstall/start/stop/restart
-├── esbuild.js                    # Build configuration (5 targets)
+├── esbuild.js                    # Build configuration (5 targets; `--edition=full|core`)
 ├── package.json                  # VS Code manifest + scripts
 └── ARCHITECTURE.md               # This file
 ```

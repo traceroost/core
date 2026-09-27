@@ -2,14 +2,14 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { maybeForwardOnContentChange } from '../../reconcile/contentChangeForward'
-import { ReconciliationService } from '../../reconcile/reconciliationService'
-import { SCHEMA_SQL } from '../../database/schema'
-import { setCredentialStore } from '../../cloud/org/credentials'
-import type { CredentialStore } from '../../cloud/org/credentials'
-import type { OrgCredentials } from '../../cloud/org/config'
-import { ForwardQueue } from '../../cloud/forward/queue'
-import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import { maybeForwardOnContentChange } from '../../../cloud/forward/contentChangeForward'
+import { ReconciliationService } from '../../../reconcile/reconciliationService'
+import { SCHEMA_SQL } from '../../../database/schema'
+import { setCredentialStore } from '../../../cloud/org/credentials'
+import type { CredentialStore } from '../../../cloud/org/credentials'
+import type { OrgCredentials } from '../../../cloud/org/config'
+import { ForwardQueue } from '../../../cloud/forward/queue'
+import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
@@ -53,7 +53,7 @@ function makeCard(id: string, overrides: Partial<SessionSummaryCard> = {}): Sess
 const realHome = process.env.HOME
 const realUserProfile = process.env.USERPROFILE
 
-suite('reconcile/contentChangeForward', () => {
+suite('cloud/forward/contentChangeForward', () => {
   let home: string
   let service: ReconciliationService
 

@@ -291,8 +291,9 @@ function postGitOutcomeRequests(pending: SessionSummaryCard[]): void {
 // which may be a subfolder of the repo (or, with multiple worktrees/clones, a differently-named
 // checkout of it) — see dashboardPanel.ts's sendRepoHash. `githubUrl` is the `origin` remote
 // normalized to `https://github.com/owner/repo`, or null if there's no remote or it isn't on
-// github.com — local-only (repoRemote.ts), never sent to traceroost-cloud, unlike `hash`.
-export interface RepoInfo { name: string; hash: string; githubUrl: string | null }
+// github.com — local-only (repoRemote.ts), never sent to traceroost-cloud, unlike `hash`. `hash` is
+// null in the core edition (no cloud to match against — see src/cloudBridge.ts's describeRepo).
+export interface RepoInfo { name: string; hash: string | null; githubUrl: string | null }
 
 // Lazy repo-info cache: workspace path → RepoInfo, or null once fetched but ungrouped (not a repo,
 // shallow clone, no root commit). Absent key = not yet requested. There are only ever a handful of
@@ -469,7 +470,7 @@ export function shortWorkspaceName(ws: string): string {
 export function matchesRepoQuery(ws: string, query: string, info: Record<string, RepoInfo | null>): boolean {
   const q = query.toLowerCase()
   const entry = info[ws]
-  if (entry) return entry.name.toLowerCase().includes(q) || entry.hash.toLowerCase().includes(q)
+  if (entry) return entry.name.toLowerCase().includes(q) || (entry.hash?.toLowerCase().includes(q) ?? false)
   return ws.toLowerCase().includes(q)
 }
 
@@ -483,7 +484,7 @@ export function matchesRepoQuery(ws: string, query: string, info: Record<string,
 export function repoDisplayName(ws: string, info: Record<string, RepoInfo | null>): string {
   const entry = info[ws]
   if (!entry) return shortWorkspaceName(ws)
-  return `${entry.name} (${entry.hash.slice(0, 4)}…)`
+  return entry.hash ? `${entry.name} (${entry.hash.slice(0, 4)}…)` : entry.name
 }
 
 // The repo cell's hover title's first line — the GitHub URL when the repo's `origin` remote

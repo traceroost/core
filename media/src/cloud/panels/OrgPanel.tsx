@@ -130,6 +130,53 @@ export function requestOrgStatus(): void {
   vscode?.postMessage({ type: 'getOrgStatus' })
 }
 
+/** Applies one host → webview `org*` message to the panel's signals. Returns false for anything
+ *  that isn't an Org panel message, so App.tsx's message handler can carry on with its own cases —
+ *  the org cases live here, beside the signals they drive, so the core edition's stub
+ *  (media/src/orgPanel.core.tsx) can drop them along with the rest of the panel. */
+export function handleOrgPanelMessage(msg: { type: string }): boolean {
+  if (msg.type === 'orgStatus') {
+    orgStatus.value = (msg as unknown as { status: typeof orgStatus.value }).status
+    orgBusy.value = null
+  } else if (msg.type === 'orgPayloadPreview') {
+    orgPayloadBusy.value = false
+    orgPayloadPreview.value = (msg as unknown as { previews: typeof orgPayloadPreview.value }).previews
+  } else if (msg.type === 'orgLinkUrl') {
+    orgLinkUrl.value = (msg as unknown as { url?: string }).url ?? null
+  } else if (msg.type === 'orgDevicePrompt') {
+    const p = msg as unknown as { userCode?: string; verificationUri?: string; verificationUriComplete?: string }
+    orgDevicePrompt.value = p.userCode && p.verificationUri
+      ? { userCode: p.userCode, verificationUri: p.verificationUri, verificationUriComplete: p.verificationUriComplete }
+      : null
+  } else if (msg.type === 'orgActionResult') {
+    const r = msg as unknown as { ok?: boolean; error?: string }
+    orgBusy.value = null
+    orgLinkUrl.value = null
+    orgDevicePrompt.value = null
+    orgActionError.value = r.ok === false ? (r.error || 'unknown error') : null
+    requestOrgStatus()
+  } else if (msg.type === 'orgReconcileProgress') {
+    const p = msg as unknown as { done: number; total: number }
+    orgReconcileProgress.value = { done: p.done, total: p.total }
+  } else if (msg.type === 'orgReconcileResult') {
+    orgReconcileBusy.value = false
+    orgReconcileProgress.value = null
+    const r = msg as unknown as { queued: number; error?: string }
+    orgReconcileResult.value = { queued: r.queued, error: r.error }
+  } else if (msg.type === 'orgError') {
+    // Safety net for a handler that threw before it could post its normal reply — clears
+    // every org busy/loading state so a backend bug shows as a stalled action, not a
+    // permanently stuck "Checking…"/"Building…" button. See panelController.ts.
+    orgBusy.value = null
+    orgReconcileBusy.value = false
+    orgReconcileProgress.value = null
+    orgPayloadBusy.value = false
+  } else {
+    return false
+  }
+  return true
+}
+
 function IconCloud() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">

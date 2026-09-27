@@ -67,12 +67,14 @@ export async function runFindCli(args: string[], resolveHash?: RepoHashResolver)
   if (code !== 0) {
     // patternsCli/traceCli already printed their own "not found" line — this just adds the one
     // thing they can't know: cloud saw this hash come from somewhere, and it wasn't necessarily
-    // this machine.
-    console.log(
-      reporter
-        ? `(It may be on ${reporter}'s linked machine instead of this one.)`
-        : '(It may be on a different linked machine.)',
-    )
+    // this machine. (Only with a cloud resolver — the core edition has no linked machines.)
+    if (resolveHash) {
+      console.log(
+        reporter
+          ? `(It may be on ${reporter}'s linked machine instead of this one.)`
+          : '(It may be on a different linked machine.)',
+      )
+    }
     return code
   }
 

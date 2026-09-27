@@ -8,13 +8,19 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY esbuild.js tsconfig.json ./
+COPY scripts/check-edition.mjs ./scripts/
 COPY src/ ./src/
 COPY standalone/ ./standalone/
 COPY media/src/ ./media/src/
 COPY media/tsconfig.json ./media/
 COPY media/mascot.png ./media/
 
-RUN node esbuild.js --production
+# core (the default until TraceRoost Pro launches) builds with no org-link/upload code at all, and
+# fails the image build if any reached a bundle; full includes it. See runbooks/RELEASING.md →
+# "Editions". docker.yml passes the release's edition: `--build-arg EDITION=full`.
+ARG EDITION=core
+RUN node esbuild.js --production --edition=$EDITION \
+ && node scripts/check-edition.mjs $EDITION --skip-manifest
 # sql.js is bundled into server.js, but it locates its .wasm via require.resolve('sql.js') at
 # runtime — ship a real (symlink-free) copy of the package so that lookup works in the image.
 RUN mkdir -p /app/runtime_modules && cp -rL node_modules/sql.js /app/runtime_modules/sql.js
@@ -22,6 +28,8 @@ RUN mkdir -p /app/runtime_modules && cp -rL node_modules/sql.js /app/runtime_mod
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:24-alpine
 WORKDIR /app
+ARG EDITION=core
+LABEL org.traceroost.edition=$EDITION
 
 RUN addgroup -S traceroost && adduser -S traceroost -G traceroost
 

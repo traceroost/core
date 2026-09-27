@@ -5,10 +5,23 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      edition:
+        description: 'Edition to build — core (no TraceRoost Pro code) or full (with org link + upload)'
+        type: choice
+        options: [core, full]
+        default: core
 
 permissions:
   contents: read
   packages: write
+
+# Same edition rule as release.yml (see its comment and runbooks/RELEASING.md → "Editions"): a
+# manual run uses its input; a tag push uses the TRACEROOST_RELEASE_EDITION repository variable,
+# falling back to `core` until TraceRoost Pro launches. To ship `full`, set that variable to `full`
+# (or change the `'core'` fallback here and in release.yml).
+env:
+  EDITION: ${{ github.event_name == 'workflow_dispatch' && inputs.edition || vars.TRACEROOST_RELEASE_EDITION || 'core' }}
 
 jobs:
   docker:
@@ -70,6 +83,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            EDITION=${{ env.EDITION }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

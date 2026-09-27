@@ -43,10 +43,17 @@ that step as a parameter (`standalone/local/repoResolve.ts`'s
 passes the cloud implementation in. Local code never imports from a `cloud/`
 directory.
 
-That makes the directory boundary mean one thing: **delete every `cloud/`
-directory and the free product still builds and works.** The directory is the
-unit a core-only (no Pro) build can leave out, and the unit covered by the
-different license below. The free/paid rule itself is unchanged — see
+Everything else reaches these directories only through three seams —
+`src/cloudBridge.ts` (implemented here by `bridge.ts`), `media/src/orgPanel.ts`
+and `standalone/cliCloud.ts` (implemented by `standalone/cloud/cliBridge.ts`) —
+each with an inert core stub beside it.
+
+That makes the directory boundary mean one thing: **leave every `cloud/`
+directory out and the free product still builds and works** — which is exactly
+what the core edition does (`node esbuild.js --edition=core`; see
+CONTRIBUTING.md → Editions). The directory is the
+unit the core build leaves out, and the unit covered by the different license
+below. The free/paid rule itself is unchanged — see
 CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Pro, and
 `attribution/` and `turnover/` are free forever.
 

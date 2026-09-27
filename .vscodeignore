@@ -31,6 +31,10 @@ docs/**
 runbooks/**
 .githooks/**
 scripts/build-brand.mjs
+scripts/check-edition.mjs
+scripts/prepare-edition.mjs
+.package.json.edition-backup
+.vscodeignore.edition-backup
 scripts/security-review/**
 CLAUDE.md
 ARCHITECTURE.md

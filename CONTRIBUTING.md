@@ -52,6 +52,42 @@ pnpm run test:unit     # Unit tests (Mocha)
 node esbuild.js        # Bundle — outputs to dist/ and media/
 ```
 
+### Editions
+
+The same sources build two editions (README → Editions): **full** (the default — what `F5`,
+`pnpm run local`, `pnpm run package` and the unit tests use) and **core**, which contains no
+TraceRoost Pro (org link + upload) code. The split is made at build time, not with a runtime flag:
+
+- Non-cloud code reaches `src/cloud/`, `media/src/cloud/` and `standalone/cloud/` only through
+  three seams — `src/cloudBridge.ts` (extension host + standalone server), `media/src/orgPanel.ts`
+  (webview) and `standalone/cliCloud.ts` (CLI). Each has a full implementation inside a `cloud/`
+  directory and an inert core stub beside it (`src/cloudBridge.core.ts`,
+  `media/src/orgPanel.core.tsx`, `standalone/cliCloud.core.ts`). **Don't import from a `cloud/`
+  directory anywhere else** — add what you need to a seam (both implementations) instead.
+  `import type` is fine; it's erased. `pnpm run lint` flags a runtime import from a `cloud/`
+  directory in `src/` or `media/src/` outside the seams.
+- `node esbuild.js --edition=core` resolves each seam to its stub, defines
+  `process.env.TRACEROOST_EDITION`, and fails the build if any module under a `cloud/` directory
+  would still be bundled. Pro-only code outside the seams (a VS Code command registration, a
+  standalone route, Help-tab sections) is wrapped in a literal
+  `process.env.TRACEROOST_EDITION !== 'core'` check so the core build drops it entirely.
+- `node scripts/check-edition.mjs core` then greps the five shipped bundles for Pro markers
+  (cloud module paths, Pro endpoints and hostnames, queue/link identifiers) and checks the
+  packaged manifest; `check-edition.mjs full` checks the markers are still present in a full build.
+
+```bash
+pnpm run build:core                        # dev core build + bundle check
+node esbuild.js --production --edition=core
+node scripts/check-edition.mjs core --skip-manifest
+node scripts/prepare-edition.mjs core      # package.json → the core manifest, for packing
+node scripts/prepare-edition.mjs restore   # …and back
+pnpm run test:unit                         # tests run against the sources — same for both editions
+```
+
+CI builds and checks both (`build-and-test` and `core-edition` in `.github/workflows/ci.yml`).
+Releases are core until TraceRoost Pro launches — see
+[runbooks/RELEASING.md](runbooks/RELEASING.md#editions).
+
 ## Project structure
 
 | Path | Purpose |

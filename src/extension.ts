@@ -20,19 +20,10 @@ import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
 import { startMcpHttpServer } from './mcpServer'
 import { InstructionRepository } from './database/instructionRepository'
-import { linkInteractive, leave } from './cloud/org/link'
-import { getOrgStatus } from './cloud/org/status'
-import { SENT, NEVER_SENT } from './cloud/org/privacy'
-import { getQueueStats } from './cloud/forward/currentQueueStats'
-import { maybeEnqueueSession } from './cloud/org/enqueueSession'
-import { maybeEnqueueInstructionTelemetry, EMPTY_LEDGER } from './cloud/org/instructionTelemetry'
-import { isLinked } from './cloud/org/credentials'
-import { startForwardScheduler, type ForwardScheduler } from './cloud/forward/scheduler'
-import { startPricingSync } from './cloud/org/pricingSync'
-import { resolveRepoHash } from './cloud/org/resolveRepoHash'
+// TraceRoost Pro (org link + upload) — only ever through this seam; see cloudBridge.ts.
+import { cloud, type ForwardSchedulerHandle } from './cloudBridge'
 import { ReconciliationService } from './reconcile/reconciliationService'
 import { startBackgroundReconciliation, type BackgroundWatcher } from './reconcile/backgroundWatcher'
-import { maybeForwardOnContentChange } from './reconcile/contentChangeForward'
 import { KeyedDebouncer } from './reconcile/keyedDebouncer'
 
 let collector: OtlpCollector | undefined
@@ -51,7 +42,7 @@ const contentChangeDebouncer = new KeyedDebouncer(3_000, 30_000)
 const REVISION_FORWARD_BATCH_MS = 1_000
 let logReaderTimer: ReturnType<typeof setInterval> | undefined
 let runLogScanFn: (() => void) | undefined
-let forwardScheduler: ForwardScheduler | undefined
+let forwardScheduler: ForwardSchedulerHandle | undefined
 
 // ── Cross-window sync ────────────────────────────────────────────────────────
 
@@ -213,18 +204,18 @@ export async function activate(context: vscode.ExtensionContext) {
       if (reconciliationService) {
         const svc = reconciliationService
         contentChangeDebouncer.schedule(fullCard.sessionId, () => {
-          void maybeForwardOnContentChange(svc, fullCard, m => outputChannel?.appendLine(m))
+          void cloud.forwardOnContentChange(svc, fullCard, m => outputChannel?.appendLine(m))
             .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
         })
       } else {
-        void maybeEnqueueSession(fullCard, m => outputChannel?.appendLine(m))
+        void cloud.enqueueSession(fullCard, m => outputChannel?.appendLine(m))
           .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
       }
-      // isLinked() first: maybeEnqueueInstructionTelemetry is a no-op without an org, but its
+      // isLinked() first: enqueueInstructionTelemetry is a no-op without an org, but its
       // listSessions() argument (every stored session, plus a re-summarize of the live window —
       // hundreds of ms on a large history) was built for it on every live OTLP payload anyway.
-      if (workspace && isLinked()) {
-        void maybeEnqueueInstructionTelemetry(workspace, repository!.listSessions(), EMPTY_LEDGER)
+      if (workspace && cloud.isLinked()) {
+        void cloud.enqueueInstructionTelemetry(workspace, repository!.listSessions())
           .then(enq => { if (enq) forwardScheduler?.drainSoon() })
           .catch(() => { /* best-effort */ })
       }
@@ -341,12 +332,12 @@ export async function activate(context: vscode.ExtensionContext) {
       for (const [sessionId, revision] of batch) {
         const card = cards.get(sessionId)
         if (!card) continue
-        void maybeEnqueueSession(card, m => outputChannel?.appendLine(m), undefined, revision)
+        void cloud.enqueueSession(card, m => outputChannel?.appendLine(m), revision)
           .then(res => { if (res.enqueued) forwardScheduler?.drainSoon() })
       }
     }
     const unsubscribeForwarding = reconciliationService.subscribe((r) => {
-      if (!r.changed || r.revision === null || !isLinked()) return
+      if (!r.changed || r.revision === null || !cloud.isLinked()) return
       pendingRevisions.set(r.sessionId, Math.max(r.revision, pendingRevisions.get(r.sessionId) ?? 0))
       revisionFlushTimer ??= setTimeout(flushRevisions, REVISION_FORWARD_BATCH_MS)
     })
@@ -488,7 +479,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 // incremental scan checks for "has this changed", so a historical file read
                 // here first makes it permanently invisible to that scan as "new" (see the
                 // matching fix and its longer note in standalone/server.ts).
-                void maybeEnqueueSession(
+                void cloud.enqueueSession(
                   { ...result.card, workspace: result.workspace || ws },
                   m => outputChannel?.appendLine(m),
                 )
@@ -522,7 +513,7 @@ export async function activate(context: vscode.ExtensionContext) {
           card.loopSignals = detectLoopSignals(card)
           card.oneShotStats = computeOneShotStats(card)
           writer!.enqueue(card, workspace || ws)
-          void maybeEnqueueSession(
+          void cloud.enqueueSession(
             { ...card, workspace: workspace || ws },
             m => outputChannel?.appendLine(m),
           )
@@ -635,7 +626,9 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   )
 
-  registerOrgCommands(context)
+  // A literal `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) rather than
+  // `cloud.edition`, so the core build drops registerOrgCommands and its strings entirely.
+  if (process.env.TRACEROOST_EDITION !== 'core') registerOrgCommands(context)
   registerUriHandler(context, repo)
 
   context.subscriptions.push(
@@ -779,7 +772,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // ── Pro: forwarding scheduler ───────────────────────────────────────────────
   // No timer runs unless an org is linked; `syncToLinkState` starts/stops it after link/leave.
-  forwardScheduler = startForwardScheduler({
+  forwardScheduler = cloud.startForwardScheduler({
     notify: (message, kind) => {
       if (kind === 'warning') vscode.window.showWarningMessage(message)
       else vscode.window.showInformationMessage(message)
@@ -797,7 +790,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // ── Pro: pricing sync ────────────────────────────────────────────────────────
   // Same "no timer unless linked" invariant as the forwarding scheduler above, on its own
   // (longer) interval — see pricingSync.ts for why it isn't just piggybacked on the drain cadence.
-  const pricingSync = startPricingSync({ onSync: () => DashboardPanel.pushOrgStatus() })
+  const pricingSync = cloud.startPricingSync({ onSync: () => DashboardPanel.pushOrgStatus() })
   context.subscriptions.push({ dispose: () => pricingSync.dispose() })
 
   // ── Status bar ───────────────────────────────────────────────────────────────
@@ -839,12 +832,12 @@ export async function activate(context: vscode.ExtensionContext) {
 function registerOrgCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('traceRoost.orgLink', async () => {
-      if (getOrgStatus().linked) {
+      if (cloud.orgStatus().linked) {
         vscode.window.showInformationMessage('TraceRoost: this machine is already linked. Run "TraceRoost: Unlink" first to re-link.')
         return
       }
       const proceed = await vscode.window.showInformationMessage(
-        'Link this machine to a TraceRoost Cloud org?\n\nSent: ' + SENT.join('; ') + '.\n\nNever sent: ' + NEVER_SENT.join('; ') + '.',
+        'Link this machine to a TraceRoost Cloud org?\n\nSent: ' + cloud.privacy.sent.join('; ') + '.\n\nNever sent: ' + cloud.privacy.neverSent.join('; ') + '.',
         { modal: true },
         'Open browser to link',
       )
@@ -852,7 +845,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
       try {
         const result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: 'TraceRoost: waiting for browser approval…' },
-          () => linkInteractive({ openUrl: (url: string) => { void vscode.env.openExternal(vscode.Uri.parse(url)) } }),
+          () => cloud.link({ openUrl: (url: string) => { void vscode.env.openExternal(vscode.Uri.parse(url)) } }),
         )
         vscode.window.showInformationMessage(`TraceRoost: linked to ${result.orgName} as ${result.role}.`)
         forwardScheduler?.syncToLinkState()
@@ -862,7 +855,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.commands.registerCommand('traceRoost.orgStatus', () => {
-      const s = getOrgStatus(getQueueStats())
+      const s = cloud.orgStatus(true)
       vscode.window.showInformationMessage(
         s.linked
           ? `TraceRoost Cloud: linked to ${s.orgName} as ${s.role}. Queue depth ${s.queueDepth ?? 0}, last trace ${s.lastRollupAt ?? 'none yet'}.`
@@ -870,7 +863,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
       )
     }),
     vscode.commands.registerCommand('traceRoost.orgLeave', async () => {
-      if (!getOrgStatus().linked) {
+      if (!cloud.orgStatus().linked) {
         vscode.window.showInformationMessage('TraceRoost: this machine is not linked.')
         return
       }
@@ -880,7 +873,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
         'Unlink',
       )
       if (confirm !== 'Unlink') return
-      const res = await leave()
+      const res = await cloud.leave()
       vscode.window.showInformationMessage(
         res.serverRevoked
           ? 'TraceRoost: unlinked. This machine has stopped forwarding.'
@@ -942,7 +935,7 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
               ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
               ...new Set(repo.listSessions().map(s => s.workspace).filter(Boolean)),
             ]
-            const root = await resolveRepoHash(repoHash, workspaces)
+            const root = await cloud.resolveRepoHash(repoHash, workspaces)
             if (!root) {
               vscode.window.showInformationMessage('TraceRoost: that repository is not on this machine. Nothing was requested.')
               return
@@ -969,7 +962,7 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
               ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
               ...new Set(repo.listSessions().map(s => s.workspace).filter(Boolean)),
             ]
-            const root = await resolveRepoHash(repoHash, workspaces)
+            const root = await cloud.resolveRepoHash(repoHash, workspaces)
             if (!root) {
               vscode.window.showInformationMessage('TraceRoost: that cohort is for a repository this machine does not have. Nothing was requested.')
               return
@@ -1013,7 +1006,7 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
                 ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
                 ...new Set(repo.listSessions().map(s => s.workspace).filter(Boolean)),
               ]
-              const root = await resolveRepoHash(hash, workspaces)
+              const root = await cloud.resolveRepoHash(hash, workspaces)
               if (root) {
                 vscode.commands.executeCommand('traceRoost.openDashboard')
                 setTimeout(() => {

@@ -32,13 +32,8 @@ import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { listenWithFallback, writeResolvedPorts, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
-import { maybeEnqueueSession } from '../src/cloud/org/enqueueSession'
-import { maybeForwardOnContentChange } from '../src/reconcile/contentChangeForward'
-import { startForwardScheduler, drainForwardQueueSoon } from '../src/cloud/forward/scheduler'
-import { startPricingSync } from '../src/cloud/org/pricingSync'
-import { loadCredentials } from '../src/cloud/org/credentials'
-import { orgEndpoint } from '../src/cloud/org/config'
-import { deriveRepoKey, repoHash } from '../src/cloud/forward/repoKey'
+// TraceRoost Pro (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
+import { cloud } from '../src/cloudBridge'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
   isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
@@ -266,7 +261,7 @@ function pushGitOutcomeResult(r: ReconcileResult): void {
 // Repo info, keyed by workspace path. `hash` is repoKey.ts's repoHash — the same hash
 // traceroost-cloud shows in its own Repo column. `name` is the git repo root's own basename (not
 // the workspace path, which may be a subfolder of it). Mirrors DashboardPanel's repoInfoCache.
-const repoInfoCache = new Map<string, { name: string; hash: string; githubUrl: string | null } | null>()
+const repoInfoCache = new Map<string, { name: string; hash: string | null; githubUrl: string | null } | null>()
 
 function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummaryCard {
   const num = (v: unknown, def = 0): number => (typeof v === 'number' ? v : def)
@@ -361,7 +356,7 @@ function checkStaleOtelSessions() {
     }
     if (now - prev.at < OTEL_IDLE_MS) continue
     otelAttempted.add(card.traceId)
-    void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
+    void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
   }
 }
 
@@ -383,10 +378,10 @@ function runLogScan() {
     // actually changed (not just on its first send). Falls back to the old first-send-only
     // behavior without a reconciliation service, same as before this feature.
     if (reconciliationService) {
-      void maybeForwardOnContentChange(reconciliationService, card, m => console.log(m))
-        .then(r => { if (r.enqueued) drainForwardQueueSoon() })
+      void cloud.forwardOnContentChange(reconciliationService, card, m => console.log(m))
+        .then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
     } else {
-      void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
+      void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
     }
   }
   if (changed) schedulePushUpdate()
@@ -435,8 +430,8 @@ async function startLogIngestion() {
       if (!r.changed || r.revision === null) return
       const card = buildSessionSummary()?.sessions.find(s => s.sessionId === r.sessionId)
       if (!card) return
-      void maybeEnqueueSession(card, m => console.log(m), undefined, r.revision)
-        .then(res => { if (res.enqueued) drainForwardQueueSoon() })
+      void cloud.enqueueSession(card, m => console.log(m), r.revision)
+        .then(res => { if (res.enqueued) cloud.drainUploadsSoon() })
     })
     backgroundWatcher = startBackgroundReconciliation({
       service: reconciliationService,
@@ -491,7 +486,7 @@ async function startLogIngestion() {
     // here, not just in runLogScan() — this loop's own file reads update the same LogReader's
     // fileState that scan() checks, so a historical file read here first is invisible to
     // scan() as "new" forever after (see the note above the main loop below).
-    void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
+    void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
   }
 
   // Run the initial batch synchronously so logSessions is populated before the
@@ -524,7 +519,7 @@ async function startLogIngestion() {
         // of 58 real local sessions, only the handful still being actively written to were
         // ever forwarded; the other ~40+ built valid payloads fine in isolation (repo-grouped
         // or correctly ungrouped) but were never enqueued by the running server at all.
-        void maybeEnqueueSession(result.card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
+        void cloud.enqueueSession(result.card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
       }
     } catch { /* skip bad file */ }
   }
@@ -1100,13 +1095,37 @@ function broadcastSse(payload: Record<string, unknown>): void {
  *  cheaply when nothing is linked. `openExternal` is a real no-op, not a stub standing in for one
  *  — `getOrgStatus` never opens anything, so nothing here should ever call it. */
 function pushOrgStatusToClients(): void {
-  const { handleOrgMessage } = require('../src/cloud/org/panelController') as typeof import('../src/cloud/org/panelController')
-  void handleOrgMessage({ type: 'getOrgStatus' }, {
+  void cloud.handleOrgMessage({ type: 'getOrgStatus' }, {
     post: (m) => broadcastSse(m),
     openExternal: () => {},
     recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
     log: (m) => console.log(m),
   })
+}
+
+/** The standalone page's Org-panel transport: the webview posts `org*` messages, this polyfill
+ *  turns them into `/api/org` requests. Empty in the core edition — its Org panel is a stub that
+ *  never posts one — so no org wiring reaches the page at all. A literal
+ *  `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) so the core build drops the
+ *  string entirely rather than just never using it. */
+let ORG_FETCH_SHIM = ''
+if (process.env.TRACEROOST_EDITION !== 'core') {
+  ORG_FETCH_SHIM = ` else if (msg.type && (msg.type === 'getOrgStatus' || msg.type.indexOf('org') === 0)) {
+            fetch('/api/org', {
+              method: msg.type === 'getOrgStatus' ? 'GET' : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: msg.type === 'getOrgStatus' ? undefined : JSON.stringify(msg),
+            }).then(function(r) { return r.json(); }).then(function(data) {
+              (data.messages || []).forEach(function(m) {
+                if (m.type === 'orgLinkUrl' && m.url) { window.open(m.url, '_blank'); }
+                window.dispatchEvent(new MessageEvent('message', { data: m }));
+              });
+            }).catch(function() {
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'orgActionResult', ok: false, error: 'request failed' } }));
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'orgError', error: 'request failed' } }));
+            });
+            return;
+          }`
 }
 
 // ── Dashboard HTML ────────────────────────────────────────────────────────────
@@ -1517,22 +1536,7 @@ function getHtml(): string {
         postMessage: function(msg) {
           if (msg.type === 'requestFullUpdate') {
             _requestFullUpdate();
-          } else if (msg.type && (msg.type === 'getOrgStatus' || msg.type.indexOf('org') === 0)) {
-            fetch('/api/org', {
-              method: msg.type === 'getOrgStatus' ? 'GET' : 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: msg.type === 'getOrgStatus' ? undefined : JSON.stringify(msg),
-            }).then(function(r) { return r.json(); }).then(function(data) {
-              (data.messages || []).forEach(function(m) {
-                if (m.type === 'orgLinkUrl' && m.url) { window.open(m.url, '_blank'); }
-                window.dispatchEvent(new MessageEvent('message', { data: m }));
-              });
-            }).catch(function() {
-              window.dispatchEvent(new MessageEvent('message', { data: { type: 'orgActionResult', ok: false, error: 'request failed' } }));
-              window.dispatchEvent(new MessageEvent('message', { data: { type: 'orgError', error: 'request failed' } }));
-            });
-            return;
-          }
+          }${ORG_FETCH_SHIM}
           if (msg.type === 'confirmClear') {
             if (confirm('Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
               fetch('/api/clear', { method: 'POST' });
@@ -2236,18 +2240,17 @@ const uiServer = http.createServer((req, res) => {
   // ── Org (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
   // GET returns the local status (no network). POST runs an action (link/leave/explain).
   // Both reply with an array of webview messages the polyfill re-dispatches.
-  if (url === '/api/org' && (req.method === 'GET' || req.method === 'POST')) {
+  // Not served at all in the core edition (literal edition check, so esbuild drops the handler).
+  if (process.env.TRACEROOST_EDITION !== 'core' && url === '/api/org' && (req.method === 'GET' || req.method === 'POST')) {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', async () => {
-      const { handleOrgMessage } = require('../src/cloud/org/panelController') as typeof import('../src/cloud/org/panelController')
-      const { buildPayloadPreviewTexts } = require('../src/cloud/org/payloadPreview') as typeof import('../src/cloud/org/payloadPreview')
       const outbox: Record<string, unknown>[] = []
       const msg = req.method === 'GET'
         ? { type: 'getOrgStatus' }
         : (() => { try { return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type: string } } catch { return { type: 'getOrgStatus' } } })()
       try {
-        await handleOrgMessage(msg, {
+        await cloud.handleOrgMessage(msg, {
           post: (m) => outbox.push(m),
           openExternal: (u) => {
             const cmd = process.platform === 'darwin' ? `open "${u}"` : process.platform === 'win32' ? `start "" "${u}"` : `xdg-open "${u}"`
@@ -2255,12 +2258,10 @@ const uiServer = http.createServer((req, res) => {
           },
           recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
           allLocalSessions: () => buildSessionSummary()?.sessions ?? [],
-          buildPayloadPreview: (sessions) => buildPayloadPreviewTexts(sessions),
+          buildPayloadPreview: (sessions) => cloud.buildPayloadPreview(sessions),
           onOpenOrgView: () => {
-            // Deep-links into the org's own dashboard, not the bare marketing root — see the
-            // matching comment on dashboardPanel.ts's onOpenOrgView.
-            const creds = loadCredentials()
-            const url = creds ? `${creds.endpoint}/${creds.orgId}` : orgEndpoint()
+            // Deep-links into the org's own dashboard — see cloud/bridge.ts's orgViewUrl.
+            const url = cloud.orgViewUrl()
             const cmd = process.platform === 'darwin' ? `open "${url}"` : process.platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`
             exec(cmd, (err) => {
               if (err) console.warn(`[TraceRoost] Could not open ${url} in a browser: ${err.message}`)
@@ -2355,17 +2356,16 @@ const uiServer = http.createServer((req, res) => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { workspace?: string }
         const workspace = body.workspace ?? ''
         if (!workspace) { res.writeHead(400); res.end(); return }
-        let info: { name: string; hash: string; githubUrl: string | null } | null
+        let info: { name: string; hash: string | null; githubUrl: string | null } | null
         if (repoInfoCache.has(workspace)) {
           info = repoInfoCache.get(workspace) ?? null
         } else {
-          const orgId = loadCredentials()?.orgId ?? 'unlinked-preview'
-          const [rk, githubUrl] = await Promise.all([deriveRepoKey(workspace, orgId), resolveGithubUrl(workspace)])
-          if (rk.ok) {
-            const rootName = path.basename(rk.ctx.root) || 'repository'
-            const parentName = path.basename(path.dirname(rk.ctx.root))
+          const [repo, githubUrl] = await Promise.all([cloud.describeRepo(workspace), resolveGithubUrl(workspace)])
+          if (repo) {
+            const rootName = path.basename(repo.root) || 'repository'
+            const parentName = path.basename(path.dirname(repo.root))
             const name = parentName ? `${parentName}/${rootName}` : rootName
-            info = { name, hash: repoHash(rk.ctx), githubUrl }
+            info = { name, hash: repo.hash, githubUrl }
           } else {
             info = null
           }
@@ -2549,10 +2549,10 @@ async function startUiServer(): Promise<void> {
   startLogIngestion()
 
   // Pro: forwarding scheduler. No timer runs unless an org is linked.
-  startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients })
+  cloud.startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients })
 
   // Pro: pricing sync — own (longer) interval, see pricingSync.ts.
-  startPricingSync({ onSync: pushOrgStatusToClients })
+  cloud.startPricingSync({ onSync: pushOrgStatusToClients })
 }
 
 void startOtlpServer()

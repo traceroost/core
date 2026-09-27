@@ -165,8 +165,9 @@ export class DatabaseWriter {
   }
 
   /** Records that `count` hashed traces were just successfully sent to the cloud (one row per
-   *  forwarding drain batch — see `cloud/forward/sender.ts`'s `recordSent`). Backs the Team
-   *  panel's transport transparency stats (`DatabaseReader.queryTraceSendStats`). */
+   *  forwarding drain batch — see the Pro upload sender's `recordSent`, reached via
+   *  cloudBridge.ts). Backs the Team panel's transport transparency stats
+   *  (`DatabaseReader.queryTraceSendStats`). */
   recordTraceSent(count: number, at: number): void {
     if (count <= 0) return
     this.db.run('INSERT INTO trace_sends (sent_at, count) VALUES (?, ?)', [at, count])
