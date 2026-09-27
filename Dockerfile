@@ -14,6 +14,9 @@ COPY standalone/ ./standalone/
 COPY media/src/ ./media/src/
 COPY media/tsconfig.json ./media/
 COPY media/mascot.png ./media/
+# dashboard.tsx imports packages/styles/src/pills.css (shared with traceroost-cloud) by relative
+# path — esbuild needs it on disk even though it's not in any COPYed package.json's dependencies.
+COPY packages/styles/ ./packages/styles/
 
 # core (the default until TraceRoost Pro launches) builds with no org-link/upload code at all, and
 # fails the image build if any reached a bundle; full includes it. See runbooks/RELEASING.md →
