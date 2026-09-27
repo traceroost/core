@@ -127,6 +127,10 @@ async function main() {
         '--skip-welcome',
         '--skip-release-notes',
         '--disable-telemetry',
+        // Secrets in memory, not the OS keychain: with HOME pointed at the temp home macOS has no
+        // login keychain there, and VS Code's startup secret read (Settings Sync / auth) blocked the
+        // window before the tests ever ran. Also keeps the runner's real keychain out of it.
+        '--use-inmemory-secretstorage',
         // No folder: the extension's "current workspace" fallback is then empty, so a session's
         // workspace can only come from the session itself (the fixture repo).
       ],
