@@ -44,6 +44,7 @@ import {
   isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
   extractCookieToken, authCookieHeader,
 } from '../src/httpSecurity'
+import { SseSessionSync, type SyncSummary } from './sseSessionSync'
 
 // Load `.env` from the current working directory, if one exists — lets `pnpm run local` point at
 // a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
@@ -718,11 +719,28 @@ function safeJsonText(json: string): string {
     .replace(/\$\{/g, '\\${')
 }
 
+/** A card's `Date.parse(startTime)` (and, once asked for, its UTC day), kept per card object and
+ *  redone only if its startTime string changes. Log cards outlive many dataVersions, and every
+ *  update re-sorted and re-bucketed all of them — ~70ms of date parsing/formatting per update at
+ *  20k sessions. */
+const startTimeCache = new WeakMap<object, { startTime: string; ms: number; day?: string }>()
+
+function cachedStart(card: { startTime: string }): { startTime: string; ms: number; day?: string } {
+  let hit = startTimeCache.get(card)
+  if (!hit || hit.startTime !== card.startTime) {
+    hit = { startTime: card.startTime, ms: Date.parse(card.startTime) }
+    startTimeCache.set(card, hit)
+  }
+  return hit
+}
+
+const EMPTY_START_MS = Date.parse('0')
+
 /** Newest-first by startTime — the same order (ties included) as sorting with a
  *  `Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')` comparator, with each
  *  timestamp parsed once instead of on every comparison (~20× fewer parses at 20k sessions). */
 function sortNewestFirst<T extends { startTime: string }>(sessions: T[]): T[] {
-  const times = sessions.map(s => Date.parse(s.startTime || '0'))
+  const times = sessions.map(s => s.startTime ? cachedStart(s).ms : EMPTY_START_MS)
   return sessions.map((_, i) => i).sort((a, b) => times[b] - times[a]).map(i => sessions[i])
 }
 
@@ -848,9 +866,9 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
   const dayMap: Record<string, { totalTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number; costUsd: number; sessionCount: number }> = {}
   for (const sess of sessions) {
     if (!sess.startTime) continue
-    const d = new Date(sess.startTime)
-    if (isNaN(d.getTime())) continue
-    const day = d.toISOString().slice(0, 10)
+    const start = cachedStart(sess)
+    if (isNaN(start.ms)) continue
+    const day = start.day ??= new Date(start.ms).toISOString().slice(0, 10)
     if (!dayMap[day]) dayMap[day] = { totalTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0, costUsd: 0, sessionCount: 0 }
     const r = dayMap[day]
     r.totalTokens += sess.inputTokens
@@ -861,7 +879,7 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
   }
   const dailyStats = Object.entries(dayMap).map(([day, r]) => ({ day, ...r })).sort((a, b) => a.day.localeCompare(b.day))
   const totalTokens = sessions.reduce((s, sess) => s + sess.inputTokens + sess.outputTokens, 0)
-  const times = sessions.map(s => s.startTime ? new Date(s.startTime).getTime() : 0).filter(t => t > 0)
+  const times = sessions.map(s => s.startTime ? cachedStart(s).ms : 0).filter(t => t > 0)
   const lifetimeStats = {
     totalSessions: sessions.length,
     totalTokens,
@@ -916,12 +934,9 @@ function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
  *  cards are rebuilt by every summarizeSpans() pass, so they're serialized fresh. */
 const strippedCardJson = new WeakMap<SessionSummaryCard, string>()
 
-/** The summary with every session's timeline emptied (`{ ...summary, sessions: sessions.map(s =>
- *  ({ ...s, timeline: [] })) }`), as JSON — byte for byte what stringifying that would give, but
- *  reusing strippedCardJson. Timelines are loaded lazily via /api/timeline/:sessionId instead. */
-function strippedSummaryJson(summary: ReturnType<typeof summarizeSpans> | null): string {
-  if (!summary) return 'null'
-  const cards = summary.sessions.map(s => {
+/** Each session's `JSON.stringify({ ...card, timeline: [] })`, reusing strippedCardJson. */
+function strippedCardJsons(summary: ReturnType<typeof summarizeSpans>): string[] {
+  return summary.sessions.map(s => {
     const reusable = logSessions.get(s.sessionId) === s
     let json = reusable ? strippedCardJson.get(s) : undefined
     if (json === undefined) {
@@ -930,6 +945,13 @@ function strippedSummaryJson(summary: ReturnType<typeof summarizeSpans> | null):
     }
     return json
   })
+}
+
+/** The summary with every session's timeline emptied (`{ ...summary, sessions: sessions.map(s =>
+ *  ({ ...s, timeline: [] })) }`), as JSON — byte for byte what stringifying that would give, but
+ *  built from strippedCardJsons. Timelines are loaded lazily via /api/timeline/:sessionId instead. */
+function strippedSummaryJson(summary: ReturnType<typeof summarizeSpans> | null, cards: string[] | null): string {
+  if (!summary || !cards) return 'null'
   // Serialize everything but `sessions` normally (keeping its key position), then splice the
   // cached card array in where a unique placeholder string landed.
   const placeholder = `__traceroost_sessions_${process.pid}_${dataVersion}__`
@@ -945,7 +967,11 @@ function strippedSummaryJson(summary: ReturnType<typeof summarizeSpans> | null):
 interface DerivedViews {
   version: number
   summary: ReturnType<typeof summarizeSpans> | null
-  strippedJson: string
+  /** strippedCardJsons(summary) — what both the full payload and SSE deltas are built from. */
+  cardJsons: string[] | null
+  /** strippedSummaryJson() of the same summary. Built on first use (see strippedJsonOf) — an SSE
+   *  delta doesn't need the whole ~23MB (at 20k sessions) string. */
+  strippedJson: string | null
   /** safeJson() of the same value, for inlining into a <script>. Built on first use. */
   strippedSafeJson: string | null
   sidebarJson: string
@@ -960,7 +986,8 @@ function derivedViews(): DerivedViews {
   derivedCache = {
     version: dataVersion,
     summary,
-    strippedJson: strippedSummaryJson(summary),
+    cardJsons: summary ? strippedCardJsons(summary) : null,
+    strippedJson: null,
     strippedSafeJson: null,
     sidebarJson: JSON.stringify(summary ? computeSidebarData(summary, spans) : null),
     analyticsJson: JSON.stringify(summary ? computeAnalyticsData(summary.sessions) : null),
@@ -969,14 +996,67 @@ function derivedViews(): DerivedViews {
   return derivedCache
 }
 
-function buildUpdatePayload(): string {
-  const views = derivedViews()
+function strippedJsonOf(views: DerivedViews): string {
+  return views.strippedJson ??= strippedSummaryJson(views.summary, views.cardJsons)
+}
+
+function syncSummaryOf(views: DerivedViews): SyncSummary | null {
+  const summary = views.summary
+  if (!summary || !views.cardJsons) return null
+  return {
+    ids: summary.sessions.map(s => s.sessionId),
+    cardJsons: views.cardJsons,
+    efficiencyJson: JSON.stringify(summary.efficiency),
+    backgroundSpansJson: JSON.stringify(summary.backgroundSpans),
+    deltaable: Array.isArray(summary.backgroundSpans) &&
+      Object.keys(summary).every(k => k === 'sessions' || k === 'efficiency' || k === 'backgroundSpans'),
+  }
+}
+
+// ── SSE session sync ──────────────────────────────────────────────────────────
+// Every open tab is sent the same frames in the same order, so one SseSessionSync tracks what all
+// of them hold (see sseSessionSync.ts). A tab that holds something else — a new connection whose
+// page was rendered at an older revision, a reconnect, a missed frame — gets a full update.
+const sseSync = new SseSessionSync(Date.now())
+/** The derivedViews() sseSync was last advanced to. */
+let sseSyncedViews: DerivedViews | null = null
+/** Open SSE responses by the client id the page connected with — how POST /api/sse-resync finds
+ *  the stream to send a requested full update down. */
+const sseClientsById = new Map<string, http.ServerResponse>()
+
+/** An `update` frame: `fields` (the session/analytics part, see SyncStep) plus what every frame
+ *  carries — the legacy sidebar blob and the live sidebar/burn-rate fields. */
+function updateFrame(views: DerivedViews, base: number, rev: number, fields: string): string {
   const sidebarLive = views.sidebarBase ? computeSidebarPayload(views.sidebarBase) : null
-  // Same JSON as stringifying { type, summary, sessionSummary, sidebar, analyticsData,
-  // ...sidebarLive } in one go, assembled from the cached pieces.
-  return '{"type":"update","summary":{"toolCalls":{}},"sessionSummary":' + views.strippedJson +
-    ',"sidebar":' + views.sidebarJson + ',"analyticsData":' + views.analyticsJson +
+  return '{"type":"update","summary":{"toolCalls":{}}' + fields + ',"sidebar":' + views.sidebarJson +
+    ',"base":' + base + ',"rev":' + rev +
     (sidebarLive ? ',' + JSON.stringify(sidebarLive).slice(1) : '}')
+}
+
+/** Advances sseSync to the current data, sending what changed (if anything) to every open tab.
+ *  Returns false when there was nothing to send. */
+function syncSseClients(): boolean {
+  const views = derivedViews()
+  if (views === sseSyncedViews) return false
+  sseSyncedViews = views
+  const step = sseSync.advance(syncSummaryOf(views), () => strippedJsonOf(views), views.analyticsJson)
+  if (!step.fields) return false
+  writeSse(updateFrame(views, step.base, step.rev, step.fields))
+  return true
+}
+
+/** A full update at sseSync's current revision, for one client that doesn't hold it. */
+function fullUpdateFrame(): string {
+  syncSseClients()
+  const views = derivedViews()
+  const rev = sseSync.revision
+  return updateFrame(views, rev, rev, ',"sessionSummary":' + strippedJsonOf(views) + ',"analyticsData":' + views.analyticsJson)
+}
+
+function writeSse(data: string): void {
+  sseClients = sseClients.filter(client => {
+    try { client.write(`data: ${data}\n\n`); return true } catch { return false }
+  })
 }
 
 function pushUpdate() {
@@ -984,10 +1064,8 @@ function pushUpdate() {
   lastPushUpdateAt = Date.now()
   if (sseClients.length === 0) return // nobody to tell — a tab that connects later gets a fresh payload
   const started = performance.now()
-  const data = buildUpdatePayload()
-  sseClients = sseClients.filter(client => {
-    try { client.write(`data: ${data}\n\n`); return true } catch { return false }
-  })
+  // Nothing session-shaped changed: still send the live sidebar fields, as every push always has.
+  if (!syncSseClients()) writeSse(updateFrame(derivedViews(), sseSync.revision, sseSync.revision, ''))
   lastPushUpdateCostMs = performance.now() - started
 }
 
@@ -1013,10 +1091,7 @@ function schedulePushUpdate(): void {
  *  script below) re-dispatches each SSE payload as a `window` `message` event, so the same
  *  `msg.type` switch in App.tsx handles both hosts unmodified. */
 function broadcastSse(payload: Record<string, unknown>): void {
-  const data = JSON.stringify(payload)
-  sseClients = sseClients.filter(client => {
-    try { client.write(`data: ${data}\n\n`); return true } catch { return false }
-  })
+  writeSse(JSON.stringify(payload))
 }
 
 /** Pushes a fresh org status to every open dashboard tab — call after anything that can change
@@ -1037,10 +1112,14 @@ function pushOrgStatusToClients(): void {
 // ── Dashboard HTML ────────────────────────────────────────────────────────────
 
 function getHtml(): string {
+  // The inlined sessions are sseSync's current revision — the page's SSE connection passes that
+  // revision back, and is spared a second full copy when nothing changed in between.
+  syncSseClients()
+  const sessionRev = sseSync.revision
   const views = derivedViews()
   // Strip full timeline arrays before inlining — they can be many MB across sessions.
   // Timelines are loaded lazily via /api/timeline/:sessionId after first paint.
-  const sessionSummaryJson = views.strippedSafeJson ??= safeJsonText(views.strippedJson)
+  const sessionSummaryJson = views.strippedSafeJson ??= safeJsonText(strippedJsonOf(views))
   const sidebarLive = views.sidebarBase ? computeSidebarPayload(views.sidebarBase) : {
     isActive: false, lastActivityMs: 0, sessionCount: 0, agentSources: [], currentSession: null, burnRate: null,
   }
@@ -1227,14 +1306,37 @@ function getHtml(): string {
     console.log('[TraceRoost] HTML received', Date.now());
     window.__INITIAL_TOOL_CALLS__ = {};
     window.__INITIAL_SESSION_SUMMARY__ = ${sessionSummaryJson};
+    window.__INITIAL_SESSION_REV__ = ${sessionRev};
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(PACKAGE_VERSION)};
 
     // ── Client-side search support ────────────────────────────────────────────
     var __latestSessions__ = (window.__INITIAL_SESSION_SUMMARY__ && window.__INITIAL_SESSION_SUMMARY__.sessions) || [];
+    // Follows the same base/rev protocol as App.tsx's 'update' handler: a frame whose base isn't
+    // the revision held here is skipped — the dashboard asks for the full update that fixes both.
+    var __latestRev__ = window.__INITIAL_SESSION_REV__;
     window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'update' && e.data.sessionSummary && e.data.sessionSummary.sessions) {
-        __latestSessions__ = e.data.sessionSummary.sessions;
+      var d = e.data;
+      if (!d || d.type !== 'update') return;
+      if (d.sessionSummary !== undefined) {
+        if (d.sessionSummary && d.sessionSummary.sessions) __latestSessions__ = d.sessionSummary.sessions;
+        __latestRev__ = d.rev;
+      } else if (d.base !== undefined && d.base !== __latestRev__) {
+        return;
+      } else if (d.sessionDelta) {
+        var byId = new Map();
+        __latestSessions__.forEach(function(s) { byId.set(s.sessionId, s); });
+        d.sessionDelta.upserts.forEach(function(s) { byId.set(s.sessionId, s); });
+        var order = d.sessionDelta.order || __latestSessions__.map(function(s) { return s.sessionId; });
+        var next = [];
+        for (var i = 0; i < order.length; i++) {
+          if (!byId.has(order[i])) return;
+          next.push(byId.get(order[i]));
+        }
+        __latestSessions__ = next;
+        __latestRev__ = d.rev;
+      } else if (d.rev !== undefined) {
+        __latestRev__ = d.rev;
       }
     });
 
@@ -1413,7 +1515,9 @@ function getHtml(): string {
         getState: function() { return null; },
         setState: function() {},
         postMessage: function(msg) {
-          if (msg.type && (msg.type === 'getOrgStatus' || msg.type.indexOf('org') === 0)) {
+          if (msg.type === 'requestFullUpdate') {
+            _requestFullUpdate();
+          } else if (msg.type && (msg.type === 'getOrgStatus' || msg.type.indexOf('org') === 0)) {
             fetch('/api/org', {
               method: msg.type === 'getOrgStatus' ? 'GET' : 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1654,22 +1758,41 @@ function getHtml(): string {
           .catch(function(e) { console.warn('[TraceRoost] poll failed', e); });
       }, 2000);
     }
-    var _es = new EventSource('/events');
-    _es.onopen = function() {
-      console.log('[TraceRoost] SSE connected', Date.now());
-      _sseOk = true;
-      if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-    };
-    _es.onmessage = function(e) {
-      window.dispatchEvent(new MessageEvent('message', { data: JSON.parse(e.data) }));
-    };
-    _es.onerror = function() {
-      if (!_sseOk) {
-        // Never connected — start polling immediately
-        _startPolling();
-      }
-      // If it was connected before, browser will auto-reconnect; don't start polling yet
-    };
+    // Names this tab's stream so a full update can be requested down it (/api/sse-resync). The
+    // rev is what the inlined HTML holds — a (re)connection at any other revision starts with a
+    // full update.
+    var _sseClientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    var _es;
+    function _openEvents(rev) {
+      _es = new EventSource('/events?client=' + _sseClientId + (rev !== undefined ? '&rev=' + rev : ''));
+      _es.onopen = function() {
+        console.log('[TraceRoost] SSE connected', Date.now());
+        _sseOk = true;
+        if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+      };
+      _es.onmessage = function(e) {
+        window.dispatchEvent(new MessageEvent('message', { data: JSON.parse(e.data) }));
+      };
+      _es.onerror = function() {
+        if (!_sseOk) {
+          // Never connected — start polling immediately
+          _startPolling();
+        }
+        // If it was connected before, browser will auto-reconnect; don't start polling yet
+      };
+    }
+    function _requestFullUpdate() {
+      if (!_es) return;
+      fetch('/api/sse-resync?client=' + _sseClientId, { method: 'POST' })
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); })
+        .catch(function() {
+          // Stream not (yet) known to the server — reopen it without a revision, which always
+          // starts with a full update.
+          _es.close();
+          _openEvents(undefined);
+        });
+    }
+    _openEvents(window.__INITIAL_SESSION_REV__);
   </script>
 
   <div id="sa-wrap">
@@ -1855,6 +1978,8 @@ function unauthorizedHtml(port: number): string {
 </html>`
 }
 
+const SSE_CLIENT_ID = /^[A-Za-z0-9_-]{1,64}$/
+
 const uiServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
@@ -1888,15 +2013,35 @@ const uiServer = http.createServer((req, res) => {
   }
 
   if (url === '/events') {
+    // `client` names this stream for POST /api/sse-resync; `rev` is the session revision the page
+    // already holds (the one inlined into its HTML).
+    const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '')
+    const clientId = query.get('client') ?? ''
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     })
     res.write(':\n\n') // initial ping
-    res.write(`data: ${buildUpdatePayload()}\n\n`)
+    syncSseClients() // tabs already open get any pending change before this one joins
+    const rev = sseSync.revision
+    res.write(`data: ${query.get('rev') === String(rev) ? updateFrame(derivedViews(), rev, rev, '') : fullUpdateFrame()}\n\n`)
     sseClients.push(res)
-    req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
+    if (SSE_CLIENT_ID.test(clientId)) sseClientsById.set(clientId, res)
+    req.on('close', () => {
+      sseClients = sseClients.filter(c => c !== res)
+      if (sseClientsById.get(clientId) === res) sseClientsById.delete(clientId)
+    })
+    return
+  }
+
+  // The dashboard's `requestFullUpdate` (its revision doesn't match a frame's `base`): send a full
+  // update down that tab's own stream, so it stays ordered with every other frame.
+  if (req.method === 'POST' && url === '/api/sse-resync') {
+    const client = sseClientsById.get(new URLSearchParams((req.url ?? '').split('?')[1] ?? '').get('client') ?? '')
+    if (!client) { res.writeHead(404); res.end(); return }
+    try { client.write(`data: ${fullUpdateFrame()}\n\n`) } catch { /* closing — its reconnect gets a full update */ }
+    res.writeHead(204); res.end()
     return
   }
 
@@ -2069,7 +2214,7 @@ const uiServer = http.createServer((req, res) => {
 
   if (req.method === 'GET' && url === '/api/summary') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(derivedViews().strippedJson)
+    res.end(strippedJsonOf(derivedViews()))
     return
   }
 

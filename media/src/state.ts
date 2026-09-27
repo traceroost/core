@@ -122,6 +122,9 @@ export interface SessionDelta {
   upserts: SessionSummaryCard[]
   order?: string[]
   efficiency: FullSummary['efficiency']
+  /** Top-level background spans — only the standalone server (standalone/sseSessionSync.ts) has
+   *  any; absent means none. */
+  backgroundSpans?: FullSummary['backgroundSpans']
 }
 
 /** The summary `delta` brings `prev` to, or null when `delta` names a session `prev` doesn't hold
@@ -138,7 +141,7 @@ export function applySessionDelta(prev: FullSummary | null, delta: SessionDelta)
     if (!s) return null
     sessions.push(s)
   }
-  return { sessions, backgroundSpans: [], efficiency: delta.efficiency }
+  return { sessions, backgroundSpans: delta.backgroundSpans ?? [], efficiency: delta.efficiency }
 }
 
 // ── Lazy timeline cache: sessionId → loaded timeline entries ──────────────────

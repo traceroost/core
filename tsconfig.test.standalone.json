@@ -22,6 +22,8 @@
     "standalone/cloud/traceCli.test.ts",
     "standalone/cloud/findCli.test.ts",
     "standalone/service/health.ts",
-    "standalone/service/health.test.ts"
+    "standalone/service/health.test.ts",
+    "standalone/sseSessionSync.ts",
+    "standalone/sseSessionSync.test.ts"
   ]
 }

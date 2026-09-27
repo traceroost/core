@@ -445,10 +445,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
  * Mount this on a route (e.g. `/mcp`) in your existing HTTP server.
  *
  * Each request gets its own transport instance (stateless per-request for
- * Streamable HTTP). The server instance is reused across requests.
+ * Streamable HTTP). Pass a factory to also give each request its own Server: the SDK refuses to
+ * connect a Server that is already connected, so a shared one only works while every tool
+ * handler finishes synchronously before the next request arrives.
  */
 export function handleMcpRequest(
-  server: Server,
+  serverOrFactory: Server | (() => Server),
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): void {
@@ -482,6 +484,7 @@ export function handleMcpRequest(
     let parsedBody: unknown
     try { parsedBody = raw ? JSON.parse(raw) : undefined } catch { parsedBody = undefined }
 
+    const server = typeof serverOrFactory === 'function' ? serverOrFactory() : serverOrFactory
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     server.connect(transport)
       .then(() => transport.handleRequest(req, res, parsedBody))
@@ -512,7 +515,8 @@ export async function startMcpHttpServer(
   authToken = '',
   onFallback?: (requested: number, bound: number) => void,
 ): Promise<http.Server> {
-  const server = createMcpServer(opts)
+  // A Server per request (see handleMcpRequest) — creating one is ~0.1 ms.
+  const newServer = () => createMcpServer(opts)
   // Only enforced once bindHost is exposed beyond loopback — the default local setup and
   // existing MCP clients (this repo's own Claude Code / editor integrations) point at
   // 127.0.0.1 with no way to supply a token, so they must keep working unauthenticated.
@@ -530,7 +534,7 @@ export async function startMcpHttpServer(
     if (requireToken && !isAuthorized(req, authToken)) {
       res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Unauthorized'); return
     }
-    handleMcpRequest(server, req, res)
+    handleMcpRequest(newServer, req, res)
   })
   await listenWithFallback(httpServer, port, bindHost, { onFallback })
   return httpServer

@@ -22,6 +22,12 @@ suite('media/applySessionDelta', () => {
     assert.deepStrictEqual(next.sessions.map(s => s.sessionId), ['c', 'a'])
   })
 
+  test('takes top-level background spans from the delta when it carries them (standalone server)', () => {
+    const backgroundSpans = [{ name: 'title', model: 'm', purpose: 'Generate chat title', inputTokens: 1, outputTokens: 2 }]
+    const next = applySessionDelta(makeSummary([a]), { upserts: [], efficiency, backgroundSpans })!
+    assert.deepStrictEqual(next.backgroundSpans, backgroundSpans)
+  })
+
   test('builds from nothing when the delta carries the full order', () => {
     const next = applySessionDelta(null, { upserts: [a], order: ['a'], efficiency })!
     assert.deepStrictEqual(next.sessions, [a])

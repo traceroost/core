@@ -9,7 +9,8 @@
 // deep link into the interactive view — doesn't start the server. `traceroost trace --id <id>`
 // and `traceroost patterns --repo <hash|name>` run either half of `find` directly.
 // Any other bare word is an unknown subcommand: print usage and exit non-zero rather than
-// silently starting the server. No arguments (or flags only) starts the server.
+// silently starting the server. `--help`/`-h` prints the usage. No arguments (or other flags
+// only) starts the server.
 
 const USAGE = `Usage:
   traceroost                                   start the server (UI, OTLP receiver, MCP)
@@ -25,6 +26,10 @@ const USAGE = `Usage:
 
 async function main() {
   const args = process.argv.slice(2)
+  if (args[0] === '--help' || args[0] === '-h') {
+    console.log(USAGE)
+    return
+  }
   if (args[0] === 'service') {
     const { runServiceCli } = await import('./service/index.js')
     process.exitCode = await runServiceCli(args.slice(1))

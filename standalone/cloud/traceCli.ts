@@ -7,7 +7,7 @@
  * against locally recorded sessions, not a hash reversal.
  */
 
-import { loadAllSessions } from './sessionLoader'
+import { loadSessionsMatchingId } from './sessionLoader'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 function valueAfter(args: string[], flag: string): string | undefined {
@@ -21,7 +21,8 @@ export function findSessionById(sessions: SessionSummaryCard[], id: string): Ses
   return sessions.find(s => s.sessionId === id || s.traceId === id)
 }
 
-/** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it. */
+/** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it; otherwise
+ *  only the log files that could hold `id` are parsed (loadSessionsMatchingId). */
 export async function runTraceCli(args: string[], loaded?: SessionSummaryCard[]): Promise<number> {
   const id = (valueAfter(args, '--id') ?? '').trim()
   if (!id) {
@@ -29,7 +30,7 @@ export async function runTraceCli(args: string[], loaded?: SessionSummaryCard[])
     return 1
   }
 
-  const found = findSessionById(loaded ?? loadAllSessions(), id)
+  const found = findSessionById(loaded ?? loadSessionsMatchingId(id), id)
   if (!found) {
     console.log(`No trace matching "${id}" on this machine — try a machine that recorded this session.`)
     return 1
