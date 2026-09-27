@@ -21,6 +21,13 @@ export interface ServiceConfig {
    *  and persists one on first run — kept out of `defaultServiceConfig` so that function stays
    *  pure and deterministic for tests. */
   authToken: string
+  /** Stable per-machine identifier for TraceRoost Pro (AL 02). A UUID generated once, at first
+   *  run, and persisted here beside the auth token — present from schema version 1 even before
+   *  anything reads it, so a later org link never needs a schema change plus a backfill.
+   *  Empty until `ensureInstallId` generates one, same rationale as `authToken`. It is NOT sent
+   *  in the rollup body — the service derives the install from the bearer token — but it keys
+   *  the client's own forwarding queue and `--explain-payload` output. */
+  installId: string
 }
 
 // `baseHome` defaults to the real home directory in production; tests pass a temp directory
@@ -38,6 +45,7 @@ export function defaultServiceConfig(baseHome?: string): ServiceConfig {
     bindHost: '127.0.0.1',
     dataDir: defaultDataDir(baseHome),
     authToken: '',
+    installId: '',
   }
 }
 
@@ -62,7 +70,10 @@ export function readServiceConfig(baseHome?: string): ServiceConfig {
 export function writeServiceConfig(config: ServiceConfig, baseHome?: string): void {
   const configPath = serviceConfigPath(baseHome)
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+  // Holds the bearer token — owner-only. `mode` only applies when the file is created, so an
+  // existing (pre-0600) file is tightened too; chmod is a harmless no-op on Windows.
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 })
+  try { fs.chmodSync(configPath, 0o600) } catch { /* best effort */ }
 }
 
 /** Generates a fresh bearer token for the UI/OTLP/MCP servers. */
@@ -82,8 +93,37 @@ export function ensureAuthToken(config: ServiceConfig, baseHome?: string): Servi
   return withToken
 }
 
+/** Returns `config` unchanged if it already carries an `installId`; otherwise generates a UUID,
+ *  persists it, and returns the updated config. Independent of `ensureAuthToken` so an install
+ *  that predates this field picks one up on its next startup. */
+export function ensureInstallId(config: ServiceConfig, baseHome?: string): ServiceConfig {
+  if (config.installId) return config
+  const withId = { ...config, installId: crypto.randomUUID() }
+  writeServiceConfig(withId, baseHome)
+  return withId
+}
+
 export function serviceLogPath(config: ServiceConfig): string {
   return path.join(config.dataDir, 'logs', 'service.log')
+}
+
+/** Reads `name`/`version` out of the nearest `package.json` relative to `fromDir`, trying a
+ *  couple of candidate depths since callers sit at different distances from the package root
+ *  (e.g. `standalone/` vs. `standalone/service/`). Returns `{}` if neither candidate parses —
+ *  callers decide how to degrade (e.g. fall back to `'unknown'`) rather than throwing, since a
+ *  missing `package.json` (a stripped-down Docker image, say) shouldn't crash the process just to
+ *  report its own version. */
+export function readPackageManifest(fromDir: string): { name?: string; version?: string } {
+  for (const rel of [['..', 'package.json'], ['..', '..', 'package.json']]) {
+    try {
+      const raw = fs.readFileSync(path.join(fromDir, ...rel), 'utf-8')
+      const manifest = JSON.parse(raw) as { name?: string; version?: string }
+      return { name: manifest.name, version: manifest.version }
+    } catch {
+      // try the next candidate depth
+    }
+  }
+  return {}
 }
 
 // ── CLI flag parsing ─────────────────────────────────────────────────────────
@@ -105,7 +145,7 @@ export function parseServiceInstallFlags(args: string[]): ServiceConfig {
     const value = args[i + 1]
     if (value === undefined) { continue }
     i++
-    if (key === 'bindHost' || key === 'dataDir' || key === 'authToken') {
+    if (key === 'bindHost' || key === 'dataDir' || key === 'authToken' || key === 'installId') {
       config[key] = value
     } else {
       const n = parseInt(value, 10)
@@ -208,9 +248,21 @@ export function launchdLabel(): string {
   return LAUNCHD_LABEL
 }
 
+/** XML-escapes a value for a plist `<string>` — a path or bind host containing `&` or `<`
+ *  would otherwise produce a plist launchd refuses to load (or, worse, one that parses into
+ *  different keys than intended). */
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
 export function generateLaunchdPlist({ nodePath, cliPath, config }: ServiceProgram): string {
-  const logPath = serviceLogPath(config)
-  const envEntry = (key: string, value: string) => `    <key>${key}</key>\n    <string>${value}</string>`
+  const logPath = xmlEscape(serviceLogPath(config))
+  const envEntry = (key: string, value: string) => `    <key>${key}</key>\n    <string>${xmlEscape(value)}</string>`
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -219,8 +271,8 @@ export function generateLaunchdPlist({ nodePath, cliPath, config }: ServiceProgr
   <string>${LAUNCHD_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${nodePath}</string>
-    <string>${cliPath}</string>
+    <string>${xmlEscape(nodePath)}</string>
+    <string>${xmlEscape(cliPath)}</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -233,6 +285,7 @@ ${envEntry('OTLP_PORT', String(config.otlpPort))}
 ${envEntry('MCP_PORT', String(config.mcpPort))}
 ${envEntry('BIND_HOST', config.bindHost)}
 ${envEntry('DATA_DIR', config.dataDir)}
+${envEntry('TRACEROOST_SERVICE', '1')}
   </dict>
   <key>StandardOutPath</key>
   <string>${logPath}</string>
@@ -245,21 +298,55 @@ ${envEntry('DATA_DIR', config.dataDir)}
 
 export const SYSTEMD_UNIT_NAME = 'traceroost.service'
 
+/** A unit file is line-oriented — a value containing a newline would start a new directive,
+ *  and there is no escape for that in every setting we write, so refuse it outright. */
+function assertSingleLine(value: string, what: string): void {
+  if (/[\r\n\0]/.test(value)) {
+    throw new Error(`${what} contains a line break or NUL, which can't be written to a service definition: ${JSON.stringify(value)}`)
+  }
+}
+
+/** Escapes systemd specifiers (`%h`, `%u`, …) — systemd expands them in ExecStart, Environment
+ *  and StandardOutput values, so a literal `%` must be written `%%` (systemd.unit(5)). */
+function systemdEscapeSpecifiers(value: string): string {
+  return value.replace(/%/g, '%%')
+}
+
+/** Double-quotes one word for a setting systemd splits into words and unquotes (ExecStart
+ *  arguments, Environment assignments): backslash and `"` are C-escaped inside the quotes, and
+ *  specifiers are escaped (systemd.syntax(7)). `$` is additionally doubled for ExecStart, where
+ *  `$VAR`/`${VAR}` would otherwise be substituted from the environment (systemd.service(5)). */
+function systemdQuote(value: string, what: string, { execArg = false } = {}): string {
+  assertSingleLine(value, what)
+  let escaped = systemdEscapeSpecifiers(value.replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
+  if (execArg) { escaped = escaped.replace(/\$/g, '$$$$') }
+  return `"${escaped}"`
+}
+
+/** A `StandardOutput=append:<path>` value is taken verbatim (no unquoting), with specifiers
+ *  expanded — so only `%` needs escaping; spaces are fine as-is. */
+function systemdPath(value: string, what: string): string {
+  assertSingleLine(value, what)
+  return systemdEscapeSpecifiers(value)
+}
+
 export function generateSystemdUnit({ nodePath, cliPath, config }: ServiceProgram): string {
-  const logPath = serviceLogPath(config)
+  const logPath = systemdPath(serviceLogPath(config), 'log path')
+  const env = (key: string, value: string) => `Environment=${systemdQuote(`${key}=${value}`, key)}`
   return `[Unit]
 Description=TraceRoost background service
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=${nodePath} ${cliPath}
+ExecStart=${systemdQuote(nodePath, 'node path', { execArg: true })} ${systemdQuote(cliPath, 'cli path', { execArg: true })}
 Restart=on-failure
-Environment=UI_PORT=${config.uiPort}
-Environment=OTLP_PORT=${config.otlpPort}
-Environment=MCP_PORT=${config.mcpPort}
-Environment=BIND_HOST=${config.bindHost}
-Environment=DATA_DIR=${config.dataDir}
+${env('UI_PORT', String(config.uiPort))}
+${env('OTLP_PORT', String(config.otlpPort))}
+${env('MCP_PORT', String(config.mcpPort))}
+${env('BIND_HOST', config.bindHost)}
+${env('DATA_DIR', config.dataDir)}
+${env('TRACEROOST_SERVICE', '1')}
 StandardOutput=append:${logPath}
 StandardError=append:${logPath}
 
@@ -274,14 +361,27 @@ export const WINDOWS_TASK_NAME = 'TraceRoost'
  *  so the task points at this wrapper .cmd instead of node.exe directly — it sets the
  *  env vars for the child process only (never touches the user's persistent environment
  *  the way `setx` would) and appends output to the same log file macOS/Linux use. */
+/** Makes a value safe inside a double-quoted token in a .cmd file (`set "K=v"`, `"path"`): `%`
+ *  is doubled so cmd doesn't expand `%VAR%` from it (the batch-file escape; `&`, `^`, `<`, `>`
+ *  and `|` are already literal inside the quotes). A `"` would end the quoting early and a line
+ *  break would start a new command — neither has an escape here, and neither can occur in a real
+ *  Windows path, so both are refused. */
+function cmdQuoted(value: string, what: string): string {
+  if (/["\r\n\0]/.test(value)) {
+    throw new Error(`${what} contains a double quote or line break, which can't be written to the service wrapper script: ${JSON.stringify(value)}`)
+  }
+  return value.replace(/%/g, '%%')
+}
+
 export function generateWindowsWrapperScript({ nodePath, cliPath, config }: ServiceProgram): string {
-  const logPath = serviceLogPath(config)
+  const logPath = cmdQuoted(serviceLogPath(config), 'log path')
   return `@echo off
 set "UI_PORT=${config.uiPort}"
 set "OTLP_PORT=${config.otlpPort}"
 set "MCP_PORT=${config.mcpPort}"
-set "BIND_HOST=${config.bindHost}"
-set "DATA_DIR=${config.dataDir}"
-"${nodePath}" "${cliPath}" >> "${logPath}" 2>&1
+set "BIND_HOST=${cmdQuoted(config.bindHost, 'bind host')}"
+set "DATA_DIR=${cmdQuoted(config.dataDir, 'data dir')}"
+set "TRACEROOST_SERVICE=1"
+"${cmdQuoted(nodePath, 'node path')}" "${cmdQuoted(cliPath, 'cli path')}" >> "${logPath}" 2>&1
 `
 }

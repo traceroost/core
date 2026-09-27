@@ -6,7 +6,6 @@
  *   get_recent_sessions        — recent session summaries, newest-first
  *   get_workspace_patterns     — aggregate patterns across all sessions
  *   get_session_detail         — full timeline for one session
- *   find_relevant_context      — files and patterns relevant to a task description
  *   get_efficiency_report      — trends and recurring efficiency problems
  *   get_instruction_suggestions — pending Advisor suggestions for one workspace
  *   check_automation_triggers  — currently-triggered stuck-agent corrections for one workspace
@@ -18,16 +17,20 @@
 import * as http from 'http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { listenWithFallback } from './portResolver'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { calcTokenCostUsd } from './pricing'
+import { calcSessionCostUsd } from './pricing'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
 import { generateSuggestions } from './instructionAdvisor'
 import { readAllInstructionContent } from './instructionFiles'
 import { checkAutomationTriggers } from './automationEngine'
-import { isAllowedHostHeader, isAuthorized, isLoopbackHost } from './httpSecurity'
+import { isAllowedHostHeader, isAllowedOrigin, isAuthorized, isLoopbackHost } from './httpSecurity'
+
+/** Largest MCP request body accepted (413 above it). Tool calls are tiny JSON-RPC messages. */
+export const MAX_MCP_BODY_BYTES = 4 * 1024 * 1024
 
 // ── Session accessor ──────────────────────────────────────────────────────────
 
@@ -38,13 +41,7 @@ export type SessionAccessor = () => SessionSummaryCard[]
 // ── Cost helper ───────────────────────────────────────────────────────────────
 
 function sessionCost(s: SessionSummaryCard): number {
-  return calcTokenCostUsd(
-    s.inputTokens - s.cacheReadTokens - (s.cacheCreateTokens ?? 0),
-    s.cacheReadTokens,
-    s.cacheCreateTokens ?? 0,
-    s.outputTokens,
-    s.model,
-  )
+  return calcSessionCostUsd(s)
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
@@ -89,23 +86,6 @@ const TOOLS = [
       required: ['sessionId'],
       properties: {
         sessionId: { type: 'string', description: 'Session ID from get_recent_sessions' },
-      },
-    },
-  },
-  {
-    name: 'find_relevant_context',
-    description:
-      'Given a task description, keyword-matches against past session prompts and returns ' +
-      'files accessed in similar sessions, estimated cost/turns, and known traps. ' +
-      'Reliable for established workflows (e.g. "add auth", "fix sidebar tests"); ' +
-      'unreliable for novel tasks where keyword overlap is weak — file suggestions ' +
-      'may pull in unrelated sessions. Treat results as a sanity check, not a reading list.',
-    inputSchema: {
-      type: 'object' as const,
-      required: ['task'],
-      properties: {
-        task:      { type: 'string', description: 'Short description of the task you are about to start' },
-        workspace: { type: 'string', description: 'Filter sessions by workspace path prefix' },
       },
     },
   },
@@ -200,10 +180,10 @@ function handleGetWorkspacePatterns(
 
   // File frequency
   const fileFreq = new Map<string, number>()
+  const countFile = (f: string) => fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1)
   for (const s of filtered) {
-    for (const f of [...(s.filesRead ?? []), ...(s.filesChanged ?? [])]) {
-      fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1)
-    }
+    for (const f of s.filesRead ?? []) countFile(f)
+    for (const f of s.filesChanged ?? []) countFile(f)
   }
   const hotFiles = [...fileFreq.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -233,20 +213,21 @@ function handleGetWorkspacePatterns(
     .sort((a, b) => b[1] - a[1])
     .map(([type, count]) => ({ type, count }))
 
-  // Averages
-  const totalCost  = filtered.reduce((s, sess) => s + sessionCost(sess), 0)
+  // Averages — each session priced once (sessionCost walks its whole timeline), reused below.
+  const costs      = filtered.map(sessionCost)
+  const totalCost  = costs.reduce((s, c) => s + c, 0)
   const totalTurns = filtered.reduce((s, sess) => s + sess.totalLlmCalls, 0)
   const totalCache = filtered.reduce((s, sess) => s + sess.cacheHitRate, 0)
   const errorSess  = filtered.filter(s => s.errors > 0).length
 
   // Agent/model breakdown
   const agentMap = new Map<string, { sessions: number; cost: number; turns: number }>()
-  for (const s of filtered) {
+  filtered.forEach((s, i) => {
     const key = `${s.source}/${s.model}`
     const e = agentMap.get(key) ?? { sessions: 0, cost: 0, turns: 0 }
-    e.sessions++; e.cost += sessionCost(s); e.turns += s.totalLlmCalls
+    e.sessions++; e.cost += costs[i]; e.turns += s.totalLlmCalls
     agentMap.set(key, e)
-  }
+  })
   const agentBreakdown = [...agentMap.entries()]
     .sort((a, b) => b[1].sessions - a[1].sessions)
     .slice(0, 6)
@@ -294,67 +275,6 @@ function handleGetSessionDetail(
   }
 }
 
-function handleFindRelevantContext(
-  sessions: SessionSummaryCard[],
-  args: { task: string; workspace?: string },
-) {
-  const taskWords = new Set(
-    args.task.toLowerCase().replace(/[^a-z0-9\s/_.]/g, ' ').split(/\s+/).filter(w => w.length > 3)
-  )
-  if (taskWords.size === 0) return { message: 'Task description too short to match against history.' }
-
-  // Score each session by word overlap with the task description
-  const scored = sessions.map(s => {
-    const req = (s.userRequest ?? '').toLowerCase()
-    const overlap = [...taskWords].filter(w => req.includes(w)).length
-    return { s, score: overlap }
-  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score)
-
-  const similar = scored.slice(0, 15).map(x => x.s)
-  if (similar.length === 0) return { message: 'No past sessions closely match this task description. No history to draw from yet.' }
-
-  // Aggregate files from similar sessions
-  const fileFreq = new Map<string, number>()
-  for (const s of similar) {
-    for (const f of [...(s.filesRead ?? []), ...(s.filesChanged ?? [])]) {
-      fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1)
-    }
-  }
-  const relevantFiles = [...fileFreq.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12)
-    .map(([file, count]) => ({ file, appearsIn: count, pct: Math.round(count / similar.length * 100) }))
-
-  // Cost and turn estimates
-  const costs  = similar.map(s => sessionCost(s))
-  const turns  = similar.map(s => s.totalLlmCalls)
-  const minC   = +Math.min(...costs).toFixed(3), maxC = +Math.max(...costs).toFixed(3)
-  const avgC   = +(costs.reduce((a, b) => a + b, 0) / costs.length).toFixed(3)
-  const avgT   = +(turns.reduce((a, b) => a + b, 0) / turns.length).toFixed(1)
-
-  // Common loop signals in similar sessions
-  const sigFreq = new Map<string, number>()
-  for (const s of similar) {
-    for (const sig of s.loopSignals ?? []) {
-      sigFreq.set(sig.type, (sigFreq.get(sig.type) ?? 0) + 1)
-    }
-  }
-  const knownTraps = [...sigFreq.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([type, count]) => `${type} (${count}/${similar.length} similar sessions)`)
-
-  return {
-    matchedSessions: similar.length,
-    estimatedCostUsd: { min: minC, avg: avgC, max: maxC },
-    estimatedTurns:   avgT,
-    relevantFiles,
-    knownTraps: knownTraps.length > 0 ? knownTraps : null,
-    tip: relevantFiles.length > 0
-      ? `Consider mentioning these files upfront: ${relevantFiles.slice(0, 3).map(f => f.file).join(', ')}`
-      : null,
-  }
-}
 
 function handleGetEfficiencyReport(
   sessions: SessionSummaryCard[],
@@ -364,13 +284,16 @@ function handleGetEfficiencyReport(
   const cutoff = Date.now() - cutoffDays * 86_400_000
   const recent = sessions.filter(s => Date.parse(s.startTime) >= cutoff)
   if (recent.length === 0) return { message: `No sessions in the last ${cutoffDays} days.` }
+  // Each session priced (sessionCost walks its whole timeline) and dated once, reused below.
+  const costOf = new Map(recent.map(s => [s, sessionCost(s)]))
+  const startOf = new Map(recent.map(s => [s, Date.parse(s.startTime)]))
 
   // Week-over-week cost trend (split into two halves)
   const mid = Date.now() - (cutoffDays / 2) * 86_400_000
-  const firstHalf  = recent.filter(s => Date.parse(s.startTime) < mid)
-  const secondHalf = recent.filter(s => Date.parse(s.startTime) >= mid)
-  const avgFirst  = firstHalf.length  > 0 ? firstHalf.reduce((s, x)  => s + sessionCost(x), 0) / firstHalf.length  : 0
-  const avgSecond = secondHalf.length > 0 ? secondHalf.reduce((s, x) => s + sessionCost(x), 0) / secondHalf.length : 0
+  const firstHalf  = recent.filter(s => startOf.get(s)! < mid)
+  const secondHalf = recent.filter(s => startOf.get(s)! >= mid)
+  const avgFirst  = firstHalf.length  > 0 ? firstHalf.reduce((s, x)  => s + costOf.get(x)!, 0) / firstHalf.length  : 0
+  const avgSecond = secondHalf.length > 0 ? secondHalf.reduce((s, x) => s + costOf.get(x)!, 0) / secondHalf.length : 0
   const trend = avgFirst === 0 ? 'no data'
     : avgSecond > avgFirst * 1.15 ? 'increasing ↑'
     : avgSecond < avgFirst * 0.85 ? 'decreasing ↓'
@@ -392,7 +315,7 @@ function handleGetEfficiencyReport(
   for (const s of recent) {
     const key = `${s.source}/${s.model || 'unknown'}`
     const e = agentMap.get(key) ?? { n: 0, totalCost: 0, totalTurns: 0, errors: 0 }
-    e.n++; e.totalCost += sessionCost(s); e.totalTurns += s.totalLlmCalls; e.errors += s.errors
+    e.n++; e.totalCost += costOf.get(s)!; e.totalTurns += s.totalLlmCalls; e.errors += s.errors
     agentMap.set(key, e)
   }
   const agentRanking = [...agentMap.entries()]
@@ -409,7 +332,7 @@ function handleGetEfficiencyReport(
     period:       `last ${cutoffDays} days`,
     sessionCount: recent.length,
     costTrend:    trend,
-    avgCostUsd:   +(recent.reduce((s, x) => s + sessionCost(x), 0) / recent.length).toFixed(4),
+    avgCostUsd:   +(recent.reduce((s, x) => s + costOf.get(x)!, 0) / recent.length).toFixed(4),
     avgTurns:     +(recent.reduce((s, x) => s + x.totalLlmCalls, 0) / recent.length).toFixed(1),
     errorRate:    Math.round(recent.filter(s => s.errors > 0).length / recent.length * 100) + '%',
     topLoopSignals: topSignals,
@@ -423,7 +346,7 @@ function handleGetInstructionSuggestions(
 ) {
   const workspace = args.workspace?.trim()
   if (!workspace) {
-    return { error: 'workspace is required — instruction suggestions are project-scoped.' }
+    return { error: 'workspace is required — instruction suggestions are repo-scoped.' }
   }
   const filtered = sessions.filter(s => (s.workspace ?? '') === workspace || s.workspace?.startsWith(workspace))
   if (filtered.length < 5) {
@@ -494,9 +417,6 @@ export function createMcpServer(opts: McpServerOptions): Server {
       case 'get_session_detail':
         result = handleGetSessionDetail(sessions, opts.getTimeline ?? null, args as { sessionId: string })
         break
-      case 'find_relevant_context':
-        result = handleFindRelevantContext(sessions, args as { task: string; workspace?: string })
-        break
       case 'get_efficiency_report':
         result = handleGetEfficiencyReport(sessions, args as { workspace?: string; days?: number })
         break
@@ -525,10 +445,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
  * Mount this on a route (e.g. `/mcp`) in your existing HTTP server.
  *
  * Each request gets its own transport instance (stateless per-request for
- * Streamable HTTP). The server instance is reused across requests.
+ * Streamable HTTP). Pass a factory to also give each request its own Server: the SDK refuses to
+ * connect a Server that is already connected, so a shared one only works while every tool
+ * handler finishes synchronously before the next request arrives.
  */
 export function handleMcpRequest(
-  server: Server,
+  serverOrFactory: Server | (() => Server),
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): void {
@@ -539,13 +461,30 @@ export function handleMcpRequest(
     return
   }
 
-  // Buffer and parse the body before passing to the transport.
-  let raw = ''
-  req.on('data', (chunk: Buffer) => { raw += chunk.toString() })
+  // Buffer and parse the body before passing to the transport — capped, so a runaway or hostile
+  // client can't make this process buffer an unbounded request in memory.
+  const chunks: Buffer[] = []
+  let size = 0
+  let tooLarge = false
+  req.on('data', (chunk: Buffer) => {
+    if (tooLarge) return
+    size += chunk.length
+    if (size > MAX_MCP_BODY_BYTES) {
+      tooLarge = true
+      chunks.length = 0
+      res.writeHead(413, { 'Content-Type': 'text/plain', 'Connection': 'close' })
+      res.end('Payload Too Large')
+      return
+    }
+    chunks.push(chunk)
+  })
   req.on('end', () => {
+    if (tooLarge) return
+    const raw = Buffer.concat(chunks).toString('utf-8')
     let parsedBody: unknown
     try { parsedBody = raw ? JSON.parse(raw) : undefined } catch { parsedBody = undefined }
 
+    const server = typeof serverOrFactory === 'function' ? serverOrFactory() : serverOrFactory
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     server.connect(transport)
       .then(() => transport.handleRequest(req, res, parsedBody))
@@ -561,14 +500,23 @@ export function handleMcpRequest(
 /**
  * Starts a dedicated HTTP server for the MCP endpoint.
  * Used when there is no existing HTTP server to attach to.
+ *
+ * On `EADDRINUSE`, scans upward for a free port (see `listenWithFallback`) rather than exiting —
+ * callers read the port actually bound off the returned server's `.address()` (or the
+ * `onFallback` callback, fired only when the bound port differs from the requested one) instead
+ * of assuming `port` was the one that ended up listening. Throws `PortScanExhaustedError` if the
+ * whole scan range is taken; callers own how loudly to fail (the standalone/service entrypoint
+ * exits the process, the VS Code extension shows an error and keeps running).
  */
-export function startMcpHttpServer(
+export async function startMcpHttpServer(
   opts: McpServerOptions,
   port: number,
   bindHost = '127.0.0.1',
   authToken = '',
-): http.Server {
-  const server = createMcpServer(opts)
+  onFallback?: (requested: number, bound: number) => void,
+): Promise<http.Server> {
+  // A Server per request (see handleMcpRequest) — creating one is ~0.1 ms.
+  const newServer = () => createMcpServer(opts)
   // Only enforced once bindHost is exposed beyond loopback — the default local setup and
   // existing MCP clients (this repo's own Claude Code / editor integrations) point at
   // 127.0.0.1 with no way to supply a token, so they must keep working unauthenticated.
@@ -577,22 +525,17 @@ export function startMcpHttpServer(
     if (!isAllowedHostHeader(req.headers.host, bindHost)) {
       res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
     }
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, mcp-session-id, Authorization')
-    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
+    // No CORS headers at all: MCP clients aren't browsers, and a browser page must not be able to
+    // read session prompts, paths and costs off this port. Browsers always send Origin on the
+    // cross-origin POST such a page would need, so reject any Origin that isn't local.
+    if (!isAllowedOrigin(req.headers.origin)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+    }
     if (requireToken && !isAuthorized(req, authToken)) {
       res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Unauthorized'); return
     }
-    handleMcpRequest(server, req, res)
+    handleMcpRequest(newServer, req, res)
   })
-  httpServer.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`[TraceRoost] Port ${port} (MCP) already in use — stop the process using it or set MCP_PORT=<other> to use a different port.`)
-      process.exit(1)
-    }
-    throw err
-  })
-  httpServer.listen(port, bindHost)
+  await listenWithFallback(httpServer, port, bindHost, { onFallback })
   return httpServer
 }

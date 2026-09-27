@@ -1,6 +1,6 @@
 # TraceRoost Architecture
 
-TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
+TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database and Cursor CLI's transcript files), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
 
 > **Naming:** the UI calls one prompt-to-response run a **Trace** (the Traces tab, the Waterfall sub-tab). The codebase predates that and still says `session` throughout — `SessionSummaryCard`, `sessions` table, `session_id`, `listSessions`, the `get_recent_sessions` MCP tool, etc. Read "session" as "trace" everywhere below; the two are the same thing.
 
@@ -22,6 +22,7 @@ TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry f
 12. [Auto-Configuration](#12-auto-configuration)
 13. [Background Service Mode](#13-background-service-mode)
 14. [Build Pipeline](#14-build-pipeline)
+15. [TraceRoost Pro — org link](#15-traceroost-pro--org-link)
 
 ---
 
@@ -42,6 +43,7 @@ graph TB
         CP_VS["workspaceStorage/{hash}/chatSessions/{uuid}.jsonl<br/>(delta log — newer VS Code-family Copilot Chat)"]
         CP_JSON["workspaceStorage/{hash}/chatSessions/{uuid}.json<br/>(snapshot — older VS Code-family Copilot Chat)"]
         OC_DB["~/.local/share/opencode/opencode.db<br/>(SQLite — WAL merged at read time)"]
+        CU_LOGS["~/.cursor/projects/**/agent-transcripts/**/*.jsonl"]
     end
 
     subgraph VSCode Extension
@@ -72,7 +74,7 @@ graph TB
     COL -- addSpan --> STO
     STO -- onUpdate → summarize → enqueue --> WRI
 
-    CL_LOGS & CX_LOGS & CP_LOGS & CP_VS & CP_JSON & OC_DB --> LR
+    CL_LOGS & CX_LOGS & CP_LOGS & CP_VS & CP_JSON & OC_DB & CU_LOGS --> LR
     LR -- "enqueue(card)" --> WRI
 
     WRI --> DB
@@ -182,7 +184,7 @@ flowchart TD
     end
 
     subgraph LOGS["Log file / database path (disk) — see §4"]
-        LF["~/.claude · ~/.codex · ~/.copilot<br/>JSONL files<br/>~/.local/share/opencode/opencode.db (SQLite)"] --> LR[LogReader<br/>parseFile / scanOpenCode / scan]
+        LF["~/.claude · ~/.codex · ~/.copilot · ~/.cursor<br/>JSONL files<br/>~/.local/share/opencode/opencode.db (SQLite)"] --> LR[LogReader<br/>parseFile / scanOpenCode / scan]
         LR -- "enqueue(card)" --> WRITE
     end
 
@@ -208,6 +210,7 @@ A parallel, network-free ingestion path that reads session files written to disk
 | Copilot Chat (VS Code-family, newer) | JSONL (delta log) | `workspaceStorage/<hash>/chatSessions/<uuid>.jsonl` | — |
 | Copilot Chat (VS Code-family, older) | JSON (snapshot) | `workspaceStorage/<hash>/chatSessions/<uuid>.json` | — |
 | OpenCode | SQLite database (WAL mode) | `~/.local/share/opencode/opencode.db` (Linux/Mac) | `OPENCODE_DATA_DIR` (comma-separated data dirs) |
+| Cursor CLI (`cursor-agent`) | JSONL (append log, one file per session) | `~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl` | `XDG_CONFIG_HOME` — checked live 2026-09-19 against a real install and does **not** relocate transcripts (only `cursor-agent`'s own config); probed defensively anyway in case a future version honors it |
 
 `workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. TraceRoost scans all known VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro — via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude.
 
@@ -243,6 +246,16 @@ OpenCode stores all session data in a local SQLite database (`opencode.db`) usin
 
 **Timeline:** `llmEvents` (one per assistant message, from the message query) and `toolEvents` (one per tool part, from the part query) are merged and sorted by timestamp into `TimelineEntry[]`.
 
+### Cursor CLI — transcript log
+
+`cursor-agent`'s standalone terminal agent (a separate product from Cursor the IDE's built-in composer/chat agent — see §4's Copilot Chat vs. `vscodeFamilyIdes.ts` distinction for the analogous IDE-vs-CLI split). One JSONL file per session, one line per turn: `{"role":"user"|"assistant", "message":{"content":[...]}}` content blocks (`text`, `tool_use`), plus a `{"type":"turn_ended","status":...}` marker line.
+
+Confirmed by direct inspection against a real install (`cursor-agent 2026.09.18-9a7762b`, 2026-09-19), not assumed:
+
+- **No token/usage, model name, or workspace path exist anywhere in this format.** These are left as an honest gap (0 tokens, `model: 'cursor-agent'` placeholder that matches no pricing entry, `workspace: ''`) rather than guessed — see `.staged-issues/support-cursor-cli.md`'s investigation (file since removed once implemented; git history has it).
+- **`turn_ended` does not persist per-turn.** Resuming a session (`cursor-agent --resume <id>`) removes the *previous* turn's `turn_ended` line and appends exactly one new one at the new end of file — confirmed with a real two-turn resumed session. A file with N real turns has only ever one `turn_ended` line on disk at read time. `_parseCursorFile` therefore counts real turns from `role: 'user'` lines (which do persist across a resume), not from `turn_ended` occurrences; `errors` reflects only the *most recently completed* turn's status, not a running total.
+- **No per-turn timestamps.** Session start/end bounds fall back to the transcript file's own `birthtimeMs`/`mtimeMs`.
+
 ### Scan mechanics
 
 ```mermaid
@@ -263,27 +276,27 @@ flowchart TD
     INC -- cards --> WRI
 ```
 
-**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is not persisted to disk; on extension restart all files are re-scanned once.
+**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `extension.ts`'s `readLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`.
 
 **Two-phase startup loading:** the fast group (all non-.json files) runs first and surfaces recent sessions immediately. The slow group (legacy .json snapshots) starts after the fast group finishes, with a 50 ms gap between each 2-file batch to keep the extension host responsive (each ~60 ms parsing window).
 
 ### Data availability
 
-| Field | OTLP | Claude / Codex logs | Copilot CLI log | Copilot Chat JSONL | Copilot Chat JSON | OpenCode SQLite |
-| --- | --- | --- | --- | --- | --- | --- |
-| Session ID, workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Model | ✓ | ✓ | ✓ | ✓ (initial model only) | ✓ (first request) | ✓ |
-| Timestamps, duration | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Input tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ |
-| Output tokens | ✓ | ✓ | ✓ | ✓ (`completionTokens` per turn) | ✗ not stored | ✓ |
-| Cache read / write tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ |
-| User request text | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (last user message) |
-| Tool calls (names) | ✓ | ✓ | ✓ | ✗ | ✗ (presence only) | ✓ |
-| Tool call inputs / outputs | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ |
-| File paths from tools | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ |
-| TTFT, per-tool timing | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Full turn timeline | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (LLM + tool entries) |
+| Field | OTLP | Claude / Codex logs | Copilot CLI log | Copilot Chat JSONL | Copilot Chat JSON | OpenCode SQLite | Cursor CLI log |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Session ID, workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | session ID only — no workspace field exists |
+| Model | ✓ | ✓ | ✓ | ✓ (initial model only) | ✓ (first request) | ✓ | ✗ not stored — `cursor-agent` placeholder |
+| Timestamps, duration | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | file `birthtimeMs`/`mtimeMs` only — no per-turn timestamps |
+| Input tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
+| Output tokens | ✓ | ✓ | ✓ | ✓ (`completionTokens` per turn) | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
+| Cache read / write tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
+| User request text | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (last user message) | ✓ |
+| Tool calls (names) | ✓ | ✓ | ✓ | ✗ | ✗ (presence only) | ✓ | ✓ |
+| Tool call inputs / outputs | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ (input only; no output/result recorded) |
+| File paths from tools | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ |
+| TTFT, per-tool timing | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ — per-tool error data needed for `error_recurrence`/`chronic_tool_failures` doesn't exist |
+| Full turn timeline | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) |
 
 Sessions produced by `LogReader` carry `dataSource: 'log'` on `SessionSummaryCard`; OTLP sessions carry `dataSource: 'otel'`. The UI shows an OTEL/Log source badge on each session row.
 
@@ -618,7 +631,7 @@ classDiagram
     class SessionSummaryCard {
         +sessionId: string
         +traceId: string
-        +source: copilot, claude_code, codex
+        +source: copilot, claude_code, codex, opencode, cursor
         +dataSource: otel, log
         +conversationId?: string
         +workspace: string
@@ -791,7 +804,7 @@ graph TD
 
 ### Tab component overview
 
-Five tabs in the sticky tab bar (Sessions, Analytics, Advisor, Export, Import), plus a Help icon button. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. A separate bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
+Five tabs in the sticky tab bar (Sessions, Analytics, Advisor, Export, Import). The header also carries a `$` icon (`Pricing.tsx` — the rate tables behind it) between the gear and Help icons, a Help icon button, and a bell icon. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. The bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
 
 ```mermaid
 graph LR
@@ -881,14 +894,9 @@ flowchart TD
         ENTRY[TimelineEntry<br/>model · tokens] --> LR[lookupRates<br/>normalise + prefix match]
         LR --> RATES{Rates found?}
         RATES -- no  --> ZERO[cost=0, modelUnknown=true]
-        RATES -- yes --> MODE{PricingMode}
-        MODE -- token --> TC[calcTokenCost<br/>input/cacheRead/cacheWrite/output<br/>per-MTok rate / 1,000,000]
-        MODE -- request-annual --> RA[calcRequestCost<br/>turns x multiplierAnnualPostJun1 x $0.04<br/>annual-plan holders post-Jun 2026]
-        MODE -- request --> RC[calcRequestCost — DEPRECATED<br/>turns x multiplier x $0.04<br/>pre-Jun 2026 billing only]
+        RATES -- yes --> TC[calcTokenCost<br/>input/cacheRead/cacheWrite/output<br/>per-MTok rate / 1,000,000]
         TC --> ENTRY_COST[calcEntryCost - Flow tooltip]
         TC --> SESS_COST[calcSessionCost - Cost tab table]
-        RC --> SESS_COST
-        RA --> SESS_COST
     end
 
     subgraph analytics["Analytics - query time"]
@@ -900,7 +908,7 @@ flowchart TD
 
 `contextWindowTokens` (stored in `src/pricing.ts`) enables the `Projection` calculation: given current session token usage and burn rate, estimate time to context exhaustion and final cost.
 
-Pricing data covers: OpenAI (GPT-4.1 through GPT-6), Anthropic (Claude Haiku 3.5/4.5, Sonnet 4.x/5, Opus 4.x/5, Fable 5/5.1, Mythos 5/5.1), Google (Gemini 2.5–3.8), Codex, third-party Copilot-marketplace models (Grok, Kimi, MAI-Code), OpenCode Zen free models, and fine-tuned models. Some models also carry a per-model tiered "long context" surcharge above a token-per-call threshold — see `PRICING_SOURCES.md`. Refreshed per the runbook in `PRICING_SOURCES.md`. Last updated: 2026-09-15.
+Pricing data covers: OpenAI (GPT-4.1 through GPT-6), Anthropic (Claude Haiku 3.5/4.5, Sonnet 4.x/5, Opus 4.x/5, Fable 5/5.1, Mythos 5/5.1), Google (Gemini 2.5–3.8), Codex, third-party Copilot-marketplace models (Grok, Kimi, MAI-Code), OpenCode Zen free models, and fine-tuned models. Some models also carry a per-model tiered "long context" surcharge above a token-per-call threshold — see `PRICING_SOURCES.md`. Refreshed per the runbook in `PRICING_SOURCES.md`. Last updated: 2026-09-19.
 
 ---
 
@@ -920,7 +928,7 @@ flowchart TD
     CP_KEYS --> CP_OUT{Changed?}
     CP_OUT -- yes --> RELOAD[Show 'Reload VSCode' prompt]
 
-    CC_CFG --> CC_KEYS["env block:<br/>CLAUDE_CODE_ENABLE_TELEMETRY=1<br/>OTEL_TRACES_EXPORTER=otlp<br/>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:{port}<br/>OTELlog flags for tool details + user prompts<br/><br/>Stop hook → pending-prompt.txt"]
+    CC_CFG --> CC_KEYS["env block:<br/>CLAUDE_CODE_ENABLE_TELEMETRY=1<br/>OTEL_TRACES_EXPORTER=otlp<br/>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:{port}<br/>OTELlog flags for tool details + user prompts"]
 
     CX_CFG --> CX_KEYS["toml otel section:<br/>log_user_prompt = true<br/>exporter otlp-http endpoint=...<br/>trace_exporter otlp-http endpoint=..."]
 
@@ -960,7 +968,7 @@ flowchart TD
     MAC & LIN & WIN --> CFG[Write ~/.traceroost/config.json<br/>ports · bindHost · dataDir]
     CFG --> LOG[All 3 platforms redirect stdout/stderr<br/>to dataDir/logs/service.log]
 
-    STATUS["traceroost service status"] --> PROBE["HTTP GET http://bindHost:uiPort/<br/>(same convention as the Dockerfile HEALTHCHECK)"]
+    STATUS["traceroost service status"] --> PROBE["HTTP GET http://bindHost:uiPort/health<br/>(wildcard bind → loopback, IPv6 bracketed;<br/>same convention as the Dockerfile HEALTHCHECK)"]
 
     UPDATE["traceroost service update"] --> NPMLATEST["npm install -g traceroost@latest"]
     NPMLATEST --> RESTART["platformService.restart&#40;&#41;<br/>(re-execs whatever now sits at the same install path)"]
@@ -980,10 +988,13 @@ it was already current).
 `standalone/server.ts` reads `~/.traceroost/config.json` at startup as a fallback underneath the
 existing `OTLP_PORT`/`UI_PORT`/`MCP_PORT`/`BIND_HOST`/`DATA_DIR` env vars (env var still wins if
 set), so an ad-hoc `npx`/`node standalone/server.js` run and a service install share one config
-story instead of diverging.
+story instead of diverging. `service install` writes `config.json` just before registering the
+service (the freshly started server reads it immediately) and, if registration fails, rolls the
+service back and restores whatever `config.json` held before.
 
-`uninstall` removes the service definition only — it never touches `~/.traceroost`'s data or
-config, matching the same separation the extension's Clear-All-Data command already keeps between
+`uninstall` removes the service definition only (on Windows that includes the generated
+`<dataDir>/service/run.cmd` wrapper, and a task that's already gone isn't an error) — it never
+touches `~/.traceroost`'s data or config, matching the same separation the extension's Clear-All-Data command already keeps between
 "stop this from running" and "delete my data."
 
 ---
@@ -991,6 +1002,16 @@ config, matching the same separation the extension's Clear-All-Data command alre
 ## 14. Build Pipeline
 
 Five independent esbuild targets produce five output bundles.
+
+**Editions.** `node esbuild.js --edition=full|core` (default `full`) picks which of two products
+the five bundles are. `core` resolves the three Pro seams — `src/cloudBridge.ts` →
+`src/cloudBridge.core.ts`, `media/src/orgPanel.ts` → `media/src/orgPanel.core.tsx`,
+`standalone/cliCloud.ts` → `standalone/cliCloud.core.ts` — to inert stubs, defines
+`process.env.TRACEROOST_EDITION` (both editions, all bundles) so literal edition checks fold away,
+turns on syntax-level minification for the two standalone bundles (so those dead branches are
+really dropped), and fails the build if any module under `src/cloud/`, `media/src/cloud/` or
+`standalone/cloud/` would be loaded. `scripts/check-edition.mjs` re-checks the output; see
+CONTRIBUTING.md → Editions and runbooks/RELEASING.md → Editions.
 
 ```mermaid
 graph LR
@@ -1044,9 +1065,146 @@ graph LR
 
 `standalone/tsconfig.json` covers `standalone/**` (including `cli.ts` and `service/**`) for
 editor IntelliSense and can be run manually via `tsc -p standalone/tsconfig.json --noEmit` — it
-isn't currently wired into `pnpm run compile`/`check-types`, so a `standalone`-only type error
-won't fail CI today. Pre-existing gap, not introduced by the background-service feature, but
-worth knowing about since it's the one part of the codebase `check-types` doesn't actually cover.
+isn't wired into `pnpm run compile`/`check-types`, so most of `standalone/**` still won't fail CI
+on a type error alone. One slice is covered a different way: `tsconfig.test.standalone.json`
+(`standalone/local/{patternsCli,traceCli,findCli,repoResolve}.ts` + their tests) is compiled by
+`compile-tests:standalone`, which `pnpm run test:unit` (CI's `mocha` step) runs before `mocha` —
+so a type error in those files does fail CI today. The rest of `standalone/**`
+(`server.ts`, `cli.ts`, `service/**`, `local/{adviseCli,cohortCli,sessionLoader}.ts`, and
+`cloud/{org-cli,explainPayload,clusterCli,adviseTelemetry}.ts`) is still uncovered — the remaining gap.
+
+---
+
+## 15. TraceRoost Pro — org link
+
+Everything in `src/cloud/org/` is the **client half of TraceRoost Pro** — an optional layer that lets a
+lead see cross-developer aggregates. The rest of the codebase reaches it only through
+`src/cloudBridge.ts` (implemented by `src/cloud/bridge.ts`), `media/src/orgPanel.ts` and
+`standalone/cliCloud.ts`, so the core edition (§14) can be built without any of it. It is built against two rules:
+
+1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
+   TraceRoost service — no version ping, no "do you have an org" check. `getOrgStatus()` and
+   `loadCredentials()` touch local disk only. The wire format (AL 02) has no free-text field, so
+   there is nothing for source code to travel in.
+2. **The free/paid line is single-player vs. multiplayer.** Everything about *my machine, my
+   commits, my repositories* is free and ungimped. Paid is *everyone's* — aggregation a local
+   install genuinely cannot do. Nothing local is gated behind Pro.
+
+### Module map
+
+| Module | Responsibility |
+|---|---|
+| `src/cloud/org/config.ts` | The one list of every URL the client can contact; `OrgCredentials` shape |
+| `src/cloud/org/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
+| `src/cloud/org/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
+| `src/cloud/org/credentials.ts` | `~/.traceroost/team.json`, mode 0600, keychain-ready via `CredentialStore` |
+| `src/cloud/org/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
+| `src/cloud/org/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
+| `src/cloud/org/status.ts` | `getOrgStatus()` — local-only status for the panel, dot and CLI |
+| `src/cloud/org/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
+| `src/cloud/org/panelController.ts` | Transport-agnostic handler for `org*` webview messages; `reconcileLocalSessions` runs a bounded 6-worker pool, not serially |
+| `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
+| `src/cloud/forward/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
+| `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
+| `src/cloud/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
+| `src/cloud/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
+| `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders (AL 08) — prose fields structurally unreachable |
+| `src/cloud/org/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
+| `src/cloud/org/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
+
+**The split that makes AL 08 genuinely Pro:** the cloud finds the pattern (some file is read in
+62% of sessions by four of six developers), the machine writes the text (which file, and the
+sentence). `getHotFileSuggestions` already fires at 40% over *one* person's sessions; pooling
+raises it to "four of you do, and none of your instruction files mention it," which no local
+install can reach. The local Advisor is free and unchanged. `suggestedText` / `evidence` /
+`title` never leave the machine — only `suggestion_id` (hashed), the enums, and the numeric
+baseline. Apply loop: `traceroost advise --apply <id>` regenerates with real paths, appends,
+captures a baseline; `vscode://agentlens.agentlens-dashboard/advise?id=…` is the editor deep
+link — routed through VS Code's own URI scheme, not a custom-registered `agentlens://` one; see
+`src/extension.ts`'s "Deep links" comment.
+| `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
+| `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
+| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
+| `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
+| `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
+| `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
+
+`traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
+(`standalone/cloud/explainPayload.ts`) print the exact bytes for a real session, stable-key-ordered,
+on a free install with no org. A test asserts the printed JSON equals the queued JSON (AL 04).
+
+The wire contract (AL 02) is owned **here**, in the client the sceptic already trusts, and the
+service validates against the identical document. `src/cloud/forward/` is a closed island: every field
+is a number, an enum, a hash or a timestamp, and a CI test walks `schema/rollup.v1.json` to fail
+the build if any string is left unconstrained.
+`install_id` lives in `~/.traceroost/config.json` (`src/serviceConfig.ts` `ensureInstallId`) and
+is **not** in the payload — the service derives identity from the bearer token.
+
+### Surfaces
+
+- **Org panel** (`media/src/cloud/panels/OrgPanel.tsx`) — a slide-in beside Settings, opened from a
+  new tab-bar icon carrying a state dot (grey unlinked / green reporting / amber queued or
+  degraded). The unlinked state is what almost every install shows forever; it states plainly
+  that nothing is sent and offers `Show the exact payload` *before* linking.
+- **CLI** — `traceroost org <link|status|leave> [--device]` (`standalone/cloud/org-cli.ts`).
+- **Command palette** — `TraceRoost: Link This Machine to an Org`, `… Org Link Status`,
+  `… Leave Org`.
+- **Standalone server** — `GET/POST /api/org`, dispatched through the same `panelController`.
+
+### The free/paid boundary (AL 09)
+
+**Free is my machine. Paid is everyone's** — structural, not administrative. A local install
+cannot see other machines, so there is no flag to patch out and no fork that recovers Pro. The
+full statement, and the four things the free tier will never do (no feature removed to force an
+upgrade, no quotas, no trial, no free self-hostable team server), lives with the pricing-page
+copy.
+
+**The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
+machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
+and `vscode://agentlens.agentlens-dashboard/cohort?repo=<hash>&merged=…&window=…`.
+`src/cloud/org/resolveRepoHash.ts` re-derives
+repo hashes for local clones only — it is not an oracle, and a deep link for an unknown repo
+makes no request.
+
+### The free outcome metric (AL 05–07)
+
+`src/attribution/` and `src/turnover/` are **free forever, local, single-developer**. They have
+no transport — the engines have no network path at all — and nothing they produce is gated. They
+sit outside `src/cloud/` (they were moved out of it) so that nothing free depends on the cloud
+directories, and they are MIT-licensed like the rest of the tool.
+
+| Module | Responsibility |
+|---|---|
+| `src/attribution/commitScan.ts` | `git log --numstat` for a repo/window; detects an agent trailer, then discards the message |
+| `src/attribution/sessionJoin.ts` | Candidate-session lookup (workspace in repo, span ends ≤ commit within a 72h lookback) |
+| `src/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
+| `src/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
+| `src/database/attributionRepository.ts` | SQLite cache — a commit's attribution never changes once computed |
+| `src/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed` — a cohort is measured only once its window fully elapses |
+| `src/turnover/survival.ts` | One `git blame HEAD` per file, bucketed by originating commit; proportional surviving-AI-lines estimate |
+| `src/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
+| `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
+| `src/database/turnoverRepository.ts` | One row per repo; recompute skipped when `HEAD` is unmoved |
+
+There was previously a dedicated free **Outcomes** dashboard tab (`media/src/cloud/tabs/Outcomes.tsx`)
+surfacing this engine's output directly, billed as the free tier's activation event. It was retired
+in commit `0ee7842` in favor of folding outcome signal (merged/committed/abandoned, per-file) inline
+into the Sessions tab's Files sub-tab — see §10's tab overview, "git outcome banner + per-file
+badges." Its report-assembly file, `src/cloud/turnover/localReport.ts` (as the path was then), had no other caller and was
+removed with it. The attribution/turnover engine itself is unaffected by that retirement and is
+still free, local, and single-developer with no network path — reachable today via
+`traceroost cohort` (§15's "the hand-off", `standalone/local/cohortCli.ts`), not via a dashboard tab.
+
+Confidence is the honest part: **certain** (trailer, or a session lists the file and the commit
+lands in that session's own span), **probable** (session lists the file, commit within the
+lookback window), **unknown** (no record — most commits on a real repo). Commit messages and
+blame output stay in memory: neither is ever written to the database or a log.
+
+### Leaving
+
+`leave()` deletes the local credential and stops forwarding **before** it attempts the
+server-side revoke. A developer who decides to leave while offline still leaves. This is a
+design requirement, not a courtesy.
 
 ---
 
@@ -1073,13 +1231,22 @@ traceroost/
 │   ├── exportFormats.ts          # CSV + Markdown export serialization
 │   ├── gitOutcome.ts             # On-demand git-outcome classification (reverted/productive/abandoned/ambiguous)
 │   ├── oneShotRate.ts            # One-shot / retry-rate metric — per-file edit-count aggregation
-│   ├── logReader.ts              # LogReader — local log ingestion (Claude/Codex/Copilot CLI/Copilot Chat JSONL+JSON/OpenCode SQLite)
+│   ├── logReader.ts              # LogReader — local log ingestion (Claude/Codex/Copilot CLI/Copilot Chat JSONL+JSON/OpenCode SQLite/Cursor CLI JSONL)
 │   ├── loopDetector.ts           # Loop signal detection; shares getFileEditCounts with oneShotRate.ts
 │   ├── instructionAdvisor.ts     # Advisor tab analysis — hot files, loop patterns, high turn counts
 │   ├── instructionEffectiveness.ts # Before/after baseline metrics for applied instruction suggestions
 │   ├── instructionFiles.ts       # Detects/reads/writes CLAUDE.md, copilot-instructions.md, AGENTS.md
 │   ├── serviceConfig.ts          # Background-service config file + launchd/systemd/Windows-task generators (pure, tested)
+│   ├── httpSecurity.ts           # Shared hardening for the 3 standalone servers (UI/OTLP/MCP): Host-header validation (anti-DNS-rebinding) + bearer-token auth
+│   ├── portResolver.ts           # Requested-vs-actually-bound port tracking so no consumer (auto-configure, dashboard URL, MCP endpoint) points at a dead port
+│   ├── repoRemote.ts             # Local-only GitHub remote lookup for the Sessions repo-column tooltip — never sent to traceroost-cloud
+│   ├── sessionRiskSignals.ts     # Post-hoc, on-demand risk detectors (session detail view) — malfunction patterns visible only once a session is complete
+│   ├── automationEngine.ts       # Server-side port of Automation's threshold evaluation for MCP tools — hand-kept in sync with media/src/tabs/Automation.tsx's own copy
+│   ├── claudeUsageLines.ts       # Selects whole cumulative usage snapshots from growing Claude Code output lines
 │   ├── types.ts                  # Shared extension-host types
+│   ├── reconcile/
+│   │   ├── reconciliationService.ts # Trace-outcome reconciliation (staged feature 10, Stage 1) — in-flight dedup over GitOutcomeRepository, not a long-lived cache
+│   │   └── backgroundWatcher.ts  # Debounced fs.watch + fallback-poll orchestrator driving reconciliationService
 │   ├── database/
 │   │   ├── schema.ts             # SCHEMA_SQL — CREATE TABLE statements + indexes
 │   │   ├── db.ts                 # TraceRoostDb — open, migrate, save, dispose
@@ -1088,7 +1255,16 @@ traceroost/
 │   │   ├── migration.ts          # migrateGlobalStateToSqlite (one-time)
 │   │   ├── retention.ts          # runRetention — DELETE old sessions + blob eviction
 │   │   ├── instructionRepository.ts # Applied/dismissed instruction-suggestion records
+│   │   ├── gitOutcomeRepository.ts # SQLite cache for per-session git-outcome classification; invalidated by cache key, not TTL
+│   │   ├── fileBlameRepository.ts # SQLite cache for per-file blame (AL 06) — re-blamed only when a file's blob sha changes
+│   │   ├── traceRevisionRepository.ts # Canonical trace revisions (staged feature 10, Stage 1) — advances only on a real outcome change
 │   │   └── types.ts              # Shared DB types
+│   ├── attribution/              # Free, local commit attribution (AL 05) — git + session records, no network (§15)
+│   ├── turnover/                 # Free, local cohort/survival engine (AL 06/07) built on attribution/ (§15)
+│   ├── cloud/                    # TraceRoost Pro client — org link (org/) + upload (forward/); BSL, see NOTICE.md (§15)
+│   ├── cloudBridge.ts            # The one seam to cloud/ (interface + full impl via cloud/bridge.ts); §14 Editions
+│   ├── cloudBridge.core.ts       # Core edition's inert CloudBridge — swapped in by `esbuild.js --edition=core`
+│   ├── edition.ts                # NOT_AVAILABLE_IN_CORE message
 │   ├── summarizers/
 │   │   ├── claude.ts             # Claude Code session builder
 │   │   ├── copilot.ts            # Copilot session builder
@@ -1103,6 +1279,8 @@ traceroost/
 │       ├── otlpParser.test.ts
 │       ├── loopDetector.test.ts
 │       ├── logReader.opencode.test.ts
+│       ├── logReader.cursor.test.ts
+│       ├── logReader.fileState.test.ts
 │       ├── gitOutcome.test.ts
 │       ├── oneShotRate.test.ts
 │       ├── exportFormats.test.ts
@@ -1127,6 +1305,12 @@ traceroost/
 │   │   ├── utils.ts              # Formatting helpers, agent colors, session labels
 │   │   ├── agentProfiles.ts      # Per-agent alert/automation thresholds incl. daily cost (localStorage)
 │   │   ├── AgentThresholdInputs.tsx  # Reusable form input components for threshold editing
+│   │   ├── signalFormulas.ts     # Hand-copied mirror of src/loopDetector.ts's SIGNAL_FORMULAS — webview can't import from src/, kept in sync by hand
+│   │   ├── signalIcons.tsx       # Loop-signal glyphs shared by Sessions' Signals column and Insights' Recommendations tab
+│   │   ├── hash.ts               # formatTraceIdHash — zero-dependency leaf module, avoids a state.ts/utils.ts import cycle
+│   │   ├── costSavingActions.ts  # Aggregates loop-signal/hot-file/cache-rate signals into one ranked "how to save money" list
+│   │   ├── BrandMark.tsx         # Inline brand mark SVG (currentColor) — mirrors media/brand/mark-currentcolor.svg
+│   │   ├── Wordmark.tsx          # "traceroost" wordmark as real text, not SVG, for crispness at small sizes
 │   │   ├── sidebarWebview.ts     # Sidebar JS (no JSX)
 │   │   ├── styles/
 │   │   │   ├── base.css          # Global variables, layout primitives
@@ -1161,21 +1345,37 @@ traceroost/
 │   │       ├── Settings.tsx      # OTEL/log ingestion toggles, MCP toggle, reconfigure button (in gear-icon ConfigPanel)
 │   │       ├── IngestionNote.tsx # Shared OTEL-vs-log-richness callout used by Help/Settings
 │   │       ├── Export.tsx        # Full or redacted export UI — format: JSON · CSV · Markdown
+│   │       ├── Pricing.tsx       # Rate tables behind the header's $ icon — reads from ../pricing and the Org panel's cloud rates
 │   │       └── Help.tsx          # Sticky TOC nav, glossary, OTEL setup guide
 │   ├── dashboard.js              # Compiled Preact bundle
 │   ├── dashboard.css             # Compiled styles
 │   └── sidebar.js                # Compiled sidebar script
 ├── standalone/
 │   ├── server.ts                 # Standalone HTTP server (no VS Code)
-│   ├── cli.ts                    # npx entrypoint: `traceroost` / `traceroost` — dispatches to
-│   │                              #   `service` subcommand or starts the server directly
+│   ├── cli.ts                    # npx entrypoint: `traceroost` — dispatches `service`, `org`,
+│   │                              #   `find`/`trace`/`patterns`, `advise`/`cluster`, `cohort`,
+│   │                              #   `--explain-payload`; no args (or flags only) starts the server;
+│   │                              #   any other word prints usage and exits 1
+│   ├── local/                    # Free, local-only CLI analysis — no cloud imports (MIT)
+│   │   ├── sessionLoader.ts      # Loads recorded sessions without starting the server
+│   │   ├── traceCli.ts / patternsCli.ts / findCli.ts  # `trace`, `patterns`, `find`
+│   │   ├── cohortCli.ts          # `cohort` — the turnover engine (src/turnover/) on the CLI
+│   │   ├── adviseCli.ts          # `advise --list|--apply`
+│   │   └── repoResolve.ts        # `--repo <name|hash>`; hash resolution is injected from cloud/
+│   ├── cliCloud.ts               # CLI seam to cloud/ (core stub: cliCloud.core.ts)
+│   ├── cloud/                    # Pro (org link + upload) CLI surfaces (BSL, see NOTICE.md)
+│   │   ├── cliBridge.ts          # Full edition's CliCloud
+│   │   ├── org-cli.ts            # `org link|status|leave|verify`
+│   │   ├── explainPayload.ts     # `--explain-payload`
+│   │   ├── clusterCli.ts         # `cluster`
+│   │   └── adviseTelemetry.ts    # advise --apply's ledger + SuggestionEvent step
 │   └── service/
 │       ├── index.ts              # `traceroost service <cmd>` dispatch, npx-bootstrap, logs/status
 │       ├── health.ts             # HTTP probe used by `service status` on all 3 platforms
 │       ├── macos.ts              # launchd install/uninstall/start/stop/restart
 │       ├── linux.ts              # systemd --user install/uninstall/start/stop/restart
 │       └── windows.ts            # Scheduled Task install/uninstall/start/stop/restart
-├── esbuild.js                    # Build configuration (5 targets)
+├── esbuild.js                    # Build configuration (5 targets; `--edition=full|core`)
 ├── package.json                  # VS Code manifest + scripts
 └── ARCHITECTURE.md               # This file
 ```

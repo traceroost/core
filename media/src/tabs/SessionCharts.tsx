@@ -1,13 +1,9 @@
-import * as preact from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { sessionSummary, displaySessions, rangedSessions, agentFilteredSessions, filteredSessions, sessionTimelines, burnRateData, focusedSessionId, activeTab, CHART_MAX, COLORS, vscode, goToHelp, timeRange } from '../state'
-import {
-  getSessionGlobalNumber,
-  formatMs, formatCompact, getAgentColor, getAgentSourceLabel, formatSessionTime, formatSessionTimeShort,
-} from '../utils'
-import type { SessionSummaryCard } from '../types'
-
-type HeatReason = { text: string; linkPhrase?: string; helpId?: string }
+import { gitOutcomes, focusedSessionId, activeTab, COLORS, goToHelp } from '../state'
+import { getAgentColor, getAgentSourceLabel, formatCompact } from '../utils'
+import { dayKeyUtc } from '../sessionMetrics'
+import type { SessionSummaryCard, GitOutcome, FileOutcome } from '../types'
+import { OUTCOME_META } from './Sessions'
 
 export function TurnsLink() {
   return (
@@ -50,6 +46,7 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
 
   const [paused, setPaused] = useState(false)
   const [hasData, setHasData] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [seriesCount, setSeriesCount] = useState(0)
   const [speed, setSpeed] = useState(1)
   const pausedRef = useRef(false)
@@ -106,10 +103,16 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
       drawFnRef.current = null
       clearTimer()
       setHasData(false)
+      // A session with no timeline entry yet (fetch still in flight — see the
+      // loadSessionDetail postMessage loop in Analytics.tsx) is "not loaded", not
+      // "no data" — only call it empty once every session has actually reported in.
+      const stillLoading = sessions.some(sess => timelines[sess.sessionId] === undefined && (sess.timeline?.length ?? 0) === 0)
+      setLoading(stillLoading)
       return
     }
     canvas.style.display = 'block'
     setHasData(true)
+    setLoading(false)
     setSeriesCount(seriesData.length)
     seriesCountRef.current = seriesData.length
 
@@ -292,7 +295,8 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
         onClick={handleCanvasClick}
         title="Click a line to select that trace"
       />
-      {!hasData && <div class="empty-state" style="font-size:11px">No per-turn token data for these traces. Context Growth requires traces with per-turn input token counts — available for OTel-sourced traces and Claude Code log traces.</div>}
+      {!hasData && loading && <div class="empty-state" style="font-size:11px">Loading per-turn token data…</div>}
+      {!hasData && !loading && <div class="empty-state" style="font-size:11px">No per-turn token data for these traces. Context Growth requires traces with per-turn input token counts — available for OTel-sourced traces and Claude Code log traces.</div>}
       {hasData && (
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px">
           <div style="display:flex;align-items:center;gap:6px">
@@ -316,108 +320,6 @@ export function ContextGrowthChart({ sessions, timelines }: { sessions: SessionS
       <div style="text-align:center;font-size:9px;color:var(--muted);margin-top:4px">
         <TurnsLink />
       </div>
-    </>
-  )
-}
-
-const HELP_TOOLTIPS: Record<string, string> = {
-  'help-tool-failures':        'Failures come from guessed file paths or unavailable commands. Provide exact paths and tell the agent which tools and runtimes are available.',
-  'help-high-turns':           'Prompt describes the goal but not the location. Add explicit file paths, stopping conditions, and break multi-step tasks into separate prompts.',
-  'help-cache-rate':           'Cache breaks when the prompt prefix changes between calls. Keep static instructions identical at the top; avoid timestamps in instruction files.',
-  'help-large-context':        'Large instruction files make every session start expensive. Audit and trim instruction files; move reference docs out of instruction files.',
-  'help-context-bloat':        'Tool results and instruction files expand context each turn. Keep instruction files under 4 KB; use line-ranged reads instead of full file reads.',
-}
-
-function renderHeatReason(r: HeatReason): preact.JSX.Element {
-  if (!r.linkPhrase || !r.helpId) return <span style="color:var(--fg)">{r.text}</span>
-  const idx = r.text.indexOf(r.linkPhrase)
-  if (idx === -1) return <span style="color:var(--fg)">{r.text}</span>
-  const before = r.text.slice(0, idx)
-  const after  = r.text.slice(idx + r.linkPhrase.length)
-  const tip = HELP_TOOLTIPS[r.helpId] || ''
-  return (
-    <span style="color:var(--fg)">
-      {before}<span data-tip={tip} style="border-bottom:1px dotted currentColor;cursor:help">{r.linkPhrase}</span>{after}
-    </span>
-  )
-}
-
-function SessionDiagRow({ reasons }: { reasons: HeatReason[] }) {
-  return (
-    <tr>
-      <td colSpan={10} style="padding:0">
-        <div style="padding:8px 16px 12px 32px;background:var(--vscode-editorWidget-background,var(--bg));border-top:1px solid var(--border);font-size:11px">
-          <div style="font-weight:600;color:var(--muted);margin-bottom:4px;font-size:10px;text-transform:uppercase">What needs attention</div>
-          {reasons.map((r, i) => (
-            <div key={i} style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px">
-              <span style="color:var(--error);flex-shrink:0">•</span>
-              {renderHeatReason(r)}
-            </div>
-          ))}
-        </div>
-      </td>
-    </tr>
-  )
-}
-
-function SessionRow({ sess, idx, heat, expanded, onToggle }: {
-  sess: SessionSummaryCard; idx: number;
-  heat: { score: number; reasons: HeatReason[] }; expanded: boolean; onToggle: () => void
-}) {
-  const timeLabel = formatSessionTime(sess)
-  const cacheRate = sess.inputTokens > 0 ? ((sess.cacheReadTokens / sess.inputTokens) * 100).toFixed(0) : '—'
-  const agentDotColor = getAgentColor(sess.source)
-  const isFocused = focusedSessionId.value === sess.sessionId
-
-  let rowBg = ''
-  if (isFocused) rowBg = 'rgba(55,148,255,0.12)'
-  else if (heat.score > 60) rowBg = 'rgba(255,50,50,' + (0.15 + Math.min(heat.score - 60, 40) / 40 * 0.25) + ')'
-  else if (heat.score > 30) rowBg = 'rgba(255,140,0,' + (0.12 + (heat.score - 30) / 30 * 0.18) + ')'
-  else if (heat.score > 10) rowBg = 'rgba(255,180,50,' + (0.10 + (heat.score - 10) / 20 * 0.15) + ')'
-
-  function handleRowClick() {
-    focusedSessionId.value = isFocused ? null : sess.sessionId
-    onToggle()
-  }
-
-  return (
-    <>
-      <tr style={'background:' + (rowBg || 'transparent') + ';cursor:pointer' + (isFocused ? ';outline:1px solid var(--vscode-focusBorder,#007fd4)' : '')} onClick={handleRowClick}>
-        <td style="text-align:left;min-width:130px;padding:4px 8px">
-          <div style="display:flex;align-items:flex-start;gap:4px">
-            <span style="font-size:9px;color:var(--muted);flex-shrink:0;margin-top:2px">{expanded ? '▼' : '▶'}</span>
-            <span style={'display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:2px;background:' + agentDotColor} />
-            <div>
-              <div style="font-size:10px;color:var(--foreground);white-space:nowrap">{timeLabel}</div>
-              {(sess.userRequest ?? '').length > 0 && (
-                <div style="font-size:9px;color:var(--muted);margin-top:1px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic" title={sess.userRequest}>
-                  {(sess.userRequest ?? '').slice(0, 55)}{(sess.userRequest ?? '').length > 55 ? '…' : ''}
-                </div>
-              )}
-              {(() => {
-                const br = burnRateData.value
-                if (!br || br.sessionId !== sess.sessionId) return null
-                const tpm = br.burnRate.tokensPerMinute
-                const cph = br.burnRate.costPerHour
-                const label = formatCompact(Math.round(tpm)) + ' tok/min' + (cph > 0.001 ? ' · $' + cph.toFixed(2) + '/hr' : '')
-                return <span style="padding:1px 5px;background:var(--vscode-charts-green,#81c784);color:#000;border-radius:3px;font-size:9px;font-weight:600" data-tip={'Active session burn rate: ' + label}>{label}</span>
-              })()}
-            </div>
-          </div>
-        </td>
-        <td style="text-align:left;white-space:nowrap;color:var(--muted);font-size:10px" title={sess.model}>{sess.model ? sess.model.split('/').pop() : '—'}</td>
-        <td style="text-align:left;white-space:nowrap;font-size:10px;font-family:monospace;color:var(--muted)" title={sess.conversationId || ''}>
-          {sess.conversationId ? sess.conversationId.slice(0, 8) : '—'}
-        </td>
-        <td class="right">{sess.totalLlmCalls}</td>
-        <td class="right">{sess.totalToolCalls}</td>
-        <td class="right">{sess.inputTokens.toLocaleString()}</td>
-        <td class="right">{sess.outputTokens.toLocaleString()}</td>
-        <td class="right">{cacheRate}%</td>
-        <td class="right">{formatMs(sess.durationMs)}</td>
-        <td style={'text-align:right' + (sess.errors > 0 ? ';color:var(--error)' : '')}>{sess.errors}</td>
-      </tr>
-      {expanded && heat.reasons.length > 0 && <SessionDiagRow reasons={heat.reasons} />}
     </>
   )
 }
@@ -488,7 +390,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
     const halfSlot = slotW / 2
     const halfBar = Math.max(0.5, halfSlot - barPad)
 
-    const dayKey = (t: string) => t ? new Date(t).toISOString().slice(0, 10) : 'none'
+    const dayKey = (t: string) => t ? dayKeyUtc(t) : 'none'
     const textColor = cs.getPropertyValue('--vscode-descriptionForeground').trim() || '#888'
     let lastDayLabelX = -Infinity
     const MIN_DAY_LABEL_GAP = 30
@@ -547,6 +449,90 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
         </div>
       )}
     </>
+  )
+}
+
+// ── Outcome vs. tokens — median tokens per git outcome bucket ─────────────────
+// Answers "did the sessions that spent more tokens tend to land?" for the local,
+// single-developer view. See .staged-issues/outcome-vs-tokens-chart.md.
+
+// Only the three buckets `gitOutcome.ts` actually classifies locally get a bar — 'ambiguous' has
+// no OUTCOME_META entry (nothing meaningful to show, per Sessions.tsx's own comment) and is
+// excluded here the same way it's excluded from every other OUTCOME_META consumer.
+const OUTCOME_BUCKETS: FileOutcome[] = ['merged', 'committed', 'abandoned']
+
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0
+  const sorted = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+export interface OutcomeTokenBucket { outcome: FileOutcome; medianTokens: number; count: number }
+
+/** Buckets `sessions` by resolved git outcome and computes median input+output tokens per bucket.
+ *  A session with no entry in `outcomes` yet (not requested, or still resolving) or a `null`/
+ *  `'ambiguous'` entry is simply omitted — never counted as zero — so the chart shows what's
+ *  resolved so far and grows as `requestGitOutcomesFor` fills in the rest. Exported for the
+ *  chart component below and for anything that wants the same bucketing without the SVG. */
+export function buildOutcomeTokenBuckets(
+  sessions: SessionSummaryCard[],
+  outcomes: Record<string, GitOutcome | null | undefined>,
+): OutcomeTokenBucket[] {
+  const tokensByOutcome: Partial<Record<FileOutcome, number[]>> = {}
+  for (const s of sessions) {
+    const go = outcomes[s.sessionId]
+    if (!go || !OUTCOME_BUCKETS.includes(go.overall)) continue
+    const list = tokensByOutcome[go.overall] ?? (tokensByOutcome[go.overall] = [])
+    list.push((s.inputTokens ?? 0) + (s.outputTokens ?? 0))
+  }
+  return OUTCOME_BUCKETS
+    .filter(o => (tokensByOutcome[o]?.length ?? 0) > 0)
+    .map(o => ({ outcome: o, medianTokens: median(tokensByOutcome[o]!), count: tokensByOutcome[o]!.length }))
+}
+
+export function OutcomeTokenChart({ sessions }: { sessions: SessionSummaryCard[] }) {
+  const buckets = buildOutcomeTokenBuckets(sessions, gitOutcomes.value)
+
+  if (buckets.length === 0) {
+    return <div class="empty-state" style="font-size:11px">No traces with a resolved outcome yet — merged, committed, or uncommitted, per local git.</div>
+  }
+
+  const W = 600, H = 150
+  const pad = { top: 14, right: 16, bottom: 22, left: 44 }
+  const chartW = W - pad.left - pad.right, chartH = H - pad.top - pad.bottom
+  const maxTokens = Math.max(...buckets.map(b => b.medianTokens), 1)
+  const slotW = chartW / buckets.length
+  const barW = Math.min(70, slotW * 0.5)
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style="width:100%;height:150px;display:block">
+      {[0, 1, 2, 3].map(i => {
+        const y = pad.top + chartH * i / 3
+        const val = maxTokens * (3 - i) / 3
+        return (
+          <g key={i}>
+            <line x1={pad.left} y1={y} x2={pad.left + chartW} y2={y} stroke="var(--vscode-panel-border,#333)" stroke-width="0.5" />
+            {val > 0 && <text x={pad.left - 6} y={y} text-anchor="end" dominant-baseline="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">{formatCompact(val)}</text>}
+          </g>
+        )
+      })}
+      {buckets.map((b, i) => {
+        const meta = OUTCOME_META[b.outcome]!
+        const x = pad.left + i * slotW + (slotW - barW) / 2
+        const barH = Math.max((b.medianTokens / maxTokens) * chartH, 1)
+        const y = pad.top + chartH - barH
+        return (
+          <g key={b.outcome}>
+            <rect x={x} y={y} width={barW} height={barH} fill={meta.color} rx="2" />
+            <text x={x + barW / 2} y={y - 4} text-anchor="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">
+              {formatCompact(b.medianTokens)} · {b.count}
+            </text>
+            <text x={x + barW / 2} y={pad.top + chartH + 13} text-anchor="middle" font-size="10" fill={meta.color}>{meta.label}</text>
+          </g>
+        )
+      })}
+    </svg>
   )
 }
 

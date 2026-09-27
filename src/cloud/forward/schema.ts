@@ -1,0 +1,348 @@
+/**
+ * The TraceRoost Pro wire format (AL 02) — hand-written, and deliberately NOT derived from
+ * `SessionSummaryCard`.
+ *
+ * `SessionSummaryCard` carries `userRequest`, `timeline[].responseText`, `toolInput`,
+ * `editDetails[].oldString/newString` — prompts, completions and diffs. A *redacted subset* of a
+ * type that has those fields is a promise the sender keeps; the moment a client is modified,
+ * misconfigured or compromised, the field still exists and a server that accepts the parent
+ * shape will take it. So the forward payload is its own closed type where **every member is a
+ * number, an enum, a hash, or an ISO 8601 timestamp**. There is no string field that accepts
+ * free text, so there is nothing for code to travel in.
+ *
+ * This file is the source of truth for the shape. `schema/rollup.v1.json` is the JSON Schema
+ * form of the same contract, committed and published; `cloud` validates every ingest against
+ * that document (SA 05). A test (`src/test/cloud/forward/schema.test.ts`) walks the JSON Schema and
+ * fails if any string property is left unconstrained — the mechanical guard that keeps the
+ * invariant true as the schema grows.
+ *
+ * Nothing in `src/forward/` may import `SessionSummaryCard`. The builder (AL 03) maps into these
+ * types field by field, by name, with no spread and no `Omit<>`.
+ */
+
+export const SCHEMA_VERSION = '1' as const
+
+// ── Enums (closed sets — a value outside the set maps to the catch-all, never passes through) ──
+
+/** Wire agent identifier. Hyphenated, unlike the internal `SessionSummaryCard.source`. */
+export type WireAgent = 'claude-code' | 'copilot' | 'codex' | 'cursor' | 'other'
+
+export type WireAttribution = 'certain' | 'probable' | 'unknown'
+
+// 'reverted' stays a valid value on the wire (historical rows may carry it, and cloud's schema
+// still lists it) even though the local classifier (gitOutcome.ts) no longer produces it — see
+// that file's FileOutcome for why. 'committed' is new: locally committed but not (yet, or
+// verifiably) merged into the repo's trunk branch — distinct from 'merged', which core only
+// reports once a file's content also matches the trunk tip.
+export type WireOutcome = 'merged' | 'committed' | 'abandoned' | 'in-progress' | 'reverted' | 'unknown'
+
+/** Whether the session was built from a finished, on-disk transcript file, or from live OTEL
+ *  telemetry with no transcript file (yet). Mirrors `SessionSummaryCard.dataSource`. */
+export type WireDataSource = 'otel' | 'log'
+
+/** Who or what started the session. Mirrors `SessionSummaryCard.initiator`. */
+export type WireInitiator = 'user' | 'agent' | 'api'
+
+export type WireLoopSignal =
+  | 'context-flooding'
+  | 'repeated-edit'
+  | 'retry-loop'
+  | 'tool-failure-cascade'
+  | 'no-progress'
+  | 'oscillation'
+  | 'runaway-cost'
+  | 'instruction-conflict'
+  | 'context-thrash'
+
+export const WIRE_LOOP_SIGNALS: readonly WireLoopSignal[] = [
+  'context-flooding', 'repeated-edit', 'retry-loop', 'tool-failure-cascade',
+  'no-progress', 'oscillation', 'runaway-cost', 'instruction-conflict', 'context-thrash',
+]
+
+/** `SessionSummaryCard.source` → wire enum. Anything unrecognised is `other`. */
+export function toWireAgent(source: string): WireAgent {
+  switch (source) {
+    case 'claude_code': return 'claude-code'
+    case 'copilot':     return 'copilot'
+    case 'codex':       return 'codex'
+    case 'opencode':    return 'other'
+    case 'cursor':      return 'cursor'
+    default:            return 'other'
+  }
+}
+
+/** Internal loop-signal type (`src/types.ts` `LoopSignalType`) → wire enum, or `null` to drop.
+ *
+ * `budget_overrun` and `model_tier_mismatch` (added 2026-09-26, signal-catalog stage 04) are
+ * deliberately absent from this map and fall through to `null` — both are local-only
+ * cost-optimization tips, not loop/malfunction patterns, per .staged-issues/
+ * signal-catalog-04-budget-and-tier-mismatch.md's explicit design decision to keep them off the
+ * wire rather than force them into an existing bucket.
+ *
+ * `skipped_checks` (added 2026-09-26, signal-catalog stage 05) is also absent, for now — none of
+ * the 9 existing buckets fit "shipped without verification" well, and it isn't calibrated yet (see
+ * its SIGNAL_FORMULAS caveat). Promoting it to a real wire value needs a new WireLoopSignal enum
+ * member, a SCHEMA_VERSION bump, and schema/rollup.v1.json + cloud's ingest validator updated to
+ * accept it first — left local-only until that coordination happens, same posture budget_overrun/
+ * model_tier_mismatch already established. */
+export function toWireLoopSignal(type: string): WireLoopSignal | null {
+  const MAP: Record<string, WireLoopSignal> = {
+    exact_tool_repeat: 'repeated-edit',
+    edit_revert_cycle: 'oscillation',
+    error_recurrence: 'retry-loop',
+    runaway_steps: 'no-progress',
+    token_runaway: 'runaway-cost',
+    chronic_tool_failures: 'tool-failure-cascade',
+    context_flooding_risk: 'context-flooding',
+    hallucinated_import: 'retry-loop',
+    failed_check_submission: 'no-progress',
+    // Signal-catalog stages 01-03 (2026-09-26). tool_call_cycle is the same "going back and
+    // forth" pattern as edit_revert_cycle at a different granularity, so it shares oscillation.
+    // file_reread/cache_miss/ttl_expiry/low_cache_hit_ratio are the first local producers for
+    // context-thrash, defined in this enum ahead of any detector — see WIRE_LOOP_SIGNALS above.
+    tool_call_cycle: 'oscillation',
+    file_reread: 'context-thrash',
+    cache_miss: 'context-thrash',
+    ttl_expiry: 'context-thrash',
+    low_cache_hit_ratio: 'context-thrash',
+  }
+  return MAP[type] ?? null
+}
+
+/** `'warning' | 'critical'` → the schema's integer severity (1–3). */
+export function toWireSeverity(severity: 'warning' | 'critical'): 1 | 2 | 3 {
+  return severity === 'critical' ? 3 : 2
+}
+
+/** git-outcome / session verdict → wire outcome. */
+export function toWireOutcome(v: string): WireOutcome {
+  switch (v) {
+    case 'merged':     return 'merged'
+    case 'committed':  return 'committed'
+    case 'abandoned':  return 'abandoned'
+    case 'in_progress':
+    case 'in-progress': return 'in-progress'
+    default:           return 'unknown'
+  }
+}
+
+/** Tool name → the schema's `^[a-z_]{1,40}$` key form. Unmappable names collapse to `other`. */
+export function toWireToolName(tool: string): string {
+  const slug = tool.toLowerCase().replace(/[^a-z_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+  return slug.length > 0 ? slug : 'other'
+}
+
+/** Model id → the schema's `^[A-Za-z0-9._:@/-]{1,80}$` form. Strips anything else (notably
+ *  spaces), so a free-text model name cannot become a free-text field on the wire. */
+export function toWireModel(model: string): string {
+  const cleaned = model.replace(/[^A-Za-z0-9._:@/-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80)
+  return cleaned.length > 0 ? cleaned : 'other'
+}
+
+// ── Record types (mirror schema/rollup.v1.json exactly) ──────────────────────
+
+/** A `[a-f0-9]{64}` HMAC-SHA256 hex digest. */
+export type Sha256 = string
+/** RFC 3339 / ISO 8601 timestamp. */
+export type Iso8601 = string
+
+export interface WireModelUse {
+  model: string
+  calls: number
+}
+
+export interface WireLoopSignalEntry {
+  signal: WireLoopSignal
+  severity: 1 | 2 | 3
+}
+
+export interface WireOneShot {
+  files_edited?: number
+  files_first_pass?: number
+}
+
+export interface SessionRollup {
+  session_id: string          // uuid
+  agent: WireAgent
+  models?: WireModelUse[]
+  /** Absent when the workspace's repository can't be keyed (not a git repo, a shallow clone, or
+   *  no discoverable root commit) — the session is still sent, just without repo grouping, rather
+   *  than dropped or keyed with a fake hash. See `repoKey.ts`. */
+  repo_hash?: Sha256
+  branch_hash?: Sha256
+  started_at: Iso8601
+  duration_ms: number
+  turns?: number
+  tokens_in?: number
+  tokens_out?: number
+  tokens_cache_read?: number
+  tokens_cache_create?: number
+  tool_calls?: Record<string, number>
+  errors?: number
+  file_hashes?: Sha256[]
+  one_shot?: WireOneShot
+  loop_signals?: WireLoopSignalEntry[]
+  outcome?: WireOutcome
+  data_source?: WireDataSource
+  initiator?: WireInitiator
+  /** sha256 of the local conversationId — present only when a log file was split into more than
+   *  one session by a long idle gap (see `toUuid`'s sibling `conversationHash` in
+   *  buildSessionRollup.ts). Lets the server color-code/group rows that are really one
+   *  conversation, the same way this client already does locally. Plain sha256, not the
+   *  repo_key-derived HMAC repo_hash/branch_hash/commit_hash use — a conversationId is already an
+   *  opaque, high-entropy token (a uuid or an OTEL trace id), not a guessable path, so it needs no
+   *  org-scoped salt to stay uncorrelatable. */
+  conversation_hash?: Sha256
+  /** Durable, monotonically increasing local revision number for this session's canonical trace
+   *  snapshot (staged feature 10) -- see database/traceRevisionRepository.ts. Absent on a send
+   *  built without a known revision (no reconciliation service available, or the session's
+   *  outcome has never been classified) -- the server treats an absent revision as the lowest
+   *  possible one for replace-ordering, never as newer than an already-acknowledged one. */
+  revision?: number
+}
+
+export interface CommitRecord {
+  commit_hash: Sha256
+  repo_hash: Sha256
+  authored_at: Iso8601
+  lines_added: number
+  lines_removed: number
+  ai_lines?: number
+  attribution?: WireAttribution
+  /** HMAC(repo_key, "author:" + git author email) — lets the server match this commit to
+   *  whichever member's own `member_author_hash` (on the payload this commit rides in, or any
+   *  other payload for the same repo) agrees, regardless of which install reported it. Absent for
+   *  a caller that hasn't computed it yet; falls back to reporting-install attribution. See
+   *  docs/decisions/0005 in `cloud`. */
+  author_hash?: Sha256
+}
+
+export interface TurnoverSample {
+  commit_hash: Sha256
+  window_days: 30 | 90
+  ai_lines_authored: number
+  ai_lines_surviving: number
+}
+
+// ── AL 08 additions — instruction telemetry ─────────────────────────────────
+// Same rules: booleans, counts, enums, hashes and timestamps only. No new field shape.
+
+export type InstructionFileKind = 'claude_md' | 'agents_md' | 'copilot_instructions' | 'other'
+
+export interface InstructionFileState {
+  repo_hash: Sha256
+  present: boolean
+  kind: InstructionFileKind
+  path_hash?: Sha256
+  /** Answers "did this change" and nothing more. */
+  content_hash?: Sha256
+  line_count?: number
+  last_modified?: Iso8601
+}
+
+export interface FileFootprint {
+  repo_hash: Sha256
+  file_hash: Sha256
+  sessions_read: number
+  sessions_total: number
+  /** Read within the first three turns. */
+  early_reads?: number
+  /** The file's own token size, for the rediscovery-cost arithmetic. */
+  token_size?: number
+  /** The substring check `getHotFileSuggestions` already performs — computed locally, the
+   *  service receives the answer, never the inputs. */
+  covered_by_instructions?: boolean
+}
+
+export type SuggestionCategory = 'context' | 'behavior' | 'prompting'
+export type SuggestionPriority = 'high' | 'medium' | 'low'
+export type SuggestionAction = 'surfaced' | 'applied' | 'dismissed' | 'reverted'
+
+export interface SuggestionBaseline {
+  cost_avg?: number
+  turns_avg?: number
+  error_rate?: number
+  loop_rate?: number
+  insufficient?: boolean
+}
+
+export interface SuggestionEvent {
+  repo_hash: Sha256
+  /** Hash of the existing `SuggestionCard.id` — the prose title/evidence/text never leave. */
+  suggestion_id: Sha256
+  category: SuggestionCategory
+  priority: SuggestionPriority
+  target_agents?: WireAgent[]
+  action: SuggestionAction
+  at: Iso8601
+  baseline?: SuggestionBaseline
+}
+
+export function toWireTargetAgent(agent: string): WireAgent {
+  return toWireAgent(agent === 'claude_code' || agent === 'copilot' || agent === 'codex' || agent === 'opencode' ? agent : agent.replace(/-/g, '_'))
+}
+
+/**
+ * The complete request body a linked machine may POST to `/api/ingest`. `install_id` and
+ * `member_id` are NOT here — the service derives them from the bearer token, so a client cannot
+ * claim to be someone else.
+ */
+export interface RollupPayload {
+  schema_version: typeof SCHEMA_VERSION
+  /** Absent under the same conditions as `SessionRollup.repo_hash` — an unkeyable repo means
+   *  there's no fingerprint to send either, not that nothing is sent. */
+  repo_key_fp?: Sha256
+  /** HMAC(repo_key, "author:" + this machine's git config user.email) for the repo this payload
+   *  is about — lets the server match this member's own commits by author fingerprint instead of
+   *  by whichever install reported them. See AL 04 / cloud's
+   *  docs/decisions/0005-commit-author-fingerprint-matching.md. Absent under the same conditions
+   *  as repo_key_fp, plus whenever the local git email couldn't be resolved. */
+  member_author_hash?: Sha256
+  session?: SessionRollup
+  commits?: CommitRecord[]
+  turnover?: TurnoverSample[]
+  instruction_files?: InstructionFileState[]
+  file_footprints?: FileFootprint[]
+  suggestion_events?: SuggestionEvent[]
+}
+
+// ── Schema-drift guard (shared by the test and any build step) ───────────────
+//
+// Walks a JSON Schema and returns a list of violations of the two structural rules that keep
+// the privacy invariant true: every object sets `additionalProperties:false`, and every string
+// is constrained by `pattern`, `enum`, `const` or `format`. Mirrors cloud's `schemaViolations`
+// so the two repos check the identical property.
+
+type JsonSchemaNode = Record<string, unknown>
+
+export function schemaViolations(node: JsonSchemaNode, nodePath = '#'): string[] {
+  const out: string[] = []
+  const type = node.type
+
+  if (type === 'object' || node.properties || node.patternProperties) {
+    if (node.additionalProperties !== false) {
+      out.push(`${nodePath}: object without additionalProperties:false`)
+    }
+    for (const [k, v] of Object.entries((node.properties ?? {}) as Record<string, JsonSchemaNode>)) {
+      out.push(...schemaViolations(v, `${nodePath}/properties/${k}`))
+    }
+    for (const [k, v] of Object.entries((node.patternProperties ?? {}) as Record<string, JsonSchemaNode>)) {
+      out.push(...schemaViolations(v, `${nodePath}/patternProperties/${k}`))
+    }
+  }
+
+  if (type === 'string') {
+    const constrained = 'pattern' in node || 'enum' in node || 'const' in node || 'format' in node
+    if (!constrained) out.push(`${nodePath}: unconstrained string`)
+  }
+
+  if (type === 'array' && node.items) {
+    out.push(...schemaViolations(node.items as JsonSchemaNode, `${nodePath}/items`))
+  }
+
+  for (const [k, v] of Object.entries((node.$defs ?? {}) as Record<string, JsonSchemaNode>)) {
+    out.push(...schemaViolations(v, `#/$defs/${k}`))
+  }
+
+  return out
+}

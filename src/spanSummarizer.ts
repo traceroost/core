@@ -9,6 +9,7 @@
  */
 
 import { Span } from './types'
+import type { SessionSummaryCard } from './summarizers/summarizerTypes'
 import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
 import { buildCopilotSessions } from './summarizers/copilot'
@@ -25,6 +26,31 @@ export type {
   BackgroundSpanSummary,
   FullSummary,
 } from './summarizers/summarizerTypes'
+
+// Attributes that can pull a span into Codex's session grouping (summarizers/codex.ts), which is
+// stateful across the whole window rather than per trace.
+const CODEX_GROUPING_KEYS = new Set([
+  'codex.session.id', 'codex.turn.id', 'thread.id', 'thread_id', 'turn.id', 'turn_id',
+])
+
+function isPerTraceClaudeSpan(s: Span): boolean {
+  return s.name.startsWith('claude_code.') && !s.attributes.some(a => CODEX_GROUPING_KEYS.has(a.key))
+}
+
+/**
+ * The session cards summarizeSpans(spans) builds for the given traces — nothing else is
+ * guaranteed about the result. A Claude Code card is built from its own trace's spans alone, so
+ * when every span of the requested traces is a plain claude_code.* span only those spans are
+ * summarized; otherwise (Copilot's parent links and Codex's session grouping can reach across
+ * traces) the whole window is. The live-ingest path calls this once per OTLP payload, and
+ * re-summarizing a window of tens of thousands of spans there each time was its main cost.
+ */
+export function summarizeTraces(spans: Span[], traceIds: Iterable<string>): SessionSummaryCard[] {
+  const wanted = new Set(traceIds)
+  const subset = spans.filter(s => wanted.has(s.traceId))
+  return summarizeSpans(subset.every(isPerTraceClaudeSpan) ? subset : spans).sessions
+    .filter(s => wanted.has(s.traceId))
+}
 
 export function summarizeSpans(spans: Span[]) {
   if (!Array.isArray(spans) || spans.length === 0) {

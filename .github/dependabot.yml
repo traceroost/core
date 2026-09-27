@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Keeps the Actions used by our workflows (including security-review.yml) patched.
+  # Free on both public and private repos, unlike Dependabot's npm ecosystem alerts UI
+  # for CodeQL-style dashboards — this just opens PRs, no GHAS needed.
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'

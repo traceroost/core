@@ -29,7 +29,7 @@ export interface AgentThresholdProfile {
 
 export type AgentThresholdProfiles = Record<AgentSource, AgentThresholdProfile>
 
-export const AGENT_ORDER: AgentSource[] = ['copilot', 'claude_code', 'codex', 'opencode']
+export const AGENT_ORDER: AgentSource[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor']
 
 export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
   claude_code: {
@@ -88,6 +88,24 @@ export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
     consecutiveErrorAlert: 4,
     activeMinutesAlert: 30,
   },
+  // Placeholder, not yet calibrated against real Cursor CLI session data (see runbooks/
+  // SIGNAL_CALIBRATION.md) — mirrors automationEngine.ts's server-side copy, itself copied from
+  // claude_code/opencode's defaults as a starting point. Re-calibrate both together once enough
+  // real session data exists — see .staged-issues/support-cursor-cli.md §1.3.
+  cursor: {
+    source: 'cursor',
+    label: 'Cursor',
+    shortLabel: 'CU',
+    color: '#B39DDB',
+    contextWindowTokens: 200000,
+    turnNudge: 80,
+    turnAlert: 150,
+    identicalRepeatNudge: 3,
+    identicalRepeatAlert: 4,
+    consecutiveErrorNudge: 3,
+    consecutiveErrorAlert: 4,
+    activeMinutesAlert: 30,
+  },
 }
 
 export const AGENT_PROFILE_FIELD_META: Record<AgentProfileMetric, { label: string; unit: string; min: number; max: number; step: number }> = {
@@ -107,6 +125,7 @@ function cloneDefaultProfiles(): AgentThresholdProfiles {
     copilot: { ...DEFAULT_AGENT_PROFILES.copilot },
     codex: { ...DEFAULT_AGENT_PROFILES.codex },
     opencode: { ...DEFAULT_AGENT_PROFILES.opencode },
+    cursor: { ...DEFAULT_AGENT_PROFILES.cursor },
   }
 }
 

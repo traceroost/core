@@ -1,0 +1,22 @@
+/**
+ * Canonical per-agent identity colors, shared across TraceRoost's two UIs — the literal hex
+ * values core's own getAgentColor (media/src/utils.ts) returns. These are fixed: an agent's
+ * color is part of its identity, not part of either host's color scheme, so — unlike pills.css's
+ * tokens, which each host maps to its own theme — these are never redefined for light/dark or
+ * remapped by a consumer. A host that wants its own semantic alias (e.g. traceroost-cloud's
+ * `--agent-claude`) just points it at the matching token here once; it should not give that
+ * alias a different value per theme.
+ *
+ * Part of the @traceroost/styles package — see ../README.md for how a consumer wires this in.
+ */
+
+:root {
+  --tr-agent-claude-code: #FFB085;
+  --tr-agent-codex: #F0FF42;
+  --tr-agent-copilot: #00EAFF;
+  --tr-agent-opencode: #FFFFFF;
+  /* No local ingestion path produces this today on either host — reserved for when one does. */
+  --tr-agent-cursor: #B39DDB;
+  /* Fallback for an unrecognized/unset agent source. */
+  --tr-agent-default: #90a4ae;
+}

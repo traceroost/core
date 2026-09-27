@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { lookupRates, calcTokenCostUsd, stripDateSuffix, normalizeCostKey } from '../pricing'
+import { lookupRates, calcTokenCostUsd, calcAggregateTokenCostUsd, calcSessionCostUsd, stripDateSuffix, normalizeCostKey, setCloudRateOverrides, getCloudRateOverrides } from '../pricing'
 
 suite('pricing', () => {
   test('lookupRates returns rates for known model', () => {
@@ -251,5 +251,102 @@ suite('pricing', () => {
     assert.notStrictEqual(lookupRates('gpt-5.4'), lookupRates('gpt-5.4-mini'))
     assert.ok(lookupRates('mai-code-1-flash') !== null && lookupRates('mai-code-1.1-flash') !== null)
     assert.notStrictEqual(lookupRates('mai-code-1-flash'), lookupRates('mai-code-1.1-flash'))
+  })
+})
+
+// setCloudRateOverrides mutates module-level state read by every other test in this file (via
+// lookupRates), so each test here resets it to empty afterward rather than relying on suite order
+// — same reason none of the suite above ever calls it.
+suite('pricing — cloud rate overrides', () => {
+  teardown(() => { setCloudRateOverrides({}) })
+
+  test('an override takes priority over the local RATES entry for the same model', () => {
+    const local = lookupRates('claude-sonnet-5')
+    assert.ok(local && local.inputPerMTok > 0)
+    setCloudRateOverrides({ 'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4 } })
+    assert.deepStrictEqual(lookupRates('claude-sonnet-5'), {
+      inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4, contextWindowTokens: 0,
+    })
+  })
+
+  test('an override for an unrecognized model makes it resolve where it previously returned null', () => {
+    assert.strictEqual(lookupRates('some-orgs-fine-tune'), null)
+    setCloudRateOverrides({ 'some-orgs-fine-tune': { inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 5 } })
+    assert.ok(lookupRates('some-orgs-fine-tune') !== null)
+  })
+
+  test('override keys are normalized the same way local RATES keys are', () => {
+    setCloudRateOverrides({ 'Claude-Sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 1 } })
+    assert.strictEqual(lookupRates('claude sonnet 5')?.inputPerMTok, 1)
+  })
+
+  test('a model absent from the override map still falls back to local RATES', () => {
+    setCloudRateOverrides({ 'some-other-model': { inputPerMTok: 9, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 9 } })
+    const local = lookupRates('claude-sonnet-5')
+    assert.ok(local && local.inputPerMTok !== 9)
+  })
+
+  test('clearing overrides (empty map) restores local RATES', () => {
+    setCloudRateOverrides({ 'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 1 } })
+    setCloudRateOverrides({})
+    assert.notStrictEqual(lookupRates('claude-sonnet-5')?.inputPerMTok, 1)
+  })
+
+  test('getCloudRateOverrides reflects the current override map, keyed by normalizeCostKey', () => {
+    assert.deepStrictEqual(getCloudRateOverrides(), {})
+    setCloudRateOverrides({ 'Claude-Sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4 } })
+    assert.deepStrictEqual(getCloudRateOverrides(), {
+      'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4, contextWindowTokens: 0 },
+    })
+  })
+})
+
+// H21: the long-context tier is a per-call surcharge. A session's cumulative cache reads cross
+// 272K long before any single call does, so it must never be applied to session totals.
+suite('pricing — session cost (per-call long-context tier)', () => {
+  const call = (input: number, cacheRead: number, output: number) =>
+    ({ type: 'llm', inputTokens: input + cacheRead, cacheReadTokens: cacheRead, cacheCreateTokens: 0, outputTokens: output })
+
+  test('ten 100K-cache-read calls on gpt-5.4 are priced at base rates, not the >272K tier', () => {
+    const timeline = Array.from({ length: 10 }, () => call(5_000, 100_000, 1_000))
+    const session = {
+      model: 'gpt-5.4', inputTokens: 1_050_000, cacheReadTokens: 1_000_000, cacheCreateTokens: 0, outputTokens: 10_000, timeline,
+    }
+    // 50K input × $2.50 + 1M cache read × $0.25 + 10K output × $15 = 0.125 + 0.25 + 0.15
+    const expected = 0.525
+    assert.ok(Math.abs(calcSessionCostUsd(session) - expected) < 1e-9, `got ${calcSessionCostUsd(session)}`)
+    // The old behavior (tier applied to the aggregate) overbilled:
+    assert.ok(calcTokenCostUsd(50_000, 1_000_000, 0, 10_000, 'gpt-5.4') > expected + 0.1)
+  })
+
+  test('a single call above the threshold still gets the tier', () => {
+    const session = {
+      model: 'gpt-5.4', inputTokens: 300_000, cacheReadTokens: 0, cacheCreateTokens: 0, outputTokens: 0,
+      timeline: [call(300_000, 0, 0)],
+    }
+    // 272K × $2.50 + 28K × $5.00
+    assert.ok(Math.abs(calcSessionCostUsd(session) - (0.68 + 0.14)) < 1e-9)
+  })
+
+  test('without per-call token data it falls back to flat aggregate pricing (no tier)', () => {
+    const session = { model: 'gpt-5.4', inputTokens: 1_050_000, cacheReadTokens: 1_000_000, cacheCreateTokens: 0, outputTokens: 10_000, timeline: [] }
+    assert.ok(Math.abs(calcSessionCostUsd(session) - 0.525) < 1e-9)
+    assert.strictEqual(calcSessionCostUsd(session), calcAggregateTokenCostUsd(50_000, 1_000_000, 0, 10_000, 'gpt-5.4'))
+  })
+
+  test('multi-model timelines price each call at its own model', () => {
+    const session = {
+      model: 'claude-opus-4-8', inputTokens: 2_000_000, cacheReadTokens: 0, cacheCreateTokens: 0, outputTokens: 0,
+      timeline: [
+        { type: 'llm', model: 'claude-opus-4-8', inputTokens: 1_000_000 },
+        { type: 'llm', model: 'claude-haiku-4-5', inputTokens: 1_000_000 },
+        { type: 'tool', inputTokens: 999_999_999 },
+      ],
+    }
+    assert.ok(Math.abs(calcSessionCostUsd(session) - (5.00 + 1.00)) < 1e-9)
+  })
+
+  test('unknown model with no per-call data costs 0', () => {
+    assert.strictEqual(calcSessionCostUsd({ model: 'nope-model', inputTokens: 1000, cacheReadTokens: 0, outputTokens: 10 }), 0)
   })
 })

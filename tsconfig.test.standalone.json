@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "module": "Node16",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "sourceMap": true,
+    "rootDir": ".",
+    "outDir": "out/test-standalone",
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node", "mocha"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "standalone/local/patternsCli.ts",
+    "standalone/local/repoResolve.ts",
+    "standalone/local/traceCli.ts",
+    "standalone/local/findCli.ts",
+    "standalone/local/patternsCli.test.ts",
+    "standalone/local/traceCli.test.ts",
+    "standalone/local/findCli.test.ts",
+    "standalone/service/health.ts",
+    "standalone/service/health.test.ts",
+    "standalone/sseSessionSync.ts",
+    "standalone/sseSessionSync.test.ts"
+  ]
+}

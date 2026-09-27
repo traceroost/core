@@ -18,9 +18,9 @@ media/sidebar.js.map
 demo/fixtures/*.json
 # Session data exports
 export_*.json
-agent-lens-export-*.json
 # Local staging
 .staged-issues/
+.staged-features/
 # Scratch research notes — not project docs
 .research/
 # Claude Code per-developer settings (permissions, hooks — not project config)
@@ -28,3 +28,11 @@ agent-lens-export-*.json
 .claude/settings.local.json
 # Local pnpm package store, when created inside the repo instead of pnpm's global location
 .pnpm-store/
+# Local environment overrides for `pnpm run local` (e.g. TRACEROOST_ORG_ENV) — never committed
+.env
+# Browser UX artifacts
+test-results/
+playwright-report/
+# scripts/prepare-edition.mjs's backups while a core-edition manifest is swapped in for packing
+.package.json.edition-backup
+.vscodeignore.edition-backup

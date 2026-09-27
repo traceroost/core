@@ -1,16 +1,16 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import {
   filteredSessions, sessionSummary,
   sessionTimelines,
+  requestGitOutcomesFor,
   CHART_MAX, vscode, goToHelp,
 } from '../state'
 import { getAgentColor, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
 import { buildDailyCostMap } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
-import type { PricingMode } from '../sessionMetrics'
 import { PRICING_LAST_UPDATED } from '../pricing'
 
-import { ContextGrowthChart, SessionTokenChart } from './SessionCharts'
+import { ContextGrowthChart, SessionTokenChart, OutcomeTokenChart } from './SessionCharts'
 import { CostBarChart, fmtUsd } from './Cost'
 import { computeStats } from './Agents'
 
@@ -85,12 +85,16 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
 // ── Main Analytics component ──────────────────────────────────────────────────
 
 export function Analytics() {
-  const [mode, setMode] = useState<PricingMode>('token')
   const [abbrevTokens, setAbbrevTokens] = useState(true)
   const [showZeroCost, setShowZeroCost] = useState(false)
   const sessions = filteredSessions.value
   const timelines = sessionTimelines.value
   const hasAny = (sessionSummary.value?.sessions?.length ?? 0) > 0
+
+  // Outcome vs. tokens (below) needs every filtered session's git outcome resolved, not just
+  // whichever happen to already be cached from a visit to the Sessions tab — mirrors how
+  // Sessions.tsx itself triggers requests as its own rows render.
+  useEffect(() => { requestGitOutcomesFor(sessions) }, [sessions])
 
   if (sessions.length === 0) {
     return (
@@ -131,7 +135,7 @@ export function Analytics() {
 
   // Multi-dimensional cost table: day → agent. Shared with the daily_cost alert in Alerts.tsx —
   // see buildDailyCostMap in sessionMetrics.ts, the single source of truth for day-grouped cost.
-  const dayMap = buildDailyCostMap(pricedSess, mode)
+  const dayMap = buildDailyCostMap(pricedSess)
   const dayRows = [...dayMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   const grand = dayRows.reduce((g, [, d]) => ({
     input: g.input + d.input, output: g.output + d.output,
@@ -168,24 +172,28 @@ export function Analytics() {
   return (
     <div id="analytics-content">
 
+      {/* Agent breakdown */}
+      {(copilotSess.length > 0 || claudeSess.length > 0 || codexSess.length > 0) && (
+        <>
+          <SectionHead title="AGENT BREAKDOWN" first />
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            {copilotSess.length > 0 && <AgentCard source="copilot"    sessions={copilotSess} />}
+            {claudeSess.length  > 0 && <AgentCard source="claude_code" sessions={claudeSess} />}
+            {codexSess.length   > 0 && <AgentCard source="codex"      sessions={codexSess} />}
+          </div>
+        </>
+      )}
+
       {/* Estimated cost */}
       {pricedSess.length > 0 && (
         <>
-          <SectionHead title="ESTIMATED COST" first helpAnchor="help-costs" />
+          <SectionHead title="ESTIMATED COST" first={copilotSess.length === 0 && claudeSess.length === 0 && codexSess.length === 0} helpAnchor="help-costs" />
           {disclaimer}
 
           {copilotSess.length > 0 && (
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:8px">
               <span style={'display:inline-block;width:6px;height:6px;border-radius:50%;background:' + getAgentColor('copilot')} />
-              <span style="text-transform:uppercase;letter-spacing:.3px;font-size:10px">Copilot</span>
-              <button
-                class={'tab-mini' + (mode === 'token' ? ' active' : '')}
-                onClick={() => setMode('token')}
-              >Token-based</button>
-              <button
-                class={'tab-mini' + (mode === 'request-annual' ? ' active' : '')}
-                onClick={() => setMode('request-annual')}
-              >Annual request-based</button>
+              <span style="text-transform:uppercase;letter-spacing:.3px;font-size:10px">Copilot — Token-based</span>
             </div>
           )}
 
@@ -197,7 +205,7 @@ export function Analytics() {
             Daily total (right axis)
           </div>
 
-          <CostBarChart sessions={pricedChartSess} mode={mode} />
+          <CostBarChart sessions={pricedChartSess} />
 
           {/* Multi-dimensional cost table: date → agent, scrollable */}
           {dayRows.length > 0 && (
@@ -214,7 +222,7 @@ export function Analytics() {
               >{abbrevTokens ? '1.2M' : '1,234'}</button>
               <button
                 onClick={() => {
-                  const headers = ['Date','Agent','Model','Input Tokens','Output Tokens','Cache Create Tokens','Cache Read Tokens','Total Tokens','Cost (USD)']
+                  const headers = ['Date','Agent','Model','Input Tokens','Output Tokens','Cache Create Tokens','Cache Read Tokens','Total Tokens','Estimated Cost (USD)']
                   const rows: string[][] = []
                   for (const [day, d] of dayRows) {
                     for (const [, ae] of d.agents) {
@@ -251,8 +259,8 @@ export function Analytics() {
               <table style="border-collapse:collapse;font-size:10px;min-width:100%;white-space:nowrap">
                 <thead>
                   <tr style="border-bottom:1px solid var(--border)">
-                    {(['Date','Agent','Model','Input','Output','Cache Create','Cache Read','Total Tokens','Cost (USD)'] as const).map(h => (
-                      <th key={h} style={`padding:3px 8px 3px ${h==='Date'?'0':'6px'};color:var(--muted);font-weight:500;text-align:${['Input','Output','Cache Create','Cache Read','Total Tokens','Cost (USD)'].includes(h)?'right':'left'}`}>{h}</th>
+                    {(['Date','Agent','Model','Input','Output','Cache Create','Cache Read','Total Tokens','Estimated Cost (USD)'] as const).map(h => (
+                      <th key={h} style={`padding:3px 8px 3px ${h==='Date'?'0':'6px'};color:var(--muted);font-weight:500;text-align:${['Input','Output','Cache Create','Cache Read','Total Tokens','Estimated Cost (USD)'].includes(h)?'right':'left'}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -321,22 +329,6 @@ export function Analytics() {
         </>
       )}
 
-      {/* Agent breakdown */}
-      {(copilotSess.length > 0 || claudeSess.length > 0 || codexSess.length > 0) && (
-        <>
-          <SectionHead title="AGENT BREAKDOWN" />
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            {copilotSess.length > 0 && <AgentCard source="copilot"    sessions={copilotSess} />}
-            {claudeSess.length  > 0 && <AgentCard source="claude_code" sessions={claudeSess} />}
-            {codexSess.length   > 0 && <AgentCard source="codex"      sessions={codexSess} />}
-          </div>
-        </>
-      )}
-
-      {/* Context growth */}
-      <SectionHead title="CONTEXT GROWTH" first={pricedSess.length === 0} />
-      <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
-
       {/* Token usage per session */}
       <SectionHead title="TOKEN USAGE PER TRACE" />
       <div style="display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--muted)">
@@ -345,6 +337,14 @@ export function Analytics() {
       </div>
       {/* Always pass newest-first (rangedSessions); chart reverses internally to oldest-first */}
       <SessionTokenChart sessions={timeOrdered} />
+
+      {/* Outcome vs. tokens — did the sessions that spent more tokens tend to land? */}
+      <SectionHead title="OUTCOME VS. TOKENS" tip="Median input+output tokens per trace, grouped by what happened to the work locally (merged / committed / uncommitted). Traces with no changed files, or outside a git repo, aren't counted." />
+      <OutcomeTokenChart sessions={sessions} />
+
+      {/* Context growth */}
+      <SectionHead title="CONTEXT GROWTH" />
+      <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
 
     </div>
   )

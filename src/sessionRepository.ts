@@ -1,12 +1,26 @@
 import * as fs from 'fs'
 import * as vscode from 'vscode'
 import { SessionStore } from './sessionStore'
-import { DatabaseReader, type DailyStatRow, type LifetimeStats, type SearchQuery, type BurnRate, type Projection } from './database/reader'
+import { DatabaseReader, type DailyStatRow, type LifetimeStats, type SearchQuery, type BurnRate, type Projection, type TraceSendStats } from './database/reader'
 import { DatabaseWriter } from './database/writer'
 import { summarizeSpans } from './spanSummarizer'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
 
-export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection }
+export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection, TraceSendStats }
+
+/**
+ * Ceiling on how many sessions `listSessions()` ever returns when no caller-supplied `limit` is
+ * given — the unfiltered call `repository?.listSessions()` in extension.ts posts whole to the
+ * webview. Search/Export already has real DB-level `LIMIT`/`OFFSET` (`DatabaseReader.
+ * searchSessions()`) as an escape hatch for "give me everything"; this list doesn't, and DB-level
+ * pagination was deliberately not added here for now (a stress test at 7,300 sessions found no
+ * real cost problem at that size). This cap
+ * is the backstop regardless of that finding — a known, tested ceiling, the same shape as
+ * `spanStore.ts`'s `DEFAULT_MAX_SPANS`, so an unusually large history degrades to "most recent N
+ * sessions" instead of risking V8's ~512MB max string length on the webview `postMessage` payload.
+ * See .staged-issues/scalability.md, risk #5.
+ */
+export const MAX_SESSIONS_TO_WEBVIEW = 20_000
 
 /**
  * For OTEL sessions missing workspace: look for a log session of the same source
@@ -44,16 +58,24 @@ export function resolveWorkspacesFromLogs(sessions: SessionSummaryCard[]): void 
 
 /**
  * Merges historical sessions from SQLite with live sessions from the in-memory
- * span window. Live sessions always win on conflict (same sessionId) — they are
- * fresher. Result is sorted by startTime DESC.
+ * span window. Live sessions win on conflict (same sessionId) — they are fresher —
+ * unless the stored card has recorded more calls than the live one: the live card is
+ * rebuilt from whatever spans are still in memory, so a partial window must not hide
+ * a fuller card already persisted. Result is sorted by startTime DESC.
  */
 export function mergeSessions(
   dbSessions: SessionSummaryCard[],
   liveSessions: SessionSummaryCard[],
 ): SessionSummaryCard[] {
-  const liveIds = new Set(liveSessions.map(s => s.sessionId))
+  const calls = (s: SessionSummaryCard) => s.totalLlmCalls + s.totalToolCalls
+  const dbById = new Map(dbSessions.map(s => [s.sessionId, s]))
+  const liveWinners = liveSessions.filter(s => {
+    const stored = dbById.get(s.sessionId)
+    return !stored || calls(stored) <= calls(s)
+  })
+  const liveIds = new Set(liveWinners.map(s => s.sessionId))
   return [
-    ...liveSessions,
+    ...liveWinners,
     ...dbSessions.filter(s => !liveIds.has(s.sessionId)),
   ].sort((a, b) => Date.parse(b.startTime) - Date.parse(a.startTime))
 }
@@ -64,26 +86,56 @@ export function mergeSessions(
  * and SessionStore (live span window).
  */
 export class SessionRepository {
+  // listSessions() results for the current data version, keyed by filter. The sidebar (every 5 s),
+  // the dashboard (every 10 s and on every store update) and each git-outcome reply all ask for
+  // the same list; recomputing it re-reads every stored row and re-summarizes the live window
+  // (hundreds of ms at 20k sessions). Dropped as soon as the sessions table or the live span
+  // window changes — see sessionsVersion.ts and SessionStore.version.
+  private listCache = new Map<string, SessionSummaryCard[]>()
+  private listCacheVersion = ''
+
   constructor(
     private readonly reader: DatabaseReader,
     private readonly writer: DatabaseWriter,
     private readonly store: SessionStore,
+    private readonly log: (msg: string) => void = () => { /* silent */ },
   ) {}
 
-  /** Returns merged session list: live window + historical DB, sorted newest-first. */
+  /** Returns merged session list: live window + historical DB, sorted newest-first.
+   *  Capped at `MAX_SESSIONS_TO_WEBVIEW` when the caller doesn't supply its own `limit` — see that
+   *  constant's doc comment. Pass `limit: Infinity` to bypass the cap entirely (used by org
+   *  reconcile, which must see every local session, not just the most recent N).
+   *
+   *  Identical calls between two data changes share one computed result: the returned array is a
+   *  fresh copy, but the cards in it are shared with every other caller — read them, never
+   *  mutate them. */
   listSessions(filter?: {
-    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode'
+    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
     limit?: number
   }): SessionSummaryCard[] {
-    const dbSessions = this.reader.listSessions(filter)
-    const liveSpans = this.store.getSpans()
-    const liveSessions = liveSpans.length > 0 ? summarizeSpans(liveSpans).sessions : []
-    const merged = mergeSessions(dbSessions, liveSessions)
-    resolveWorkspacesFromLogs(merged)
-    if (filter?.limit !== null && filter?.limit !== undefined && merged.length > filter.limit) {
-      return merged.slice(0, filter.limit)
+    const version = `${this.reader.sessionsVersion()}:${this.store.version}`
+    if (version !== this.listCacheVersion) {
+      this.listCache.clear()
+      this.listCacheVersion = version
     }
-    return merged
+    const key = `${filter?.source ?? ''}|${filter?.limit ?? ''}`
+    let merged = this.listCache.get(key)
+    if (!merged) {
+      const dbSessions = this.reader.listSessions(filter)
+      const liveSpans = this.store.getSpans()
+      const liveSessions = liveSpans.length > 0 ? summarizeSpans(liveSpans).sessions : []
+      merged = mergeSessions(dbSessions, liveSessions)
+      resolveWorkspacesFromLogs(merged)
+      this.listCache.set(key, merged)
+    }
+    const effectiveLimit = filter?.limit ?? MAX_SESSIONS_TO_WEBVIEW
+    if (merged.length > effectiveLimit) {
+      if (filter?.limit === undefined) {
+        this.log(`[TraceRoost] Session list (${merged.length}) exceeds the ${MAX_SESSIONS_TO_WEBVIEW}-session safety cap — returning the most recent ${MAX_SESSIONS_TO_WEBVIEW} only.`)
+      }
+      return merged.slice(0, effectiveLimit)
+    }
+    return merged.slice()
   }
 
   /** Returns full timeline entries for one session (no blob content). */
@@ -123,6 +175,16 @@ export class SessionRepository {
   /** Burn rate for an active session. Returns null if < 2 LLM entries with timestamps. */
   queryBurnRate(sessionId: string): { burnRate: BurnRate; projection: Projection | null } | null {
     return this.reader.queryBurnRate(sessionId)
+  }
+
+  /** Windowed + lifetime "hashed traces sent" transport stats for the Org panel. */
+  queryTraceSendStats(now: number): TraceSendStats {
+    return this.reader.queryTraceSendStats(now)
+  }
+
+  /** Records a successful forwarding drain of `count` traces, for the transport stats above. */
+  recordTraceSent(count: number, at: number): void {
+    this.writer.recordTraceSent(count, at)
   }
 
   /** Returns storage size stats for the DB file and blobs directory. */

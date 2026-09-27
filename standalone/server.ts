@@ -11,14 +11,18 @@ import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
 import { exec } from 'child_process'
+import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
-import { calcTokenCostUsd } from '../src/pricing'
+import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
-import { classifyOtlpPayload } from '../src/otlpParser'
+import { classifyOtlpPayload, objectItems } from '../src/otlpParser'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
-import { classifySessionOutcome, type GitOutcome } from '../src/gitOutcome'
+import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from '../src/gitOutcome'
+import { onActionLogChanged, getActionLogHistory } from '../src/actionLog'
+import { ReconciliationService, type ReconcileResult } from '../src/reconcile/reconciliationService'
+import { startBackgroundReconciliation, type BackgroundWatcher } from '../src/reconcile/backgroundWatcher'
 import { detectSessionRiskSignals } from '../src/sessionRiskSignals'
 import { temperLoopSignalSeverity } from '../src/loopDetector'
 import { generateSuggestions } from '../src/instructionAdvisor'
@@ -26,15 +30,29 @@ import { detectInstructionFiles, appendSuggestion } from '../src/instructionFile
 import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
-import { readServiceConfig, ensureAuthToken, isRunningFromNpx } from '../src/serviceConfig'
-import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
+import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest } from '../src/serviceConfig'
+import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
+import { listenWithFallback, writeResolvedPorts, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
+// TraceRoost Pro (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
+import { cloud } from '../src/cloudBridge'
+import { resolveGithubUrl } from '../src/repoRemote'
+import {
+  isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
+  extractCookieToken, authCookieHeader,
+} from '../src/httpSecurity'
+import { SseSessionSync, type SyncSummary } from './sseSessionSync'
+
+// Load `.env` from the current working directory, if one exists — lets `pnpm run local` point at
+// a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
+// `quiet` suppresses dotenv's own startup banner; this is silent no-ops when no `.env` is present.
+loadDotenv({ quiet: true })
 
 // `traceroost service install` persists its port/host/data-dir choices to
 // ~/.traceroost/config.json (see src/serviceConfig.ts) so a background-service install and an
 // ad-hoc `npx`/`node standalone/server.js` run share one config story. Env vars still win when
 // set, matching this server's behavior before the config file existed. ensureAuthToken generates
 // and persists a bearer token the first time this runs with none set yet.
-const fileConfig = ensureAuthToken(readServiceConfig())
+const fileConfig = ensureInstallId(ensureAuthToken(readServiceConfig()))
 
 const OTLP_PORT  = parseInt(process.env.OTLP_PORT  ?? String(fileConfig.otlpPort))
 const UI_PORT    = parseInt(process.env.UI_PORT    ?? String(fileConfig.uiPort))
@@ -55,6 +73,28 @@ if (!isLoopbackHost(BIND_HOST) && !AUTH_TOKEN) {
   console.error(`[TraceRoost] Refusing to start: BIND_HOST=${BIND_HOST} exposes TraceRoost beyond localhost, but no auth token could be generated or persisted (check that the data directory is writable). Fix that, or set BIND_HOST back to 127.0.0.1.`)
   process.exit(1)
 }
+
+// ── Resolved-ports record ────────────────────────────────────────────────────
+//
+// One record, written once all three ports are known — every other reader (the printed dashboard
+// URL, the browser auto-open, `service status`, the `reconfigureOtel` action) reads this instead
+// of re-deriving "the port" from OTLP_PORT/UI_PORT/MCP_PORT independently. See
+// .staged-issues/auto-pick-free-port.md.
+const resolvedPorts: Partial<Record<'ui' | 'otlp' | 'mcp', number>> = {}
+
+function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, bound: number): void {
+  resolvedPorts[kind] = bound
+  if (bound !== requested) {
+    console.log(`[TraceRoost] Port ${requested} (${kind.toUpperCase()}) was in use — using ${bound} instead.`)
+  }
+  if (resolvedPorts.ui !== undefined && resolvedPorts.otlp !== undefined && resolvedPorts.mcp !== undefined) {
+    const record: ResolvedPorts = {
+      ui: resolvedPorts.ui, otlp: resolvedPorts.otlp, mcp: resolvedPorts.mcp,
+      resolvedAt: new Date().toISOString(), pid: process.pid,
+    }
+    try { writeResolvedPorts(record) } catch (e) { console.warn('[TraceRoost] Could not persist resolved ports:', e) }
+  }
+}
 // None of the three servers (UI, OTLP, MCP) require the token while bound to loopback — the
 // network boundary is the security boundary there: only another process on this machine can
 // reach 127.0.0.1 at all, so a bearer token on top of that only ever defended against a
@@ -68,8 +108,16 @@ if (REQUIRE_TOKEN_EVERYWHERE) {
 const parsedMaxSpans = parseInt(process.env.TRACEROOST_MAX_SPANS ?? '', 10)
 const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxSpans
 
-const PACKAGE_VERSION: string = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version
-console.log(`[TraceRoost] Version         ${PACKAGE_VERSION}`)
+const PACKAGE_VERSION: string = readPackageManifest(__dirname).version ?? 'unknown'
+if (PACKAGE_VERSION === 'unknown') {
+  console.warn('[TraceRoost] Could not read package.json to determine the running version — is package.json missing from this install?')
+} else {
+  console.log(`[TraceRoost] Version         ${PACKAGE_VERSION}`)
+  // The Sessions tab footer shows this version, but a bare `npx traceroost`/long-running
+  // service can go stale silently — startVersionCheckLoop compares it against npm in the
+  // background so the dashboard can surface an "update available" notice (/api/version-check).
+  startVersionCheckLoop(PACKAGE_VERSION)
+}
 if (isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) {
   // A bare `npx traceroost` re-runs npx's cached copy without checking npm, so the version
   // above can be an old release even right after a publish. Surface that at the moment it's on screen.
@@ -89,6 +137,10 @@ const DATA_FILE = path.join(DATA_DIR, 'spans.json')
 
 let spans: Span[] = []
 let sseClients: http.ServerResponse[] = []
+// Bumped on every mutation to `spans` or `logSessions` — buildSessionSummary() caches its
+// (expensive, ~50k-span) summarizeSpans() pass keyed on this instead of recomputing on every
+// call. See buildSessionSummary()'s doc comment for why that recompute was pegging the CPU.
+let dataVersion = 0
 
 // Load persisted spans on startup
 try {
@@ -120,6 +172,7 @@ function saveSpansNow(): boolean {
       const keep = Math.floor(spans.length / 2)
       const dropped = spans.length - keep
       spans.splice(0, dropped)
+      dataVersion++
       console.warn(`[TraceRoost] Save failed (spans array too large to serialize) — dropped oldest ${dropped} spans and retrying`)
       try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(spans))
@@ -146,6 +199,7 @@ function addSpan(span: Span) {
   spans.push(span)
   const dropped = pruneSpans(spans, MAX_SPANS)
   if (dropped > 0) console.warn(`[TraceRoost] Pruned ${dropped} oldest spans to stay under the ${MAX_SPANS}-span cap`)
+  dataVersion++
 }
 
 // ── Log file sessions ─────────────────────────────────────────────────────────
@@ -154,9 +208,65 @@ function addSpan(span: Span) {
 // when the same session ID appears in both, the OTEL version is used.
 let logSessions: Map<string, SessionSummaryCard> = new Map()
 
-// Git outcome results, cached for the life of the server process (git operations aren't free) —
-// same eviction-free lifetime as logSessions. Mirrors DashboardPanel's per-panel-lifetime cache.
-const gitOutcomeCache = new Map<string, GitOutcome | null>()
+/** The one way a card enters `logSessions` — bumps `dataVersion` and drops any cached serialized
+ *  form of the card (see `strippedCardJson`), in case a producer ever hands back the same object
+ *  updated in place rather than a fresh one. */
+function setLogSession(card: SessionSummaryCard): void {
+  logSessions.set(card.sessionId, card)
+  strippedCardJson.delete(card)
+  dataVersion++
+}
+
+// Host-independent reconciliation (staged feature 10) — created once outcomesDb opens, in
+// startLogIngestion() below. Undefined only when sql.js failed to load; getGitOutcome falls back
+// to an in-flight-only, non-durable classification in that case, same posture as before this
+// feature (a permanent-until-restart Map has been replaced either way — see reconciliationService.ts).
+let reconciliationService: ReconciliationService | undefined
+let backgroundWatcher: BackgroundWatcher | undefined
+const fallbackInFlight = new Map<string, Promise<GitOutcome | null>>()
+
+// Mirrors DashboardPanel's identical subscription — independent of reconciliationService (also
+// covers the uncached fallbackInFlight path above), so wire it unconditionally at module load
+// rather than inside startLogIngestion's conditional setup.
+onRunningGitCommandsChanged(commands => broadcastSse({ type: 'runningGitCommands', commands }))
+
+// action-log.md: pushed to every connected client on every change; a freshly connecting client
+// also gets the current backlog once, at SSE connect time (see the `/events` handler below).
+onActionLogChanged(entries => broadcastSse({ type: 'actionLog', entries }))
+
+async function loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[], endTime: string): Promise<{ outcome: GitOutcome | null; revision: number | null; deferred: boolean }> {
+  if (reconciliationService) {
+    const result = await reconciliationService.reconcile({ sessionId, workspace, filesChanged, endTime })
+    return { outcome: result.outcome, revision: result.revision, deferred: result.deferred }
+  }
+  let pending = fallbackInFlight.get(sessionId)
+  if (!pending) {
+    pending = classifySessionOutcome(workspace, filesChanged)
+    fallbackInFlight.set(sessionId, pending)
+  }
+  try {
+    return { outcome: await pending, revision: null, deferred: false }
+  } finally {
+    fallbackInFlight.delete(sessionId)
+  }
+}
+
+/** Pushes an unsolicited reconciliation result to every open tab, exactly like DashboardPanel's
+ *  pushGitOutcomeResult — the background watcher calls this via the service subscription below,
+ *  so "leave Traces open through multiple commits and a merge" converges without the tab
+ *  re-requesting anything. */
+function pushGitOutcomeResult(r: ReconcileResult): void {
+  const card = buildSessionSummary()?.sessions.find(s => s.sessionId === r.sessionId) ?? null
+  if (!card) return
+  const riskSignals = detectSessionRiskSignals(card, card.workspace, r.outcome)
+  const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], r.outcome)
+  broadcastSse({ type: 'gitOutcome', sessionId: r.sessionId, outcome: r.outcome, riskSignals, temperedLoopSignals, revision: r.revision })
+}
+
+// Repo info, keyed by workspace path. `hash` is repoKey.ts's repoHash — the same hash
+// traceroost-cloud shows in its own Repo column. `name` is the git repo root's own basename (not
+// the workspace path, which may be a subfolder of it). Mirrors DashboardPanel's repoInfoCache.
+const repoInfoCache = new Map<string, { name: string; hash: string | null; githubUrl: string | null } | null>()
 
 function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummaryCard {
   const num = (v: unknown, def = 0): number => (typeof v === 'number' ? v : def)
@@ -194,26 +304,92 @@ function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummary
 }
 
 let logReader = new LogReader()
+let outcomesDb: import('./db/outcomesDb').OutcomesDb | null = null
 
 // ── MCP server ────────────────────────────────────────────────────────────────
 
-// Dedicated server on MCP_PORT (default 4316) — same port as the VS Code extension.
-startMcpHttpServer({
+// Dedicated server on MCP_PORT (default 4316) — same port as the VS Code extension. Falls back to
+// the next free port on EADDRINUSE rather than exiting; `mcpServerReady` is awaited before the UI
+// server prints the MCP endpoint, so the printed URL is always the port actually bound.
+const mcpServerReady: Promise<number> = startMcpHttpServer({
   getSessions: () => {
     const summary = buildSessionSummary()
     return summary?.sessions ?? []
   },
 }, MCP_PORT, BIND_HOST, AUTH_TOKEN)
+  .then(server => {
+    const bound = (server.address() as { port: number }).port
+    recordResolvedPort('mcp', MCP_PORT, bound)
+    return bound
+  })
+  .catch(err => {
+    console.error(`[TraceRoost] Failed to start MCP server: ${err instanceof Error ? err.message : err}`)
+    process.exit(1)
+  })
+
+// Sessions whose repository couldn't be *matched to a written transcript file at all* — a
+// genuinely different problem from the ungrouped-repo case (0182506): the client, agent, or
+// timing meant no ~/.claude/projects/ (etc.) log ever appeared for this session, so it exists
+// only as OTEL spans (dataSource 'otel', built by summarizeSpans()) and never reaches
+// runLogScan()/logReader at all — that pipeline only ever looks at log files, by construction.
+//
+// Only forward one once it's been idle a while: an OTEL session is *live* for as long as the
+// agent keeps emitting spans for it, and forwarding mid-conversation would send an incomplete,
+// wrong rollup — worse, forwarding it more than once as it grows would each time look like a
+// *different* session server-side (its payload, hence its content hash inputs, differs), so
+// there is no cheap dedup to lean on the way there is for a stable file. If its transcript file
+// *does* show up later (the common case — this is a race, not a permanent state, for anything
+// still actively writing), runLogScan() reaching it first and enqueuing under the real
+// session_id is what should happen; this function backs off the moment that's true so the same
+// underlying session is never double-counted under two different ids.
+const OTEL_IDLE_MS = 3 * 60_000
+const otelLastSeen = new Map<string, { durationMs: number; at: number }>()
+const otelAttempted = new Set<string>()
+
+function checkStaleOtelSessions() {
+  const summary = buildSessionSummary()
+  if (!summary) return
+  const now = Date.now()
+  for (const card of summary.sessions) {
+    if (card.dataSource !== 'otel') continue
+    if (otelAttempted.has(card.traceId)) continue
+    if (logSessions.has(card.sessionId)) { otelAttempted.add(card.traceId); continue } // now has a real log counterpart — that one wins
+    const prev = otelLastSeen.get(card.traceId)
+    if (!prev || prev.durationMs !== card.durationMs) {
+      otelLastSeen.set(card.traceId, { durationMs: card.durationMs, at: now })
+      continue
+    }
+    if (now - prev.at < OTEL_IDLE_MS) continue
+    otelAttempted.add(card.traceId)
+    void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
+  }
+}
 
 function runLogScan() {
   const results = logReader.scan()
   let changed = false
   for (const { card } of results) {
     card.oneShotStats = computeOneShotStats(card)
-    logSessions.set(card.sessionId, card)
+    setLogSession(card)
     changed = true
+    // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
+    //
+    // scan() already only returns sessions whose underlying log file actually changed since the
+    // last check (see LogReader's fileState), and this whole function is itself only reached on a
+    // 5s interval or a 300ms-debounced fs.watch event -- so no extra debounce is needed here, only
+    // in extension.ts's per-tick `onUpdate` (see contentChangeForward.ts). Once reconciliation is
+    // available, the content-hash gate (staged feature 10) replaces the plain ledger-gated
+    // enqueue: it re-forwards under a fresh revision whenever this session's rollup content
+    // actually changed (not just on its first send). Falls back to the old first-send-only
+    // behavior without a reconciliation service, same as before this feature.
+    if (reconciliationService) {
+      void cloud.forwardOnContentChange(reconciliationService, card, m => console.log(m))
+        .then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
+    } else {
+      void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
+    }
   }
-  if (changed) pushUpdate()
+  if (changed) schedulePushUpdate()
 }
 
 // Debounced scan triggered by fs.watch events — fires 300 ms after the last event.
@@ -241,8 +417,46 @@ async function startLogIngestion() {
     logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory })
   } catch { /* no sql.js — OpenCode falls back to JSON */ }
 
+  // Git-outcome caching — a separate small sqlite file, see standalone/db/outcomesDb.ts.
+  try {
+    const { openOutcomesDb } = require('./db/outcomesDb') as typeof import('./db/outcomesDb')
+    outcomesDb = await openOutcomesDb(DATA_DIR)
+  } catch { /* falls back to uncached git-outcome classification, same as before this existed */ }
+
+  // Live trace reconciliation (staged feature 10) — runs from server lifecycle, not from any
+  // particular browser tab being open, so a commit/merge made while the tab is closed is already
+  // reconciled by the time it's reopened. See reconciliationService.ts and backgroundWatcher.ts.
+  if (outcomesDb) {
+    reconciliationService = new ReconciliationService(outcomesDb.raw)
+    const unsubscribe = reconciliationService.subscribe(pushGitOutcomeResult)
+    // See extension.ts's identical wiring — a background-detected revision change must reach the
+    // forwarding queue, not just the open tab's UI.
+    const unsubscribeForwarding = reconciliationService.subscribe((r) => {
+      if (!r.changed || r.revision === null) return
+      const card = buildSessionSummary()?.sessions.find(s => s.sessionId === r.sessionId)
+      if (!card) return
+      void cloud.enqueueSession(card, m => console.log(m), r.revision)
+        .then(res => { if (res.enqueued) cloud.drainUploadsSoon() })
+    })
+    backgroundWatcher = startBackgroundReconciliation({
+      service: reconciliationService,
+      listSessions: () => (buildSessionSummary()?.sessions ?? []).map(s => ({
+        sessionId: s.sessionId,
+        workspace: s.workspace,
+        filesChanged: s.filesChanged,
+        endTime: s.startTime && s.durationMs ? new Date(Date.parse(s.startTime) + s.durationMs).toISOString() : s.startTime,
+      })),
+      log: (msg) => console.log(msg),
+    })
+    process.once('exit', () => { unsubscribe(); unsubscribeForwarding(); backgroundWatcher?.dispose(); reconciliationService?.dispose() })
+  }
+
   // Register the poll first so it always runs, even if no files exist yet at startup.
   setInterval(runLogScan, 5_000)
+  // Pro: catch sessions that never got a matching transcript file at all — see the doc
+  // comment on checkStaleOtelSessions for why this needs its own idle-based check rather
+  // than firing from the same per-file-change trigger runLogScan uses.
+  setInterval(checkStaleOtelSessions, 5_000)
   // Watch log directories for file-system events so updates appear immediately,
   // without waiting for the next poll interval.
   setupLogWatcher()
@@ -271,8 +485,13 @@ async function startLogIngestion() {
   const ocResults = logReader.scanOpenCode()
   for (const { card } of ocResults) {
     card.oneShotStats = computeOneShotStats(card)
-    logSessions.set(card.sessionId, card)
+    setLogSession(card)
     countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + 1)
+    // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked. Needed
+    // here, not just in runLogScan() — this loop's own file reads update the same LogReader's
+    // fileState that scan() checks, so a historical file read here first is invisible to
+    // scan() as "new" forever after (see the note above the main loop below).
+    void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
   }
 
   // Run the initial batch synchronously so logSessions is populated before the
@@ -289,8 +508,23 @@ async function startLogIngestion() {
       const results = logReader.parseFile(file.filePath, file.agentKey)
       for (const result of results) {
         result.card.oneShotStats = computeOneShotStats(result.card)
-        logSessions.set(result.card.sessionId, result.card)
+        setLogSession(result.card)
         countByKey.set(file.agentKey, (countByKey.get(file.agentKey) ?? 0) + 1)
+        // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
+        //
+        // This has to happen here, not only in runLogScan(): this loop calls
+        // logReader.parseFile() directly on every discovered file to build the dashboard's
+        // initial view, and parseFile() records each file's current mtime/size into the same
+        // LogReader instance's fileState that scan() (runLogScan()'s own file-change check)
+        // reads. Without this call, every session that existed before the app ever started
+        // gets marked "already seen" here, on this one-time synchronous pass — before
+        // runLogScan() ever runs for the first time — so scan() finds no delta for any of
+        // them and never enqueues them, permanently. Only files that change *again* after
+        // this point (an actively-growing session) ever reach forwarding. Confirmed directly:
+        // of 58 real local sessions, only the handful still being actively written to were
+        // ever forwarded; the other ~40+ built valid payloads fine in isolation (repo-grouped
+        // or correctly ungrouped) but were never enqueued by the running server at all.
+        void cloud.enqueueSession(result.card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
       }
     } catch { /* skip bad file */ }
   }
@@ -321,11 +555,9 @@ async function startLogIngestion() {
 type RawAttr = { key: string; value: Record<string, unknown> }
 
 function toAttrs(raw: unknown): RawAttr[] {
-  if (!Array.isArray(raw)) return []
-  return raw.filter((a): a is RawAttr => {
-    const o = a as Record<string, unknown>
-    return typeof o.key === 'string' && typeof o.value === 'object' && o.value !== null
-  })
+  return objectItems(raw).filter((o): o is RawAttr =>
+    typeof o.key === 'string' && typeof o.value === 'object' && o.value !== null
+  )
 }
 
 function attrStr(attrs: RawAttr[], ...keys: string[]): string {
@@ -359,8 +591,7 @@ function attrsFromBodyKv(body: unknown): RawAttr[] {
   const values = kv?.values
   if (!Array.isArray(values)) return []
   const attrs: RawAttr[] = []
-  for (const value of values) {
-    const entry = value as Record<string, unknown>
+  for (const entry of objectItems(values)) {
     const key = typeof entry.key === 'string' ? entry.key : ''
     const attrValue = entry.value as Record<string, unknown> | undefined
     if (!key || typeof attrValue !== 'object' || attrValue === null) continue
@@ -391,9 +622,9 @@ function agentLabelFromSpanName(name: string): string {
 
 function processTraces(payload: unknown, collectorPath = '/v1/traces'): { count: number; agent: string } {
   const p = payload as { resourceSpans?: Array<{ scopeSpans?: Array<{ spans?: unknown[] }> }> }
-  const rawSpans = p?.resourceSpans?.flatMap(rs =>
-    rs.scopeSpans?.flatMap(ss => ss.spans ?? []) ?? []
-  ) ?? []
+  const rawSpans = objectItems<{ scopeSpans?: unknown }>(p?.resourceSpans).flatMap(rs =>
+    objectItems<{ spans?: unknown }>(rs.scopeSpans).flatMap(ss => objectItems(ss.spans))
+  )
   let count = 0
   let agent = 'unknown'
   for (const raw of rawSpans) {
@@ -424,11 +655,11 @@ function processLogs(payload: unknown, collectorPath = '/v1/logs'): number {
   const p = payload as { resourceLogs?: RL[] }
   const fallback = `codex-${Date.now()}`
   let n = 0
-  for (const rl of p?.resourceLogs ?? []) {
+  for (const rl of objectItems<RL>(p?.resourceLogs)) {
     const resourceAttrs = toAttrs(rl.resource?.attributes)
-    for (const sl of rl.scopeLogs ?? []) {
+    for (const sl of objectItems<SL>(rl.scopeLogs)) {
       const scopeAttrs = toAttrs((sl as { scope?: { attributes?: unknown } }).scope?.attributes)
-      for (const rec of sl.logRecords ?? []) {
+      for (const rec of objectItems(sl.logRecords)) {
         const r = rec as Record<string, unknown>
         const attrs = mergeAttrs(toAttrs(r.attributes), attrsFromBodyKv(r.body), scopeAttrs, resourceAttrs)
         const name = attrStr(attrs, 'event.name', 'event_name', 'name', 'event')
@@ -478,18 +709,47 @@ function processLogs(payload: unknown, collectorPath = '/v1/logs'): number {
 // ── SSE push ──────────────────────────────────────────────────────────────────
 
 function safeJson(data: unknown): string {
-  return JSON.stringify(data)
+  return safeJsonText(JSON.stringify(data))
+}
+
+function safeJsonText(json: string): string {
+  return json
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/\$\{/g, '\\${')
 }
 
-function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSpans: Span[]) {
+/** A card's `Date.parse(startTime)` (and, once asked for, its UTC day), kept per card object and
+ *  redone only if its startTime string changes. Log cards outlive many dataVersions, and every
+ *  update re-sorted and re-bucketed all of them — ~70ms of date parsing/formatting per update at
+ *  20k sessions. */
+const startTimeCache = new WeakMap<object, { startTime: string; ms: number; day?: string }>()
+
+function cachedStart(card: { startTime: string }): { startTime: string; ms: number; day?: string } {
+  let hit = startTimeCache.get(card)
+  if (!hit || hit.startTime !== card.startTime) {
+    hit = { startTime: card.startTime, ms: Date.parse(card.startTime) }
+    startTimeCache.set(card, hit)
+  }
+  return hit
+}
+
+const EMPTY_START_MS = Date.parse('0')
+
+/** Newest-first by startTime — the same order (ties included) as sorting with a
+ *  `Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')` comparator, with each
+ *  timestamp parsed once instead of on every comparison (~20× fewer parses at 20k sessions). */
+function sortNewestFirst<T extends { startTime: string }>(sessions: T[]): T[] {
+  const times = sessions.map(s => s.startTime ? cachedStart(s).ms : EMPTY_START_MS)
+  return sessions.map((_, i) => i).sort((a, b) => times[b] - times[a]).map(i => sessions[i])
+}
+
+/** The part of computeSidebarPayload that depends only on the data, not the clock or live pricing
+ *  — computed once per dataVersion (see derivedViews). */
+function sidebarPayloadBase(summary: ReturnType<typeof summarizeSpans>, allSpans: Span[]) {
   const sessions = summary.sessions
   // newest-first (summarizeSpans returns in arbitrary order — sort by startTime)
-  const sorted = [...sessions].sort((a, b) =>
-    Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')
-  )
+  const sorted = sortNewestFirst(sessions)
   const latest = sorted[0] ?? null
 
   const AGENT_ORDER = ['copilot', 'claude_code', 'codex']
@@ -505,7 +765,6 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     const ms = span.receivedAt ?? 0
     if (ms > lastMs) lastMs = ms
   }
-  const isActive = lastMs > 0 && (Date.now() - lastMs) < 20_000
 
   // Turn input tokens for sparkline from timeline
   const turnInputTokens = latest
@@ -514,6 +773,18 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
         .map(e => e.inputTokens ?? 0)
     : []
 
+  const avgInputTokens = sorted.length > 0
+    ? sorted.reduce((s, x) => s + x.inputTokens, 0) / sorted.length : 1
+  const avgOutputTokens = sorted.length > 0
+    ? sorted.reduce((s, x) => s + x.outputTokens, 0) / sorted.length : 1
+
+  return { sessionCount: sessions.length, latest, agentSources, lastMs, turnInputTokens, avgInputTokens, avgOutputTokens }
+}
+
+function computeSidebarPayload(base: ReturnType<typeof sidebarPayloadBase>) {
+  const { latest, agentSources, lastMs, turnInputTokens, avgInputTokens, avgOutputTokens } = base
+  const isActive = lastMs > 0 && (Date.now() - lastMs) < 20_000
+
   // Simple burn rate estimate for active sessions
   let burnRate: { tokensPerMinute: number; costPerHour: number } | null = null
   if (latest && isActive && latest.durationMs > 10_000) {
@@ -521,11 +792,6 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     const tpm = (totalTokens / latest.durationMs) * 60_000
     burnRate = { tokensPerMinute: Math.round(tpm), costPerHour: 0 }
   }
-
-  const avgInputTokens = sorted.length > 0
-    ? sorted.reduce((s, x) => s + x.inputTokens, 0) / sorted.length : 1
-  const avgOutputTokens = sorted.length > 0
-    ? sorted.reduce((s, x) => s + x.outputTokens, 0) / sorted.length : 1
 
   const currentSession = latest ? {
     source: latest.source,
@@ -542,16 +808,10 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     outputTokens: latest.outputTokens,
     cacheReadTokens: latest.cacheReadTokens,
     cacheCreateTokens: latest.cacheCreateTokens,
-    costUsd: calcTokenCostUsd(
-      Math.max(0, latest.inputTokens - latest.cacheReadTokens - latest.cacheCreateTokens),
-      latest.cacheReadTokens,
-      latest.cacheCreateTokens,
-      latest.outputTokens,
-      latest.model,
-    ),
+    costUsd: calcSessionCostUsd(latest),
   } : null
 
-  return { isActive, lastActivityMs: lastMs, sessionCount: sessions.length, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens }
+  return { isActive, lastActivityMs: lastMs, sessionCount: base.sessionCount, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens }
 }
 
 // Legacy shape kept for data the Preact dashboard still reads
@@ -606,9 +866,9 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
   const dayMap: Record<string, { totalTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number; costUsd: number; sessionCount: number }> = {}
   for (const sess of sessions) {
     if (!sess.startTime) continue
-    const d = new Date(sess.startTime)
-    if (isNaN(d.getTime())) continue
-    const day = d.toISOString().slice(0, 10)
+    const start = cachedStart(sess)
+    if (isNaN(start.ms)) continue
+    const day = start.day ??= new Date(start.ms).toISOString().slice(0, 10)
     if (!dayMap[day]) dayMap[day] = { totalTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0, costUsd: 0, sessionCount: 0 }
     const r = dayMap[day]
     r.totalTokens += sess.inputTokens
@@ -619,7 +879,7 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
   }
   const dailyStats = Object.entries(dayMap).map(([day, r]) => ({ day, ...r })).sort((a, b) => a.day.localeCompare(b.day))
   const totalTokens = sessions.reduce((s, sess) => s + sess.inputTokens + sess.outputTokens, 0)
-  const times = sessions.map(s => s.startTime ? new Date(s.startTime).getTime() : 0).filter(t => t > 0)
+  const times = sessions.map(s => s.startTime ? cachedStart(s).ms : 0).filter(t => t > 0)
   const lifetimeStats = {
     totalSessions: sessions.length,
     totalTokens,
@@ -630,55 +890,261 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
   return { dailyStats, lifetimeStats }
 }
 
+// Cache for buildSessionSummary() — summarizeSpans() is a real pass over every span (tens of
+// thousands once the store fills up) including per-span BigInt timestamp parsing, and
+// buildSessionSummary() used to run it fresh on every call: every HTTP request that touches
+// session data, plus the background reconciliation watcher's 60s fallback poll and its
+// 3s-after-any-git-activity debounce. With nothing invalidating between those, the event loop
+// stayed pinned redoing the same work, which is what made the dashboard (including simple
+// actions like opening a link) appear to hang. Keyed on dataVersion so a real change (new span,
+// updated log session, clear) still recomputes.
+let summaryCache: { version: number; summary: ReturnType<typeof summarizeSpans> | null } | null = null
+
 function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
+  if (summaryCache && summaryCache.version === dataVersion) return summaryCache.summary
+
   let summary: ReturnType<typeof summarizeSpans> | null = null
   try { summary = summarizeSpans(spans) } catch (e) { console.warn('[TraceRoost] summarizeSpans error:', e) }
 
-  // Merge log-sourced sessions; OTEL wins on ID collision.
+  // Merge log-sourced sessions; OTEL wins on ID collision, but backfills conversationId from the
+  // log-sourced sibling when OTEL's own card doesn't have one — buildClaudeSessions (the live OTEL
+  // path) never does cross-trace/multi-segment linking, only logReader.ts's file parser does, so a
+  // bare "OTEL wins" would silently drop conversation-highlight info the log side already worked out.
   if (logSessions.size > 0) {
-    const otelIds = new Set((summary?.sessions ?? []).map(s => s.sessionId))
-    const logOnly = [...logSessions.values()].filter(s => !otelIds.has(s.sessionId))
+    const otelById = new Map((summary?.sessions ?? []).map(s => [s.sessionId, s]))
+    const logOnly = [...logSessions.values()].filter(s => {
+      const otelSession = otelById.get(s.sessionId)
+      if (!otelSession) return true
+      if (!otelSession.conversationId && s.conversationId) otelSession.conversationId = s.conversationId
+      return false
+    })
     if (logOnly.length > 0) {
-      const merged = [...logOnly, ...(summary?.sessions ?? [])]
-        .sort((a, b) => Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0'))
+      const merged = sortNewestFirst([...logOnly, ...(summary?.sessions ?? [])])
       summary = { ...(summary ?? { backgroundSpans: [], efficiency: { totalInputTokens: 0, totalOutputTokens: 0, totalLlmCalls: 0, avgInputPerCall: 0, avgTtft: 0, cacheHitRate: 0, toolDefWaste: 0, sysInstructionWaste: 0, topTokenConsumers: [] } }), sessions: merged }
     }
   }
+  summaryCache = { version: dataVersion, summary }
   return summary
 }
 
-function stripTimelines(summary: ReturnType<typeof summarizeSpans> | null): ReturnType<typeof summarizeSpans> | null {
-  if (!summary) return null
-  return { ...summary, sessions: summary.sessions.map(s => ({ ...s, timeline: [] })) }
-}
+/** Each log-sourced card's `JSON.stringify({ ...card, timeline: [] })`. Log cards outlive any one
+ *  dataVersion (only the few that changed are replaced per scan), so re-serializing all of them
+ *  for every update — tens of MB at 20k sessions — was most of what one OTLP post cost. Keyed on
+ *  the card object and dropped whenever a card (re-)enters `logSessions` (setLogSession). OTEL
+ *  cards are rebuilt by every summarizeSpans() pass, so they're serialized fresh. */
+const strippedCardJson = new WeakMap<SessionSummaryCard, string>()
 
-function buildUpdatePayload(): string {
-  const sessionSummary = buildSessionSummary()
-  const stripped = stripTimelines(sessionSummary)
-  const sidebar = sessionSummary ? computeSidebarData(sessionSummary, spans) : null
-  const sidebarLive = sessionSummary ? computeSidebarPayload(sessionSummary, spans) : null
-  const analyticsData = sessionSummary ? computeAnalyticsData(sessionSummary.sessions) : null
-  return JSON.stringify({
-    type: 'update', summary: { toolCalls: {} }, sessionSummary: stripped, sidebar, analyticsData,
-    ...(sidebarLive ?? {}),
+/** Each session's `JSON.stringify({ ...card, timeline: [] })`, reusing strippedCardJson. */
+function strippedCardJsons(summary: ReturnType<typeof summarizeSpans>): string[] {
+  return summary.sessions.map(s => {
+    const reusable = logSessions.get(s.sessionId) === s
+    let json = reusable ? strippedCardJson.get(s) : undefined
+    if (json === undefined) {
+      json = JSON.stringify({ ...s, timeline: [] })
+      if (reusable) strippedCardJson.set(s, json)
+    }
+    return json
   })
 }
 
-function pushUpdate() {
-  const data = buildUpdatePayload()
+/** The summary with every session's timeline emptied (`{ ...summary, sessions: sessions.map(s =>
+ *  ({ ...s, timeline: [] })) }`), as JSON — byte for byte what stringifying that would give, but
+ *  built from strippedCardJsons. Timelines are loaded lazily via /api/timeline/:sessionId instead. */
+function strippedSummaryJson(summary: ReturnType<typeof summarizeSpans> | null, cards: string[] | null): string {
+  if (!summary || !cards) return 'null'
+  // Serialize everything but `sessions` normally (keeping its key position), then splice the
+  // cached card array in where a unique placeholder string landed.
+  const placeholder = `__traceroost_sessions_${process.pid}_${dataVersion}__`
+  const shell = JSON.stringify({ ...summary, sessions: placeholder })
+  const at = shell.indexOf(`"${placeholder}"`)
+  return shell.slice(0, at) + '[' + cards.join(',') + ']' + shell.slice(at + placeholder.length + 2)
+}
+
+/** Everything the dashboard's update payload, the inlined first-paint HTML and /api/summary derive
+ *  from the session data — recomputed once per dataVersion instead of once per HTTP request/SSE
+ *  push (each of which used to re-sort, re-aggregate and re-serialize every session). Only the
+ *  clock/pricing-dependent sidebar bits (computeSidebarPayload) are still computed per use. */
+interface DerivedViews {
+  version: number
+  summary: ReturnType<typeof summarizeSpans> | null
+  /** strippedCardJsons(summary) — what both the full payload and SSE deltas are built from. */
+  cardJsons: string[] | null
+  /** strippedSummaryJson() of the same summary. Built on first use (see strippedJsonOf) — an SSE
+   *  delta doesn't need the whole ~23MB (at 20k sessions) string. */
+  strippedJson: string | null
+  /** safeJson() of the same value, for inlining into a <script>. Built on first use. */
+  strippedSafeJson: string | null
+  sidebarJson: string
+  analyticsJson: string
+  sidebarBase: ReturnType<typeof sidebarPayloadBase> | null
+}
+let derivedCache: DerivedViews | null = null
+
+function derivedViews(): DerivedViews {
+  const summary = buildSessionSummary()
+  if (derivedCache && derivedCache.version === dataVersion && derivedCache.summary === summary) return derivedCache
+  derivedCache = {
+    version: dataVersion,
+    summary,
+    cardJsons: summary ? strippedCardJsons(summary) : null,
+    strippedJson: null,
+    strippedSafeJson: null,
+    sidebarJson: JSON.stringify(summary ? computeSidebarData(summary, spans) : null),
+    analyticsJson: JSON.stringify(summary ? computeAnalyticsData(summary.sessions) : null),
+    sidebarBase: summary ? sidebarPayloadBase(summary, spans) : null,
+  }
+  return derivedCache
+}
+
+function strippedJsonOf(views: DerivedViews): string {
+  return views.strippedJson ??= strippedSummaryJson(views.summary, views.cardJsons)
+}
+
+function syncSummaryOf(views: DerivedViews): SyncSummary | null {
+  const summary = views.summary
+  if (!summary || !views.cardJsons) return null
+  return {
+    ids: summary.sessions.map(s => s.sessionId),
+    cardJsons: views.cardJsons,
+    efficiencyJson: JSON.stringify(summary.efficiency),
+    backgroundSpansJson: JSON.stringify(summary.backgroundSpans),
+    deltaable: Array.isArray(summary.backgroundSpans) &&
+      Object.keys(summary).every(k => k === 'sessions' || k === 'efficiency' || k === 'backgroundSpans'),
+  }
+}
+
+// ── SSE session sync ──────────────────────────────────────────────────────────
+// Every open tab is sent the same frames in the same order, so one SseSessionSync tracks what all
+// of them hold (see sseSessionSync.ts). A tab that holds something else — a new connection whose
+// page was rendered at an older revision, a reconnect, a missed frame — gets a full update.
+const sseSync = new SseSessionSync(Date.now())
+/** The derivedViews() sseSync was last advanced to. */
+let sseSyncedViews: DerivedViews | null = null
+/** Open SSE responses by the client id the page connected with — how POST /api/sse-resync finds
+ *  the stream to send a requested full update down. */
+const sseClientsById = new Map<string, http.ServerResponse>()
+
+/** An `update` frame: `fields` (the session/analytics part, see SyncStep) plus what every frame
+ *  carries — the legacy sidebar blob and the live sidebar/burn-rate fields. */
+function updateFrame(views: DerivedViews, base: number, rev: number, fields: string): string {
+  const sidebarLive = views.sidebarBase ? computeSidebarPayload(views.sidebarBase) : null
+  return '{"type":"update","summary":{"toolCalls":{}}' + fields + ',"sidebar":' + views.sidebarJson +
+    ',"base":' + base + ',"rev":' + rev +
+    (sidebarLive ? ',' + JSON.stringify(sidebarLive).slice(1) : '}')
+}
+
+/** Advances sseSync to the current data, sending what changed (if anything) to every open tab.
+ *  Returns false when there was nothing to send. */
+function syncSseClients(): boolean {
+  const views = derivedViews()
+  if (views === sseSyncedViews) return false
+  sseSyncedViews = views
+  const step = sseSync.advance(syncSummaryOf(views), () => strippedJsonOf(views), views.analyticsJson)
+  if (!step.fields) return false
+  writeSse(updateFrame(views, step.base, step.rev, step.fields))
+  return true
+}
+
+/** A full update at sseSync's current revision, for one client that doesn't hold it. */
+function fullUpdateFrame(): string {
+  syncSseClients()
+  const views = derivedViews()
+  const rev = sseSync.revision
+  return updateFrame(views, rev, rev, ',"sessionSummary":' + strippedJsonOf(views) + ',"analyticsData":' + views.analyticsJson)
+}
+
+function writeSse(data: string): void {
   sseClients = sseClients.filter(client => {
     try { client.write(`data: ${data}\n\n`); return true } catch { return false }
   })
 }
 
+function pushUpdate() {
+  if (pushUpdateTimer) { clearTimeout(pushUpdateTimer); pushUpdateTimer = null }
+  lastPushUpdateAt = Date.now()
+  if (sseClients.length === 0) return // nobody to tell — a tab that connects later gets a fresh payload
+  const started = performance.now()
+  // Nothing session-shaped changed: still send the live sidebar fields, as every push always has.
+  if (!syncSseClients()) writeSse(updateFrame(derivedViews(), sseSync.revision, sseSync.revision, ''))
+  lastPushUpdateCostMs = performance.now() - started
+}
+
+// Ingest-driven pushes (every OTLP POST, every changed log file) are coalesced: at most one full
+// update per PUSH_UPDATE_MIN_INTERVAL_MS — or per 3× what the last one cost, on a history large
+// enough that building and writing the payload takes a while — always ending on the latest state.
+// Pushing on every POST rebuilt and re-sent the whole summary each time, which on a large history
+// kept the event loop busy for as long as an agent kept exporting.
+const PUSH_UPDATE_MIN_INTERVAL_MS = 250
+let pushUpdateTimer: ReturnType<typeof setTimeout> | null = null
+let lastPushUpdateAt = 0
+let lastPushUpdateCostMs = 0
+
+function schedulePushUpdate(): void {
+  if (pushUpdateTimer) return
+  const wait = lastPushUpdateAt + Math.max(PUSH_UPDATE_MIN_INTERVAL_MS, 3 * lastPushUpdateCostMs) - Date.now()
+  if (wait <= 0) { pushUpdate(); return }
+  pushUpdateTimer = setTimeout(pushUpdate, wait)
+}
+
+/** Sends an arbitrary message to every open dashboard tab, exactly as `vscode.postMessage` would
+ *  in the extension host — the browser-side shim (`new EventSource('/events')`, see the inline
+ *  script below) re-dispatches each SSE payload as a `window` `message` event, so the same
+ *  `msg.type` switch in App.tsx handles both hosts unmodified. */
+function broadcastSse(payload: Record<string, unknown>): void {
+  writeSse(JSON.stringify(payload))
+}
+
+/** Pushes a fresh org status to every open dashboard tab — call after anything that can change
+ *  what the Org panel shows without a user having triggered it directly (a background
+ *  forward-queue drain, in particular; see `forwardScheduler`'s `onDrainComplete` below). A no-op
+ *  cheaply when nothing is linked. `openExternal` is a real no-op, not a stub standing in for one
+ *  — `getOrgStatus` never opens anything, so nothing here should ever call it. */
+function pushOrgStatusToClients(): void {
+  void cloud.handleOrgMessage({ type: 'getOrgStatus' }, {
+    post: (m) => broadcastSse(m),
+    openExternal: () => {},
+    recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
+    log: (m) => console.log(m),
+  })
+}
+
+/** The standalone page's Org-panel transport: the webview posts `org*` messages, this polyfill
+ *  turns them into `/api/org` requests. Empty in the core edition — its Org panel is a stub that
+ *  never posts one — so no org wiring reaches the page at all. A literal
+ *  `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) so the core build drops the
+ *  string entirely rather than just never using it. */
+let ORG_FETCH_SHIM = ''
+if (process.env.TRACEROOST_EDITION !== 'core') {
+  ORG_FETCH_SHIM = ` else if (msg.type && (msg.type === 'getOrgStatus' || msg.type.indexOf('org') === 0)) {
+            fetch('/api/org', {
+              method: msg.type === 'getOrgStatus' ? 'GET' : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: msg.type === 'getOrgStatus' ? undefined : JSON.stringify(msg),
+            }).then(function(r) { return r.json(); }).then(function(data) {
+              (data.messages || []).forEach(function(m) {
+                if (m.type === 'orgLinkUrl' && m.url) { window.open(m.url, '_blank'); }
+                window.dispatchEvent(new MessageEvent('message', { data: m }));
+              });
+            }).catch(function() {
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'orgActionResult', ok: false, error: 'request failed' } }));
+              window.dispatchEvent(new MessageEvent('message', { data: { type: 'orgError', error: 'request failed' } }));
+            });
+            return;
+          }`
+}
+
 // ── Dashboard HTML ────────────────────────────────────────────────────────────
 
 function getHtml(): string {
-  const sessionSummary = buildSessionSummary()
+  // The inlined sessions are sseSync's current revision — the page's SSE connection passes that
+  // revision back, and is spared a second full copy when nothing changed in between.
+  syncSseClients()
+  const sessionRev = sseSync.revision
+  const views = derivedViews()
   // Strip full timeline arrays before inlining — they can be many MB across sessions.
   // Timelines are loaded lazily via /api/timeline/:sessionId after first paint.
-  const sessionSummaryJson = safeJson(stripTimelines(sessionSummary))
-  const sidebarLive = sessionSummary ? computeSidebarPayload(sessionSummary, spans) : {
+  const sessionSummaryJson = views.strippedSafeJson ??= safeJsonText(strippedJsonOf(views))
+  const sidebarLive = views.sidebarBase ? computeSidebarPayload(views.sidebarBase) : {
     isActive: false, lastActivityMs: 0, sessionCount: 0, agentSources: [], currentSession: null, burnRate: null,
   }
   const sidebarInitJson = safeJson(sidebarLive)
@@ -721,6 +1187,7 @@ function getHtml(): string {
        rendering dark even when everything else correctly switched to light. */
     :root {
       color-scheme: light;
+      --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed;
       --vscode-editor-background:       #ffffff;
       --vscode-foreground:              #1f2328;
       --vscode-panel-border:            #d0d7de;
@@ -761,7 +1228,7 @@ function getHtml(): string {
       --vscode-editorWarning-foreground: #cca700;
       --vscode-errorForeground:          #f48771;
       --vscode-charts-blue:              #4fc3f7;
-      --vscode-charts-green:             #81c784;
+      --vscode-charts-green:             #1a7f37;
       --vscode-charts-red:               #e57373;
       --vscode-charts-yellow:            #ffb74d;
     }
@@ -770,6 +1237,8 @@ function getHtml(): string {
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
         color-scheme: dark;
+      --vscode-charts-green: #81c784;
+      --agent-copilot: #00EAFF; --agent-claude: #FFB085; --agent-codex: #F0FF42;
         --vscode-editor-background:       #1e1e1e;
         --vscode-foreground:              #cccccc;
         --vscode-panel-border:            #3e3e42;
@@ -791,6 +1260,8 @@ function getHtml(): string {
     /* Explicit Dark override, regardless of system preference. */
     :root[data-theme="dark"] {
       color-scheme: dark;
+      --vscode-charts-green: #81c784;
+      --agent-copilot: #00EAFF; --agent-claude: #FFB085; --agent-codex: #F0FF42;
       --vscode-editor-background:       #1e1e1e;
       --vscode-foreground:              #cccccc;
       --vscode-panel-border:            #3e3e42;
@@ -850,7 +1321,7 @@ function getHtml(): string {
     #sa-toast.visible { opacity:1; }
 
     /* ── Main panel ──────────────────────────────────────────────────────── */
-    #sa-main { flex: 1; overflow-y: auto; min-width: 0; padding: 0 18px 16px; }
+    #sa-main { flex: 1; overflow-y: auto; scrollbar-gutter: stable; min-width: 0; padding: 0 18px 16px; }
     #app { min-height: 100%; }
   </style>
 </head>
@@ -859,14 +1330,37 @@ function getHtml(): string {
     console.log('[TraceRoost] HTML received', Date.now());
     window.__INITIAL_TOOL_CALLS__ = {};
     window.__INITIAL_SESSION_SUMMARY__ = ${sessionSummaryJson};
+    window.__INITIAL_SESSION_REV__ = ${sessionRev};
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(PACKAGE_VERSION)};
 
     // ── Client-side search support ────────────────────────────────────────────
     var __latestSessions__ = (window.__INITIAL_SESSION_SUMMARY__ && window.__INITIAL_SESSION_SUMMARY__.sessions) || [];
+    // Follows the same base/rev protocol as App.tsx's 'update' handler: a frame whose base isn't
+    // the revision held here is skipped — the dashboard asks for the full update that fixes both.
+    var __latestRev__ = window.__INITIAL_SESSION_REV__;
     window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'update' && e.data.sessionSummary && e.data.sessionSummary.sessions) {
-        __latestSessions__ = e.data.sessionSummary.sessions;
+      var d = e.data;
+      if (!d || d.type !== 'update') return;
+      if (d.sessionSummary !== undefined) {
+        if (d.sessionSummary && d.sessionSummary.sessions) __latestSessions__ = d.sessionSummary.sessions;
+        __latestRev__ = d.rev;
+      } else if (d.base !== undefined && d.base !== __latestRev__) {
+        return;
+      } else if (d.sessionDelta) {
+        var byId = new Map();
+        __latestSessions__.forEach(function(s) { byId.set(s.sessionId, s); });
+        d.sessionDelta.upserts.forEach(function(s) { byId.set(s.sessionId, s); });
+        var order = d.sessionDelta.order || __latestSessions__.map(function(s) { return s.sessionId; });
+        var next = [];
+        for (var i = 0; i < order.length; i++) {
+          if (!byId.has(order[i])) return;
+          next.push(byId.get(order[i]));
+        }
+        __latestSessions__ = next;
+        __latestRev__ = d.rev;
+      } else if (d.rev !== undefined) {
+        __latestRev__ = d.rev;
       }
     });
 
@@ -1045,6 +1539,9 @@ function getHtml(): string {
         getState: function() { return null; },
         setState: function() {},
         postMessage: function(msg) {
+          if (msg.type === 'requestFullUpdate') {
+            _requestFullUpdate();
+          }${ORG_FETCH_SHIM}
           if (msg.type === 'confirmClear') {
             if (confirm('Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
               fetch('/api/clear', { method: 'POST' });
@@ -1195,17 +1692,49 @@ function getHtml(): string {
                 sessionId: msg.sessionId,
                 workspace: msg.workspace || '',
                 filesChanged: msg.filesChanged || [],
-                startTime: msg.startTime || '',
                 endTime: msg.endTime || '',
               }),
             })
               .then(function(r) { return r.json(); })
               .then(function(data) {
+                // A deferred reply (session still inside its active-session grace window): no git
+                // classification ran, so dispatch a distinct message rather than 'gitOutcome' —
+                // App.tsx uses it to keep the Outcome filter's pending-count spinner from counting
+                // this session (deferredGitOutcomeSessionIds in state.ts) without caching a
+                // premature answer. It'll resolve for real unsolicited over SSE once the grace
+                // timer revisits it, or on the next sessions refresh.
+                if (data.deferred) {
+                  window.dispatchEvent(new MessageEvent('message', {
+                    data: { type: 'gitOutcomeDeferred', sessionId: data.sessionId }
+                  }));
+                  return;
+                }
                 window.dispatchEvent(new MessageEvent('message', {
-                  data: { type: 'gitOutcome', sessionId: data.sessionId, outcome: data.outcome, riskSignals: data.riskSignals, temperedLoopSignals: data.temperedLoopSignals }
+                  data: { type: 'gitOutcome', sessionId: data.sessionId, outcome: data.outcome, riskSignals: data.riskSignals, temperedLoopSignals: data.temperedLoopSignals, revision: data.revision }
                 }));
               })
-              .catch(function(e) { console.warn('[TraceRoost] git outcome fetch failed', e); });
+              .catch(function(e) {
+                console.warn('[TraceRoost] git outcome fetch failed', e);
+                // Still dispatch a reply (as "not applicable") — the Outcome filter's pending
+                // count only ever counts down on a 'gitOutcome' message, so a request that only
+                // logs and never replies leaves that session's spinner stuck forever.
+                window.dispatchEvent(new MessageEvent('message', {
+                  data: { type: 'gitOutcome', sessionId: msg.sessionId, outcome: null, riskSignals: [], temperedLoopSignals: null }
+                }));
+              });
+          } else if (msg.type === 'getRepoHash' && msg.workspace) {
+            fetch('/api/repo-hash', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ workspace: msg.workspace }),
+            })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                window.dispatchEvent(new MessageEvent('message', {
+                  data: { type: 'repoHash', workspace: data.workspace, name: data.name, hash: data.hash, githubUrl: data.githubUrl }
+                }));
+              })
+              .catch(function(e) { console.warn('[TraceRoost] repo hash fetch failed', e); });
           } else if (msg.type === 'reconfigureOtel') {
             fetch('/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'reconfigureOtel' }) })
               .then(function(r) { return r.json(); })
@@ -1238,22 +1767,41 @@ function getHtml(): string {
           .catch(function(e) { console.warn('[TraceRoost] poll failed', e); });
       }, 2000);
     }
-    var _es = new EventSource('/events');
-    _es.onopen = function() {
-      console.log('[TraceRoost] SSE connected', Date.now());
-      _sseOk = true;
-      if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-    };
-    _es.onmessage = function(e) {
-      window.dispatchEvent(new MessageEvent('message', { data: JSON.parse(e.data) }));
-    };
-    _es.onerror = function() {
-      if (!_sseOk) {
-        // Never connected — start polling immediately
-        _startPolling();
-      }
-      // If it was connected before, browser will auto-reconnect; don't start polling yet
-    };
+    // Names this tab's stream so a full update can be requested down it (/api/sse-resync). The
+    // rev is what the inlined HTML holds — a (re)connection at any other revision starts with a
+    // full update.
+    var _sseClientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    var _es;
+    function _openEvents(rev) {
+      _es = new EventSource('/events?client=' + _sseClientId + (rev !== undefined ? '&rev=' + rev : ''));
+      _es.onopen = function() {
+        console.log('[TraceRoost] SSE connected', Date.now());
+        _sseOk = true;
+        if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+      };
+      _es.onmessage = function(e) {
+        window.dispatchEvent(new MessageEvent('message', { data: JSON.parse(e.data) }));
+      };
+      _es.onerror = function() {
+        if (!_sseOk) {
+          // Never connected — start polling immediately
+          _startPolling();
+        }
+        // If it was connected before, browser will auto-reconnect; don't start polling yet
+      };
+    }
+    function _requestFullUpdate() {
+      if (!_es) return;
+      fetch('/api/sse-resync?client=' + _sseClientId, { method: 'POST' })
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); })
+        .catch(function() {
+          // Stream not (yet) known to the server — reopen it without a revision, which always
+          // starts with a full update.
+          _es.close();
+          _openEvents(undefined);
+        });
+    }
+    _openEvents(window.__INITIAL_SESSION_REV__);
   </script>
 
   <div id="sa-wrap">
@@ -1439,6 +1987,8 @@ function unauthorizedHtml(port: number): string {
 </html>`
 }
 
+const SSE_CLIENT_ID = /^[A-Za-z0-9_-]{1,64}$/
+
 const uiServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
@@ -1464,18 +2014,44 @@ const uiServer = http.createServer((req, res) => {
       res.setHeader('Set-Cookie', authCookieHeader(AUTH_TOKEN))
     }
   }
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  // No CORS: the dashboard is same-origin, and on loopback (no token) a wildcard
+  // Access-Control-Allow-Origin let any website read every session off /api/*. State-changing
+  // requests from a foreign page (e.g. POST /action clearAll) are refused outright.
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !isAllowedOrigin(req.headers.origin, req.headers.host)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+  }
 
   if (url === '/events') {
+    // `client` names this stream for POST /api/sse-resync; `rev` is the session revision the page
+    // already holds (the one inlined into its HTML).
+    const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '')
+    const clientId = query.get('client') ?? ''
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     })
     res.write(':\n\n') // initial ping
-    res.write(`data: ${buildUpdatePayload()}\n\n`)
+    syncSseClients() // tabs already open get any pending change before this one joins
+    const rev = sseSync.revision
+    res.write(`data: ${query.get('rev') === String(rev) ? updateFrame(derivedViews(), rev, rev, '') : fullUpdateFrame()}\n\n`)
+    res.write(`data: ${JSON.stringify({ type: 'actionLog', entries: getActionLogHistory() })}\n\n`)
     sseClients.push(res)
-    req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
+    if (SSE_CLIENT_ID.test(clientId)) sseClientsById.set(clientId, res)
+    req.on('close', () => {
+      sseClients = sseClients.filter(c => c !== res)
+      if (sseClientsById.get(clientId) === res) sseClientsById.delete(clientId)
+    })
+    return
+  }
+
+  // The dashboard's `requestFullUpdate` (its revision doesn't match a frame's `base`): send a full
+  // update down that tab's own stream, so it stays ordered with every other frame.
+  if (req.method === 'POST' && url === '/api/sse-resync') {
+    const client = sseClientsById.get(new URLSearchParams((req.url ?? '').split('?')[1] ?? '').get('client') ?? '')
+    if (!client) { res.writeHead(404); res.end(); return }
+    try { client.write(`data: ${fullUpdateFrame()}\n\n`) } catch { /* closing — its reconnect gets a full update */ }
+    res.writeHead(204); res.end()
     return
   }
 
@@ -1500,7 +2076,7 @@ const uiServer = http.createServer((req, res) => {
           if (!id || !VALID_SOURCES.has(s['source'] as string)) continue
           if (logSessions.has(id)) { skipped++; continue }
           const card = buildImportCardStandalone(s)
-          logSessions.set(id, card)
+          setLogSession(card)
           imported++
         }
         pushUpdate()
@@ -1517,6 +2093,7 @@ const uiServer = http.createServer((req, res) => {
   if (req.method === 'POST' && url === '/api/clear') {
     spans = []
     logSessions.clear()
+    dataVersion++
     logReader.clearFileState()
     try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
     pushUpdate()          // send cleared state to clients immediately
@@ -1617,6 +2194,7 @@ const uiServer = http.createServer((req, res) => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type?: string }
         if (body.type === 'clearAll') {
           spans = []
+          dataVersion++
           try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
           pushUpdate()
         } else if (body.type === 'reconfigureOtel') {
@@ -1626,9 +2204,9 @@ const uiServer = http.createServer((req, res) => {
             return
           }
           const [claudeCode, codex, copilotResults] = await Promise.all([
-            autoConfigureClaudeCode(OTLP_PORT),
-            autoConfigureCodex(OTLP_PORT),
-            autoConfigureCopilotStandalone(OTLP_PORT),
+            autoConfigureClaudeCode(resolvedPorts.otlp ?? OTLP_PORT),
+            autoConfigureCodex(resolvedPorts.otlp ?? OTLP_PORT),
+            autoConfigureCopilotStandalone(resolvedPorts.otlp ?? OTLP_PORT),
           ])
           const copilot = {
             changed: copilotResults.some(r => r.changed),
@@ -1645,9 +2223,68 @@ const uiServer = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && url === '/api/summary') {
-    const summary = buildSessionSummary()
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(stripTimelines(summary)))
+    res.end(strippedJsonOf(derivedViews()))
+    return
+  }
+
+  if (req.method === 'GET' && url === '/api/version-check') {
+    const result = getCachedVersionCheck(PACKAGE_VERSION)
+    // No signal distinguishes a Docker container from a bare npx run, so both get the same
+    // generic recommendation — only an OS-native background service (which sets this env var,
+    // see src/serviceConfig.ts's generators) gets the more precise `service update`.
+    const isService = process.env.TRACEROOST_SERVICE === '1'
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      ...result,
+      isService,
+      recommendedCommand: isService ? 'traceroost service update' : 'npx traceroost@latest service install',
+    }))
+    return
+  }
+
+  // ── Org (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
+  // GET returns the local status (no network). POST runs an action (link/leave/explain).
+  // Both reply with an array of webview messages the polyfill re-dispatches.
+  // Not served at all in the core edition (literal edition check, so esbuild drops the handler).
+  if (process.env.TRACEROOST_EDITION !== 'core' && url === '/api/org' && (req.method === 'GET' || req.method === 'POST')) {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', async () => {
+      const outbox: Record<string, unknown>[] = []
+      const msg = req.method === 'GET'
+        ? { type: 'getOrgStatus' }
+        : (() => { try { return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type: string } } catch { return { type: 'getOrgStatus' } } })()
+      try {
+        await cloud.handleOrgMessage(msg, {
+          post: (m) => outbox.push(m),
+          openExternal: (u) => {
+            const cmd = process.platform === 'darwin' ? `open "${u}"` : process.platform === 'win32' ? `start "" "${u}"` : `xdg-open "${u}"`
+            exec(cmd, () => { /* URL is also delivered as an orgLinkUrl message */ })
+          },
+          recentSessions: () => buildSessionSummary()?.sessions.slice(0, 25) ?? [],
+          allLocalSessions: () => buildSessionSummary()?.sessions ?? [],
+          buildPayloadPreview: (sessions) => cloud.buildPayloadPreview(sessions),
+          onOpenOrgView: () => {
+            // Deep-links into the org's own dashboard — see cloud/bridge.ts's orgViewUrl.
+            const url = cloud.orgViewUrl()
+            const cmd = process.platform === 'darwin' ? `open "${url}"` : process.platform === 'win32' ? `start "" "${url}"` : `xdg-open "${url}"`
+            exec(cmd, (err) => {
+              if (err) console.warn(`[TraceRoost] Could not open ${url} in a browser: ${err.message}`)
+            })
+          },
+          log: (m) => console.log(m),
+        })
+      } catch (e) {
+        // `orgActionResult` is only listened for by link/leave — reconcile and the payload
+        // preview ignore it, so without `orgError` too, this host also left those buttons
+        // stuck on "Checking…"/"Building…" after a clean, caught backend error.
+        outbox.push({ type: 'orgActionResult', ok: false, error: String(e) })
+        outbox.push({ type: 'orgError', error: String(e) })
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ messages: outbox }))
+    })
     return
   }
 
@@ -1666,33 +2303,84 @@ const uiServer = http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as {
-          sessionId?: string; workspace?: string; filesChanged?: string[]; startTime?: string; endTime?: string
+          sessionId?: string; workspace?: string; filesChanged?: string[]; endTime?: string
         }
         const sessionId = body.sessionId ?? ''
         if (!sessionId) { res.writeHead(400); res.end(); return }
         let outcome: GitOutcome | null
-        if (gitOutcomeCache.has(sessionId)) {
-          outcome = gitOutcomeCache.get(sessionId) ?? null
-        } else {
-          outcome = await classifySessionOutcome(
+        let revision: number | null = null
+        let deferred = false
+        try {
+          const result = await loadOrComputeGitOutcome(
+            sessionId,
             body.workspace ?? '',
             Array.isArray(body.filesChanged) ? body.filesChanged : [],
-            body.startTime ?? '',
             body.endTime ?? '',
           )
-          gitOutcomeCache.set(sessionId, outcome)
+          outcome = result.outcome
+          revision = result.revision
+          deferred = result.deferred
+        } catch (err) {
+          // See dashboardPanel.ts's sendGitOutcome for why a rejected classification must never
+          // go unreported — the browser's Outcome-filter spinner counts down only on receiving a
+          // reply. Nothing here is durably cached on a throw either way (see
+          // reconciliationService.ts's in-flight-only discipline), so there's nothing to evict.
+          console.warn(`[TraceRoost] git-outcome classification failed for session ${sessionId}:`, err)
+          outcome = null
+        }
+        if (deferred) {
+          // Same "still in its active-session grace window" case dashboardPanel.ts's
+          // sendGitOutcome defers on — reply with a marker the fetch() call site (above)
+          // recognizes and turns into a `gitOutcomeDeferred` message, rather than prematurely
+          // caching an answer like 'not applicable'.
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ sessionId, deferred: true }))
+          return
         }
         // Post-hoc risk signals (hallucinated import, submitted-despite-a-failing-check) and
         // re-tempered loop-signal severity are both only knowable once the session's outcome is
         // known, same lifecycle as git-outcome classification — computed here rather than eagerly
         // for every session. See sessionRiskSignals.ts and temperLoopSignalSeverity's docstring.
         const card = buildSessionSummary()?.sessions.find(s => s.sessionId === sessionId) ?? null
-        const riskSignals = card ? detectSessionRiskSignals(card, body.workspace ?? '') : []
+        const riskSignals = card ? detectSessionRiskSignals(card, body.workspace ?? '', outcome) : []
         const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals }))
+        res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals, revision }))
       } catch (e) {
         console.warn('[TraceRoost] Malformed /api/git-outcome body:', e)
+        res.writeHead(400); res.end()
+      }
+    })
+    return
+  }
+
+  if (req.method === 'POST' && url === '/api/repo-hash') {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', async () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { workspace?: string }
+        const workspace = body.workspace ?? ''
+        if (!workspace) { res.writeHead(400); res.end(); return }
+        let info: { name: string; hash: string | null; githubUrl: string | null } | null
+        if (repoInfoCache.has(workspace)) {
+          info = repoInfoCache.get(workspace) ?? null
+        } else {
+          const [repo, githubUrl] = await Promise.all([cloud.describeRepo(workspace), resolveGithubUrl(workspace)])
+          if (repo) {
+            const rootName = path.basename(repo.root) || 'repository'
+            const parentName = path.basename(path.dirname(repo.root))
+            const name = parentName ? `${parentName}/${rootName}` : rootName
+            info = { name, hash: repo.hash, githubUrl }
+          } else {
+            info = null
+          }
+          repoInfoCache.set(workspace, info)
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ workspace, name: info?.name ?? null, hash: info?.hash ?? null, githubUrl: info?.githubUrl ?? null }))
+      } catch (e) {
+        console.warn('[TraceRoost] Malformed /api/repo-hash body:', e)
         res.writeHead(400); res.end()
       }
     })
@@ -1719,6 +2407,9 @@ const uiServer = http.createServer((req, res) => {
 
 // ── OTLP server ───────────────────────────────────────────────────────────────
 
+/** Same cap as the VS Code extension's collector (src/otlpCollector.ts). */
+const MAX_OTLP_BODY_BYTES = 50 * 1024 * 1024
+
 const otlpServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
@@ -1733,10 +2424,31 @@ const otlpServer = http.createServer((req, res) => {
   if (REQUIRE_TOKEN_EVERYWHERE && !isAuthorized(req, AUTH_TOKEN)) {
     res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Unauthorized'); return
   }
+  // Agents' exporters never send Origin; a web page POSTing fake spans always does, and must use a
+  // no-preflight Content-Type (text/plain, form) to get its request through — refuse both.
+  if (!isAllowedOrigin(req.headers.origin)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+  }
   if (req.method !== 'POST') { res.writeHead(200); res.end(); return }
+  if (!isAllowedOtlpContentType(req.headers['content-type'])) {
+    res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type'); return
+  }
   const chunks: Buffer[] = []
-  req.on('data', (c: Buffer) => chunks.push(c))
+  let size = 0
+  let tooLarge = false
+  req.on('data', (c: Buffer) => {
+    if (tooLarge) return
+    size += c.length
+    if (size > MAX_OTLP_BODY_BYTES) {
+      tooLarge = true
+      chunks.length = 0
+      res.writeHead(413, { 'Content-Type': 'text/plain', 'Connection': 'close' }); res.end('Payload Too Large')
+      return
+    }
+    chunks.push(c)
+  })
   req.on('end', () => {
+    if (tooLarge) return
     try {
       const payload = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
       const kind = classifyOtlpPayload(payload)
@@ -1751,7 +2463,7 @@ const otlpServer = http.createServer((req, res) => {
       } else {
         console.warn(`[TraceRoost] ignored POST ${req.url ?? '/'}: unrecognized OTLP JSON payload`)
       }
-      pushUpdate()
+      schedulePushUpdate()
       scheduleSave()
     } catch (e) {
       console.error('[TraceRoost] Parse error:', e)
@@ -1761,63 +2473,75 @@ const otlpServer = http.createServer((req, res) => {
 })
 
 // ── Start ─────────────────────────────────────────────────────────────────────
+//
+// Bind order: OTLP first (so auto-configure fires against the port actually bound, never the
+// configured one racing ahead of the real listen), then UI. Each resolves independently via
+// listenWithFallback — a conflict on one never blocks the other from starting on its own
+// (possibly-fallback) port.
 
-otlpServer.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[TraceRoost] Port ${OTLP_PORT} (OTLP) already in use — stop the process using it or set OTLP_PORT=<other> to use a different port.`)
+async function startOtlpServer(): Promise<void> {
+  let bound: number
+  try {
+    bound = await listenWithFallback(otlpServer, OTLP_PORT, BIND_HOST)
+  } catch (err) {
+    console.error(`[TraceRoost] ${err instanceof PortScanExhaustedError ? err.message : `OTLP server error: ${err}`}`)
     process.exit(1)
   }
-  console.error('[TraceRoost] OTLP server error:', err)
-})
+  recordResolvedPort('otlp', OTLP_PORT, bound)
+  console.log(`[TraceRoost] OTLP receiver → http://localhost:${bound}`)
 
-// Auto-configure Claude Code, Codex, and Copilot to point at this collector
-if (AUTOCONFIG_DISABLED) {
-  console.log('[TraceRoost] Auto-configure disabled (TRACEROOST_NO_AUTOCONFIG=1) — agent config left untouched.')
-} else {
-  Promise.all([
-    autoConfigureClaudeCode(OTLP_PORT),
-    autoConfigureCodex(OTLP_PORT),
-    autoConfigureCopilotStandalone(OTLP_PORT),
-  ]).then(([claudeResult, codexResult, copilotResults]) => {
-    if (claudeResult.error) {
-      console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
-    } else if (claudeResult.changed) {
-      console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
-    }
-    if (codexResult.error) {
-      console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
-    } else if (codexResult.changed) {
-      console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
-    }
-    const copilotChanged = copilotResults.filter(r => r.changed)
-    const copilotErrors  = copilotResults.filter(r => r.error)
-    if (copilotChanged.length > 0) {
-      console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
-    }
-    for (const r of copilotErrors) {
-      console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
-    }
-  }).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
+  // Auto-configure Claude Code, Codex, and Copilot to point at this collector — only after the
+  // real bind succeeds, against `bound` (the port actually listening), never the static OTLP_PORT,
+  // which may differ from it after a fallback.
+  if (AUTOCONFIG_DISABLED) {
+    console.log('[TraceRoost] Auto-configure disabled (TRACEROOST_NO_AUTOCONFIG=1) — agent config left untouched.')
+  } else {
+    Promise.all([
+      autoConfigureClaudeCode(bound),
+      autoConfigureCodex(bound),
+      autoConfigureCopilotStandalone(bound),
+    ]).then(([claudeResult, codexResult, copilotResults]) => {
+      if (claudeResult.warning) {
+        console.warn(`[TraceRoost] ${claudeResult.warning}`)
+      }
+      if (claudeResult.error) {
+        console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
+      } else if (claudeResult.changed) {
+        console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
+      }
+      if (codexResult.error) {
+        console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
+      } else if (codexResult.changed) {
+        console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
+      }
+      const copilotChanged = copilotResults.filter(r => r.changed)
+      const copilotErrors  = copilotResults.filter(r => r.error)
+      if (copilotChanged.length > 0) {
+        console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
+      }
+      for (const r of copilotErrors) {
+        console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
+      }
+    }).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
+  }
 }
 
-otlpServer.listen(OTLP_PORT, BIND_HOST, () => {
-  console.log(`[TraceRoost] OTLP receiver → http://localhost:${OTLP_PORT}`)
-})
-
-uiServer.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[TraceRoost] Port ${UI_PORT} (UI) already in use — set UI_PORT=<other> to use a different port.`)
+async function startUiServer(): Promise<void> {
+  let bound: number
+  try {
+    bound = await listenWithFallback(uiServer, UI_PORT, BIND_HOST)
+  } catch (err) {
+    console.error(`[TraceRoost] ${err instanceof PortScanExhaustedError ? err.message : `UI server error: ${err}`}`)
     process.exit(1)
   }
-  console.error('[TraceRoost] UI server error:', err)
-})
+  recordResolvedPort('ui', UI_PORT, bound)
+  const mcpPort = await mcpServerReady
 
-uiServer.listen(UI_PORT, BIND_HOST, () => {
-  const plainUrl = `http://localhost:${UI_PORT}`
+  const plainUrl = `http://localhost:${bound}`
   // Loopback doesn't need the token at all, so there's nothing to carry (and nothing to forget).
   const url = REQUIRE_TOKEN_EVERYWHERE ? `${plainUrl}/?token=${AUTH_TOKEN}` : plainUrl
   console.log(`[TraceRoost] Dashboard      → ${url}`)
-  console.log(`[TraceRoost] MCP server     → http://localhost:${MCP_PORT}/mcp`)
+  console.log(`[TraceRoost] MCP server     → http://localhost:${mcpPort}/mcp`)
 
   // Auto-open browser — includes the access token so the browser gets its auth cookie on
   // first load when the token is actually required; the printed URL above is the fallback if
@@ -1829,7 +2553,16 @@ uiServer.listen(UI_PORT, BIND_HOST, () => {
 
   // Start log ingestion after the server is ready
   startLogIngestion()
-})
+
+  // Pro: forwarding scheduler. No timer runs unless an org is linked.
+  cloud.startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients })
+
+  // Pro: pricing sync — own (longer) interval, see pricingSync.ts.
+  cloud.startPricingSync({ onSync: pushOrgStatusToClients })
+}
+
+void startOtlpServer()
+void startUiServer()
 
 // ── Graceful shutdown — flush data before exit ────────────────────────────────
 
@@ -1838,6 +2571,7 @@ function shutdown() {
   if (saveSpansNow()) {
     console.log(`\n[TraceRoost] Saved ${spans.length} spans to ${DATA_FILE}`)
   }
+  outcomesDb?.save()
   process.exit(0)
 }
 process.on('SIGINT', shutdown)

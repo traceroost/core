@@ -2,7 +2,31 @@
 
 All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
-## [Unreleased]
+## [0.17.0] — 2026-09-27
+
+### Added
+
+- **A core edition, built without any TraceRoost Pro code** — `node esbuild.js --edition=core` builds the VSIX, npm package and Docker image with no org linking or uploading compiled in at all (not a runtime switch): no Org panel or Org commands, and `traceroost org`, `--explain-payload` and `cluster` print "not available in the TraceRoost core edition". Every free, local feature is unchanged. The build refuses to bundle anything from a `cloud/` directory, and `scripts/check-edition.mjs` (run in CI and on every release) checks the shipped bundles and manifest. Releases ship the core edition until TraceRoost Pro launches — see `runbooks/RELEASING.md` → Editions.
+- **The Cost tab now points to Advisor's "How to spend less" card** — closing the gap where the 30-day cost chart and per-trace cost table had no action attached to any number on the screen.
+- **Cursor CLI (`cursor-agent`) sessions are now fully wired through the UI** — agent filter pills, per-agent Settings thresholds, Alerts/Automation configs, the Agents tab comparison, and a Sessions-tab banner explaining Cursor's real data gaps (no token/cost/model data exists in its local transcript format, confirmed by hands-on testing, not guessed) now all recognize `source: 'cursor'` instead of silently falling back to Copilot's styling. Also fixed a real turn-counting bug found via a live multi-turn `cursor-agent --resume` session: resuming removes the previous turn's `turn_ended` marker, so counting `turn_ended` lines undercounted real turns — now counted from `user`-role lines instead, which persist across a resume.
+
+### Fixed
+
+- **Auto-config no longer installs a Claude Code Stop hook, and removes the one earlier versions added** — the hook printed `~/.traceroost/pending-prompt.txt` into every Claude session on stop; nothing writes that file any more and any local process could, so it was an open prompt-injection channel. Your own hooks in `~/.claude/settings.json` are left untouched.
+- **"Check for unsent traces" could take minutes on a real backlog and stall well short of closing the gap** — reconciliation now runs sessions through a bounded worker pool instead of one at a time, and memoizes the per-workspace git work (repo key, branch, outcome) that a developer's sessions in the same repo were each recomputing from scratch. The forwarding drain also keeps going immediately while a backlog remains, instead of waiting up to 5 minutes between 200-item batches, and reconcile now sees every local session regardless of history size instead of being silently capped at the most recent 20,000. A forwarding queue that hits its capacity now logs the eviction instead of silently dropping unsent work.
+- **`traceroost trace` / `traceroost patterns` and mistyped commands started the server** — `trace --id <id>` and `patterns --repo <hash|name>` now run directly (as `find` already did), and any other unrecognized word prints usage and exits non-zero. Bare `traceroost` (or flags only) still starts the server.
+- **Background service definitions broke on unusual paths** — the systemd unit now quotes `ExecStart`/`Environment` values and escapes `%`, `$`, `\` and `"`; the launchd plist XML-escapes `& < > " '`; the Windows `run.cmd` wrapper doubles `%`. A value with a line break is refused instead of written.
+- **`traceroost service uninstall` on Windows** no longer fails when the scheduled task is already gone, and removes the generated `run.cmd`. A failed `service install` now restores the previous `~/.traceroost/config.json` instead of leaving the new ports/data dir behind.
+- **`traceroost service status` with an IPv6 or wildcard `--bind-host`** — `::`/`0.0.0.0` are probed on loopback and IPv6 addresses are bracketed, instead of always reporting "not reachable".
+- **The npm package shipped the whole repo** (CLAUDE.md, Dockerfile, docs, runbooks, scripts, `packages/`) — `package.json` now has a `files` allowlist; the VSIX's `.vscodeignore` drops the same dev-only files.
+
+### Changed
+
+- **The free, local engines and CLI commands moved out of the `cloud/` directories, and are now MIT-licensed** — `src/cloud/attribution/` → `src/attribution/`, `src/cloud/turnover/` → `src/turnover/`, and `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` → `standalone/local/` (with their tests). They were under the BSL zone only because of where they sat; they are covered by the root MIT `LICENSE` from this version on. The `cloud/` directories (BSL) now hold only TraceRoost Pro's org linking and uploading. No behavior change.
+
+### Removed
+
+- **Copilot's "Annual plan (request)" pricing-mode toggle** — the Cost and Analytics tabs' Copilot billing model selector is gone; Copilot cost is now always estimated with token-based AI Credits, matching Claude Code, Codex, and every other agent. The Pricing page's `Request ×` and `Annual ×` multiplier columns are removed along with the underlying `multiplier`/`multiplierAnnualPostJun1` rate fields.
 
 ---
 
@@ -566,7 +590,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 ### Chore
 
 - **`.map` files gitignored** — `media/dashboard.js.map`, `media/dashboard.css.map`, `media/sidebar.js.map`, and `standalone/cli.js.map` are no longer tracked; all caused unresolvable conflicts on rebase because git cannot merge the base64 mapping blobs
-- **Post-rebase/merge hooks** — `.githooks/post-rewrite` and `.githooks/post-merge` run `node esbuild.js` automatically so `cli.js` and other build artifacts stay in sync after any rebase or merge without manual intervention; `core.hooksPath = .githooks` set in project git config
+- **Post-rebase/merge hooks** — `.githooks/post-rewrite` and `.githooks/post-merge` run `node esbuild.js` automatically so `cli.js` and other build artifacts stay in sync after any rebase or merge without manual intervention, once `core.hooksPath` points at `.githooks` (git config isn't committed — `pnpm install`'s `prepare` script now sets it; before that it had to be set by hand)
 - **`.claude/settings.json` gitignored** — per-developer Claude Code permissions config; was creating constant noise in `git status`
 
 ---

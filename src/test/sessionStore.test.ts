@@ -240,6 +240,60 @@ suite('SessionStore', () => {
     })
   })
 
+  suite('long-running traces (retention by trace, not by span)', () => {
+    const MIN = 60_000
+    const claudeLlm = (traceId: string, i: number, extra: Span['attributes'] = []) => makeSpan('claude_code.llm_request', traceId, {
+      spanId: `llm-${traceId}-${i}`,
+      attributes: [makeAttr('input_tokens', 100), makeAttr('output_tokens', 10), makeAttr('model', 'claude-sonnet-4'), ...extra],
+    })
+
+    test('a >5-minute Claude run keeps every span, so the summarized card covers the whole run', () => {
+      let now = 1_700_000_000_000
+      const store = new SessionStore(mockContext(), () => now)
+      // 20 simulated minutes, one LLM call a minute, root interaction arriving at the end.
+      for (let i = 0; i < 20; i++) {
+        const span = claudeLlm('long', i)
+        span.parentSpanId = 'root-long'
+        store.addSpan(span)
+        now += MIN
+      }
+      store.addSpan(makeSpan('claude_code.interaction', 'long', { spanId: 'root-long' }))
+      const card = summarizeSpans(store.getSpans()).sessions.find(s => s.sessionId === 'root-long')
+      assert.ok(card)
+      assert.strictEqual(card.totalLlmCalls, 20)
+      assert.strictEqual(card.outputTokens, 200)
+    })
+
+    test('an open trace (root not yet received) survives a long quiet stretch', () => {
+      let now = 1_700_000_000_000
+      const store = new SessionStore(mockContext(), () => now)
+      const first = claudeLlm('waiting', 0)
+      first.parentSpanId = 'root-waiting'
+      store.addSpan(first)
+      now += 30 * MIN  // e.g. a permission prompt left unanswered
+      store.addSpan(makeSpan('claude_code.tool', 'other', { spanId: 'unrelated' }))
+      assert.ok(store.getSpans().some(s => s.spanId === 'llm-waiting-0'))
+    })
+
+    test('a closed, idle trace is dropped once the window has passed', () => {
+      let now = 1_700_000_000_000
+      const store = new SessionStore(mockContext(), () => now)
+      store.addSpan(claudeLlm('done', 0))
+      store.addSpan(makeSpan('claude_code.interaction', 'done', { spanId: 'root-done' }))
+      now += 6 * MIN
+      store.addSpan(makeSpan('invoke_agent', 'fresh', { spanId: 'fresh-root' }))
+      assert.ok(!store.getSpans().some(s => s.traceId === 'done'))
+      assert.ok(store.getSpans().some(s => s.traceId === 'fresh'))
+    })
+
+    test('a hard cap bounds memory even for open traces', () => {
+      const store = new SessionStore(mockContext(), Date.now, 100)
+      for (let i = 0; i < 2_000; i++) { store.addSpan(claudeLlm('huge', i)) }
+      assert.ok(store.getSpans().length <= 100 + 1_000)
+      assert.ok(store.getSpans().some(s => s.spanId === 'llm-huge-1999'), 'newest spans are kept')
+    })
+  })
+
   suite('edge cases', () => {
 
     test('handles span with empty attributes', () => {

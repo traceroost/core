@@ -1,7 +1,7 @@
-import { claudeUsageLines } from './claudeUsageLines'
+import { claudeUsageRows } from './claudeUsageLines'
 /**
- * Reads local session logs for Claude Code, Codex, Copilot CLI, and
- * Copilot Chat (VS Code sidebar), and synthesises SessionSummaryCard records.
+ * Reads local session logs for Claude Code, Codex, Copilot CLI, Copilot Chat (VS Code sidebar),
+ * and Cursor CLI, and synthesises SessionSummaryCard records.
  *
  * Agent log paths (Mac → Windows → Linux):
  *
@@ -21,12 +21,33 @@ import { claudeUsageLines } from './claudeUsageLines'
  *   family IDE) ~/.config/<IDE>/User/workspaceStorage/<hash>/chatSessions/<uuid>.jsonl
  *               where <IDE> is any VS Code-family IDE (see VSCODE_FAMILY_IDE_NAMES)
  *
+ *   Cursor CLI   ~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl
+ *   (cursor-     %APPDATA%\Cursor\projects\...  (Windows, unconfirmed — mirrors Claude's convention)
+ *   agent)       ~/.config/cursor/projects/...  (XDG_CONFIG_HOME override — checked live on
+ *                2026-09-19 against cursor-agent 2026.09.18-9a7762b/macOS: setting
+ *                XDG_CONFIG_HOME relocates its *config* (cli-config.json, chats/) but NOT
+ *                agent-transcripts, which stayed under the real ~/.cursor/projects regardless.
+ *                cursorAgentProjectsDirs() below still probes the XDG path defensively — a
+ *                nonexistent directory there is silently filtered out — in case a future version
+ *                does honor it; one platform's one version confirmed not honoring it isn't proof
+ *                no version ever will).
+ *                Confirmed against real output from cursor-agent 2026.09.18 (and re-verified
+ *                2026-09-19, including a real `--resume`d multi-turn session). Separate from, and
+ *                not to be confused with, Cursor the IDE's own undocumented state.vscdb chat
+ *                store — investigated and concluded not viable to ingest (enterprise-only OTEL
+ *                export, no stable local format), independent of this CLI agent.
+ *
  * Data available from logs (vs OTEL):
  *   Claude / Codex: session ID, workspace, model, timestamps, full token counts
  *                   (incl. cache reads/writes), tool calls
  *   Copilot CLI:    session ID, workspace, model, timestamps, input/output/cache tokens
  *   Copilot Chat:   session ID, workspace, initial model, timestamps, output tokens per turn
  *                   (input tokens and cache tokens are not stored by VS Code)
+ *   Cursor CLI:     session ID, tool calls (name + counts). NOT available: workspace (no cwd
+ *                   anywhere in the file; the project dirname is sanitized/lossy, so it's left
+ *                   blank rather than guessed), model name, any token/usage counts, per-line
+ *                   timestamps (session start/end fall back to file birthtime/mtime), and
+ *                   tool-call success/failure (only a session-level turn_ended status exists).
  *   Not available in any log: TTFT, per-tool timing, streaming speed, loop signals
  */
 
@@ -35,7 +56,7 @@ import * as path from 'path'
 import * as os from 'os'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizers/summarizerTypes'
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
-import { rankModelsByWeight } from './summarizers/helpers'
+import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
@@ -103,6 +124,42 @@ function openCodeDataDirs(): string[] {
   return candidates.filter(d => { try { return fs.statSync(d).isDirectory() } catch { return false } })
 }
 
+function cursorAgentProjectsDirs(): string[] {
+  const home = homeDir()
+  const candidates: string[] = []
+  if (process.platform === 'win32') {
+    const appData = process.env['APPDATA']
+    if (appData) candidates.push(path.join(appData, 'Cursor', 'projects'))
+  } else {
+    const xdg = process.env['XDG_CONFIG_HOME']
+    if (xdg) candidates.push(path.join(xdg, 'cursor', 'projects'))
+  }
+  candidates.push(path.join(home, '.cursor', 'projects'))
+  return candidates.filter(d => { try { return fs.statSync(d).isDirectory() } catch { return false } })
+}
+
+/** Walks `<projectsDir>/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl` across every
+ *  cursorAgentProjectsDirs() root. Three levels deep — deeper than every other source — because
+ *  Cursor CLI groups transcripts by workspace directory first, unlike Claude/Codex which put
+ *  session files directly under one project folder. */
+function collectCursorTranscriptFiles(): string[] {
+  const files: string[] = []
+  for (const projectsDir of cursorAgentProjectsDirs()) {
+    let projectDirs: string[]
+    try { projectDirs = fs.readdirSync(projectsDir) } catch { continue }
+    for (const projectDir of projectDirs) {
+      const transcriptsDir = path.join(projectsDir, projectDir, 'agent-transcripts')
+      let sessionDirs: string[]
+      try { sessionDirs = fs.readdirSync(transcriptsDir) } catch { continue }
+      for (const sessionDir of sessionDirs) {
+        const f = path.join(transcriptsDir, sessionDir, `${sessionDir}.jsonl`)
+        try { if (fs.statSync(f).isFile()) files.push(f) } catch { /* skip */ }
+      }
+    }
+  }
+  return files
+}
+
 function copilotSessionStateDir(): string | null {
   // Copilot CLI writes session logs to ~/.copilot/session-state/<uuid>/events.jsonl
   // automatically, with no env setup required.
@@ -146,10 +203,17 @@ function vscodeFamilyWorkspaceStorageRoots(): string[] {
 
 // ── File state tracking ───────────────────────────────────────────────────────
 
-interface FileState {
+export interface FileState {
   bytesRead: number
   mtimeMs: number
 }
+
+// Line cache for incremental reads of growing transcripts (LogReader._readNewLines): only files
+// modified within LINE_CACHE_RECENT_MS are cached (historical files are read once at startup and
+// never again), within a total budget of LINE_CACHE_MAX_BYTES of file content.
+const LINE_CACHE_MAX_BYTES = 32 * 1024 * 1024
+const LINE_CACHE_RECENT_MS = 60 * 60 * 1000
+const LINE_CACHE_PROBE_BYTES = 256
 
 // ── Public interface ──────────────────────────────────────────────────────────
 
@@ -173,6 +237,11 @@ export interface LogSessionResult {
   workspace: string
 }
 
+/** SQL NULL (and an absent column) → null; anything else → its string form. */
+function strOrNull(v: unknown): string | null {
+  return v === null || v === undefined ? null : String(v)
+}
+
 /** Wraps a single-or-null result as an array, for parsers that only ever produce one session
  *  per file (everything except Claude Code — see splitClaudeLinesOnPromptGaps). */
 function _single(result: LogSessionResult | null): LogSessionResult[] {
@@ -183,6 +252,10 @@ export class LogReader {
   private readonly log: (msg: string) => void
   private readonly sqlFactory: OpenCodeSqlFactory | undefined
   private readonly fileState = new Map<string, FileState>()
+  // Lines already read from actively-growing JSONL files, so a re-scan reads only appended
+  // bytes — see _readNewLines. LRU (Map insertion order), bounded by LINE_CACHE_MAX_BYTES.
+  private readonly lineCache = new Map<string, { offset: number; lines: string[]; probe: Buffer }>()
+  private lineCacheBytes = 0
 
   constructor(options: LogReaderOptions = {}) {
     this.log = options.log ?? (() => { /* silent */ })
@@ -192,6 +265,26 @@ export class LogReader {
   /** Clears cached file state so the next scan re-reads all files from scratch. */
   clearFileState(): void {
     this.fileState.clear()
+    this.lineCache.clear()
+    this.lineCacheBytes = 0
+  }
+
+  /** Plain-object snapshot of the per-file mtime/size cache, for a caller to persist to disk
+   *  (a sidecar JSON file, e.g.) so the next process start can restore it via `importFileState`
+   *  instead of re-parsing every historical log file from scratch. See
+   *  .staged-issues/scalability.md, risk #1. */
+  exportFileState(): Record<string, FileState> {
+    return Object.fromEntries(this.fileState)
+  }
+
+  /** Restores a snapshot from `exportFileState`. Merges into (does not clear) any state already
+   *  present — call before the first `scan()`/`parseFile()` of a process, while `fileState` is
+   *  still empty, so a restored entry causes an unchanged file to be skipped exactly like it
+   *  would have been within the same still-running process. */
+  importFileState(snapshot: Record<string, FileState>): void {
+    for (const [filePath, state] of Object.entries(snapshot)) {
+      this.fileState.set(filePath, state)
+    }
   }
 
   /**
@@ -255,6 +348,11 @@ export class LogReader {
       try { entries.push({ filePath: dbPath, mtimeMs: fs.statSync(dbPath).mtimeMs, agentKey: 'opencode' }) } catch { /* skip */ }
     }
 
+    // Cursor CLI (cursor-agent)
+    for (const filePath of collectCursorTranscriptFiles()) {
+      try { entries.push({ filePath, mtimeMs: fs.statSync(filePath).mtimeMs, agentKey: 'cursor' }) } catch { /* skip */ }
+    }
+
     // Newest first — caller processes in this order so recent sessions appear first.
     entries.sort((a, b) => b.mtimeMs - a.mtimeMs)
     return entries
@@ -280,6 +378,7 @@ export class LogReader {
       case 'copilot_vscode':      return this._processFileMulti(filePath, () => this._parseCopilotVSCodeFile(filePath))
       case 'copilot_vscode_json': return _single(this._processFile(filePath, () => this._parseCopilotVSCodeJsonFile(filePath, sessionId)))
       case 'opencode':            return []  // OpenCode DB returns multiple sessions; use _scanOpenCode
+      case 'cursor':              return _single(this._processFile(filePath, () => this._parseCursorFile(filePath)))
       default:                    return []
     }
   }
@@ -292,6 +391,7 @@ export class LogReader {
       ...((() => { const d = copilotSessionStateDir(); return d ? [d] : [] })()),
       ...vscodeFamilyWorkspaceStorageRoots(),
       ...openCodeDataDirs(),
+      ...cursorAgentProjectsDirs(),
     ]
   }
 
@@ -306,6 +406,7 @@ export class LogReader {
       ...this._scanCopilot(),
       ...this._scanCopilotVSCode(),
       ...this._scanOpenCode(),
+      ...this._scanCursor(),
     ]
   }
 
@@ -327,13 +428,16 @@ export class LogReader {
   private _parseClaudeFile(filePath: string): LogSessionResult[] {
     const rawLines = this._readNewLines(filePath)
     if (!rawLines) return []
-    const lines = dedupeByUuid(rawLines)
+    // Every line is JSON.parse'd once here and the parsed rows are shared by the dedupe, the
+    // split and the segment parser — each used to parse every line again (5x in all), which was
+    // most of the cost of reading a transcript.
+    const { lines, parsed } = dedupeParsedByUuid(rawLines, rawLines.map(parseLogLine))
 
     const baseSessionId = path.basename(filePath, '.jsonl')
-    const segments = splitClaudeLinesOnPromptGaps(lines)
+    const boundaries = promptGapBoundaries(parsed, isClaudePromptBoundary)
     const results: LogSessionResult[] = []
-    segments.forEach((segmentLines, segmentIndex) => {
-      const result = this._parseClaudeSegment(segmentLines, claudeSegmentSessionId(baseSessionId, segmentIndex))
+    boundaries.forEach(([start, end], segmentIndex) => {
+      const result = this._parseClaudeSegment(lines.slice(start, end), parsed.slice(start, end), claudeSegmentSessionId(baseSessionId, segmentIndex))
       if (result) results.push(result)
     })
     // Tag every segment with the file they came from, but only when the file actually split into
@@ -346,12 +450,15 @@ export class LogReader {
     return results
   }
 
-  private _parseClaudeSegment(lines: string[], sessionId: string): LogSessionResult | null {
+  /** `parsed[i]` is `lines[i]` already JSON.parse'd (undefined when it doesn't parse). */
+  private _parseClaudeSegment(lines: string[], parsed: unknown[], sessionId: string): LogSessionResult | null {
     let workspace = ''
+    let claudeSessionId = ''
     let model = ''
     let firstTimestamp = ''
     let lastTimestamp = ''
     let userRequest = ''
+    let taskNotificationFallback = ''
     let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheCreate = 0
     let peakContextPerTurn = 0
     let turns = 0, totalToolCalls = 0
@@ -367,15 +474,16 @@ export class LogReader {
     const timeline: TimelineEntry[] = []
     let idx = 0
     let initiator: 'user' | 'agent' | 'api' = 'user'
-    const usageLines = claudeUsageLines(lines)
+    const usageLines = claudeUsageRows(parsed)
 
-    for (const [lineIndex, line] of lines.entries()) {
-      let entry: Record<string, unknown>
-      try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (parsed[lineIndex] === undefined) continue
+      const entry = parsed[lineIndex] as Record<string, unknown>
 
       const ts = entry['timestamp'] as string | undefined
       if (ts) { if (!firstTimestamp) firstTimestamp = ts; lastTimestamp = ts }
       if (entry['cwd'] && !workspace) workspace = entry['cwd'] as string
+      if (typeof entry['sessionId'] === 'string' && entry['sessionId']) claudeSessionId = entry['sessionId'] as string
 
       if (entry['type'] === 'user') {
         // isSidechain: true → session was spawned by the Agent tool, not typed by a human.
@@ -390,6 +498,10 @@ export class LogReader {
             initiator = 'api'
             const afterCaveat = text.replace(/^<local-command-caveat>[\s\S]*?<\/local-command-caveat>\s*/i, '').trim()
             userRequest = afterCaveat || '[api session]'
+          } else if (isTaskNotificationOnly(text)) {
+            // A background Bash/Agent task result on a synthetic turn, not typed by a human —
+            // keep scanning for a real prompt; remember a fallback in case none ever shows up.
+            if (!taskNotificationFallback) taskNotificationFallback = summarizeTaskNotification(text)
           } else {
             userRequest = text
           }
@@ -483,6 +595,10 @@ export class LogReader {
     }
 
     if (!firstTimestamp) return null
+    if (!userRequest && taskNotificationFallback) {
+      userRequest = taskNotificationFallback
+      initiator = 'agent'
+    }
     // Rank by token volume rather than reporting whichever model answered last;
     // the fast-mode suffix is a session-wide flag, so it's only applied to the
     // primary (highest-volume) model, matching the existing single-value behavior.
@@ -497,7 +613,11 @@ export class LogReader {
     const models = rankedModels.length > 0
       ? [effectiveModel || 'claude', ...rankedModels.slice(1)]
       : (effectiveModel ? [effectiveModel] : [])
-    return { workspace, card: _buildCard(sessionId, 'claude_code', effectiveModel || 'claude', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate, peakContextPerTurn, turns, totalToolCalls, toolCounts, filesRead, filesChanged, filesWritten, filesSearched: new Set(), userRequest, timeline, initiator }, workspace, models) }
+    const card = _buildCard(sessionId, 'claude_code', effectiveModel || 'claude', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate, peakContextPerTurn, turns, totalToolCalls, toolCounts, filesRead, filesChanged, filesWritten, filesSearched: new Set(), userRequest, timeline, initiator }, workspace, models)
+    // Claude Code's own session id — equal to the file name for a main transcript, the parent's id
+    // for a subagent transcript (subagents/agent-*.jsonl). Shared with its OTEL spans' session.id.
+    if (claudeSessionId) card.claudeSessionId = claudeSessionId
+    return { workspace, card }
   }
 
   // ── Codex ───────────────────────────────────────────────────────────────────
@@ -1261,13 +1381,13 @@ export class LogReader {
             partTs:       Number(r[pc('part_ts')]         ?? 0),
             msgRole:      String(r[pc('msg_role')]        ?? ''),
             type:         String(r[pc('type')]            ?? ''),
-            text:         r[pc('text')]           != null ? String(r[pc('text')])           : null,
-            toolName:     r[pc('tool_name')]      != null ? String(r[pc('tool_name')])      : null,
-            callId:       r[pc('call_id')]        != null ? String(r[pc('call_id')])        : null,
-            filePath:     r[pc('file_path')]      != null ? String(r[pc('file_path')])      : null,
-            toolInputJson:r[pc('tool_input_json')]!= null ? String(r[pc('tool_input_json')]): null,
-            toolOutput:   r[pc('tool_output')]    != null ? String(r[pc('tool_output')])    : null,
-            toolStatus:   r[pc('tool_status')]    != null ? String(r[pc('tool_status')])    : null,
+            text:          strOrNull(r[pc('text')]),
+            toolName:      strOrNull(r[pc('tool_name')]),
+            callId:        strOrNull(r[pc('call_id')]),
+            filePath:      strOrNull(r[pc('file_path')]),
+            toolInputJson: strOrNull(r[pc('tool_input_json')]),
+            toolOutput:    strOrNull(r[pc('tool_output')]),
+            toolStatus:    strOrNull(r[pc('tool_status')]),
           })
         }
       }
@@ -1486,22 +1606,201 @@ export class LogReader {
     }
   }
 
-  /** Returns only the new bytes since last read, split into lines. Returns null if unchanged. */
+  // ── Cursor CLI (cursor-agent) ────────────────────────────────────────────────
+
+  private _scanCursor(): LogSessionResult[] {
+    const results: LogSessionResult[] = []
+    for (const filePath of collectCursorTranscriptFiles()) {
+      const result = this._processFile(filePath, () => this._parseCursorFile(filePath))
+      if (result) results.push(result)
+    }
+    return results
+  }
+
+  /** Reads a Cursor CLI transcript — see the doc comment at the top of this file and
+   *  .staged-issues/support-cursor-cli.md for exactly what this format does and doesn't contain.
+   *  Unlike every other source, there's no per-line timestamp, no token/usage data, no model
+   *  name, and no tool-call success/failure signal anywhere on disk — those are left as honest
+   *  gaps (0 / unknown), never guessed. */
+  private _parseCursorFile(filePath: string): LogSessionResult | null {
+    const rawLines = this._readNewLines(filePath)
+    if (!rawLines) return null
+
+    const sessionId = path.basename(filePath, '.jsonl')
+    let userRequest = ''
+    let turns = 0
+    let totalToolCalls = 0
+    let errors = 0
+    const toolCounts: Record<string, number> = {}
+    const filesRead = new Set<string>()
+    const filesChanged = new Set<string>()
+    const filesWritten = new Set<string>()
+    const timeline: TimelineEntry[] = []
+    let idx = 0
+
+    for (const line of rawLines) {
+      let entry: Record<string, unknown>
+      try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
+
+      if (entry['type'] === 'turn_ended') {
+        // NOT a per-turn counter — confirmed against a real `--resume`d session (2026-09-19):
+        // resuming removes the *previous* turn's `turn_ended` line and appends exactly one new
+        // one at the new end of file, so a file with N real turns only ever has one `turn_ended`
+        // line on disk at any given time, reflecting the *last* one. `errors` below is therefore
+        // "was the most recently completed turn an error", not a running total across the whole
+        // session — an honest reading of what this format actually preserves, not an undercount
+        // bug to fix (the data for earlier turns' status is gone by the time this file is read).
+        if (entry['status'] !== 'success') errors++
+        continue
+      }
+
+      const role = entry['role']
+      if (role !== 'user' && role !== 'assistant') continue
+      const content = ((entry['message'] as Record<string, unknown> | undefined)?.['content'] ?? []) as Array<Record<string, unknown>>
+
+      if (role === 'user') {
+        // Real turn count: one `role: 'user'` entry per turn, and unlike `turn_ended` these
+        // persist across a `--resume`d session — confirmed against a real two-turn resumed
+        // session (2026-09-19), which left exactly one `turn_ended` line but two `user` lines.
+        turns++
+        const text = _extractTextContent(content)
+        if (!userRequest && text) {
+          // The first user turn wraps the actual prompt in <user_query> tags, alongside a
+          // human-prose <timestamp> block that isn't machine-parseable — strip both, keep the query.
+          const match = text.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/)
+          userRequest = (match ? match[1] : text).trim()
+        }
+        timeline.push({ type: 'user_input', spanId: `log-u-${idx}`, label: 'User', durationMs: 0, isError: false, timestamp: '', responseText: text })
+        idx++
+        continue
+      }
+
+      let hasToolCall = false
+      for (const block of content) {
+        if (block['type'] === 'tool_use' && block['name']) {
+          hasToolCall = true
+          totalToolCalls++
+          const name = block['name'] as string
+          toolCounts[name] = (toolCounts[name] ?? 0) + 1
+          const inp = (block['input'] ?? {}) as Record<string, unknown>
+          const fp = String(inp['path'] ?? inp['file_path'] ?? inp['filePath'] ?? '')
+          if (fp) {
+            if (name === 'Read') filesRead.add(fp)
+            else if (name === 'Write') { filesChanged.add(fp); filesWritten.add(fp) }
+            else if (name === 'Edit' || name === 'MultiEdit') filesChanged.add(fp)
+          }
+        }
+      }
+      const responseText = (content.find(b => b['type'] === 'text') as Record<string, string> | undefined)?.['text']
+      timeline.push({
+        type: hasToolCall ? 'tool' : 'llm',
+        spanId: `log-a-${idx}`,
+        label: hasToolCall ? 'Tool calls' : 'Response',
+        durationMs: 0,
+        isError: false,
+        timestamp: '',
+        responseText,
+      })
+      idx++
+    }
+
+    if (!userRequest && timeline.length === 0) return null
+
+    let stat: fs.Stats
+    try { stat = fs.statSync(filePath) } catch { return null }
+    // No per-line timestamps exist in this format at all — session bounds fall back to file
+    // birthtime/mtime (birthtime can read as 0 on some filesystems, hence the fallback to mtime).
+    const startMs = stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs
+    const endMs = Math.max(startMs, stat.mtimeMs)
+    const firstTimestamp = new Date(startMs).toISOString()
+    const lastTimestamp = new Date(endMs).toISOString()
+
+    const card = _buildCard(sessionId, 'cursor', 'cursor-agent', firstTimestamp, lastTimestamp, {
+      totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCacheCreate: 0,
+      peakContextPerTurn: 0, turns: Math.max(turns, 1), totalToolCalls, toolCounts,
+      filesRead, filesChanged, filesWritten, filesSearched: new Set(), userRequest, timeline, initiator: 'user',
+    })
+    card.errors = errors
+    return { workspace: '', card }
+  }
+
+  /** Returns all of the file's non-empty lines if it changed since the last read, else null. */
   private _readNewLines(filePath: string): string[] | null {
     try {
       const stat = fs.statSync(filePath)
       const prev = this.fileState.get(filePath)
       if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return null
 
-      // Always re-read the whole file so each scan produces a complete card.
-      // Incremental reads (seeking to prev.bytesRead) produced partial cards that
-      // then replaced the full card in logSessions, losing prior-turn data.
-      const content = fs.readFileSync(filePath, 'utf-8')
+      // Always return the whole file's lines so each scan produces a complete card (a card
+      // built from only the new lines would replace the full card and lose prior-turn data).
+      // But these are append-only JSONL transcripts, so for a file that's actively growing,
+      // only the appended bytes are read from disk — the earlier lines come from lineCache.
+      const lines = this._readAllLinesIncremental(filePath, stat)
       this.fileState.set(filePath, { bytesRead: stat.size, mtimeMs: stat.mtimeMs })
-      return content.split('\n').filter(l => l.trim())
+      return lines
     } catch (err) {
+      this.lineCache.delete(filePath)
       this.log(`[LogReader] read error ${filePath}: ${err}`)
       return null
+    }
+  }
+
+  private _readAllLinesIncremental(filePath: string, stat: fs.Stats): string[] {
+    const cached = this.lineCache.get(filePath)
+    this.lineCache.delete(filePath)
+    if (cached) this.lineCacheBytes -= cached.offset
+
+    let lines: string[] = []
+    let offset = 0
+    let fd: number | undefined
+    try {
+      fd = fs.openSync(filePath, 'r')
+      // Reuse the cache only if the file still starts with exactly what we read before: it must
+      // not have shrunk, and the bytes just before our offset must be unchanged (a rewritten or
+      // replaced file falls back to a full read).
+      if (cached && stat.size >= cached.offset && cached.offset > 0) {
+        const probeLen = Math.min(LINE_CACHE_PROBE_BYTES, cached.offset)
+        const probe = Buffer.alloc(probeLen)
+        fs.readSync(fd, probe, 0, probeLen, cached.offset - probeLen)
+        if (probe.equals(cached.probe)) {
+          lines = cached.lines
+          offset = cached.offset
+        }
+      }
+      const buf = Buffer.alloc(stat.size - offset)
+      let got = 0
+      while (got < buf.length) {
+        const n = fs.readSync(fd, buf, got, buf.length - got, offset + got)
+        if (n === 0) break
+        got += n
+      }
+      const chunk = buf.subarray(0, got)
+      // Only whole lines are cached; a trailing line still being written is returned this time
+      // and re-read from its start next time. '\n' never occurs inside a multi-byte UTF-8
+      // sequence, so splitting the bytes there is safe.
+      const lastNl = chunk.lastIndexOf(0x0a)
+      const complete = lastNl >= 0 ? chunk.subarray(0, lastNl + 1).toString('utf-8') : ''
+      const tail = chunk.subarray(lastNl + 1).toString('utf-8')
+      const newLines = complete.split('\n').filter(l => l.trim())
+      const allComplete = newLines.length > 0 ? lines.concat(newLines) : lines
+      const newOffset = offset + lastNl + 1
+
+      const recentlyModified = Date.now() - stat.mtimeMs < LINE_CACHE_RECENT_MS
+      if (recentlyModified && newOffset > 0 && newOffset <= LINE_CACHE_MAX_BYTES) {
+        const probeLen = Math.min(LINE_CACHE_PROBE_BYTES, newOffset)
+        const probe = Buffer.alloc(probeLen)
+        fs.readSync(fd, probe, 0, probeLen, newOffset - probeLen)
+        this.lineCache.set(filePath, { offset: newOffset, lines: allComplete, probe })
+        this.lineCacheBytes += newOffset
+        for (const [k, v] of this.lineCache) {
+          if (this.lineCacheBytes <= LINE_CACHE_MAX_BYTES) break
+          this.lineCache.delete(k)
+          this.lineCacheBytes -= v.offset
+        }
+      }
+      return tail.trim() ? allComplete.concat([tail]) : allComplete.slice()
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd)
     }
   }
 
@@ -1582,18 +1881,30 @@ interface CardAccum {
  * the source of this problem.
  */
 export function dedupeByUuid(lines: string[]): string[] {
+  return dedupeParsedByUuid(lines, lines.map(parseLogLine)).lines
+}
+
+/** JSON.parse of one log line, or undefined when it doesn't parse (JSON never yields undefined). */
+function parseLogLine(line: string): unknown {
+  try { return JSON.parse(line) as unknown } catch { return undefined }
+}
+
+/** dedupeByUuid over lines the caller already parsed (`parsed[i]` is `lines[i]` parsed, see
+ *  parseLogLine); returns the kept lines alongside their parsed rows. */
+function dedupeParsedByUuid(lines: string[], parsed: unknown[]): { lines: string[]; parsed: unknown[] } {
   const seen = new Set<string>()
   const result: string[] = []
-  for (const line of lines) {
-    let entry: Record<string, unknown>
-    try { entry = JSON.parse(line) as Record<string, unknown> } catch { result.push(line); continue }
-    const uuid = entry['uuid']
-    if (typeof uuid !== 'string') { result.push(line); continue }
+  const resultParsed: unknown[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const keep = () => { result.push(lines[i]); resultParsed.push(parsed[i]) }
+    if (parsed[i] === undefined) { keep(); continue }
+    const uuid = (parsed[i] as Record<string, unknown>)['uuid']
+    if (typeof uuid !== 'string') { keep(); continue }
     if (seen.has(uuid)) continue
     seen.add(uuid)
-    result.push(line)
+    keep()
   }
-  return result
+  return { lines: result, parsed: resultParsed }
 }
 
 // A gap between two consecutive user prompts longer than this starts a new session segment.
@@ -1649,10 +1960,22 @@ function splitLinesOnPromptGaps(
   isPromptBoundary: (entry: Record<string, unknown>) => boolean,
   getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
 ): string[][] {
-  if (lines.length === 0) return []
+  return promptGapBoundaries(lines.map(parseLogLine), isPromptBoundary, getBoundaryTimestampMs)
+    .map(([start, end]) => lines.slice(start, end))
+}
 
-  const timestamps: Array<number | null> = lines.map(line => {
-    try { return defaultLineTimestampMs(JSON.parse(line) as Record<string, unknown>) } catch { return null }
+/** splitLinesOnPromptGaps over already-parsed lines (see parseLogLine), as [start, end) index
+ *  ranges into them. */
+function promptGapBoundaries(
+  parsed: unknown[],
+  isPromptBoundary: (entry: Record<string, unknown>) => boolean,
+  getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
+): Array<[number, number]> {
+  if (parsed.length === 0) return []
+
+  const timestamps: Array<number | null> = parsed.map(entry => {
+    if (entry === undefined) return null
+    try { return defaultLineTimestampMs(entry as Record<string, unknown>) } catch { return null }
   })
 
   const boundaries: number[] = [0]
@@ -1663,9 +1986,9 @@ function splitLinesOnPromptGaps(
   // last value keeps a single such anomaly from corrupting the gap baseline for every comparison
   // after it.
   let maxTs: number | null = null
-  for (let i = 0; i < lines.length; i++) {
-    let entry: Record<string, unknown>
-    try { entry = JSON.parse(lines[i]) as Record<string, unknown> } catch { continue }
+  for (let i = 0; i < parsed.length; i++) {
+    if (parsed[i] === undefined) continue
+    const entry = parsed[i] as Record<string, unknown>
     if (!isPromptBoundary(entry)) continue
 
     const tsMs = getBoundaryTimestampMs(entry)
@@ -1689,17 +2012,21 @@ function splitLinesOnPromptGaps(
     maxTs = Math.max(maxTs ?? tsMs, tsMs)
   }
 
-  const segments: string[][] = []
+  const segments: Array<[number, number]> = []
   for (let b = 0; b < boundaries.length; b++) {
     const start = boundaries[b]
-    const end = b + 1 < boundaries.length ? boundaries[b + 1] : lines.length
-    segments.push(lines.slice(start, end))
+    const end = b + 1 < boundaries.length ? boundaries[b + 1] : parsed.length
+    segments.push([start, end])
   }
   return segments
 }
 
+function isClaudePromptBoundary(entry: Record<string, unknown>): boolean {
+  return entry['type'] === 'user'
+}
+
 export function splitClaudeLinesOnPromptGaps(lines: string[]): string[][] {
-  return splitLinesOnPromptGaps(lines, entry => entry['type'] === 'user')
+  return splitLinesOnPromptGaps(lines, isClaudePromptBoundary)
 }
 
 // Also treats turn_aborted as a boundary trigger, not just user_message. Confirmed on real data:
@@ -1756,7 +2083,7 @@ export function claudeSegmentSessionId(baseSessionId: string, segmentIndex: numb
 
 function _buildCard(
   sessionId: string,
-  source: 'claude_code' | 'codex' | 'copilot' | 'opencode',
+  source: 'claude_code' | 'codex' | 'copilot' | 'opencode' | 'cursor',
   model: string,
   firstTimestamp: string,
   lastTimestamp: string,

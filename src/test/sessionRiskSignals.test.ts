@@ -5,9 +5,11 @@ import * as path from 'path'
 import {
   detectFailedCheckSubmission,
   detectHallucinatedImports,
+  detectSkippedChecks,
   detectSessionRiskSignals,
 } from '../sessionRiskSignals'
 import { SessionSummaryCard, TimelineEntry } from '../spanSummarizer'
+import { GitOutcome } from '../gitOutcome'
 
 // ── Factories ────────────────────────────────────────────────────────────────
 
@@ -206,9 +208,112 @@ suite('detectHallucinatedImports', () => {
     const session = makeSession({ timeline: [makeEdit('src/a.ts', "import foo from 'bar'")] })
     assert.strictEqual(detectHallucinatedImports(session, ''), null)
   })
+
+  test('does not flag vscode in a VS Code extension workspace', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ engines: { vscode: '^1.90.0' }, dependencies: {} }))
+    const session = makeSession({ timeline: [makeEdit('src/ext.ts', "import * as vscode from 'vscode'")] })
+    assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('does not flag tsconfig path aliases or @/ ~/ # specifiers', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: {} }))
+    fs.writeFileSync(path.join(dir, 'tsconfig.json'), `{
+      // comment
+      "compilerOptions": { "paths": { "@app/*": ["src/app/*"], "shared": ["src/shared"], }, },
+    }`)
+    const session = makeSession({
+      timeline: [makeEdit('src/a.ts', [
+        "import a from '@/lib/a'", "import b from '~/b'", "import c from '#internal'",
+        "import d from '@app/thing'", "import e from 'shared'",
+      ].join('\n'))],
+    })
+    assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('Python: stdlib modules like __future__, types, ast, concurrent are not flagged', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'requirements.txt'), 'requests\n')
+    const code = 'from __future__ import annotations\nimport types\nimport ast\nfrom concurrent.futures import ThreadPoolExecutor\n'
+    const session = makeSession({ timeline: [makeEdit('app.py', code)] })
+    assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('Python: import names that differ from their distribution names resolve', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'requirements.txt'), 'PyYAML==6.0\nPillow\nscikit-learn>=1.3\nopencv-python-headless\nbeautifulsoup4\n')
+    const code = 'import yaml\nfrom PIL import Image\nfrom sklearn import svm\nimport cv2\nfrom bs4 import BeautifulSoup\n'
+    const session = makeSession({ timeline: [makeEdit('app.py', code)] })
+    assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('Python: a local module on disk or written in this session is not flagged; a missing one is', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'requirements.txt'), 'requests\n')
+    fs.mkdirSync(path.join(dir, 'pkg'))
+    fs.writeFileSync(path.join(dir, 'pkg', 'helpers.py'), '')
+    fs.mkdirSync(path.join(dir, 'mylib'))
+    const session = makeSession({
+      timeline: [
+        makeEdit(path.join(dir, 'pkg', 'main.py'), 'import helpers\nimport mylib\nimport newmod\nimport ghost_pkg\n'),
+        makeEdit('pkg/newmod.py', 'X = 1\n'),
+      ],
+    })
+    const signal = detectHallucinatedImports(session, dir)
+    assert.ok(signal)
+    assert.strictEqual(signal!.count, 1)
+    assert.ok(signal!.examples[0].startsWith('ghost_pkg'))
+  })
 })
 
 // ── detectSessionRiskSignals ────────────────────────────────────────────────
+
+// ── detectSkippedChecks ──────────────────────────────────────────────────────
+
+function makeOutcome(overall: GitOutcome['overall']): GitOutcome {
+  return { overall, files: {}, reason: 'test' }
+}
+
+suite('detectSkippedChecks', () => {
+  test('null when outcome is null', () => {
+    const session = makeSession({ timeline: [] })
+    assert.strictEqual(detectSkippedChecks(session, null), null)
+  })
+
+  test('null when outcome is committed but not merged — not yet on the shared branch', () => {
+    const session = makeSession({ timeline: [] })
+    assert.strictEqual(detectSkippedChecks(session, makeOutcome('committed')), null)
+  })
+
+  test('null when outcome is abandoned or ambiguous', () => {
+    const session = makeSession({ timeline: [] })
+    assert.strictEqual(detectSkippedChecks(session, makeOutcome('abandoned')), null)
+    assert.strictEqual(detectSkippedChecks(session, makeOutcome('ambiguous')), null)
+  })
+
+  test('fires when merged and no test/build runner ever ran', () => {
+    const session = makeSession({ timeline: [makeEdit('src/a.ts', 'x'), makeLlm()] })
+    const signal = detectSkippedChecks(session, makeOutcome('merged'))
+    assert.ok(signal)
+    assert.strictEqual(signal!.type, 'skipped_checks')
+    assert.strictEqual(signal!.severity, 'warning')
+  })
+
+  test('null when merged but a test runner ran somewhere in the session, pass or fail', () => {
+    const session = makeSession({
+      timeline: [makeEdit('src/a.ts', 'x'), makeToolCall({ label: 'bash', toolInput: 'npm test', resultSummary: 'failed' })],
+    })
+    assert.strictEqual(detectSkippedChecks(session, makeOutcome('merged')), null)
+  })
+
+  test('a build runner (not just a test runner) also counts as a check', () => {
+    const session = makeSession({
+      timeline: [makeEdit('src/a.ts', 'x'), makeToolCall({ label: 'bash', toolInput: 'cargo test --release' })],
+    })
+    assert.strictEqual(detectSkippedChecks(session, makeOutcome('merged')), null)
+  })
+})
 
 suite('detectSessionRiskSignals', () => {
   test('empty when neither detector fires', () => {
@@ -233,5 +338,21 @@ suite('detectSessionRiskSignals', () => {
       new Set(signals.map(s => s.type)),
       new Set(['hallucinated_import', 'failed_check_submission']),
     )
+  })
+
+  test('omitting outcome defaults to null — detectSkippedChecks never fires without it', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: {} }))
+    const session = makeSession({ timeline: [makeEdit('src/a.ts', 'x')] })
+    assert.deepStrictEqual(detectSessionRiskSignals(session, dir), [])
+  })
+
+  test('passing a merged outcome lets detectSkippedChecks fire alongside the others', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: {} }))
+    const session = makeSession({ timeline: [makeEdit('src/a.ts', 'x')] })
+    const signals = detectSessionRiskSignals(session, dir, makeOutcome('merged'))
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].type, 'skipped_checks')
   })
 })

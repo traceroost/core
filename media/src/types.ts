@@ -38,9 +38,16 @@ export type LoopSignalType =
   | 'token_runaway'
   | 'chronic_tool_failures'
   | 'context_flooding_risk'
-  | 'malformed_tool_call'
   | 'hallucinated_import'
   | 'failed_check_submission'
+  | 'tool_call_cycle'
+  | 'file_reread'
+  | 'cache_miss'
+  | 'ttl_expiry'
+  | 'low_cache_hit_ratio'
+  | 'budget_overrun'
+  | 'model_tier_mismatch'
+  | 'skipped_checks'
 
 export interface LoopSignal {
   type: LoopSignalType
@@ -54,7 +61,7 @@ export interface LoopSignal {
 
 // Mirrors src/gitOutcome.ts. Fetched lazily per session (see sessionTimelines in state.ts for the
 // same lazy-cache pattern) — never eagerly computed for every loaded session.
-export type FileOutcome = 'productive' | 'reverted' | 'abandoned' | 'ambiguous'
+export type FileOutcome = 'merged' | 'committed' | 'abandoned' | 'ambiguous'
 
 export interface GitOutcome {
   overall: FileOutcome
@@ -62,10 +69,21 @@ export interface GitOutcome {
   reason: string
 }
 
+// Mirrors src/actionLog.ts's ActionLogEntry — see action-log.md. Pushed via an `actionLog` message.
+export interface ActionLogEntry {
+  id: number
+  cwd: string
+  gloss: string | null
+  raw: string
+  startedAt: number
+  finishedAt: number | null
+  failed: boolean
+}
+
 export interface SessionSummaryCard {
   sessionId: string
   traceId: string
-  source: 'copilot' | 'claude_code' | 'codex' | 'opencode'
+  source: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
   conversationId?: string
@@ -211,11 +229,21 @@ export interface SearchQuery {
   offset?: number
 }
 
-export type AgentFilter = 'all' | 'copilot' | 'claude_code' | 'codex' | 'opencode'
-export type InitiatorFilter = 'all' | 'user' | 'agent' | 'api'
+export type AgentFilter = 'all' | 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
+// 'agent' covers both agent-spawned sub-tasks and non-interactive API calls (sess.initiator
+// 'agent' | 'api') — the two were a single visually-indistinguishable gray pill even before this
+// type merged them, so the filter now matches what a user could actually tell apart.
+export type InitiatorFilter = 'all' | 'user' | 'agent'
 export type DataSourceFilter = 'all' | 'otel' | 'log'
 export type InsightFilter = 'all' | 'loop' | 'efficiency'
-export type WorkspaceFilter = 'all' | string
+// Freeform — '' means unfiltered (same convention as sessionTextFilter), any other value is a
+// live substring search matched against a repo's name, path, and hash (see matchesRepoQuery).
+export type WorkspaceFilter = string
+// Mirrors WireOutcome (src/cloud/forward/schema.ts) minus 'in-progress', 'reverted' (neither of
+// which the local classifier, gitOutcome.ts, produces any more) and 'unknown' — an
+// ambiguous/inconclusive outcome has no dedicated filter: those sessions just don't match any of
+// these and only show under 'all' (see outcomeToFilterBucket, state.ts).
+export type OutcomeFilter = 'all' | 'merged' | 'committed' | 'abandoned'
 
 export interface VsCodeApi {
   postMessage(message: unknown): void
@@ -235,11 +263,16 @@ export interface Insight {
   _loopType?: LoopSignalType
 }
 
-// Span tree node used by Traces and Flow tabs
-export interface SpanTreeNode {
-  span: Span
-  children: SpanTreeNode[]
-  depth: number
+// Response shape of GET /api/version-check (standalone only — see standalone/versionCheck.ts).
+// Hand-duplicated rather than imported: the webview bundle never imports from standalone/.
+export interface VersionCheckResponse {
+  currentVersion: string
+  latestVersion: string | null
+  updateAvailable: boolean
+  checkedAt: string | null
+  error: string | null
+  isService: boolean
+  recommendedCommand: string
 }
 
 declare global {
@@ -247,6 +280,7 @@ declare global {
     acquireVsCodeApi(): VsCodeApi
     __INITIAL_TOOL_CALLS__?: Record<string, number>
     __INITIAL_SESSION_SUMMARY__?: FullSummary | null
+    __INITIAL_SESSION_REV__?: number
     __STANDALONE__?: boolean
     __VERSION__?: string
   }

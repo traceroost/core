@@ -3,18 +3,21 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   sessionSummary, toolCalls,
   selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
-  sessionTimelines, blobCache, gitOutcomes,
+  sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
+  runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
+  repoInfo,
   dailyStats, lifetimeStats, burnRateData, searchResults, rangedSearchResults, exportSearchResults,
-  timeRange, makeTimeRange, TIME_PRESETS, CHART_MAX,
+  timeRange, makeTimeRange, makeCustomTimeRange, TIME_PRESETS, CHART_MAX, type TimePreset, type TimeRange,
   vscode, displaySessions, rangedSessions,
   sessionTextFilter, filteredSessions, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   sessionSortKey, sessionSortDir,
-  workspaceFilter, availableWorkspaces, shortWorkspaceName,
+  workspaceFilter, currentWorkspace, availableWorkspaces, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  sessionsPage, getSessionsPagination, SESSIONS_PAGE_SIZE_OPTIONS,
+  getSessionsPagination, applySessionDelta, type SessionDelta,
 } from './state'
-import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, WorkspaceFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome } from './types'
+import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry } from './types'
 import { Wordmark } from './Wordmark'
+import { DATA_SOURCE_COLORS, INITIATOR_COLORS } from './utils'
 
 // Tab components
 import { Sessions } from './tabs/Sessions'
@@ -27,7 +30,8 @@ import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
-import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect } from './tabs/Settings'
+import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
+import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -35,7 +39,10 @@ import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, Sessio
 // sidebar (toggled via workbench commands, not this panel) defaults to open.
 const sidebarOpen = signal(window.__STANDALONE__ !== true)
 const configOpen = signal(false)
+const actionLogOpen = signal(false)
 const bellOpen = signal(false)
+const versionCheckOpen = signal(false)
+const versionCheck = signal<VersionCheckResponse | null>(null)
 
 // `id` stays 'sessions' — it's an internal routing key, not shown anywhere. The
 // user-facing vocabulary is "Trace" (one prompt-to-response cycle); see the
@@ -47,6 +54,9 @@ const TABS = [
   { id: 'export',     label: 'Export',     title: 'Export raw or redacted trace data as JSON files.' },
   { id: 'import',     label: 'Import',     title: 'Import trace data from a TraceRoost export file.' },
 ]
+
+// See flushOutcomes in App's message handler.
+const GIT_OUTCOME_FLUSH_MS = 50
 
 function ActivePanel() {
   const tab = normalizeTabId(activeTab.value)
@@ -98,7 +108,9 @@ function ConfigPanel() {
 
   return (
     <div
-      style={`position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
+      inert={!open}
+      aria-hidden={!open}
+      style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
     >
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
         <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Settings</span>
@@ -124,6 +136,66 @@ function ConfigPanel() {
 }
 
 
+function relativeTime(ms: number): string {
+  const deltaSec = Math.round((Date.now() - ms) / 1000)
+  if (deltaSec < 5) return 'just now'
+  if (deltaSec < 60) return `${deltaSec}s ago`
+  const deltaMin = Math.round(deltaSec / 60)
+  if (deltaMin < 60) return `${deltaMin}m ago`
+  const deltaHr = Math.round(deltaMin / 60)
+  return `${deltaHr}h ago`
+}
+
+function ActionLogRow({ entry }: { entry: ActionLogEntry }) {
+  const running = entry.finishedAt === null
+  return (
+    <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted)">
+        <span>{relativeTime(entry.startedAt)}</span>
+        {running ? <span style="color:#4fc3f7">running…</span> : entry.failed ? <span style="color:#f44747">failed</span> : null}
+      </div>
+      <div style="color:var(--fg);margin-top:2px">{entry.gloss ?? entry.raw}</div>
+      <div style="color:var(--muted);font-family:var(--vscode-editor-font-family,monospace);margin-top:2px;overflow-wrap:break-word">
+        {entry.cwd}: {entry.raw}
+      </div>
+    </div>
+  )
+}
+
+// action-log.md: "what happened," not a replacement for GitCommandStatusBar's "what's happening
+// right now" footer ticker — this panel is the persistent history, that ticker stays as-is.
+function ActionLogPanel() {
+  const open = actionLogOpen.value
+
+  useEffect(() => {
+    if (!open) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') actionLogOpen.value = false }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  const entries = actionLog.value
+  return (
+    <div
+      inert={!open}
+      aria-hidden={!open}
+      style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
+    >
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Action log</span>
+        <button
+          onClick={() => actionLogOpen.value = false}
+          style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
+          title="Close (Esc)"
+        >×</button>
+      </div>
+      {entries.length === 0
+        ? <div style="padding:14px;font-size:11px;color:var(--muted)">Nothing has run yet this session.</div>
+        : [...entries].reverse().map(e => <ActionLogRow key={e.id} entry={e} />)}
+    </div>
+  )
+}
+
 const SEV_COLOR: Record<string, string> = {
   error:   '#f44747',
   warning: '#f6a623',
@@ -148,11 +220,12 @@ function IconGear() {
   )
 }
 
-function IconRefresh() {
+// Fixed 12x12 so a status icon appearing/disappearing next to it never reflows neighboring
+// controls — used by OutcomeFilterBar while git outcomes are still resolving.
+function IconSpinner() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
-      <polyline points="23 4 23 10 17 10" />
-      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="display:block;animation:tr-spin 0.8s linear infinite">
+      <path d="M21 12a9 9 0 1 1-9-9" />
     </svg>
   )
 }
@@ -167,12 +240,30 @@ function IconHelp() {
   )
 }
 
+function IconLog() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M8 6h13M8 12h13M8 18h13" />
+      <path d="M3 6h.01M3 12h.01M3 18h.01" />
+    </svg>
+  )
+}
+
 function IconDollar() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
       <circle cx="12" cy="12" r="10" />
       <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
       <path d="M12 6v12" />
+    </svg>
+  )
+}
+
+function IconUpdate() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M12 19V5" />
+      <path d="M5 12l7-7 7 7" />
     </svg>
   )
 }
@@ -231,11 +322,62 @@ function BellButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
-        title={count > 0 ? `${count} alert${count > 1 ? 's' : ''} triggered` : 'Alerts — none triggered'}
         onClick={() => { bellOpen.value = !bellOpen.value }}
       ><IconBell /></button>
       {count > 0 && <span class="alert-badge">{count}</span>}
       {open && <AlertStatusCard alerts={getTriggeredAlerts()} />}
+    </div>
+  )
+}
+
+function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') versionCheckOpen.value = false }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  return (
+    <>
+      <div style="position:fixed;inset:0;z-index:199" onClick={() => versionCheckOpen.value = false} />
+      <div style="position:fixed;top:35px;right:8px;width:min(400px,calc(100vw - 16px));background:var(--vscode-editor-background);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.5);z-index:200;overflow:hidden">
+        <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">
+          Update Available
+        </div>
+        <div style="padding:12px;font-size:12px;color:var(--fg);line-height:1.5">
+          <div style="margin-bottom:8px">
+            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available on npm.
+          </div>
+          <div style="margin-bottom:8px;color:var(--muted)">
+            {info.isService
+              ? 'Update the background service:'
+              : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTEL data is never lost. Install it (this also updates you to the latest version):"}
+          </div>
+          <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
+          {!info.isService && (
+            <div style="font-size:11px;color:var(--muted)">
+              Or for a quick one-off look: <code>npx traceroost@latest</code> · Docker: <code>docker pull traceroost/traceroost</code> and re-run your <code>docker run</code> command.
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function UpdateButton() {
+  const info = versionCheck.value
+  if (!info || !info.updateAvailable) { return null }
+  const open = versionCheckOpen.value
+  return (
+    <div style="position:relative;display:flex;align-items:center">
+      <button
+        class={'icon-btn' + (open ? ' active' : '')}
+        title={`Update available — v${info.latestVersion}`}
+        onClick={() => { versionCheckOpen.value = !versionCheckOpen.value }}
+      ><IconUpdate /></button>
+      <span class="alert-badge">!</span>
+      {open && <UpdateStatusCard info={info} />}
     </div>
   )
 }
@@ -245,7 +387,6 @@ function GearButton() {
   return (
     <button
       class={'icon-btn' + (active ? ' active' : '')}
-      title="Settings — Alerts & Automation"
       onClick={() => { configOpen.value = !configOpen.value }}
     ><IconGear /></button>
   )
@@ -256,9 +397,19 @@ function HelpButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
-      title="Help"
       onClick={() => { activeTab.value = 'help' }}
     ><IconHelp /></button>
+  )
+}
+
+function LogButton() {
+  const active = actionLogOpen.value
+  return (
+    <button
+      class={'icon-btn' + (active ? ' active' : '')}
+      title="Action log — every command TraceRoost has run on your machine"
+      onClick={() => { actionLogOpen.value = !actionLogOpen.value }}
+    ><IconLog /></button>
   )
 }
 
@@ -267,27 +418,43 @@ function PricingButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
-      title="Pricing — full rate table TraceRoost uses to estimate cost"
       onClick={() => { activeTab.value = 'pricing' }}
     ><IconDollar /></button>
   )
 }
 
 export function App() {
-  // Global smart tooltip for [data-tip] elements
+  // Global smart tooltip for [data-tip] elements, and a fast replacement for the browser's own
+  // [title] tooltip — native title tooltips take ~1s+ (OS/browser-controlled, not something CSS
+  // or JS can shorten) to appear, which reads as sluggish given how many small badges/pills
+  // throughout this app rely on title text to explain themselves. This shows the same styled
+  // tooltip for either attribute after one short, consistent delay. The native title is
+  // temporarily removed while hovered (restored on mouseout) so it can't also pop in later,
+  // stacked on top of this one.
   useEffect(() => {
+    const HOVER_DELAY_MS = 150
     let tipEl: HTMLDivElement | null = null
-    function show(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null
-      if (!target) return
-      const text = target.getAttribute('data-tip')
-      if (!text) return
+    let showTimer: ReturnType<typeof setTimeout> | null = null
+    let activeTarget: HTMLElement | null = null
+
+    function clearTimer() {
+      if (showTimer !== null) { clearTimeout(showTimer); showTimer = null }
+    }
+
+    function positionAndShow(target: HTMLElement, text: string) {
       if (!tipEl) {
         tipEl = document.createElement('div')
         tipEl.className = 'metric-tooltip'
         document.body.appendChild(tipEl)
       }
-      tipEl.textContent = text
+      // data-tip-html opts a target into a handful of hand-written <b> headings (e.g. the Signals
+      // column's formula/action text) — every other [title]/[data-tip] in the app keeps the
+      // textContent default so nothing else can have HTML text accidentally rendered as markup.
+      if (target.hasAttribute('data-tip-html')) {
+        tipEl.innerHTML = text
+      } else {
+        tipEl.textContent = text
+      }
       tipEl.style.display = 'block'
       const rect = target.getBoundingClientRect()
       const tipW = 220, tipH = tipEl.offsetHeight || 60
@@ -301,12 +468,53 @@ export function App() {
       tipEl.style.left = left + 'px'
       tipEl.style.top = top + 'px'
     }
-    function hide() { if (tipEl) tipEl.style.display = 'none' }
+
+    function restoreNativeTitle(target: HTMLElement) {
+      const native = target.getAttribute('data-native-title')
+      if (native !== null) {
+        target.setAttribute('title', native)
+        target.removeAttribute('data-native-title')
+      }
+    }
+
+    function show(e: MouseEvent) {
+      const target = (e.target as HTMLElement).closest('[data-tip], [title]') as HTMLElement | null
+      if (!target || target === activeTarget) return
+      clearTimer()
+      activeTarget = target
+      // Suppress the native tooltip right away (not after the delay) so it never gets a chance
+      // to start its own much-longer timer in parallel.
+      const nativeTitle = target.getAttribute('title')
+      if (nativeTitle !== null) {
+        target.setAttribute('data-native-title', nativeTitle)
+        target.removeAttribute('title')
+      }
+      showTimer = setTimeout(() => {
+        const text = target.getAttribute('data-tip') ?? target.getAttribute('data-native-title')
+        if (text) positionAndShow(target, text)
+      }, HOVER_DELAY_MS)
+    }
+
+    function hide(e: MouseEvent) {
+      const target = (e.target as HTMLElement).closest('[data-tip], [data-native-title]') as HTMLElement | null
+      if (!target) return
+      // Moving onto a child of the same target (e.g. an icon inside a titled pill) isn't a real
+      // leave — mouseout/mouseover delegation fires for that boundary too, and without this
+      // check the tooltip would flicker hidden-then-rescheduled on every such internal move.
+      const related = e.relatedTarget as Node | null
+      if (related && target.contains(related)) return
+      restoreNativeTitle(target)
+      clearTimer()
+      activeTarget = null
+      if (tipEl) tipEl.style.display = 'none'
+    }
+
     document.addEventListener('mouseover', show)
     document.addEventListener('mouseout', hide)
     return () => {
       document.removeEventListener('mouseover', show)
       document.removeEventListener('mouseout', hide)
+      clearTimer()
       if (tipEl) { tipEl.remove(); tipEl = null }
     }
   }, [])
@@ -314,17 +522,52 @@ export function App() {
   // Handle messages from the extension host
   useEffect(() => {
     let initialLoadDone = false
+    // Revision of the host-side state this webview holds (webviewSessionSync.ts). Undefined under
+    // the standalone server, which never sends one and always posts sessions in full.
+    let sessionRev = window.__INITIAL_SESSION_REV__
+    let resyncPending = false
+    const requestResync = () => {
+      if (resyncPending) return
+      resyncPending = true
+      vscode?.postMessage({ type: 'requestFullUpdate' })
+    }
+    // Git outcomes arrive one message per session — thousands, a couple of ms apart, on a cold
+    // start — and copying the whole map for each one was quadratic (a 20k-session history pinned
+    // the webview's main thread for the whole warm-up). Replies are applied in one copy per
+    // GIT_OUTCOME_FLUSH_MS window instead; any other message flushes them first, so ordering
+    // against gitOutcomeDeferred/update is unchanged.
+    let pendingOutcomes: Record<string, GitOutcome | null> | null = null
+    const flushOutcomes = () => {
+      const pending = pendingOutcomes
+      if (!pending) return
+      pendingOutcomes = null
+      gitOutcomes.value = { ...gitOutcomes.value, ...pending }
+      for (const id in pending) {
+        gitOutcomeRequestSettled(id)
+        if (deferredGitOutcomeSessionIds.has(id)) deferredGitOutcomeSessionIds.delete(id)
+      }
+    }
     const handler = (e: MessageEvent) => {
+      if (pendingOutcomes && (e.data as { type?: unknown } | null)?.type !== 'gitOutcome') flushOutcomes()
       const msg = e.data as {
         type: string
         summary?: { toolCalls?: Record<string, number> }
         sessionSummary?: typeof sessionSummary.value
+        sessionDelta?: SessionDelta
+        base?: number
+        rev?: number
         tab?: string
         agentFilter?: AgentFilter
         sessionLimit?: number
+        workspaceFilter?: string
+        textFilter?: string
         sessionId?: string
         timeline?: TimelineEntry[]
         outcome?: GitOutcome | null
+        workspace?: string
+        name?: string | null
+        hash?: string | null
+        githubUrl?: string | null
         spanId?: string
         field?: string
         content?: string | null
@@ -336,14 +579,48 @@ export function App() {
         enableOtelIngestion?: boolean
         enableLogIngestion?: boolean
         otlpPort?: number
+        currentWorkspace?: string | null
         results?: OtelReconfigureResult
+        commands?: string[]
+        entries?: ActionLogEntry[]
       }
+      // Org panel (TraceRoost Pro) messages — see orgPanel.ts; the core edition's stub handles none.
+      if (handleOrgPanelMessage(msg)) return
       if (msg.type === 'update') {
         if (msg.enableOtelIngestion !== undefined) enableOtelIngestion.value = msg.enableOtelIngestion
         if (msg.enableLogIngestion !== undefined) enableLogIngestion.value = msg.enableLogIngestion
         if (msg.otlpPort !== undefined) otlpPort.value = msg.otlpPort
+        if (msg.currentWorkspace !== undefined) currentWorkspace.value = msg.currentWorkspace
         if (msg.summary?.toolCalls) toolCalls.value = msg.summary.toolCalls
-        if (msg.sessionSummary !== undefined) sessionSummary.value = msg.sessionSummary
+        if (msg.sessionSummary !== undefined) {
+          sessionSummary.value = msg.sessionSummary
+          sessionRev = msg.rev
+          resyncPending = false
+        } else if (msg.base !== undefined && (resyncPending || msg.base !== sessionRev)) {
+          requestResync()
+        } else if (msg.sessionDelta) {
+          const next = applySessionDelta(sessionSummary.peek(), msg.sessionDelta)
+          if (next) {
+            sessionSummary.value = next
+            sessionRev = msg.rev
+          } else {
+            requestResync()
+          }
+        } else if (msg.rev !== undefined) {
+          sessionRev = msg.rev
+        }
+        // Warm the git-outcome cache in the background as soon as sessions load, rather than
+        // waiting for the Outcome filter to be engaged (OutcomeFilterBar below) or the Outcome
+        // column to scroll into view (Sessions.tsx). Both of those still fire their own request
+        // on top of this — requestGitOutcomesFor already skips anything already resolved or
+        // in flight, so that's a cheap no-op once this has run. This is what makes turning the
+        // Outcome filter on feel instant on a repeat visit instead of kicking off a fresh batch
+        // of git subprocesses right when the user asks to see results. Re-run on every update,
+        // unchanged sessions included — it's also what re-asks for sessions the host deferred.
+        if (msg.sessionSummary !== null && (msg.sessionSummary !== undefined || msg.rev !== undefined)) {
+          const current = sessionSummary.peek()
+          if (current) requestGitOutcomesFor(current.sessions)
+        }
         if (msg.analyticsData) {
           dailyStats.value = msg.analyticsData.dailyStats
           lifetimeStats.value = msg.analyticsData.lifetimeStats
@@ -372,12 +649,25 @@ export function App() {
       } else if (msg.type === 'sessionDetail' && msg.sessionId) {
         sessionTimelines.value = { ...sessionTimelines.value, [msg.sessionId]: msg.timeline ?? [] }
       } else if (msg.type === 'gitOutcome' && msg.sessionId) {
-        gitOutcomes.value = { ...gitOutcomes.value, [msg.sessionId]: msg.outcome ?? null }
-      } else if (msg.type === 'blobContent' && msg.spanId && msg.field) {
-        const key = `${msg.spanId}:${msg.field}`
-        if (msg.content != null) {
-          blobCache.value = { ...blobCache.value, [key]: msg.content }
+        if (!pendingOutcomes) {
+          pendingOutcomes = {}
+          setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
         }
+        pendingOutcomes[msg.sessionId] = msg.outcome ?? null
+      } else if (msg.type === 'gitOutcomeDeferred' && msg.sessionId) {
+        // Session is still inside its active-session grace window — no git classification ran or
+        // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
+        // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). It stays absent from
+        // gitOutcomes, so no outcome badge renders for it either.
+        gitOutcomeRequestSettled(msg.sessionId)
+        deferredGitOutcomeSessionIds.add(msg.sessionId)
+      } else if (msg.type === 'runningGitCommands' && Array.isArray(msg.commands)) {
+        runningGitCommands.value = msg.commands
+      } else if (msg.type === 'actionLog' && Array.isArray(msg.entries)) {
+        actionLog.value = msg.entries
+      } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
+        const entry = msg.name ? { name: msg.name, hash: msg.hash ?? null, githubUrl: msg.githubUrl ?? null } : null
+        repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
       } else if (msg.type === 'switchTab' && msg.tab) {
         const tab = normalizeTabId(msg.tab)
         if (tab === 'alerts' || tab === 'automation' || tab === 'settings-automation') {
@@ -396,6 +686,12 @@ export function App() {
           sessionLimit.value = limit
           const sel = document.getElementById('session-limit') as HTMLSelectElement
           if (sel) sel.value = String(limit)
+        }
+        if (msg.workspaceFilter !== undefined) {
+          workspaceFilter.value = msg.workspaceFilter
+        }
+        if (msg.textFilter !== undefined) {
+          sessionTextFilter.value = msg.textFilter
         }
       } else if (msg.type === 'instructionFiles' && Array.isArray((msg as unknown as {files?: unknown}).files)) {
         instructionFiles.value = (msg as unknown as {files: typeof instructionFiles.value}).files
@@ -427,6 +723,22 @@ export function App() {
     return () => window.removeEventListener('message', handler)
   }, [])
 
+  // Ask once, on mount, so the tab-bar state dot is honest immediately. This is answered from
+  // local data only — an unlinked install makes no request as a result of this.
+  useEffect(() => { requestOrgStatus() }, [])
+  void orgOpen.value
+
+  // Standalone only — VS Code updates through the Marketplace, never npm. The server already
+  // refreshes its own npm-registry check on a long interval, so one fetch per page load is
+  // enough; a page reload (which `service update`/`restart` naturally causes) is enough cadence.
+  useEffect(() => {
+    if (window.__STANDALONE__ !== true) { return }
+    fetch('/api/version-check')
+      .then(res => res.ok ? res.json() : null)
+      .then((data: VersionCheckResponse | null) => { if (data) { versionCheck.value = data } })
+      .catch(() => { /* no update banner if the check fails — not worth surfacing an error for */ })
+  }, [])
+
   const tab = normalizeTabId(activeTab.value)
   const showFilterBars = tab !== 'help' && tab !== 'pricing'
 
@@ -453,7 +765,10 @@ export function App() {
         </button>
         {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
         <div style="margin-left:auto;display:flex;align-items:center;border-left:1px solid var(--border);padding-left:2px">
+          <OrgButton />
+          {window.__STANDALONE__ === true && <UpdateButton />}
           <BellButton />
+          <LogButton />
           <GearButton />
           <PricingButton />
           <HelpButton />
@@ -462,26 +777,279 @@ export function App() {
 
       {showFilterBars && <TimeRangePicker />}
       {showFilterBars && <SearchFilterBar />}
-      <div class="panel active">
+      {showFilterBars && <OutcomeFilterBar />}
+      {showFilterBars && <FilterActionsBar />}
+      <div class="panel active h-scroll-hint">
         <ActivePanel />
+        {tab === 'sessions' && <GitCommandStatusBar />}
       </div>
 
       <ConfigPanel />
+      <ActionLogPanel />
+      <OrgPanel />
     </>
   )
 }
 
-// `color` (and `activeColor`) doubles as the pill's border in both states and, historically, its
-// active-state text — 'all' and 'opencode' used a literal #ffffff for a neutral "pop" look, which
-// is invisible (white border/text on a white page) in light mode. var(--fg) gives the same neutral
-// look correctly in both themes instead of a color that only worked against a dark background.
-const AGENT_FILTER_OPTIONS: Array<{ value: AgentFilter; label: string; color: string; activeColor?: string }> = [
-  { value: 'all',        label: 'All',      color: 'var(--vscode-descriptionForeground,#888)', activeColor: 'var(--fg)' },
-  { value: 'copilot',    label: 'Copilot',  color: '#00EAFF' },
-  { value: 'claude_code',label: 'Claude',   color: '#FFB085' },
-  { value: 'codex',      label: 'Codex',    color: '#F0FF42' },
+// Footer, visible only while the host has `git` subprocesses in flight (see gitOutcome.ts's
+// onRunningGitCommandsChanged) — gives the Outcome filter's "resolving N outcomes" spinner a
+// concrete, live detail instead of just spinning with no indication of progress or of a slow/
+// stuck classification. Always shows the most recently started command so the line reads as
+// "still moving" rather than replaying the whole in-flight set.
+//
+// Only mounted on the Traces (Sessions) tab — its caller below gates it on `tab === 'sessions'` —
+// since that's the one place the per-row git outcome badges actually resolve; showing raw git
+// command lines while looking at Analytics or Advisor would be confusing/irrelevant even though
+// classification can still be running in the background.
+//
+// Rendered as the last child inside `.panel.active` (not as a flex sibling after it) with
+// `position:sticky;bottom:0`, so it sits immediately below the tab's own content — right under
+// the version/paging row — rather than drifting down to the panel's full flex-filled height
+// whenever content is shorter than the viewport. Sticky still keeps it pinned to the visible
+// bottom edge while scrolling through long content.
+function GitCommandStatusBar() {
+  const commands = runningGitCommands.value
+  if (commands.length === 0) return null
+  const current = commands[commands.length - 1]
+  return (
+    <div
+      role="status"
+      style="position:sticky;bottom:0;flex-shrink:0;display:flex;align-items:center;gap:5px;padding:2px 8px;font-size:10px;font-family:var(--vscode-editor-font-family,monospace);color:var(--muted);background:var(--vscode-editor-background);border-top:1px solid var(--vscode-panel-border);overflow:hidden;white-space:nowrap"
+      title={commands.join('\n')}
+    >
+      <span style="overflow:hidden;text-overflow:ellipsis">{current}</span>
+      {commands.length > 1 && <span style="flex-shrink:0">+{commands.length - 1} more</span>}
+    </div>
+  )
+}
+
+// `color` is the pill's identity color — its border in both states, fed to the shared `.tr-pill`
+// class (pills.css) as `--tr-pill-color`. 'all' and 'opencode' use var(--fg) rather than a
+// literal white for their neutral "pop" look, which used to be invisible (white border on a
+// white page) in light mode.
+const AGENT_FILTER_OPTIONS: Array<{ value: AgentFilter; label: string; color: string }> = [
+  { value: 'all',        label: 'All',      color: 'var(--fg)' },
+  { value: 'copilot',    label: 'Copilot',  color: 'var(--agent-copilot,#00EAFF)' },
+  { value: 'claude_code',label: 'Claude',   color: 'var(--agent-claude,#FFB085)' },
+  { value: 'codex',      label: 'Codex',    color: 'var(--agent-codex,#F0FF42)' },
   { value: 'opencode',   label: 'OpenCode', color: 'var(--fg)' },
+  { value: 'cursor',     label: 'Cursor',   color: 'var(--agent-cursor,#B39DDB)' },
 ]
+
+// `YYYY-MM-DD` date input value + an optional `HH:MM` time input value <-> unix ms, treating both
+// as UTC — `since` from its first instant, `until` through its last, when no time is given — same
+// convention traceroost-cloud's own custom-range picker uses for the same two bounds, so the two
+// products resolve an identical date(+time) string to an identical instant. `time` empty falls
+// back to the day-boundary default; given, it's taken as that exact minute instead.
+function dateInputToMs(date: string, time: string, edge: 'start' | 'end'): number | undefined {
+  if (!date) return undefined
+  const iso = time
+    ? `${date}T${time}:00.000Z`
+    : `${date}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}Z`
+  const ms = Date.parse(iso)
+  return Number.isNaN(ms) ? undefined : ms
+}
+function msToDateInput(ms: number | undefined): string {
+  return ms ? new Date(ms).toISOString().slice(0, 10) : ''
+}
+// Blank unless `ms` carries a time other than its edge's own day-boundary default — so reopening
+// a date-only custom range shows an empty (not misleadingly "00:00"/"23:59") time field, matching
+// what was actually chosen. `time` input to unix ms is dateInputToMs's job; this is its inverse.
+function msToTimeInput(ms: number | undefined, edge: 'start' | 'end'): string {
+  if (!ms) return ''
+  const msOfDay = ((ms % 86_400_000) + 86_400_000) % 86_400_000
+  const boundaryMsOfDay = edge === 'start' ? 0 : 86_400_000 - 1
+  if (msOfDay === boundaryMsOfDay) return ''
+  const d = new Date(ms)
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+}
+function shortDate(ms: number): string {
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+// A bound's date, plus its time-of-day if it carries one other than the edge's own day-boundary
+// default — "Aug 1" or "Aug 1 14:30".
+function shortBound(ms: number, edge: 'start' | 'end'): string {
+  const time = msToTimeInput(ms, edge)
+  return time ? `${shortDate(ms)} ${time}` : shortDate(ms)
+}
+function timeRangeLabel(r: TimeRange): string {
+  if (r.preset === 'custom') {
+    if (r.since && r.until) return `${shortBound(r.since, 'start')}–${shortBound(r.until, 'end')}`
+    if (r.since) return `Since ${shortBound(r.since, 'start')}`
+    if (r.until) return `Until ${shortBound(r.until, 'end')}`
+    return 'Custom'
+  }
+  return TIME_PRESETS.find(p => p.id === r.preset)?.label ?? 'All'
+}
+
+const DATE_TIME_INPUT_STYLE =
+  'font-size:12px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;background:var(--vscode-input-background,#3c3c3c);color:var(--fg);box-sizing:border-box;flex:1;min-width:0;'
+
+/**
+ * Replaces what used to be six always-visible pills with one compact trigger (same footprint as
+ * a single pill) that opens a popover on click, so a custom date range doesn't widen the filter
+ * bar — the popover floats above the page and is never part of layout flow. Mirrors
+ * traceroost-cloud's own TimeRangeControl (trace-filter-controls.tsx) — same <details>/<summary>
+ * popover, same preset list on top with a custom range section below it — so both products offer
+ * this the same way.
+ */
+function TimeRangeMenu({ range, onSelectPreset, onApplyCustom }: {
+  range: TimeRange
+  onSelectPreset: (id: TimePreset) => void
+  onApplyCustom: (since: number | undefined, until: number | undefined) => void
+}) {
+  const rangeSince = range.preset === 'custom' ? range.since : undefined
+  const rangeUntil = range.preset === 'custom' ? range.until : undefined
+  const [sinceDate, setSinceDate] = useState(() => msToDateInput(rangeSince))
+  const [sinceTime, setSinceTime] = useState(() => msToTimeInput(rangeSince, 'start'))
+  const [untilDate, setUntilDate] = useState(() => msToDateInput(rangeUntil))
+  const [untilTime, setUntilTime] = useState(() => msToTimeInput(rangeUntil, 'end'))
+  // Re-syncs the draft inputs whenever the committed range changes from outside this popover
+  // (Clear Filters, a preset picked elsewhere) — not just on mount.
+  useEffect(() => {
+    setSinceDate(msToDateInput(rangeSince))
+    setSinceTime(msToTimeInput(rangeSince, 'start'))
+    setUntilDate(msToDateInput(rangeUntil))
+    setUntilTime(msToTimeInput(rangeUntil, 'end'))
+  }, [range.preset, rangeSince, rangeUntil])
+  const detailsRef = useRef<HTMLDetailsElement>(null)
+  const summaryRef = useRef<HTMLElement>(null)
+  // `position: fixed`, not `absolute` — `.time-range-bar` (base.css) sets `overflow-x: auto` so
+  // the filter row can scroll horizontally on a narrow panel, and per the CSS spec that silently
+  // computes overflow-y to `auto` too, clipping an absolutely-positioned popover at the row's own
+  // bottom edge instead of letting it float over the table below. `fixed`'s containing block is
+  // the viewport, not that ancestor, so it escapes the clip — the tradeoff is this now measures
+  // its own screen position instead of getting it for free from `top: 110%`.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  function openPopover() {
+    const rect = summaryRef.current?.getBoundingClientRect()
+    if (rect) setPos({ top: rect.bottom + 4, left: rect.left })
+  }
+
+  // A fixed popover doesn't move when the panel scrolls, but its trigger does — rather than
+  // tracking scroll to keep them in sync, just close it, same as most menu/combobox widgets do.
+  useEffect(() => {
+    if (!pos) return
+    function close() {
+      detailsRef.current?.removeAttribute('open')
+      setPos(null)
+    }
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [pos])
+
+  function choosePreset(id: TimePreset) {
+    onSelectPreset(id)
+    detailsRef.current?.removeAttribute('open')
+    setPos(null)
+  }
+  function applyCustom() {
+    if (!sinceDate && !untilDate) return
+    onApplyCustom(
+      dateInputToMs(sinceDate, sinceTime, 'start'),
+      dateInputToMs(untilDate, untilTime, 'end'),
+    )
+    detailsRef.current?.removeAttribute('open')
+    setPos(null)
+  }
+
+  return (
+    <details
+      ref={detailsRef}
+      onToggle={(e: Event) => {
+        if ((e.currentTarget as HTMLDetailsElement).open) openPopover()
+        else setPos(null)
+      }}
+    >
+      {/* Fixed width, not content-sized — "24h" and a custom "Aug 1–Aug 3" label are very
+          different lengths, and letting the trigger size to its own label would shift every
+          filter after it sideways on each selection (measured ~7px of exactly this jitter in
+          tests/ux/evaluate.mjs before this was pinned). Ellipsis truncates whatever doesn't fit
+          instead. */}
+      <summary ref={summaryRef} style={`list-style:none;cursor:pointer;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);color:${range.preset !== 'all' ? 'var(--accent)' : 'var(--muted)'};display:inline-flex;align-items:center;gap:2px;width:96px;box-sizing:border-box`}>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">{timeRangeLabel(range)}</span>
+        <span style="flex-shrink:0">▾</span>
+      </summary>
+      {/* class="tr-time-popover" — this panel and its contents mount/unmount with open/close,
+          which is expected, real UI motion (a user opened it), not jank; excluded from
+          tests/ux/evaluate.mjs's stationary-element check the same way .tr-trailing-controls
+          already is, for the same reason. `position: fixed` + `pos` (measured on open, see
+          above) rather than `top: 110%` — see openPopover's own comment for why. */}
+      {pos && (
+      <div class="tr-time-popover" style={`position:fixed;top:${pos.top}px;left:${pos.left}px;z-index:10;width:220px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);padding:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3)`}>
+        <div style="display:flex;flex-direction:column;gap:1px">
+          {TIME_PRESETS.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => choosePreset(p.id)}
+              style={`text-align:left;font-size:12px;padding:4px 6px;border-radius:4px;border:none;width:100%;cursor:pointer;background:${range.preset === p.id ? 'var(--vscode-button-background)' : 'transparent'};color:${range.preset === p.id ? 'var(--vscode-button-foreground)' : 'inherit'}`}
+            >{p.label}</button>
+          ))}
+        </div>
+        <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:8px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Custom range</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:10px;color:var(--muted)">Since</span>
+              <div style="display:flex;gap:4px">
+                <input
+                  type="date"
+                  aria-label="Custom range start date"
+                  value={sinceDate}
+                  max={untilDate || undefined}
+                  onInput={e => setSinceDate((e.target as HTMLInputElement).value)}
+                  style={DATE_TIME_INPUT_STYLE}
+                />
+                {/* Optional — only combined with the date above if both are set; a time typed
+                    with no date has nothing to anchor to and is dropped, not sent as-is. */}
+                <input
+                  type="time"
+                  aria-label="Custom range start time (optional)"
+                  value={sinceTime}
+                  onInput={e => setSinceTime((e.target as HTMLInputElement).value)}
+                  style={`${DATE_TIME_INPUT_STYLE}flex:none;width:76px`}
+                />
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:10px;color:var(--muted)">Until</span>
+              <div style="display:flex;gap:4px">
+                <input
+                  type="date"
+                  aria-label="Custom range end date"
+                  value={untilDate}
+                  min={sinceDate || undefined}
+                  onInput={e => setUntilDate((e.target as HTMLInputElement).value)}
+                  style={DATE_TIME_INPUT_STYLE}
+                />
+                <input
+                  type="time"
+                  aria-label="Custom range end time (optional)"
+                  value={untilTime}
+                  onInput={e => setUntilTime((e.target as HTMLInputElement).value)}
+                  style={`${DATE_TIME_INPUT_STYLE}flex:none;width:76px`}
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={!sinceDate && !untilDate}
+              onClick={applyCustom}
+              style={`font-size:12px;padding:4px 6px;border-radius:4px;border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent);cursor:${sinceDate || untilDate ? 'pointer' : 'not-allowed'};opacity:${sinceDate || untilDate ? 1 : 0.5}`}
+            >Apply</button>
+          </div>
+        </div>
+      </div>
+      )}
+    </details>
+  )
+}
 
 function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolean }) {
   const range = timeRange.value
@@ -490,39 +1058,6 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
   const responseTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [loading, setLoading] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
-  const tab = normalizeTabId(activeTab.value)
-  const showReset = tab !== 'help'
-  // Pagination only makes sense for the Sessions tab's own table — every other tab sharing this
-  // row has no notion of "pages." Mirrors the bottom footer's own controls in Sessions.tsx exactly
-  // (same styling, same sessionsPage signal) so the two never disagree.
-  const showPaging = tab === 'sessions'
-  const sessionCount = filteredSessions.value.length
-  const { page: sessPage, totalPages: sessTotalPages } = showPaging ? getSessionsPagination(sessionCount) : { page: 0, totalPages: 1 }
-
-  const isFiltered = sessionTextFilter.value !== '' ||
-    evidenceSessionIds.value !== null ||
-    selectedAgentFilter.value !== 'all' ||
-    initiatorFilter.value !== 'all' ||
-    dataSourceFilter.value !== 'all' ||
-    workspaceFilter.value !== 'all' ||
-    sessionLimit.value !== 25 ||
-    timeRange.value.preset !== 'all' ||
-    sessionSortKey.value !== 'start_time' ||
-    sessionSortDir.value !== 'desc'
-
-  function resetFilters() {
-    sessionTextFilter.value = ''
-    evidenceSessionIds.value = null
-    evidenceSessionPrompt.value = null
-    selectedAgentFilter.value = 'all'
-    initiatorFilter.value = 'all'
-    dataSourceFilter.value = 'all'
-    workspaceFilter.value = 'all'
-    sessionLimit.value = 25
-    timeRange.value = { preset: 'all' }
-    sessionSortKey.value = 'start_time'
-    sessionSortDir.value = 'desc'
-  }
 
   function fireSearch(r: typeof timeRange.value) {
     if (r.preset === 'all') {
@@ -570,6 +1105,13 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
     }
   }, [rangedSearchResults.value])
 
+  // Resolves each known workspace's git repo hash (repoKey.ts's repoHash, the same one
+  // traceroost-cloud shows in its own Repo column) up front, so the Repo filter below can match a
+  // pasted hash as soon as it's typed rather than only after some other view has requested it.
+  useEffect(() => {
+    availableWorkspaces.value.forEach(ws => requestRepoHash(ws))
+  }, [availableWorkspaces.value])
+
   const isActive = range.preset !== 'all'
   // For "All" time: use full unfiltered in-memory list (no limit, no agent filter)
   // so pills reflect every agent that has ever recorded a session in memory.
@@ -578,245 +1120,325 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
   const presentSources = new Set(baseSessions.map(s => s.source))
 
   return (
-    <div style="display:flex;align-items:center;gap:0;padding:0 8px 6px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
-      {/* Time presets */}
+    <div class="time-range-bar" role="group" aria-label="Time and agent filters" style="display:flex;align-items:center;gap:0;padding:0 8px 6px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
+      {/* Time presets + custom range, collapsed into one popover trigger so a custom
+          date range never widens this bar — see TimeRangeMenu above. */}
       <span style="font-size:10px;color:var(--muted);margin-right:6px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Time</span>
-      <div style="display:flex;gap:1px">
-        {TIME_PRESETS.map(p => (
-          <button
-            key={p.id}
-            onClick={() => selectPreset(p.id)}
-            style={[
-              'padding:2px 7px;font-size:11px;cursor:pointer;border:none;border-radius:3px;transition:background 0.1s',
-              range.preset === p.id
-                ? 'background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600'
-                : 'background:transparent;color:var(--muted)',
-            ].join(';')}
-            title={p.ms ? `Last ${p.label}` : 'All recorded traces'}
-          >{p.label}</button>
-        ))}
-      </div>
+      <TimeRangeMenu
+        range={range}
+        onSelectPreset={selectPreset}
+        onApplyCustom={(since, until) => {
+          const r = makeCustomTimeRange(since, until)
+          timeRange.value = r
+          fireSearch(r)
+        }}
+      />
 
-      {/* Divider + Agent filter — hidden on tabs that don't need it */}
-      {!hideAgentFilter && <>
-        <span style="width:1px;height:14px;background:var(--border);margin:0 8px;flex-shrink:0" />
-        <div style="display:flex;gap:4px;align-items:center">
-          <span style="font-size:10px;color:var(--muted);margin-right:2px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
-          {AGENT_FILTER_OPTIONS.map(o => {
-            const active = agent === o.value
-            const displayColor = (active && o.activeColor) ? o.activeColor : o.color
-            // The 20%-alpha-blend background trick below only works on a literal hex color — it's
-            // invalid CSS appended to a var() reference (var(--fg)33 isn't a thing). The 'all' and
-            // 'opencode' pills use var(--fg) as their neutral color, so they fall back to the same
-            // highlight color used for hover states elsewhere instead.
-            const activeBg = displayColor.startsWith('#') ? `${displayColor}33` : 'var(--hover)'
-            return (
-              <button
-                key={o.value}
-                onClick={() => { selectedAgentFilter.value = o.value }}
-                style={[
-                  'padding:2px 9px;font-size:11px;cursor:pointer;border-radius:10px;transition:all 0.1s;',
-                  `border:1.5px solid ${displayColor};`,
-                  active
-                    // Text always follows the theme's own foreground color rather than the agent's
-                    // brand color — several of those (codex's yellow, opencode's neutral) only have
-                    // readable contrast against a dark background; against light, brand-color-on-
-                    // brand-color-tinted-background is illegible. The border still carries the
-                    // per-agent identity color.
-                    ? `background:${activeBg};color:var(--fg);font-weight:600`
-                    : 'background:transparent;color:var(--muted)',
-                ].join('')}
-              >{o.label}</button>
-            )
-          })}
+      {/* Agent filter — hidden on tabs that don't need it */}
+      {!hideAgentFilter && (
+        <div style="display:flex;gap:3px;align-items:center;margin-left:20px">
+          <span style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
+          {AGENT_FILTER_OPTIONS.map(o => (
+            <button
+              key={o.value}
+              class="tr-pill"
+              aria-pressed={agent === o.value}
+              onClick={() => { selectedAgentFilter.value = o.value }}
+              style={`--tr-pill-color:${o.color}`}
+            >{o.label}</button>
+          ))}
         </div>
-      </>}
-
-      {/* Reset — shown after agent filter on sessions/analytics when any filter is active */}
-      {showReset && isFiltered && (
-        <>
-          <span style="width:1px;height:14px;background:var(--border);margin:0 8px;flex-shrink:0" />
-          <button
-            onClick={resetFilters}
-            style="padding:3px 12px;font-size:12px;border-radius:4px;cursor:pointer;white-space:nowrap;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--muted)"
-          >Reset</button>
-        </>
       )}
 
-      {/* Loading / error indicator */}
-      {loading && !searchError && <span style="margin-left:8px;font-size:10px;color:var(--muted);opacity:0.6">loading…</span>}
-      {searchError && <span style="margin-left:8px;font-size:10px;color:var(--vscode-errorForeground,#f48771)" title={searchError}>⚠ {searchError}</span>}
+      {/* Prompt filter — substring match against the trace's captured prompt text. */}
+      {!hideAgentFilter && (
+        <div style="display:flex;align-items:center;margin-left:20px">
+          <label for="tr-filter-prompt" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Prompt</label>
+          <input
+            id="tr-filter-prompt"
+            type="text"
+            class={'tr-header-input' + (sessionTextFilter.value.trim() !== '' ? ' active' : '')}
+            placeholder="Text or Trace ID"
+            value={sessionTextFilter.value}
+            onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
+            style="flex:none;width:180px"
+          />
+        </div>
+      )}
 
-      {/* Refresh button for non-live ranges */}
-      {isActive && !loading && (
+      {/* Search status/loading stay grouped together, immediately after the last filter control
+          (no margin-left:auto) so there's no dead gap before them. Clear Filters and trace paging
+          live in their own row below the filter bars (FilterActionsBar) rather than here, so they
+          read as acting on the whole filter stack rather than looking scoped to just this row. */}
+      <span class="tr-trailing-controls" style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
+        <span role="status" class="range-status" title={searchError ?? undefined}>
+          {searchError ? `⚠ ${searchError}` : ''}
+        </span>
+
+        {loading && (
+          <span style="display:inline-flex;color:var(--accent)" role="status" aria-label="Refreshing" title="Refreshing this time range">
+            <IconSpinner />
+          </span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+// Clear Filters + trace paging, on their own row directly above the table — pulled out of
+// TimeRangePicker's trailing controls (where they used to live) so they sit under every filter bar
+// (Time, Agent, Prompt, Source, From, Outcome) instead of looking scoped to just the top row.
+// Paging mirrors the table's own footer in Sessions.tsx exactly (same styling, same sessionsPage
+// signal) so the two never disagree; kept mounted for short/empty results so the row stays steady.
+function FilterActionsBar() {
+  const tab = normalizeTabId(activeTab.value)
+  const showReset = tab !== 'help'
+  // Pagination only makes sense for the Sessions tab's own table — every other tab sharing this
+  // row has no notion of "pages."
+  const showPaging = tab === 'sessions'
+  const sessionCount = filteredSessions.value.length
+  const { page: sessPage, totalPages: sessTotalPages, pageSize: sessPageSize } = showPaging
+    ? getSessionsPagination(sessionCount)
+    : { page: 0, totalPages: 1, pageSize: 0 }
+  const rangeStart = sessionCount === 0 ? 0 : sessPage * sessPageSize + 1
+  const rangeEnd = Math.min((sessPage + 1) * sessPageSize, sessionCount)
+
+  const isFiltered = sessionTextFilter.value !== '' ||
+    evidenceSessionIds.value !== null ||
+    selectedAgentFilter.value !== 'all' ||
+    initiatorFilter.value !== 'all' ||
+    dataSourceFilter.value !== 'all' ||
+    workspaceFilter.value !== '' ||
+    outcomeFilter.value !== 'all' ||
+    sessionLimit.value !== 25 ||
+    timeRange.value.preset !== 'all' ||
+    sessionSortKey.value !== 'start_time' ||
+    sessionSortDir.value !== 'desc'
+
+  function resetFilters() {
+    sessionTextFilter.value = ''
+    evidenceSessionIds.value = null
+    evidenceSessionPrompt.value = null
+    selectedAgentFilter.value = 'all'
+    initiatorFilter.value = 'all'
+    dataSourceFilter.value = 'all'
+    workspaceFilter.value = ''
+    outcomeFilter.value = 'all'
+    sessionLimit.value = 25
+    timeRange.value = { preset: 'all' }
+    sessionSortKey.value = 'start_time'
+    sessionSortDir.value = 'desc'
+  }
+
+  if (!showReset && !showPaging) return null
+
+  return (
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px;font-size:11px;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
+      {showReset && (
         <button
-          class="icon-btn"
-          style="margin-left:2px;border-bottom:none;margin-bottom:0;border-radius:3px"
-          onClick={() => { const r = makeTimeRange(range.preset); timeRange.value = r; fireSearch(r) }}
-          title="Refresh this time range"
-        ><IconRefresh /></button>
+          class="tr-reset-btn"
+          disabled={!isFiltered}
+          onClick={resetFilters}
+          style={
+            isFiltered
+              ? 'border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent)'
+              : 'border:1px solid var(--vscode-panel-border);background:transparent;color:var(--muted)'
+          }
+        >Clear Filters</button>
       )}
 
-      {/* Trace paging — same controls, same styling, same signal as the table's own footer in
-          Sessions.tsx, just also reachable without scrolling down first. The page-size select
-          shows once there's more than the smallest page worth of traces, even at one page. */}
-      {showPaging && sessionCount > SESSIONS_PAGE_SIZE_OPTIONS[0] && (
-        <span style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap">
+      {showPaging && (
+        <span style="display:flex;align-items:center;gap:8px">
+          <span style="display:inline-block;min-width:23ch;font-variant-numeric:tabular-nums">Showing {rangeStart}–{rangeEnd} of {sessionCount}</span>
           <PageSizeSelect />
-          {sessTotalPages > 1 && <>
-            <button
-              onClick={() => sessionsPage.value = Math.max(0, sessPage - 1)}
-              disabled={sessPage === 0}
-              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage === 0 ? 'default' : 'pointer'};opacity:${sessPage === 0 ? 0.4 : 1}`}
-            >‹ Prev</button>
-            <span>Page {sessPage + 1} of {sessTotalPages}</span>
-            <button
-              onClick={() => sessionsPage.value = Math.min(sessTotalPages - 1, sessPage + 1)}
-              disabled={sessPage >= sessTotalPages - 1}
-              style={`padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg);cursor:${sessPage >= sessTotalPages - 1 ? 'default' : 'pointer'};opacity:${sessPage >= sessTotalPages - 1 ? 0.4 : 1}`}
-            >Next ›</button>
-          </>}
+          <SessionsPager page={sessPage} totalPages={sessTotalPages} />
         </span>
       )}
     </div>
   )
 }
 
-const DATA_SOURCE_FILTER_OPTIONS: Array<{ value: DataSourceFilter; label: string; color: string; activeColor?: string }> = [
-  { value: 'all',  label: 'All',  color: 'var(--vscode-descriptionForeground,#888)', activeColor: 'var(--fg)' },
-  { value: 'otel', label: 'OTEL', color: 'var(--fg)' },
-  { value: 'log',  label: 'Log',  color: '#90a4ae' },
+const DATA_SOURCE_FILTER_OPTIONS: Array<{ value: DataSourceFilter; label: string; color: string }> = [
+  { value: 'all',  label: 'All',  color: DATA_SOURCE_COLORS.all },
+  { value: 'otel', label: 'OTEL', color: DATA_SOURCE_COLORS.otel },
+  { value: 'log',  label: 'Log',  color: DATA_SOURCE_COLORS.log },
 ]
 
-const INITIATOR_FILTER_OPTIONS: Array<{ value: InitiatorFilter; label: string; color: string; activeColor?: string }> = [
-  { value: 'all',   label: 'All',   color: 'var(--vscode-descriptionForeground,#888)', activeColor: 'var(--fg)' },
-  { value: 'user',  label: 'User',  color: '#4a90d9' },
-  { value: 'agent', label: 'Agent', color: '#b0bec5' },
-  { value: 'api',   label: 'API',   color: '#90a4ae' },
+const INITIATOR_FILTER_OPTIONS: Array<{ value: InitiatorFilter; label: string; color: string }> = [
+  { value: 'all',   label: 'All',   color: INITIATOR_COLORS.all },
+  { value: 'user',  label: 'User',  color: INITIATOR_COLORS.user },
+  { value: 'agent', label: 'Agent', color: INITIATOR_COLORS.agent },
 ]
 
+// Mirrors traceroost-cloud's own `FilterPills` (src/app/(protected)/[org]/traces/traces-table.tsx)
+// almost line for line — both render the shared `.tr-pill` class from pills.css.
 function FilterPills<T extends string>({ options, value, onChange }: {
-  options: Array<{ value: T; label: string; color: string; activeColor?: string; title?: string }>
+  options: Array<{ value: T; label: string; color: string; title?: string }>
   value: T
   onChange: (v: T) => void
 }) {
   return (
     <div style="display:flex;gap:3px">
-      {options.map(o => {
-        const active = value === o.value
-        const displayColor = (active && o.activeColor) ? o.activeColor : o.color
-        // Same fix as AGENT_FILTER_OPTIONS below: the alpha-blend trick only works on a literal
-        // hex color, and active text needs to follow the theme's own foreground rather than the
-        // option's own color, since a neutral var(--fg)/white color is illegible against a
-        // same-color-tinted background in light mode.
-        const activeBg = displayColor.startsWith('#') ? `${displayColor}33` : 'var(--hover)'
-        return (
-          <button
-            key={o.value}
-            onClick={() => onChange(o.value)}
-            style={[
-              'padding:2px 7px;font-size:11px;cursor:pointer;border-radius:10px;transition:all 0.1s;',
-              `border:1.5px solid ${displayColor};`,
-              active
-                ? `background:${activeBg};color:var(--fg);font-weight:600`
-                : 'background:transparent;color:var(--muted)',
-            ].join('')}
-            title={o.title}
-          >{o.label}</button>
-        )
-      })}
+      {options.map(o => (
+        <button
+          key={o.value}
+          class="tr-pill"
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          style={`--tr-pill-color:${o.color}`}
+          title={o.title}
+        >{o.label}</button>
+      ))}
     </div>
   )
 }
 
-function WorkspaceDropdown() {
-  const current = workspaceFilter.value
-  const workspaces = availableWorkspaces.value
-  if (workspaces.length <= 1) return null
+// Labels here match Sessions.tsx's own OUTCOME_META and the Glossary's "Git Outcome" entry exactly
+// (Merged/Committed/Uncommitted). "Merged" is a real, verified claim, not just wording —
+// gitOutcome.ts resolves the repo's trunk branch (main/master) and only reports 'merged' once a
+// file's content also matches the trunk tip; a file that's committed but hasn't reached trunk yet
+// (e.g. still on a feature branch, or no trunk could be resolved) reports 'committed' instead. See
+// help-outcome in Help.tsx for the full definitions. Internal `value`s are unchanged — they're a
+// wire format (WireOutcome, schema.ts) shared with traceroost-cloud, not just a display string.
+// No 'unknown' pill: an ambiguous/inconclusive outcome (deleted file, no repo, etc.) has nothing
+// meaningful to filter on or badge — those sessions just don't show a pill, and only appear under
+// "All" (see OUTCOME_META in Sessions.tsx and outcomeToFilterBucket in state.ts).
+const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string; color: string; title: string }> = [
+  { value: 'all',       label: 'All',         color: 'var(--fg)',        title: 'Show all traces' },
+  { value: 'merged',    label: 'Merged',      color: 'var(--tr-merged)', title: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history" },
+  { value: 'committed', label: 'Committed',   color: 'var(--accent)',    title: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally" },
+  { value: 'abandoned', label: 'Uncommitted', color: '#f6a623',          title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
+]
 
-  // Compute display labels — disambiguate if two workspaces share the same 2-component name
-  const labels = workspaces.map(ws => shortWorkspaceName(ws))
-  const labelCounts = new Map<string, number>()
-  for (const l of labels) labelCounts.set(l, (labelCounts.get(l) ?? 0) + 1)
-  const displayLabel = (ws: string, idx: number): string => {
-    const short = labels[idx]
-    if ((labelCounts.get(short) ?? 0) > 1) {
-      const parts = ws.replace(/\\/g, '/').split('/').filter(Boolean)
-      return parts.length >= 3 ? parts.slice(-3).join('/') : ws
-    }
-    return short
+// The local-git equivalent of traceroost-cloud's own Outcome filter (same TracesTable this
+// mirrors). Every other pill row on this bar filters on data every session already carries; this
+// one doesn't — classifySessionOutcome (src/gitOutcome.ts) shells out to git per changed file, so
+// it's normally computed lazily, one session at a time, only once that session's Files view opens
+// (see SessionDetail in Sessions.tsx). Turning this filter on needs it for every candidate session
+// up front instead, so it requests git outcomes for the current candidate set here — capped and
+// staggered by requestGitOutcomesFor (state.ts) rather than firing everything at once.
+//
+// Source and From share this row (after Outcome) rather than SearchFilterBar below — this is now
+// the one row that holds every pill-style filter, plus the Repo freeform input ahead of Outcome;
+// SearchFilterBar is left with only the "viewing evidence for a suggestion" banner, and Prompt
+// lives as its own freeform input on TimeRangePicker's row, next to Time and Agent, above.
+function OutcomeFilterBar() {
+  const filter = outcomeFilter.value
+  const candidates = preOutcomeFilteredSessions.value
+  const outcomes = gitOutcomes.value
+  const deferred = deferredGitOutcomeSessionIds.value
+  const dsFilter = dataSourceFilter.value
+  const iFilter = initiatorFilter.value
+
+  useEffect(() => {
+    if (filter === 'all') return
+    requestGitOutcomesFor(candidates)
+  }, [filter, candidates])
+
+  // When the Outcome filter itself is engaged, every candidate must resolve before the filter can
+  // show accurate results — the effect above eagerly fetches the whole candidate set, so track
+  // pending count against it. When the filter is off ('all'), nothing is eagerly fetched beyond
+  // the Traces table's own current page (its own effect, Sessions.tsx) — track pending count
+  // against just that page, and only while its Outcome column is actually visible, so the spinner
+  // reflects real in-flight requests instead of spinning forever over off-screen sessions nothing
+  // is fetching.
+  const tab = normalizeTabId(activeTab.value)
+  const showsOutcomeColumn = tab === 'sessions' && availableWorkspaces.value.length > 1
+  let pendingCount = 0
+  // Excludes deferred sessions (still inside their active-session grace window, see
+  // deferredGitOutcomeSessionIds in state.ts) — the spinner should reflect actual git CLI
+  // classification work in flight, not a session that's just waiting out a timer.
+  if (filter !== 'all') {
+    pendingCount = candidates.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
+  } else if (showsOutcomeColumn) {
+    const { page, pageSize } = getSessionsPagination(filteredSessions.value.length)
+    const pageSessions = filteredSessions.value.slice(page * pageSize, (page + 1) * pageSize)
+    pendingCount = pageSessions.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
   }
 
-  const active = current !== 'all'
-  return (
-    <select
-      value={current}
-      onChange={e => { workspaceFilter.value = (e.target as HTMLSelectElement).value as WorkspaceFilter }}
-      title={current !== 'all' ? current : 'Filter by project'}
-      style={[
-        'padding:2px 5px;font-size:11px;cursor:pointer;border-radius:3px;max-width:160px;',
-        'background:var(--vscode-input-background,#3c3c3c);',
-        'border:1px solid ' + (active ? 'var(--accent,#4fc3f7)' : 'var(--vscode-input-border,#555)') + ';',
-        'color:' + (active ? 'var(--accent,#4fc3f7)' : 'var(--muted)') + ';',
-        'outline:none',
-      ].join('')}
-    >
-      <option value="all">All projects</option>
-      {workspaces.map((ws, i) => (
-        <option key={ws} value={ws} title={ws}>
-          {displayLabel(ws, i) || 'Unknown project'}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function SearchFilterBar() {
-  const text = sessionTextFilter.value
-  const iFilter = initiatorFilter.value
-  const dsFilter = dataSourceFilter.value
-  const evIds = evidenceSessionIds.value
+  // Repo dropdown suggestions — each distinct repo's git-derived name (falling back to a
+  // path-derived guess until its repoInfo resolves), deduplicated since two workspaces can point
+  // at the same repo. A <datalist> keeps the input itself plain freeform text (matchesRepoQuery
+  // still does the actual filtering), it just also offers these as clickable suggestions.
+  const info = repoInfo.value
+  const repoOptions = [...new Set(availableWorkspaces.value.map(ws => info[ws]?.name ?? shortWorkspaceName(ws)))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 
   return (
-    <div style="display:flex;flex-direction:column;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
-      {evIds !== null && (
-        <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#4fc3f711;border-bottom:1px solid #4fc3f733">
-          <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
-          {evidenceSessionPrompt.value && (
-            <span
-              style="font-size:10px;color:#4fc3f7;opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
-              title={evidenceSessionPrompt.value}
-            >— "{evidenceSessionPrompt.value}"</span>
-          )}
-          <button
-            onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}
-            style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:#4fc3f7;cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
-          >Show all traces</button>
-        </div>
+    <div class="search-filter-controls" role="group" aria-label="Trace filters" style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
+      {/* Repo filter — freeform match against a workspace's git-derived repo name or hash
+          (matchesRepoQuery, state.ts; hashes prefetched by TimeRangePicker's own effect above).
+          Hidden when there's only one workspace since there'd be nothing to narrow. */}
+      {availableWorkspaces.value.length > 1 && (
+        <span style="display:flex;align-items:center;margin-right:3px">
+          <label for="tr-filter-repo" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Repo</label>
+          <input
+            id="tr-filter-repo"
+            type="text"
+            list="tr-repo-options"
+            class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
+            placeholder="Name or ID"
+            value={workspaceFilter.value}
+            onInput={e => { workspaceFilter.value = (e.target as HTMLInputElement).value }}
+            title="Matches a repo's name or its hash. Pick one from the list, or type to narrow further."
+            style="flex:none;width:110px"
+          />
+          <datalist id="tr-repo-options">
+            {repoOptions.map(name => <option key={name} value={name} />)}
+          </datalist>
+        </span>
       )}
-      <div style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap">
-      <input
-        type="text"
-        placeholder="Filter traces…"
-        value={text}
-        onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
-        style="flex:1;min-width:100px;max-width:200px;padding:3px 7px;font-size:11px;background:var(--vscode-input-background,#3c3c3c);color:var(--vscode-input-foreground,#ccc);border:1px solid var(--vscode-input-border,#555);border-radius:3px;outline:none"
+      <span style="font-size:10px;color:var(--tr-brand);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Outcome</span>
+      <FilterPills
+        options={OUTCOME_FILTER_OPTIONS}
+        value={filter}
+        onChange={v => { outcomeFilter.value = v }}
       />
-      <WorkspaceDropdown />
-      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Source</span>
+      {/* Fixed-size slot, always present, so the icon popping in/out while outcomes resolve never
+          shifts Source/From/the trace count next to it. */}
+      <span
+        style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex-shrink:0;color:var(--muted)"
+        role={pendingCount > 0 ? 'status' : undefined}
+        aria-label={pendingCount > 0 ? `Resolving ${pendingCount} outcome${pendingCount !== 1 ? 's' : ''} from git` : undefined}
+        title={pendingCount > 0 ? `Resolving ${pendingCount} outcome${pendingCount !== 1 ? 's' : ''} from git…` : undefined}
+      >
+        {pendingCount > 0 && <IconSpinner />}
+      </span>
+      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;margin-left:8px">Source</span>
       <FilterPills
         options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry traces only' : 'Log-file traces only' }))}
         value={dsFilter}
         onChange={v => { dataSourceFilter.value = v }}
       />
-      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">From</span>
+      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;margin-left:20px">From</span>
       <FilterPills
-        options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : o.value === 'agent' ? 'Agent-spawned sub-tasks only' : 'Non-interactive claude -p calls only' }))}
+        options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : 'Agent-spawned sub-tasks and non-interactive claude -p calls' }))}
         value={iFilter}
         onChange={v => { initiatorFilter.value = v }}
       />
-      <span style="margin-left:auto;font-size:10px;color:var(--muted);white-space:nowrap;padding-right:2px">{filteredSessions.value.length} trace{filteredSessions.value.length !== 1 ? 's' : ''}</span>
-      </div>
+    </div>
+  )
+}
+
+// Only the evidence-view banner remains here — Repo lives on OutcomeFilterBar (ahead of Outcome)
+// and Prompt lives on TimeRangePicker's row (next to Time and Agent), above.
+function SearchFilterBar() {
+  const evIds = evidenceSessionIds.value
+  if (evIds === null) return null
+
+  return (
+    <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#4fc3f711;border-bottom:1px solid #4fc3f733;flex-shrink:0">
+      <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
+      {evidenceSessionPrompt.value && (
+        <span
+          style="font-size:10px;color:#4fc3f7;opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
+          title={evidenceSessionPrompt.value}
+        >— "{evidenceSessionPrompt.value}"</span>
+      )}
+      <button
+        onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}
+        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:#4fc3f7;cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
+      >Show all traces</button>
     </div>
   )
 }
@@ -829,6 +1451,7 @@ function Tab({ id, label }: { id: string; label: string; title?: string }) {
     <button
       class={'tab' + (isActive ? ' active' : '')}
       data-tab={id}
+      aria-current={isActive ? 'page' : undefined}
       onClick={() => { activeTab.value = id }}
     >
       {label}

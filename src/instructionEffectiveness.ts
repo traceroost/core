@@ -4,7 +4,7 @@
  */
 
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
-import { calcTokenCostUsd } from './pricing'
+import { calcSessionCostUsd } from './pricing'
 
 export interface BaselineSnapshot {
   sessionCount: number
@@ -33,13 +33,7 @@ export interface EffectivenessResult {
 }
 
 function cost(s: SessionSummaryCard): number {
-  return calcTokenCostUsd(
-    s.inputTokens - s.cacheReadTokens - (s.cacheCreateTokens ?? 0),
-    s.cacheReadTokens,
-    s.cacheCreateTokens ?? 0,
-    s.outputTokens,
-    s.model,
-  )
+  return calcSessionCostUsd(s)
 }
 
 function avg(arr: number[]): number {
@@ -126,30 +120,4 @@ export interface ImpactSummary {
   improving: number
   flat: number
   worse: number
-}
-
-export function computeImpactSummary(
-  appliedAtTimes: number[],
-  sessions: SessionSummaryCard[],
-): ImpactSummary {
-  const results = appliedAtTimes
-    .map(t => computeEffectiveness(sessions, t))
-    .filter(r => r.confidence !== 'none' && !r.baseline.insufficient)
-
-  const costChanges = results.map(r => r.costChangePct).filter((v): v is number => v !== null)
-  const turnsChanges = results.map(r => r.turnsChangePct).filter((v): v is number => v !== null)
-
-  const improving = results.filter(r => (r.costChangePct ?? 0) < -10).length
-  const worse     = results.filter(r => (r.costChangePct ?? 0) > 10).length
-  const flat      = results.length - improving - worse
-
-  return {
-    appliedCount: appliedAtTimes.length,
-    measuredCount: results.length,
-    avgCostChangePct:  costChanges.length  ? avg(costChanges)  : null,
-    avgTurnsChangePct: turnsChanges.length ? avg(turnsChanges) : null,
-    improving,
-    flat,
-    worse,
-  }
 }

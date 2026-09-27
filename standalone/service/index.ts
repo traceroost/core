@@ -1,13 +1,15 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { isIPv6 } from 'net'
 import { execFileSync, spawn } from 'child_process'
 import {
-  parseServiceInstallFlags, isRunningFromNpx, writeServiceConfig, readServiceConfig,
-  shouldBlockRepeatedBootstrap, childEnvForReexec,
+  parseServiceInstallFlags, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
+  shouldBlockRepeatedBootstrap, childEnvForReexec, readPackageManifest,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure,
   type ServiceConfig, type ServiceProgram,
 } from '../../src/serviceConfig'
+import { readResolvedPorts } from '../../src/portResolver'
 import { waitForServiceHealth } from './health'
 import * as macos from './macos'
 import * as linux from './linux'
@@ -35,16 +37,10 @@ function serviceManagerName(): string {
 }
 
 /** The running copy's own package.json (name + version). Bundled output lives at
- *  <pkg>/standalone/cli.js, so `../package.json` from here; the extra `../../` fallback covers
- *  running the un-bundled source from standalone/service/. */
+ *  <pkg>/standalone/cli.js, so `../package.json` from here; `readPackageManifest`'s extra
+ *  `../../` fallback covers running the un-bundled source from standalone/service/. */
 function readRunningManifest(): { name?: string; version?: string } {
-  for (const rel of [['..', 'package.json'], ['..', '..', 'package.json']]) {
-    try {
-      const m = JSON.parse(fs.readFileSync(path.join(__dirname, ...rel), 'utf-8'))
-      return { name: m.name as string, version: m.version as string }
-    } catch { /* try the next candidate */ }
-  }
-  return {}
+  return readPackageManifest(__dirname)
 }
 
 function readRunningVersion(): string | undefined {
@@ -64,7 +60,8 @@ function safeIsInstalled(platformService: PlatformService): boolean {
 }
 
 function dashboardUrl(config: ServiceConfig): string {
-  return `http://${config.bindHost}:${config.uiPort}` + (config.authToken ? `/?token=${config.authToken}` : '')
+  const host = isIPv6(config.bindHost) ? `[${config.bindHost}]` : config.bindHost
+  return `http://${host}:${config.uiPort}` + (config.authToken ? `/?token=${config.authToken}` : '')
 }
 
 function getPlatformService(): PlatformService {
@@ -260,6 +257,10 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
   return 0
 }
 
+function readFileOrNull(filePath: string): Buffer | null {
+  try { return fs.readFileSync(filePath) } catch { return null }
+}
+
 function printLogs(program: ServiceProgram, platformService: PlatformService, follow: boolean): void {
   const logPath = platformService.logsPath(program)
   if (!fs.existsSync(logPath)) {
@@ -312,6 +313,10 @@ export async function runServiceCli(args: string[]): Promise<number> {
       if (safeIsInstalled(platformService)) {
         console.log('[TraceRoost] An existing background service was found — replacing it (ports/data-dir updated, access token kept).')
       }
+      // config.json has to be on disk before install() — the service's server reads it (and
+      // persists the token into it) as soon as it starts — so remember what was there to put back
+      // if registration fails, rather than leaving the new ports/data-dir behind.
+      const previousConfigRaw = readFileOrNull(serviceConfigPath())
       writeServiceConfig(config)
 
       try {
@@ -319,8 +324,13 @@ export async function runServiceCli(args: string[]): Promise<number> {
       } catch (e) {
         // install() writes the service-definition file before registering it, so a failure here
         // can leave that file orphaned — roll it back so `service status` doesn't report a
-        // service that was never actually started.
+        // service that was never actually started. uninstall() runs first: on Windows it reads
+        // config.json to find the wrapper script it wrote under the new data dir.
         try { platformService.uninstall() } catch { /* best effort */ }
+        try {
+          if (previousConfigRaw === null) { fs.rmSync(serviceConfigPath(), { force: true }) }
+          else { fs.writeFileSync(serviceConfigPath(), previousConfigRaw) }
+        } catch { /* best effort */ }
         console.error(`[TraceRoost] Couldn't register the background service with ${serviceManagerName()}: ${describeServiceManagerFailure(e, serviceManagerName())}`)
         console.error('[TraceRoost] Rolled back — nothing is left half-installed. Fix the cause above, then re-run `traceroost service install`.')
         return 1
@@ -373,13 +383,28 @@ export async function runServiceCli(args: string[]): Promise<number> {
     case 'status': {
       const version = readRunningVersion()
       const config = readServiceConfig()
-      const running = await platformService.status(config.uiPort, config.bindHost)
+      // Prefer the resolved-ports record (what the running process actually bound, written once
+      // per start) over the configured port — a fallback after a conflict means the two can
+      // differ, and probing the stale configured port would report "not reachable" for a service
+      // that's actually up on the port it fell back to. See .staged-issues/auto-pick-free-port.md.
+      const resolved = readResolvedPorts()
+      const effectiveUiPort = resolved?.ui ?? config.uiPort
+      const running = await platformService.status(effectiveUiPort, config.bindHost)
       const installed = safeIsInstalled(platformService)
+      const portsDiffer = resolved !== undefined && (
+        resolved.ui !== config.uiPort || resolved.otlp !== config.otlpPort || resolved.mcp !== config.mcpPort
+      )
       console.log(running
-        ? `[TraceRoost] Running${version ? ` (v${version})` : ''} — dashboard reachable at ${dashboardUrl(config)}`
+        ? `[TraceRoost] Running${version ? ` (v${version})` : ''} — dashboard reachable at ${dashboardUrl({ ...config, uiPort: effectiveUiPort })}`
         : installed
           ? '[TraceRoost] Installed but not reachable. Run `traceroost service logs` to check for errors, or `traceroost service start`.'
           : '[TraceRoost] No background service is installed. Run `traceroost service install` to set one up.')
+      if (running && portsDiffer && resolved) {
+        console.log(`[TraceRoost] Resolved ports (actually bound) differ from configured:`)
+        console.log(`[TraceRoost]   UI:   configured ${config.uiPort}, resolved ${resolved.ui}`)
+        console.log(`[TraceRoost]   OTLP: configured ${config.otlpPort}, resolved ${resolved.otlp}`)
+        console.log(`[TraceRoost]   MCP:  configured ${config.mcpPort}, resolved ${resolved.mcp}`)
+      }
       return running ? 0 : 1
     }
     case 'logs': {

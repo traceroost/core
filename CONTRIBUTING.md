@@ -2,19 +2,20 @@
 
 Thank you for your interest in contributing.
 
-## Project scope
+## Project scope and license zones
 
-TraceRoost the local agent — everything in this repo — is MIT-licensed and stays that way. Features
-that make it more useful for a single developer watching their own agent traces belong here, and PRs
-for them are welcome.
+Most of this repo — the local agent, the dashboard, the log/OTEL ingestion, the free local
+attribution/turnover engine — is MIT-licensed and stays that way. Features that make TraceRoost
+more useful for a single developer watching their own agent traces belong here, and PRs for them
+are welcome.
 
-A few features are out of scope for this repo, reserved for a separate, source-available team
-server built on top of the local agent: cross-machine trace aggregation, SSO/SCIM, RBAC,
-multi-team rollup views, extended retention and audit export, and license-key issuance. That's the
-boundary that funds the project's continued development — not a hedge against contributions, and
-not a signal that those features are unwanted in general. If you'd like to work on something in
-that list, open an issue first so we can talk about where it should live before you spend time on
-the PR.
+`src/cloud/`, `src/test/cloud/`, `media/src/cloud/`, and `standalone/cloud/` are a different
+license zone: Business Source License 1.1, not MIT. That's the client side of the org/cloud
+feature — cross-machine trace aggregation, team roster/link, and the forwarding pipeline that
+funds the project's continued development. See [NOTICE.md](NOTICE.md) for the exact scope and
+[src/cloud/README.md](src/cloud/README.md) for why it's split out this way. It isn't a hedge
+against contributions — PRs there are welcome too — but new work in that zone ships under BSL,
+not MIT, so if you're unsure which license your change would land under, open an issue first.
 
 ## Reporting bugs
 
@@ -33,6 +34,11 @@ cd core
 pnpm install
 ```
 
+`pnpm install` also points git at the repo's hooks (`git config core.hooksPath .githooks`, via the
+`prepare` script — skipped in CI and outside a git checkout). The `post-merge` / `post-rewrite`
+hooks re-run `node esbuild.js` so `standalone/cli.js` and the other bundles stay in sync after a
+pull or rebase. Run that `git config` line yourself if you installed with `--ignore-scripts`.
+
 **Run in VS Code:** Press `F5` to open a VS Code Extension Development Host with TraceRoost loaded.
 
 **Run standalone:** `pnpm run local` — starts the OTLP collector on port `4318` and the dashboard UI on port `3000`.
@@ -46,6 +52,42 @@ pnpm run test:unit     # Unit tests (Mocha)
 node esbuild.js        # Bundle — outputs to dist/ and media/
 ```
 
+### Editions
+
+The same sources build two editions (README → Editions): **full** (the default — what `F5`,
+`pnpm run local`, `pnpm run package` and the unit tests use) and **core**, which contains no
+TraceRoost Pro (org link + upload) code. The split is made at build time, not with a runtime flag:
+
+- Non-cloud code reaches `src/cloud/`, `media/src/cloud/` and `standalone/cloud/` only through
+  three seams — `src/cloudBridge.ts` (extension host + standalone server), `media/src/orgPanel.ts`
+  (webview) and `standalone/cliCloud.ts` (CLI). Each has a full implementation inside a `cloud/`
+  directory and an inert core stub beside it (`src/cloudBridge.core.ts`,
+  `media/src/orgPanel.core.tsx`, `standalone/cliCloud.core.ts`). **Don't import from a `cloud/`
+  directory anywhere else** — add what you need to a seam (both implementations) instead.
+  `import type` is fine; it's erased. `pnpm run lint` flags a runtime import from a `cloud/`
+  directory in `src/` or `media/src/` outside the seams.
+- `node esbuild.js --edition=core` resolves each seam to its stub, defines
+  `process.env.TRACEROOST_EDITION`, and fails the build if any module under a `cloud/` directory
+  would still be bundled. Pro-only code outside the seams (a VS Code command registration, a
+  standalone route, Help-tab sections) is wrapped in a literal
+  `process.env.TRACEROOST_EDITION !== 'core'` check so the core build drops it entirely.
+- `node scripts/check-edition.mjs core` then greps the five shipped bundles for Pro markers
+  (cloud module paths, Pro endpoints and hostnames, queue/link identifiers) and checks the
+  packaged manifest; `check-edition.mjs full` checks the markers are still present in a full build.
+
+```bash
+pnpm run build:core                        # dev core build + bundle check
+node esbuild.js --production --edition=core
+node scripts/check-edition.mjs core --skip-manifest
+node scripts/prepare-edition.mjs core      # package.json → the core manifest, for packing
+node scripts/prepare-edition.mjs restore   # …and back
+pnpm run test:unit                         # tests run against the sources — same for both editions
+```
+
+CI builds and checks both (`build-and-test` and `core-edition` in `.github/workflows/ci.yml`).
+Releases are core until TraceRoost Pro launches — see
+[runbooks/RELEASING.md](runbooks/RELEASING.md#editions).
+
 ## Project structure
 
 | Path | Purpose |
@@ -55,6 +97,9 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 | `standalone/server.ts` | Standalone HTTP server |
 | `src/summarizers/` | Per-agent span → trace summarizers |
 | `src/otlpCollector.ts` | OTLP/HTTP ingestion for the VS Code extension |
+| `src/attribution/`, `src/turnover/` | Free, local commit-attribution and turnover engines (MIT) |
+| `standalone/local/` | Free, local CLI analysis — `find`, `trace`, `patterns`, `cohort`, `advise` (MIT) |
+| `src/cloud/`, `media/src/cloud/`, `standalone/cloud/` | Org/cloud client (link + upload) — BSL-licensed, see [NOTICE.md](NOTICE.md). Local code never imports from these directories |
 
 ## Branching and commit conventions
 
@@ -64,7 +109,7 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 
 **Merging:** PRs are squash-merged into `main` so the history stays one-line-per-change readable.
 
-**Releases:** bump `version` in `package.json` and add a `CHANGELOG.md` entry in the same PR. After merge, tag `main` with `vX.Y.Z`.
+**Releases:** bump `version` in `package.json` and add a `CHANGELOG.md` entry in the same PR. After merge, tag `main` with `vX.Y.Z` — the release and Docker workflows refuse a tag that doesn't match `package.json`'s version.
 
 ## Submitting a pull request
 

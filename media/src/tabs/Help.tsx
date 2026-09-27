@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'preact/hooks'
 import { BrandMark } from '../BrandMark'
+import { SIGNAL_FORMULAS, formulaHtml } from '../signalFormulas'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON } from '../signalIcons'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
 const TERMS: [string, string][] = [
-  ['Agent Loop / Malfunction', 'A behavioral pattern in which an AI agent is stuck, oscillating, or spiraling into unproductive work. See the Overview and Loop Detection sections above for the full, current list — kept in one place so it can\'t drift out of date here.'],
   ['Agent',                  'The AI coding assistant (e.g. GitHub Copilot, Claude Code, Codex) that receives your prompt, reasons about the task, and decides which tools to use. It manages the workflow, breaks down tasks, and may call the underlying LLM multiple times per trace to complete a single request. The agent is the orchestrator; the LLM is the engine it drives.'],
   ['Avg Input/Call',         'Average number of input tokens sent to the language model per LLM call. Lower means leaner prompts. Under 10K is lean; 10-30K is normal; 30K+ suggests large instruction files, verbose tool definitions, or accumulated context bloat.'],
   ['Avg Turns/Trace',        'Average number of LLM round-trips per trace. Lower is more efficient. 1-3 turns is typical for simple tasks; 5+ may indicate the agent is struggling or the prompt needs more specifics.'],
@@ -17,9 +18,8 @@ const TERMS: [string, string][] = [
   ['Context Window',         'The maximum number of tokens an LLM can process in a single request, counting both input and output tokens combined. For example, Claude Sonnet has a 200K token context window. This is a hard per-call limit set by the model architecture — not the same as context, which is what actually fills that window on a given call.'],
   ['Conversation',           'The real, continuous back-and-forth a user had with an agent, which may contain several Traces. Claude Code, Codex, and Copilot Chat (VS Code) each write one log file per working period on disk, but a single file can span multiple genuinely separate conversations if a long idle gap (30+ minutes) separates them; TraceRoost splits that file into one trace per conversation rather than one entry with a misleading multi-hour (or multi-day) duration. Traces split from the same file are marked with a matching colored bar in the Traces tab — click it to isolate just that conversation. Only Claude Code, Codex, and Copilot Chat (VS Code) can produce a multi-trace conversation; Copilot CLI and legacy imported traces are always exactly one trace.'],
   ['Files Changed',          'Unique files that were created or modified by the agent during the current data collection period.'],
-  ['Git Outcome',            'Compares each file a trace changed against local git history to classify what happened to the work afterward: Committed (survived and is in a commit), Reverted (back to its pre-trace content), Uncommitted (still sitting in the working tree), or Unknown. Computed on demand when a trace\'s Files sub-tab is opened. Needs direct access to the local git repo, so it works in both the VS Code extension and standalone (native process) mode — not available in Docker mode.'],
+  ['Git Outcome',            'Compares each file a trace changed against local git history to classify what happened to the work afterward: Merged (committed, and that commit\'s content has reached the repo\'s trunk branch), Committed (committed, but not yet on trunk — e.g. still on a feature branch, or no trunk branch could be resolved), or Uncommitted (hasn\'t been committed yet — not a verdict that the work was abandoned, just what git shows right now). A trace with multiple files takes the worst outcome among them (Uncommitted > Committed > Merged). When no verdict can be reached at all (no local git repo, a deleted/moved file, etc.), no badge is shown — just blank, no "Unknown" label. Computed on demand — a trace\'s Files sub-tab is opened, or the Outcome filter is turned on — and cached until something relevant to it moves. Needs direct access to the local git repo, so it works in both the VS Code extension and standalone (native process) mode — not available in Docker mode. See the Traces section above for the full breakdown.'],
   ['Input Tokens',           'The number of tokens sent to the language model in a request, including system instructions, conversation history, tool definitions, and the user prompt. In the Traces list, the Tokens column shows total input across all turns — because each turn re-sends the full conversation history, this grows with trace length. Use Peak ctx/turn (visible in the trace detail) to see the actual context window size per call.'],
-  ['Loop Signal',            'A behavioral signal in the Insights panel (inside the Overview sub-tab of each trace) indicating the agent is stuck, oscillating, or making no forward progress. Shown with a ↺ icon.'],
   ['LLM',                    'Large Language Model. The underlying AI model (e.g. GPT-4o, Claude Sonnet) that generates text, answers questions, or produces code. The agent sends requests to the LLM as needed; the model itself does not manage tools or workflow. It is the engine that generates language and code for the agent to act on.'],
   ['LLM Call',               'A single request-response cycle to the language model. One trace typically includes multiple LLM calls as the agent iterates.'],
   ['One-Shot Rate',          'The percentage of files edited during a trace that needed only one edit pass to reach their final state, versus files that needed retries (2+ edit passes). A proxy for correction effort, not a signal that the resulting code actually worked. Needs at least 2 edited files to show a rate; shown in the Traces tab\'s Files sub-tab and aggregated per-agent in Analytics.'],
@@ -29,6 +29,7 @@ const TERMS: [string, string][] = [
   ['Output Ratio',           'Percentage of total tokens that are output (generated by the model). In cached agentic coding traces this can be naturally tiny, so TraceRoost no longer uses it as a standalone alert.'],
   ['Prompt',                 'The text you type into the AI chat to request work. Each prompt initiates a new trace.'],
   ['Request',                'The user-visible message sent to the agent in a single prompt. In OTEL terms, the request anchor differs by agent: Copilot uses invoke_agent, Claude uses claude_code.interaction, and Codex is normalized from prompt log events.'],
+  ['Signal',                 'A behavioral pattern in a trace indicating the agent is stuck, oscillating, or spiraling into unproductive work — also called a loop signal. Shown with a ↺ icon in the Insights panel (inside the Overview sub-tab of each trace) and in the Traces table\'s Sig column. See the Signals section above for the full, current catalog — kept in one place so it can\'t drift out of date here.'],
   ['Span',                   'A single timed operation recorded by OpenTelemetry — an LLM call, a tool call, a background task. TraceRoost displays true trace spans and normalized log events with a span-like name, duration, and attributes. Spans are the rows in a Trace\'s Waterfall.'],
   ['Span ID',                'A unique identifier for a single span within a trace. Used to establish parent-child relationships between operations.'],
   ['Sparkline',              'A small inline chart shown below summary cards, depicting the trend of a metric over recent time buckets.'],
@@ -47,18 +48,25 @@ const HELP_SECTIONS = {
   config:     { href: '#help-config',     heading: 'Setup' },
   otel:       { href: '#help-otel',       heading: 'OTEL Data' },
   traces:     { href: '#help-traces',    heading: 'Traces' },
+  signals:    { href: '#help-signals',    heading: 'Signals' },
   analytics:  { href: '#help-analytics',  heading: 'Analytics' },
   patterns:   { href: '#help-advisor',    heading: 'Advisor' },
   costs:      { href: '#help-costs',      heading: 'Costs' },
   settings:   { href: '#help-settings',   heading: 'Settings' },
   mcp:        { href: '#help-mcp',        heading: 'MCP' },
+  cloud:      { href: '#help-cloud',      heading: 'Cloud' },
+  privacy:    { href: '#help-privacy',    heading: 'Privacy' },
   export:     { href: '#help-export',     heading: 'Export' },
   import:     { href: '#help-import',     heading: 'Import' },
   badges:     { href: '#help-badges',     heading: 'Badges' },
   glossary:   { href: '#help-glossary',   heading: 'Glossary' },
 } as const
 
-const TOC_SECTIONS = Object.values(HELP_SECTIONS)
+// The core edition (no TraceRoost Pro built in — see media/src/orgPanel.ts) leaves out the Cloud and
+// Privacy sections, which only describe linking and what a linked machine sends. A literal
+// `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) so the core bundle drops them.
+const TOC_SECTIONS = Object.values(HELP_SECTIONS).filter(s =>
+  process.env.TRACEROOST_EDITION !== 'core' || (s !== HELP_SECTIONS.cloud && s !== HELP_SECTIONS.privacy))
 
 const AGENT_OTEL_SHAPES: Array<{
   agent: string
@@ -112,17 +120,42 @@ function InsightBlock({ id, title, why, steps, impact }: {
   )
 }
 
-function LoopBlock({ id, title, why, example, steps, impact }: {
-  id: string; title: string; why: string; example: string; steps: string; impact: string
+const dsBadgeStyle = 'font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-left:6px'
+
+// Same OTEL(white)/Log(grey) coloring as BadgesSection's trace-row badges, so "where did this
+// number come from" reads consistently everywhere it's shown. 'both' shows both badges rather than
+// inventing a third color, since that's literally what it means — but unlike the first pass at
+// this, 'both' is no longer the default: most of these signals are 'otel'-only in practice (see
+// dataSourceNote on each one for exactly which log source, if any, is the exception).
+function DataSourceBadge({ value }: { value: 'otel' | 'log' | 'both' }) {
+  const otel = <span style={`${dsBadgeStyle}color:#ffffff;border-color:#ffffff`}>OTEL</span>
+  const log = <span style={`${dsBadgeStyle}color:#90a4ae;border-color:#90a4ae`}>Log</span>
+  if (value === 'both') return <>{otel}{log}</>
+  return value === 'otel' ? otel : log
+}
+
+function LoopBlock({ id, title, signalType, why, caveat, example, steps, impact, dataSource, dataSourceNote }: {
+  id: string; title: string; signalType: keyof typeof LOOP_SIGNAL_ICON_TYPE; why: string; caveat?: string; example: string; steps: string; impact: string; dataSource: 'otel' | 'log' | 'both'; dataSourceNote: string
 }) {
+  const Icon = SIGNAL_ICON[LOOP_SIGNAL_ICON_TYPE[signalType]]
   return (
     <div class="glossary-item" id={id} style="scroll-margin-top:12px;flex-direction:column;gap:6px">
       <div style="display:flex;gap:12px;align-items:flex-start">
         <dt class="glossary-term" style="min-width:200px">
+          <span style="margin-right:6px;display:inline-flex;vertical-align:middle">
+            <Icon color="var(--fg)" />
+          </span>
           {title}
+          <DataSourceBadge value={dataSource} />
         </dt>
         <dd class="glossary-def" dangerouslySetInnerHTML={{ __html: why }} />
       </div>
+      <div style="padding-left:8px;font-size:10.5px;color:var(--muted);line-height:1.5">{dataSourceNote}</div>
+      {caveat && (
+        <div style="padding-left:8px;font-size:10.5px;color:var(--muted);font-style:italic;line-height:1.5">
+          <span dangerouslySetInnerHTML={{ __html: caveat }} />
+        </div>
+      )}
       <div style="padding-left:8px;font-size:11px;color:var(--muted);line-height:1.5"><strong style="color:var(--fg)">Example: </strong><span dangerouslySetInnerHTML={{ __html: example }} /></div>
       <div style="padding-left:8px;font-size:11px;line-height:1.6">
         <p style="margin:0 0 3px"><strong style="color:var(--fg);font-size:11px">How to fix:</strong></p>
@@ -199,19 +232,7 @@ function OverviewSection() {
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
         <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, with no data leaving your machine. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
-        <p style="font-size:13px;margin:10px 0 4px"><strong>TraceRoost detects ten loop / malfunction patterns</strong> — each with a ready-to-paste correction prompt (see <a href="#help-loops">Loop Detection</a> below for details):</p>
-        <ul style="margin:0 0 0 18px;padding:0;font-size:13px;color:var(--muted);line-height:1.75">
-          <li><a href="#help-tool-deadlock">Tool Call Deadlock</a> — the same tool call repeated 5+ times</li>
-          <li><a href="#help-state-spiral">State Corruption Spiral</a> — a file edited then reverted, oscillating</li>
-          <li><a href="#help-hallucination">Hallucination Amplification Loop</a> — the same error recurring 3+ times</li>
-          <li><a href="#help-runaway-steps">Ambiguous Success / Escalating Scope</a> — runaway step count, no stopping condition</li>
-          <li><a href="#help-context-accumulation">Infinite Loop — Context Accumulation</a> — input tokens growing while output collapses</li>
-          <li><a href="#help-chronic-tool-unreliability">Chronic Tool Unreliability</a> — an unusually high share of tool calls failing</li>
-          <li><a href="#help-context-flooding-risk">Context Flooding Risk</a> — a tool result too large for the model to use well</li>
-          <li><a href="#help-malformed-tool-call">Malformed Tool Call</a> — the agent's own harness rejected a call before it ran</li>
-          <li><a href="#help-fabricated-dependency">Fabricated Dependency</a> — an edit imports a package that doesn't exist in the project</li>
-          <li><a href="#help-unverified-submission">Unverified Submission</a> — the session ended right after a failed test/build, with no fix attempt</li>
-        </ul>
+        <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects sixteen signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt — see <a href="#help-signals">Signals</a> below for the full catalog.</p>
       </div>
     </div>
   )
@@ -460,7 +481,7 @@ function SessionsSection() {
     <div class="help-section" id="help-traces">
       <h3 class="help-heading">{HELP_SECTIONS.traces.heading}</h3>
       <div class="help-overview-body">
-        <p>The Traces tab shows every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — as a sortable table: timestamp, prompt, model, tokens, duration, and estimated cost per row. Use the filter bar to search by text, filter by agent, data source (OTEL / Log), or initiator (User / Agent / API), set a time range, or cap the number of rows shown. The Reset button clears all active filters back to defaults.</p>
+        <p>The Traces tab shows every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — as a sortable table: timestamp, prompt, model, tokens, duration, and estimated cost per row. Use the filter bar to search by text or repo, filter by agent, git outcome (see <a href="#help-outcome">Git Outcome</a> below), data source (OTEL / Log), or initiator (User / Agent / API), set a time range, or cap the number of rows shown. The Clear Filters button clears all active filters back to defaults.</p>
         <p>Claude Code, Codex, and Copilot Chat (VS Code) each write one log file per working period on disk — but a single file can span multiple genuinely separate <a href="#gl-conversation">conversations</a> if a long idle gap (30+ minutes) separates them, so TraceRoost splits it into one trace per conversation rather than showing one entry with a misleading multi-hour (or multi-day) duration. A colored bar on the left edge of a row marks traces that came from the same original conversation — same color means same conversation, split apart by time. Hover the bar for its position (e.g. "Part 2 of 5"), or click it to isolate just that conversation's traces — a banner appears above the filter bar naming the conversation's first prompt, with a <strong>Show all traces</strong> button to clear it (or click the same bar again — the active bar renders slightly wider). Only traces still visible under the active filters are colored; if a filter hides a sibling, the remaining row isn't colored — nothing implies a hidden sibling exists.</p>
         <p>Click any row to expand it in-place. Five sub-tabs appear beneath the row:</p>
 
@@ -469,7 +490,7 @@ function SessionsSection() {
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Overview</dt>
             <dd class="glossary-def" style="display:block">
-              Stat tiles — total tokens, estimated cost, duration, turn count, error count, and cache hit rate. A burn rate card shows tokens per minute for the trace. Below the tiles is the <strong>Insights panel</strong>, which surfaces efficiency signals and loop detection results for that trace (see <a href="#help-insights">Insights</a> and <a href="#help-loops">Loop Detection</a> below).
+              Stat tiles — total tokens, estimated cost, duration, turn count, error count, and cache hit rate. A burn rate card shows tokens per minute for the trace. Below the tiles is the <strong>Insights panel</strong>, which surfaces efficiency signals and loop detection results for that trace (see <a href="#help-insights">Insights</a> and <a href="#help-signals">Signals</a> below).
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
@@ -493,10 +514,28 @@ function SessionsSection() {
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Files</dt>
             <dd class="glossary-def" style="display:block">
-              Every file created or modified during the trace, grouped by path. Click any file to open a diff in the editor. The badge shows the number of unique files touched. A one-shot/retry-rate line summarizes edit passes per file (e.g. "80% one-shot (4/5 files, avg 1.2 edit passes/file)") — hidden entirely when no files were edited, and shown as "not enough data" below 2 edited files. A git outcome banner (VS Code extension only) compares each changed file's content against git history to classify it <strong>Committed</strong> (changed since the trace and now in a commit), <strong>Reverted</strong> (back to its pre-trace content), <strong>Uncommitted</strong> (changed but still sitting in the working tree), or <strong>Unknown</strong> (outcome can't be determined) — computed on demand when the row is expanded, with a matching badge per file.
+              Every file created or modified during the trace, grouped by path. Click any file to open a diff in the editor. The badge shows the number of unique files touched. A one-shot/retry-rate line summarizes edit passes per file (e.g. "80% one-shot (4/5 files, avg 1.2 edit passes/file)") — hidden entirely when no files were edited, and shown as "not enough data" below 2 edited files. A <a href="#help-outcome">git outcome</a> banner compares each changed file's content against git history, with a matching badge per file — computed on demand when the row is expanded.
             </dd>
           </div>
         </div>
+
+        <h4 id="help-outcome" style={subHeadStyle}>Git Outcome</h4>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">TraceRoost can compare a trace's changed files against local git history to classify what happened to the work afterward. It needs direct access to a local git repo, so it works in the VS Code extension and standalone (native process) mode, but not in Docker mode. It shows up in three places: the <strong>Outcome</strong> column in the Traces table, the <strong>Outcome</strong> filter pills above it, and the git outcome banner in a trace's Files sub-tab (above).</p>
+        <div class="glossary" style="margin-bottom:12px">
+          <div class="glossary-item" style="flex-direction:column;gap:4px">
+            <dt class="glossary-term">Merged</dt>
+            <dd class="glossary-def" style="display:block">The file is committed, and that commit's content also matches the tip of the repo's trunk branch (main/master) — the change has reached the shared branch, not just a local commit. Detected by content, not commit ancestry, so it still recognizes a squash or rebase merge, where the commit on trunk has a different sha than the original.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:4px">
+            <dt class="glossary-term">Committed</dt>
+            <dd class="glossary-def" style="display:block">The file is committed — nothing has undone it since — but that commit hasn't reached the trunk branch yet: still sitting on a feature branch, or no trunk branch (no <code>origin/HEAD</code>, no local <code>main</code>/<code>master</code>) could be resolved locally to check against.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:4px">
+            <dt class="glossary-term">Uncommitted</dt>
+            <dd class="glossary-def" style="display:block">The file still differs from HEAD right now — it just hasn't been committed <em>yet</em>. This is a snapshot of the current moment, not a verdict on the work: it reads exactly the same whether the edit happened five minutes ago or five weeks ago, and flips to Committed (or Merged) automatically the next time it's checked after you commit. TraceRoost also skips checking a session for its first two minutes after it ends, specifically so a brand-new edit isn't caught mid-flight and shown this way before there's been any real chance to commit it.</dd>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">A trace usually changes more than one file, so its overall outcome is the <em>worst</em> of its files' individual outcomes, in this priority order: Uncommitted, then Committed, then Merged — one still-uncommitted file is enough to mark the whole trace Uncommitted even if the other nine files have already merged. When classification can't reach a verdict at all (no local git repo, a file that was deleted or moved, or classification simply not requested yet), no badge or pill is shown for it — no Unknown label, just blank — and that trace only appears under the "All" filter. Classification runs on demand — opening a trace's Files sub-tab, or turning on the Outcome filter — rather than upfront for every trace, and is cached until something relevant moves: a new commit to that trace's own files, or the trunk branch advancing (which can turn a Committed file into Merged without touching it again locally — e.g. a teammate merges the PR later). A small spinner next to the Outcome filter shows while any currently visible traces are still being classified.</p>
 
         <h4 id="help-insights" style={subHeadStyle}>Insights</h4>
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">The Insights panel appears inside the <strong>Overview</strong> sub-tab of each expanded trace row. It surfaces efficiency signals for <a href="#gl-tokens">token</a> waste, <a href="#gl-cache-hit-rate">cache</a> patterns, tool behavior, and prompt shape — the signals meant to help you spend fewer <a href="#gl-turn">turns</a> and fewer tokens on the same work.</p>
@@ -548,72 +587,164 @@ function SessionsSection() {
           />
         </div>
 
-        <h4 id="help-loops" style={subHeadStyle}>Loop Detection</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-loop-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work. They appear in the Insights panel with warning or critical severity.</p>
-        <div class="glossary">
-          <LoopBlock id="help-tool-deadlock" title="Tool Call Deadlock"
-            why="The same tool call — identical name and arguments — was executed 5+ times. The agent is not retaining the result, likely lost in a long context."
-            example={`The agent ran <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> eight times in one trace.`}
+        <p style="font-size:12px;color:var(--muted);margin:16px 0 0">See <a href="#help-signals">Signals</a> for the full signal catalog — what triggers each one, and whether it's computed from OTEL telemetry, local logs, or both.</p>
+      </div>
+    </div>
+  )
+}
+
+function SignalsSection() {
+  return (
+    <div class="help-section" id="help-signals">
+      <h3 class="help-heading">{HELP_SECTIONS.signals.heading}</h3>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-loop-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work. They appear in the Insights panel (inside the <strong>Overview</strong> sub-tab of each trace) with warning or critical severity. The <strong>OTEL</strong>/<strong>Log</strong> badge on each one below shows what a trace actually needs to capture for it to fire — most need live OpenTelemetry, since a reconstructed log-only trace usually lacks the tool-result detail these read; the note under each badge names the one log source (if any) that's the exception. See <a href="#help-badges">Badges</a> for what a Log-sourced trace is missing more generally.</p>
+      <div class="glossary">
+          <LoopBlock id="help-tool-deadlock" title="Tool Call Deadlock" signalType="exact_tool_repeat"
+            why={formulaHtml(SIGNAL_FORMULAS.exact_tool_repeat.bullets)}
+            caveat={SIGNAL_FORMULAS.exact_tool_repeat.caveat}
+            dataSource={SIGNAL_FORMULAS.exact_tool_repeat.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.exact_tool_repeat.dataSourceNote}
+            example={`The agent ran <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
             steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>Pin non-deterministic commands to fixed output.</li><li>Stop the trace and restart with what was already read.</li>`}
             impact="Stopping this pattern prevents runaway token accumulation. 200K tokens looping → 20K tokens with a direct prompt."
           />
-          <LoopBlock id="help-state-spiral" title="State Corruption Spiral"
-            why="A file was edited (A→B) then reverted (B→A). The agent oscillates because two constraints are mutually exclusive."
+          <LoopBlock id="help-state-spiral" title="State Corruption Spiral" signalType="edit_revert_cycle"
+            why={formulaHtml(SIGNAL_FORMULAS.edit_revert_cycle.bullets)}
+            caveat={SIGNAL_FORMULAS.edit_revert_cycle.caveat}
+            dataSource={SIGNAL_FORMULAS.edit_revert_cycle.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.edit_revert_cycle.dataSourceNote}
             example="The agent added a null check (fixing one test), removed it (breaking another), then added it back — cycling."
             steps={`<li>Clarify success criteria with explicit priority ordering.</li><li>Provide the exact final file state if possible.</li><li>Check if tests assert contradictory behavior.</li><li>Use the Files tab to spot A→B→A patterns.</li>`}
             impact="Resolving the conflict takes 2–3 focused turns vs. 20–40 oscillating turns."
           />
-          <LoopBlock id="help-hallucination" title="Hallucination Amplification Loop"
-            why="The same error appeared 3+ times. The agent's fix attempts fail because the root cause is something the model invented — a nonexistent package, wrong function name, or outdated API."
+          <LoopBlock id="help-hallucination" title="Hallucination Amplification Loop" signalType="error_recurrence"
+            why={formulaHtml(SIGNAL_FORMULAS.error_recurrence.bullets)}
+            caveat={SIGNAL_FORMULAS.error_recurrence.caveat}
+            dataSource={SIGNAL_FORMULAS.error_recurrence.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.error_recurrence.dataSourceNote}
             example={`A <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">ModuleNotFoundError</code> appeared five times as the agent tried different import paths for a package not installed.`}
             steps={`<li>Stop and verify the root cause yourself.</li><li>Tell the agent explicitly what exists.</li><li>Paste actual API responses or function signatures.</li><li>After 2 failures, resolve the underlying issue before re-prompting.</li>`}
             impact="Intervening after 2 recurrences instead of 6 saves ~120,000 tokens in a 30K-token trace."
           />
-          <LoopBlock id="help-runaway-steps" title="Ambiguous Success / Escalating Scope"
-            why="The trace consumed far more LLM calls than expected. The prompt has no stopping condition, uses open-ended phrasing, or the agent expands scope on its own."
+          <LoopBlock id="help-runaway-steps" title="Ambiguous Success / Escalating Scope" signalType="runaway_steps"
+            why={formulaHtml(SIGNAL_FORMULAS.runaway_steps.bullets)}
+            caveat={SIGNAL_FORMULAS.runaway_steps.caveat}
+            dataSource={SIGNAL_FORMULAS.runaway_steps.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.runaway_steps.dataSourceNote}
             example={`"Fix the login bug" accumulated 90+ steps — the agent then noticed unrelated issues and updated 3 extra files.`}
             steps={`<li>Add explicit stopping conditions.</li><li>Avoid open-ended phrasing — name specific functions and files.</li><li>Specify scope: <em>"Only change files in src/auth/"</em>.</li><li>Monitor the context growth chart for steep rises.</li>`}
             impact="A 5-step prompt vs. a 90-step trace saves 85 tool calls — a 5–20x token reduction."
           />
-          <LoopBlock id="help-context-accumulation" title="Infinite Loop — Context Accumulation"
-            why={`<a href="#gl-input-tokens">Input tokens</a> grew by 30,000+ across 4+ calls while <a href="#gl-output-ratio">output-to-input ratio</a> collapsed by 70%+. The agent is consuming context while producing less output.`}
+          <LoopBlock id="help-context-accumulation" title="Infinite Loop — Context Accumulation" signalType="token_runaway"
+            why={formulaHtml(SIGNAL_FORMULAS.token_runaway.bullets)}
+            caveat={SIGNAL_FORMULAS.token_runaway.caveat}
+            dataSource={SIGNAL_FORMULAS.token_runaway.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.token_runaway.dataSourceNote}
             example="First call: 8K in → 600 out (7.5%). Last call: 65K in → 80 out (0.12%). Five turns reading the same files without edits."
             steps={`<li>Stop immediately — cost compounds with no progress.</li><li>Start fresh with a focused prompt stating what was already read.</li><li>Include the specific target state, not just the problem.</li><li>Use the Traces tab to review what was accomplished.</li>`}
             impact="Catching at 4 calls instead of 10 saves ~390,000 input tokens at peak context size."
           />
-          <LoopBlock id="help-chronic-tool-unreliability" title="Chronic Tool Unreliability"
-            why="An unusually high share of this trace's tool calls failed — 20%+ with at least 5 calls made, well above the ordinary rate of an occasional wrong path corrected along the way. Unlike the Hallucination Amplification Loop above, this doesn't require the same error to repeat — it catches a trace with many different one-off failures."
+          <LoopBlock id="help-chronic-tool-unreliability" title="Chronic Tool Unreliability" signalType="chronic_tool_failures"
+            why={formulaHtml(SIGNAL_FORMULAS.chronic_tool_failures.bullets)}
+            caveat={SIGNAL_FORMULAS.chronic_tool_failures.caveat}
+            dataSource={SIGNAL_FORMULAS.chronic_tool_failures.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.chronic_tool_failures.dataSourceNote}
             example="7 of 12 tool calls failed (58%): bash ×4 (command not found), read_file ×3 (path guessed incorrectly)."
             steps={`<li>Be explicit about file locations and the exact commands available.</li><li>State the package manager and runtime in use.</li><li>Verify paths and commands exist before prompting.</li>`}
             impact="Each eliminated failure saves a full LLM recovery turn — roughly 30,000 wasted tokens per cascade."
           />
-          <LoopBlock id="help-context-flooding-risk" title="Context Flooding Risk"
-            why="A tool call returned a result over 10,000 characters, which gets appended to context in full and crowds out everything else for the rest of the trace."
+          <LoopBlock id="help-context-flooding-risk" title="Context Flooding Risk" signalType="context_flooding_risk"
+            why={formulaHtml(SIGNAL_FORMULAS.context_flooding_risk.bullets)}
+            caveat={SIGNAL_FORMULAS.context_flooding_risk.caveat}
+            dataSource={SIGNAL_FORMULAS.context_flooding_risk.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.context_flooding_risk.dataSourceNote}
             example="A read_file call on a 300-line file added 45KB (~11,000 tokens) to every subsequent call in the trace."
             steps={`<li>Use line-range reads instead of whole files.</li><li>Tighten search patterns.</li><li>Pipe command output through something that limits it.</li>`}
             impact="Replacing a 300-line read with a 30-line read saves ~2,700 tokens per turn for the rest of the trace."
           />
-          <LoopBlock id="help-malformed-tool-call" title="Malformed Tool Call"
-            why="The agent's own harness rejected a call before it ran — a wrong argument name, an unknown tool, or malformed arguments. This is different from a normal runtime failure (a grep that finds nothing, a build that fails on real code): it means the agent's call didn't match what the tool expected, not that the codebase has a problem. Fires on a single occurrence, unlike the other signals here."
-            example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">Invalid tool call: missing required parameter "path"</code>`}
-            steps={`<li>If this recurs, the agent may be working from an outdated or incorrect idea of what tools are available.</li><li>Check whether a tool definition changed recently.</li>`}
-            impact="Each rejected call is a full round-trip to the model that produced nothing but an error to recover from."
-          />
-          <LoopBlock id="help-fabricated-dependency" title="Fabricated Dependency"
-            why="An edit imports a package that isn't declared in the project's manifest (package.json, requirements.txt) and doesn't resolve on disk — a likely hallucinated dependency that will fail at install or runtime. Checked once the edit is complete, not mid-session like the signals above."
+          <LoopBlock id="help-fabricated-dependency" title="Fabricated Dependency" signalType="hallucinated_import"
+            why={formulaHtml(SIGNAL_FORMULAS.hallucinated_import.bullets)}
+            caveat={SIGNAL_FORMULAS.hallucinated_import.caveat}
+            dataSource={SIGNAL_FORMULAS.hallucinated_import.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.hallucinated_import.dataSourceNote}
             example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code> — no such package in package.json or node_modules.`}
             steps={`<li>Verify the package actually exists and is spelled correctly before asking the agent to use it.</li><li>Add it to the manifest yourself if it's intentional (e.g. you're about to run the install).</li>`}
             impact="Catching this before install/runtime avoids a confusing failure several steps later that looks unrelated to the actual cause."
           />
-          <LoopBlock id="help-unverified-submission" title="Unverified Submission"
-            why="The last test/build check run in the session reported a failure, with no further fix attempt before the session ended. Precision-good, recall-poor by design: only the last tool call is checked, so a failing check followed by more edits (a real fix attempt) does not trigger this."
+          <LoopBlock id="help-unverified-submission" title="Unverified Submission" signalType="failed_check_submission"
+            why={formulaHtml(SIGNAL_FORMULAS.failed_check_submission.bullets)}
+            caveat={SIGNAL_FORMULAS.failed_check_submission.caveat}
+            dataSource={SIGNAL_FORMULAS.failed_check_submission.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.failed_check_submission.dataSourceNote}
             example="Session ends immediately after `pnpm test` prints 3 failing specs — no edits follow."
             steps={`<li>Ask the agent to re-run the check and confirm it passes before considering the task done.</li><li>Review the failure yourself before accepting the change.</li>`}
             impact="Catches work that looks finished but silently failed its own validation step."
           />
+          <LoopBlock id="help-tool-call-cycle" title="Multi-Step Oscillation" signalType="tool_call_cycle"
+            why={formulaHtml(SIGNAL_FORMULAS.tool_call_cycle.bullets)}
+            caveat={SIGNAL_FORMULAS.tool_call_cycle.caveat}
+            dataSource={SIGNAL_FORMULAS.tool_call_cycle.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.tool_call_cycle.dataSourceNote}
+            example={`The agent alternated <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">edit_file src/app.ts</code> → <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">bash npm test</code> six times in a row without changing approach.`}
+            steps={`<li>Ask the agent to explain what changed between attempts before trying again.</li><li>Supply the missing information yourself — a stack trace, an expected value, a spec.</li><li>Interrupt and restart with a more specific instruction.</li>`}
+            impact="Catching the cycle at 5 repeats instead of letting it run to 15+ saves ten or more redundant tool round-trips."
+          />
+          <LoopBlock id="help-file-reread" title="Redundant Context Reload" signalType="file_reread"
+            why={formulaHtml(SIGNAL_FORMULAS.file_reread.bullets)}
+            caveat={SIGNAL_FORMULAS.file_reread.caveat}
+            dataSource={SIGNAL_FORMULAS.file_reread.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.file_reread.dataSourceNote}
+            example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">src/schema.ts</code> was read 4 times across the trace, each time in full, with no edits to it in between.`}
+            steps={`<li>Ask the agent to summarize what it already knows about the file instead of rereading it.</li><li>Paste the relevant lines directly into your prompt if it's a small, stable file.</li><li>Split a long session so the file stays in recent context.</li>`}
+            impact="Eliminating 3 avoidable rereads of a 40K-token file saves roughly the cost of one extra full LLM call."
+          />
+          <LoopBlock id="help-cache-miss" title="Avoidable Cache Miss" signalType="cache_miss"
+            why={formulaHtml(SIGNAL_FORMULAS.cache_miss.bullets)}
+            caveat={SIGNAL_FORMULAS.cache_miss.caveat}
+            dataSource={SIGNAL_FORMULAS.cache_miss.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.cache_miss.dataSourceNote}
+            example="A call re-wrote 8,000 of a 120,000-token cached prefix because a tool definition changed between turns — writing it (1.25× the input rate for a 5-minute cache write) cost roughly 12.5× what reading it back (0.1× input) would have."
+            steps={`<li>Keep tool definitions, system prompt, and thinking/effort settings stable across turns in the same session.</li><li>Avoid adding images or changing tool_choice mid-session if you can help it.</li><li>Check whether a timestamp or counter is embedded in a cached part of the prompt.</li>`}
+            impact="Avoiding one 8,000-token miss on a cache-write-priced model saves roughly the gap between cache-write and cache-read rates — about 1.15× that many tokens' worth of ordinary input cost (1.9× for 1-hour cache writes)."
+          />
+          <LoopBlock id="help-ttl-expiry" title="Cache TTL Expiry" signalType="ttl_expiry"
+            why={formulaHtml(SIGNAL_FORMULAS.ttl_expiry.bullets)}
+            caveat={SIGNAL_FORMULAS.ttl_expiry.caveat}
+            dataSource={SIGNAL_FORMULAS.ttl_expiry.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.ttl_expiry.dataSourceNote}
+            example="Two turns were 90 minutes apart; the second re-wrote the full prefix even though nothing about the prompt had changed — the cache had simply expired."
+            steps={`<li>Work in tighter bursts if you want to keep benefiting from the cache.</li><li>Otherwise, accept the re-processing cost for turns that are naturally spaced out — there's no fix beyond timing.</li>`}
+            impact="Recognizing this as a timing effect, not a prompt problem, avoids chasing a caching bug that isn't there."
+          />
+          <LoopBlock id="help-low-cache-hit-ratio" title="Poor Cache Utilization" signalType="low_cache_hit_ratio"
+            why={formulaHtml(SIGNAL_FORMULAS.low_cache_hit_ratio.bullets)}
+            caveat={SIGNAL_FORMULAS.low_cache_hit_ratio.caveat}
+            dataSource={SIGNAL_FORMULAS.low_cache_hit_ratio.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.low_cache_hit_ratio.dataSourceNote}
+            example="A session read only 12% of its context from cache despite 200,000+ tokens of real cache activity — most of the prefix was being reprocessed every turn."
+            steps={`<li>Check what's changing turn to turn near the top of the prompt — that's usually what's invalidating the cache.</li><li>See Avoidable Cache Miss and Cache TTL Expiry above for the two most common causes.</li>`}
+            impact="Going from a 12% to a 60%+ hit ratio can cut effective input cost dramatically on a long session."
+          />
+          <LoopBlock id="help-budget-overrun" title="Budget Overrun" signalType="budget_overrun"
+            why={formulaHtml(SIGNAL_FORMULAS.budget_overrun.bullets)}
+            caveat={SIGNAL_FORMULAS.budget_overrun.caveat}
+            dataSource={SIGNAL_FORMULAS.budget_overrun.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.budget_overrun.dataSourceNote}
+            example={`A session cost $9.40 against a configured $5 cap (<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">TRACEROOST_BUDGET_CAP_USD=5</code>) — 1.9× over.`}
+            steps={`<li>Check whether a loop or retry pattern elsewhere in this list is driving the cost.</li><li>Raise the cap if the task genuinely needed this much work.</li>`}
+            impact="Catching an overrun mid-session, rather than after the fact, is the point of setting a cap at all."
+          />
+          <LoopBlock id="help-model-tier-mismatch" title="Model Tier Mismatch" signalType="model_tier_mismatch"
+            why={formulaHtml(SIGNAL_FORMULAS.model_tier_mismatch.bullets)}
+            caveat={SIGNAL_FORMULAS.model_tier_mismatch.caveat}
+            dataSource={SIGNAL_FORMULAS.model_tier_mismatch.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.model_tier_mismatch.dataSourceNote}
+            example={`A trace ran 14 straight <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">grep</code>/<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file</code> calls on a premium model with no edits and ~80 output tokens per call.`}
+            steps={`<li>Route read/search-heavy turns to a smaller, cheaper model.</li><li>Reserve the premium model for turns that actually produce edits.</li>`}
+            impact="Switching a read-only stretch from a premium to a mid-tier model can cut that portion's cost 5–10× with no quality loss."
+          />
         </div>
-        <p style="margin-top:16px;font-size:12px;color:var(--muted)">Loop signals appear in the Insights panel inside the <strong>Overview</strong> sub-tab of each trace, sorted by severity. Use the <strong>Loops</strong> filter pill to view only malfunction signals. Use <strong>Ignore</strong> to dismiss a signal if it was intentional behavior.</p>
-      </div>
+      <p style="margin-top:16px;font-size:12px;color:var(--muted)">Signals appear in the Insights panel inside the <strong>Overview</strong> sub-tab of each trace, sorted by severity. Use the <strong>Loops</strong> filter pill in Traces to view only these signals. Use <strong>Ignore</strong> to dismiss a signal if it was intentional behavior.</p>
     </div>
   )
 }
@@ -623,7 +754,7 @@ function AnalyticsSection() {
     <div class="help-section" id="help-analytics">
       <h3 class="help-heading">{HELP_SECTIONS.analytics.heading}</h3>
       <div class="help-overview-body">
-        <p>The Analytics tab shows aggregate charts and metrics across all traces in the active time range. Use the Source filter to limit to OTEL-traced traces or log-ingested traces, and the time range picker to zoom into a specific window. The Reset button restores all filters to defaults.</p>
+        <p>The Analytics tab shows aggregate charts and metrics across all traces in the active time range. Use the Source filter to limit to OTEL-traced traces or log-ingested traces, and the time range picker to zoom into a specific window. The Clear Filters button restores all filters to defaults.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agent Breakdown</dt>
@@ -678,7 +809,7 @@ function PatternsSection() {
             <dd class="glossary-def" style="display:block">Triggered when a significant share of traces exceed 1.5× the average turn count, indicating missing upfront context. Works for all agent types including Copilot.</dd>
           </div>
         </div>
-        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost never edits your instruction file itself</strong> — nothing here writes to disk; every suggestion is copy-and-paste only, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it).</p>
+        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost only writes to your instruction file when you click Apply</strong> — it appends the suggestion as a block wrapped in <code>&lt;!-- TraceRoost suggestion … --&gt;</code> markers, and Remove deletes exactly that block, never text you wrote around it. Copy-and-paste works too, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it).</p>
 
         <h4 style={subHeadStyle}>Efficiency Map</h4>
         <p style={mutedP}>A scatter plot where each dot is one trace. Right = more expensive. Up = more LLM calls. Color = cache hit rate (green ≥60%, orange 20–60%, red &lt;20%). Click a dot to navigate to that trace. The table below shows the top 10 traces sorted by the active column — click any column header to re-sort.</p>
@@ -783,7 +914,7 @@ function SettingsSection() {
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for seven signals. When a live trace crosses a threshold the bell badge increments and the alert appears in the status card. Five alerts use per-agent profiles so you can tune Claude Code, Copilot, and Codex independently; the daily cost threshold is a single global dollar figure across all agents.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Daily Cost Threshold <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when today's total estimated cost across all agents (UTC day) crosses the configured dollar threshold. Disabled by default. Default threshold: $20/day.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
@@ -845,8 +976,7 @@ function McpSection() {
   const mcpUrl = 'http://localhost:4316/mcp'
   const settingsJson = JSON.stringify({ mcpServers: { traceroost: { url: mcpUrl } } }, null, 2)
   const claudeMd = `# TraceRoost MCP
-Before any task: call get_recent_sessions (recent work + cost) and get_workspace_patterns (hot files, recurring issues).
-Only use find_relevant_context if your task closely matches past prompts by keyword — skip it for novel tasks.`
+Before any task: call get_recent_sessions (recent work + cost) and get_workspace_patterns (hot files, recurring issues).`
 
   return (
     <div class="help-section" id="help-mcp">
@@ -883,10 +1013,6 @@ Only use find_relevant_context if your task closely matches past prompts by keyw
             <dd class="glossary-def" style="display:block">Aggregate patterns across all traces: the files accessed most often (ranked by % of traces), average cost and turn count, top tools, and recurring loop signal types. Optional filter: <code style={codeStyle}>days</code> to limit to recent traces.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term"><code style={codeStyle}>find_relevant_context</code></dt>
-            <dd class="glossary-def" style="display:block">Given a <code style={codeStyle}>task</code> description, keyword-matches against past trace prompts and returns: files accessed in similar traces (with frequency %), estimated cost and turn count range, and known traps (loop signals that appeared in similar traces). <strong>Important:</strong> matching is keyword-based, not semantic — results are reliable for well-established task types (e.g. "add auth", "fix sidebar tests") but often pull in unrelated traces for novel or cross-cutting work. Treat file suggestions as a sanity check, not a reading list.</dd>
-          </div>
-          <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_session_detail</code></dt>
             <dd class="glossary-def" style="display:block">Returns the full timeline for one trace by <code style={codeStyle}>sessionId</code> — every LLM call and tool call with timing, errors, and file edits. Use <code style={codeStyle}>get_recent_sessions</code> first to get an id.</dd>
           </div>
@@ -909,11 +1035,6 @@ Only use find_relevant_context if your task closely matches past prompts by keyw
 Use traceroost get_recent_sessions to see what was worked on recently.
 Use traceroost get_workspace_patterns to see recurring problems and known traps.
 
-# Worth running when task keywords match established workflows:
-Use traceroost find_relevant_context with task="add OAuth to the auth module"
-to see what files similar traces touched and what they typically cost.
-(Skip this for new feature work — keyword matching won't find good matches.)
-
 # To check efficiency trends over time:
 Use traceroost get_efficiency_report to see if traces are getting more or
 less expensive, and which loop signals keep recurring.
@@ -926,6 +1047,52 @@ to see pending instruction-file suggestions before beginning work.
 Use traceroost check_automation_triggers with workspace="/absolute/path/to/project"
 and follow any correction prompt it returns before continuing.`}</pre>
 
+      </div>
+    </div>
+  )
+}
+
+function CloudSection() {
+  return (
+    <div class="help-section" id="help-cloud">
+      <h3 class="help-heading">{HELP_SECTIONS.cloud.heading}</h3>
+      <div class="help-overview-body">
+        <p>TraceRoost Cloud links your machine to your org so a lead can see aggregate figures — cost, turnover, activity — across everyone's repositories, without seeing any individual's work. It's opt-in, off by default, and never required for the local dashboard to work. See <a href="#help-privacy">Privacy</a> below for exactly what that means and what gets sent.</p>
+
+        <h4 style={subHeadStyle}>Linking and leaving</h4>
+        <p style={mutedP}>Linking opens your browser once, for account setup — nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; there's no server-side step and nothing to wait for.</p>
+
+        <h4 style={subHeadStyle}>Going offline</h4>
+        <p style={mutedP}>Your local dashboard — everything in Sessions, Estimated cost, Patterns, Analytics — has no dependency on internet connectivity at all, linked or not. Trace capture is either OTEL received on your own machine or read directly from each agent's own on-disk log file (every currently supported source keeps one); neither needs a network connection, only TraceRoost itself running.</p>
+        <p style={mutedP}>That log-file reading is also what makes the data complete rather than just live: because TraceRoost reads the agent's own persisted transcript rather than only capturing a live stream, a session recorded before you linked, before TraceRoost was running, or during any gap still shows up in full once TraceRoost next reads that file. Nothing about being offline erases what the agent itself already wrote to disk.</p>
+        <p style={mutedP}>The one thing connectivity affects is sending rollups to your org, if linked. Offline, or if the service is briefly unreachable, sessions queue locally instead of being lost, and send automatically once you're back — no action needed. The queue is capped (oldest first) so an install that never reconnects doesn't grow it without bound; use <strong>Check for unsent traces</strong> in this panel any time you want to confirm nothing's stuck.</p>
+      </div>
+    </div>
+  )
+}
+
+function PrivacySection() {
+  return (
+    <div class="help-section" id="help-privacy">
+      <h3 class="help-heading">{HELP_SECTIONS.privacy.heading}</h3>
+      <div class="help-overview-body">
+        <p>This is what <a href="#help-cloud">TraceRoost Cloud</a> sends once linked, and what it never does — in full, so you never have to take this page's word for it.</p>
+
+        <h4 style={subHeadStyle}>What gets sent</h4>
+        <p style={mutedP}>Only counts, enums, hashes and timestamps — never prompts, diffs, file contents, file paths, repository or branch names, or commit messages. The exact list is shown in the Org panel and printed verbatim by <code style={codeStyle}>traceroost --explain-payload</code>.</p>
+
+        <h4 style={subHeadStyle}>How the hashing works</h4>
+        <p style={mutedP}>Commit ids and file ids are never sent as-is. Each one is put through a one-way hash (HMAC-SHA256), keyed by a value derived from your repository's own root commit and your organization's id. Two things follow from that:</p>
+        <div class="glossary">
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term">Cloud can't reverse it</dt>
+            <dd class="glossary-def" style="display:block">A hash can't be turned back into a file path or a commit sha — it's a one-way function. TraceRoost Cloud only ever sees an opaque token.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term">Consistent within your org, meaningless outside it</dt>
+            <dd class="glossary-def" style="display:block">The same file hashes to the same token every time within your org, so patterns like "this file keeps churning" are visible without anyone learning the file's name. Because the org id is mixed into the key, the same file hashed by a different organization produces a completely unrelated token.</dd>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1074,11 +1241,14 @@ export function Help() {
         <ConfigSection />
         <AgentOtelSection />
         <SessionsSection />
+        <SignalsSection />
         <AnalyticsSection />
         <PatternsSection />
         <CostSection />
         <SettingsSection />
         <McpSection />
+        {process.env.TRACEROOST_EDITION !== 'core' && <CloudSection />}
+        {process.env.TRACEROOST_EDITION !== 'core' && <PrivacySection />}
         <ExportSection />
         <ImportSection />
         <BadgesSection />

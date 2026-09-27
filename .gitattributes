@@ -1,0 +1,7 @@
+# Force LF checkouts on every platform, including Windows (whose GitHub-hosted runners default
+# to core.autocrlf=true). Without this, the new Windows CI leg (.github/workflows/ci.yml) would
+# check every text file out with CRLF line endings the repo doesn't actually have — a source of
+# noisy, false-positive Windows-only diffs and test failures that have nothing to do with real
+# platform bugs. `text=auto` still lets git auto-detect genuinely binary files (the sql.js WASM
+# binary, images, fonts) and leaves those untouched.
+* text=auto eol=lf

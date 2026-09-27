@@ -1,6 +1,12 @@
 module.exports = {
   require: ['src/test/setup.js'],
-  spec: ['out/test/test/**/*.test.js'],
+  spec: [
+    'out/test/test/**/*.test.js',
+    'out/test-media/src/test/media/**/*.test.js',
+    'out/test-standalone/standalone/local/*.test.js',
+    'out/test-standalone/standalone/service/*.test.js',
+    'out/test-standalone/standalone/*.test.js',
+  ],
   timeout: 10000,
   ui: 'tdd',
   color: true

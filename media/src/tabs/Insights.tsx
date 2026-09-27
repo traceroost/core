@@ -1,8 +1,9 @@
 import { useState } from 'preact/hooks'
 import clsx from 'clsx'
 import { filteredSessions, sessionSummary, insightFilter, ignoredInsightKeys } from '../state'
-import { buildDisplaySummary, getAgentColor, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
+import { buildDisplaySummary, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
 import type { Insight, InsightFilter, SessionSummaryCard } from '../types'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 
 type EffSummary = ReturnType<typeof buildDisplaySummary>['efficiency']
 
@@ -21,7 +22,7 @@ function insightScopeLabel(filter: InsightFilter): string {
 }
 
 function noActiveTakeawayText(filter: InsightFilter): string {
-  if (filter === 'loop') return 'No active loop or malfunction signals in this view.'
+  if (filter === 'loop') return 'No active signals in this view.'
   if (filter === 'efficiency') return 'No active efficiency issues in this view.'
   return 'No significant inefficiencies detected. Token usage looks healthy.'
 }
@@ -29,7 +30,7 @@ function noActiveTakeawayText(filter: InsightFilter): string {
 // Promoted to the backend taxonomy (src/loopDetector.ts) — matched by _loopType here rather than
 // title text, since their titles are now "patternName — evidence" instead of the old ad-hoc
 // "N tool failure(s)" / "Large tool results" wording that the title-matching below used to catch.
-const TOOL_ISSUE_LOOP_TYPES = new Set(['chronic_tool_failures', 'context_flooding_risk', 'malformed_tool_call'])
+const TOOL_ISSUE_LOOP_TYPES = new Set(['chronic_tool_failures', 'context_flooding_risk'])
 
 function summarizeTakeaways(insights: Insight[]): InsightTakeaways {
   const summary: InsightTakeaways = {
@@ -71,7 +72,6 @@ const HELP_WHY: Record<string, string> = {
   'help-context-accumulation': 'Input tokens are growing while output shrinks — cost per call is compounding with diminishing returns. Continuing will likely hit the context limit with nothing saved.',
   'help-chronic-tool-unreliability': 'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
   'help-context-flooding-risk': 'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
-  'help-malformed-tool-call':  'A rejected call means the round-trip to the model happened for nothing — no result, just an error to recover from. Unlike a runtime failure, this is unambiguously the agent\'s call not matching what the tool expected.',
 }
 
 // ── Insight generation ────────────────────────────────────────────────────────
@@ -205,7 +205,6 @@ export function generateInsights(
       token_runaway:      'help-context-accumulation',
       chronic_tool_failures: 'help-chronic-tool-unreliability',
       context_flooding_risk: 'help-context-flooding-risk',
-      malformed_tool_call:   'help-malformed-tool-call',
     }
     ;(sess.loopSignals ?? []).forEach(sig => {
       const examplesText = sig.examples?.length > 0 ? '\n\nExamples: ' + sig.examples.join(' · ') : ''
@@ -314,39 +313,33 @@ export function generateInsights(
 
 // ── InsightCard ───────────────────────────────────────────────────────────────
 
+// Loop insights get the exact same pictogram as the Signals column/cell for their pattern type
+// (via _loopType) instead of a generic ↺ — same struggle pattern, same glyph, wherever it shows
+// up. Non-loop (efficiency) insights keep the plain ⚠/ℹ they always had; only loop severities
+// have a per-type icon to draw.
+function InsightIcon({ ins }: { ins: Insight }) {
+  if (ins.severity.startsWith('loop')) {
+    const iconType = ins._loopType ? LOOP_SIGNAL_ICON_TYPE[ins._loopType] : undefined
+    const Icon = iconType ? SIGNAL_ICON[iconType] : undefined
+    if (Icon) {
+      const color = SIGNAL_SEVERITY_COLOR[ins.severity === 'loop-critical' ? 'critical' : 'warning']
+      return (
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0">
+          <Icon color={color} />
+        </span>
+      )
+    }
+    return <>↺</>
+  }
+  return <>{ins.severity === 'warning' ? '⚠' : 'ℹ'}</>
+}
+
 export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgnored: boolean; sessions: SessionSummaryCard[] }) {
-  const icon = ins.severity.startsWith('loop') ? '↺' : ins.severity === 'warning' ? '⚠' : 'ℹ'
   const session = ins.sessionIdx !== undefined ? sessions[ins.sessionIdx] : undefined
   const titleTraceMatch = ins.title.match(/^\[Trace\s+\d+\]\s*(.*)$/)
   const insightTitle = titleTraceMatch ? titleTraceMatch[1] : ins.title
-  const sessionAgentColor = session ? getAgentColor(session.source) : ''
   const sessionTimestamp = session ? formatSessionTime(session) : ''
-  const sessionPrompt = session?.userRequest || ''
   const [copied, setCopied] = useState(false)
-
-  function buildAiPrompt(): string {
-    const lines: string[] = [ins.title, '']
-    if (session?.userRequest && session.userRequest !== '[trace in progress]') {
-      lines.push('Task: "' + session.userRequest + '"', '')
-    }
-    if (ins.detail) lines.push(ins.detail, '')
-    if (session) {
-      const topTools = Object.entries(session.toolCounts ?? {})
-        .sort((a, b) => b[1] - a[1]).slice(0, 5)
-        .map(([t, n]) => '  ' + t + ' ×' + n).join('\n')
-      if (topTools) lines.push('Top tools used:\n' + topTools, '')
-      if (session.filesChanged.length > 0)
-        lines.push('Files changed: ' + session.filesChanged.slice(0, 5).join(', '), '')
-      const errors = session.timeline.filter(e => e.isError && e.errorMessage).slice(0, 3)
-      if (errors.length > 0)
-        lines.push('Error messages:\n' + errors.map(e => '  - ' + (e.errorMessage ?? '').slice(0, 120)).join('\n'), '')
-      lines.push('Trace stats: ' + session.totalLlmCalls + ' LLM calls, '
-        + session.totalToolCalls + ' tool calls, '
-        + (session.cacheHitRate * 100).toFixed(0) + '% cache hit rate', '')
-    }
-    lines.push('Action: ' + ins.action)
-    return lines.join('\n')
-  }
 
   function buildClipboardPrompt(): string {
     const lines: string[] = [
@@ -394,7 +387,7 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
     <div class={clsx('insight-card', 'insight-' + ins.severity)} style={isIgnored ? 'opacity:0.55' : ''}>
       {/* Header: icon + title + ignore button */}
       <div class="insight-header" style="align-items:flex-start;margin-bottom:4px">
-        <span class="insight-icon" style="margin-top:1px">{icon}</span>
+        <span class="insight-icon" style="margin-top:1px"><InsightIcon ins={ins} /></span>
         <span class="insight-title" style="flex:1">{insightTitle}</span>
         <button
           class="insight-ignore-btn"
@@ -486,7 +479,7 @@ export function Insights() {
           <ul style="margin:0;padding:0 0 0 16px;list-style:disc">
             {takeaways.loopCount > 0 && (
               <li style="margin-bottom:2px">
-                {takeaways.loopCount} agent loop or malfunction signal{takeaways.loopCount > 1 ? 's' : ''} detected
+                {takeaways.loopCount} signal{takeaways.loopCount > 1 ? 's' : ''} detected
               </li>
             )}
             {takeaways.hasContextBloat && (

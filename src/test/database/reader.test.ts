@@ -5,12 +5,14 @@ import { SCHEMA_SQL } from '../../database/schema'
 import { DatabaseWriter } from '../../database/writer'
 import { DatabaseReader } from '../../database/reader'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import type { SqlStatement } from '../../database/db'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
 }
@@ -25,7 +27,6 @@ async function openDb(): Promise<SqlDb> {
 }
 
 function makeStorageUri(): vscode.Uri {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('vscode').Uri.file('/tmp/traceroost-reader-test')
 }
 
@@ -163,6 +164,23 @@ suite('DatabaseReader', () => {
     assert.deepStrictEqual(row.toolCounts, card.toolCounts)
     assert.deepStrictEqual(row.filesRead, card.filesRead)
     assert.strictEqual(row.outcome, card.outcome)
+    db.close()
+  })
+
+  test('initiator survives the round trip through SQLite (agent, api, and unset)', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'init-agent', initiator: 'agent' }),
+      makeCard({ sessionId: 'init-api', initiator: 'api' }),
+      makeCard({ sessionId: 'init-user', initiator: 'user' }),
+      makeCard({ sessionId: 'init-unset' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const bySessionId = new Map(reader.listSessions().map(s => [s.sessionId, s]))
+    assert.strictEqual(bySessionId.get('init-agent')?.initiator, 'agent')
+    assert.strictEqual(bySessionId.get('init-api')?.initiator, 'api')
+    assert.strictEqual(bySessionId.get('init-user')?.initiator, 'user')
+    assert.strictEqual(bySessionId.get('init-unset')?.initiator, undefined)
     db.close()
   })
 })

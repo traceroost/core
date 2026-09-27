@@ -3,7 +3,8 @@ import * as fs from 'fs'
 import * as vscode from 'vscode'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarizers/summarizerTypes'
 import type { OneShotStats } from '../oneShotRate'
-import { lookupRates, calcTokenCostUsd } from '../pricing'
+import { lookupRates, calcAggregateTokenCostUsd } from '../pricing'
+import { sessionsVersion } from './sessionsVersion'
 
 export interface DailyStatRow {
   day: string              // 'YYYY-MM-DD'
@@ -21,6 +22,14 @@ export interface LifetimeStats {
   totalCostUsd: number
   oldestSessionMs: number
   newestSessionMs: number
+}
+
+/** Transport transparency stats for the Team panel — how many hashed traces this machine has
+ *  actually sent, over a few windows. Sourced from `trace_sends` (see schema.ts). */
+export interface TraceSendStats {
+  last5Min: number
+  lastHour: number
+  allTime: number
 }
 
 export interface SearchQuery {
@@ -58,8 +67,13 @@ export class DatabaseReader {
     private readonly storageUri: vscode.Uri,
   ) {}
 
+  /** Changes whenever the `sessions` table this reader reads is written (see sessionsVersion.ts). */
+  sessionsVersion(): number {
+    return sessionsVersion(this.db)
+  }
+
   listSessions(filter?: {
-    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode'
+    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
     since?: number
     limit?: number
   }): SessionSummaryCard[] {
@@ -91,7 +105,7 @@ export class DatabaseReader {
       return {
         sessionId:        col(row, 'session_id') as string,
         traceId:          col(row, 'trace_id') as string,
-        source:           col(row, 'source') as 'copilot' | 'claude_code' | 'codex' | 'opencode',
+        source:           col(row, 'source') as 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor',
         dataSource:       ((col(row, 'data_source') as string | null) ?? 'otel') as 'otel' | 'log',
         workspace:        (col(row, 'workspace') as string) ?? '',
         projectPath:      (col(row, 'project_path') as string | null) ?? undefined,
@@ -118,6 +132,7 @@ export class DatabaseReader {
         outcome:          (col(row, 'outcome') as 'text_response' | 'tool_calls' | 'unknown') ?? 'unknown',
         loopSignals:      this._parseJson(col(row, 'loop_signals') as string, []),
         oneShotStats:     this._parseJson<OneShotStats | undefined>(col(row, 'one_shot_stats') as string, undefined),
+        initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
         timeline:         [],
         backgroundSpans:  [],
       } satisfies SessionSummaryCard
@@ -295,14 +310,46 @@ export class DatabaseReader {
     }
   }
 
+  /** Windowed + lifetime counts of hashed traces this machine has sent to the cloud, as of `now`.
+   *  One row in `trace_sends` per drain batch, not per trace, so this sums `count` rather than
+   *  counting rows. */
+  queryTraceSendStats(now: number): TraceSendStats {
+    const sumSince = (since: number): number => {
+      const rows = this.db.exec(`SELECT COALESCE(SUM(count), 0) AS total FROM trace_sends WHERE sent_at >= ${since}`)
+      return (rows[0]?.values[0]?.[0] as number) ?? 0
+    }
+    return {
+      last5Min: sumSince(now - 5 * 60_000),
+      lastHour: sumSince(now - 60 * 60_000),
+      allTime:  sumSince(0),
+    }
+  }
+
   searchSessions(query: SearchQuery): { sessions: SessionSummaryCard[]; totalCount: number } {
     const conditions: string[] = ['is_sidechain = 0', "session_id NOT LIKE 'synth-%'"]
-    if (query.text)        conditions.push(`user_request LIKE '%${this._esc(query.text)}%'`)
-    if (query.source)      conditions.push(`source = '${this._esc(query.source)}'`)
-    if (query.model)       conditions.push(`model = '${this._esc(query.model)}'`)
-    if (query.since !== null && query.since !== undefined) conditions.push(`start_time >= ${query.since}`)
-    if (query.until !== null && query.until !== undefined) conditions.push(`start_time <= ${query.until}`)
-    if (query.minCostUsd !== null && query.minCostUsd !== undefined) conditions.push(`cost_usd >= ${query.minCostUsd}`)
+    // Matches prompt text, or a raw trace/session id pasted into the same box — the normalized
+    // display hash (formatTraceIdHash, media/src/hash.ts) can't be matched here since it's a
+    // pure client-side hash of whichever raw id a trace has; the webview's own client-side
+    // filter (state.ts) is what handles that case for the interactive trace list.
+    // The query arrives from the webview — every value is coerced before it reaches the SQL text:
+    // strings are quote-escaped (and LIKE wildcards made literal), numbers must be finite.
+    const finite = (v: unknown): number | null => {
+      if (v === null || v === undefined || v === '') return null
+      const n = Number(v)
+      return Number.isFinite(n) ? n : null
+    }
+    if (query.text) {
+      const t = this._esc(String(query.text)).replace(/[\\%_]/g, c => '\\' + c)
+      conditions.push(`(user_request LIKE '%${t}%' ESCAPE '\\' OR session_id LIKE '%${t}%' ESCAPE '\\' OR trace_id LIKE '%${t}%' ESCAPE '\\')`)
+    }
+    if (query.source)      conditions.push(`source = '${this._esc(String(query.source))}'`)
+    if (query.model)       conditions.push(`model = '${this._esc(String(query.model))}'`)
+    const since = finite(query.since)
+    const until = finite(query.until)
+    const minCostUsd = finite(query.minCostUsd)
+    if (since !== null) conditions.push(`start_time >= ${since}`)
+    if (until !== null) conditions.push(`start_time <= ${until}`)
+    if (minCostUsd !== null) conditions.push(`cost_usd >= ${minCostUsd}`)
 
     const where = 'WHERE ' + conditions.join(' AND ')
     const allowedOrder = new Set(['start_time', 'cost_usd', 'total_tokens', 'duration_ms', 'errors'])
@@ -310,8 +357,8 @@ export class DatabaseReader {
     // total_tokens is not a real column — compute it inline
     const orderExpr = orderCol === 'total_tokens' ? '(input_tokens + output_tokens)' : orderCol
     const dir = query.orderDir === 'ASC' ? 'ASC' : 'DESC'
-    const limit = query.limit ?? 50
-    const offset = query.offset ?? 0
+    const limit = Math.min(Math.max(Math.trunc(finite(query.limit) ?? 50), 0), 10_000)
+    const offset = Math.max(Math.trunc(finite(query.offset) ?? 0), 0)
 
     const countResults = this.db.exec(`SELECT COUNT(*) AS n FROM sessions ${where}`)
     const totalCount = (countResults[0]?.values[0]?.[0] as number) ?? 0
@@ -328,7 +375,7 @@ export class DatabaseReader {
       return {
         sessionId:        col(row, 'session_id') as string,
         traceId:          col(row, 'trace_id') as string,
-        source:           col(row, 'source') as 'copilot' | 'claude_code' | 'codex' | 'opencode',
+        source:           col(row, 'source') as 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor',
         dataSource:       ((col(row, 'data_source') as string | null) ?? 'otel') as 'otel' | 'log',
         workspace:        (col(row, 'workspace') as string) ?? '',
         projectPath:      (col(row, 'project_path') as string | null) ?? undefined,
@@ -355,6 +402,7 @@ export class DatabaseReader {
         outcome:          (col(row, 'outcome') as 'text_response' | 'tool_calls' | 'unknown') ?? 'unknown',
         loopSignals:      this._parseJson(col(row, 'loop_signals') as string, []),
         oneShotStats:     this._parseJson<OneShotStats | undefined>(col(row, 'one_shot_stats') as string, undefined),
+        initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
         timeline:         [],
         backgroundSpans:  [],
       } satisfies SessionSummaryCard
@@ -399,7 +447,7 @@ export class DatabaseReader {
     const sessionRawInput    = Math.max(0, sessionInput - sessionCacheRead - sessionCacheCreate)
     const sessionTotalTokens = sessionInput + sessionOutput
     const costPerToken = sessionTotalTokens > 0
-      ? calcTokenCostUsd(sessionRawInput, sessionCacheRead, sessionCacheCreate, sessionOutput, model) / sessionTotalTokens
+      ? calcAggregateTokenCostUsd(sessionRawInput, sessionCacheRead, sessionCacheCreate, sessionOutput, model) / sessionTotalTokens
       : 0
     const costPerHour = tokensPerMinute * 60 * costPerToken
 
@@ -414,7 +462,7 @@ export class DatabaseReader {
     const remainingMinutes = remainingTokens / tokensPerMinute
     const projectedTotal = sessionTotalTokens + remainingTokens
     const scale = projectedTotal / sessionTotalTokens
-    const projectedCost  = calcTokenCostUsd(
+    const projectedCost  = calcAggregateTokenCostUsd(
       Math.round(sessionRawInput    * scale),
       Math.round(sessionCacheRead   * scale),
       Math.round(sessionCacheCreate * scale),
@@ -461,12 +509,16 @@ export function openReadonlySnapshot(
   storagePath: string,
   storageUri: vscode.Uri,
   extensionPath: string,
+  sqlFactory?: { Database: new (data?: Buffer | Uint8Array) => unknown },
 ): DatabaseReader | null {
   const dbPath = path.join(storagePath, 'traceroost.db')
   try {
-    // sql.js has no bundled types; require is intentional (no ESM build available)
+    // dist/sql-wasm.js exports the async initSqlJs() factory, not an initialized module, so
+    // `new SQL.Database` on it always threw and this snapshot never opened. Callers pass the
+    // already-initialized factory from openDatabase() (TraceRoostDb.sqlFactory).
+    if (!sqlFactory) throw new Error(`sql.js is not initialized (${extensionPath})`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SQL = require(path.join(extensionPath, 'dist', 'sql-wasm.js')) as any
+    const SQL = sqlFactory as any
     const fileBuffer = fs.readFileSync(dbPath)
     const db = new SQL.Database(fileBuffer)
     return new DatabaseReader(db, storageUri)

@@ -32,7 +32,7 @@ export async function migrateGlobalStateToSqlite(
   log(`TraceRoost migration: migrating ${spans.length} spans from globalState to SQLite…`)
 
   const { sessions } = summarizeSpans(spans)
-  const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.toString() ?? ''
+  const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
 
   for (const card of sessions) {
     writer.enqueue(card, workspace)

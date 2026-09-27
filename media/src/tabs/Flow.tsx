@@ -453,7 +453,7 @@ export function FlowCanvas({ sess, height = 520 }: { sess: SessionSummaryCard; h
             if ((hn.inputTokens ?? 0) > 0 || (hn.outputTokens ?? 0) > 0)
               lines.push({ label: 'Tokens', value: (hn.inputTokens ?? 0).toLocaleString() + ' in → ' + (hn.outputTokens ?? 0).toLocaleString() + ' out' })
             if ((hn.costUsd ?? 0) > 0)
-              lines.push({ label: 'Cost', value: fmtUsd(hn.costUsd!) })
+              lines.push({ label: 'Estimated cost', value: fmtUsd(hn.costUsd!) })
             if (hn.durationMs) lines.push({ label: 'Duration', value: formatMs(hn.durationMs) })
             if (hn.action) lines.push({ label: 'Outcome', value: hn.action })
             if (hn.toolsUsed?.length) lines.push({ label: 'Tools used', value: hn.toolsUsed.slice(0, 5).join(', ') + (hn.toolsUsed.length > 5 ? ' +' + (hn.toolsUsed.length - 5) + ' more' : '') })

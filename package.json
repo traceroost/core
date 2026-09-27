@@ -2,7 +2,7 @@
   "name": "traceroost",
   "displayName": "TraceRoost - Agentic AI Monitoring & Observability",
   "description": "Agentic AI monitoring and observability — OTEL traces and local log file ingestion for Copilot, Claude Code, Codex, and OpenCode. VS Code extension, npx, and Docker.",
-  "version": "0.16.3",
+  "version": "0.17.0",
   "publisher": "traceroost",
   "license": "MIT",
   "repository": {
@@ -82,6 +82,18 @@
       {
         "command": "traceRoost.showStorageStats",
         "title": "TraceRoost: Show Storage Stats"
+      },
+      {
+        "command": "traceRoost.orgLink",
+        "title": "TraceRoost: Link This Machine to an Org (Cloud)"
+      },
+      {
+        "command": "traceRoost.orgStatus",
+        "title": "TraceRoost: Org Link Status (Cloud)"
+      },
+      {
+        "command": "traceRoost.orgLeave",
+        "title": "TraceRoost: Unlink (Cloud)"
       }
     ],
     "menus": {
@@ -199,7 +211,28 @@
   "bin": {
     "traceroost": "./standalone/cli.js"
   },
+  "files": [
+    "dist/*.js",
+    "dist/*.wasm",
+    "standalone/cli.js",
+    "standalone/server.js",
+    "standalone/cloud/LICENSE",
+    "media/*.js",
+    "media/*.css",
+    "media/*.svg",
+    "media/*.png",
+    "schema/*.json",
+    "walkthrough/*.md",
+    "scripts/configure-*.sh",
+    "scripts/configure-*.ps1",
+    "scripts/redact-spans.js",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
   "scripts": {
+    "prepare": "node -e \"try{if(!process.env.CI&&require('fs').existsSync('.git'))require('child_process').execFileSync('git',['config','core.hooksPath','.githooks'],{stdio:'ignore'})}catch{}\"",
     "vscode:prepublish": "pnpm run package",
     "prepublishOnly": "pnpm run package",
     "compile": "pnpm run check-types && pnpm run lint && node esbuild.js",
@@ -218,25 +251,33 @@
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "pnpm run check-types && pnpm run lint && node esbuild.js --production",
+    "package:core": "pnpm run check-types && pnpm run lint && node esbuild.js --production --edition=core && node scripts/check-edition.mjs core",
+    "build:core": "node esbuild.js --edition=core && node scripts/check-edition.mjs core --skip-manifest",
+    "check-edition": "node scripts/check-edition.mjs",
     "compile-tests": "tsc -p tsconfig.test.json",
+    "compile-tests:media": "tsc -p tsconfig.test.media.json",
+    "compile-tests:standalone": "tsc -p tsconfig.test.standalone.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "check-types": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json",
     "lint": "eslint src media/src",
     "test": "vscode-test",
-    "test:unit": "pnpm run compile-tests && mocha"
+    "test:unit": "pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && mocha",
+    "test:ux": "playwright test",
+    "test:ux:report": "playwright show-report"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.118.0",
     "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-electron": "^3.1.0",
     "esbuild": "^0.27.7",
     "eslint": "^9.39.4",
-    "mocha": "^10.8.2",
+    "mocha": "^11.7.5",
     "npm-run-all": "^4.1.5",
-    "playwright": "^1.60.0",
+    "playwright": "^1.63.0",
     "sharp": "^0.35.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.2"
@@ -245,8 +286,17 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@preact/signals": "^2.9.0",
     "clsx": "^2.1.1",
+    "dotenv": "^17.4.2",
     "fflate": "^0.8.3",
+    "jsonc-parser": "^3.3.1",
     "preact": "^10.29.1",
-    "sql.js": "^1.14.1"
+    "sql.js": "^1.14.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri": "^3.1.6",
+      "hono": "^4.12.25",
+      "ip-address": "^10.3.1"
+    }
   }
 }

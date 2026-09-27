@@ -3,7 +3,7 @@ import { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizerTypes
 import {
   getAttrStr, getAttrInt, nanoToMs, CLAUDE_WRITE_TOOLS, FULL_WRITE_TOOLS,
   extractResponseText, extractTokenCounts, normalizeUserRequest, getGenAiModel,
-  commonPathPrefix, findProjectRoot, rankModelsByWeight,
+  commonPathPrefix, findProjectRoot, rankModelsByWeight, isAbsoluteFilePath, fileBaseName,
 } from './helpers'
 
 function strOrUndef(v: unknown): string | undefined {
@@ -102,7 +102,7 @@ export function buildClaudeSessions(
                         content: strOrUndef(b.input.content),
                       })
                     } else if (toolN === 'Read') {
-                      filesRead.add(fp.split('/').pop() || fp)
+                      filesRead.add(fileBaseName(fp))
                     } else if (toolN === 'Glob' || toolN === 'Grep') {
                       filesSearched.add(String(b.input.pattern || b.input.query || fp))
                     }
@@ -169,7 +169,7 @@ export function buildClaudeSessions(
             const fp = args.file_path || args.filePath
             if (fp) {
               const fpStr = String(fp)
-              if (fpStr.startsWith('/')) { allAbsFilePaths.add(fpStr) }
+              if (isAbsoluteFilePath(fpStr)) { allAbsFilePaths.add(fpStr) }
               if (CLAUDE_WRITE_TOOLS.has(toolName)) {
                 filesChanged.add(fpStr)
                 if (FULL_WRITE_TOOLS.has(toolName)) filesWritten.add(fpStr)
@@ -181,7 +181,7 @@ export function buildClaudeSessions(
                   content: strOrUndef(args.content),
                 })
               } else if (toolName === 'Read') {
-                filesRead.add(fpStr.split('/').pop() || fpStr)
+                filesRead.add(fileBaseName(fpStr))
               } else if (toolName === 'Glob' || toolName === 'Grep') {
                 filesSearched.add(args.pattern || args.query || fpStr)
               }
@@ -191,7 +191,7 @@ export function buildClaudeSessions(
                 const efp = e.file_path || e.filePath
                 if (efp) {
                   const efpStr = String(efp)
-                  if (efpStr.startsWith('/')) { allAbsFilePaths.add(efpStr) }
+                  if (isAbsoluteFilePath(efpStr)) { allAbsFilePaths.add(efpStr) }
                   filesChanged.add(efpStr)
                   foundChangedPath = true
                   toolEditDetails.push({
@@ -209,13 +209,13 @@ export function buildClaudeSessions(
         if (!foundChangedPath) {
           const directFp = getAttrStr(child, 'file_path')
           if (directFp) {
-            if (directFp.startsWith('/')) { allAbsFilePaths.add(directFp) }
+            if (isAbsoluteFilePath(directFp)) { allAbsFilePaths.add(directFp) }
             if (CLAUDE_WRITE_TOOLS.has(toolName)) {
               filesChanged.add(directFp)
               if (FULL_WRITE_TOOLS.has(toolName)) filesWritten.add(directFp)
               foundChangedPath = true
             } else if (toolName === 'Read') {
-              filesRead.add(directFp.split('/').pop() || directFp)
+              filesRead.add(fileBaseName(directFp))
             } else if (toolName === 'Glob' || toolName === 'Grep') {
               filesSearched.add(directFp)
             }
@@ -280,18 +280,18 @@ export function buildClaudeSessions(
         fp = trArgsStr.trim()
       }
       if (fp) {
-        if (fp.startsWith('/')) { allAbsFilePaths.add(fp) }
+        if (isAbsoluteFilePath(fp)) { allAbsFilePaths.add(fp) }
         if (CLAUDE_WRITE_TOOLS.has(trToolName)) {
           filesChanged.add(fp)
           if (FULL_WRITE_TOOLS.has(trToolName)) filesWritten.add(fp)
-        } else if (trToolName === 'Read') { filesRead.add(fp.split('/').pop() || fp) }
+        } else if (trToolName === 'Read') { filesRead.add(fileBaseName(fp)) }
         else if (trToolName === 'Glob' || trToolName === 'Grep') { filesSearched.add(fp) }
       }
       for (const e of multiEdits) {
         const efp = e.file_path || e.filePath
         if (efp) {
           const efpStr = String(efp)
-          if (efpStr.startsWith('/')) { allAbsFilePaths.add(efpStr) }
+          if (isAbsoluteFilePath(efpStr)) { allAbsFilePaths.add(efpStr) }
           filesChanged.add(efpStr)
         }
       }
@@ -327,12 +327,28 @@ export function buildClaudeSessions(
         + `Claude Code redacts tool arguments by default. Add OTEL_LOG_TOOL_DETAILS=1 to your Claude environment variables (alongside CLAUDE_CODE_ENABLE_TELEMETRY=1) and restart to enable path tracking.`
       : undefined
 
+    // Claude Code stamps its own session id (the transcript's `sessionId`) on every span, usually
+    // via resource attributes; the interaction span may be synthesized without attributes, so
+    // take it from any span in the trace. It's the key the writer uses to keep this OTEL card and
+    // the same conversation's log card from both being counted — see claudeConversationKey.
+    const claudeSessionId = getAttrStr(interaction, 'session.id')
+      || traceSpans.map(s => getAttrStr(s, 'session.id')).find(Boolean)
+      || ''
+
     return {
       sessionId: interaction.spanId,
       traceId: interaction.traceId || '',
+      claudeSessionId: claudeSessionId || undefined,
       source: 'claude_code' as const,
       dataSource: 'otel' as const,
-      initiator: (interaction.parentSpanId || getAttrStr(interaction, 'is_sidechain') === 'true') ? 'agent' as const : 'user' as const,
+      // is_sidechain marks a turn spawned by the Task tool rather than typed by a human. The
+      // interaction span itself is often synthesized with no attributes of its own (see
+      // spanSummarizer.ts), so the real attribute — when Claude Code emits it — lives on the
+      // per-turn llm_request/tool children instead; check the whole trace, not just the root.
+      initiator: (interaction.parentSpanId
+        || getAttrStr(interaction, 'is_sidechain') === 'true'
+        || traceSpans.some(s => getAttrStr(s, 'is_sidechain') === 'true')
+      ) ? 'agent' as const : 'user' as const,
       workspace,
       userRequest,
       model,

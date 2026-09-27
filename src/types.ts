@@ -38,12 +38,24 @@ export type LoopSignalType =
   | 'token_runaway'
   | 'chronic_tool_failures'
   | 'context_flooding_risk'
-  | 'malformed_tool_call'
   // Detected post-hoc by src/sessionRiskSignals.ts, not by the real-time loopDetector.ts — a
   // session completing cleanly doesn't rule out these two, so they're checked on demand alongside
   // git-outcome classification rather than eagerly for every session. See that file's docstring.
   | 'hallucinated_import'
   | 'failed_check_submission'
+  // Added from the 2026-09-26 signal-catalog research pass (.staged-issues/signal-catalog-*.md,
+  // stages 01-04) — all real-time, computed by loopDetector.ts alongside the nine above.
+  | 'tool_call_cycle'
+  | 'file_reread'
+  | 'cache_miss'
+  | 'ttl_expiry'
+  | 'low_cache_hit_ratio'
+  | 'budget_overrun'
+  | 'model_tier_mismatch'
+  // Post-hoc, added from signal-catalog-05 (.staged-issues/
+  // signal-catalog-05-skipped-checks-and-rejected-edits.md) — detected by
+  // src/sessionRiskSignals.ts alongside hallucinated_import/failed_check_submission above.
+  | 'skipped_checks'
 
 export interface LoopSignal {
   type: LoopSignalType

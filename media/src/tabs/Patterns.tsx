@@ -1,10 +1,13 @@
-import { useState, useRef } from 'preact/hooks'
-import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter } from '../state'
-import { Instructions } from './Instructions'
+import { useState, useRef, useEffect } from 'preact/hooks'
+import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode } from '../state'
+import { Instructions, instructionFiles } from './Instructions'
 import { getAgentSourceLabel, formatSessionTime } from '../utils'
 import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
+import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
+import { SIGNAL_FORMULAS } from '../signalFormulas'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -16,7 +19,7 @@ const AGENT_DOT_COLOR: Record<string, string> = {
 function agentDotColor(source: string): string { return AGENT_DOT_COLOR[source] ?? '#888' }
 
 function sessionCost(s: SessionSummaryCard): number {
-  return calcSessionCost(s, s.source === 'copilot' ? 'token' : 'token').totalUsd
+  return calcSessionCost(s).totalUsd
 }
 
 function basename(p: string): string {
@@ -103,7 +106,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
           ))}
           <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
           <line x1={PAD.left} y1={PAD.top + ch} x2={PAD.left + cw} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
-          <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="10" fill="var(--muted)">Cost (USD)</text>
+          <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="10" fill="var(--muted)">Estimated cost (USD)</text>
           <text x={10} y={PAD.top + ch / 2} text-anchor="middle" font-size="10" fill="var(--muted)"
             transform={`rotate(-90,10,${PAD.top + ch / 2})`}>LLM calls</text>
           {xTicks.map(t => (
@@ -172,7 +175,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
                 <tr style="border-bottom:1px solid var(--border)">
                   <th style={thStyle('time')}   onClick={() => toggleSort('time')}>Start Time{arrow('time')}</th>
                   <th style={thStyle('prompt')} onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</th>
-                  <th style={`${thStyle('cost')};text-align:right`}  onClick={() => toggleSort('cost')}>Cost{arrow('cost')}</th>
+                  <th style={`${thStyle('cost')};text-align:right`}  onClick={() => toggleSort('cost')}>Estimated cost{arrow('cost')}</th>
                   <th style={`${thStyle('turns')};text-align:right`} onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</th>
                   <th style={`${thStyle('cache')};text-align:right`} onClick={() => toggleSort('cache')}>Cache hit{arrow('cache')}</th>
                 </tr>
@@ -201,138 +204,6 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
         )
       })()}
     </div>
-  )
-}
-
-// ── CLAUDE.md Tips ────────────────────────────────────────────────────────────
-
-function ClaudeMdTips({ sessions }: { sessions: SessionSummaryCard[] }) {
-  const [copied, setCopied] = useState<string | null>(null)
-  const total = sessions.length || 1
-
-  const fileMap = new Map<string, number>()
-  for (const s of sessions) {
-    const seen = new Set([...(s.filesRead ?? []), ...(s.filesChanged ?? [])])
-    for (const f of seen) fileMap.set(f, (fileMap.get(f) ?? 0) + 1)
-  }
-  const hotFiles = [...fileMap.entries()]
-    .filter(([, n]) => n / total >= 0.4)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([file, n]) => ({ file, pct: Math.round(n / total * 100) }))
-
-  const sigMap = new Map<string, number>()
-  for (const s of sessions) {
-    for (const sig of s.loopSignals ?? []) sigMap.set(sig.type, (sigMap.get(sig.type) ?? 0) + 1)
-  }
-  const freqSignals = [...sigMap.entries()].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1])
-
-  const refactorSess = sessions.filter(s => /refactor|clean up|improve/i.test(s.userRequest ?? ''))
-  const scopedSess   = sessions.filter(s => /in\s+(src|file|function|the)\b/i.test(s.userRequest ?? ''))
-  const refactorAvg  = refactorSess.length > 1 ? refactorSess.reduce((a, s) => a + sessionCost(s), 0) / refactorSess.length : 0
-  const scopedAvg    = scopedSess.length > 1   ? scopedSess.reduce((a, s) => a + sessionCost(s), 0)   / scopedSess.length   : 0
-
-  const copy = (text: string, key: string) => {
-    navigator.clipboard.writeText(text).then(() => { setCopied(key); setTimeout(() => setCopied(null), 2000) })
-  }
-
-  const suggestions: Array<{ key: string; text: string; copy: string }> = []
-
-  for (const { file, pct } of hotFiles) {
-    suggestions.push({
-      key: file,
-      text: `"${basename(file)}" appears in ${pct}% of traces — add a reference so the agent finds it without searching.`,
-      copy: `# ${basename(file)} (${file})`,
-    })
-  }
-
-  if (freqSignals.length > 0) {
-    const [type, count] = freqSignals[0]
-    const label = type === 'exact_tool_repeat' ? 'tool call loops'
-      : type === 'runaway_steps' ? 'runaway turn counts'
-      : type.replace(/_/g, ' ')
-    suggestions.push({
-      key: 'signals',
-      text: `"${label}" appeared in ${count} traces — add scope guidance to prevent open-ended tasks.`,
-      copy: `# Scope guidance\nKeep tasks narrowly scoped. Name specific files and functions. Define a stopping condition.`,
-    })
-  }
-
-  if (refactorAvg > 0 && scopedAvg > 0 && refactorAvg > scopedAvg * 1.5) {
-    suggestions.push({
-      key: 'refactor',
-      text: `Prompts with "refactor"/"clean up" average ${fmtUsd(refactorAvg)} vs ${fmtUsd(scopedAvg)} for scoped prompts — ${Math.round(refactorAvg / scopedAvg)}× more expensive.`,
-      copy: `# Prefer scoped prompts\nAvoid "refactor" or "clean up" without explicit scope. Specify files, functions, and what done looks like.`,
-    })
-  }
-
-  if (suggestions.length === 0) {
-    return <div class="empty-state" style="padding:20px">No strong recommendations yet — patterns will emerge with more traces.</div>
-  }
-
-  return (
-    <div style="display:flex;flex-direction:column;gap:8px">
-      {suggestions.map(s => (
-        <div key={s.key} style="background:var(--card-bg);border:1px solid var(--border);border-radius:5px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px">
-          <div style="flex:1;font-size:12px;color:var(--muted);line-height:1.5">{s.text}</div>
-          <button onClick={() => copy(s.copy, s.key)}
-            style="flex-shrink:0;font-size:10px;padding:3px 9px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap">
-            {copied === s.key ? '✓ Copied' : 'Copy line'}
-          </button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Cost Trend ────────────────────────────────────────────────────────────────
-
-function CostTrend({ sessions }: { sessions: SessionSummaryCard[] }) {
-  const dayMap = new Map<string, { cost: number; n: number }>()
-  for (const s of sessions) {
-    if (!s.startTime) continue
-    const day = s.startTime.slice(0, 10)
-    const e = dayMap.get(day) ?? { cost: 0, n: 0 }
-    e.cost += sessionCost(s); e.n++
-    dayMap.set(day, e)
-  }
-  const days = [...dayMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-
-  if (days.length < 2) return (
-    <div class="empty-state" style="padding:20px">Not enough data — trend appears after 2+ days of traces.</div>
-  )
-
-  const W = 560, H = 140, PAD = { top: 12, right: 16, bottom: 28, left: 52 }
-  const cw = W - PAD.left - PAD.right
-  const ch = H - PAD.top - PAD.bottom
-
-  const maxCost = Math.max(...days.map(([, v]) => v.cost), 0.01)
-  const xPos = (i: number)    => PAD.left + (i / (days.length - 1)) * cw
-  const yPos = (cost: number) => PAD.top  + ch - (cost / maxCost) * ch
-
-  const points = days.map(([, v], i) => ({ x: xPos(i), y: yPos(v.cost), cost: v.cost }))
-  const polyline = points.map(p => `${p.x},${p.y}`).join(' ')
-
-  return (
-    <svg width={W} height={H} style="overflow:visible;max-width:100%;display:block">
-      {[0, 0.5, 1].map(f => {
-        const y = PAD.top + ch - f * ch
-        return <line key={f} x1={PAD.left} y1={y} x2={PAD.left + cw} y2={y} stroke="var(--border)" stroke-width="1" />
-      })}
-      <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + ch} stroke="var(--border)" />
-      <line x1={PAD.left} y1={PAD.top + ch} x2={PAD.left + cw} y2={PAD.top + ch} stroke="var(--border)" />
-      <text x={PAD.left - 4} y={PAD.top + 4} text-anchor="end" font-size="9" fill="var(--muted)">{fmtUsd(maxCost)}</text>
-      <text x={PAD.left - 4} y={PAD.top + ch / 2 + 4} text-anchor="end" font-size="9" fill="var(--muted)">{fmtUsd(maxCost / 2)}</text>
-      <text x={PAD.left - 4} y={PAD.top + ch + 4} text-anchor="end" font-size="9" fill="var(--muted)">$0</text>
-      <text x={PAD.left} y={PAD.top + ch + 16} text-anchor="start" font-size="9" fill="var(--muted)">{days[0][0].slice(5)}</text>
-      <text x={PAD.left + cw} y={PAD.top + ch + 16} text-anchor="end" font-size="9" fill="var(--muted)">{days[days.length - 1][0].slice(5)}</text>
-      <polygon
-        points={`${PAD.left},${PAD.top + ch} ${polyline} ${PAD.left + cw},${PAD.top + ch}`}
-        fill="rgba(79,195,247,0.1)"
-      />
-      <polyline points={polyline} fill="none" stroke="var(--accent)" stroke-width="1.5" />
-      {points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={3} fill="var(--accent)" />)}
-    </svg>
   )
 }
 
@@ -425,6 +296,110 @@ function HotFiles({ sessions }: { sessions: SessionSummaryCard[] }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+// Same stroke-icon convention as ../signalIcons.tsx (24x24 viewBox, stroke-width 2, 13x13
+// rendered) rather than emoji, for the two action kinds that aren't loop signals and so have no
+// icon of their own in the traces table's Signals column. Path data adapted from Lucide
+// (lucide.dev, ISC license): zap / file-text.
+function IconZap({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+    </svg>
+  )
+}
+
+function IconFileText({ color }: { color: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M10 9H8" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+    </svg>
+  )
+}
+
+// Loop-signal actions draw the exact same glyph the traces table's Signals column uses for that
+// pattern (same convention as Insights.tsx's InsightIcon) so "how to spend less" and the Signals
+// column always agree on what a given struggle pattern looks like. Non-loop kinds get a plain
+// neutral icon since they have no traces-table equivalent.
+function ActionIcon({ a }: { a: CostSavingAction }) {
+  if (a.kind === 'loop_signal') {
+    const iconType = a.loopSignalType ? LOOP_SIGNAL_ICON_TYPE[a.loopSignalType] : undefined
+    const Icon = iconType ? SIGNAL_ICON[iconType] : undefined
+    if (Icon) return <Icon color={SIGNAL_SEVERITY_COLOR[a.loopSignalSeverity ?? 'warning']} />
+  }
+  if (a.kind === 'cache_rate') return <IconZap color="var(--fg)" />
+  return <IconFileText color="var(--fg)" />
+}
+
+// Loop-signal rows get the same bold-heading-plus-"What to do" hover as the Signals column's own
+// icon tooltip (Sessions.tsx's SignalsCell) — reusing SIGNAL_FORMULAS' short/tip fields rather than
+// the full LOOP_SIGNAL_ACTIONS paragraph already shown inline below the icon. Other kinds (cache
+// rate, hot file) have no per-signal formula to draw from, so they're left without a tooltip.
+function actionTipFor(a: CostSavingAction): string | null {
+  if (a.kind !== 'loop_signal' || !a.loopSignalType) return null
+  const f = SIGNAL_FORMULAS[a.loopSignalType]
+  if (!f) return null
+  return `<b>${a.title}</b>\n${f.short}\n<b>What to do:</b> ${f.tip}`
+}
+
+/** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
+ *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
+ *  See .staged-issues/value-prop-and-cost-savings.md, Step 1. */
+function SaveMoneyCard({ sessions }: { sessions: SessionSummaryCard[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const workspace = currentWorkspace.value
+
+  useEffect(() => {
+    if (workspace !== null && vscode) {
+      vscode.postMessage({ type: 'getInstructionFiles', workspace })
+    }
+  }, [workspace])
+
+  const existingText = instructionFiles.value.map(f => f.content).join('\n')
+  const actions = getCostSavingActions(sessions, existingText)
+  if (actions.length === 0) return null
+
+  const shown = expanded ? actions : actions.slice(0, 3)
+
+  return (
+    <section>
+      <h3 style={sectionHead}>How to spend less</h3>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        {shown.map(a => {
+          const tip = actionTipFor(a)
+          return (
+            <div key={a.id} style="display:flex;gap:8px;align-items:flex-start;font-size:12px">
+              <span
+                style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0;margin-top:2px"
+                {...(tip ? { title: tip, 'data-tip-html': true } : {})}
+              >
+                <ActionIcon a={a} />
+              </span>
+              <div>
+                <div style="font-weight:600">{a.title}</div>
+                <div style="color:var(--muted);margin:2px 0">{a.evidence}</div>
+                <div>{a.action}</div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {actions.length > 3 && (
+        <button
+          class="btn-link"
+          style="margin-top:8px;font-size:11px"
+          onClick={() => setExpanded(e => !e)}
+        >
+          {expanded ? 'Show fewer' : `Show ${actions.length - 3} more`}
+        </button>
+      )}
+    </section>
+  )
+}
+
 export function Patterns() {
   const sessions = filteredSessions.value
 
@@ -436,6 +411,10 @@ export function Patterns() {
 
   return (
     <div id="patterns-content" style="padding-top:8px">
+      <SaveMoneyCard sessions={sessions} />
+
+      {divider}
+
       <section>
         <h3 style={sectionHead}>Instructions File</h3>
         <Instructions />

@@ -1,5 +1,8 @@
 import * as assert from 'assert'
-import { mergeSessions, resolveWorkspacesFromLogs } from '../../sessionRepository'
+import { mergeSessions, resolveWorkspacesFromLogs, SessionRepository, MAX_SESSIONS_TO_WEBVIEW } from '../../sessionRepository'
+import type { DatabaseReader } from '../../database/reader'
+import type { DatabaseWriter } from '../../database/writer'
+import type { SessionStore } from '../../sessionStore'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 function makeCard(id: string, startTime: string, overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCard {
@@ -16,6 +19,14 @@ function makeCard(id: string, startTime: string, overrides: Partial<SessionSumma
 }
 
 suite('mergeSessions', () => {
+  test('a stored card with more calls beats a partial live card of the same session', () => {
+    const db = [makeCard('s1', '2024-01-01T00:00:00.000Z', { totalLlmCalls: 40, totalToolCalls: 30, model: 'db-model' })]
+    const live = [makeCard('s1', '2024-01-01T00:00:00.000Z', { totalLlmCalls: 3, totalToolCalls: 2, model: 'live-model' })]
+    const result = mergeSessions(db, live)
+    assert.strictEqual(result.length, 1)
+    assert.strictEqual(result[0].model, 'db-model')
+  })
+
   test('live sessions win on conflict with the same sessionId', () => {
     const db = [makeCard('s1', '2024-01-01T00:00:00.000Z', { model: 'db-model' })]
     const live = [makeCard('s1', '2024-01-01T00:00:00.000Z', { model: 'live-model' })]
@@ -113,5 +124,110 @@ suite('resolveWorkspacesFromLogs', () => {
 
   test('no-op when session list is empty', () => {
     assert.doesNotThrow(() => resolveWorkspacesFromLogs([]))
+  })
+})
+
+suite('SessionRepository — MAX_SESSIONS_TO_WEBVIEW safety valve', () => {
+  function fakeReader(count: number): DatabaseReader {
+    const sessions = Array.from({ length: count }, (_, i) =>
+      makeCard(`s${i}`, new Date(2024, 0, 1, 0, 0, i).toISOString())
+    )
+    return { listSessions: () => sessions, sessionsVersion: () => 0 } as unknown as DatabaseReader
+  }
+  const noopWriter = {} as unknown as DatabaseWriter
+  const emptyStore = { getSpans: () => [], version: 0 } as unknown as SessionStore
+
+  test('an unfiltered call below the cap returns everything', () => {
+    const repo = new SessionRepository(fakeReader(10), noopWriter, emptyStore)
+    assert.strictEqual(repo.listSessions().length, 10)
+  })
+
+  test('an unfiltered call above the cap is truncated to MAX_SESSIONS_TO_WEBVIEW', () => {
+    const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 500), noopWriter, emptyStore)
+    assert.strictEqual(repo.listSessions().length, MAX_SESSIONS_TO_WEBVIEW)
+  })
+
+  test('truncation keeps the most recent sessions, not an arbitrary slice', () => {
+    const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 500), noopWriter, emptyStore)
+    const result = repo.listSessions()
+    // mergeSessions sorts newest-first, so the kept slice should be the last-created (highest index) sessions.
+    assert.strictEqual(result[0].sessionId, `s${MAX_SESSIONS_TO_WEBVIEW + 499}`)
+  })
+
+  test('an explicit caller-supplied limit smaller than the cap is still honored', () => {
+    const repo = new SessionRepository(fakeReader(100), noopWriter, emptyStore)
+    assert.strictEqual(repo.listSessions({ limit: 25 }).length, 25)
+  })
+
+  test('limit: Infinity bypasses the safety cap entirely — the reconcile path needs every local session', () => {
+    const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 500), noopWriter, emptyStore)
+    assert.strictEqual(repo.listSessions({ limit: Infinity }).length, MAX_SESSIONS_TO_WEBVIEW + 500)
+  })
+
+  test('logs when the safety cap (not a caller limit) truncates the list', () => {
+    const messages: string[] = []
+    const repo = new SessionRepository(fakeReader(MAX_SESSIONS_TO_WEBVIEW + 1), noopWriter, emptyStore, (m) => messages.push(m))
+    repo.listSessions()
+    assert.ok(messages.some(m => m.includes('safety cap')))
+  })
+
+  test('does not log when a caller-supplied limit (not the safety cap) truncates the list', () => {
+    const messages: string[] = []
+    const repo = new SessionRepository(fakeReader(100), noopWriter, emptyStore, (m) => messages.push(m))
+    repo.listSessions({ limit: 25 })
+    assert.strictEqual(messages.length, 0)
+  })
+})
+
+suite('SessionRepository — listSessions memo', () => {
+  function fixture() {
+    const state = { dbVersion: 0, storeVersion: 0, reads: 0, rows: [makeCard('a', '2024-01-01T00:00:00.000Z'), makeCard('b', '2024-01-02T00:00:00.000Z')] }
+    const reader = {
+      listSessions: (f?: { limit?: number }) => { state.reads++; return state.rows.slice(0, f?.limit ?? Infinity).map(r => ({ ...r })) },
+      sessionsVersion: () => state.dbVersion,
+    } as unknown as DatabaseReader
+    const store = { getSpans: () => [], get version() { return state.storeVersion } } as unknown as SessionStore
+    return { state, repo: new SessionRepository(reader, {} as unknown as DatabaseWriter, store) }
+  }
+
+  test('identical calls between data changes read the database once and return equal results', () => {
+    const { state, repo } = fixture()
+    const first = repo.listSessions()
+    const second = repo.listSessions()
+    assert.strictEqual(state.reads, 1)
+    assert.deepStrictEqual(second, first)
+    assert.strictEqual(second[0], first[0])
+  })
+
+  test('each call gets its own array, so a caller reordering it cannot affect another caller', () => {
+    const { repo } = fixture()
+    const first = repo.listSessions()
+    first.reverse()
+    assert.deepStrictEqual(repo.listSessions().map(s => s.sessionId), ['b', 'a'])
+  })
+
+  test('different filters are cached separately', () => {
+    const { state, repo } = fixture()
+    assert.strictEqual(repo.listSessions({ limit: 1 }).length, 1)
+    assert.strictEqual(repo.listSessions().length, 2)
+    assert.strictEqual(repo.listSessions({ limit: 1 }).length, 1)
+    assert.strictEqual(state.reads, 2)
+  })
+
+  test('a sessions-table write invalidates the memo', () => {
+    const { state, repo } = fixture()
+    repo.listSessions()
+    state.rows.push(makeCard('c', '2024-01-03T00:00:00.000Z'))
+    state.dbVersion++
+    assert.deepStrictEqual(repo.listSessions().map(s => s.sessionId), ['c', 'b', 'a'])
+    assert.strictEqual(state.reads, 2)
+  })
+
+  test('a live span-window change invalidates the memo', () => {
+    const { state, repo } = fixture()
+    repo.listSessions()
+    state.storeVersion++
+    repo.listSessions()
+    assert.strictEqual(state.reads, 2)
   })
 })

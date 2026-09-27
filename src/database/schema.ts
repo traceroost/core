@@ -1,3 +1,117 @@
+/**
+ * The three tables backing the Outcomes tab's caching (AL 05/06) — attribution, cohort turnover,
+ * and the per-file blame cache. Exported on its own, separately from SCHEMA_SQL, so the standalone
+ * server can open a small dedicated database with just these tables rather than the full
+ * sessions/timelines/instructions schema it has no other use for (it persists those as JSON, not
+ * SQLite — see standalone/db/outcomesDb.ts).
+ */
+export const OUTCOMES_SCHEMA_SQL = `
+-- AI authorship attribution cache (AL 05). A commit's attribution never changes once computed,
+-- so this is written once per commit for the life of the install. Keyed by repo_root + sha.
+-- Holds only counts and an enum — never commit message text, never blame output.
+CREATE TABLE IF NOT EXISTS commit_attribution (
+  repo_root      TEXT NOT NULL,
+  sha            TEXT NOT NULL,
+  authored_at    TEXT NOT NULL,
+  lines_added    INTEGER NOT NULL DEFAULT 0,
+  lines_removed  INTEGER NOT NULL DEFAULT 0,
+  ai_lines       INTEGER NOT NULL DEFAULT 0,
+  attribution    TEXT NOT NULL DEFAULT 'unknown',
+  session_ids    TEXT NOT NULL DEFAULT '[]',
+  is_merge       INTEGER NOT NULL DEFAULT 0,
+  computed_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  PRIMARY KEY (repo_root, sha)
+);
+
+-- Cohort turnover report (AL 06), one row per repository. Recomputed only when HEAD has moved —
+-- the row records the HEAD sha it was computed at. Holds counts and a rate; nothing reversible.
+CREATE TABLE IF NOT EXISTS cohort_turnover (
+  repo_root     TEXT PRIMARY KEY,
+  head_sha      TEXT NOT NULL,
+  report_json   TEXT NOT NULL,
+  computed_at   INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
+
+-- Per-file blame cache for the survival index (AL 06) — the expensive part of turnover is one
+-- git-blame subprocess per file at HEAD, aggregated by originating commit. A single new commit
+-- used to invalidate all of it (cohort_turnover is all-or-nothing, keyed by HEAD sha); this table
+-- makes that incremental — a file is only re-blamed when its blob_sha (content) actually changed.
+-- Holds only counts keyed by commit sha, same privacy posture as commit_attribution: never blame
+-- output, never file content.
+CREATE TABLE IF NOT EXISTS file_blame (
+  repo_root    TEXT NOT NULL,
+  file_path    TEXT NOT NULL,
+  blob_sha     TEXT NOT NULL,
+  origins_json TEXT NOT NULL,
+  computed_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  PRIMARY KEY (repo_root, file_path)
+);
+
+-- Per-session git-outcome classification (productive/reverted/abandoned/ambiguous) shown as the
+-- Sessions tab's outcome pill (gitOutcome.ts). Shelling out to git per changed file is the
+-- expensive part, so this follows cohort_turnover's convention: recomputed only when the repo's
+-- HEAD has moved since the stored row, not on every restart. Holds only counts/enums, never diff
+-- or file content.
+CREATE TABLE IF NOT EXISTS git_outcome (
+  session_id   TEXT PRIMARY KEY,
+  repo_root    TEXT NOT NULL,
+  head_sha     TEXT NOT NULL,
+  overall      TEXT NOT NULL,
+  files_json   TEXT NOT NULL DEFAULT '{}',
+  reason       TEXT NOT NULL DEFAULT '',
+  computed_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
+
+-- What each session's git_outcome cache key (resolveOutcomeCacheKey) was last built from: the HEAD
+-- and trunk-tip shas its pass read once per repo root, a hash of its in-repo file list, and the
+-- resulting "git log -1 <head> -- <files>" sha. A later pass whose root HEAD and file list are
+-- unchanged reuses file_sha instead of spawning git per session. The working-tree digest part of
+-- the key is always recomputed from disk. Holds only the repo root, shas and hashes -- never file
+-- paths or content.
+CREATE TABLE IF NOT EXISTS git_outcome_key (
+  session_id     TEXT PRIMARY KEY,
+  repo_root      TEXT NOT NULL,
+  head_sha       TEXT NOT NULL,
+  trunk_sha      TEXT NOT NULL,
+  rel_paths_hash TEXT NOT NULL,
+  file_sha       TEXT NOT NULL,
+  cache_key      TEXT NOT NULL,
+  computed_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
+
+-- Canonical trace revision (staged feature 10, Stage 1, generalized). One durable monotonic
+-- revision number per session, allocated when either of two independent dimensions changes:
+-- the classified git outcome (fingerprint/outcome_overall, written by recordCheck) or the
+-- content of the full allowlisted cloud-forwarded projection (payload_hash, written by
+-- recordPayloadHash -- see reconcile/payloadHash.ts). A reparse of identical evidence on either
+-- dimension updates checked_at only, so it never creates forwarding work or a false
+-- "something changed" signal. fingerprint is git_outcome's own cache key (resolveOutcomeCacheKey)
+-- at the time the outcome dimension was last recorded. payload_hash is a canonical sha256 of the
+-- last-hashed SessionRollup (excluding its own revision field). Either write preserves the other
+-- dimension's stored value -- see traceRevisionRepository.ts. Lifecycle is reserved for future
+-- active/idle/completed tracking; this pass only ever writes 'active'.
+CREATE TABLE IF NOT EXISTS trace_revision (
+  session_id         TEXT PRIMARY KEY,
+  revision           INTEGER NOT NULL,
+  lifecycle          TEXT    NOT NULL DEFAULT 'active',
+  fingerprint         TEXT    NOT NULL,
+  outcome_overall     TEXT,
+  payload_hash        TEXT,
+  checked_at          INTEGER NOT NULL,
+  changed_at          INTEGER NOT NULL
+);
+
+-- Single global monotonic counter backing trace_revision.revision. One process (the editor's
+-- extension host, or the standalone server) owns its own on-disk database and therefore its own
+-- counter -- there is deliberately no attempt here to serialize revision allocation *across* the
+-- two processes when both are pointed at the same workspace; see reconciliationService.ts's doc
+-- comment for why that is out of scope for the current sql.js-backed storage layer.
+CREATE TABLE IF NOT EXISTS trace_revision_counter (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  next INTEGER NOT NULL DEFAULT 1
+);
+`
+
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -22,6 +136,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   errors              INTEGER NOT NULL DEFAULT 0,
   outcome             TEXT    NOT NULL DEFAULT 'unknown',
   is_sidechain        INTEGER NOT NULL DEFAULT 0,
+  initiator           TEXT,
   speed               TEXT,
   user_request        TEXT    NOT NULL DEFAULT '',
   tool_counts         TEXT    NOT NULL DEFAULT '{}',
@@ -35,6 +150,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   data_source         TEXT    NOT NULL DEFAULT 'otel',
   models              TEXT    NOT NULL DEFAULT '[]',
   one_shot_stats      TEXT    NOT NULL DEFAULT '{}',
+  conversation_id     TEXT,
   created_at          INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
 );
 
@@ -103,4 +219,19 @@ CREATE TABLE IF NOT EXISTS instruction_dismissed (
 );
 
 CREATE INDEX IF NOT EXISTS idx_instruction_dismissed_workspace ON instruction_dismissed (workspace);
+
+-- One row per successful forwarding drain (the Pro upload sender's recordSent), not per trace —
+-- a drain can send up to batchLimit (200) items in one round trip, so this stores the batch's
+-- count rather than inserting once per item. Backs the Team panel's "hashed traces sent" transport
+-- stats (last 5 min / last hour / all time): summing count where sent_at is within a window gives
+-- an exact count with one row per drain instead of one per trace, at negligible size long-term.
+CREATE TABLE IF NOT EXISTS trace_sends (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  sent_at INTEGER NOT NULL,
+  count   INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_trace_sends_sent_at ON trace_sends (sent_at);
+
+${OUTCOMES_SCHEMA_SQL}
 `

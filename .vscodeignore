@@ -1,9 +1,12 @@
 .vscode/**
 .vscode-test/**
 .github/**
+.staged-issues/**
+.staged-features/**
 out/**
 node_modules/**
 src/**
+packages/**
 .gitignore
 .yarnrc
 .mocharc.cjs
@@ -19,3 +22,31 @@ pnpm-lock.yaml
 media/demo.gif
 vsce-identity.json
 .staged-issues/**
+# Dev-only sources, docs and tooling — the VSIX needs only dist/, media/'s built assets,
+# walkthrough/, schema/ and the top-level README/CHANGELOG/LICENSE/NOTICE. (vsce ignores
+# package.json's `files` allowlist when this file exists, so exclusions go here.)
+media/src/**
+demo/**
+runbooks/**
+.githooks/**
+scripts/build-brand.mjs
+scripts/check-edition.mjs
+scripts/prepare-edition.mjs
+.package.json.edition-backup
+.vscodeignore.edition-backup
+scripts/security-review/**
+CLAUDE.md
+ARCHITECTURE.md
+CLOUD_ARCHITECTURE.md
+DEMO.md
+TEST_DATA.md
+PRICING_SOURCES.md
+Dockerfile
+.dockerignore
+.env.example
+.npmignore
+.markdownlint.json
+.markdownlintignore
+cspell.json
+pnpm-workspace.yaml
+tsconfig.*.json

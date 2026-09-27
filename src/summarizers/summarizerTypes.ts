@@ -4,10 +4,14 @@ import type { OneShotStats } from '../oneShotRate'
 export interface SessionSummaryCard {
   sessionId: string
   traceId: string
-  source: 'copilot' | 'claude_code' | 'codex' | 'opencode'
+  source: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
   conversationId?: string
+  /** Claude Code's own session id (its OTEL `session.id`, and the `sessionId` field of every
+   *  transcript line) when known. Only used to keep the OTEL and log copies of the same Claude
+   *  session from both being stored — see database/writer.ts's claudeConversationKey. */
+  claudeSessionId?: string
   workspace: string
   projectPath?: string
   userRequest: string

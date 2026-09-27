@@ -11,24 +11,27 @@
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. Nothing leaves your machine.
 
-TraceRoost receives **OpenTelemetry traces** from Copilot, Claude Code, and Codex in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
+TraceRoost receives **OpenTelemetry traces** from Copilot, Claude Code, and Codex in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** and Cursor CLI's transcript files — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
 
 Two things it does that a usage dashboard doesn't:
 
-- **Catches agents that are stuck.** Ten named loop and malfunction patterns — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--malfunction-detection)
+- **Catches agents that are stuck.** Nine named signals — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--signals)
 - **Tells you what to fix in your instructions file.** The Advisor reads across traces and suggests concrete additions to your CLAUDE.md or AGENTS.md — including hot files the agent rediscovers from scratch on every run. [More →](#features)
 
 **Quick start:**
 
+The recommended way to run TraceRoost is as a background service — it starts automatically and keeps running without a terminal open, so incoming OTEL data from your agents is never silently lost:
+
 ```bash
-npx traceroost@latest
+npx traceroost@latest service install
 ```
 
-Open <http://localhost:3000> — that's it. Running it in a terminal only lasts until you close it, though: if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry. Once you've kicked the tires, install it as a background service so nothing gets missed:
+Open <http://localhost:3000> — that's it. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or manage it later (`traceroost service status`, `service stop`, `service uninstall`, etc.).
+
+Just want a quick look first? Run it directly in a terminal instead — closing the terminal stops it, and if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry:
 
 ```bash
-npx traceroost@latest service install    # runs from now on, no terminal needed
-traceroost service uninstall             # remove it later
+npx traceroost@latest
 ```
 
 See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker options.
@@ -42,11 +45,12 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
     - [Codex CLI](#codex-cli)
     - [GitHub Copilot](#github-copilot)
     - [OpenCode](#opencode)
+    - [Cursor CLI](#cursor-cli)
 - [Cost Estimation](#cost-estimation)
 - [Exporting and Importing Trace Data](#exporting-and-importing-trace-data)
   - [Export](#export)
   - [Import](#import)
-- [Recommendations \& Malfunction Detection](#recommendations--malfunction-detection)
+- [Recommendations \& Signals](#recommendations--signals)
 - [Ways to Run](#ways-to-run)
   - [Local (OTEL and log files)](#local-otel-and-log-files)
   - [VS Code Extension (OTEL and log files)](#vs-code-extension-otel-and-log-files)
@@ -73,14 +77,14 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 ## Features
 
 - **OpenTelemetry collection** — Built-in OTEL receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; auto-configured on first activation
-- **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, and Copilot, and OpenCode's SQLite database — backfilling history when OTEL isn't configured (VS Code-family IDEs and native process only)
+- **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, and Cursor CLI, and OpenCode's SQLite database — backfilling history when OTEL isn't configured (VS Code-family IDEs and native process only)
 - **Traces Table** — Drill into any trace: expand a row to see a full span waterfall, turn-to-tool flow graph, tool distribution chart, and modified files — all without leaving the trace list
 - **Files Changed** — The Files sub-tab tracks every file created or modified by a trace, organized with inline before/after diffs. (VS Code extension only) A git-outcome banner then classifies each file as Committed, Reverted, or left Uncommitted by comparing against local git history after the fact — answers "did this trace's changes actually survive?" (not available in Docker mode — same host git-repo access limitation as log file ingestion)
 - **One-shot / Retry Rate** — Tracks what fraction of edited files reached their final state in a single edit pass vs. needed retries, per trace (Files sub-tab) and aggregated per-agent in Analytics — a proxy for correction effort
 - **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, and top tools for Copilot, Claude, and Codex), estimated cost with a daily total overlay, token usage per trace, and context growth
 - **Advisor** — Project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Select a specific project from the filter for tailored suggestions; all-projects view surfaces only universal patterns.
-- **Cost Estimation** — Estimates trace cost for Copilot (three billing models), Claude Code, and Codex, broken down by model in a day-grouped table
-- **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and ten loop/malfunction patterns with suggested prompts to correct course
+- **Cost Estimation** — Estimates trace cost for Copilot, Claude Code, and Codex (all token-based), broken down by model in a day-grouped table
+- **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and sixteen signals with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for turns, errors, active time, repeat tool calls, and estimated daily cost — per-agent or shared
 - **Automated Prompts** — The gear-icon Settings panel's Automation section configures threshold-based automations (Loop Breaker, Turn Limit Wrap-up, Context Dump) that trigger a correction prompt when a trace crosses a limit — delivered as a VS Code notification or written to a file for agent consumption
 - **Export** — Export filtered traces as JSON, CSV, or Markdown (full or redacted); respects the active agent, source, time range, and text filters
@@ -108,8 +112,9 @@ TraceRoost also reads the local log files that Claude Code, Codex, Copilot CLI, 
 | **Copilot CLI** | `~/.copilot/session-state/<session>/events.jsonl` | `%USERPROFILE%\.copilot\session-state\...` |
 | **Copilot Chat** | `~/Library/Application Support/<IDE>/User/workspaceStorage/…/chatSessions/` | `%APPDATA%\<IDE>\User\workspaceStorage\…\chatSessions\` |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | `%APPDATA%\opencode\opencode.db` |
+| **Cursor CLI** (`cursor-agent`) | `~/.cursor/projects/<workspace>/agent-transcripts/<session>/<session>.jsonl` | `%APPDATA%\Cursor\projects\...` (unconfirmed) |
 
-Copilot Chat traces are scanned across all installed VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro.
+Copilot Chat traces are scanned across all installed VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro. (That's Cursor *the IDE's* built-in Copilot Chat scanning — unrelated to the standalone Cursor CLI agent above, which TraceRoost ingests directly.)
 
 Loading is incremental and runs in the background, sorted newest-first so recent traces appear immediately. A 30-second poll picks up new traces as they complete.
 
@@ -127,8 +132,8 @@ The general picture above is the same for every agent — OTEL is richer, logs a
 
 Each file is one trace. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks.
 
-Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written.
-Not in logs: TTFT, per-tool latency, streaming speed, loop signals.
+Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written. Several signals can fire from this log alone (repeated tool calls, edit/revert cycles, runaway steps, hallucinated imports, degraded runaway-cost detection).
+Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, context flooding, failed check submission) — those need OTEL. See the in-app Help tab's Signals section for the per-signal breakdown.
 
 **OTEL** (richer, requires env config) — trace spans via `/v1/traces` and supplemental log records via `/v1/logs`.
 
@@ -164,27 +169,29 @@ Not in logs: input tokens per turn (estimated from shutdown totals), TTFT, cache
 
 OpenCode stores all trace data in a local SQLite database. TraceRoost reads this directly — no agent configuration or OTEL setup is required. The database uses WAL (Write-Ahead Log) mode; TraceRoost merges the WAL at read time so traces are visible immediately after each run.
 
-Available from the database: trace ID, user prompt (last user message), model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names and inputs/outputs, file paths accessed by tools.
+Available from the database: trace ID, user prompt (last user message), model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names, inputs/outputs, and per-tool error status. Unlike every other log source, that per-tool error status means most signals can actually fire from OpenCode's database alone — it's the one log-only exception noted throughout the in-app Help tab's Signals section.
 
-Not available: time-to-first-token, per-tool execution timing, streaming speed, loop detection signals, or structured error telemetry (no OTEL). Traces show a **Log** badge and a blue info banner in the Overview tab noting these limitations.
+Not available: time-to-first-token, per-tool execution timing, or streaming speed (no span timing data, since OpenCode has no OTEL path at all). Two signals still don't fire here — edit/revert cycles and hallucinated imports need before/after edit content only Claude Code (its own log, or OTEL) and Copilot (OTEL) capture; OpenCode's parser never records it. Traces show a **Log** badge and a blue info banner in the Overview tab noting the timing limitations.
 
 Override the default database location with the `OPENCODE_DATA_DIR` environment variable (comma-separated for multiple directories).
 
-> **Note:** Agent observability is evolving rapidly. All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
+#### Cursor CLI
+
+**Log files** (automatic, no setup) — `~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<session-uuid>/<session-uuid>.jsonl`
+
+This is Cursor's standalone terminal agent (`cursor-agent`, installed via `curl https://cursor.com/install -fsS | bash`), not Cursor the IDE's built-in composer/chat agent — those are separate products with separate storage; see the note in the log-location table above.
+
+Available from logs: prompt, tool calls (names, arguments, file paths touched), session-level success/failure. Session start/end times fall back to the transcript file's own filesystem timestamps, since the format has no per-turn timestamps.
+
+Not available, confirmed by direct inspection rather than assumed: **token/usage counts, model name, workspace path, and per-tool error detail** — none of these exist anywhere in Cursor CLI's local storage today. These show as an honest unpriced/unknown gap (matching every other unrecognized-model session) rather than a guessed number. No OTEL path exists for this agent, so there is no richer alternative source to fall back to — Cursor CLI traces always carry a **Log** badge.
+
+ All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
 
 ## Cost Estimation
 
 The **Analytics** tab (Estimated Cost section) shows the dollar cost of Copilot, Claude Code, and Codex traces.
 
-**Copilot** supports three billing models via a toggle:
-
-| Mode | Who it applies to |
-| ---- | ----------------- |
-| **Token-based AI Credits** (default) | Default Copilot plans from June 1, 2026 — charges per input/output/cache token at per-model rates |
-| **Annual plan request-based** | Annual-plan holders staying on request billing from June 1, 2026 — multiplier × $0.04 per user-initiated prompt |
-| **Request-based** *(deprecated)* | Plans on request billing before June 1, 2026 — multiplier × $0.04 per user-initiated prompt |
-
-**Claude Code** and **Codex** always use token-based pricing — no toggle required. Claude Code is billed against the Anthropic API at standard per-token rates (input, cache write, cache read, output) depending on model (Opus, Sonnet, or Haiku). Codex is billed against the OpenAI API.
+**Copilot**, **Claude Code**, and **Codex** all use token-based pricing — charging per input/output/cache token at per-model rates. Claude Code is billed against the Anthropic API at standard per-token rates (input, cache write, cache read, output) depending on model (Opus, Sonnet, or Haiku). Codex is billed against the OpenAI API.
 
 The Estimated Cost section includes a per-trace bar chart with a daily aggregate line (right axis), a multi-dimensional table grouped by date and agent showing input, output, cache create, cache read, total tokens, and cost, and a model breakdown table. Some models carry a "long context" surcharge above a per-model token-per-call threshold — see [PRICING_SOURCES.md](PRICING_SOURCES.md) for which ones and the exact thresholds.
 
@@ -217,7 +224,7 @@ The **Import** tab loads traces from a previous TraceRoost **JSON** export file 
 
 Import works in both VS Code extension mode and standalone server mode.
 
-## Recommendations & Malfunction Detection
+## Recommendations & Signals
 
 The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categories of signal per trace:
 
@@ -228,18 +235,17 @@ The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categori
 - Tool failures, high turn count, oversized starting context
 - Low cache hit rate, tool definition overhead
 
-**Loop & malfunction signals** — patterns indicating the agent is stuck or spiraling. These appear first in the list with a ↺ icon:
+**Signals** — behavioral patterns indicating the agent is stuck or spiraling. These appear first in the list with a ↺ icon:
 
 | Signal | Description | Trigger |
 | ------ | ----------- | ------- |
-| **Tool Call Deadlock** | Same tool + arguments called 3+ times (critical at 5+) | Agent not retaining tool results |
+| **Tool Call Deadlock** | Same tool + arguments called 30+ times (critical at 50+) | Agent not retaining tool results |
 | **State Corruption Spiral** | A file edited then reverted to a prior state | Agent oscillating between conflicting constraints |
 | **Hallucination Amplification Loop** | Same error recurring 3+ times | Fix attempts not resolving the root cause |
 | **Ambiguous Success / Escalating Scope** | Too many steps for the task complexity | No clear completion condition |
 | **Infinite Loop — Context Accumulation** | Input tokens growing while output ratio collapses 70%+ | Agent stuck, accumulating context without progress |
 | **Chronic Tool Unreliability** | 20%+ of tool calls failed (5+ calls made) — many different one-off failures, not one repeating | Agent guessing at file locations, commands, or available tools |
 | **Context Flooding Risk** | A tool result over 10,000 characters landed in context | Missing line ranges or scope on a read/search |
-| **Malformed Tool Call** | The agent's own harness rejected a call before it ran | Wrong argument name, unknown tool, or malformed arguments |
 | **Fabricated Dependency** | An edit imports a package absent from the manifest and unresolvable on disk | Hallucinated package name |
 | **Unverified Submission** | The session's last test/build check failed with no fix attempt after | Session ended before confirming the fix |
 
@@ -270,7 +276,7 @@ Open <http://localhost:3000> after the server starts. The OTLP receiver listens 
 > `npm cache clean --force`. A global install (`npm install -g`) has the same trap — re-run it with
 > `@latest`, or `npm update -g traceroost`, to move forward.
 
-> **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, and OpenCode's SQLite database at `~/.local/share/opencode/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
+> **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, OpenCode's SQLite database at `~/.local/share/opencode/`, and Cursor CLI's transcripts at `~/.cursor/projects/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
 >
 > **Running this in a terminal only lasts until you close it.** If TraceRoost isn't running when an agent sends OTEL data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
 
@@ -304,22 +310,42 @@ docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 `
   traceroost/traceroost
 ```
 
-Open <http://localhost:3000> after the container starts.
+The image binds to `0.0.0.0` inside the container, so — exactly like a native run with
+`BIND_HOST=0.0.0.0` — **every request to the dashboard, the OTLP receiver and MCP needs the access
+token** TraceRoost generates on first start. Without it the dashboard shows an "Unauthorized" page
+and agents' exports are rejected with `401`. To get it:
+
+```bash
+# The startup log prints the dashboard URL with the token included — open that URL once and the
+# browser keeps a cookie, so plain http://localhost:3000 works afterwards.
+docker logs <container> 2>&1 | grep -m1 'token='
+
+# Or read it from the config file (HOME is /data in the image, so it lives on the volume and
+# survives container re-creation when you mount one):
+docker exec <container> cat /data/.traceroost/config.json   # "authToken": "…"
+```
+
+Then pass it to the setup scripts below (`--token` / `-Token`, or `TRACEROOST_TOKEN`), or add it
+by hand as `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>` (Codex: a
+`headers = { "Authorization" = "Bearer <token>" }` entry inside each `otlp-http = { … }` table).
 
 #### Configuring Agents for Local / Docker
 
-Use the included setup scripts to configure agents automatically, or see [Manual Configuration](#manual-configuration) for the manual steps.
+Use the included setup scripts to configure agents automatically, or see [Manual Configuration](#manual-configuration) for the manual steps. For a local native run on `127.0.0.1` (the default) no token is needed; for Docker or LAN mode, add the token:
 
 ```bash
 # macOS / Linux
 chmod +x scripts/configure-agents.sh
-./scripts/configure-agents.sh
+./scripts/configure-agents.sh                        # native, loopback-bound
+./scripts/configure-agents.sh --token <token>        # Docker / BIND_HOST=0.0.0.0
+./scripts/configure-agents.sh --host 192.168.1.20 --token <token>   # TraceRoost on another machine
 ```
 
 ```powershell
 # Windows (PowerShell)
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\scripts\configure-agents.ps1
+.\scripts\configure-agents.ps1 -Token <token>       # Docker / BIND_HOST=0.0.0.0
 ```
 
 ## Upgrading from AgentLens
@@ -429,8 +455,18 @@ Environment variables:
 | `UI_PORT` | `3000` | Dashboard port |
 | `MCP_PORT` | `4316` | MCP endpoint for Claude Code and other MCP-compatible agents |
 | `DATA_DIR` | `~/.traceroost` | Directory for persistent span data |
-| `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access |
+| `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
 | `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
+
+**LAN mode / security.** On the default `127.0.0.1` bind only processes on your machine can connect,
+so no token is required; the servers still refuse requests from web pages (a foreign `Origin`
+header, a DNS-rebinding `Host`, or an OTLP body sent as `text/plain`/form data). With
+`BIND_HOST=0.0.0.0` (or `::`) any `Host` name is accepted — LAN IP, hostname, Docker service name —
+and every request instead needs the bearer token from `~/.traceroost/config.json` (`authToken`),
+printed with the dashboard URL at startup. Browsers: open `http://<host>:3000/?token=<token>` once
+(a cookie keeps you signed in). Agents: `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>`,
+or `scripts/configure-agents.sh --host <host> --token <token>`. MCP clients: send the same
+`Authorization: Bearer <token>` header.
 
 The local server uses the same port as the VS Code extension — only one can run at a time. To run both simultaneously, use different ports:
 
@@ -500,6 +536,10 @@ Quick-start commands are in [Ways to Run](#docker-otel-only). Additional options
 docker run --pull=always -p 3000:3000 -p 4318:4318 -v ~/.traceroost:/data traceroost/traceroost
 ```
 
+Other devices then open `http://<your-ip>:3000/?token=<token>` and point agents at
+`http://<your-ip>:4318` with the token (see [token](#docker-otel-only) above). Add `-p 4316:4316`
+to expose the MCP endpoint too.
+
 **Custom ports** — if `4318` is already in use by the VS Code extension:
 
 ```bash
@@ -518,6 +558,22 @@ Requires Node.js 24+ and this repository cloned locally.
 pnpm install
 pnpm run local
 ```
+
+### Editions
+
+TraceRoost is built in two editions from the same source:
+
+- **core** — everything in this README: the dashboard, log/OTEL ingestion, the MCP server, the
+  Advisor, and the local CLI analysis (`find`, `trace`, `patterns`, `cohort`, `advise`). It
+  contains **no** TraceRoost Pro (org link + upload) code at all — not disabled, not built in.
+  Released builds (VSIX, npm, Docker) are core until TraceRoost Pro launches.
+- **full** — core plus TraceRoost Pro: the Org panel, `traceroost org` / `--explain-payload` /
+  `cluster`, and forwarding hashed rollups to a linked org (see
+  [CLOUD_ARCHITECTURE.md](CLOUD_ARCHITECTURE.md)). A from-source `pnpm run local` or `F5` builds
+  this edition.
+
+`node esbuild.js --edition=core` builds core; the default is full. See
+[CONTRIBUTING.md](CONTRIBUTING.md#editions) for how the split is enforced.
 
 ## Automation Prompts File
 
@@ -578,7 +634,9 @@ TraceRoost was built primarily with [Claude](https://www.anthropic.com/claude). 
 
 ## License
 
-MIT
+MIT, except the `src/cloud/`, `src/test/cloud/`, `media/src/cloud/`, and
+`standalone/cloud/` directories (the org/cloud client — Business Source
+License 1.1) — see [NOTICE.md](NOTICE.md).
 
 ## Disclaimer
 

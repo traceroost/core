@@ -103,7 +103,7 @@ function StepDetail({ step, idx, sessIdx, sessionModel }: { step: Step; idx: num
         )}
         {entryCost > 0 && (
           <div class="sw-detail-section">
-            <div class="sw-detail-heading">Cost</div>
+            <div class="sw-detail-heading">Estimated cost</div>
             <div class="sw-detail-value">{fmtUsd(entryCost)}</div>
           </div>
         )}
@@ -300,8 +300,8 @@ export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel }: { step
   )
 }
 
-function SessionBlock({ sess, sessIdx, sessNum, totalCount, isFirst }: {
-  sess: SessionSummaryCard; sessIdx: number; sessNum: number; totalCount: number; isFirst: boolean
+function SessionBlock({ sess, sessIdx, sessNum, isFirst }: {
+  sess: SessionSummaryCard; sessIdx: number; sessNum: number; isFirst: boolean
 }) {
   const [collapsed, setCollapsed] = useState(!isFirst)
   const [promptExpanded, setPromptExpanded] = useState(false)
@@ -424,7 +424,6 @@ function DayGroup({ label, sessions, startNum, focusedId }: {
           sess={sess}
           sessIdx={idx}
           sessNum={startNum + idx}
-          totalCount={sessions.length}
           isFirst={idx === 0 && focusedId === null}
         />
       ))}

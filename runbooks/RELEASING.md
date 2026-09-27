@@ -36,6 +36,49 @@ cutover (below).
 Until npm's trusted publisher and the Docker Hub repo exist, do the `main` commit + changelog but
 **do not push the tag** — those publish jobs fail and leave the release half-done.
 
+## Editions
+
+Every release ships one edition — **core** (no TraceRoost Pro / org-link / upload code at all) or
+**full** (with it). See CONTRIBUTING.md → Editions for how the split works in the source.
+
+**Currently: `core`.** Until TraceRoost Pro launches, the VSIX, the npm package and the Docker
+image are all built with `--edition=core`.
+
+How a release picks its edition (`release.yml` and `docker.yml`, identical rule):
+
+- a `v*` tag push uses the repository variable `TRACEROOST_RELEASE_EDITION`, and `core` when it
+  isn't set;
+- a manual **Run workflow** (workflow_dispatch) uses its `edition` input (default `core`). A manual
+  `release.yml` run only builds the VSIX as an artifact — publishing happens only from a tag.
+
+What the `core` release does differently:
+
+1. `node scripts/prepare-edition.mjs core` rewrites `package.json` for packing: drops the
+   `traceRoost.org*` commands, removes the cloud directories' `LICENSE` files from `files`, appends
+   `**/cloud/**` to `.vscodeignore`, and points `vscode:prepublish` / `prepublishOnly` at
+   `pnpm run package:core`.
+2. `vsce package` / `npm publish` therefore run `package:core` — type check, lint,
+   `node esbuild.js --production --edition=core`, and `scripts/check-edition.mjs core`, which fails
+   the release if any Pro marker is in a bundle or the manifest still lists an Org command.
+3. The Docker image is built with `--build-arg EDITION=core` (the Dockerfile's default) and runs the
+   same bundle check inside the build.
+
+To check a core package locally before tagging:
+
+```bash
+node scripts/prepare-edition.mjs core
+pnpm run package:core
+npm pack --dry-run --ignore-scripts        # no cloud/ paths in the list
+node scripts/prepare-edition.mjs restore   # always restore — never commit the rewritten package.json
+```
+
+**Flipping to `full` at launch:** set the repository variable `TRACEROOST_RELEASE_EDITION=full`
+(Settings → Secrets and variables → Actions → Variables) — both workflows read it; nothing else
+changes. For a permanent switch, change the `'core'` fallback in the `EDITION:` line of
+`release.yml` and `docker.yml` (and the Dockerfile's `ARG EDITION=core` default) to `full`, and
+update "Currently" above and README → Editions. Before the first full release, run
+`release.yml` manually with `edition: full` and install the VSIX artifact to check the Org panel.
+
 ## The `agentlens` branch
 
 Cut from `main` @ v0.15.4. Its `release.yml` publishes **only** the frozen `agentlens-dashboard`
@@ -104,6 +147,9 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    version — `pnpm-lock.yaml` doesn't carry a root package version field, and there's no separate
    `standalone/`/`media/` package.json. Grep to confirm this is still true before assuming it:
    `grep -rn "\"version\": \"<old-version>\"" --include=package.json .`
+   `release.yml` and `docker.yml` both refuse a `vX.Y.Z` tag that doesn't equal this version, so
+   a forgotten bump fails the release instead of publishing (or pushing Docker `:latest`) under
+   the wrong number.
 
 5. Commit directly to `main` — release commits in this repo are the one established exception to
    the normal "always branch + PR" workflow used for everything else. `main` has branch protection
@@ -123,7 +169,8 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    case). The commit from step 5 landing on `main` does **not** publish anything by itself — that
    part alone is safe and doesn't need a separate confirmation. Ask explicitly before the tag push,
    e.g. "push the vX.Y.Z tag now to trigger the actual publish (npm, VS Code Marketplace, Open
-   VSX)?" — don't fold this into the same confirmation as the version-number pick in step 2, since
+   VSX) as the core edition?" — say which edition it ships (see [Editions](#editions)), since
+   that's the one thing the tag doesn't show — don't fold this into the same confirmation as the version-number pick in step 2, since
    the user may want to review the drafted changelog entry and commit before green-lighting the
    irreversible part.
 
@@ -144,7 +191,8 @@ When the TraceRoost brand is established and you want the marketplace URL to say
 ## Verifying afterward
 
 - `gh release view vX.Y.Z` — GitHub Release exists with the VSIX attached.
-- `gh run list --workflow=release.yml --limit 1` — shows `completed` / `success`.
+- `gh run list --workflow=release.yml --limit 1` — shows `completed` / `success`, and the
+  `package` job's "Check the … edition bundles" step names the edition you meant to ship.
 - If the marketplace/npm publish steps matter for this release (they usually do), spot-check
   `publish-vsce` and `publish-npm` job logs specifically — `package` succeeding only means the VSIX
   built, not that it published anywhere.

@@ -5,12 +5,14 @@ import { SCHEMA_SQL } from '../../database/schema'
 import { DatabaseWriter } from '../../database/writer'
 import { DatabaseReader } from '../../database/reader'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import type { SqlStatement } from '../../database/db'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
 }
@@ -144,6 +146,38 @@ suite('DatabaseReader.queryLifetimeStats', () => {
   })
 })
 
+// ── queryTraceSendStats / recordTraceSent ────────────────────────────────────
+
+suite('DatabaseReader.queryTraceSendStats', () => {
+  test('returns zeros when nothing has ever been sent', async () => {
+    const db = await openDb()
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const stats = reader.queryTraceSendStats(Date.now())
+    assert.deepStrictEqual(stats, { last5Min: 0, lastHour: 0, allTime: 0 })
+  })
+
+  test('sums batch counts within each window, and excludes ones outside it', async () => {
+    const db = await openDb()
+    const writer = new DatabaseWriter(db, makeStorageUri(), () => {})
+    const now = Date.parse('2025-06-01T12:00:00.000Z')
+
+    writer.recordTraceSent(3, now - 60_000)          // 1 min ago — in every window
+    writer.recordTraceSent(5, now - 30 * 60_000)      // 30 min ago — in the hour, not the 5 min
+    writer.recordTraceSent(7, now - 2 * 60 * 60_000)  // 2 hours ago — only in all-time
+
+    const reader = new DatabaseReader(db, makeStorageUri())
+    assert.deepStrictEqual(reader.queryTraceSendStats(now), { last5Min: 3, lastHour: 8, allTime: 15 })
+  })
+
+  test('a batch of zero is not recorded', async () => {
+    const db = await openDb()
+    const writer = new DatabaseWriter(db, makeStorageUri(), () => {})
+    writer.recordTraceSent(0, Date.now())
+    const reader = new DatabaseReader(db, makeStorageUri())
+    assert.strictEqual(reader.queryTraceSendStats(Date.now()).allTime, 0)
+  })
+})
+
 // ── searchSessions ────────────────────────────────────────────────────────────
 
 suite('DatabaseReader.searchSessions', () => {
@@ -161,6 +195,25 @@ suite('DatabaseReader.searchSessions', () => {
     assert.strictEqual(result.sessions.length, 1)
     assert.strictEqual(result.sessions[0].sessionId, 's1')
     assert.strictEqual(result.totalCount, 1)
+  })
+
+  test('text filter also matches session_id and trace_id, so a pasted Trace ID finds the trace', async () => {
+    const db = await openDb()
+    const storageUri = makeStorageUri()
+    const writer = new DatabaseWriter(db, storageUri, () => {})
+    const reader = new DatabaseReader(db, storageUri)
+
+    writer.enqueue(makeCard({ sessionId: 'abc123session', traceId: 'xyz789trace', userRequest: 'unrelated prompt' }), 'ws')
+    writer.enqueue(makeCard({ sessionId: 'other-session', traceId: 'other-trace', userRequest: 'a different prompt' }), 'ws')
+    await writer.drain()
+
+    const bySessionId = reader.searchSessions({ text: 'abc123', limit: 10, offset: 0 })
+    assert.strictEqual(bySessionId.sessions.length, 1)
+    assert.strictEqual(bySessionId.sessions[0].sessionId, 'abc123session')
+
+    const byTraceId = reader.searchSessions({ text: 'xyz789', limit: 10, offset: 0 })
+    assert.strictEqual(byTraceId.sessions.length, 1)
+    assert.strictEqual(byTraceId.sessions[0].sessionId, 'abc123session')
   })
 
   test('orderBy cost_usd returns sessions in correct order', async () => {
@@ -201,6 +254,19 @@ suite('DatabaseReader.searchSessions', () => {
     const page3 = reader.searchSessions({ text: 'paginate', limit: 2, offset: 4 })
     assert.strictEqual(page3.totalCount, 5)
     assert.strictEqual(page3.sessions.length, 1)
+  })
+
+  test('initiator survives the round trip through searchSessions', async () => {
+    const db = await openDb()
+    const storageUri = makeStorageUri()
+    const writer = new DatabaseWriter(db, storageUri, () => {})
+    const reader = new DatabaseReader(db, storageUri)
+
+    writer.enqueue(makeCard({ sessionId: 'search-agent', initiator: 'agent' }), 'ws')
+    await writer.drain()
+
+    const result = reader.searchSessions({ limit: 10, offset: 0 })
+    assert.strictEqual(result.sessions.find(s => s.sessionId === 'search-agent')?.initiator, 'agent')
   })
 })
 

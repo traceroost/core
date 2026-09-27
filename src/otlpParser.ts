@@ -11,11 +11,19 @@ export function classifyOtlpPayload(payload: unknown): OtlpPayloadKind {
   return 'unknown'
 }
 
-export function toSpanAttributes(raw: unknown): SpanAttribute[] {
+/**
+ * The elements of `raw` that are non-null objects, or `[]` when `raw` isn't an array. OTLP JSON
+ * comes from outside the process — `resourceSpans: [null]`, `attributes: [null]` or a
+ * `scopeSpans` that is an object rather than an array must be skipped, not crash the handler.
+ */
+export function objectItems<T = Record<string, unknown>>(raw: unknown): T[] {
   if (!Array.isArray(raw)) { return [] }
-  return raw
-    .map(item => {
-      const obj = item as Record<string, unknown>
+  return raw.filter(item => typeof item === 'object' && item !== null) as T[]
+}
+
+export function toSpanAttributes(raw: unknown): SpanAttribute[] {
+  return objectItems(raw)
+    .map(obj => {
       const key = typeof obj.key === 'string' ? obj.key : ''
       const value = obj.value as SpanAttribute['value'] | undefined
       if (!key || !value || typeof value !== 'object') { return undefined }
@@ -31,8 +39,7 @@ function attrsFromBodyKv(body: unknown): SpanAttribute[] {
   const values = kv?.values
   if (!Array.isArray(values)) { return [] }
   const attrs: SpanAttribute[] = []
-  for (const v of values) {
-    const entry = v as Record<string, unknown>
+  for (const entry of objectItems(values)) {
     const key = typeof entry.key === 'string' ? entry.key : ''
     const value = entry.value as SpanAttribute['value'] | undefined
     if (!key || !value || typeof value !== 'object') { continue }
@@ -92,9 +99,9 @@ function isCodexWebsocketSpan(spanName: string, attrs: SpanAttribute[]): boolean
 
 export function parseTracePayload(payload: unknown): Span[] {
   const p = payload as { resourceSpans?: Array<{ scopeSpans?: Array<{ spans?: unknown[] }> }> }
-  const rawSpans = p?.resourceSpans?.flatMap(rs =>
-    rs.scopeSpans?.flatMap(ss => ss.spans ?? []) ?? []
-  ) ?? []
+  const rawSpans = objectItems<{ scopeSpans?: unknown }>(p?.resourceSpans).flatMap(rs =>
+    objectItems<{ spans?: unknown }>(rs.scopeSpans).flatMap(ss => objectItems(ss.spans))
+  )
 
   const result: Span[] = []
   for (const raw of rawSpans) {
@@ -200,11 +207,11 @@ export function parseLogPayload(payload: unknown): Span[] {
   }
 
   const result: Span[] = []
-  for (const rl of p?.resourceLogs ?? []) {
+  for (const rl of objectItems<ResourceLogs>(p?.resourceLogs)) {
     const resourceAttrs = toSpanAttributes(rl.resource?.attributes)
-    for (const sl of rl.scopeLogs ?? []) {
+    for (const sl of objectItems<ScopeLogs>(rl.scopeLogs)) {
       const scopeAttrs = toSpanAttributes(sl.scope?.attributes)
-      for (const rec of sl.logRecords ?? []) {
+      for (const rec of objectItems<LogRecord>(sl.logRecords)) {
         const recordAttrs = toSpanAttributes(rec.attributes)
         const bodyAttrs = attrsFromBodyKv(rec.body)
         let attrs = mergeAttributes(recordAttrs, bodyAttrs, scopeAttrs, resourceAttrs)

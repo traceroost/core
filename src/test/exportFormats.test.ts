@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { toCsv, toMarkdown, serializeExport, exportFileExtension, type ExportableSession } from '../exportFormats'
+import { toCsv, toMarkdown, serializeExport, exportFileExtension, csvCell, type ExportableSession } from '../exportFormats'
 
 function makeSession(overrides: Partial<ExportableSession> = {}): ExportableSession {
   return {
@@ -55,6 +55,16 @@ suite('exportFormats', () => {
     test('quotes every field and escapes embedded quotes', () => {
       const csv = toCsv([makeSession({ userRequest: 'fix the "bug" please' })])
       assert.ok(csv.includes('"fix the ""bug"" please"'))
+    })
+
+    test('neutralizes spreadsheet formula injection with a leading apostrophe', () => {
+      for (const payload of ['=HYPERLINK("http://evil")', '+1+1', '-2+3', '@SUM(A1)', '\tcmd', '\rcmd']) {
+        const csv = toCsv([makeSession({ userRequest: payload })])
+        assert.ok(csv.includes(csvCell(payload)), payload)
+        assert.ok(csvCell(payload).startsWith(`"'`), payload)
+      }
+      assert.strictEqual(csvCell('plain text'), '"plain text"')
+      assert.strictEqual(csvCell('a=b'), '"a=b"')
     })
 
     test('preserves embedded newlines inside a quoted field', () => {

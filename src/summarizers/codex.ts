@@ -1,3 +1,4 @@
+import * as path from 'path'
 import { Span } from '../types'
 import { BackgroundSpanSummary, SessionSummaryCard, TimelineEntry } from './summarizerTypes'
 import {
@@ -290,7 +291,8 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
 
     const workspace = traceSpans
       .map(s => getFirstAttr(s, ['cwd']))
-      .find(v => v && v.startsWith('/')) || ''
+      // The agent machine's cwd, in its own path flavor: POSIX `/…`, or Windows `C:\…` / UNC.
+      .find(v => v && /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(v)) || ''
 
     const startMs = rootSpan
       ? (nanoToMs(rootSpan.startTime) || rootSpan.receivedAt || 0)
@@ -330,11 +332,33 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
     const endMs = allEndTimes.length > 0 ? Math.max(...allEndTimes) : startMs
     const durationMs = endMs - startMs
 
+    // Every extraction path above (apply_patch headers, shell-command regex matches, tool-call
+    // args) stores whatever path string the source actually contained — often relative
+    // ("src/foo.ts", "turnover/page.tsx"), since that's how a unified diff or a `cat > foo.ts`
+    // shell command spells it. gitOutcome.ts's classifySessionOutcome assumes every filesChanged
+    // entry is absolute (it resolves each one against the repo root it finds from `workspace`,
+    // and drops anything that doesn't land under that root); left relative, `path.relative`
+    // resolves them against this *process's* cwd instead, which almost never matches the
+    // session's actual repo, so every one of them gets silently dropped as "outside the repo" —
+    // and if that happens to every file in a session, the whole trace's Outcome comes back
+    // null/blank despite Files clearly listing real, in-place edits. Resolving here, once
+    // `workspace` is known, is cheap and fixes it at the source rather than in every consumer.
+    // `workspace` is the agent machine's cwd, not this host's, so join in *its* path flavor: a
+    // POSIX cwd stays POSIX on a Windows host, and a `C:\…` cwd stays Windows on a Linux one.
+    const sessionPath = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(workspace) ? path.win32 : path.posix
+    const resolvedFilesChanged = workspace
+      ? Array.from(filesChanged, f => sessionPath.isAbsolute(f) ? f : sessionPath.join(workspace, f))
+      : Array.from(filesChanged)
+
     return {
       sessionId: promptSpan?.spanId || `codex-${traceId}`,
       traceId,
       source: 'codex' as const,
       dataSource: 'otel' as const,
+      // Codex's OTEL spans carry no signal (yet) for a session spawned by something other than
+      // a human — no equivalent of Claude Code's is_sidechain has been observed. Explicit 'user'
+      // default, matching the JSONL log reader below, rather than leaving this undefined.
+      initiator: 'user' as const,
       conversationId: conversationId || undefined,
       workspace,
       userRequest,
@@ -350,7 +374,7 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
       startTime: startMs > 0 ? new Date(startMs).toISOString() : '',
       filesRead: Array.from(filesRead),
       filesSearched: Array.from(filesSearched),
-      filesChanged: Array.from(filesChanged),
+      filesChanged: resolvedFilesChanged,
       filesWritten: [],
       toolCounts,
       totalToolCalls,

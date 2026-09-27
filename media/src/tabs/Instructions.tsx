@@ -1,27 +1,18 @@
 import { useState, useEffect } from 'preact/hooks'
 import { signal } from '@preact/signals'
 import {
-  workspaceFilter, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
+  currentWorkspace, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
+  repoInfo, repoDisplayName, repoTooltipName,
 } from '../state'
 import { calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
+import {
+  generateSuggestions as generateSuggestionsWithCost, SCOPE_PATTERNS, BASH_TOOLS, READ_TOOLS,
+  type SuggestionCard, type SuggestionCategory,
+} from '../suggestionRules'
 
-// ── Frontend re-implementation of core analysis (mirrors src/ logic) ──────────
-
-type SuggestionCategory = 'context' | 'behavior' | 'prompting'
-type TargetAgent = 'claude_code' | 'copilot' | 'codex'
-
-interface SuggestionCard {
-  id: string
-  category: SuggestionCategory
-  title: string
-  evidence: string
-  suggestedText: string
-  inquiryText: string
-  targetAgents: TargetAgent[]
-  priority: 'high' | 'medium' | 'low'
-  evidenceSessions: string[]
-}
+// Suggestion rules (IDs, thresholds, text) are shared with the extension host — see
+// ../suggestionRules.ts. This file keeps only the UI and its diagnostics.
 
 interface InstructionFile {
   agent: string
@@ -67,268 +58,40 @@ const AGENT_LABEL: Record<string, string> = {
 }
 
 function sessionCostUsd(s: SessionSummaryCard): number {
-  return calcSessionCost(s, 'token').totalUsd
+  return calcSessionCost(s).totalUsd
 }
 
-function makeId(prefix: string, key: string): string {
-  return `${prefix}:${key.replace(/[^a-z0-9]/gi, '_').toLowerCase()}`
+function generateSuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
+  return generateSuggestionsWithCost(sessions, existingText, sessionCostUsd)
 }
 
 function pct(n: number, total: number): number { return Math.round((n / total) * 100) }
 
+// The distinct workspace(s) behind a suggestion's evidence traces — usually one, since suggestions
+// are generated from a single workspace's sessions once a repo is selected, but "all repos"
+// suggestions can draw evidence from more than one.
+function groupByWorkspace(sessions: SessionSummaryCard[]): Map<string, SessionSummaryCard[]> {
+  const byRepo = new Map<string, SessionSummaryCard[]>()
+  for (const s of sessions) {
+    const key = s.workspace ?? ''
+    const group = byRepo.get(key)
+    if (group) group.push(s)
+    else byRepo.set(key, [s])
+  }
+  return byRepo
+}
+
+function evidenceWorkspaces(ids: string[], sessions: SessionSummaryCard[]): string[] {
+  const byId = new Map(sessions.map(s => [s.sessionId, s.workspace]))
+  const set = new Set<string>()
+  for (const id of ids) {
+    const ws = byId.get(id)
+    if (ws) set.add(ws)
+  }
+  return [...set]
+}
+
 // ── Suggestion generation (pure frontend) ────────────────────────────────────
-
-const INQUIRY_PREAMBLE = 'This is a question about my agent instruction file — please do not make any code changes, just advise on what text to add.\n\n'
-
-function alreadyPresent(existingText: string, ...keyPhrases: string[]): boolean {
-  const lower = existingText.toLowerCase()
-  return keyPhrases.some(p => lower.includes(p.toLowerCase()))
-}
-
-function getHotFileSuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
-  if (sessions.length < 3) return []
-  const fileFreq = new Map<string, string[]>()
-  for (const s of sessions) {
-    const seen = new Set<string>()
-    for (const f of [...(s.filesRead ?? []), ...(s.filesChanged ?? [])]) {
-      if (!seen.has(f)) {
-        seen.add(f)
-        if (!fileFreq.has(f)) fileFreq.set(f, [])
-        fileFreq.get(f)!.push(s.sessionId)
-      }
-    }
-  }
-  const results: SuggestionCard[] = []
-  for (const [file, ids] of fileFreq) {
-    if (ids.length / sessions.length < 0.2) continue
-    const basename = file.replace(/\\/g, '/').split('/').pop() ?? file
-    if (alreadyPresent(existingText, basename)) continue
-    if (basename.length < 4) continue
-    const parts = file.replace(/\\/g, '/').split('/')
-    const subsystem = parts.length >= 2 ? parts[parts.length - 2] : 'this area'
-    results.push({
-      id: makeId('hot_file', file),
-      category: 'context',
-      title: `Add ${basename} to instruction file`,
-      evidence: `Touched in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%). Each agent discovery adds ~2–3 turns.`,
-      suggestedText: `Always read \`${file}\` before editing ${subsystem} — it is frequently needed context.`,
-      inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` appears in ${pct(ids.length, sessions.length)}% of my agent traces, but the agent discovers it from scratch each time rather than reading it proactively. What would you recommend I add to my instruction file to ensure it's loaded at the start of relevant tasks?`,
-      targetAgents: ['claude_code', 'codex'],
-      priority: ids.length / sessions.length >= 0.4 ? 'high' : 'medium',
-      evidenceSessions: ids,
-    })
-  }
-  return results.sort((a, b) => b.evidenceSessions.length - a.evidenceSessions.length).slice(0, 6)
-}
-
-function getFrontLoadedDiscoverySuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
-  if (sessions.length < 8) return []
-  // Files that appear in filesRead but NEVER in filesChanged — pure read-only orientation files
-  const changedEver = new Set<string>()
-  for (const s of sessions) { for (const f of s.filesChanged ?? []) changedEver.add(f) }
-
-  const readFreq = new Map<string, string[]>()
-  for (const s of sessions) {
-    const seen = new Set<string>()
-    for (const f of s.filesRead ?? []) {
-      if (seen.has(f) || changedEver.has(f)) continue
-      seen.add(f)
-      if (!readFreq.has(f)) readFreq.set(f, [])
-      readFreq.get(f)!.push(s.sessionId)
-    }
-  }
-
-  const results: SuggestionCard[] = []
-  for (const [file, ids] of readFreq) {
-    if (ids.length / sessions.length < 0.5) continue
-    const basename = file.replace(/\\/g, '/').split('/').pop() ?? file
-    if (alreadyPresent(existingText, basename)) continue
-    if (basename.length < 4) continue
-    results.push({
-      id: makeId('discovery', file),
-      category: 'context',
-      title: `Load ${basename} before starting`,
-      evidence: `Read without modification in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%). Mentioning it upfront eliminates agent discovery turns.`,
-      suggestedText: `Before starting any task, read \`${file}\` — it is consistently needed as reference and is never modified directly.`,
-      inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` is read in ${pct(ids.length, sessions.length)}% of traces as reference material and is never directly modified — the agent rediscovers it from scratch each time. What would you recommend I add to my instruction file to ensure it's loaded before starting any task?`,
-      targetAgents: ['claude_code', 'codex'],
-      priority: 'high',
-      evidenceSessions: ids,
-    })
-  }
-  return results.sort((a, b) => b.evidenceSessions.length - a.evidenceSessions.length).slice(0, 3)
-}
-
-const LOOP_TEXT: Record<string, string> = {
-  exact_tool_repeat:
-    'After reading a file, do not re-read it unless you have modified it. If a tool call produces no new information, stop and ask the user rather than retrying.',
-  edit_revert_cycle:
-    'Before editing any file, state the exact final state you intend to produce. Do not oscillate between two states — if a second edit would revert a prior one, stop and ask for clarification.',
-  error_recurrence:
-    'If the same error appears twice, do not attempt a third fix without pausing to verify that the package, function, or file path actually exists.',
-  runaway_steps:
-    'Each task must have an explicit stopping condition. If a task has no clear end state, ask before starting. Break multi-step work into one task at a time.',
-  token_runaway:
-    'If input context exceeds 80K tokens without producing a final result, stop and summarize what you have tried so the user can redirect you.',
-}
-
-const LOOP_INQUIRY: Record<string, (count: number, total: number) => string> = {
-  exact_tool_repeat: (count, total) =>
-    `I've noticed that in ${count} of ${total} traces you re-read files you had already read without modifying them, triggering repeat tool calls. What instruction would you recommend I add to your instruction file to prevent unnecessary re-reads?`,
-  edit_revert_cycle: (count, total) =>
-    `I've noticed that in ${count} of ${total} traces you made an edit and then reverted it — oscillating between states. What instruction would you recommend I add to your instruction file to prevent this kind of back-and-forth?`,
-  error_recurrence: (count, total) =>
-    `I've noticed that in ${count} of ${total} traces you retried the same failing operation multiple times without verifying the root cause first. What instruction would you recommend I add to your instruction file to make you pause and verify before a third attempt?`,
-  runaway_steps: (count, total) =>
-    `I've noticed that in ${count} of ${total} traces tasks ran for many steps without a clear stopping condition. What instruction would you recommend I add to your instruction file to keep tasks bounded and prevent runaway execution?`,
-  token_runaway: (count, total) =>
-    `I've noticed that in ${count} of ${total} traces context grew very large without producing a final result. What instruction would you recommend I add to your instruction file to prompt you to stop and summarize when context becomes unwieldy?`,
-}
-
-function getLoopSuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
-  if (sessions.length < 5) return []
-  const signalMap = new Map<string, string[]>()
-  for (const s of sessions) {
-    for (const sig of s.loopSignals ?? []) {
-      if (!signalMap.has(sig.type)) signalMap.set(sig.type, [])
-      signalMap.get(sig.type)!.push(s.sessionId)
-    }
-  }
-  const results: SuggestionCard[] = []
-  for (const [type, ids] of signalMap) {
-    if (ids.length / sessions.length < 0.2) continue
-    const text = LOOP_TEXT[type]
-    if (!text) continue
-    // Suppress if a key phrase from the suggestion is already in the instruction file
-    const keyPhrase = text.split('.')[0].slice(0, 40)
-    if (alreadyPresent(existingText, keyPhrase)) continue
-    results.push({
-      id: makeId('loop', type),
-      category: 'behavior',
-      title: `Prevent ${type.replace(/_/g, ' ')} loops`,
-      evidence: `Signal "${type}" detected in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%).`,
-      suggestedText: text,
-      inquiryText: INQUIRY_PREAMBLE + (LOOP_INQUIRY[type]?.(ids.length, sessions.length) ?? `I've noticed "${type.replace(/_/g, ' ')}" signals in ${ids.length} of ${sessions.length} traces. What instruction would you recommend I add to my instruction file to prevent this pattern?`),
-      targetAgents: ['claude_code', 'codex'],
-      priority: ids.length / sessions.length >= 0.4 ? 'high' : 'medium',
-      evidenceSessions: ids,
-    })
-  }
-  return results
-}
-
-const SCOPE_PATTERNS = [
-  /\brefactor\b|\bclean[- ]up\b|\bimprove\b|\boptimize\b/i,
-  /\bfix the bug\b|\bmake it work\b|\bit'?s broken\b/i,
-  /\bfind all\b|\blook through\b|\bcheck everywhere\b/i,
-  /;\s*also\b|\band then\b|\bfinally\b/i,
-]
-
-function getScopeSuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
-  if (alreadyPresent(existingText, 'Prompting guidance', 'name the specific file', 'one task at a time')) return []
-  if (sessions.length < 5) return []
-  const matching = sessions.filter(s => SCOPE_PATTERNS.some(re => re.test(s.userRequest ?? '')))
-  if (matching.length < 2) return []
-
-  // Use cost only if the matching sessions themselves have cost data; fall back to turns otherwise
-  const matchHasCost = matching.some(s => sessionCostUsd(s) > 0)
-  const avgCost = sessions.reduce((s, sess) => s + sessionCostUsd(sess), 0) / sessions.length
-  const avgTurns = sessions.filter(s => s.totalLlmCalls > 0).reduce((a, s) => a + s.totalLlmCalls, 0) /
-    Math.max(1, sessions.filter(s => s.totalLlmCalls > 0).length)
-  const useCost = matchHasCost && avgCost > 0
-  const useTurns = !useCost && avgTurns > 0
-  if (!useCost && !useTurns) return []
-
-  const metric = (s: SessionSummaryCard) => useCost ? sessionCostUsd(s) : s.totalLlmCalls
-  const baseline = useCost ? avgCost : avgTurns
-  const matchAvg = matching.reduce((a, s) => a + metric(s), 0) / matching.length
-  if (matchAvg < baseline * 1.4) return []
-
-  const unit = useCost ? 'cost' : 'turns'
-  const ratio = (matchAvg / baseline).toFixed(1)
-  return [{
-    id: 'prompting:scope',
-    category: 'prompting',
-    title: 'Add scope prompting guidance',
-    evidence: `Traces with open-ended language run ${ratio}× avg ${unit} (${matching.length} of ${sessions.length} traces).`,
-    suggestedText: [
-      'Prompting guidance:',
-      '- Always name the specific file and function. Don\'t say "refactor" — say "refactor [function] in [file]".',
-      '- State the exact error message when reporting a bug, not just that something is broken.',
-      '- One task at a time. Multi-part prompts ("fix X, then also do Y") should be split into separate traces.',
-    ].join('\n'),
-    inquiryText: INQUIRY_PREAMBLE + `I've noticed that prompts using open-ended language like "refactor" or "fix the bug" run at ${ratio}× the average ${unit} compared to more scoped prompts — across ${matching.length} of ${sessions.length} traces. What guidance would you recommend I add to my instruction file to encourage more targeted, scoped prompts from users?`,
-    targetAgents: ['claude_code', 'copilot', 'codex'],
-    priority: 'medium',
-    evidenceSessions: matching.map(s => s.sessionId),
-  }]
-}
-
-function getHighTurnSuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
-  if (alreadyPresent(existingText, 'Before starting a task', 'what you want done', 'upfront')) return []
-  if (sessions.length < 5) return []
-  const withTurns = sessions.filter(s => s.totalLlmCalls > 0)
-  if (withTurns.length < 5) return []
-  const avg = withTurns.reduce((a, s) => a + s.totalLlmCalls, 0) / withTurns.length
-  if (avg < 8) return []
-  const high = withTurns.filter(s => s.totalLlmCalls > avg * 1.5)
-  if (high.length / withTurns.length < 0.15) return []
-  return [{
-    id: 'behavior:high_turns',
-    category: 'behavior',
-    title: 'Reduce back-and-forth with clearer upfront context',
-    evidence: `${high.length} of ${withTurns.length} traces (${pct(high.length, withTurns.length)}%) exceed 1.5× avg turn count (avg: ${avg.toFixed(0)} turns). High turn counts often indicate missing context or ambiguous scope.`,
-    suggestedText: [
-      'Before starting a task:',
-      '- State what you want done, what files are involved, and what "done" looks like.',
-      '- Include any constraints upfront (libraries to use, patterns to follow, things to avoid).',
-      '- Paste relevant error messages or code snippets rather than describing them.',
-    ].join('\n'),
-    inquiryText: INQUIRY_PREAMBLE + `I've noticed that ${high.length} of ${withTurns.length} traces have turn counts more than 1.5× the average of ${avg.toFixed(0)} turns. This often signals that context or scope wasn't established clearly at the start. What would you recommend I add to my instruction file to prompt users to provide clearer upfront information before starting a task?`,
-    targetAgents: ['claude_code', 'copilot', 'codex'],
-    priority: 'medium',
-    evidenceSessions: high.map(s => s.sessionId),
-  }]
-}
-
-// Tool name aliases across agents
-const BASH_TOOLS = new Set(['Bash', 'run_in_terminal', 'execute_command'])
-const READ_TOOLS  = new Set(['Read', 'read_file', 'view_file'])
-
-function getToolDisciplineSuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
-  if (alreadyPresent(existingText, 'file-read tool', 'Read tool', 'cat, head, or tail')) return []
-  if (sessions.length < 5) return []
-  const heavy = sessions.filter(s => {
-    const tc = s.toolCounts ?? {}
-    const bash = Object.entries(tc).filter(([k]) => BASH_TOOLS.has(k)).reduce((a, [,v]) => a + v, 0)
-    const read = Object.entries(tc).filter(([k]) => READ_TOOLS.has(k)).reduce((a, [,v]) => a + v, 0)
-    return bash > 0 && read > 0 && bash > read * 3
-  })
-  if (heavy.length < 3) return []
-  return [{
-    id: 'behavior:tool_discipline',
-    category: 'behavior',
-    title: 'Prefer file-read tool over terminal for inspection',
-    evidence: `Terminal calls exceed file-read 3× in ${heavy.length} of ${sessions.length} traces (${pct(heavy.length, sessions.length)}%).`,
-    suggestedText: 'Prefer the dedicated file-read tool over running shell commands to inspect files. Use the terminal only for operations that cannot be done with a dedicated tool. Do not use cat, head, or tail to read file contents.',
-    inquiryText: INQUIRY_PREAMBLE + `I've noticed that in ${heavy.length} of ${sessions.length} traces, Bash/terminal commands are used more than 3× as often as the file-reading tool to inspect file contents — cat, head, and similar shell commands instead of reading files directly. What instruction would you recommend I add to my instruction file to prevent this?`,
-    targetAgents: ['claude_code', 'copilot', 'codex'],
-    priority: 'low',
-    evidenceSessions: heavy.map(s => s.sessionId),
-  }]
-}
-
-function generateSuggestions(sessions: SessionSummaryCard[], existingText: string): SuggestionCard[] {
-  if (sessions.length < 3) return []
-  return [
-    ...getHotFileSuggestions(sessions, existingText),
-    ...getFrontLoadedDiscoverySuggestions(sessions, existingText),
-    ...getLoopSuggestions(sessions, existingText),
-    ...getScopeSuggestions(sessions, existingText),
-    ...getHighTurnSuggestions(sessions, existingText),
-    ...getToolDisciplineSuggestions(sessions, existingText),
-  ]
-}
 
 interface Diagnostics {
   sessionCount: number
@@ -365,7 +128,9 @@ function getDiagnostics(sessions: SessionSummaryCard[]): Diagnostics {
   const loopTypes = new Set<string>()
   for (const s of sessions) { for (const sig of s.loopSignals ?? []) loopTypes.add(sig.type) }
   const bashHeavy = sessions.filter(s => {
-    const bash = s.toolCounts?.['Bash'] ?? 0; const read = s.toolCounts?.['Read'] ?? 0
+    const tc = Object.entries(s.toolCounts ?? {})
+    const bash = tc.filter(([k]) => BASH_TOOLS.has(k)).reduce((a, [, v]) => a + v, 0)
+    const read = tc.filter(([k]) => READ_TOOLS.has(k)).reduce((a, [, v]) => a + v, 0)
     return bash > 0 && read > 0 && bash > read * 3
   }).length
   const withTurns = sessions.filter(s => s.totalLlmCalls > 0)
@@ -405,12 +170,12 @@ function changePctColor(pct: number | null): string {
 // ── Components ────────────────────────────────────────────────────────────────
 
 
-function InsufficientDataState({ workspace, count }: { workspace: string; count: number }) {
+function InsufficientDataState({ workspace, count }: { workspace: string | null; count: number }) {
   return (
     <div style="padding:32px 24px;max-width:480px;margin:0 auto;text-align:center">
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
         Not enough history yet — TraceRoost needs at least 3 sessions
-        {workspace !== 'all' && <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></>}
+        {workspace !== null && <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></>}
         {' '}to detect patterns.<br />
         Current: {count} trace{count !== 1 ? "s" : ""}.
       </div>
@@ -458,18 +223,25 @@ function TextBlock({ label, text }: { label: string; text: string }) {
 }
 
 function SuggestionCardView({
-  card, dismissed, applied, onDismiss,
+  card, dismissed, applied, repoWorkspaces, onDismiss,
 }: {
   card: SuggestionCard
   dismissed: boolean
   applied: boolean
   files: InstructionFile[]
+  repoWorkspaces: string[]
   onApply: (id: string, targetFile: string, text: string) => void
   onDismiss: (id: string) => void
 }) {
   if (dismissed || applied) return null
 
   const catColor = CAT_COLOR[card.category]
+  const info = repoInfo.value
+  const repoLabel = repoWorkspaces.length === 0 ? null
+    : repoWorkspaces.length === 1 ? repoDisplayName(repoWorkspaces[0], info)
+    : `${repoWorkspaces.length} repos`
+  const repoTitle = repoWorkspaces.length === 1 ? repoTooltipName(repoWorkspaces[0], info)
+    : repoWorkspaces.join(', ') || undefined
 
   return (
     <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden">
@@ -488,6 +260,12 @@ function SuggestionCardView({
             ))}
           </div>
         </div>
+        {repoLabel && (
+          <span
+            title={repoTitle}
+            style="font-size:9px;padding:2px 7px;border-radius:8px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border);flex-shrink:0;white-space:nowrap;margin-top:1px"
+          >{repoLabel}</span>
+        )}
         <button
           onClick={() => onDismiss(card.id)}
           style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 2px;line-height:1;flex-shrink:0"
@@ -603,7 +381,7 @@ function AppliedCard({
 
           {hasAfter && (
             <div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">
-              <MetricRow label="Cost" before={beforeCost} after={afterCost} pct={diffPct(beforeCost, afterCost)} fmt={v => `$${v.toFixed(3)}`} />
+              <MetricRow label="Estimated cost" before={beforeCost} after={afterCost} pct={diffPct(beforeCost, afterCost)} fmt={v => `$${v.toFixed(2)}`} />
               <MetricRow label="Turns" before={beforeTurns} after={afterTurns} pct={diffPct(beforeTurns, afterTurns)} fmt={v => v.toFixed(1)} />
               <MetricRow label="Errors" before={beforeErrors} after={afterErrors} pct={diffPct(beforeErrors, afterErrors)} fmt={v => v.toFixed(2)} />
               <MetricRow label="Loop %" before={beforeLoops} after={afterLoops} pct={diffPct(beforeLoops, afterLoops)} fmt={v => `${(v * 100).toFixed(0)}%`} />
@@ -641,11 +419,21 @@ function AppliedCard({
 // ── Main tab component ────────────────────────────────────────────────────────
 
 export function Instructions() {
-  const workspace = workspaceFilter.value
+  // The real folder this VS Code window has open (dashboardPanel.ts's 'update' message) — not
+  // workspaceFilter, which is the Traces/Sessions toolbar's freeform repo *search* box and can
+  // match any historical repo's sessions, not just the one Apply actually writes to (the
+  // extension host resolves targetFile against vscode.workspace.workspaceFolders[0] regardless
+  // of what string the webview sends it). A suggestion built from a different repo's sessions
+  // isn't just mislabeled, it's not actionable: Apply would write it into the wrong repo's
+  // instruction file.
+  const workspace = currentWorkspace.value
   const sessions = filteredSessions.value
 
-  // Workspace-scoped sessions — use all visible sessions when no workspace is selected
-  const wsSessions = workspace === 'all'
+  // Scoped to the one repo Apply can act on. No open folder (rare — e.g. inspecting historical
+  // data with nothing open) falls back to every session, same as before; a suggestion generated
+  // that way just can't be applied (the effect below only requests files/applied/dismissed state
+  // when workspace is non-null, and the file-status bar stays empty).
+  const wsSessions = workspace === null
     ? sessions
     : sessions.filter(s => (s.workspace ?? '') === workspace)
 
@@ -654,15 +442,24 @@ export function Instructions() {
   const applied = appliedSuggestions.value.filter(a => a.workspace === workspace)
   const dismissed = dismissedIds.value
 
-  // Generate suggestions from session data + existing instruction file content
+  // Generate suggestions from session data + existing instruction file content.
+  // generateSuggestions' file/turn/cost thresholds are only meaningful within a single repo's
+  // traces (src/instructionAdvisor.ts documents this: "all inputs are workspace-pre-filtered").
+  // With a repo folder open, wsSessions is already scoped to it. With none open, wsSessions spans
+  // every repo — group by repo and run generation separately per group so no suggestion's
+  // evidence (or the stats behind it) ever mixes traces from more than one repo.
   const existingText = files.map(f => f.content).join('\n')
   const appliedIds = new Set(applied.map(a => a.id))
-  const suggestions = generateSuggestions(wsSessions, existingText)
-    .filter(s => !appliedIds.has(s.id))
+  const suggestions = (
+    workspace !== null
+      ? generateSuggestions(wsSessions, existingText)
+      : [...groupByWorkspace(wsSessions).values()]
+        .flatMap(repoSessions => generateSuggestions(repoSessions, existingText))
+  ).filter(s => !appliedIds.has(s.id))
 
   // Request instruction files from extension when workspace changes
   useEffect(() => {
-    if (workspace !== 'all' && vscode) {
+    if (workspace !== null && vscode) {
       vscode.postMessage({ type: 'getInstructionFiles', workspace })
       vscode.postMessage({ type: 'getAppliedSuggestions', workspace })
       vscode.postMessage({ type: 'getDismissedSuggestions', workspace })
@@ -679,12 +476,14 @@ export function Instructions() {
         category: card.category, title: card.title, suggestedText: card.suggestedText,
       })
     } else {
-      // Standalone: optimistically add to applied list
+      // Standalone: optimistically add to applied list. workspace is only null with no folder
+      // open (or no real host in this preview mode) — AppliedRecord's key needs *some* string,
+      // and there's nothing truer to fall back to here.
       const nowMs = Date.now()
       appliedSuggestions.value = [
         ...appliedSuggestions.value,
         {
-          id, workspace, category: card.category, title: card.title,
+          id, workspace: workspace ?? '', category: card.category, title: card.title,
           suggestedText: card.suggestedText, appliedTo: targetFile,
           appliedText: text, appliedAt: new Date().toISOString(), appliedAtMs: nowMs,
           baselineCostAvg: 0, baselineTurnsAvg: 0, baselineInsufficient: true,
@@ -715,9 +514,12 @@ export function Instructions() {
       <FileStatusBar files={files} />
 
       <div style="padding:12px 16px">
-        {workspace === 'all' && (
+        {workspace === null && (
           <div style="margin-bottom:12px;padding:8px 12px;font-size:11px;color:var(--muted);line-height:1.5;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-            Select a project above for tailored suggestions. Across all projects, only universal patterns surface.
+            No repo folder is open in this window, so TraceRoost has nowhere to write instruction
+            file changes — suggestions below (each labeled with its source repo) are shown for
+            reference only and can't be applied. Open a repo folder to get tailored, applicable
+            suggestions for it.
           </div>
         )}
         {/* Pending suggestions */}
@@ -734,6 +536,7 @@ export function Instructions() {
                 dismissed={dismissed.has(card.id)}
                 applied={appliedIds.has(card.id)}
                 files={files}
+                repoWorkspaces={evidenceWorkspaces(card.evidenceSessions, wsSessions)}
                 onApply={handleApply}
                 onDismiss={handleDismiss}
               />

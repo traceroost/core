@@ -1,0 +1,244 @@
+import type { LoopSignalType } from './types'
+
+// Hand-copied mirror of `SIGNAL_FORMULAS` in ../../src/loopDetector.ts — that file is the source
+// of truth; keep this in sync with it by hand.
+//
+// Why a copy instead of a real import: this webview bundle (media/src/dashboard.tsx, bundled with
+// esbuild's `platform: 'browser'`) is type-checked under media/tsconfig.json, whose `rootDir` is
+// `media/src` — verified empirically (`tsc --noEmit -p media/tsconfig.json` against a throwaway
+// `import { PATTERN_NAMES } from '../../src/loopDetector'` fails with TS6059, "File ... is not
+// under 'rootDir'") because loopDetector.ts's own module graph (spanSummarizer.ts,
+// summarizerTypes.ts, the per-agent summarizers) reaches well outside media/src. That's the same
+// constraint signalIcons.tsx's LOOP_SIGNAL_ICON_TYPE already documents for
+// src/cloud/forward/schema.ts's toWireLoopSignal — a hand-copy with a "keep in sync" comment, not
+// a real import, is this codebase's existing answer to a webview needing extension-host-only data.
+//
+// `bullets` (one trigger condition per entry) renders as a real <ul> here and in Help.tsx's
+// glossary. `short`/`tip` are the condensed one-line versions the Sessions.tsx hover tooltip uses
+// instead — `short` restates the trigger, `tip` is what to actually do about it. `dataSource` is
+// NOT "every entry reads from both" — several log sub-parsers never build a tool timeline at all,
+// and several TimelineEntry fields these detectors need are populated by only a handful of
+// sources, even under OTel. `dataSourceNote` states the real per-source gap. See the comment on
+// this map in ../../src/loopDetector.ts for the full reasoning.
+export const SIGNAL_FORMULAS: Record<
+  LoopSignalType,
+  { bullets: string[]; caveat?: string; short: string; tip: string; dataSource: 'otel' | 'both'; dataSourceNote: string }
+> = {
+  exact_tool_repeat: {
+    bullets: [
+      'Same tool call (same label, and same result when both occurrences captured one) repeated 30+ times in a row with no file edit in between → warning',
+      '50+ → critical',
+    ],
+    caveat: 'Threshold set from real session history: calibrated against 236 real sessions (the 30/50 cutoffs sit near the p75/p95 of the fired-session streak-length distribution).',
+    short: 'Same tool call repeated 30+ times in a row with no edit.',
+    tip: 'Stop it and change approach — repeating won’t change the result.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Log-capable from Claude Code, OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all — those need live OTel from that agent instead.',
+  },
+  edit_revert_cycle: {
+    bullets: [
+      'A file’s (old→new) edit is exactly reversed by a later edit on the same file → warning',
+      'critical only if that revert was the file’s last edit before the session ended',
+    ],
+    caveat: 'Fired on only 5% of 236 sessions checked, and just 11 of those had a resolvable outcome — too few to calibrate further, so this threshold is left as originally set.',
+    short: 'A file’s edit was exactly undone by a later edit.',
+    tip: 'Give the agent one clear final target instead of iterating.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Log-capable only from Claude Code’s own log file. Never fires for Codex — from OTel or log — since Codex never records the old/new edit content this needs.',
+  },
+  error_recurrence: {
+    bullets: [
+      'The same error message (after stripping temp paths, timestamps, and hashes) recurs 3+ times → warning',
+      '5+ times with a real error-message match (not a tool-label fallback) → critical',
+    ],
+    caveat: 'Not recalibrated against session history — these thresholds are the original guess.',
+    short: 'The same error message recurred 3+ times.',
+    tip: 'Step in with the actual fix — retrying isn’t resolving it.',
+    dataSource: 'otel',
+    dataSourceNote:
+      'Needs per-tool error status that Claude, Codex, Copilot CLI/Chat, and Cursor logs don’t capture. OpenCode’s log is the one exception.',
+  },
+  runaway_steps: {
+    bullets: [
+      'Total LLM + tool steps exceed a complexity-tiered threshold (simple 45 / medium 110 / complex 250 steps, complexity inferred from the prompt’s wording and how many files were touched) → warning',
+      '2× that threshold → critical',
+    ],
+    caveat: 'Recalibrated roughly 3x upward after the original thresholds fired on 56% of sessions checked with no correlation to whether the session actually went well.',
+    short: 'Far more steps than expected for a task this size.',
+    tip: 'Break the task into smaller, explicitly scoped steps.',
+    dataSource: 'both',
+    dataSourceNote:
+      'The one signal that’s genuinely source-agnostic — it only reads session-level step/file counts every source populates. Complexity inference is coarser on sources that don’t capture file paths.',
+  },
+  token_runaway: {
+    bullets: [
+      'Across 4+ LLM calls, input tokens grow 15,000+ while the output/input ratio collapses to under 30% of its first-call value → warning',
+      'input growth over 50,000 tokens → critical',
+    ],
+    caveat: 'Fired on only 4% of 236 sessions checked, and just 6 of those had a resolvable outcome — too few to validate one way or the other.',
+    short: 'Context is ballooning while output isn’t improving.',
+    tip: 'Start a fresh session instead of continuing this one.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Log-capable from Claude Code (degraded — undercounts calls that also used a tool) and OpenCode. Not available from Codex, Copilot CLI/Chat, or Cursor logs — none of those capture per-call token counts.',
+  },
+  chronic_tool_failures: {
+    bullets: [
+      'At least 5 tool calls are made in the session and 20%+ of them fail → warning',
+      '40%+ → critical',
+    ],
+    caveat: 'Threshold is a guess — no real session has crossed it yet during calibration checks (zero firings across 236 sessions), so it’s unconfirmed.',
+    short: '20%+ of this session’s tool calls failed.',
+    tip: 'Double-check the paths/commands you gave the agent.',
+    dataSource: 'otel',
+    dataSourceNote:
+      'Same gap as error_recurrence: needs per-tool error status Claude, Codex, Copilot CLI/Chat, and Cursor logs don’t capture. OpenCode’s log is the one exception.',
+  },
+  context_flooding_risk: {
+    bullets: [
+      'Any single tool result exceeds 10,000 characters → warning',
+      'the total across all such large results reaches 300KB or more → critical',
+    ],
+    caveat: 'Threshold is a guess — no real session has crossed it yet during calibration checks (zero firings across 236 sessions), so it’s unconfirmed.',
+    short: 'A tool result was too large and crowded out context.',
+    tip: 'Ask for narrower reads — line ranges, not whole files.',
+    dataSource: 'otel',
+    dataSourceNote:
+      'Never fires for Claude Code, from OTel or log, at any configuration level — Claude’s telemetry doesn’t capture full tool-result size. Works from Codex or Copilot OTel, or from OpenCode’s log.',
+  },
+  hallucinated_import: {
+    bullets: [
+      'An edit imports a package name that isn’t declared in the project’s manifest (package.json / requirements.txt) and doesn’t resolve on disk (node_modules, stdlib/builtins excluded) → warning',
+      'Checked once an edit is complete, not mid-session like most of the other signals in this list',
+    ],
+    caveat: 'The best-validated signal in the taxonomy so far: fired on 15% of 236 sessions checked, with a 64% bad-outcome rate among those vs. a 49% baseline (n=33 with a resolvable outcome).',
+    short: 'Imports a package that isn’t installed or declared.',
+    tip: 'Verify the package name exists before trusting this edit.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Log-capable only from Claude Code’s own log file — same reason as edit_revert_cycle. Never fires for Codex in either form.',
+  },
+  failed_check_submission: {
+    bullets: [
+      'The last tool call in the session invoked a recognized test/build runner and its result reads as a failure (an error status, or "fail"/"✗" in the output), with nothing after it → warning',
+      'Only the session’s very last tool call is checked, so a failing check followed by more edits does not trigger this',
+    ],
+    caveat: 'Precision-good, recall-poor by design — zero firings across 236 sessions checked, which may just reflect how rarely a session both runs a check and ends immediately after a failure, not miscalibration.',
+    short: 'Session ended right after a failing test/build check.',
+    tip: 'Re-run the check and confirm it passes before merging.',
+    dataSource: 'otel',
+    dataSourceNote:
+      'Needs captured tool output Claude, Codex, Copilot CLI/Chat, and Cursor logs don’t provide. OpenCode’s log is the one exception.',
+  },
+  tool_call_cycle: {
+    bullets: [
+      'A 2-to-5-step tool-call sequence (same labels, and same results when captured) repeats 5+ times in a row with no file edit in between → warning',
+      '10+ repeats → critical',
+    ],
+    caveat: 'Newly added (2026-09-26), unconfirmed — the 5/10-repeat thresholds are borrowed from Gemini CLI\'s own default, not calibrated against this project\'s session history yet. Run scripts/calibrateSignals.ts once enough sessions have this signal computed.',
+    short: 'A multi-step sequence (e.g. run tests → read log → run tests → read log) repeated 5+ times with no edit.',
+    tip: 'Explain what changed between attempts, or step in with the missing information.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Same fields as exact_tool_repeat (label + fullResult), so the same source constraint applies: log-capable from Claude Code, OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all.',
+  },
+  file_reread: {
+    bullets: [
+      'The same file is read 3+ times with no write to it in between (matched by path, not literal call label, so a different line range still counts) → warning',
+      '6+ times → critical',
+    ],
+    caveat: 'Newly added (2026-09-26), unconfirmed — the 3/6-read thresholds are a guess, not calibrated against real sessions. Path extraction from toolInput/label is heuristic and may undercount on sources that don\'t expose a clean path field.',
+    short: 'The same file was read 3+ times with no write in between.',
+    tip: 'Ask the agent to summarize what it already knows instead of rereading.',
+    dataSource: 'otel',
+    dataSourceNote:
+      'Needs a parseable per-call path (toolInput JSON, or a path embedded in the label). Log-capable only from OpenCode\'s log, which captures both. Claude Code\'s own log batches multiple tool calls into one message-level entry with no per-call path, so this can\'t fire from it; Cursor\'s log captures only tool name+count, not paths.',
+  },
+  cache_miss: {
+    bullets: [
+      'An LLM call re-writes 5%+ of its prefix as new cache-write tokens, and that re-written share is 2,000+ tokens → warning (the first call on each model is skipped — nothing is cached yet, so writing its prefix is the normal cold start, not a miss)',
+      '10,000+ re-written tokens → critical',
+    ],
+    caveat: 'Newly added (2026-09-26), unconfirmed — the 5%/2,000-token rule is copied verbatim from Claude Code\'s own published /usage rule, not calibrated against this project\'s own session history.',
+    short: 'A call re-wrote context it could plausibly have read from cache.',
+    tip: 'Keep tool definitions, system prompt, and thinking/effort settings stable across turns.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Same per-call cache-token fields as token_runaway: log-capable from Claude Code (degraded) and OpenCode. Not available from Codex, Copilot CLI/Chat, or Cursor logs — none of those capture per-call cache-token counts.',
+  },
+  ttl_expiry: {
+    bullets: [
+      'A cache_miss (above) where the gap since the previous LLM call exceeds a 1-hour TTL → warning',
+      '3+ such gaps in one session → critical',
+    ],
+    caveat: 'Newly added (2026-09-26), unconfirmed. The 1-hour TTL is a single conservative constant (Claude Code\'s subscription TTL) — this codebase has no per-session record of subscription vs. API-key auth to pick the shorter 5-minute API TTL instead, so a real API-key expiry can go unflagged until the gap is this large. Chose the longer TTL deliberately: it undercounts real expiries rather than mislabeling a still-live cache as expired.',
+    short: 'A cache miss followed a gap longer than the cache\'s TTL.',
+    tip: 'Work in tighter bursts, or accept the re-processing cost for spaced-out turns.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Same constraint as cache_miss/token_runaway — needs per-call cache tokens and timestamps. Claude Code (degraded) and OpenCode logs; not Codex, Copilot CLI/Chat, or Cursor logs.',
+  },
+  low_cache_hit_ratio: {
+    bullets: [
+      'The session reports at least 2,000 combined cache-read + cache-write tokens (real cache activity, not just a source that never reports caching), and cache-read tokens are under 30% of the session’s total input tokens → warning',
+      'under 10% → critical',
+    ],
+    caveat: 'Newly added (2026-09-26), unconfirmed — the 30%/10% cutoffs and the 2,000-token activity floor are guesses, not calibrated against real sessions.',
+    short: 'Little of this session\'s context came from cache.',
+    tip: 'Check what\'s invalidating the cached prefix turn to turn.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Reads only the session-level cache totals every OTel summarizer and the Claude Code / OpenCode log parsers already accumulate. The 2,000-token activity floor exists specifically because a source that never reports caching at all (Cursor, Copilot CLI/Chat) would otherwise read as a 0% hit ratio — "no data" is not "zero cache hits."',
+  },
+  budget_overrun: {
+    bullets: [
+      'Session cost (each LLM call priced at its own model via pricing.ts where per-call tokens exist, otherwise the session’s token totals at flat rates) exceeds a configured cap → warning',
+      '2× that cap → critical',
+      'Disabled unless TRACEROOST_BUDGET_CAP_USD is set — there is no default cap',
+    ],
+    caveat: 'Newly added (2026-09-26), unconfirmed. Deliberately has no default threshold to calibrate — unlike every other signal here, the right cap is a dollar figure the user should set for themselves (SWE-agent\'s own default is $3/task, offered only as a reference point, not shipped as this signal\'s default).',
+    short: 'Session cost exceeded the configured budget cap.',
+    tip: 'Check whether a loop or retry pattern elsewhere in this list is driving the cost.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Reads only session-level token totals and model, the same source-agnostic fields runaway_steps uses — every source populates these. Precision degrades wherever the underlying cost estimate does (sources that don\'t split cache buckets cleanly).',
+  },
+  model_tier_mismatch: {
+    bullets: [
+      'No file was edited this session, 90%+ of tool calls are read-only (grep/search/glob/list/read), the model\'s input rate is $3+/M tokens (pricing.ts), and average output per LLM call is under 300 tokens → warning',
+      'No critical tier — this is a cost-optimization tip, not a malfunction',
+    ],
+    caveat: 'Newly added (2026-09-26), unconfirmed — every cutoff here (the 90% read-only share, the $3/M premium-tier line, the 300-token output ceiling) is a guess, not calibrated against real sessions.',
+    short: 'A premium-tier model ran a long, read-only, low-output stretch.',
+    tip: 'Route read/search-heavy turns to a smaller model.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Needs per-call model tags and output tokens, the same constraint token_runaway has: log-capable from Claude Code (degraded) and OpenCode, not from Codex, Copilot CLI/Chat, or Cursor logs.',
+  },
+  skipped_checks: {
+    bullets: [
+      'The session\'s git outcome resolves to \'merged\' (its content matches the tip of the remote-tracked trunk branch) and no recognized test/build runner call appears anywhere in the timeline → warning',
+      'No critical tier — absence of a check isn\'t itself proof of a bug, just proof nothing was verified',
+    ],
+    caveat: 'Added (2026-09-26, signal-catalog-05) — not calibrated against real session history yet '
+      + '(scripts/calibrateSignals.ts doesn\'t compute GitOutcome per session the way a live dashboard does, so this signal needs its own pass). '
+      + 'Datadog\'s own published rule is `commit_count > 0 && push_count > 0 && test_fix_cycle_count == 0`; this codebase has no direct way to '
+      + 'observe a `git push` (default telemetry redacts Bash command arguments — see the doc\'s spike), so \'merged\' (content already reached '
+      + 'the remote-tracked trunk, per gitOutcome.ts\'s existing origin-preferring trunk-ref resolution) stands in for "pushed" instead. That\'s a '
+      + 'solid proxy in this product\'s single-developer scope, but a genuine risk: a task with nothing to test (a docs fix, a config tweak) will '
+      + 'always fire this, so expect a real false-positive rate until calibrated.',
+    short: 'Changes reached the shared branch with no test/build check run.',
+    tip: 'Run the check yourself before trusting it — nothing verified this session\'s own work.',
+    dataSource: 'both',
+    dataSourceNote:
+      'Only needs tool labels (same fields exact_tool_repeat/runaway_steps use), not captured output, so it\'s log-capable from Claude Code, '
+      + 'OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all.',
+  },
+}
+
+/** Renders a signal's bullets as the `<ul>` HTML string LoopBlock's `why` prop expects. */
+export function formulaHtml(bullets: string[]): string {
+  return `<ul class="glossary-def-list">${bullets.map((b) => `<li>${b}</li>`).join('')}</ul>`
+}

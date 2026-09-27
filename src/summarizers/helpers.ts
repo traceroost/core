@@ -1,35 +1,78 @@
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import { Span } from '../types'
 
 export const CLAUDE_WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 export const FULL_WRITE_TOOLS   = new Set(['Write', 'create_file'])  // whole-file replacement
 
-/** Returns the longest common directory prefix of a set of absolute file paths. */
-export function commonPathPrefix(paths: string[]): string {
-  const absPaths = paths.filter(p => p.startsWith('/'))
-  if (absPaths.length === 0) { return '' }
-  const split = absPaths.map(p => p.split('/').filter(Boolean))
+/**
+ * Splits an absolute file path into its root, separator and segments; null when it isn't absolute.
+ * `/…` paths always count. On win32 so do `C:\…` / `C:/…` and UNC `\\server\share\…`, and both
+ * separators split segments there (POSIX paths split on `/` only, exactly as before).
+ */
+function splitAbsolutePath(p: string, platform: NodeJS.Platform): { root: string; sep: string; segments: string[] } | null {
+  const win = platform === 'win32'
+  if (!win) {
+    return p.startsWith('/') ? { root: '/', sep: '/', segments: p.split('/').filter(Boolean) } : null
+  }
+  const segments = () => p.split(/[\\/]/).filter(Boolean)
+  if (/^[\\/]{2}[^\\/]/.test(p)) { return { root: '\\\\', sep: '\\', segments: segments() } }
+  if (p.startsWith('/')) { return { root: '/', sep: '/', segments: segments() } }
+  if (/^[A-Za-z]:[\\/]/.test(p)) { return { root: p.slice(0, 2) + '\\', sep: '\\', segments: segments().slice(1) } }
+  return null
+}
+
+/** True for a path `commonPathPrefix` can use — see splitAbsolutePath for what counts on each platform. */
+export function isAbsoluteFilePath(p: string, platform: NodeJS.Platform = process.platform): boolean {
+  return splitAbsolutePath(p, platform) !== null
+}
+
+/** Last segment of a file path — on win32 either separator ends a segment, elsewhere only `/`. */
+export function fileBaseName(p: string, platform: NodeJS.Platform = process.platform): string {
+  return (platform === 'win32' ? p.split(/[\\/]/) : p.split('/')).pop() || p
+}
+
+/**
+ * Returns the longest common directory prefix of a set of absolute file paths. Windows paths
+ * (win32 only) compare drive letters and segments case-insensitively, as the file system does,
+ * and come back with `\` separators under the first path's root and casing.
+ */
+export function commonPathPrefix(paths: string[], platform: NodeJS.Platform = process.platform): string {
+  const win = platform === 'win32'
+  const split = paths.map(p => splitAbsolutePath(p, platform)).filter(s => s !== null)
+  if (split.length === 0) { return '' }
+  const key = (seg: string) => win ? seg.toLowerCase() : seg
   const first = split[0]
+  if (!split.every(s => key(s.root) === key(first.root))) { return '' }
   let common = 0
-  for (let i = 0; i < first.length; i++) {
-    if (split.every(parts => parts[i] === first[i])) { common = i + 1 } else { break }
+  for (let i = 0; i < first.segments.length; i++) {
+    const seg = key(first.segments[i])
+    if (split.every(s => s.segments[i] !== undefined && key(s.segments[i]) === seg)) { common = i + 1 } else { break }
   }
   if (common === 0) { return '' }
   // Don't return the full path if it points to a file (last segment has a dot)
-  const prefix = first.slice(0, common)
+  const prefix = first.segments.slice(0, common)
   if (prefix[prefix.length - 1]?.includes('.')) { prefix.pop() }
-  return prefix.length > 0 ? '/' + prefix.join('/') : ''
+  return prefix.length > 0 ? first.root + prefix.join(first.sep) : ''
 }
 
 /**
  * Walks up from startDir until it finds a directory containing a project root
- * marker (.git or package.json). Falls back to startDir if none is found.
- * Prevents OTEL sessions from being labelled with a deep subdirectory (e.g.
- * src/tabs) when only files there were touched in that session.
+ * marker (.git or package.json). Prevents OTEL sessions from being labelled
+ * with a deep subdirectory (e.g. src/tabs) when only files there were touched
+ * in that session.
+ *
+ * If no marker is found anywhere up the tree, startDir itself is normally a reasonable fallback —
+ * except when it's at or above the user's home directory. That shape only shows up when the
+ * caller's `startDir` was already an overly shallow guess (e.g. commonPathPrefix collapsing to
+ * almost nothing because a session touched only two files in unrelated subtrees) — it *looks* like
+ * a real project path but isn't one, and displaying it (e.g. "Users/devuser") is more misleading
+ * than showing nothing. `homeDir` is injectable for tests; defaults to the real home directory.
  */
-export function findProjectRoot(startDir: string): string {
-  if (!startDir || !startDir.startsWith('/')) { return startDir }
+export function findProjectRoot(startDir: string, homeDir: string = os.homedir()): string {
+  // path.isAbsolute, not startsWith('/'): on Windows a session directory is `C:\…`.
+  if (!startDir || !path.isAbsolute(startDir)) { return startDir }
   let dir = startDir
   for (;;) {
     if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json'))) {
@@ -39,18 +82,20 @@ export function findProjectRoot(startDir: string): string {
     if (parent === dir) { break }
     dir = parent
   }
-  return startDir
+  // Windows paths take either separator and compare case-insensitively; POSIX ones neither.
+  const win = process.platform === 'win32'
+  const segments = (p: string) => (win ? p.toLowerCase().split(/[\\/]/) : p.split('/')).filter(Boolean)
+  const startSegments = segments(startDir)
+  const homeSegments = segments(homeDir)
+  const isHomeOrAboveHome = startSegments.length <= homeSegments.length
+    && startSegments.every((seg, i) => seg === homeSegments[i])
+  return isHomeOrAboveHome ? '' : startDir
 }
 
 export function getAttrStr(span: Span, key: string): string {
   const attr = span.attributes?.find(a => a.key === key)
   if (!attr) { return '' }
   return String(attr.value?.stringValue ?? attr.value?.intValue ?? attr.value?.doubleValue ?? '')
-}
-
-// Handles the gen_ai.system → gen_ai.provider.name rename in gen_ai_latest_experimental.
-export function getGenAiSystem(span: Span): string {
-  return getFirstAttr(span, ['gen_ai.system', 'gen_ai.provider.name'])
 }
 
 // Handles gen_ai.request.model / gen_ai.response.model with old and new attribute names.
@@ -81,8 +126,31 @@ export function timestampToMs(value: string | number | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+const TASK_NOTIFICATION_RE = /<task-notification>[\s\S]*?<\/task-notification>/gi
+
+/**
+ * True when `text` is nothing but one or more <task-notification> blocks — the harness's way
+ * of delivering a background Bash/Agent task's result back into the conversation on a
+ * synthetic turn. Not something a person typed, so it shouldn't be shown as the prompt.
+ */
+export function isTaskNotificationOnly(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed.includes('<task-notification>')) { return false }
+  return trimmed.replace(TASK_NOTIFICATION_RE, '').trim() === ''
+}
+
+/** Pulls a human-readable label out of a <task-notification> block's <summary> field. */
+export function summarizeTaskNotification(text: string): string {
+  const summary = text.match(/<summary>\s*([\s\S]*?)\s*<\/summary>/i)?.[1]?.trim()
+  return (summary ? `[background task] ${summary}` : '[background task result]').slice(0, 500)
+}
+
 export function extractUserRequest(raw: string): string {
   const trimmed = raw.trim()
+
+  // Background task result delivered on a synthetic turn (see isTaskNotificationOnly) —
+  // show its summary instead of the raw notification XML.
+  if (isTaskNotificationOnly(trimmed)) { return summarizeTaskNotification(trimmed) }
 
   // Claude Code wraps the user text in <userRequest> when IDE context is attached
   if (trimmed.includes('<userRequest>')) {

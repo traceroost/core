@@ -1,0 +1,226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://traceroost.cloud/schema/rollup.v1.json",
+  "title": "TraceRoost rollup, version 1",
+  "description": "The complete wire format between a linked machine and the TraceRoost Cloud ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. See docs/decisions/0003-what-we-can-and-cannot-see.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "repo_key_fp": { "$ref": "#/$defs/hash" },
+    "member_author_hash": { "$ref": "#/$defs/hash" },
+    "session": { "$ref": "#/$defs/session" },
+    "commits": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/commit" }
+    },
+    "turnover": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/turnover" }
+    },
+    "instruction_files": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/instruction_file" }
+    },
+    "file_footprints": {
+      "type": "array",
+      "maxItems": 300,
+      "items": { "$ref": "#/$defs/file_footprint" }
+    },
+    "suggestion_events": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/suggestion_event" }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "agent": { "type": "string", "enum": ["claude-code", "copilot", "codex", "cursor", "other"] },
+    "attribution": { "type": "string", "enum": ["certain", "probable", "unknown"] },
+    "outcome": {
+      "type": "string",
+      "enum": ["merged", "committed", "abandoned", "in-progress", "reverted", "unknown"]
+    },
+    "loop_signal": {
+      "type": "string",
+      "enum": [
+        "context-flooding",
+        "repeated-edit",
+        "retry-loop",
+        "tool-failure-cascade",
+        "no-progress",
+        "oscillation",
+        "runaway-cost",
+        "instruction-conflict",
+        "context-thrash"
+      ]
+    },
+    "count": { "type": "integer", "minimum": 0, "maximum": 100000000 },
+    "data_source": { "type": "string", "enum": ["otel", "log"] },
+    "initiator": { "type": "string", "enum": ["user", "agent", "api"] },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "agent", "started_at", "duration_ms"],
+      "properties": {
+        "session_id": { "type": "string", "format": "uuid" },
+        "agent": { "$ref": "#/$defs/agent" },
+        "models": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["model", "calls"],
+            "properties": {
+              "model": { "type": "string", "pattern": "^[A-Za-z0-9._:@/-]{1,80}$" },
+              "calls": { "$ref": "#/$defs/count" }
+            }
+          }
+        },
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "branch_hash": { "$ref": "#/$defs/hash" },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "duration_ms": { "$ref": "#/$defs/count" },
+        "turns": { "$ref": "#/$defs/count" },
+        "tokens_in": { "$ref": "#/$defs/count" },
+        "tokens_out": { "$ref": "#/$defs/count" },
+        "tokens_cache_read": { "$ref": "#/$defs/count" },
+        "tokens_cache_create": { "$ref": "#/$defs/count" },
+        "tool_calls": {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "patternProperties": { "^[a-z_]{1,40}$": { "$ref": "#/$defs/count" } }
+        },
+        "errors": { "$ref": "#/$defs/count" },
+        "file_hashes": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": { "$ref": "#/$defs/hash" }
+        },
+        "one_shot": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "files_edited": { "$ref": "#/$defs/count" },
+            "files_first_pass": { "$ref": "#/$defs/count" }
+          }
+        },
+        "loop_signals": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["signal", "severity"],
+            "properties": {
+              "signal": { "$ref": "#/$defs/loop_signal" },
+              "severity": { "type": "integer", "minimum": 1, "maximum": 3 }
+            }
+          }
+        },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "data_source": { "$ref": "#/$defs/data_source" },
+        "initiator": { "$ref": "#/$defs/initiator" },
+        "conversation_hash": { "$ref": "#/$defs/hash" },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Durable, monotonically increasing local revision number for this session's canonical trace snapshot (staged feature 10). Absent on a legacy/first-cut send that predates the revision protocol -- the server treats an absent revision as the lowest possible one for replace-ordering purposes, never as newer than an already-acknowledged revisioned snapshot."
+        }
+      }
+    },
+    "commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_hash", "repo_hash", "authored_at", "lines_added", "lines_removed"],
+      "properties": {
+        "commit_hash": { "$ref": "#/$defs/hash" },
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "authored_at": { "$ref": "#/$defs/timestamp" },
+        "lines_added": { "$ref": "#/$defs/count" },
+        "lines_removed": { "$ref": "#/$defs/count" },
+        "ai_lines": { "$ref": "#/$defs/count" },
+        "attribution": { "$ref": "#/$defs/attribution" },
+        "author_hash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "turnover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_hash", "window_days", "ai_lines_authored", "ai_lines_surviving"],
+      "properties": {
+        "commit_hash": { "$ref": "#/$defs/hash" },
+        "window_days": { "type": "integer", "enum": [30, 90] },
+        "ai_lines_authored": { "$ref": "#/$defs/count" },
+        "ai_lines_surviving": { "$ref": "#/$defs/count" }
+      }
+    },
+    "instruction_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_hash", "present", "kind"],
+      "properties": {
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "present": { "type": "boolean" },
+        "kind": { "type": "string", "enum": ["claude_md", "agents_md", "copilot_instructions", "other"] },
+        "path_hash": { "$ref": "#/$defs/hash" },
+        "content_hash": { "$ref": "#/$defs/hash" },
+        "line_count": { "$ref": "#/$defs/count" },
+        "last_modified": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "file_footprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_hash", "file_hash", "sessions_read", "sessions_total"],
+      "properties": {
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "file_hash": { "$ref": "#/$defs/hash" },
+        "sessions_read": { "$ref": "#/$defs/count" },
+        "sessions_total": { "$ref": "#/$defs/count" },
+        "early_reads": { "$ref": "#/$defs/count" },
+        "token_size": { "$ref": "#/$defs/count" },
+        "covered_by_instructions": { "type": "boolean" }
+      }
+    },
+    "suggestion_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_hash", "suggestion_id", "category", "priority", "action", "at"],
+      "properties": {
+        "repo_hash": { "$ref": "#/$defs/hash" },
+        "suggestion_id": { "$ref": "#/$defs/hash" },
+        "category": { "type": "string", "enum": ["context", "behavior", "prompting"] },
+        "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+        "target_agents": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/agent" }
+        },
+        "action": { "type": "string", "enum": ["surfaced", "applied", "dismissed", "reverted"] },
+        "at": { "$ref": "#/$defs/timestamp" },
+        "baseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cost_avg": { "type": "number", "minimum": 0, "maximum": 100000 },
+            "turns_avg": { "type": "number", "minimum": 0, "maximum": 100000 },
+            "error_rate": { "type": "number", "minimum": 0, "maximum": 100000 },
+            "loop_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "insufficient": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}
