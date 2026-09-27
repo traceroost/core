@@ -32,7 +32,9 @@ suite('forward/deliveryLedger', () => {
   test('the file is user-only (0600)', () => {
     new DeliveryLedger(home).markDelivered('session:a')
     const mode = fs.statSync(ledgerPath(home)).mode & 0o777
-    assert.strictEqual(mode, 0o600)
+    // Windows has no POSIX permission bits: Node reports every writable file as 0o666 there (the
+    // user-only guarantee comes from the profile directory's inherited ACL instead).
+    assert.strictEqual(mode, process.platform === 'win32' ? 0o666 : 0o600)
   })
 
   test('an unrecorded key on a fresh install (no file yet) is not delivered', () => {

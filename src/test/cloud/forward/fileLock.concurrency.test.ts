@@ -13,6 +13,7 @@ import { ForwardQueue } from '../../../cloud/forward/queue'
  *  TraceRoost hosts running. */
 suite('cloud/forward/queue — concurrent multi-process enqueue', () => {
   const realHome = process.env.HOME
+  const realUserProfile = process.env.USERPROFILE
   let home: string
 
   setup(() => {
@@ -22,6 +23,8 @@ suite('cloud/forward/queue — concurrent multi-process enqueue', () => {
   teardown(() => {
     if (realHome === undefined) delete process.env.HOME
     else process.env.HOME = realHome
+    if (realUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = realUserProfile
     fs.rmSync(home, { recursive: true, force: true })
   })
 
@@ -34,6 +37,7 @@ suite('cloud/forward/queue — concurrent multi-process enqueue', () => {
     await Promise.all(sessionIds.map(id => runWorker(workerPath, id, home)))
 
     process.env.HOME = home
+    process.env.USERPROFILE = home // what os.homedir() reads on Windows
     const queued = new ForwardQueue().list()
     const queuedIds = queued.map(it => it.payload.session?.session_id).sort()
     assert.strictEqual(queued.length, N, `expected all ${N} concurrent enqueues to land, got ${queued.length}`)
@@ -44,7 +48,7 @@ suite('cloud/forward/queue — concurrent multi-process enqueue', () => {
 function runWorker(workerPath: string, sessionId: string, home: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [workerPath, sessionId], {
-      env: { ...process.env, HOME: home },
+      env: { ...process.env, HOME: home, USERPROFILE: home },
       stdio: 'inherit',
     })
     child.on('error', reject)

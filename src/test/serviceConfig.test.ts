@@ -221,7 +221,9 @@ suite('serviceConfig', () => {
       const plist = generateLaunchdPlist({ nodePath: "/opt/it's/node", cliPath: '/opt/a "b"/cli.js', config })
       assert.ok(plist.includes('<string>/opt/it&apos;s/node</string>'))
       assert.ok(plist.includes('<string>/opt/a &quot;b&quot;/cli.js</string>'))
-      assert.ok(plist.includes('<string>/Users/Tom &amp; Jerry/.traceroost</string>'))
+      // The data dir is built with the host's path.join (plists are only generated on macOS);
+      // spell the expectation the same way so it holds on any test host.
+      assert.ok(plist.includes(`<string>${path.join('/Users/Tom &amp; Jerry', '.traceroost')}</string>`))
       assert.ok(plist.includes('<string>&lt;h&gt;</string>'))
       assert.ok(!plist.includes('Tom & Jerry'))
     })
@@ -249,7 +251,8 @@ suite('serviceConfig', () => {
       assert.ok(unit.includes('ExecStart="/opt/my node/node" "/opt/50%%/$$HOME/cli.js"'), unit)
       // Environment= has no $-substitution, so `$` stays single; `%` is still a specifier.
       assert.ok(unit.includes('Environment="DATA_DIR=/home/a b/100%% \\"x\\"\\\\y $HOME &z"'), unit)
-      assert.ok(unit.includes('StandardOutput=append:/home/a b/100%% "x"\\y $HOME &z/logs/service.log'), unit)
+      // The log path is joined with the host's path.join (units are only generated on Linux).
+      assert.ok(unit.includes(`StandardOutput=append:${path.join('/home/a b/100%% "x"\\y $HOME &z', 'logs', 'service.log')}`), unit)
     })
 
     test('refuses a value containing a newline instead of injecting a directive', () => {

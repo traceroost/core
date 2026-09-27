@@ -7,18 +7,23 @@ import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStanda
 suite('autoConfigNode', () => {
   let home: string
   let savedHome: string | undefined
+  let savedUserProfile: string | undefined
   let savedCodexHome: string | undefined
 
   setup(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-autoconfig-test-'))
     savedHome = process.env.HOME
+    savedUserProfile = process.env.USERPROFILE
     savedCodexHome = process.env.CODEX_HOME
+    // os.homedir() reads HOME on POSIX but USERPROFILE on Windows — sandbox both.
     process.env.HOME = home
+    process.env.USERPROFILE = home
     delete process.env.CODEX_HOME
   })
 
   teardown(() => {
     if (savedHome === undefined) { delete process.env.HOME } else { process.env.HOME = savedHome }
+    if (savedUserProfile === undefined) { delete process.env.USERPROFILE } else { process.env.USERPROFILE = savedUserProfile }
     if (savedCodexHome === undefined) { delete process.env.CODEX_HOME } else { process.env.CODEX_HOME = savedCodexHome }
     fs.rmSync(home, { recursive: true, force: true })
   })

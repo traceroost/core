@@ -275,14 +275,18 @@ export async function resolveOutcomeCacheKey(workspace: string, filesChanged: st
 // Resolves symlinks where possible so paths compare consistently — `git rev-parse --show-toplevel`
 // always returns a fully-resolved path, but a workspace/file path from elsewhere may not (notably
 // macOS, where the default tmpdir and often the home directory sit behind a symlink).
+// Uses the native realpath: on Windows it also expands 8.3 short names (`C:\Users\RUNNER~1\…`,
+// what os.tmpdir() often returns) to the long form git reports, which the JS implementation
+// leaves as-is. A path that doesn't exist (a deleted file) resolves its nearest existing ancestor.
 function realpathBestEffort(p: string): string {
-  try {
-    return fs.realpathSync(p)
-  } catch {
+  const abs = path.resolve(p)
+  const rest: string[] = []
+  for (let dir = abs; ; dir = path.dirname(dir)) {
     try {
-      return path.join(fs.realpathSync(path.dirname(p)), path.basename(p))
+      return path.join(fs.realpathSync.native(dir), ...rest)
     } catch {
-      return path.resolve(p)
+      if (path.dirname(dir) === dir) return abs
+      rest.unshift(path.basename(dir))
     }
   }
 }

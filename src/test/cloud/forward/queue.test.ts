@@ -39,7 +39,9 @@ suite('forward/queue', () => {
 
   test('the queue file is user-only (0600)', () => {
     new ForwardQueue(home).enqueue(payload('33333333-3333-4333-8333-333333333333'))
-    assert.strictEqual(fs.statSync(queuePath(home)).mode & 0o777, 0o600)
+    // Windows has no POSIX permission bits: Node reports every writable file as 0o666 there (the
+    // user-only guarantee comes from the profile directory's inherited ACL instead).
+    assert.strictEqual(fs.statSync(queuePath(home)).mode & 0o777, process.platform === 'win32' ? 0o666 : 0o600)
   })
 
   test('oldest-first eviction past the cap', () => {

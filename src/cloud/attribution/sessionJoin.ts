@@ -14,8 +14,21 @@ import type { AttributionSession, ScannedCommit } from './types'
 
 export const DEFAULT_LOOKBACK_HOURS = 72
 
+// Native realpath: on Windows it also expands 8.3 short names (`C:\Users\RUNNER~1\…`) to the long
+// form `git rev-parse --show-toplevel` reports, which the JS implementation leaves as-is — the two
+// sides would otherwise never compare equal. A path that doesn't exist (a deleted file) resolves
+// its nearest existing ancestor.
 function realpathBestEffort(p: string): string {
-  try { return fs.realpathSync(p) } catch { return path.resolve(p) }
+  const abs = path.resolve(p)
+  const rest: string[] = []
+  for (let dir = abs; ; dir = path.dirname(dir)) {
+    try {
+      return path.join(fs.realpathSync.native(dir), ...rest)
+    } catch {
+      if (path.dirname(dir) === dir) return abs
+      rest.unshift(path.basename(dir))
+    }
+  }
 }
 
 function workspaceToPath(workspace: string): string {

@@ -342,8 +342,11 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
     // and if that happens to every file in a session, the whole trace's Outcome comes back
     // null/blank despite Files clearly listing real, in-place edits. Resolving here, once
     // `workspace` is known, is cheap and fixes it at the source rather than in every consumer.
+    // `workspace` is the agent machine's cwd, not this host's, so join in *its* path flavor: a
+    // POSIX cwd stays POSIX on a Windows host, and a `C:\…` cwd stays Windows on a Linux one.
+    const sessionPath = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(workspace) ? path.win32 : path.posix
     const resolvedFilesChanged = workspace
-      ? Array.from(filesChanged, f => path.isAbsolute(f) ? f : path.join(workspace, f))
+      ? Array.from(filesChanged, f => sessionPath.isAbsolute(f) ? f : sessionPath.join(workspace, f))
       : Array.from(filesChanged)
 
     return {

@@ -237,12 +237,16 @@ suite('gitOutcome', () => {
     const trunkP1 = cache.trunkRef(root!)
     const trunkP2 = cache.trunkRef(root!)
     assert.strictEqual(trunkP1, trunkP2, 'a second call for the same root must reuse the in-flight/resolved promise')
+    // Let its git subprocesses exit before teardown removes repoDir — Windows refuses to delete a
+    // directory that a live process has as its cwd.
+    await trunkP1
 
     // A different workspace/root gets its own cache entry — this isn't a global singleton.
     const other = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-gitoutcome-other-'))
     try {
       const otherRootP = cache.root(other)
       assert.notStrictEqual(otherRootP, rootP1)
+      await otherRootP
     } finally {
       fs.rmSync(other, { recursive: true, force: true })
     }

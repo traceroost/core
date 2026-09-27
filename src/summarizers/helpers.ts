@@ -37,7 +37,8 @@ export function commonPathPrefix(paths: string[]): string {
  * than showing nothing. `homeDir` is injectable for tests; defaults to the real home directory.
  */
 export function findProjectRoot(startDir: string, homeDir: string = os.homedir()): string {
-  if (!startDir || !startDir.startsWith('/')) { return startDir }
+  // path.isAbsolute, not startsWith('/'): on Windows a session directory is `C:\…`.
+  if (!startDir || !path.isAbsolute(startDir)) { return startDir }
   let dir = startDir
   for (;;) {
     if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json'))) {
@@ -47,8 +48,11 @@ export function findProjectRoot(startDir: string, homeDir: string = os.homedir()
     if (parent === dir) { break }
     dir = parent
   }
-  const startSegments = startDir.split('/').filter(Boolean)
-  const homeSegments = homeDir.split('/').filter(Boolean)
+  // Windows paths take either separator and compare case-insensitively; POSIX ones neither.
+  const win = process.platform === 'win32'
+  const segments = (p: string) => (win ? p.toLowerCase().split(/[\\/]/) : p.split('/')).filter(Boolean)
+  const startSegments = segments(startDir)
+  const homeSegments = segments(homeDir)
   const isHomeOrAboveHome = startSegments.length <= homeSegments.length
     && startSegments.every((seg, i) => seg === homeSegments[i])
   return isHomeOrAboveHome ? '' : startDir

@@ -72,7 +72,9 @@ suite('org/payloadPreview — createPayloadBuildCache', () => {
     fs.rmSync(repoB, { recursive: true, force: true })
   })
 
-  test('repoKey() memoizes per (workspace, orgId) — a second card in the same repo reuses the same promise', () => {
+  // Each of these promises runs `git` with its cwd inside a temp repo; let them settle before
+  // teardown deletes it (Windows refuses to remove a directory a live process has as its cwd).
+  test('repoKey() memoizes per (workspace, orgId) — a second card in the same repo reuses the same promise', async () => {
     const cache = createPayloadBuildCache()
     const p1 = cache.repoKey(repoA, 'org-1')
     const p2 = cache.repoKey(repoA, 'org-1')
@@ -83,14 +85,17 @@ suite('org/payloadPreview — createPayloadBuildCache', () => {
 
     const differentOrg = cache.repoKey(repoA, 'org-2')
     assert.notStrictEqual(differentOrg, p1)
+    await Promise.all([p1, differentRepo, differentOrg])
   })
 
-  test('branch() memoizes per root', () => {
+  test('branch() memoizes per root', async () => {
     const cache = createPayloadBuildCache()
     const p1 = cache.branch(repoA)
     const p2 = cache.branch(repoA)
     assert.strictEqual(p1, p2)
-    assert.notStrictEqual(cache.branch(repoB), p1)
+    const other = cache.branch(repoB)
+    assert.notStrictEqual(other, p1)
+    await Promise.all([p1, other])
   })
 
   test('buildPayloadForCard produces the same payload shape with and without a cache', async () => {

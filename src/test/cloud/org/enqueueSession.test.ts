@@ -35,6 +35,7 @@ function makeCard(id: string, overrides: Partial<SessionSummaryCard> = {}): Sess
 }
 
 const realHome = process.env.HOME
+const realUserProfile = process.env.USERPROFILE
 
 suite('org/enqueueSession', () => {
   let home: string
@@ -42,6 +43,7 @@ suite('org/enqueueSession', () => {
   setup(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-enqueue-'))
     process.env.HOME = home // ForwardQueue()/DeliveryLedger() have no injectable baseHome here
+    process.env.USERPROFILE = home // what os.homedir() reads on Windows
     setCredentialStore(memoryStore())
   })
 
@@ -49,6 +51,8 @@ suite('org/enqueueSession', () => {
     setCredentialStore(undefined)
     if (realHome === undefined) delete process.env.HOME
     else process.env.HOME = realHome
+    if (realUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = realUserProfile
     fs.rmSync(home, { recursive: true, force: true })
   })
 
