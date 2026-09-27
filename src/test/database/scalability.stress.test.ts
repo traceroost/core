@@ -14,10 +14,12 @@ import { SCHEMA_SQL } from '../../database/schema'
 import { DatabaseWriter } from '../../database/writer'
 import { DatabaseReader } from '../../database/reader'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import type { SqlStatement } from '../../database/db'
 
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
 }

@@ -11,6 +11,7 @@ import { ForwardQueue } from '../../../../cloud/forward/queue'
 
 const sessionId = process.argv[2]
 if (!sessionId) {
+  // eslint-disable-next-line no-console -- standalone child process: stderr is its only channel back to the test
   console.error('usage: concurrentEnqueueWorker.js <sessionId>')
   process.exit(1)
 }

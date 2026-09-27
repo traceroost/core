@@ -34,6 +34,11 @@ cd core
 pnpm install
 ```
 
+`pnpm install` also points git at the repo's hooks (`git config core.hooksPath .githooks`, via the
+`prepare` script — skipped in CI and outside a git checkout). The `post-merge` / `post-rewrite`
+hooks re-run `node esbuild.js` so `standalone/cli.js` and the other bundles stay in sync after a
+pull or rebase. Run that `git config` line yourself if you installed with `--ignore-scripts`.
+
 **Run in VS Code:** Press `F5` to open a VS Code Extension Development Host with TraceRoost loaded.
 
 **Run standalone:** `pnpm run local` — starts the OTLP collector on port `4318` and the dashboard UI on port `3000`.
@@ -66,7 +71,7 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 
 **Merging:** PRs are squash-merged into `main` so the history stays one-line-per-change readable.
 
-**Releases:** bump `version` in `package.json` and add a `CHANGELOG.md` entry in the same PR. After merge, tag `main` with `vX.Y.Z`.
+**Releases:** bump `version` in `package.json` and add a `CHANGELOG.md` entry in the same PR. After merge, tag `main` with `vX.Y.Z` — the release and Docker workflows refuse a tag that doesn't match `package.json`'s version.
 
 ## Submitting a pull request
 

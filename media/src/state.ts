@@ -116,12 +116,38 @@ function makeSetSignal<T>() {
 export const sessionSummary = signal<FullSummary | null>(window.__INITIAL_SESSION_SUMMARY__ ?? null)
 export const toolCalls = signal<Record<string, number>>(window.__INITIAL_TOOL_CALLS__ ?? {})
 
+// Incremental `update` payload from the extension host — see src/webviewSessionSync.ts, which
+// only sends the cards that changed since its last post (and the id order, only when that changed).
+export interface SessionDelta {
+  upserts: SessionSummaryCard[]
+  order?: string[]
+  efficiency: FullSummary['efficiency']
+  /** Top-level background spans — only the standalone server (standalone/sseSessionSync.ts) has
+   *  any; absent means none. */
+  backgroundSpans?: FullSummary['backgroundSpans']
+}
+
+/** The summary `delta` brings `prev` to, or null when `delta` names a session `prev` doesn't hold
+ *  (the caller then asks the host for a full resync). Unchanged cards keep their identity. */
+export function applySessionDelta(prev: FullSummary | null, delta: SessionDelta): FullSummary | null {
+  if (!prev && !delta.order) return null
+  const byId = new Map<string, SessionSummaryCard>()
+  for (const s of prev?.sessions ?? []) byId.set(s.sessionId, s)
+  for (const s of delta.upserts) byId.set(s.sessionId, s)
+  const order = delta.order ?? prev!.sessions.map(s => s.sessionId)
+  const sessions: SessionSummaryCard[] = []
+  for (const id of order) {
+    const s = byId.get(id)
+    if (!s) return null
+    sessions.push(s)
+  }
+  return { sessions, backgroundSpans: delta.backgroundSpans ?? [], efficiency: delta.efficiency }
+}
+
 // ── Lazy timeline cache: sessionId → loaded timeline entries ──────────────────
 // Populated by sessionDetail messages from the extension host.
-// blobCache: `${spanId}:${field}` → content string
 
 export const sessionTimelines = signal<Record<string, TimelineEntry[]>>({})
-export const blobCache = signal<Record<string, string>>({})
 
 // Lazy git-outcome cache: sessionId → classification, or null once fetched but not applicable
 // (no git repo, no changed files, etc). Absent key = not yet requested. See gitOutcome.ts.
@@ -179,11 +205,35 @@ function signalsScore(signals: LoopSignal[] | undefined): number {
 const GIT_OUTCOME_FETCH_CAP = 150
 const GIT_OUTCOME_FETCH_STAGGER_MS = 2
 
+// Sessions requestGitOutcomesFor has scheduled or posted a `getGitOutcome` for and the host hasn't
+// answered yet (with `gitOutcome` or `gitOutcomeDeferred` — App.tsx calls gitOutcomeRequestSettled
+// on either), mapped to when they were requested. Every `update` re-calls requestGitOutcomesFor
+// with every session; without this, each one re-requested everything still unresolved and started
+// another overlapping staggered chain. An entry older than GIT_OUTCOME_REQUEST_EXPIRY_MS no longer
+// blocks a new request, so a reply that never comes can't strand a session unrequested for good.
+const gitOutcomeRequestsInFlight = new Map<string, number>()
+const GIT_OUTCOME_REQUEST_EXPIRY_MS = 60_000
+
+function gitOutcomeRequestInFlight(sessionId: string, now: number): boolean {
+  const at = gitOutcomeRequestsInFlight.get(sessionId)
+  return at !== undefined && now - at < GIT_OUTCOME_REQUEST_EXPIRY_MS
+}
+
+/** The host answered `sessionId`'s git-outcome request — a later requestGitOutcomesFor may ask
+ *  again if it's still unresolved (a deferred session is re-asked on the next update). */
+export function gitOutcomeRequestSettled(sessionId: string): void {
+  gitOutcomeRequestsInFlight.delete(sessionId)
+}
+
 export function requestGitOutcomesFor(sessions: SessionSummaryCard[]): void {
   const cache = gitOutcomes.peek()
-  const pending = sessions.filter(s => cache[s.sessionId] === undefined)
+  const now = Date.now()
+  const pending = sessions.filter(s => cache[s.sessionId] === undefined && !gitOutcomeRequestInFlight(s.sessionId, now))
   if (pending.length === 0) return
+  postGitOutcomeRequests(pending)
+}
 
+function postGitOutcomeRequests(pending: SessionSummaryCard[]): void {
   // A session with no changed files is "not applicable" — resolve it locally, same verdict
   // classifySessionOutcome itself would reach, without a round trip to the host.
   const immediate: Record<string, null> = {}
@@ -197,6 +247,8 @@ export function requestGitOutcomesFor(sessions: SessionSummaryCard[]): void {
   }
 
   if (!vscode) return
+  const requestedAt = Date.now()
+  for (const s of needsFetch) gitOutcomeRequestsInFlight.set(s.sessionId, requestedAt)
   const batch = needsFetch.slice(0, GIT_OUTCOME_FETCH_CAP)
   batch.forEach((s, i) => {
     const endTime = s.startTime && s.durationMs
@@ -220,7 +272,16 @@ export function requestGitOutcomesFor(sessions: SessionSummaryCard[]): void {
   // stagger window finishes, rather than silently dropping it.
   const overflow = needsFetch.slice(GIT_OUTCOME_FETCH_CAP)
   if (overflow.length > 0) {
-    setTimeout(() => requestGitOutcomesFor(overflow), batch.length * GIT_OUTCOME_FETCH_STAGGER_MS)
+    setTimeout(() => {
+      // Same re-filter the chained call always did: skip anything resolved in the meantime.
+      const cacheNow = gitOutcomes.peek()
+      const rest = overflow.filter(s => {
+        if (cacheNow[s.sessionId] === undefined) return true
+        gitOutcomeRequestsInFlight.delete(s.sessionId)
+        return false
+      })
+      if (rest.length > 0) postGitOutcomeRequests(rest)
+    }, batch.length * GIT_OUTCOME_FETCH_STAGGER_MS)
   }
 }
 
@@ -558,6 +619,8 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
   const key = sessionSortKey.value
   const dir = sessionSortDir.value
   if (key === 'start_time') return dir === 'asc' ? [...sessions].reverse() : sessions
+  // Priced once per session up front, not twice per comparison.
+  const costs = key === 'cost' ? new Map(sessions.map(s => [s, calcSessionCost(s).totalUsd])) : null
   return [...sessions].sort((a, b) => {
     let cmp = 0
     switch (key) {
@@ -572,8 +635,8 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
       case 'outcome':      cmp = outcomeRank(gitOutcomes.value[b.sessionId]?.overall ?? null) - outcomeRank(gitOutcomes.value[a.sessionId]?.overall ?? null); break
       case 'signals':      cmp = signalsScore(b.loopSignals) - signalsScore(a.loopSignals); break
       case 'cost': {
-        const costA = calcSessionCost(a).totalUsd
-        const costB = calcSessionCost(b).totalUsd
+        const costA = costs!.get(a)!
+        const costB = costs!.get(b)!
         cmp = costB - costA
         break
       }

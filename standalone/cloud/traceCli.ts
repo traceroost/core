@@ -1,13 +1,13 @@
 /**
  * The trace/session-id half of `traceroost find` (findCli.ts) — the local half of the cloud
- * Traces table's Trace ID hand-off (traces-table.tsx's HashHandoff, verb="find"). Not reachable
- * as its own CLI verb; `find` dispatches here once `findSessionById` confirms the hash matches a
- * recorded session. Unlike repo_hash, the `session_id` cloud holds is the raw, unhashed id (a
+ * Traces table's Trace ID hand-off (traces-table.tsx's HashHandoff, verb="find"). `find`
+ * dispatches here once `findSessionById` confirms the hash matches a recorded session; cli.ts
+ * also routes `traceroost trace --id <id>` here directly. Unlike repo_hash, the `session_id` cloud holds is the raw, unhashed id (a
  * plain rollups column) — not a one-way hash needing resolution — so this is a direct match
  * against locally recorded sessions, not a hash reversal.
  */
 
-import { loadAllSessions } from './sessionLoader'
+import { loadSessionsMatchingId } from './sessionLoader'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 function valueAfter(args: string[], flag: string): string | undefined {
@@ -21,14 +21,16 @@ export function findSessionById(sessions: SessionSummaryCard[], id: string): Ses
   return sessions.find(s => s.sessionId === id || s.traceId === id)
 }
 
-export async function runTraceCli(args: string[]): Promise<number> {
+/** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it; otherwise
+ *  only the log files that could hold `id` are parsed (loadSessionsMatchingId). */
+export async function runTraceCli(args: string[], loaded?: SessionSummaryCard[]): Promise<number> {
   const id = (valueAfter(args, '--id') ?? '').trim()
   if (!id) {
     console.log('Usage: traceroost trace --id <sessionId>')
     return 1
   }
 
-  const found = findSessionById(loadAllSessions(), id)
+  const found = findSessionById(loaded ?? loadSessionsMatchingId(id), id)
   if (!found) {
     console.log(`No trace matching "${id}" on this machine — try a machine that recorded this session.`)
     return 1

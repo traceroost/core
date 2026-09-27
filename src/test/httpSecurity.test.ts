@@ -1,7 +1,7 @@
 import * as assert from 'assert'
 import {
   isLoopbackHost, isAllowedHostHeader, isAuthorized, extractToken, extractCookieToken,
-  authCookieHeader, AUTH_COOKIE_NAME,
+  authCookieHeader, AUTH_COOKIE_NAME, isAllowedOrigin, isAllowedOtlpContentType, isWildcardHost,
 } from '../httpSecurity'
 
 function req(opts: { host?: string; authorization?: string; url?: string; cookie?: string }) {
@@ -49,6 +49,63 @@ suite('httpSecurity', () => {
 
     test('rejects a missing Host header', () => {
       assert.strictEqual(isAllowedHostHeader(undefined, '127.0.0.1'), false)
+    })
+
+    test('accepts any Host when bound to a wildcard address (LAN / Docker, token mandatory)', () => {
+      assert.strictEqual(isAllowedHostHeader('192.168.1.20:3000', '0.0.0.0'), true)
+      assert.strictEqual(isAllowedHostHeader('traceroost:4318', '0.0.0.0'), true)
+      assert.strictEqual(isAllowedHostHeader('[fe80::1]:3000', '::'), true)
+      assert.strictEqual(isAllowedHostHeader(undefined, '0.0.0.0'), false)
+    })
+
+    test('still rejects foreign Hosts for a specific non-loopback bindHost', () => {
+      assert.strictEqual(isAllowedHostHeader('evil.com:3000', '192.168.1.20'), false)
+    })
+  })
+
+  suite('isWildcardHost', () => {
+    test('recognizes IPv4 and IPv6 any-address forms', () => {
+      assert.strictEqual(isWildcardHost('0.0.0.0'), true)
+      assert.strictEqual(isWildcardHost('::'), true)
+      assert.strictEqual(isWildcardHost('127.0.0.1'), false)
+      assert.strictEqual(isWildcardHost('192.168.1.20'), false)
+    })
+  })
+
+  suite('isAllowedOrigin', () => {
+    test('allows requests with no Origin (non-browser clients)', () => {
+      assert.strictEqual(isAllowedOrigin(undefined), true)
+    })
+
+    test('allows loopback and VS Code webview origins', () => {
+      assert.strictEqual(isAllowedOrigin('http://localhost:3000'), true)
+      assert.strictEqual(isAllowedOrigin('http://127.0.0.1:3000'), true)
+      assert.strictEqual(isAllowedOrigin('http://[::1]:3000'), true)
+      assert.strictEqual(isAllowedOrigin('vscode-webview://1abc2def'), true)
+    })
+
+    test('rejects any other website, the opaque null origin, and garbage', () => {
+      assert.strictEqual(isAllowedOrigin('https://evil.example'), false)
+      assert.strictEqual(isAllowedOrigin('http://localhost.evil.example'), false)
+      assert.strictEqual(isAllowedOrigin('null'), false)
+      assert.strictEqual(isAllowedOrigin('file://'), false)
+      assert.strictEqual(isAllowedOrigin(''), false)
+    })
+  })
+
+  suite('isAllowedOtlpContentType', () => {
+    test('allows JSON and protobuf (with parameters) and a missing header', () => {
+      assert.strictEqual(isAllowedOtlpContentType('application/json'), true)
+      assert.strictEqual(isAllowedOtlpContentType('application/json; charset=utf-8'), true)
+      assert.strictEqual(isAllowedOtlpContentType('application/x-protobuf'), true)
+      assert.strictEqual(isAllowedOtlpContentType(undefined), true)
+    })
+
+    test('rejects the CORS-simple types a web page can send without a preflight', () => {
+      assert.strictEqual(isAllowedOtlpContentType('text/plain'), false)
+      assert.strictEqual(isAllowedOtlpContentType('text/plain;charset=UTF-8'), false)
+      assert.strictEqual(isAllowedOtlpContentType('application/x-www-form-urlencoded'), false)
+      assert.strictEqual(isAllowedOtlpContentType('multipart/form-data; boundary=x'), false)
     })
   })
 

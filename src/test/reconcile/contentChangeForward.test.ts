@@ -29,7 +29,7 @@ async function openInMemoryDb(): Promise<SqlDb> {
 
 function memoryStore(overrides: Partial<OrgCredentials> = {}): CredentialStore {
   let cur: OrgCredentials | null = {
-    endpoint: 'https://test.traceroost.com', orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'member',
+    endpoint: 'https://test.traceroost.com', orgId: 'org-1', installId: 'install-1', orgName: 'Acme', memberId: 'm-1', role: 'developer',
     perDeveloperVisibility: false, accessToken: 'a', refreshToken: 'r',
     accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
     ...overrides,
@@ -51,6 +51,7 @@ function makeCard(id: string, overrides: Partial<SessionSummaryCard> = {}): Sess
 }
 
 const realHome = process.env.HOME
+const realUserProfile = process.env.USERPROFILE
 
 suite('reconcile/contentChangeForward', () => {
   let home: string
@@ -59,6 +60,7 @@ suite('reconcile/contentChangeForward', () => {
   setup(async () => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-content-change-'))
     process.env.HOME = home // ForwardQueue() has no injectable baseHome here
+    process.env.USERPROFILE = home // what os.homedir() reads on Windows
     setCredentialStore(memoryStore())
     service = new ReconciliationService(await openInMemoryDb())
   })
@@ -67,6 +69,8 @@ suite('reconcile/contentChangeForward', () => {
     setCredentialStore(undefined)
     if (realHome === undefined) delete process.env.HOME
     else process.env.HOME = realHome
+    if (realUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = realUserProfile
     fs.rmSync(home, { recursive: true, force: true })
   })
 

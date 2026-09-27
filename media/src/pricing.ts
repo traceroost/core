@@ -7,12 +7,14 @@ export interface ModelRates {
   cacheReadPerMTok: number          // USD per 1M cache-read tokens (0 if n/a)
   cacheWritePerMTok: number         // USD per 1M cache-write tokens (0 if n/a)
   outputPerMTok: number             // USD per 1M output tokens
-  // Optional tiered rates for >200K tokens-per-call surcharge. Not applied in session-level calcTokenCost
-  // (which operates on session totals and can't reconstruct per-turn call sizes).
-  inputAbove200kPerMTok?: number
-  outputAbove200kPerMTok?: number
-  cacheReadAbove200kPerMTok?: number
-  cacheWriteAbove200kPerMTok?: number
+  // Optional tiered "long context" surcharge, applied per API call above longContextThresholdTokens —
+  // same fields and values as src/pricing.ts. Only ever applied to a single call's tokens (see
+  // calcCallCostWithRates); session/day totals are priced flat.
+  longContextThresholdTokens?: number
+  inputAboveThresholdPerMTok?: number
+  outputAboveThresholdPerMTok?: number
+  cacheReadAboveThresholdPerMTok?: number
+  cacheWriteAboveThresholdPerMTok?: number
   // Set when a source explicitly labels this rate as temporary/promotional rather than the vendor's
   // standard price. Free-text, vendor's own wording — deliberately NOT a machine-checked expiration
   // date. Vendors don't reliably honor their own stated end dates (see claude-sonnet-5's cancelled
@@ -48,17 +50,25 @@ export const RATES: Record<string, ModelRates> = {
   'gpt-5.2':             { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00 },
   'gpt-5.2-codex':       { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00 },
   'gpt-5.3-codex':       { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00 },
-  'gpt-5.4':             { inputPerMTok: 2.50,  cacheReadPerMTok: 0.25,   cacheWritePerMTok: 0, outputPerMTok: 15.00 },  // long-context surcharge (>272K tokens) not implemented
+  'gpt-5.4':             { inputPerMTok: 2.50,  cacheReadPerMTok: 0.25,   cacheWritePerMTok: 0, outputPerMTok: 15.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 5.00, cacheReadAboveThresholdPerMTok: 0.50, outputAboveThresholdPerMTok: 22.50 },
   'gpt-5.4-mini':        { inputPerMTok: 0.75,  cacheReadPerMTok: 0.075,  cacheWritePerMTok: 0, outputPerMTok: 4.50 },
   'gpt-5.4-nano':        { inputPerMTok: 0.20,  cacheReadPerMTok: 0.02,   cacheWritePerMTok: 0, outputPerMTok: 1.25 },
-  'gpt-5.5':             { inputPerMTok: 5.00,  cacheReadPerMTok: 0.50,   cacheWritePerMTok: 0, outputPerMTok: 30.00 },  // long-context surcharge (>unknown threshold) not implemented
+  'gpt-5.5':             { inputPerMTok: 5.00,  cacheReadPerMTok: 0.50,   cacheWritePerMTok: 0, outputPerMTok: 30.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 10.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 45.00 },
   // gpt-5.6 family: Luna (small/fast), Terra (mid), Sol (flagship). Corrected 2026-08-07 — Luna and Terra were
   // repriced down (Luna $1.00→$0.20 input, Terra $2.50→$2.00 input), and the whole family gained real cache-write
   // pricing (1.25x input, confirmed across the Copilot docs, OpenAI's pricing page, and the Codex credits page).
-  // A "long context" surcharge tier also exists above an unconfirmed token threshold (~2x input/cache, ~1.5x
-  // output per Copilot's docs) — not implemented; see PRICING_SOURCES.md Known gaps.
-  'gpt-5.6-luna':        { inputPerMTok: 0.20,  cacheReadPerMTok: 0.02,   cacheWritePerMTok: 0.25, outputPerMTok: 1.20 },
-  'gpt-5.6-terra':       { inputPerMTok: 2.00,  cacheReadPerMTok: 0.20,   cacheWritePerMTok: 2.50, outputPerMTok: 12.00 },
+  // Long-context surcharge tiers confirmed 2026-08-12 (2x input/cache-read/cache-write, 1.5x output) — Luna's
+  // threshold (200K) is lower than Sol/Terra's (272K), per Copilot's pricing page default-tier labels.
+  'gpt-5.6-luna':        { inputPerMTok: 0.20,  cacheReadPerMTok: 0.02,   cacheWritePerMTok: 0.25, outputPerMTok: 1.20,
+                           longContextThresholdTokens: 200_000,
+                           inputAboveThresholdPerMTok: 0.40, cacheReadAboveThresholdPerMTok: 0.04, cacheWriteAboveThresholdPerMTok: 0.50, outputAboveThresholdPerMTok: 1.80 },
+  'gpt-5.6-terra':       { inputPerMTok: 2.00,  cacheReadPerMTok: 0.20,   cacheWritePerMTok: 2.50, outputPerMTok: 12.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.40, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 18.00 },
   // gpt-5.6-sol: corrected 2026-08-26 — OpenAI's own API page dropped this from $5.00/$0.50/$6.25/$30.00 to
   // $4.00/$0.40/$5.00/$20.00, noted on the source page as "promotional pricing... at least through November 21,
   // 2026." Copilot additionally layers its own extra 50% promotional discount on top of this for Copilot-sourced
@@ -68,12 +78,16 @@ export const RATES: Record<string, ModelRates> = {
   // from Copilot's pricing page as of the 2026-09-15 refresh — it ended as scheduled, so this rate is now
   // correct for Copilot-sourced sessions too (previously overstated ~2x while that discount was live).
   'gpt-5.6-sol':         { inputPerMTok: 4.00,  cacheReadPerMTok: 0.40,   cacheWritePerMTok: 5.00, outputPerMTok: 20.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 8.00, cacheReadAboveThresholdPerMTok: 0.80, cacheWriteAboveThresholdPerMTok: 10.00, outputAboveThresholdPerMTok: 30.00,
                            promoNote: 'OpenAI: promotional pricing, at least through Nov 21, 2026' },
   // gpt-5.6-cyber: added 2026-08-26 — new on OpenAI's API pricing page.
   'gpt-5.6-cyber':       { inputPerMTok: 12.50, cacheReadPerMTok: 1.25,   cacheWritePerMTok: 15.625, outputPerMTok: 75.00 },
   // gpt-6-astra: added 2026-09-15 — new flagship, confirmed on Copilot's pricing page, OpenAI's own API pricing
-  // page, and the Codex CLI credits page. Long-context surcharge (>272K tokens) not implemented here, same as the 5.6 family.
-  'gpt-6-astra':         { inputPerMTok: 10.00, cacheReadPerMTok: 1.00,   cacheWritePerMTok: 12.50, outputPerMTok: 50.00 },
+  // page, and the Codex CLI credits page. Long-context surcharge above 272K (2x input/cache/cache-write, 1.5x output).
+  'gpt-6-astra':         { inputPerMTok: 10.00, cacheReadPerMTok: 1.00,   cacheWritePerMTok: 12.50, outputPerMTok: 50.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 20.00, cacheReadAboveThresholdPerMTok: 2.00, cacheWriteAboveThresholdPerMTok: 25.00, outputAboveThresholdPerMTok: 75.00 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, not
   // independently confirmed as reachable through Copilot specifically this pass.
   'gpt-4.1-nano':        { inputPerMTok: 0.10,  cacheReadPerMTok: 0.025,  cacheWritePerMTok: 0, outputPerMTok: 0.40 },
@@ -91,7 +105,8 @@ export const RATES: Record<string, ModelRates> = {
   // current
   'claude-haiku-4-5':      { inputPerMTok:  1.00, cacheReadPerMTok: 0.10, cacheWritePerMTok:  1.25, outputPerMTok:  5.00 },
   'claude-sonnet-4':       { inputPerMTok:  3.00, cacheReadPerMTok: 0.30, cacheWritePerMTok:  3.75, outputPerMTok: 15.00,
-                             inputAbove200kPerMTok: 6.00, outputAbove200kPerMTok: 22.50, cacheReadAbove200kPerMTok: 0.60, cacheWriteAbove200kPerMTok: 7.50 },
+                             longContextThresholdTokens: 200_000,
+                             inputAboveThresholdPerMTok: 6.00, outputAboveThresholdPerMTok: 22.50, cacheReadAboveThresholdPerMTok: 0.60, cacheWriteAboveThresholdPerMTok: 7.50 },
   'claude-sonnet-4-5':     { inputPerMTok:  3.00, cacheReadPerMTok: 0.30, cacheWritePerMTok:  3.75, outputPerMTok: 15.00 },
   'claude-sonnet-4-6':     { inputPerMTok:  3.00, cacheReadPerMTok: 0.30, cacheWritePerMTok:  3.75, outputPerMTok: 15.00 },
   // claude-sonnet-5: launched at introductory pricing ($2/$0.20/$2.50/$10) with a scheduled increase to
@@ -126,7 +141,9 @@ export const RATES: Record<string, ModelRates> = {
   'gemini-2.5-pro':   { inputPerMTok: 1.25, cacheReadPerMTok: 0.125, cacheWritePerMTok: 0, outputPerMTok: 10.00 },  // long-context surcharge (>200K tokens) not implemented
   'gemini-3-flash':   { inputPerMTok: 0.50, cacheReadPerMTok: 0.05,  cacheWritePerMTok: 0, outputPerMTok: 3.00 },
   'gemini-3-pro':     { inputPerMTok: 2.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok: 0, outputPerMTok: 12.00 },
-  'gemini-3.1-pro':   { inputPerMTok: 2.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok: 0, outputPerMTok: 12.00 },  // long-context surcharge (>200K tokens) not implemented
+  'gemini-3.1-pro':   { inputPerMTok: 2.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok: 0, outputPerMTok: 12.00,
+                        longContextThresholdTokens: 200_000,
+                        inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.40, outputAboveThresholdPerMTok: 18.00 },
   'gemini-3.5-flash': { inputPerMTok: 1.50, cacheReadPerMTok: 0.15,  cacheWritePerMTok: 0, outputPerMTok: 9.00 },
   // gemini-3.6-flash: corrected 2026-08-26 — was $1.50/$0.15/$7.50, Copilot's pricing page now shows
   // $0.75/$0.075/$3.75, labeled "promotional pricing through Dec 31, 2026."
@@ -152,9 +169,13 @@ export const RATES: Record<string, ModelRates> = {
   // Exact telemetry model-ID slug unconfirmed (guessed from
   // the Copilot docs display name, matching the existing naming convention) — a wrong guess fails safe (falls
   // back to ~$? rather than mis-pricing), same risk tolerance as the OpenCode Zen free-model gaps below.
-  'grok-4.5':         { inputPerMTok: 2.00, cacheReadPerMTok: 0.50,  cacheWritePerMTok: 0, outputPerMTok: 6.00 },
+  'grok-4.5':         { inputPerMTok: 2.00, cacheReadPerMTok: 0.50,  cacheWritePerMTok: 0, outputPerMTok: 6.00,
+                        longContextThresholdTokens: 200_000,
+                        inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
   // grok-4.6: added 2026-08-26 — new on the Copilot pricing page, same rate as grok-4.5.
-  'grok-4.6':         { inputPerMTok: 2.00, cacheReadPerMTok: 0.50,  cacheWritePerMTok: 0, outputPerMTok: 6.00 },
+  'grok-4.6':         { inputPerMTok: 2.00, cacheReadPerMTok: 0.50,  cacheWritePerMTok: 0, outputPerMTok: 6.00,
+                        longContextThresholdTokens: 200_000,
+                        inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
   'kimi-k3':          { inputPerMTok: 3.00, cacheReadPerMTok: 0.30,  cacheWritePerMTok: 0, outputPerMTok: 15.00 },
   // ── OpenCode Zen  https://opencode.ai/docs/zen/ ────────────────────────────
   // big-pickle: OpenCode's stealth model, free during limited evaluation period.
@@ -286,6 +307,20 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
   return map
 })()
 
+// normalizeCostKey runs three regexes, and pricing a session list looks up the same handful of
+// model IDs over and over (every card, every timeline LLM entry) — memoize it. Capped, since model
+// IDs come from telemetry rather than a fixed list.
+const costKeyCache = new Map<string, string>()
+function cachedCostKey(modelId: string): string {
+  let key = costKeyCache.get(modelId)
+  if (key === undefined) {
+    if (costKeyCache.size >= 1000) costKeyCache.clear()
+    key = normalizeCostKey(modelId)
+    costKeyCache.set(modelId, key)
+  }
+  return key
+}
+
 // Exact match only, after normalization — no prefix-matching fallback. A previous
 // version fell back to substring-prefix matching ("versioned or aliased model IDs"),
 // but that let an unrecognized *newer* model silently inherit an unrelated *older*
@@ -297,20 +332,114 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
 // visible gap. Kept in sync with the same fix in src/pricing.ts.
 export function lookupRates(modelId: string): ModelRates | null {
   if (!modelId) return null
-  return RATES_BY_COST_KEY.get(normalizeCostKey(modelId)) ?? null
+  return RATES_BY_COST_KEY.get(cachedCostKey(modelId)) ?? null
 }
 
-// Token-based cost: the new Copilot AI Credits model (Jun 2026+).
-// inputTokens here should be the raw (non-cached) input count.
-export function calcTokenCost(
+// ── Cost math ────────────────────────────────────────────────────────────────────────────────────
+// Everything from here to the end of this file is a byte-for-byte copy of the same block in
+// src/pricing.ts (from tieredCost through calcSessionCostUsd) — this bundle can't import that file
+// (media/tsconfig.json's rootDir, see signalFormulas.ts for the same constraint), so both carry it
+// and src/test/media/pricing.test.ts fails if the two copies drift. Edit both together.
+// Applies two-tier pricing: tokens up to the threshold at baseRate, remainder at aboveRate.
+function tieredCost(tokens: number, threshold: number, baseRatePerMTok: number, aboveRatePerMTok: number): number {
+  if (tokens <= threshold) return (tokens / 1_000_000) * baseRatePerMTok
+  return (threshold / 1_000_000) * baseRatePerMTok
+       + ((tokens - threshold) / 1_000_000) * aboveRatePerMTok
+}
+
+// Prices ONE API call. The long-context tier is a per-call surcharge, so it is only ever applied
+// here — never to a sum of several calls (see calcAggregateCostWithRates).
+export function calcCallCostWithRates(
   inputTokens: number,
   cacheReadTokens: number,
   cacheWriteTokens: number,
   outputTokens: number,
   rates: ModelRates,
 ): number {
-  return (inputTokens      / 1_000_000) * rates.inputPerMTok
-       + (cacheReadTokens  / 1_000_000) * rates.cacheReadPerMTok
-       + (cacheWriteTokens / 1_000_000) * rates.cacheWritePerMTok
-       + (outputTokens     / 1_000_000) * rates.outputPerMTok
+  if (rates.inputAboveThresholdPerMTok !== undefined) {
+    // Threshold defaults to 200K if above-threshold rates are set without an explicit threshold
+    // (kept for claude-sonnet-4 parity — every model added since has set this explicitly).
+    // Missing per-category above-threshold rates (e.g. cache write on a model with no cache-write
+    // pricing at all) fall back to that category's flat rate, i.e. no surcharge for that category.
+    const threshold = rates.longContextThresholdTokens ?? 200_000
+    return tieredCost(inputTokens,     threshold, rates.inputPerMTok,      rates.inputAboveThresholdPerMTok)
+         + tieredCost(cacheReadTokens,  threshold, rates.cacheReadPerMTok,  rates.cacheReadAboveThresholdPerMTok ?? rates.cacheReadPerMTok)
+         + tieredCost(cacheWriteTokens, threshold, rates.cacheWritePerMTok, rates.cacheWriteAboveThresholdPerMTok ?? rates.cacheWritePerMTok)
+         + tieredCost(outputTokens,     threshold, rates.outputPerMTok,     rates.outputAboveThresholdPerMTok ?? rates.outputPerMTok)
+  }
+  return calcAggregateCostWithRates(inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens, rates)
+}
+
+// Prices a token total that may span MANY API calls (a whole session, a day, a projection) at the
+// flat base rates. The long-context tier is deliberately NOT applied: a session's cumulative cache
+// reads routinely exceed 200K/272K even when no single call came near it, so tiering a total would
+// bill the surcharge on calls that never qualified for it. Where per-call token counts exist, use
+// calcSessionCostUsd instead, which prices each call (tier included) and sums.
+export function calcAggregateCostWithRates(
+  inputTokens: number,
+  cacheReadTokens: number,
+  cacheWriteTokens: number,
+  outputTokens: number,
+  rates: ModelRates,
+): number {
+  return (inputTokens     / 1_000_000) * rates.inputPerMTok
+       + (cacheReadTokens / 1_000_000) * rates.cacheReadPerMTok
+       + (cacheWriteTokens/ 1_000_000) * rates.cacheWritePerMTok
+       + (outputTokens    / 1_000_000) * rates.outputPerMTok
+}
+
+/** The per-call token fields calcSessionCostUsd reads — structurally satisfied by TimelineEntry. */
+export interface CostTimelineEntry {
+  type: string
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheCreateTokens?: number
+}
+
+/** The session fields calcSessionCostUsd reads — structurally satisfied by SessionSummaryCard. */
+export interface CostSession {
+  model?: string
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreateTokens?: number
+  timeline?: CostTimelineEntry[]
+}
+
+function hasCallTokens(e: CostTimelineEntry): boolean {
+  return (e.inputTokens ?? 0) > 0 || (e.outputTokens ?? 0) > 0
+      || (e.cacheReadTokens ?? 0) > 0 || (e.cacheCreateTokens ?? 0) > 0
+}
+
+/** Cost of one timeline LLM entry. `inputTokens` is inclusive of cache reads/writes (as stored);
+ *  the raw, uncached portion is what gets the input rate. */
+export function calcEntryCostUsd(entry: CostTimelineEntry, sessionModel: string): number {
+  const rates = lookupRates(entry.model || sessionModel)
+  if (!rates) return 0
+  const cacheRead   = entry.cacheReadTokens   ?? 0
+  const cacheCreate = entry.cacheCreateTokens ?? 0
+  const rawInput    = Math.max(0, (entry.inputTokens ?? 0) - cacheRead - cacheCreate)
+  return calcCallCostWithRates(rawInput, cacheRead, cacheCreate, entry.outputTokens ?? 0, rates)
+}
+
+/**
+ * A session's cost. Whenever the timeline carries per-call token counts, each LLM call is priced
+ * on its own (at its own model, long-context tier included) and summed — that's the only way to
+ * apply a per-call surcharge correctly, and it also handles sessions that span more than one
+ * model. Only when no per-call data exists does it fall back to pricing the session's aggregate
+ * totals at the session model's flat rates (no long-context tier — see calcAggregateCostWithRates).
+ */
+export function calcSessionCostUsd(session: CostSession): number {
+  const modelId = session.model || ''
+  const llmEntries = (session.timeline ?? []).filter(e => e.type === 'llm')
+  if (llmEntries.some(hasCallTokens)) {
+    return llmEntries.reduce((sum, e) => sum + calcEntryCostUsd(e, modelId), 0)
+  }
+  const rates = lookupRates(modelId)
+  if (!rates) return 0
+  const cacheCreate = session.cacheCreateTokens ?? 0
+  const rawInput = Math.max(0, session.inputTokens - session.cacheReadTokens - cacheCreate)
+  return calcAggregateCostWithRates(rawInput, session.cacheReadTokens, cacheCreate, session.outputTokens, rates)
 }

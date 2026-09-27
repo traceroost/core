@@ -1,3 +1,8 @@
+# NOTE: package.json's `files` allowlist decides what the npm tarball contains, and npm ignores
+# this root .npmignore while `files` is set (walkthrough/ below ships anyway — the extension
+# manifest points at it). Kept only in case `files` is ever removed. Verify the tarball with:
+#   npm pack --dry-run --ignore-scripts
+
 # README-only media
 media/demo.gif
 

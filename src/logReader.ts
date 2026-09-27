@@ -1,4 +1,4 @@
-import { claudeUsageLines } from './claudeUsageLines'
+import { claudeUsageRows } from './claudeUsageLines'
 /**
  * Reads local session logs for Claude Code, Codex, Copilot CLI, Copilot Chat (VS Code sidebar),
  * and Cursor CLI, and synthesises SessionSummaryCard records.
@@ -208,6 +208,13 @@ export interface FileState {
   mtimeMs: number
 }
 
+// Line cache for incremental reads of growing transcripts (LogReader._readNewLines): only files
+// modified within LINE_CACHE_RECENT_MS are cached (historical files are read once at startup and
+// never again), within a total budget of LINE_CACHE_MAX_BYTES of file content.
+const LINE_CACHE_MAX_BYTES = 32 * 1024 * 1024
+const LINE_CACHE_RECENT_MS = 60 * 60 * 1000
+const LINE_CACHE_PROBE_BYTES = 256
+
 // ── Public interface ──────────────────────────────────────────────────────────
 
 /** Minimal sql.js surface needed to open an external SQLite file read-only. */
@@ -230,6 +237,11 @@ export interface LogSessionResult {
   workspace: string
 }
 
+/** SQL NULL (and an absent column) → null; anything else → its string form. */
+function strOrNull(v: unknown): string | null {
+  return v === null || v === undefined ? null : String(v)
+}
+
 /** Wraps a single-or-null result as an array, for parsers that only ever produce one session
  *  per file (everything except Claude Code — see splitClaudeLinesOnPromptGaps). */
 function _single(result: LogSessionResult | null): LogSessionResult[] {
@@ -240,6 +252,10 @@ export class LogReader {
   private readonly log: (msg: string) => void
   private readonly sqlFactory: OpenCodeSqlFactory | undefined
   private readonly fileState = new Map<string, FileState>()
+  // Lines already read from actively-growing JSONL files, so a re-scan reads only appended
+  // bytes — see _readNewLines. LRU (Map insertion order), bounded by LINE_CACHE_MAX_BYTES.
+  private readonly lineCache = new Map<string, { offset: number; lines: string[]; probe: Buffer }>()
+  private lineCacheBytes = 0
 
   constructor(options: LogReaderOptions = {}) {
     this.log = options.log ?? (() => { /* silent */ })
@@ -249,6 +265,8 @@ export class LogReader {
   /** Clears cached file state so the next scan re-reads all files from scratch. */
   clearFileState(): void {
     this.fileState.clear()
+    this.lineCache.clear()
+    this.lineCacheBytes = 0
   }
 
   /** Plain-object snapshot of the per-file mtime/size cache, for a caller to persist to disk
@@ -410,13 +428,16 @@ export class LogReader {
   private _parseClaudeFile(filePath: string): LogSessionResult[] {
     const rawLines = this._readNewLines(filePath)
     if (!rawLines) return []
-    const lines = dedupeByUuid(rawLines)
+    // Every line is JSON.parse'd once here and the parsed rows are shared by the dedupe, the
+    // split and the segment parser — each used to parse every line again (5x in all), which was
+    // most of the cost of reading a transcript.
+    const { lines, parsed } = dedupeParsedByUuid(rawLines, rawLines.map(parseLogLine))
 
     const baseSessionId = path.basename(filePath, '.jsonl')
-    const segments = splitClaudeLinesOnPromptGaps(lines)
+    const boundaries = promptGapBoundaries(parsed, isClaudePromptBoundary)
     const results: LogSessionResult[] = []
-    segments.forEach((segmentLines, segmentIndex) => {
-      const result = this._parseClaudeSegment(segmentLines, claudeSegmentSessionId(baseSessionId, segmentIndex))
+    boundaries.forEach(([start, end], segmentIndex) => {
+      const result = this._parseClaudeSegment(lines.slice(start, end), parsed.slice(start, end), claudeSegmentSessionId(baseSessionId, segmentIndex))
       if (result) results.push(result)
     })
     // Tag every segment with the file they came from, but only when the file actually split into
@@ -429,8 +450,10 @@ export class LogReader {
     return results
   }
 
-  private _parseClaudeSegment(lines: string[], sessionId: string): LogSessionResult | null {
+  /** `parsed[i]` is `lines[i]` already JSON.parse'd (undefined when it doesn't parse). */
+  private _parseClaudeSegment(lines: string[], parsed: unknown[], sessionId: string): LogSessionResult | null {
     let workspace = ''
+    let claudeSessionId = ''
     let model = ''
     let firstTimestamp = ''
     let lastTimestamp = ''
@@ -451,15 +474,16 @@ export class LogReader {
     const timeline: TimelineEntry[] = []
     let idx = 0
     let initiator: 'user' | 'agent' | 'api' = 'user'
-    const usageLines = claudeUsageLines(lines)
+    const usageLines = claudeUsageRows(parsed)
 
-    for (const [lineIndex, line] of lines.entries()) {
-      let entry: Record<string, unknown>
-      try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (parsed[lineIndex] === undefined) continue
+      const entry = parsed[lineIndex] as Record<string, unknown>
 
       const ts = entry['timestamp'] as string | undefined
       if (ts) { if (!firstTimestamp) firstTimestamp = ts; lastTimestamp = ts }
       if (entry['cwd'] && !workspace) workspace = entry['cwd'] as string
+      if (typeof entry['sessionId'] === 'string' && entry['sessionId']) claudeSessionId = entry['sessionId'] as string
 
       if (entry['type'] === 'user') {
         // isSidechain: true → session was spawned by the Agent tool, not typed by a human.
@@ -589,7 +613,11 @@ export class LogReader {
     const models = rankedModels.length > 0
       ? [effectiveModel || 'claude', ...rankedModels.slice(1)]
       : (effectiveModel ? [effectiveModel] : [])
-    return { workspace, card: _buildCard(sessionId, 'claude_code', effectiveModel || 'claude', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate, peakContextPerTurn, turns, totalToolCalls, toolCounts, filesRead, filesChanged, filesWritten, filesSearched: new Set(), userRequest, timeline, initiator }, workspace, models) }
+    const card = _buildCard(sessionId, 'claude_code', effectiveModel || 'claude', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate, peakContextPerTurn, turns, totalToolCalls, toolCounts, filesRead, filesChanged, filesWritten, filesSearched: new Set(), userRequest, timeline, initiator }, workspace, models)
+    // Claude Code's own session id — equal to the file name for a main transcript, the parent's id
+    // for a subagent transcript (subagents/agent-*.jsonl). Shared with its OTEL spans' session.id.
+    if (claudeSessionId) card.claudeSessionId = claudeSessionId
+    return { workspace, card }
   }
 
   // ── Codex ───────────────────────────────────────────────────────────────────
@@ -1353,13 +1381,13 @@ export class LogReader {
             partTs:       Number(r[pc('part_ts')]         ?? 0),
             msgRole:      String(r[pc('msg_role')]        ?? ''),
             type:         String(r[pc('type')]            ?? ''),
-            text:         r[pc('text')]           != null ? String(r[pc('text')])           : null,
-            toolName:     r[pc('tool_name')]      != null ? String(r[pc('tool_name')])      : null,
-            callId:       r[pc('call_id')]        != null ? String(r[pc('call_id')])        : null,
-            filePath:     r[pc('file_path')]      != null ? String(r[pc('file_path')])      : null,
-            toolInputJson:r[pc('tool_input_json')]!= null ? String(r[pc('tool_input_json')]): null,
-            toolOutput:   r[pc('tool_output')]    != null ? String(r[pc('tool_output')])    : null,
-            toolStatus:   r[pc('tool_status')]    != null ? String(r[pc('tool_status')])    : null,
+            text:          strOrNull(r[pc('text')]),
+            toolName:      strOrNull(r[pc('tool_name')]),
+            callId:        strOrNull(r[pc('call_id')]),
+            filePath:      strOrNull(r[pc('file_path')]),
+            toolInputJson: strOrNull(r[pc('tool_input_json')]),
+            toolOutput:    strOrNull(r[pc('tool_output')]),
+            toolStatus:    strOrNull(r[pc('tool_status')]),
           })
         }
       }
@@ -1696,22 +1724,83 @@ export class LogReader {
     return { workspace: '', card }
   }
 
-  /** Returns only the new bytes since last read, split into lines. Returns null if unchanged. */
+  /** Returns all of the file's non-empty lines if it changed since the last read, else null. */
   private _readNewLines(filePath: string): string[] | null {
     try {
       const stat = fs.statSync(filePath)
       const prev = this.fileState.get(filePath)
       if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return null
 
-      // Always re-read the whole file so each scan produces a complete card.
-      // Incremental reads (seeking to prev.bytesRead) produced partial cards that
-      // then replaced the full card in logSessions, losing prior-turn data.
-      const content = fs.readFileSync(filePath, 'utf-8')
+      // Always return the whole file's lines so each scan produces a complete card (a card
+      // built from only the new lines would replace the full card and lose prior-turn data).
+      // But these are append-only JSONL transcripts, so for a file that's actively growing,
+      // only the appended bytes are read from disk — the earlier lines come from lineCache.
+      const lines = this._readAllLinesIncremental(filePath, stat)
       this.fileState.set(filePath, { bytesRead: stat.size, mtimeMs: stat.mtimeMs })
-      return content.split('\n').filter(l => l.trim())
+      return lines
     } catch (err) {
+      this.lineCache.delete(filePath)
       this.log(`[LogReader] read error ${filePath}: ${err}`)
       return null
+    }
+  }
+
+  private _readAllLinesIncremental(filePath: string, stat: fs.Stats): string[] {
+    const cached = this.lineCache.get(filePath)
+    this.lineCache.delete(filePath)
+    if (cached) this.lineCacheBytes -= cached.offset
+
+    let lines: string[] = []
+    let offset = 0
+    let fd: number | undefined
+    try {
+      fd = fs.openSync(filePath, 'r')
+      // Reuse the cache only if the file still starts with exactly what we read before: it must
+      // not have shrunk, and the bytes just before our offset must be unchanged (a rewritten or
+      // replaced file falls back to a full read).
+      if (cached && stat.size >= cached.offset && cached.offset > 0) {
+        const probeLen = Math.min(LINE_CACHE_PROBE_BYTES, cached.offset)
+        const probe = Buffer.alloc(probeLen)
+        fs.readSync(fd, probe, 0, probeLen, cached.offset - probeLen)
+        if (probe.equals(cached.probe)) {
+          lines = cached.lines
+          offset = cached.offset
+        }
+      }
+      const buf = Buffer.alloc(stat.size - offset)
+      let got = 0
+      while (got < buf.length) {
+        const n = fs.readSync(fd, buf, got, buf.length - got, offset + got)
+        if (n === 0) break
+        got += n
+      }
+      const chunk = buf.subarray(0, got)
+      // Only whole lines are cached; a trailing line still being written is returned this time
+      // and re-read from its start next time. '\n' never occurs inside a multi-byte UTF-8
+      // sequence, so splitting the bytes there is safe.
+      const lastNl = chunk.lastIndexOf(0x0a)
+      const complete = lastNl >= 0 ? chunk.subarray(0, lastNl + 1).toString('utf-8') : ''
+      const tail = chunk.subarray(lastNl + 1).toString('utf-8')
+      const newLines = complete.split('\n').filter(l => l.trim())
+      const allComplete = newLines.length > 0 ? lines.concat(newLines) : lines
+      const newOffset = offset + lastNl + 1
+
+      const recentlyModified = Date.now() - stat.mtimeMs < LINE_CACHE_RECENT_MS
+      if (recentlyModified && newOffset > 0 && newOffset <= LINE_CACHE_MAX_BYTES) {
+        const probeLen = Math.min(LINE_CACHE_PROBE_BYTES, newOffset)
+        const probe = Buffer.alloc(probeLen)
+        fs.readSync(fd, probe, 0, probeLen, newOffset - probeLen)
+        this.lineCache.set(filePath, { offset: newOffset, lines: allComplete, probe })
+        this.lineCacheBytes += newOffset
+        for (const [k, v] of this.lineCache) {
+          if (this.lineCacheBytes <= LINE_CACHE_MAX_BYTES) break
+          this.lineCache.delete(k)
+          this.lineCacheBytes -= v.offset
+        }
+      }
+      return tail.trim() ? allComplete.concat([tail]) : allComplete.slice()
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd)
     }
   }
 
@@ -1792,18 +1881,30 @@ interface CardAccum {
  * the source of this problem.
  */
 export function dedupeByUuid(lines: string[]): string[] {
+  return dedupeParsedByUuid(lines, lines.map(parseLogLine)).lines
+}
+
+/** JSON.parse of one log line, or undefined when it doesn't parse (JSON never yields undefined). */
+function parseLogLine(line: string): unknown {
+  try { return JSON.parse(line) as unknown } catch { return undefined }
+}
+
+/** dedupeByUuid over lines the caller already parsed (`parsed[i]` is `lines[i]` parsed, see
+ *  parseLogLine); returns the kept lines alongside their parsed rows. */
+function dedupeParsedByUuid(lines: string[], parsed: unknown[]): { lines: string[]; parsed: unknown[] } {
   const seen = new Set<string>()
   const result: string[] = []
-  for (const line of lines) {
-    let entry: Record<string, unknown>
-    try { entry = JSON.parse(line) as Record<string, unknown> } catch { result.push(line); continue }
-    const uuid = entry['uuid']
-    if (typeof uuid !== 'string') { result.push(line); continue }
+  const resultParsed: unknown[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const keep = () => { result.push(lines[i]); resultParsed.push(parsed[i]) }
+    if (parsed[i] === undefined) { keep(); continue }
+    const uuid = (parsed[i] as Record<string, unknown>)['uuid']
+    if (typeof uuid !== 'string') { keep(); continue }
     if (seen.has(uuid)) continue
     seen.add(uuid)
-    result.push(line)
+    keep()
   }
-  return result
+  return { lines: result, parsed: resultParsed }
 }
 
 // A gap between two consecutive user prompts longer than this starts a new session segment.
@@ -1859,10 +1960,22 @@ function splitLinesOnPromptGaps(
   isPromptBoundary: (entry: Record<string, unknown>) => boolean,
   getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
 ): string[][] {
-  if (lines.length === 0) return []
+  return promptGapBoundaries(lines.map(parseLogLine), isPromptBoundary, getBoundaryTimestampMs)
+    .map(([start, end]) => lines.slice(start, end))
+}
 
-  const timestamps: Array<number | null> = lines.map(line => {
-    try { return defaultLineTimestampMs(JSON.parse(line) as Record<string, unknown>) } catch { return null }
+/** splitLinesOnPromptGaps over already-parsed lines (see parseLogLine), as [start, end) index
+ *  ranges into them. */
+function promptGapBoundaries(
+  parsed: unknown[],
+  isPromptBoundary: (entry: Record<string, unknown>) => boolean,
+  getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
+): Array<[number, number]> {
+  if (parsed.length === 0) return []
+
+  const timestamps: Array<number | null> = parsed.map(entry => {
+    if (entry === undefined) return null
+    try { return defaultLineTimestampMs(entry as Record<string, unknown>) } catch { return null }
   })
 
   const boundaries: number[] = [0]
@@ -1873,9 +1986,9 @@ function splitLinesOnPromptGaps(
   // last value keeps a single such anomaly from corrupting the gap baseline for every comparison
   // after it.
   let maxTs: number | null = null
-  for (let i = 0; i < lines.length; i++) {
-    let entry: Record<string, unknown>
-    try { entry = JSON.parse(lines[i]) as Record<string, unknown> } catch { continue }
+  for (let i = 0; i < parsed.length; i++) {
+    if (parsed[i] === undefined) continue
+    const entry = parsed[i] as Record<string, unknown>
     if (!isPromptBoundary(entry)) continue
 
     const tsMs = getBoundaryTimestampMs(entry)
@@ -1899,17 +2012,21 @@ function splitLinesOnPromptGaps(
     maxTs = Math.max(maxTs ?? tsMs, tsMs)
   }
 
-  const segments: string[][] = []
+  const segments: Array<[number, number]> = []
   for (let b = 0; b < boundaries.length; b++) {
     const start = boundaries[b]
-    const end = b + 1 < boundaries.length ? boundaries[b + 1] : lines.length
-    segments.push(lines.slice(start, end))
+    const end = b + 1 < boundaries.length ? boundaries[b + 1] : parsed.length
+    segments.push([start, end])
   }
   return segments
 }
 
+function isClaudePromptBoundary(entry: Record<string, unknown>): boolean {
+  return entry['type'] === 'user'
+}
+
 export function splitClaudeLinesOnPromptGaps(lines: string[]): string[][] {
-  return splitLinesOnPromptGaps(lines, entry => entry['type'] === 'user')
+  return splitLinesOnPromptGaps(lines, isClaudePromptBoundary)
 }
 
 // Also treats turn_aborted as a boundary trigger, not just user_message. Confirmed on real data:

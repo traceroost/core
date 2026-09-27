@@ -2,8 +2,28 @@ import * as http from 'http'
 import * as vscode from 'vscode'
 import { SessionStore } from './sessionStore'
 import { SpanAttribute } from './types'
+import { isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType } from './httpSecurity'
+import { objectItems } from './otlpParser'
 
 const MAX_BODY_BYTES = 50 * 1024 * 1024 // 50 MB
+
+// The Codex session-correlation maps below gain an entry per conversation/trace for the life of
+// the collector and nothing ever removed them. Cap each one, dropping the least recently written
+// entry — only long-finished Codex sessions are old enough to fall off.
+const CODEX_MAP_MAX = 2_000
+
+class BoundedMap<K, V> extends Map<K, V> {
+  constructor(private readonly max: number) { super() }
+  override set(key: K, value: V): this {
+    // Re-insert so iteration order is least-recently-written first.
+    this.delete(key)
+    if (this.size >= this.max) {
+      const oldest = this.keys().next()
+      if (!oldest.done) this.delete(oldest.value)
+    }
+    return super.set(key, value)
+  }
+}
 
 export class OtlpCollector {
   private server!: http.Server
@@ -13,11 +33,11 @@ export class OtlpCollector {
   private codexFallbackTraceId = ''
   private codexLastActivityMs = 0
   // Maps traceId → root spanId so child Codex spans get a synthetic parentSpanId.
-  private codexSessionRootByTrace = new Map<string, string>()
-  private codexCurrentSessionByConversation = new Map<string, string>()
-  private codexSessionStateById = new Map<string, { hasPrompt: boolean }>()
-  private codexSessionByOtelTraceId = new Map<string, string>()
-  private codexPromptOrdinalByConversation = new Map<string, number>()
+  private codexSessionRootByTrace = new BoundedMap<string, string>(CODEX_MAP_MAX)
+  private codexCurrentSessionByConversation = new BoundedMap<string, string>(CODEX_MAP_MAX)
+  private codexSessionStateById = new BoundedMap<string, { hasPrompt: boolean }>(CODEX_MAP_MAX)
+  private codexSessionByOtelTraceId = new BoundedMap<string, string>(CODEX_MAP_MAX)
+  private codexPromptOrdinalByConversation = new BoundedMap<string, number>(CODEX_MAP_MAX)
   private codexActivePromptSessionId = ''
   // Buffers gen_ai.choice / gen_ai.assistant.message log event content keyed by traceId:spanId.
   // Spans and their log events arrive on separate HTTP requests; this handles either ordering.
@@ -37,6 +57,24 @@ export class OtlpCollector {
 
   async start() {
     this.server = http.createServer((req, res) => {
+      // Bound to 127.0.0.1 with no token, so the only callers to keep out are web pages open in
+      // the user's browser: a DNS-rebinding page (wrong Host), or any site POSTing fake spans
+      // cross-origin — it would send an Origin, and to avoid a CORS preflight it must use a
+      // "simple" Content-Type like text/plain. Planted spans end up in MCP tool output that agents
+      // are told to read, so this is a prompt-injection path, not just junk data.
+      if (!isAllowedHostHeader(req.headers.host, '127.0.0.1')) {
+        this.log(req.method ?? '?', req.url ?? '/', 403, 0, 'invalid Host header')
+        res.writeHead(403); res.end(); return
+      }
+      if (!isAllowedOrigin(req.headers.origin)) {
+        this.log(req.method ?? '?', req.url ?? '/', 403, 0, 'cross-origin request refused')
+        res.writeHead(403); res.end(); return
+      }
+      if (req.method === 'POST' && !isAllowedOtlpContentType(req.headers['content-type'])) {
+        this.log('POST', req.url ?? '/', 415, 0, `unsupported Content-Type ${req.headers['content-type']}`)
+        res.writeHead(415); res.end(); return
+      }
+
       const chunks: Buffer[] = []
       let size = 0
       let aborted = false
@@ -64,56 +102,14 @@ export class OtlpCollector {
 
       req.on('end', () => {
         if (aborted || req.destroyed) {return}
-
-        const body = Buffer.concat(chunks).toString('utf-8')
-        const bodyLen = body.length
-        
-        if (req.method === 'GET' && req.url === '/traceroost/plugin') {
-          res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ traceroost: true, kind: 'plugin' }))
-          return
-        }
-
-        if (req.method !== 'POST') {
-          this.log(req.method ?? '?', req.url ?? '/', 200, bodyLen, 'ignored (non-POST)')
-          res.writeHead(200)
-          res.end()
-          return
-        }
-
-        let payload: unknown
         try {
-          payload = JSON.parse(body)
-        } catch {
-          this.log('POST', req.url ?? '/', 200, bodyLen, 'non-JSON payload (protobuf?)')
-          res.writeHead(200)
+          this.handleBody(req, res, chunks)
+        } catch (err) {
+          // Malformed-but-parseable OTLP must never leave the socket hanging or crash the host.
+          this.log(req.method ?? '?', req.url ?? '/', 400, size, `malformed payload: ${err instanceof Error ? err.message : String(err)}`)
+          if (!res.headersSent) { res.writeHead(400) }
           res.end()
-          return
         }
-
-        if (!this.ingestionEnabled) {
-          res.writeHead(200)
-          res.end()
-          return
-        }
-
-        let summary: string
-        if (req.url === '/v1/traces' || this.isOtlpTracePayload(payload)) {
-          const count = this.processTraces(payload, req.url ?? '/v1/traces')
-          summary = `${count} span${count !== 1 ? 's' : ''} ingested`
-        } else if (req.url === '/v1/logs' || this.isOtlpLogPayload(payload)) {
-          const count = this.processLogs(payload)
-          summary = `${count} log${count !== 1 ? 's' : ''} ingested`
-        } else if (req.url === '/v1/metrics' || this.isOtlpMetricPayload(payload)) {
-          const { metrics, points } = this.processMetrics(payload)
-          summary = `${metrics} metric${metrics !== 1 ? 's' : ''}, ${points} point${points !== 1 ? 's' : ''}`
-        } else {
-          summary = 'unrecognized payload'
-        }
-
-        this.log('POST', req.url ?? '/', 200, bodyLen, summary)
-        res.writeHead(200)
-        res.end()
       })
     })
 
@@ -130,6 +126,58 @@ export class OtlpCollector {
         resolve()
       })
     })
+  }
+
+  private handleBody(req: http.IncomingMessage, res: http.ServerResponse, chunks: Buffer[]) {
+    const body = Buffer.concat(chunks).toString('utf-8')
+    const bodyLen = body.length
+    
+    if (req.method === 'GET' && req.url === '/traceroost/plugin') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ traceroost: true, kind: 'plugin' }))
+      return
+    }
+
+    if (req.method !== 'POST') {
+      this.log(req.method ?? '?', req.url ?? '/', 200, bodyLen, 'ignored (non-POST)')
+      res.writeHead(200)
+      res.end()
+      return
+    }
+
+    let payload: unknown
+    try {
+      payload = JSON.parse(body)
+    } catch {
+      this.log('POST', req.url ?? '/', 200, bodyLen, 'non-JSON payload (protobuf?)')
+      res.writeHead(200)
+      res.end()
+      return
+    }
+
+    if (!this.ingestionEnabled) {
+      res.writeHead(200)
+      res.end()
+      return
+    }
+
+    let summary: string
+    if (req.url === '/v1/traces' || this.isOtlpTracePayload(payload)) {
+      const count = this.processTraces(payload, req.url ?? '/v1/traces')
+      summary = `${count} span${count !== 1 ? 's' : ''} ingested`
+    } else if (req.url === '/v1/logs' || this.isOtlpLogPayload(payload)) {
+      const count = this.processLogs(payload)
+      summary = `${count} log${count !== 1 ? 's' : ''} ingested`
+    } else if (req.url === '/v1/metrics' || this.isOtlpMetricPayload(payload)) {
+      const { metrics, points } = this.processMetrics(payload)
+      summary = `${metrics} metric${metrics !== 1 ? 's' : ''}, ${points} point${points !== 1 ? 's' : ''}`
+    } else {
+      summary = 'unrecognized payload'
+    }
+
+    this.log('POST', req.url ?? '/', 200, bodyLen, summary)
+    res.writeHead(200)
+    res.end()
   }
 
   /** Single structured log line per request: method, path, status, size, summary */
@@ -164,13 +212,13 @@ export class OtlpCollector {
     type ResourceMetrics = { scopeMetrics?: ScopeMetrics[] }
 
     const p = payload as { resourceMetrics?: ResourceMetrics[] }
-    const rms = p.resourceMetrics ?? []
+    const rms = objectItems<ResourceMetrics>(p?.resourceMetrics)
 
     let metricCount = 0
     let pointCount = 0
     for (const rm of rms) {
-      for (const sm of rm.scopeMetrics ?? []) {
-        const metrics = sm.metrics ?? []
+      for (const sm of objectItems<ScopeMetrics>(rm.scopeMetrics)) {
+        const metrics = objectItems<Metric>(sm.metrics)
         metricCount += metrics.length
         for (const m of metrics) {
           pointCount += m.sum?.dataPoints?.length ?? 0
@@ -310,10 +358,8 @@ export class OtlpCollector {
   }
 
   private toSpanAttributes(raw: unknown): SpanAttribute[] {
-    if (!Array.isArray(raw)) {return []}
-    return raw
-      .map(item => {
-        const obj = item as Record<string, unknown>
+    return objectItems(raw)
+      .map(obj => {
         const key = typeof obj.key === 'string' ? obj.key : ''
         const value = obj.value as SpanAttribute['value'] | undefined
         if (!key || !value || typeof value !== 'object') {return undefined}
@@ -342,8 +388,7 @@ export class OtlpCollector {
     const values = kv?.values
     if (!Array.isArray(values)) {return []}
     const attrs: SpanAttribute[] = []
-    for (const v of values) {
-      const entry = v as Record<string, unknown>
+    for (const entry of objectItems(values)) {
       const key = typeof entry.key === 'string' ? entry.key : ''
       const value = entry.value as SpanAttribute['value'] | undefined
       if (!key || !value || typeof value !== 'object') {continue}
@@ -367,12 +412,11 @@ export class OtlpCollector {
     const claudeLogFallbackTraceId = `claude-log-${now}`
 
     let count = 0
-    const resourceLogs = p?.resourceLogs ?? []
-    for (const rl of resourceLogs) {
+    for (const rl of objectItems<ResourceLogs>(p?.resourceLogs)) {
       const resourceAttrs = this.toSpanAttributes(rl.resource?.attributes)
-      for (const sl of rl.scopeLogs ?? []) {
+      for (const sl of objectItems<ScopeLogs>(rl.scopeLogs)) {
         const scopeAttrs = this.toSpanAttributes(sl.scope?.attributes)
-        for (const rec of sl.logRecords ?? []) {
+        for (const rec of objectItems<LogRecord>(sl.logRecords)) {
           const recordAttrs = this.toSpanAttributes(rec.attributes)
           const bodyAttrs = this.attrsFromBodyKv(rec.body)
           let attrs = this.mergeAttributes(recordAttrs, bodyAttrs, scopeAttrs, resourceAttrs)
@@ -519,7 +563,7 @@ export class OtlpCollector {
     const p = payload as {
       resourceSpans?: Array<{ resource?: { attributes?: unknown }; scopeSpans?: Array<{ spans?: unknown[] }> }>
     }
-    const resourceSpans = p?.resourceSpans ?? []
+    const resourceSpans = objectItems<NonNullable<typeof p.resourceSpans>[number]>(p?.resourceSpans)
 
     let count = 0
     for (const rs of resourceSpans) {
@@ -527,7 +571,7 @@ export class OtlpCollector {
       // process — merge them in so per-span attribute lookups can see them too.
       // Mirrors the same merge already done for log records in processLogs().
       const resourceAttrs = this.toSpanAttributes(rs.resource?.attributes)
-      const rawSpans = rs.scopeSpans?.flatMap((ss) => ss.spans ?? []) ?? []
+      const rawSpans = objectItems<{ spans?: unknown }>(rs.scopeSpans).flatMap(ss => objectItems(ss.spans))
 
       for (const raw of rawSpans) {
         const span = raw as Record<string, unknown>

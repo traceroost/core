@@ -5,5 +5,5 @@
     "outDir": "../out/standalone"
   },
   "include": ["server.ts", "cli.ts", "service/**/*.ts", "../src/**/*.ts"],
-  "exclude": ["../src/test", "../media"]
+  "exclude": ["../src/test", "../media", "**/*.test.ts"]
 }

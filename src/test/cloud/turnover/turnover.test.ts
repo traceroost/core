@@ -4,6 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import { computeTurnover, MIN_ATTRIBUTED_LINES } from '../../../cloud/turnover'
+import { turnoverCacheKey } from '../../../cloud/turnover/cached'
 
 let repo: string
 const T0 = Date.UTC(2026, 0, 15) // 2026-01-15
@@ -84,7 +85,7 @@ suite('turnover', () => {
     fs.writeFileSync(path.join(young, 'a.txt'), Array.from({ length: 300 }, (_, i) => `a-${i}`).join('\n'))
     const env = { ...process.env, GIT_AUTHOR_DATE: iso(T0), GIT_COMMITTER_DATE: iso(T0) }
     execFileSync('git', ['add', '-A'], { cwd: young })
-    execFileSync('git', ['commit', '-m', 'x\n\nCo-Authored-By: Claude <n@anthropic.com>'], { cwd: young, env })
+    execFileSync('git', ['commit', '-m', 'x\n\nCo-Authored-By: Claude <noreply@anthropic.com>'], { cwd: young, env })
     try {
       const report = await computeTurnover(young, { now: T0 + 5 * 86_400_000, windows: [90] })
       assert.ok(report.results.every(r => r.kind === 'insufficient'))
@@ -155,5 +156,62 @@ suite('turnover', () => {
     for (const c of measured.commits) {
       assert.deepStrictEqual(Object.keys(c).sort(), ['aiLines', 'aiLinesSurviving', 'attribution', 'authoredAt', 'linesAdded', 'sha'])
     }
+  })
+  test('30- and 90-day turnover are measured at their own window ends, not both at HEAD', async () => {
+    writeLines('mid.txt', MIN_ATTRIBUTED_LINES + 50, 'mid')
+    aiCommit('add mid', T0)
+    // Jan cohort: 30-day window ends Mar 3, 90-day window ends May 2. Removed Mar 20 — after the
+    // first window, before the second.
+    fs.rmSync(path.join(repo, 'mid.txt'))
+    git(['add', '-A'])
+    git(['commit', '-m', 'remove mid'], Date.UTC(2026, 2, 20))
+
+    const report = await computeTurnover(repo, { now: FUTURE, windows: [30, 90] })
+    const r30 = report.results.find(r => r.cohortLabel === '2026-01' && r.windowDays === 30)
+    const r90 = report.results.find(r => r.cohortLabel === '2026-01' && r.windowDays === 90)
+    assert.ok(r30 && r30.kind === 'measured' && r90 && r90.kind === 'measured')
+    assert.strictEqual(r30.turnoverRate, 0)
+    assert.strictEqual(r90.turnoverRate, 1)
+    assert.notStrictEqual(r30.measuredAtSha, r90.measuredAtSha)
+  })
+
+  test('churn after the 90-day window has ended does not count against it', async () => {
+    writeLines('late.txt', MIN_ATTRIBUTED_LINES + 50, 'late')
+    aiCommit('add late', T0)
+    fs.rmSync(path.join(repo, 'late.txt'))
+    git(['add', '-A'])
+    git(['commit', '-m', 'remove late'], Date.UTC(2026, 6, 1)) // July — after May 2
+
+    const report = await computeTurnover(repo, { now: FUTURE, windows: [90] })
+    const r90 = report.results.find(r => r.cohortLabel === '2026-01' && r.windowDays === 90)
+    assert.ok(r90 && r90.kind === 'measured')
+    assert.strictEqual(r90.turnoverRate, 0)
+  })
+
+  test('a whitespace-only reindent and a file rename are not churn', async () => {
+    writeLines('src/ws.txt', MIN_ATTRIBUTED_LINES + 50, 'ws')
+    aiCommit('add ws', T0)
+    const abs = path.join(repo, 'src/ws.txt')
+    fs.writeFileSync(abs, fs.readFileSync(abs, 'utf8').split('\n').map(l => (l ? '    ' + l : l)).join('\n'))
+    git(['add', '-A'])
+    git(['commit', '-m', 'reindent'], T0 + 20 * 86_400_000)
+    fs.mkdirSync(path.join(repo, 'lib'))
+    git(['mv', 'src/ws.txt', 'lib/ws.txt'])
+    git(['commit', '-m', 'move'], T0 + 25 * 86_400_000)
+
+    const report = await computeTurnover(repo, { now: FUTURE, windows: [30] })
+    const r = report.results.find(x => x.cohortLabel === '2026-01' && x.windowDays === 30)
+    assert.ok(r && r.kind === 'measured')
+    assert.strictEqual(r.turnoverRate, 0)
+  })
+
+  test('the cached-report key changes with the day and the session set, not just HEAD', () => {
+    const s1 = [{ sessionId: 'a', workspace: '/w', startMs: 1, endMs: 2, filesChanged: ['/w/x'] }]
+    const s2 = [...s1, { sessionId: 'b', workspace: '/w', startMs: 3, endMs: 4, filesChanged: [] }]
+    const day1 = Date.UTC(2026, 0, 1, 10)
+    assert.strictEqual(turnoverCacheKey('h', day1, s1), turnoverCacheKey('h', day1 + 3_600_000, s1))
+    assert.notStrictEqual(turnoverCacheKey('h', day1, s1), turnoverCacheKey('h', day1 + 86_400_000, s1))
+    assert.notStrictEqual(turnoverCacheKey('h', day1, s1), turnoverCacheKey('h', day1, s2))
+    assert.notStrictEqual(turnoverCacheKey('h', day1, s1), turnoverCacheKey('h2', day1, s1))
   })
 })

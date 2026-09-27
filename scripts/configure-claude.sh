@@ -6,11 +6,23 @@
 #   ./scripts/configure-claude.sh          # uses port 4318 (default)
 #   ./scripts/configure-claude.sh 4319     # custom port
 #   TRACEROOST_PORT=4319 ./scripts/configure-claude.sh
+#   ./scripts/configure-claude.sh 4318 <token>             # Docker / LAN mode (BIND_HOST=0.0.0.0)
+#   TRACEROOST_TOKEN=<token> TRACEROOST_HOST=192.168.1.20 ./scripts/configure-claude.sh
+#
+# When TraceRoost is bound beyond localhost (the Docker image does this), every OTLP request
+# needs its bearer token — pass it as the second argument or TRACEROOST_TOKEN and the script
+# adds OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>. See README → Docker.
 
 set -euo pipefail
 
 PORT=${1:-${TRACEROOST_PORT:-4318}}
-ENDPOINT="http://localhost:${PORT}"
+TOKEN=${2:-${TRACEROOST_TOKEN:-}}
+HOST=${TRACEROOST_HOST:-localhost}
+ENDPOINT="http://${HOST}:${PORT}"
+if [ -n "$TOKEN" ] && ! [[ "$TOKEN" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+  echo "Error: the token may only contain letters, digits and . _ ~ -" >&2
+  exit 1
+fi
 
 echo "Configuring Claude Code for TraceRoost at ${ENDPOINT}..."
 
@@ -29,17 +41,19 @@ if ! command -v python3 &>/dev/null; then
     "OTEL_EXPORTER_OTLP_ENDPOINT": "${ENDPOINT}",
     "OTEL_LOG_TOOL_DETAILS": "1",
     "OTEL_LOG_TOOL_CONTENT": "1",
-    "OTEL_LOG_USER_PROMPTS": "1"
+    "OTEL_LOG_USER_PROMPTS": "1"${TOKEN:+,
+    \"OTEL_EXPORTER_OTLP_HEADERS\": \"Authorization=Bearer ${TOKEN}\"}
   }
 }
 JSON
   exit 1
 fi
 
-python3 - "$ENDPOINT" <<'PYEOF'
+python3 - "$ENDPOINT" "$TOKEN" <<'PYEOF'
 import json, os, sys
 
 endpoint = sys.argv[1]
+token = sys.argv[2]
 path = os.path.expanduser("~/.claude/settings.json")
 
 settings = {}
@@ -64,6 +78,8 @@ env.update({
     "OTEL_LOG_TOOL_CONTENT": "1",
     "OTEL_LOG_USER_PROMPTS": "1",
 })
+if token:
+    env["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Bearer {token}"
 
 os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 with open(path, "w") as f:

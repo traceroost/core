@@ -10,7 +10,7 @@ import type { AttributionCache } from '../cloud/attribution'
 import type { CommitAttribution } from '../cloud/attribution/types'
 
 interface WriteableDb {
-  exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  exec(sql: string, params?: unknown[]): Array<{ columns: string[]; values: unknown[][] }>
   run(sql: string, params?: unknown[]): void
 }
 
@@ -18,11 +18,10 @@ export class AttributionRepository implements AttributionCache {
   constructor(private readonly db: WriteableDb, private readonly repoRoot: string) {}
 
   get(sha: string): CommitAttribution | undefined {
-    const escapedRoot = this.repoRoot.replace(/'/g, "''")
-    const escapedSha = sha.replace(/'/g, "''")
     const rows = this.db.exec(
       `SELECT sha, authored_at, lines_added, lines_removed, ai_lines, attribution, session_ids, is_merge
-         FROM commit_attribution WHERE repo_root = '${escapedRoot}' AND sha = '${escapedSha}'`,
+         FROM commit_attribution WHERE repo_root = ? AND sha = ?`,
+      [this.repoRoot, sha],
     )
     if (!rows[0] || rows[0].values.length === 0) return undefined
     const { columns, values } = rows[0]

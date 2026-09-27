@@ -5,6 +5,7 @@ import { SCHEMA_SQL } from '../../database/schema'
 import { DatabaseWriter } from '../../database/writer'
 import { DatabaseReader, type SearchQuery } from '../../database/reader'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import type { SqlStatement } from '../../database/db'
 
 // searchSessions is the real backend query builder behind the webview's bounded-time-range
 // fetch (media/src/App.tsx's TimeRangePicker.fireSearch) and the uncapped Export path — the
@@ -17,6 +18,7 @@ import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
 }
@@ -374,6 +376,36 @@ suite('DatabaseReader.searchSessions — pagination', () => {
     const { sessions, totalCount } = reader.searchSessions({})
     assert.strictEqual(sessions.length, 50)
     assert.strictEqual(totalCount, 60)
+    db.close()
+  })
+})
+
+suite('DatabaseReader.searchSessions — untrusted input', () => {
+  test('LIKE wildcards in the text filter match literally', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'pct', userRequest: 'reach 100% coverage' }),
+      makeCard({ sessionId: 'plain', userRequest: 'reach 1000 coverage' }),
+      makeCard({ sessionId: 'under', userRequest: 'rename my_var' }),
+      makeCard({ sessionId: 'nounder', userRequest: 'rename myXvar' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    assert.deepStrictEqual(ids(reader.searchSessions({ text: '100%' }).sessions), ['pct'])
+    assert.deepStrictEqual(ids(reader.searchSessions({ text: 'my_var' }).sessions), ['under'])
+    db.close()
+  })
+
+  test('non-numeric since/minCostUsd/limit/offset are ignored rather than spliced into SQL', async () => {
+    const db = await openDb()
+    await seedDb(db, [makeCard({ sessionId: 'a' }), makeCard({ sessionId: 'b' })])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const hostile = {
+      since: '0 OR 1=1) --', minCostUsd: 'x', limit: '1; DROP TABLE sessions', offset: -5,
+    } as unknown as SearchQuery
+    const result = reader.searchSessions(hostile)
+    assert.strictEqual(result.totalCount, 2)
+    assert.strictEqual(result.sessions.length, 2)
+    assert.strictEqual(reader.searchSessions({ limit: 1 }).sessions.length, 1)
     db.close()
   })
 })

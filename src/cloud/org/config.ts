@@ -44,8 +44,10 @@ export interface ResolvedEnvironment {
  * Resolves in order: a release build (locked to production, full stop — see below), then an
  * explicit full URL (`TRACEROOST_ORG_URL`, for pointing at `cloud`'s own `pnpm dev` on
  * localhost, or any other one-off target), then a named environment
- * (`TRACEROOST_ORG_ENV=test|stage|production`, settable via `.env` for `npm run local`), then a
- * selection persisted from the Org panel (`environmentSelection.ts`), then production.
+ * (`TRACEROOST_ORG_ENV=test|stage|production`, settable via `.env` for `pnpm run local`), then a
+ * selection persisted from the Org panel (`environmentSelection.ts`), then
+ * `DEFAULT_ORG_ENVIRONMENT` (`test`). A non-release (development) build therefore talks to the
+ * test stack unless told otherwise; only a release build is pinned to production.
  *
  * Only ever consulted pre-link (every call site for a linked machine passes `creds.endpoint`
  * explicitly instead) — so this, and the picker behind step four, only ever affects an unlinked
@@ -115,12 +117,12 @@ export function batchIngestUrl(endpoint = orgEndpoint()): string {
   return `${endpoint}/api/ingest/batch`
 }
 
-/** The org's own pricing table (rates.read) — see pricingSync.ts. */
+/** The org's own pricing table — see pricingSync.ts. */
 export function ratesUrl(endpoint = orgEndpoint()): string {
   return `${endpoint}/api/rates/effective`
 }
 
-/** Resolves a Repeat work cluster's repo hash + key (clusters.read) back to its raw session ids —
+/** Resolves a Repeat work cluster's repo hash + key back to its raw session ids —
  *  see clusterResolve.ts and the `traceroost cluster` CLI command. */
 export function clusterResolveUrl(endpoint = orgEndpoint()): string {
   return `${endpoint}/api/clusters/resolve`
@@ -130,11 +132,11 @@ export function clusterResolveUrl(endpoint = orgEndpoint()): string {
  *  secures the exchange, not a client secret (there is none). */
 export const OAUTH_CLIENT_ID = 'traceroost-client'
 
-/** Scope requested at link time. Read-only membership, write-only rollup ingest, read-only access
- *  to the org's own pricing table (rates.read — see pricingSync.ts), and read-only resolution of a
- *  Repeat work cluster's own session ids (clusters.read — see clusterResolve.ts); nothing that
- *  could read another member's data or a repository. */
-export const OAUTH_SCOPE = 'rollup.write roster.read rates.read clusters.read'
+// No OAuth `scope` is requested. The service issues one kind of machine token and doesn't record
+// or enforce scopes, so asking for a list of them promised a restriction nothing implemented. What
+// a linked machine's token can reach is exactly the endpoints named in this file: ingest (write),
+// and its own roster row, install count, org pricing table and cluster resolution (read) — each
+// scoped server-side to the token's own org/member/install. See CLOUD_ARCHITECTURE.md.
 
 /**
  * The on-disk credential for a linked machine. Written only by `credentials.ts`, only after a
@@ -162,8 +164,10 @@ export interface OrgCredentials {
    *  a credential written before this field existed simply lacks it until `refreshOrgNameIfStale`
    *  backfills it — never a reason to reject an otherwise-valid credential file. */
   email?: string
-  /** This member's role in the org, cached for offline display. The server is authoritative. */
-  role: 'lead' | 'member'
+  /** This member's role in the org, cached for offline display. The server is authoritative.
+   *  (A credential file from before cloud's `lead` → `admin` rename says `lead`/`member`;
+   *  `credentials.ts` reads those as `admin`/`developer`.) */
+  role: 'admin' | 'developer'
   /** Whether this org lets a member see their own numbers in the team view. Display-only cache. */
   perDeveloperVisibility: boolean
   /** OAuth tokens. `accessToken` is short-lived; `refreshToken` is used by AL 04's sender. */

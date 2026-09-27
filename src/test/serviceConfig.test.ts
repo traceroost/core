@@ -97,6 +97,16 @@ suite('serviceConfig', () => {
       const second = ensureAuthToken(readServiceConfig(home), home)
       assert.strictEqual(first.authToken, second.authToken)
     })
+
+    test('the config file holding the token is owner-only (0600)', function () {
+      if (process.platform === 'win32') { this.skip() }
+      const home = tmpHome()
+      const configPath = serviceConfigPath(home)
+      fs.mkdirSync(path.dirname(configPath), { recursive: true })
+      fs.writeFileSync(configPath, '{}', { mode: 0o644 })
+      ensureAuthToken(readServiceConfig(home), home)
+      assert.strictEqual(fs.statSync(configPath).mode & 0o777, 0o600)
+    })
   })
 
   suite('serviceLogPath', () => {
@@ -205,6 +215,18 @@ suite('serviceConfig', () => {
       assert.ok(plist.includes('<key>TRACEROOST_SERVICE</key>\n    <string>1</string>'))
       assert.ok(plist.includes(serviceLogPath(program.config)))
     })
+
+    test('XML-escapes paths containing & < > quotes', () => {
+      const config = { ...defaultServiceConfig('/Users/Tom & Jerry'), bindHost: '<h>' }
+      const plist = generateLaunchdPlist({ nodePath: "/opt/it's/node", cliPath: '/opt/a "b"/cli.js', config })
+      assert.ok(plist.includes('<string>/opt/it&apos;s/node</string>'))
+      assert.ok(plist.includes('<string>/opt/a &quot;b&quot;/cli.js</string>'))
+      // The data dir is built with the host's path.join (plists are only generated on macOS);
+      // spell the expectation the same way so it holds on any test host.
+      assert.ok(plist.includes(`<string>${path.join('/Users/Tom &amp; Jerry', '.traceroost')}</string>`))
+      assert.ok(plist.includes('<string>&lt;h&gt;</string>'))
+      assert.ok(!plist.includes('Tom & Jerry'))
+    })
   })
 
   suite('generateSystemdUnit', () => {
@@ -215,12 +237,27 @@ suite('serviceConfig', () => {
         config: defaultServiceConfig('/home/test'),
       }
       const unit = generateSystemdUnit(program)
-      assert.ok(unit.includes('ExecStart=/usr/bin/node /usr/lib/node_modules/traceroost/standalone/cli.js'))
+      assert.ok(unit.includes('ExecStart="/usr/bin/node" "/usr/lib/node_modules/traceroost/standalone/cli.js"'))
       assert.ok(unit.includes('Restart=on-failure'))
-      assert.ok(unit.includes('Environment=UI_PORT=3000'))
-      assert.ok(unit.includes('Environment=TRACEROOST_SERVICE=1'))
+      assert.ok(unit.includes('Environment="UI_PORT=3000"'))
+      assert.ok(unit.includes('Environment="TRACEROOST_SERVICE=1"'))
       assert.ok(unit.includes(`StandardOutput=append:${serviceLogPath(program.config)}`))
       assert.ok(unit.includes('WantedBy=default.target'))
+    })
+
+    test('quotes and escapes paths with spaces, %, $, quotes, and backslashes', () => {
+      const config = { ...defaultServiceConfig('/home/a b'), dataDir: '/home/a b/100% "x"\\y $HOME &z' }
+      const unit = generateSystemdUnit({ nodePath: '/opt/my node/node', cliPath: '/opt/50%/$HOME/cli.js', config })
+      assert.ok(unit.includes('ExecStart="/opt/my node/node" "/opt/50%%/$$HOME/cli.js"'), unit)
+      // Environment= has no $-substitution, so `$` stays single; `%` is still a specifier.
+      assert.ok(unit.includes('Environment="DATA_DIR=/home/a b/100%% \\"x\\"\\\\y $HOME &z"'), unit)
+      // The log path is joined with the host's path.join (units are only generated on Linux).
+      assert.ok(unit.includes(`StandardOutput=append:${path.join('/home/a b/100%% "x"\\y $HOME &z', 'logs', 'service.log')}`), unit)
+    })
+
+    test('refuses a value containing a newline instead of injecting a directive', () => {
+      const config = { ...defaultServiceConfig('/home/test'), bindHost: '127.0.0.1\nExecStartPre=/bin/evil' }
+      assert.throws(() => generateSystemdUnit({ nodePath: '/usr/bin/node', cliPath: '/x/cli.js', config }), /line break/)
     })
   })
 
@@ -236,6 +273,18 @@ suite('serviceConfig', () => {
       assert.ok(script.includes('set "TRACEROOST_SERVICE=1"'))
       assert.ok(script.includes('"C:\\Program Files\\nodejs\\node.exe"'))
       assert.ok(script.includes('>> "' + serviceLogPath(program.config) + '" 2>&1'))
+    })
+
+    test('doubles % so cmd does not expand it, and keeps & literal inside the quotes', () => {
+      const config = { ...defaultServiceConfig('C:\\Users\\test'), dataDir: 'C:\\Users\\R&D %USERNAME%\\.traceroost' }
+      const script = generateWindowsWrapperScript({ nodePath: 'C:\\node 100%\\node.exe', cliPath: 'C:\\a&b\\cli.js', config })
+      assert.ok(script.includes('set "DATA_DIR=C:\\Users\\R&D %%USERNAME%%\\.traceroost"'), script)
+      assert.ok(script.includes('"C:\\node 100%%\\node.exe" "C:\\a&b\\cli.js"'), script)
+    })
+
+    test('refuses a double quote or newline that would break out of the quoting', () => {
+      const config = { ...defaultServiceConfig('C:\\Users\\test'), bindHost: '127.0.0.1" & calc & "' }
+      assert.throws(() => generateWindowsWrapperScript({ nodePath: 'node.exe', cliPath: 'cli.js', config }), /double quote/)
     })
   })
 

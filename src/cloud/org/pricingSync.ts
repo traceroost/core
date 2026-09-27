@@ -5,8 +5,9 @@
  *
  * Every failure degrades to "use core's local RATES table", never to a broken cost display —
  * same resilience philosophy as `sender.ts`'s drain, just for a read instead of a delivery:
- * offline, 401, 5xx, a malformed response, or simply never having linked all leave
- * `lookupRates()` (`src/pricing.ts`) exactly as it behaves today.
+ * offline, a 401 even after a refresh, 5xx, a malformed response, or simply never having linked
+ * all leave `lookupRates()` (`src/pricing.ts`) exactly as it behaves today. The service only
+ * lists models it has a real rate for, so a model missing from its table keeps core's own rate.
  *
  * Cost calculation itself (`calcTokenCostUsd`'s formula, tiered pricing, normalizeCostKey) is
  * untouched by this file — it only ever supplies `lookupRates()` an optional map to check first.
@@ -18,6 +19,7 @@ import { loadCredentials } from './credentials'
 import { traceroostDir } from './credentials'
 import { ratesUrl } from './config'
 import { clientVersion } from './oauthClient'
+import { fetchWithFreshToken } from './tokenRefresh'
 import { setCloudRateOverrides, type ModelRates } from '../../pricing'
 
 function cachePath(baseHome?: string): string {
@@ -43,28 +45,31 @@ export function loadCachedRatesIntoPricing(baseHome?: string): void {
 /** One fetch attempt. Never throws — every failure mode just means "keep using whatever
  *  lookupRates() already had" (the previous cache, or local RATES if there never was one). */
 export async function fetchAndCacheRates(baseHome?: string): Promise<void> {
-  const creds = loadCredentials()
-  if (!creds) return // AL 01 — checked first, touches nothing else on an unlinked install
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20_000)
-  let res: Response
+  // AL 01 — `fetchWithFreshToken` checks the credential first and returns null before any request
+  // on an unlinked install. It also refreshes an expired access token first (and once more on a
+  // 401): this runs hourly, so without that every sync after the token's one-hour lifetime on an
+  // idle machine used to 401 and silently keep a stale table.
+  let res: Response | null
   try {
-    res = await fetch(ratesUrl(creds.endpoint), {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        'User-Agent': `traceroost-client/${clientVersion()}`,
-      },
-      signal: controller.signal,
+    res = await fetchWithFreshToken(async (creds) => {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 20_000)
+      try {
+        return await fetch(ratesUrl(creds.endpoint), {
+          headers: {
+            Authorization: `Bearer ${creds.accessToken}`,
+            'User-Agent': `traceroost-client/${clientVersion()}`,
+          },
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timer)
+      }
     })
   } catch {
     return // offline / DNS / dropped connection — keep whatever was already cached
-  } finally {
-    clearTimeout(timer)
   }
-  if (!res.ok) return // 401/403/5xx — no refresh-and-retry here, unlike sender.ts: a stale rate
-  // table is never urgent enough to justify spending this drain's one token-refresh attempt: the
-  // forwarding queue's own next drain will refresh the credential for a real reason if it needs to.
+  if (!res || !res.ok) return // unlinked, or 401-after-refresh/403/5xx — keep the cached table
 
   let body: { rates?: Record<string, ModelRates> }
   try {

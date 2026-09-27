@@ -6,21 +6,55 @@ import { Span } from '../types'
 export const CLAUDE_WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 export const FULL_WRITE_TOOLS   = new Set(['Write', 'create_file'])  // whole-file replacement
 
-/** Returns the longest common directory prefix of a set of absolute file paths. */
-export function commonPathPrefix(paths: string[]): string {
-  const absPaths = paths.filter(p => p.startsWith('/'))
-  if (absPaths.length === 0) { return '' }
-  const split = absPaths.map(p => p.split('/').filter(Boolean))
+/**
+ * Splits an absolute file path into its root, separator and segments; null when it isn't absolute.
+ * `/…` paths always count. On win32 so do `C:\…` / `C:/…` and UNC `\\server\share\…`, and both
+ * separators split segments there (POSIX paths split on `/` only, exactly as before).
+ */
+function splitAbsolutePath(p: string, platform: NodeJS.Platform): { root: string; sep: string; segments: string[] } | null {
+  const win = platform === 'win32'
+  if (!win) {
+    return p.startsWith('/') ? { root: '/', sep: '/', segments: p.split('/').filter(Boolean) } : null
+  }
+  const segments = () => p.split(/[\\/]/).filter(Boolean)
+  if (/^[\\/]{2}[^\\/]/.test(p)) { return { root: '\\\\', sep: '\\', segments: segments() } }
+  if (p.startsWith('/')) { return { root: '/', sep: '/', segments: segments() } }
+  if (/^[A-Za-z]:[\\/]/.test(p)) { return { root: p.slice(0, 2) + '\\', sep: '\\', segments: segments().slice(1) } }
+  return null
+}
+
+/** True for a path `commonPathPrefix` can use — see splitAbsolutePath for what counts on each platform. */
+export function isAbsoluteFilePath(p: string, platform: NodeJS.Platform = process.platform): boolean {
+  return splitAbsolutePath(p, platform) !== null
+}
+
+/** Last segment of a file path — on win32 either separator ends a segment, elsewhere only `/`. */
+export function fileBaseName(p: string, platform: NodeJS.Platform = process.platform): string {
+  return (platform === 'win32' ? p.split(/[\\/]/) : p.split('/')).pop() || p
+}
+
+/**
+ * Returns the longest common directory prefix of a set of absolute file paths. Windows paths
+ * (win32 only) compare drive letters and segments case-insensitively, as the file system does,
+ * and come back with `\` separators under the first path's root and casing.
+ */
+export function commonPathPrefix(paths: string[], platform: NodeJS.Platform = process.platform): string {
+  const win = platform === 'win32'
+  const split = paths.map(p => splitAbsolutePath(p, platform)).filter(s => s !== null)
+  if (split.length === 0) { return '' }
+  const key = (seg: string) => win ? seg.toLowerCase() : seg
   const first = split[0]
+  if (!split.every(s => key(s.root) === key(first.root))) { return '' }
   let common = 0
-  for (let i = 0; i < first.length; i++) {
-    if (split.every(parts => parts[i] === first[i])) { common = i + 1 } else { break }
+  for (let i = 0; i < first.segments.length; i++) {
+    const seg = key(first.segments[i])
+    if (split.every(s => s.segments[i] !== undefined && key(s.segments[i]) === seg)) { common = i + 1 } else { break }
   }
   if (common === 0) { return '' }
   // Don't return the full path if it points to a file (last segment has a dot)
-  const prefix = first.slice(0, common)
+  const prefix = first.segments.slice(0, common)
   if (prefix[prefix.length - 1]?.includes('.')) { prefix.pop() }
-  return prefix.length > 0 ? '/' + prefix.join('/') : ''
+  return prefix.length > 0 ? first.root + prefix.join(first.sep) : ''
 }
 
 /**
@@ -37,7 +71,8 @@ export function commonPathPrefix(paths: string[]): string {
  * than showing nothing. `homeDir` is injectable for tests; defaults to the real home directory.
  */
 export function findProjectRoot(startDir: string, homeDir: string = os.homedir()): string {
-  if (!startDir || !startDir.startsWith('/')) { return startDir }
+  // path.isAbsolute, not startsWith('/'): on Windows a session directory is `C:\…`.
+  if (!startDir || !path.isAbsolute(startDir)) { return startDir }
   let dir = startDir
   for (;;) {
     if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json'))) {
@@ -47,8 +82,11 @@ export function findProjectRoot(startDir: string, homeDir: string = os.homedir()
     if (parent === dir) { break }
     dir = parent
   }
-  const startSegments = startDir.split('/').filter(Boolean)
-  const homeSegments = homeDir.split('/').filter(Boolean)
+  // Windows paths take either separator and compare case-insensitively; POSIX ones neither.
+  const win = process.platform === 'win32'
+  const segments = (p: string) => (win ? p.toLowerCase().split(/[\\/]/) : p.split('/')).filter(Boolean)
+  const startSegments = segments(startDir)
+  const homeSegments = segments(homeDir)
   const isHomeOrAboveHome = startSegments.length <= homeSegments.length
     && startSegments.every((seg, i) => seg === homeSegments[i])
   return isHomeOrAboveHome ? '' : startDir

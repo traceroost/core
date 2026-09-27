@@ -21,7 +21,7 @@ jobs:
           (github.event.comment.body == 'recheck' ||
            github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
           github.event_name == 'pull_request_target'
-        uses: contributor-assistant/github-action@v2.6.1
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_SIGNATURES_TOKEN }}
@@ -31,7 +31,9 @@ jobs:
           # Dedicated, unprotected branch for signature storage — main requires PRs, so the
           # action's own commit of the signature record can't land there directly.
           branch: cla-signatures
-          allowlist: RogerReed
+          # Claude <noreply@anthropic.com> commits have no GitHub account, so the action matches
+          # them by author name.
+          allowlist: RogerReed,Claude
           custom-notsigned-prcomment: |
             Thanks for this contribution! Before it can be merged, please read the
             [Contributor License Agreement](https://github.com/traceroost/core/blob/main/.github/CLA.md)

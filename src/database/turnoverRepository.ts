@@ -7,7 +7,7 @@
 import type { TurnoverReport } from '../cloud/turnover'
 
 interface WriteableDb {
-  exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  exec(sql: string, params?: unknown[]): Array<{ columns: string[]; values: unknown[][] }>
   run(sql: string, params?: unknown[]): void
 }
 
@@ -15,8 +15,7 @@ export class TurnoverRepository {
   constructor(private readonly db: WriteableDb, private readonly repoRoot: string) {}
 
   private row(): { headSha: string; report: TurnoverReport } | null {
-    const escaped = this.repoRoot.replace(/'/g, "''")
-    const rows = this.db.exec(`SELECT head_sha, report_json FROM cohort_turnover WHERE repo_root = '${escaped}'`)
+    const rows = this.db.exec('SELECT head_sha, report_json FROM cohort_turnover WHERE repo_root = ?', [this.repoRoot])
     if (!rows[0] || rows[0].values.length === 0) return null
     try {
       return { headSha: String(rows[0].values[0][0]), report: JSON.parse(String(rows[0].values[0][1])) as TurnoverReport }

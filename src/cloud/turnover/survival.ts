@@ -1,10 +1,14 @@
 /**
- * "Still present" (AL 06): a line survives if `git blame` on `HEAD` attributes it to one of the
- * cohort's commits. A moved line survives; an edited line does not — an edited line is rework,
- * which is the intended reading.
+ * "Still present" (AL 06): a line survives if `git blame` at the measurement commit attributes it
+ * to one of the cohort's commits. A moved or copied line survives, and so does a line whose only
+ * change was whitespace (blame runs with `-w -M -C`); an edited line does not — an edited line is
+ * rework, which is the intended reading.
  *
- * One `git blame` per file currently in `HEAD`, bucketed by originating commit — far cheaper
- * than a blame per cohort commit, and the reason this is fast enough to run on first launch.
+ * Two entry points:
+ *   - `survivalAt` — survival at a specific commit (a cohort's window end), blaming only the files
+ *     the cohort touched. This is what turnover is measured with.
+ *   - `buildSurvivalIndex` — one blame per file currently in `HEAD`, bucketed by originating
+ *     commit, with a per-file cache. Survival-to-date at HEAD.
  * Blame content stays in memory; only counts are persisted.
  */
 
@@ -42,6 +46,11 @@ export interface FileBlameCache {
   /** Drops rows for files no longer present at HEAD (renamed/deleted). */
   pruneExcept(filePaths: string[]): void
 }
+
+/** `-w` ignores whitespace-only changes, `-M` follows lines moved within a file, `-C` follows lines
+ *  moved/copied from other files changed in the same commit — a reindent or a moved function is
+ *  not churn. */
+const BLAME_FLAGS = ['--line-porcelain', '-w', '-M', '-C']
 
 function parseOrigins(blameOutput: string): Record<string, number> {
   const origins: Record<string, number> = {}
@@ -94,7 +103,7 @@ export async function buildSurvivalIndex(
     if (cached && cached.blobSha === blobSha) {
       origins = cached.origins
     } else {
-      const out = await git(repoRoot, ['blame', '--line-porcelain', 'HEAD', '--', file], 10_000)
+      const out = await git(repoRoot, ['blame', ...BLAME_FLAGS, 'HEAD', '--', file], 10_000)
       if (out === null) { onProgress?.(i + 1, entries.length); continue }
       filesBlamed++
       origins = parseOrigins(out)
@@ -121,4 +130,35 @@ export function survivingAiLines(
   if (surviving === 0 || commit.aiLines === 0) return 0
   const aiFraction = commit.linesAdded > 0 ? commit.aiLines / commit.linesAdded : 1
   return Math.min(commit.aiLines, Math.round(surviving * aiFraction))
+}
+
+/** Blame one file at one commit — memoized by `<commit>:<path>` for the life of `memo`, since a
+ *  blame at a fixed commit never changes. */
+async function blameAt(repoRoot: string, at: string, file: string, memo?: Map<string, Record<string, number> | null>): Promise<Record<string, number> | null> {
+  const key = `${at}:${file}`
+  if (memo?.has(key)) return memo.get(key) ?? null
+  const out = await git(repoRoot, ['blame', ...BLAME_FLAGS, at, '--', file], 10_000)
+  const origins = out === null ? null : parseOrigins(out)
+  memo?.set(key, origins)
+  return origins
+}
+
+/** Lines each of `shas` still has at commit `at`, found by blaming `files` (repo-relative paths as
+ *  they exist at `at`) there. Files absent at `at` contribute nothing — their lines are gone. */
+export async function survivalAt(
+  repoRoot: string,
+  at: string,
+  files: Iterable<string>,
+  shas: Set<string>,
+  memo?: Map<string, Record<string, number> | null>,
+): Promise<Map<string, number>> {
+  const bySha = new Map<string, number>()
+  for (const file of new Set(files)) {
+    const origins = await blameAt(repoRoot, at, file, memo)
+    if (!origins) continue
+    for (const [sha, count] of Object.entries(origins)) {
+      if (shas.has(sha)) bySha.set(sha, (bySha.get(sha) ?? 0) + count)
+    }
+  }
+  return bySha
 }

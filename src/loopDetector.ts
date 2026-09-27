@@ -11,7 +11,7 @@
  *   5. token_runaway         — context growing rapidly while output stays flat/declines
  *   6. chronic_tool_failures — an unusually high share of tool calls in the session failed
  *   7. context_flooding_risk — a tool call returned a result too large for the model to use well
- *   8. tool_call_cycle       — a 2-5-step tool-call sequence oscillates 5+ times (edit → build → edit → build)
+ *   8. tool_call_cycle       — a 2-5-step tool-call sequence oscillates 5+ times (run tests → read log → run tests → read log)
  *   9. file_reread           — the same file read 3+ times with no write in between
  *  10. cache_miss            — a call re-wrote context it could plausibly have read from cache
  *  11. ttl_expiry            — a cache miss caused by waiting longer than the cache's TTL
@@ -46,7 +46,7 @@ import { LoopSignal, LoopSignalType } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import type { TimelineEntry } from './summarizers/summarizerTypes'
 import type { GitOutcome } from './gitOutcome'
-import { calcTokenCostUsd, lookupRates } from './pricing'
+import { calcAggregateTokenCostUsd, calcSessionCostUsd, lookupRates } from './pricing'
 
 // ── Pattern taxonomy names ───────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     + 'Ask the agent to re-run the check and confirm it passes before considering the task done, or review the failure yourself before accepting the change.',
 
   tool_call_cycle:
-    'The agent is oscillating between two or more distinct actions (e.g. edit → build → edit → build) rather than repeating one call — '
+    'The agent is oscillating between two or more distinct actions (e.g. run tests → read log → run tests → read log) rather than repeating one call — '
     + 'a sign it\'s reacting to the same feedback each time without changing approach. '
     + 'Interrupt and ask it to explain what changed between attempts, or supply the missing information yourself.',
 
@@ -295,7 +295,7 @@ export const SIGNAL_FORMULAS: Record<
       '10+ repeats → critical',
     ],
     caveat: 'Newly added (2026-09-26), unconfirmed — the 5/10-repeat thresholds are borrowed from Gemini CLI\'s own default, not calibrated against this project\'s session history yet. Run scripts/calibrateSignals.ts once enough sessions have this signal computed.',
-    short: 'A multi-step sequence (e.g. edit → build → edit → build) repeated 5+ times.',
+    short: 'A multi-step sequence (e.g. run tests → read log → run tests → read log) repeated 5+ times with no edit.',
     tip: 'Explain what changed between attempts, or step in with the missing information.',
     dataSource: 'both',
     dataSourceNote:
@@ -315,7 +315,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   cache_miss: {
     bullets: [
-      'An LLM call re-writes 5%+ of its prefix as new cache-write tokens, and that re-written share is 2,000+ tokens → warning',
+      'An LLM call re-writes 5%+ of its prefix as new cache-write tokens, and that re-written share is 2,000+ tokens → warning (the first call on each model is skipped — nothing is cached yet, so writing its prefix is the normal cold start, not a miss)',
       '10,000+ re-written tokens → critical',
     ],
     caveat: 'Newly added (2026-09-26), unconfirmed — the 5%/2,000-token rule is copied verbatim from Claude Code\'s own published /usage rule, not calibrated against this project\'s own session history.',
@@ -339,7 +339,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   low_cache_hit_ratio: {
     bullets: [
-      'The session reports at least 2,000 combined cache-read + cache-write tokens (real cache activity, not just a source that never reports caching), and the hit ratio among those is under 30% → warning',
+      'The session reports at least 2,000 combined cache-read + cache-write tokens (real cache activity, not just a source that never reports caching), and cache-read tokens are under 30% of the session’s total input tokens → warning',
       'under 10% → critical',
     ],
     caveat: 'Newly added (2026-09-26), unconfirmed — the 30%/10% cutoffs and the 2,000-token activity floor are guesses, not calibrated against real sessions.',
@@ -351,7 +351,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   budget_overrun: {
     bullets: [
-      'Session cost (computed from token totals + model via pricing.ts) exceeds a configured cap → warning',
+      'Session cost (each LLM call priced at its own model via pricing.ts where per-call tokens exist, otherwise the session’s token totals at flat rates) exceeds a configured cap → warning',
       '2× that cap → critical',
       'Disabled unless TRACEROOST_BUDGET_CAP_USD is set — there is no default cap',
     ],
@@ -453,27 +453,30 @@ const EXACT_REPEAT_WARNING_STREAK = 30
 const EXACT_REPEAT_CRITICAL_STREAK = 50
 
 export function detectExactToolRepeat(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const streaks: Record<string, number> = {}
-  const maxStreaks: Record<string, number> = {}
-  const lastResult: Record<string, string | undefined> = {}
+  // An edit resets every label's streak. Rather than zeroing each one (O(labels) per edit), a
+  // streak only counts while it was last extended in the current edit-free run (`run`).
+  const streaks = new Map<string, { n: number; run: number }>()
+  const maxStreaks = new Map<string, number>()
+  const lastResult = new Map<string, string | undefined>()
+  let run = 0
 
   for (const entry of session.timeline) {
-    if (entry.editDetails && entry.editDetails.length > 0) {
-      for (const key of Object.keys(streaks)) { streaks[key] = 0 }
-    }
+    if (entry.editDetails && entry.editDetails.length > 0) { run++ }
     if (entry.type !== 'tool') { continue }
     const key = (entry.label || '').trim()
     if (!key) { continue }
 
-    const prevResult = lastResult[key]
+    const prevResult = lastResult.get(key)
     const contentChanged = prevResult !== undefined && entry.fullResult !== undefined && entry.fullResult !== prevResult
 
-    streaks[key] = contentChanged ? 1 : (streaks[key] || 0) + 1
-    maxStreaks[key] = Math.max(maxStreaks[key] || 0, streaks[key])
-    lastResult[key] = entry.fullResult
+    const streak = streaks.get(key)
+    const n = contentChanged ? 1 : (streak && streak.run === run ? streak.n : 0) + 1
+    if (streak) { streak.n = n; streak.run = run } else { streaks.set(key, { n, run }) }
+    maxStreaks.set(key, Math.max(maxStreaks.get(key) || 0, n))
+    lastResult.set(key, entry.fullResult)
   }
 
-  const repeated = Object.entries(maxStreaks)
+  const repeated = Object.entries(toOrderedRecord(maxStreaks))
     .filter(([, n]) => n >= EXACT_REPEAT_WARNING_STREAK)
     .sort((a, b) => b[1] - a[1])
 
@@ -489,6 +492,15 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
     patternName: PATTERN_NAMES.exact_tool_repeat,
     action: LOOP_SIGNAL_ACTIONS.exact_tool_repeat,
   })
+}
+
+/** A Map's entries as a plain object, so `Object.entries` enumerates them in exactly the order a
+ *  Record built key by key would (integer-like keys first) — detectExactToolRepeat tracks with Maps
+ *  for speed but keeps its original tie-breaking order. */
+function toOrderedRecord(map: Map<string, number>): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [k, v] of map) { out[k] = v }
+  return out
 }
 
 // ── Shared: per-file edit extraction ─────────────────────────────────────────
@@ -555,15 +567,23 @@ export function detectEditRevertCycle(session: SessionSummaryCard, signals: Loop
 
   for (const [file, edits] of Object.entries(fileEdits)) {
     if (edits.length < 2) { continue }
-    outer:
-    for (let j = 1; j < edits.length; j++) {
+    const isRevert = (j: number): boolean => {
       for (let i = 0; i < j; i++) {
-        if (edits[j].old === edits[i].new && edits[j].new === edits[i].old) {
-          revertedFiles.push(file)
-          if (j === edits.length - 1) { anyStillReverted = true }
-          break outer
-        }
+        if (edits[j].old === edits[i].new && edits[j].new === edits[i].old) { return true }
       }
+      return false
+    }
+    // The final edit is checked on its own, not just "the first revert found": a file reverted
+    // early on and then reverted AGAIN as its last edit is still stuck, and stopping at the first
+    // match used to miss that.
+    const last = edits.length - 1
+    if (isRevert(last)) {
+      revertedFiles.push(file)
+      anyStillReverted = true
+      continue
+    }
+    for (let j = 1; j < last; j++) {
+      if (isRevert(j)) { revertedFiles.push(file); break }
     }
   }
 
@@ -873,7 +893,7 @@ export function detectContextFloodingRisk(session: SessionSummaryCard, signals: 
 //
 // .staged-issues/signal-catalog-01-tool-call-cycle.md. detectExactToolRepeat above only catches a
 // literal repeated label (a length-1 streak); this catches a multi-step oscillation across 2-5
-// distinct calls (edit → build → edit → build) that a length-1 streak, and edit_revert_cycle's
+// distinct calls (run tests → read log → run tests → read log) that a length-1 streak, and edit_revert_cycle's
 // single-file string reversal, both miss.
 
 const TOOL_CYCLE_MIN_PERIOD = 2
@@ -1004,7 +1024,7 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
     const avgChars = samples.length > 0 ? samples.reduce((a, b) => a + b, 0) / samples.length : 0
     avoidableTokens += Math.round((avgChars / 4) * (n - 1))
   }
-  const wasteUsd = avoidableTokens > 0 ? calcTokenCostUsd(avoidableTokens, 0, 0, 0, session.model) : 0
+  const wasteUsd = avoidableTokens > 0 ? calcAggregateTokenCostUsd(avoidableTokens, 0, 0, 0, session.model) : 0
 
   const topCount = reread[0][1]
   signals.push({
@@ -1039,20 +1059,31 @@ const CACHE_TTL_MS = 60 * 60 * 1000
 function isCacheMissEntry(e: TimelineEntry): boolean {
   const cacheCreate = e.cacheCreateTokens ?? 0
   const cacheRead = e.cacheReadTokens ?? 0
-  const input = e.inputTokens ?? 0
-  const totalPrefix = cacheCreate + cacheRead + input
+  // inputTokens is stored inclusive of cache reads/writes (see the summarizers), so the prompt
+  // size is inputTokens itself — adding the cache fields on top would count them twice. max()
+  // keeps this right for any source that reports inputTokens exclusive of cache instead.
+  const totalPrefix = Math.max(e.inputTokens ?? 0, cacheCreate + cacheRead)
   return totalPrefix > 0 && cacheCreate >= CACHE_MISS_MIN_TOKENS && cacheCreate / totalPrefix > CACHE_MISS_MIN_SHARE
 }
 
 export function detectCacheMiss(session: SessionSummaryCard, signals: LoopSignal[]): void {
   const llmCalls = session.timeline.filter(e => e.type === 'llm')
-  const misses = llmCalls.filter(isCacheMissEntry)
+  // The first call on each model has nothing cached yet — writing its prefix to cache is the
+  // cold start every session pays, not a miss. Caches are per-model, so a subagent or /model
+  // switch gets its own cold first call too.
+  const seenModels = new Set<string>()
+  const misses = llmCalls.filter(e => {
+    const model = e.model || session.model || ''
+    const first = !seenModels.has(model)
+    seenModels.add(model)
+    return !first && isCacheMissEntry(e)
+  })
   if (misses.length === 0) { return }
 
   const totalWasted = misses.reduce((s, e) => s + (e.cacheCreateTokens ?? 0), 0)
   // Waste = what writing this much to cache cost, minus what reading it back would have cost.
   const wasteUsd =
-    calcTokenCostUsd(0, 0, totalWasted, 0, session.model) - calcTokenCostUsd(0, totalWasted, 0, 0, session.model)
+    calcAggregateTokenCostUsd(0, 0, totalWasted, 0, session.model) - calcAggregateTokenCostUsd(0, totalWasted, 0, 0, session.model)
 
   signals.push({
     type: 'cache_miss',
@@ -1141,7 +1172,10 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
   const cap = budgetCapUsd()
   if (cap <= 0) { return }
 
-  const costUsd = calcTokenCostUsd(session.inputTokens, session.cacheReadTokens, session.cacheCreateTokens, session.outputTokens, session.model)
+  // Same per-call/flat-fallback pricing as the stored cost_usd. (Previously priced the raw
+  // inclusive inputTokens *plus* cache reads/writes again — double-counting cache — and applied
+  // the long-context tier to the session's cumulative total.)
+  const costUsd = calcSessionCostUsd(session)
   if (costUsd <= cap) { return }
 
   signals.push({

@@ -39,7 +39,9 @@ suite('forward/queue', () => {
 
   test('the queue file is user-only (0600)', () => {
     new ForwardQueue(home).enqueue(payload('33333333-3333-4333-8333-333333333333'))
-    assert.strictEqual(fs.statSync(queuePath(home)).mode & 0o777, 0o600)
+    // Windows has no POSIX permission bits: Node reports every writable file as 0o666 there (the
+    // user-only guarantee comes from the profile directory's inherited ACL instead).
+    assert.strictEqual(fs.statSync(queuePath(home)).mode & 0o777, process.platform === 'win32' ? 0o666 : 0o600)
   })
 
   test('oldest-first eviction past the cap', () => {
@@ -60,6 +62,62 @@ suite('forward/queue', () => {
     q.remove([itemKey(payload('44444444-4444-4444-8444-444444444444'))])
     assert.strictEqual(q.depth(), 1)
     assert.strictEqual(q.list()[0].key, itemKey(payload('55555555-5555-4555-8555-555555555555')))
+  })
+
+  test('an item written by another host is seen on the next read (the parse cache follows the file)', () => {
+    const q = new ForwardQueue(home)
+    q.enqueue(payload('44444444-4444-4444-8444-444444444444'))
+    assert.strictEqual(q.depth(), 1)
+    // Another TraceRoost host (its own process, its own cache) rewrites the file.
+    const other = { key: itemKey(payload('55555555-5555-4555-8555-555555555555')), payload: payload('55555555-5555-4555-8555-555555555555'), enqueuedAt: 1, attempts: 0, lastAttemptAt: null, lastError: null }
+    fs.writeFileSync(queuePath(home), JSON.stringify(other) + '\n', { mode: 0o600 })
+    assert.deepStrictEqual(q.list().map(i => i.key), [other.key])
+    fs.appendFileSync(queuePath(home), JSON.stringify({ ...other, key: 'session:appended', enqueuedAt: 2 }) + '\n')
+    assert.deepStrictEqual(new ForwardQueue(home).list().map(i => i.key), [other.key, 'session:appended'])
+  })
+
+  test('enqueue after a torn final line keeps every real item readable', () => {
+    const q = new ForwardQueue(home)
+    q.enqueue(payload('44444444-4444-4444-8444-444444444444'))
+    fs.appendFileSync(queuePath(home), '{"key":"broken')  // torn write, no trailing newline
+    q.enqueue(payload('55555555-5555-4555-8555-555555555555'))
+    q.enqueue(payload('66666666-6666-4666-8666-666666666666'))
+    assert.deepStrictEqual(new ForwardQueue(home).list().map(i => i.key), [
+      itemKey(payload('44444444-4444-4444-8444-444444444444')),
+      itemKey(payload('55555555-5555-4555-8555-555555555555')),
+      itemKey(payload('66666666-6666-4666-8666-666666666666')),
+    ])
+    assert.ok(!fs.readFileSync(queuePath(home), 'utf-8').includes('broken'), 'a torn row is compacted away, not appended after')
+  })
+
+  test('a valid final line with no trailing newline is not merged with the next enqueue', () => {
+    const first = { key: itemKey(payload('44444444-4444-4444-8444-444444444444')), payload: payload('44444444-4444-4444-8444-444444444444'), enqueuedAt: 1, attempts: 0, lastAttemptAt: null, lastError: null }
+    fs.mkdirSync(path.dirname(queuePath(home)), { recursive: true })
+    fs.writeFileSync(queuePath(home), JSON.stringify(first), { mode: 0o600 })
+    const q = new ForwardQueue(home)
+    q.enqueue(payload('55555555-5555-4555-8555-555555555555'))
+    assert.strictEqual(new ForwardQueue(home).depth(), 2)
+  })
+
+  test('an enqueue restores user-only (0600) permissions on a loosened queue file', function () {
+    if (process.platform === 'win32') this.skip()
+    const q = new ForwardQueue(home)
+    q.enqueue(payload('44444444-4444-4444-8444-444444444444'))
+    fs.chmodSync(queuePath(home), 0o644)
+    q.enqueue(payload('55555555-5555-4555-8555-555555555555'))
+    assert.strictEqual(fs.statSync(queuePath(home)).mode & 0o777, 0o600)
+    assert.strictEqual(q.depth(), 2)
+  })
+
+  test('recordFailures backs off several items in one call', () => {
+    const q = new ForwardQueue(home)
+    const ids = ['44444444-4444-4444-8444-444444444444', '55555555-5555-4555-8555-555555555555', '66666666-6666-4666-8666-666666666666']
+    for (const id of ids) q.enqueue(payload(id))
+    q.recordFailures([itemKey(payload(ids[0])), itemKey(payload(ids[2]))], 'HTTP 503')
+    const byKey = new Map(new ForwardQueue(home).list().map(i => [i.key, i]))
+    assert.strictEqual(byKey.get(itemKey(payload(ids[0])))?.attempts, 1)
+    assert.strictEqual(byKey.get(itemKey(payload(ids[1])))?.attempts, 0)
+    assert.strictEqual(byKey.get(itemKey(payload(ids[2])))?.lastError, 'HTTP 503')
   })
 
   test('recordFailure bumps attempts without removing the item', () => {
@@ -130,5 +188,16 @@ suite('forward/queue', () => {
     q.enqueue(payload('99999999-0000-4000-8000-000000000000'))
     assert.strictEqual(logs.length, 1)
     assert.match(logs[0], /evicting 1 oldest unsent item/)
+  })
+
+  test('an instruction-telemetry payload is keyed on its instruction-file state', () => {
+    const instr = (lines: number) => ({
+      schema_version: '1' as const,
+      repo_key_fp: 'f'.repeat(64),
+      instruction_files: [{ repo_hash: 'a'.repeat(64), present: true, kind: 'claude_md' as const, line_count: lines }],
+    })
+    assert.match(itemKey(instr(10)), /^instructions:/)
+    assert.strictEqual(itemKey(instr(10)), itemKey(instr(10)))
+    assert.notStrictEqual(itemKey(instr(10)), itemKey(instr(11)))
   })
 })

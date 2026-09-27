@@ -13,9 +13,9 @@ import * as path from 'path'
 import { exec } from 'child_process'
 import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
-import { calcTokenCostUsd } from '../src/pricing'
+import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
-import { classifyOtlpPayload } from '../src/otlpParser'
+import { classifyOtlpPayload, objectItems } from '../src/otlpParser'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
@@ -40,9 +40,13 @@ import { loadCredentials } from '../src/cloud/org/credentials'
 import { orgEndpoint } from '../src/cloud/org/config'
 import { deriveRepoKey, repoHash } from '../src/cloud/forward/repoKey'
 import { resolveGithubUrl } from '../src/repoRemote'
-import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
+import {
+  isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
+  extractCookieToken, authCookieHeader,
+} from '../src/httpSecurity'
+import { SseSessionSync, type SyncSummary } from './sseSessionSync'
 
-// Load `.env` from the current working directory, if one exists — lets `npm run local` point at
+// Load `.env` from the current working directory, if one exists — lets `pnpm run local` point at
 // a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
 // `quiet` suppresses dotenv's own startup banner; this is silent no-ops when no `.env` is present.
 loadDotenv({ quiet: true })
@@ -208,6 +212,15 @@ function addSpan(span: Span) {
 // when the same session ID appears in both, the OTEL version is used.
 let logSessions: Map<string, SessionSummaryCard> = new Map()
 
+/** The one way a card enters `logSessions` — bumps `dataVersion` and drops any cached serialized
+ *  form of the card (see `strippedCardJson`), in case a producer ever hands back the same object
+ *  updated in place rather than a fresh one. */
+function setLogSession(card: SessionSummaryCard): void {
+  logSessions.set(card.sessionId, card)
+  strippedCardJson.delete(card)
+  dataVersion++
+}
+
 // Host-independent reconciliation (staged feature 10) — created once outcomesDb opens, in
 // startLogIngestion() below. Undefined only when sql.js failed to load; getGitOutcome falls back
 // to an in-flight-only, non-durable classification in that case, same posture as before this
@@ -357,8 +370,7 @@ function runLogScan() {
   let changed = false
   for (const { card } of results) {
     card.oneShotStats = computeOneShotStats(card)
-    logSessions.set(card.sessionId, card)
-    dataVersion++
+    setLogSession(card)
     changed = true
     // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
     //
@@ -377,7 +389,7 @@ function runLogScan() {
       void maybeEnqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) drainForwardQueueSoon() })
     }
   }
-  if (changed) pushUpdate()
+  if (changed) schedulePushUpdate()
 }
 
 // Debounced scan triggered by fs.watch events — fires 300 ms after the last event.
@@ -473,8 +485,7 @@ async function startLogIngestion() {
   const ocResults = logReader.scanOpenCode()
   for (const { card } of ocResults) {
     card.oneShotStats = computeOneShotStats(card)
-    logSessions.set(card.sessionId, card)
-    dataVersion++
+    setLogSession(card)
     countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + 1)
     // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked. Needed
     // here, not just in runLogScan() — this loop's own file reads update the same LogReader's
@@ -497,8 +508,7 @@ async function startLogIngestion() {
       const results = logReader.parseFile(file.filePath, file.agentKey)
       for (const result of results) {
         result.card.oneShotStats = computeOneShotStats(result.card)
-        logSessions.set(result.card.sessionId, result.card)
-        dataVersion++
+        setLogSession(result.card)
         countByKey.set(file.agentKey, (countByKey.get(file.agentKey) ?? 0) + 1)
         // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
         //
@@ -545,11 +555,9 @@ async function startLogIngestion() {
 type RawAttr = { key: string; value: Record<string, unknown> }
 
 function toAttrs(raw: unknown): RawAttr[] {
-  if (!Array.isArray(raw)) return []
-  return raw.filter((a): a is RawAttr => {
-    const o = a as Record<string, unknown>
-    return typeof o.key === 'string' && typeof o.value === 'object' && o.value !== null
-  })
+  return objectItems(raw).filter((o): o is RawAttr =>
+    typeof o.key === 'string' && typeof o.value === 'object' && o.value !== null
+  )
 }
 
 function attrStr(attrs: RawAttr[], ...keys: string[]): string {
@@ -583,8 +591,7 @@ function attrsFromBodyKv(body: unknown): RawAttr[] {
   const values = kv?.values
   if (!Array.isArray(values)) return []
   const attrs: RawAttr[] = []
-  for (const value of values) {
-    const entry = value as Record<string, unknown>
+  for (const entry of objectItems(values)) {
     const key = typeof entry.key === 'string' ? entry.key : ''
     const attrValue = entry.value as Record<string, unknown> | undefined
     if (!key || typeof attrValue !== 'object' || attrValue === null) continue
@@ -615,9 +622,9 @@ function agentLabelFromSpanName(name: string): string {
 
 function processTraces(payload: unknown, collectorPath = '/v1/traces'): { count: number; agent: string } {
   const p = payload as { resourceSpans?: Array<{ scopeSpans?: Array<{ spans?: unknown[] }> }> }
-  const rawSpans = p?.resourceSpans?.flatMap(rs =>
-    rs.scopeSpans?.flatMap(ss => ss.spans ?? []) ?? []
-  ) ?? []
+  const rawSpans = objectItems<{ scopeSpans?: unknown }>(p?.resourceSpans).flatMap(rs =>
+    objectItems<{ spans?: unknown }>(rs.scopeSpans).flatMap(ss => objectItems(ss.spans))
+  )
   let count = 0
   let agent = 'unknown'
   for (const raw of rawSpans) {
@@ -648,11 +655,11 @@ function processLogs(payload: unknown, collectorPath = '/v1/logs'): number {
   const p = payload as { resourceLogs?: RL[] }
   const fallback = `codex-${Date.now()}`
   let n = 0
-  for (const rl of p?.resourceLogs ?? []) {
+  for (const rl of objectItems<RL>(p?.resourceLogs)) {
     const resourceAttrs = toAttrs(rl.resource?.attributes)
-    for (const sl of rl.scopeLogs ?? []) {
+    for (const sl of objectItems<SL>(rl.scopeLogs)) {
       const scopeAttrs = toAttrs((sl as { scope?: { attributes?: unknown } }).scope?.attributes)
-      for (const rec of sl.logRecords ?? []) {
+      for (const rec of objectItems(sl.logRecords)) {
         const r = rec as Record<string, unknown>
         const attrs = mergeAttrs(toAttrs(r.attributes), attrsFromBodyKv(r.body), scopeAttrs, resourceAttrs)
         const name = attrStr(attrs, 'event.name', 'event_name', 'name', 'event')
@@ -702,18 +709,47 @@ function processLogs(payload: unknown, collectorPath = '/v1/logs'): number {
 // ── SSE push ──────────────────────────────────────────────────────────────────
 
 function safeJson(data: unknown): string {
-  return JSON.stringify(data)
+  return safeJsonText(JSON.stringify(data))
+}
+
+function safeJsonText(json: string): string {
+  return json
     .replace(/<\//g, '<\\/')
     .replace(/<!--/g, '<\\!--')
     .replace(/\$\{/g, '\\${')
 }
 
-function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSpans: Span[]) {
+/** A card's `Date.parse(startTime)` (and, once asked for, its UTC day), kept per card object and
+ *  redone only if its startTime string changes. Log cards outlive many dataVersions, and every
+ *  update re-sorted and re-bucketed all of them — ~70ms of date parsing/formatting per update at
+ *  20k sessions. */
+const startTimeCache = new WeakMap<object, { startTime: string; ms: number; day?: string }>()
+
+function cachedStart(card: { startTime: string }): { startTime: string; ms: number; day?: string } {
+  let hit = startTimeCache.get(card)
+  if (!hit || hit.startTime !== card.startTime) {
+    hit = { startTime: card.startTime, ms: Date.parse(card.startTime) }
+    startTimeCache.set(card, hit)
+  }
+  return hit
+}
+
+const EMPTY_START_MS = Date.parse('0')
+
+/** Newest-first by startTime — the same order (ties included) as sorting with a
+ *  `Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')` comparator, with each
+ *  timestamp parsed once instead of on every comparison (~20× fewer parses at 20k sessions). */
+function sortNewestFirst<T extends { startTime: string }>(sessions: T[]): T[] {
+  const times = sessions.map(s => s.startTime ? cachedStart(s).ms : EMPTY_START_MS)
+  return sessions.map((_, i) => i).sort((a, b) => times[b] - times[a]).map(i => sessions[i])
+}
+
+/** The part of computeSidebarPayload that depends only on the data, not the clock or live pricing
+ *  — computed once per dataVersion (see derivedViews). */
+function sidebarPayloadBase(summary: ReturnType<typeof summarizeSpans>, allSpans: Span[]) {
   const sessions = summary.sessions
   // newest-first (summarizeSpans returns in arbitrary order — sort by startTime)
-  const sorted = [...sessions].sort((a, b) =>
-    Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')
-  )
+  const sorted = sortNewestFirst(sessions)
   const latest = sorted[0] ?? null
 
   const AGENT_ORDER = ['copilot', 'claude_code', 'codex']
@@ -729,7 +765,6 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     const ms = span.receivedAt ?? 0
     if (ms > lastMs) lastMs = ms
   }
-  const isActive = lastMs > 0 && (Date.now() - lastMs) < 20_000
 
   // Turn input tokens for sparkline from timeline
   const turnInputTokens = latest
@@ -738,6 +773,18 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
         .map(e => e.inputTokens ?? 0)
     : []
 
+  const avgInputTokens = sorted.length > 0
+    ? sorted.reduce((s, x) => s + x.inputTokens, 0) / sorted.length : 1
+  const avgOutputTokens = sorted.length > 0
+    ? sorted.reduce((s, x) => s + x.outputTokens, 0) / sorted.length : 1
+
+  return { sessionCount: sessions.length, latest, agentSources, lastMs, turnInputTokens, avgInputTokens, avgOutputTokens }
+}
+
+function computeSidebarPayload(base: ReturnType<typeof sidebarPayloadBase>) {
+  const { latest, agentSources, lastMs, turnInputTokens, avgInputTokens, avgOutputTokens } = base
+  const isActive = lastMs > 0 && (Date.now() - lastMs) < 20_000
+
   // Simple burn rate estimate for active sessions
   let burnRate: { tokensPerMinute: number; costPerHour: number } | null = null
   if (latest && isActive && latest.durationMs > 10_000) {
@@ -745,11 +792,6 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     const tpm = (totalTokens / latest.durationMs) * 60_000
     burnRate = { tokensPerMinute: Math.round(tpm), costPerHour: 0 }
   }
-
-  const avgInputTokens = sorted.length > 0
-    ? sorted.reduce((s, x) => s + x.inputTokens, 0) / sorted.length : 1
-  const avgOutputTokens = sorted.length > 0
-    ? sorted.reduce((s, x) => s + x.outputTokens, 0) / sorted.length : 1
 
   const currentSession = latest ? {
     source: latest.source,
@@ -766,16 +808,10 @@ function computeSidebarPayload(summary: ReturnType<typeof summarizeSpans>, allSp
     outputTokens: latest.outputTokens,
     cacheReadTokens: latest.cacheReadTokens,
     cacheCreateTokens: latest.cacheCreateTokens,
-    costUsd: calcTokenCostUsd(
-      Math.max(0, latest.inputTokens - latest.cacheReadTokens - latest.cacheCreateTokens),
-      latest.cacheReadTokens,
-      latest.cacheCreateTokens,
-      latest.outputTokens,
-      latest.model,
-    ),
+    costUsd: calcSessionCostUsd(latest),
   } : null
 
-  return { isActive, lastActivityMs: lastMs, sessionCount: sessions.length, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens }
+  return { isActive, lastActivityMs: lastMs, sessionCount: base.sessionCount, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens }
 }
 
 // Legacy shape kept for data the Preact dashboard still reads
@@ -830,9 +866,9 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
   const dayMap: Record<string, { totalTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreateTokens: number; costUsd: number; sessionCount: number }> = {}
   for (const sess of sessions) {
     if (!sess.startTime) continue
-    const d = new Date(sess.startTime)
-    if (isNaN(d.getTime())) continue
-    const day = d.toISOString().slice(0, 10)
+    const start = cachedStart(sess)
+    if (isNaN(start.ms)) continue
+    const day = start.day ??= new Date(start.ms).toISOString().slice(0, 10)
     if (!dayMap[day]) dayMap[day] = { totalTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0, costUsd: 0, sessionCount: 0 }
     const r = dayMap[day]
     r.totalTokens += sess.inputTokens
@@ -843,7 +879,7 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
   }
   const dailyStats = Object.entries(dayMap).map(([day, r]) => ({ day, ...r })).sort((a, b) => a.day.localeCompare(b.day))
   const totalTokens = sessions.reduce((s, sess) => s + sess.inputTokens + sess.outputTokens, 0)
-  const times = sessions.map(s => s.startTime ? new Date(s.startTime).getTime() : 0).filter(t => t > 0)
+  const times = sessions.map(s => s.startTime ? cachedStart(s).ms : 0).filter(t => t > 0)
   const lifetimeStats = {
     totalSessions: sessions.length,
     totalTokens,
@@ -883,8 +919,7 @@ function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
       return false
     })
     if (logOnly.length > 0) {
-      const merged = [...logOnly, ...(summary?.sessions ?? [])]
-        .sort((a, b) => Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0'))
+      const merged = sortNewestFirst([...logOnly, ...(summary?.sessions ?? [])])
       summary = { ...(summary ?? { backgroundSpans: [], efficiency: { totalInputTokens: 0, totalOutputTokens: 0, totalLlmCalls: 0, avgInputPerCall: 0, avgTtft: 0, cacheHitRate: 0, toolDefWaste: 0, sysInstructionWaste: 0, topTokenConsumers: [] } }), sessions: merged }
     }
   }
@@ -892,28 +927,163 @@ function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
   return summary
 }
 
-function stripTimelines(summary: ReturnType<typeof summarizeSpans> | null): ReturnType<typeof summarizeSpans> | null {
-  if (!summary) return null
-  return { ...summary, sessions: summary.sessions.map(s => ({ ...s, timeline: [] })) }
+/** Each log-sourced card's `JSON.stringify({ ...card, timeline: [] })`. Log cards outlive any one
+ *  dataVersion (only the few that changed are replaced per scan), so re-serializing all of them
+ *  for every update — tens of MB at 20k sessions — was most of what one OTLP post cost. Keyed on
+ *  the card object and dropped whenever a card (re-)enters `logSessions` (setLogSession). OTEL
+ *  cards are rebuilt by every summarizeSpans() pass, so they're serialized fresh. */
+const strippedCardJson = new WeakMap<SessionSummaryCard, string>()
+
+/** Each session's `JSON.stringify({ ...card, timeline: [] })`, reusing strippedCardJson. */
+function strippedCardJsons(summary: ReturnType<typeof summarizeSpans>): string[] {
+  return summary.sessions.map(s => {
+    const reusable = logSessions.get(s.sessionId) === s
+    let json = reusable ? strippedCardJson.get(s) : undefined
+    if (json === undefined) {
+      json = JSON.stringify({ ...s, timeline: [] })
+      if (reusable) strippedCardJson.set(s, json)
+    }
+    return json
+  })
 }
 
-function buildUpdatePayload(): string {
-  const sessionSummary = buildSessionSummary()
-  const stripped = stripTimelines(sessionSummary)
-  const sidebar = sessionSummary ? computeSidebarData(sessionSummary, spans) : null
-  const sidebarLive = sessionSummary ? computeSidebarPayload(sessionSummary, spans) : null
-  const analyticsData = sessionSummary ? computeAnalyticsData(sessionSummary.sessions) : null
-  return JSON.stringify({
-    type: 'update', summary: { toolCalls: {} }, sessionSummary: stripped, sidebar, analyticsData,
-    ...(sidebarLive ?? {}),
+/** The summary with every session's timeline emptied (`{ ...summary, sessions: sessions.map(s =>
+ *  ({ ...s, timeline: [] })) }`), as JSON — byte for byte what stringifying that would give, but
+ *  built from strippedCardJsons. Timelines are loaded lazily via /api/timeline/:sessionId instead. */
+function strippedSummaryJson(summary: ReturnType<typeof summarizeSpans> | null, cards: string[] | null): string {
+  if (!summary || !cards) return 'null'
+  // Serialize everything but `sessions` normally (keeping its key position), then splice the
+  // cached card array in where a unique placeholder string landed.
+  const placeholder = `__traceroost_sessions_${process.pid}_${dataVersion}__`
+  const shell = JSON.stringify({ ...summary, sessions: placeholder })
+  const at = shell.indexOf(`"${placeholder}"`)
+  return shell.slice(0, at) + '[' + cards.join(',') + ']' + shell.slice(at + placeholder.length + 2)
+}
+
+/** Everything the dashboard's update payload, the inlined first-paint HTML and /api/summary derive
+ *  from the session data — recomputed once per dataVersion instead of once per HTTP request/SSE
+ *  push (each of which used to re-sort, re-aggregate and re-serialize every session). Only the
+ *  clock/pricing-dependent sidebar bits (computeSidebarPayload) are still computed per use. */
+interface DerivedViews {
+  version: number
+  summary: ReturnType<typeof summarizeSpans> | null
+  /** strippedCardJsons(summary) — what both the full payload and SSE deltas are built from. */
+  cardJsons: string[] | null
+  /** strippedSummaryJson() of the same summary. Built on first use (see strippedJsonOf) — an SSE
+   *  delta doesn't need the whole ~23MB (at 20k sessions) string. */
+  strippedJson: string | null
+  /** safeJson() of the same value, for inlining into a <script>. Built on first use. */
+  strippedSafeJson: string | null
+  sidebarJson: string
+  analyticsJson: string
+  sidebarBase: ReturnType<typeof sidebarPayloadBase> | null
+}
+let derivedCache: DerivedViews | null = null
+
+function derivedViews(): DerivedViews {
+  const summary = buildSessionSummary()
+  if (derivedCache && derivedCache.version === dataVersion && derivedCache.summary === summary) return derivedCache
+  derivedCache = {
+    version: dataVersion,
+    summary,
+    cardJsons: summary ? strippedCardJsons(summary) : null,
+    strippedJson: null,
+    strippedSafeJson: null,
+    sidebarJson: JSON.stringify(summary ? computeSidebarData(summary, spans) : null),
+    analyticsJson: JSON.stringify(summary ? computeAnalyticsData(summary.sessions) : null),
+    sidebarBase: summary ? sidebarPayloadBase(summary, spans) : null,
+  }
+  return derivedCache
+}
+
+function strippedJsonOf(views: DerivedViews): string {
+  return views.strippedJson ??= strippedSummaryJson(views.summary, views.cardJsons)
+}
+
+function syncSummaryOf(views: DerivedViews): SyncSummary | null {
+  const summary = views.summary
+  if (!summary || !views.cardJsons) return null
+  return {
+    ids: summary.sessions.map(s => s.sessionId),
+    cardJsons: views.cardJsons,
+    efficiencyJson: JSON.stringify(summary.efficiency),
+    backgroundSpansJson: JSON.stringify(summary.backgroundSpans),
+    deltaable: Array.isArray(summary.backgroundSpans) &&
+      Object.keys(summary).every(k => k === 'sessions' || k === 'efficiency' || k === 'backgroundSpans'),
+  }
+}
+
+// ── SSE session sync ──────────────────────────────────────────────────────────
+// Every open tab is sent the same frames in the same order, so one SseSessionSync tracks what all
+// of them hold (see sseSessionSync.ts). A tab that holds something else — a new connection whose
+// page was rendered at an older revision, a reconnect, a missed frame — gets a full update.
+const sseSync = new SseSessionSync(Date.now())
+/** The derivedViews() sseSync was last advanced to. */
+let sseSyncedViews: DerivedViews | null = null
+/** Open SSE responses by the client id the page connected with — how POST /api/sse-resync finds
+ *  the stream to send a requested full update down. */
+const sseClientsById = new Map<string, http.ServerResponse>()
+
+/** An `update` frame: `fields` (the session/analytics part, see SyncStep) plus what every frame
+ *  carries — the legacy sidebar blob and the live sidebar/burn-rate fields. */
+function updateFrame(views: DerivedViews, base: number, rev: number, fields: string): string {
+  const sidebarLive = views.sidebarBase ? computeSidebarPayload(views.sidebarBase) : null
+  return '{"type":"update","summary":{"toolCalls":{}}' + fields + ',"sidebar":' + views.sidebarJson +
+    ',"base":' + base + ',"rev":' + rev +
+    (sidebarLive ? ',' + JSON.stringify(sidebarLive).slice(1) : '}')
+}
+
+/** Advances sseSync to the current data, sending what changed (if anything) to every open tab.
+ *  Returns false when there was nothing to send. */
+function syncSseClients(): boolean {
+  const views = derivedViews()
+  if (views === sseSyncedViews) return false
+  sseSyncedViews = views
+  const step = sseSync.advance(syncSummaryOf(views), () => strippedJsonOf(views), views.analyticsJson)
+  if (!step.fields) return false
+  writeSse(updateFrame(views, step.base, step.rev, step.fields))
+  return true
+}
+
+/** A full update at sseSync's current revision, for one client that doesn't hold it. */
+function fullUpdateFrame(): string {
+  syncSseClients()
+  const views = derivedViews()
+  const rev = sseSync.revision
+  return updateFrame(views, rev, rev, ',"sessionSummary":' + strippedJsonOf(views) + ',"analyticsData":' + views.analyticsJson)
+}
+
+function writeSse(data: string): void {
+  sseClients = sseClients.filter(client => {
+    try { client.write(`data: ${data}\n\n`); return true } catch { return false }
   })
 }
 
 function pushUpdate() {
-  const data = buildUpdatePayload()
-  sseClients = sseClients.filter(client => {
-    try { client.write(`data: ${data}\n\n`); return true } catch { return false }
-  })
+  if (pushUpdateTimer) { clearTimeout(pushUpdateTimer); pushUpdateTimer = null }
+  lastPushUpdateAt = Date.now()
+  if (sseClients.length === 0) return // nobody to tell — a tab that connects later gets a fresh payload
+  const started = performance.now()
+  // Nothing session-shaped changed: still send the live sidebar fields, as every push always has.
+  if (!syncSseClients()) writeSse(updateFrame(derivedViews(), sseSync.revision, sseSync.revision, ''))
+  lastPushUpdateCostMs = performance.now() - started
+}
+
+// Ingest-driven pushes (every OTLP POST, every changed log file) are coalesced: at most one full
+// update per PUSH_UPDATE_MIN_INTERVAL_MS — or per 3× what the last one cost, on a history large
+// enough that building and writing the payload takes a while — always ending on the latest state.
+// Pushing on every POST rebuilt and re-sent the whole summary each time, which on a large history
+// kept the event loop busy for as long as an agent kept exporting.
+const PUSH_UPDATE_MIN_INTERVAL_MS = 250
+let pushUpdateTimer: ReturnType<typeof setTimeout> | null = null
+let lastPushUpdateAt = 0
+let lastPushUpdateCostMs = 0
+
+function schedulePushUpdate(): void {
+  if (pushUpdateTimer) return
+  const wait = lastPushUpdateAt + Math.max(PUSH_UPDATE_MIN_INTERVAL_MS, 3 * lastPushUpdateCostMs) - Date.now()
+  if (wait <= 0) { pushUpdate(); return }
+  pushUpdateTimer = setTimeout(pushUpdate, wait)
 }
 
 /** Sends an arbitrary message to every open dashboard tab, exactly as `vscode.postMessage` would
@@ -921,10 +1091,7 @@ function pushUpdate() {
  *  script below) re-dispatches each SSE payload as a `window` `message` event, so the same
  *  `msg.type` switch in App.tsx handles both hosts unmodified. */
 function broadcastSse(payload: Record<string, unknown>): void {
-  const data = JSON.stringify(payload)
-  sseClients = sseClients.filter(client => {
-    try { client.write(`data: ${data}\n\n`); return true } catch { return false }
-  })
+  writeSse(JSON.stringify(payload))
 }
 
 /** Pushes a fresh org status to every open dashboard tab — call after anything that can change
@@ -945,11 +1112,15 @@ function pushOrgStatusToClients(): void {
 // ── Dashboard HTML ────────────────────────────────────────────────────────────
 
 function getHtml(): string {
-  const sessionSummary = buildSessionSummary()
+  // The inlined sessions are sseSync's current revision — the page's SSE connection passes that
+  // revision back, and is spared a second full copy when nothing changed in between.
+  syncSseClients()
+  const sessionRev = sseSync.revision
+  const views = derivedViews()
   // Strip full timeline arrays before inlining — they can be many MB across sessions.
   // Timelines are loaded lazily via /api/timeline/:sessionId after first paint.
-  const sessionSummaryJson = safeJson(stripTimelines(sessionSummary))
-  const sidebarLive = sessionSummary ? computeSidebarPayload(sessionSummary, spans) : {
+  const sessionSummaryJson = views.strippedSafeJson ??= safeJsonText(strippedJsonOf(views))
+  const sidebarLive = views.sidebarBase ? computeSidebarPayload(views.sidebarBase) : {
     isActive: false, lastActivityMs: 0, sessionCount: 0, agentSources: [], currentSession: null, burnRate: null,
   }
   const sidebarInitJson = safeJson(sidebarLive)
@@ -1135,14 +1306,37 @@ function getHtml(): string {
     console.log('[TraceRoost] HTML received', Date.now());
     window.__INITIAL_TOOL_CALLS__ = {};
     window.__INITIAL_SESSION_SUMMARY__ = ${sessionSummaryJson};
+    window.__INITIAL_SESSION_REV__ = ${sessionRev};
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(PACKAGE_VERSION)};
 
     // ── Client-side search support ────────────────────────────────────────────
     var __latestSessions__ = (window.__INITIAL_SESSION_SUMMARY__ && window.__INITIAL_SESSION_SUMMARY__.sessions) || [];
+    // Follows the same base/rev protocol as App.tsx's 'update' handler: a frame whose base isn't
+    // the revision held here is skipped — the dashboard asks for the full update that fixes both.
+    var __latestRev__ = window.__INITIAL_SESSION_REV__;
     window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'update' && e.data.sessionSummary && e.data.sessionSummary.sessions) {
-        __latestSessions__ = e.data.sessionSummary.sessions;
+      var d = e.data;
+      if (!d || d.type !== 'update') return;
+      if (d.sessionSummary !== undefined) {
+        if (d.sessionSummary && d.sessionSummary.sessions) __latestSessions__ = d.sessionSummary.sessions;
+        __latestRev__ = d.rev;
+      } else if (d.base !== undefined && d.base !== __latestRev__) {
+        return;
+      } else if (d.sessionDelta) {
+        var byId = new Map();
+        __latestSessions__.forEach(function(s) { byId.set(s.sessionId, s); });
+        d.sessionDelta.upserts.forEach(function(s) { byId.set(s.sessionId, s); });
+        var order = d.sessionDelta.order || __latestSessions__.map(function(s) { return s.sessionId; });
+        var next = [];
+        for (var i = 0; i < order.length; i++) {
+          if (!byId.has(order[i])) return;
+          next.push(byId.get(order[i]));
+        }
+        __latestSessions__ = next;
+        __latestRev__ = d.rev;
+      } else if (d.rev !== undefined) {
+        __latestRev__ = d.rev;
       }
     });
 
@@ -1321,7 +1515,9 @@ function getHtml(): string {
         getState: function() { return null; },
         setState: function() {},
         postMessage: function(msg) {
-          if (msg.type && (msg.type === 'getOrgStatus' || msg.type.indexOf('org') === 0)) {
+          if (msg.type === 'requestFullUpdate') {
+            _requestFullUpdate();
+          } else if (msg.type && (msg.type === 'getOrgStatus' || msg.type.indexOf('org') === 0)) {
             fetch('/api/org', {
               method: msg.type === 'getOrgStatus' ? 'GET' : 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1562,22 +1758,41 @@ function getHtml(): string {
           .catch(function(e) { console.warn('[TraceRoost] poll failed', e); });
       }, 2000);
     }
-    var _es = new EventSource('/events');
-    _es.onopen = function() {
-      console.log('[TraceRoost] SSE connected', Date.now());
-      _sseOk = true;
-      if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-    };
-    _es.onmessage = function(e) {
-      window.dispatchEvent(new MessageEvent('message', { data: JSON.parse(e.data) }));
-    };
-    _es.onerror = function() {
-      if (!_sseOk) {
-        // Never connected — start polling immediately
-        _startPolling();
-      }
-      // If it was connected before, browser will auto-reconnect; don't start polling yet
-    };
+    // Names this tab's stream so a full update can be requested down it (/api/sse-resync). The
+    // rev is what the inlined HTML holds — a (re)connection at any other revision starts with a
+    // full update.
+    var _sseClientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    var _es;
+    function _openEvents(rev) {
+      _es = new EventSource('/events?client=' + _sseClientId + (rev !== undefined ? '&rev=' + rev : ''));
+      _es.onopen = function() {
+        console.log('[TraceRoost] SSE connected', Date.now());
+        _sseOk = true;
+        if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+      };
+      _es.onmessage = function(e) {
+        window.dispatchEvent(new MessageEvent('message', { data: JSON.parse(e.data) }));
+      };
+      _es.onerror = function() {
+        if (!_sseOk) {
+          // Never connected — start polling immediately
+          _startPolling();
+        }
+        // If it was connected before, browser will auto-reconnect; don't start polling yet
+      };
+    }
+    function _requestFullUpdate() {
+      if (!_es) return;
+      fetch('/api/sse-resync?client=' + _sseClientId, { method: 'POST' })
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); })
+        .catch(function() {
+          // Stream not (yet) known to the server — reopen it without a revision, which always
+          // starts with a full update.
+          _es.close();
+          _openEvents(undefined);
+        });
+    }
+    _openEvents(window.__INITIAL_SESSION_REV__);
   </script>
 
   <div id="sa-wrap">
@@ -1763,6 +1978,8 @@ function unauthorizedHtml(port: number): string {
 </html>`
 }
 
+const SSE_CLIENT_ID = /^[A-Za-z0-9_-]{1,64}$/
+
 const uiServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
@@ -1788,18 +2005,43 @@ const uiServer = http.createServer((req, res) => {
       res.setHeader('Set-Cookie', authCookieHeader(AUTH_TOKEN))
     }
   }
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  // No CORS: the dashboard is same-origin, and on loopback (no token) a wildcard
+  // Access-Control-Allow-Origin let any website read every session off /api/*. State-changing
+  // requests from a foreign page (e.g. POST /action clearAll) are refused outright.
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !isAllowedOrigin(req.headers.origin, req.headers.host)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+  }
 
   if (url === '/events') {
+    // `client` names this stream for POST /api/sse-resync; `rev` is the session revision the page
+    // already holds (the one inlined into its HTML).
+    const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '')
+    const clientId = query.get('client') ?? ''
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     })
     res.write(':\n\n') // initial ping
-    res.write(`data: ${buildUpdatePayload()}\n\n`)
+    syncSseClients() // tabs already open get any pending change before this one joins
+    const rev = sseSync.revision
+    res.write(`data: ${query.get('rev') === String(rev) ? updateFrame(derivedViews(), rev, rev, '') : fullUpdateFrame()}\n\n`)
     sseClients.push(res)
-    req.on('close', () => { sseClients = sseClients.filter(c => c !== res) })
+    if (SSE_CLIENT_ID.test(clientId)) sseClientsById.set(clientId, res)
+    req.on('close', () => {
+      sseClients = sseClients.filter(c => c !== res)
+      if (sseClientsById.get(clientId) === res) sseClientsById.delete(clientId)
+    })
+    return
+  }
+
+  // The dashboard's `requestFullUpdate` (its revision doesn't match a frame's `base`): send a full
+  // update down that tab's own stream, so it stays ordered with every other frame.
+  if (req.method === 'POST' && url === '/api/sse-resync') {
+    const client = sseClientsById.get(new URLSearchParams((req.url ?? '').split('?')[1] ?? '').get('client') ?? '')
+    if (!client) { res.writeHead(404); res.end(); return }
+    try { client.write(`data: ${fullUpdateFrame()}\n\n`) } catch { /* closing — its reconnect gets a full update */ }
+    res.writeHead(204); res.end()
     return
   }
 
@@ -1824,8 +2066,7 @@ const uiServer = http.createServer((req, res) => {
           if (!id || !VALID_SOURCES.has(s['source'] as string)) continue
           if (logSessions.has(id)) { skipped++; continue }
           const card = buildImportCardStandalone(s)
-          logSessions.set(id, card)
-          dataVersion++
+          setLogSession(card)
           imported++
         }
         pushUpdate()
@@ -1972,9 +2213,8 @@ const uiServer = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && url === '/api/summary') {
-    const summary = buildSessionSummary()
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(stripTimelines(summary)))
+    res.end(strippedJsonOf(derivedViews()))
     return
   }
 
@@ -2161,6 +2401,9 @@ const uiServer = http.createServer((req, res) => {
 
 // ── OTLP server ───────────────────────────────────────────────────────────────
 
+/** Same cap as the VS Code extension's collector (src/otlpCollector.ts). */
+const MAX_OTLP_BODY_BYTES = 50 * 1024 * 1024
+
 const otlpServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
@@ -2175,10 +2418,31 @@ const otlpServer = http.createServer((req, res) => {
   if (REQUIRE_TOKEN_EVERYWHERE && !isAuthorized(req, AUTH_TOKEN)) {
     res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Unauthorized'); return
   }
+  // Agents' exporters never send Origin; a web page POSTing fake spans always does, and must use a
+  // no-preflight Content-Type (text/plain, form) to get its request through — refuse both.
+  if (!isAllowedOrigin(req.headers.origin)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+  }
   if (req.method !== 'POST') { res.writeHead(200); res.end(); return }
+  if (!isAllowedOtlpContentType(req.headers['content-type'])) {
+    res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type'); return
+  }
   const chunks: Buffer[] = []
-  req.on('data', (c: Buffer) => chunks.push(c))
+  let size = 0
+  let tooLarge = false
+  req.on('data', (c: Buffer) => {
+    if (tooLarge) return
+    size += c.length
+    if (size > MAX_OTLP_BODY_BYTES) {
+      tooLarge = true
+      chunks.length = 0
+      res.writeHead(413, { 'Content-Type': 'text/plain', 'Connection': 'close' }); res.end('Payload Too Large')
+      return
+    }
+    chunks.push(c)
+  })
   req.on('end', () => {
+    if (tooLarge) return
     try {
       const payload = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
       const kind = classifyOtlpPayload(payload)
@@ -2193,7 +2457,7 @@ const otlpServer = http.createServer((req, res) => {
       } else {
         console.warn(`[TraceRoost] ignored POST ${req.url ?? '/'}: unrecognized OTLP JSON payload`)
       }
-      pushUpdate()
+      schedulePushUpdate()
       scheduleSave()
     } catch (e) {
       console.error('[TraceRoost] Parse error:', e)
@@ -2231,6 +2495,9 @@ async function startOtlpServer(): Promise<void> {
       autoConfigureCodex(bound),
       autoConfigureCopilotStandalone(bound),
     ]).then(([claudeResult, codexResult, copilotResults]) => {
+      if (claudeResult.warning) {
+        console.warn(`[TraceRoost] ${claudeResult.warning}`)
+      }
       if (claudeResult.error) {
         console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
       } else if (claudeResult.changed) {

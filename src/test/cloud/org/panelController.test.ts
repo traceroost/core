@@ -33,6 +33,7 @@ function makeCard(id: string, overrides: Partial<SessionSummaryCard> = {}): Sess
 type FetchArgs = Parameters<typeof fetch>
 const realFetch = globalThis.fetch
 const realHome = process.env.HOME
+const realUserProfile = process.env.USERPROFILE
 
 /**
  * Simulates the browser: reads the authorize URL, hits the loopback redirect with code+state.
@@ -70,6 +71,7 @@ suite('org/panelController — link back-fill and reconciliation', () => {
   setup(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-panelctl-'))
     process.env.HOME = home // ForwardQueue() has no injectable baseHome — sandbox via HOME
+    process.env.USERPROFILE = home // what os.homedir() reads on Windows
     setCredentialStore(memoryStore())
     globalThis.fetch = (async (input: FetchArgs[0]) => {
       const url = String(input)
@@ -80,7 +82,7 @@ suite('org/panelController — link back-fill and reconciliation', () => {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'New Team', role: 'member', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'New Team', role: 'developer', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
       }
       throw new Error(`unexpected fetch in test: ${url}`)
     }) as typeof fetch
@@ -91,6 +93,8 @@ suite('org/panelController — link back-fill and reconciliation', () => {
     setCredentialStore(undefined)
     if (realHome === undefined) delete process.env.HOME
     else process.env.HOME = realHome
+    if (realUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = realUserProfile
     fs.rmSync(home, { recursive: true, force: true })
   })
 
@@ -172,7 +176,7 @@ suite('org/panelController — link back-fill and reconciliation', () => {
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'New Team', role: 'member', per_developer_visibility: false, email: 'dev2@example.com' }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'New Team', role: 'developer', per_developer_visibility: false, email: 'dev2@example.com' }), { status: 200 })
       }
       throw new Error(`unexpected fetch in test: ${url}`)
     }) as typeof fetch
@@ -280,7 +284,7 @@ suite('org/panelController — link back-fill and reconciliation', () => {
         }), { status: 200 })
       }
       if (url.includes('/api/roster/me')) {
-        return new Response(JSON.stringify({ org_name: 'New Team', role: 'member', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
+        return new Response(JSON.stringify({ org_name: 'New Team', role: 'developer', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
       }
       throw new Error(`unexpected fetch in test: ${url}`)
     }) as typeof fetch

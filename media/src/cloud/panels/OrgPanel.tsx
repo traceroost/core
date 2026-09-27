@@ -4,12 +4,13 @@ import { vscode, goToHelp } from '../../state'
 
 // ── The one description of the payload promise ──────────────────────────────
 // Mirrors src/cloud/org/privacy.ts, which mirrors the OAuth consent screen. A test on the extension
-// side (src/test/cloud/org/privacy.test.ts) pins the source-of-truth copy; this is the render of it.
+// side (src/test/cloud/org/privacy.test.ts) pins the source-of-truth copy and checks this file
+// carries the same lines (SENT, NEVER_SENT, and whoSeesWhat below).
 const SENT = [
-  'Usage counts — traces, turns, tool calls, tokens, cost',
+  'Usage counts — traces, turns, tool calls, tokens',
   'Model and agent names, with timestamps',
-  'Hashed commit and file ids — one-way, from your own clone',
-  'Line counts: added, removed, AI-authored, surviving',
+  'Hashed repository, branch and file ids — one-way, from your own clone',
+  'Instruction-file line counts and how often sessions read each file',
   'Loop and error categories (never a message)',
 ]
 const NEVER_SENT = [
@@ -17,6 +18,13 @@ const NEVER_SENT = [
   'File paths, repository and branch names',
   'Commit messages and raw commit SHAs',
 ]
+
+/** Same wording as src/cloud/org/privacy.ts's whoSeesWhat (and cloud's consent screen). */
+function whoSeesWhat(perDeveloperVisibility: boolean, orgName: string): string {
+  return perDeveloperVisibility
+    ? `${orgName} has per-developer numbers turned on — an admin, or a developer individually granted org visibility, sees your individual figures. You will see a marker saying so.`
+    : `Admins of ${orgName} see org totals only. Your individual numbers stay yours unless the whole org turns that on.`
+}
 
 export type OrgIndicator = 'unlinked' | 'reporting' | 'queued' | 'degraded'
 export type OrgEnvironment = 'production' | 'stage' | 'test'
@@ -46,7 +54,7 @@ export interface OrgStatus {
   orgName?: string
   memberId?: string
   email?: string
-  role?: 'lead' | 'member'
+  role?: 'admin' | 'developer'
   perDeveloperVisibility?: boolean
   linkedAt?: string
   queueDepth?: number
@@ -103,6 +111,13 @@ export const orgReconcileProgress = signal<{ done: number; total: number } | nul
  *  an `orgError` reply (panelController threw before it could post a `orgPayloadPreview`) can
  *  clear it from the central message dispatcher in App.tsx, the same way it clears the others. */
 export const orgPayloadBusy = signal(false)
+/** The authorize URL the host is opening (`orgLinkUrl`) — shown as a fallback link in case no
+ *  browser opened (remote/SSH windows). Cleared when the link attempt finishes. */
+export const orgLinkUrl = signal<string | null>(null)
+/** Device-code prompt (`orgDevicePrompt`) while a device-flow link waits for approval. */
+export const orgDevicePrompt = signal<{ userCode: string; verificationUri: string; verificationUriComplete?: string } | null>(null)
+/** Why the last link/leave failed (`orgActionResult` with `ok: false`); null after a success. */
+export const orgActionError = signal<string | null>(null)
 
 const DOT_COLOR: Record<OrgIndicator, string> = {
   unlinked: 'var(--muted)',
@@ -267,14 +282,33 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
       <Section title="Link">
         <button
           disabled={busy !== null}
-          onClick={() => { orgBusy.value = 'link'; vscode?.postMessage({ type: 'orgLink' }) }}
+          onClick={() => { orgBusy.value = 'link'; orgActionError.value = null; vscode?.postMessage({ type: 'orgLink' }) }}
           style="font-size:12px;padding:6px 14px;border:none;border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer;font-weight:600"
-        >{busy === 'link' ? 'Opening your browser…' : 'Link this machine'}</button>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">Opens your browser once. Headless box? Run <code>traceroost org link --device</code>.</div>
+        >{busy === 'link' && !orgDevicePrompt.value ? 'Opening your browser…' : 'Link this machine'}</button>
+        <button
+          disabled={busy !== null}
+          onClick={() => { orgBusy.value = 'link'; orgActionError.value = null; vscode?.postMessage({ type: 'orgLinkDevice' }) }}
+          style="font-size:12px;padding:6px 10px;margin-left:8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
+        >Use a device code</button>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">Opens your browser once. Remote or headless window? Use a device code and approve it from any browser.</div>
+        {orgLinkUrl.value && busy === 'link' && !orgDevicePrompt.value && (
+          <div style="font-size:11px;color:var(--muted);margin-top:8px;word-break:break-all">
+            Browser didn't open? <a href={orgLinkUrl.value} style="color:var(--vscode-textLink-foreground,#4fc3f7)">Open the link page</a>
+          </div>
+        )}
+        {orgDevicePrompt.value && (
+          <div style="font-size:12px;color:var(--fg);margin-top:8px;line-height:1.6">
+            Go to <a href={orgDevicePrompt.value.verificationUriComplete ?? orgDevicePrompt.value.verificationUri} style="color:var(--vscode-textLink-foreground,#4fc3f7)">{orgDevicePrompt.value.verificationUri}</a> and enter
+            {' '}<code style="font-size:13px;font-weight:700;letter-spacing:1px">{orgDevicePrompt.value.userCode}</code>. Waiting for approval…
+          </div>
+        )}
+        {orgActionError.value && (
+          <div style="font-size:11px;color:#f14c4c;margin-top:8px">Link failed: {orgActionError.value}</div>
+        )}
       </Section>
       <Section title="Why link">
         <ul style="margin:0;padding-left:14px;color:var(--muted);font-size:11px;line-height:1.6">
-          <li>Gives your lead org-wide cost &amp; activity totals, without exposing anyone's code</li>
+          <li>Gives your org's admins org-wide cost &amp; activity totals, without exposing anyone's code</li>
           <li>Team totals only by default — individual numbers stay private unless your team turns that on</li>
           <li>Opt-in and off by default; nothing is sent until you link</li>
           <li>Reversible any time — unlinking deletes the local credential and stops sending immediately, even offline</li>
@@ -300,11 +334,9 @@ function LinkedBody({ st }: { st: OrgStatus }) {
     <>
       {/* No title, and no repeated team name — the panel's sticky header above already shows it. */}
       <Section>
-        <div style="font-size:11px;color:var(--muted)">You are <strong>{st.role ?? 'a member'}</strong> · {st.email ?? `member ${short(st.memberId)}`}</div>
+        <div style="font-size:11px;color:var(--muted)">You are <strong>{st.role === 'admin' ? 'an admin' : 'a developer'}</strong> · {st.email ?? `member ${short(st.memberId)}`}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">
-          {st.perDeveloperVisibility
-            ? `${displayOrgName(st)} shows individual numbers to your lead — this team turned that on.`
-            : `Your lead sees team totals only, by default. Individual numbers stay private.`}
+          {whoSeesWhat(!!st.perDeveloperVisibility, displayOrgName(st))}
         </div>
       </Section>
       <Section title="Status">
@@ -342,10 +374,13 @@ function LinkedBody({ st }: { st: OrgStatus }) {
       <Section title="Unlink">
         <button
           disabled={busy !== null}
-          onClick={() => { orgBusy.value = 'leave'; vscode?.postMessage({ type: 'orgLeave' }) }}
+          onClick={() => { orgBusy.value = 'leave'; orgActionError.value = null; vscode?.postMessage({ type: 'orgLeave' }) }}
           style="font-size:12px;padding:6px 14px;border:1px solid var(--error);border-radius:4px;background:transparent;color:var(--error);cursor:pointer"
         >{busy === 'leave' ? 'Unlinking…' : 'Unlink this machine'}</button>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until a lead removes you from the roster.</div>
+        {orgActionError.value && (
+          <div style="font-size:11px;color:#f14c4c;margin-top:8px">Unlink failed: {orgActionError.value}</div>
+        )}
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
       </Section>
     </>
   )

@@ -79,8 +79,12 @@ export async function attributeRepository(workspace: string, opts: AttributeOpti
     const c = relevant[i]
     totalMergedLines += c.linesAdded
 
+    // An `unknown` verdict isn't final: the session that explains a commit can be ingested after
+    // the commit was first scanned (logs are read lazily, OTel can lag, a backfill can import older
+    // sessions). Re-running the join for a cached `unknown` is in-memory only — git work (a blame)
+    // happens only if the verdict actually changes — so `unknown` is never served from cache.
     const cached = cache?.get(c.sha)
-    if (cached) {
+    if (cached && (cached.attribution !== 'unknown' || cached.isMerge)) {
       out.push(cached)
       if (cached.attribution !== 'unknown') attributedLines += cached.linesAdded
       opts.onProgress?.(i + 1, relevant.length)
@@ -121,7 +125,8 @@ export async function attributeRepository(workspace: string, opts: AttributeOpti
       }
     }
 
-    cache?.put(rec)
+    // Skip the write when a re-checked `unknown` is still `unknown` — nothing changed.
+    if (!(cached && cached.attribution === 'unknown' && rec.attribution === 'unknown')) cache?.put(rec)
     out.push(rec)
     if (rec.attribution !== 'unknown') attributedLines += rec.linesAdded
     opts.onProgress?.(i + 1, relevant.length)

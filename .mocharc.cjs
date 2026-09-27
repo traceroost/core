@@ -4,6 +4,8 @@ module.exports = {
     'out/test/test/**/*.test.js',
     'out/test-media/src/test/media/**/*.test.js',
     'out/test-standalone/standalone/cloud/*.test.js',
+    'out/test-standalone/standalone/service/*.test.js',
+    'out/test-standalone/standalone/*.test.js',
   ],
   timeout: 10000,
   ui: 'tdd',

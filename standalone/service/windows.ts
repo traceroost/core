@@ -2,12 +2,12 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import {
-  generateWindowsWrapperScript, WINDOWS_TASK_NAME, serviceLogPath, type ServiceProgram,
+  generateWindowsWrapperScript, WINDOWS_TASK_NAME, serviceLogPath, readServiceConfig, type ServiceProgram,
 } from '../../src/serviceConfig'
 import { probeServiceHealth } from './health'
 
-function wrapperScriptPath(program: ServiceProgram): string {
-  return path.join(program.config.dataDir, 'service', 'run.cmd')
+function wrapperScriptPath(dataDir: string): string {
+  return path.join(dataDir, 'service', 'run.cmd')
 }
 
 export function isInstalled(): boolean {
@@ -41,7 +41,7 @@ function sleepSync(ms: number): void {
 }
 
 export function install(program: ServiceProgram): void {
-  const scriptPath = wrapperScriptPath(program)
+  const scriptPath = wrapperScriptPath(program.config.dataDir)
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true })
   fs.mkdirSync(path.dirname(serviceLogPath(program.config)), { recursive: true })
   fs.writeFileSync(scriptPath, generateWindowsWrapperScript(program), 'utf-8')
@@ -58,9 +58,16 @@ export function install(program: ServiceProgram): void {
   try { execFileSync('schtasks', ['/run', '/tn', WINDOWS_TASK_NAME], { stdio: 'ignore' }) } catch { /* best effort */ }
 }
 
+/** Idempotent, like the macOS/Linux uninstall: a task that's already gone (never installed, or
+ *  removed by hand) isn't an error, and the wrapper script `install` wrote under the data dir
+ *  from config.json is removed too. Also used as `service install`'s rollback — index.ts calls
+ *  it before restoring the previous config.json, so it still sees the new install's data dir. */
 export function uninstall(): void {
-  try { execFileSync('schtasks', ['/end', '/tn', WINDOWS_TASK_NAME], { stdio: 'ignore' }) } catch { /* not running */ }
-  execFileSync('schtasks', ['/delete', '/tn', WINDOWS_TASK_NAME, '/f'], { stdio: 'inherit' })
+  if (isInstalled()) {
+    try { execFileSync('schtasks', ['/end', '/tn', WINDOWS_TASK_NAME], { stdio: 'ignore' }) } catch { /* not running */ }
+    execFileSync('schtasks', ['/delete', '/tn', WINDOWS_TASK_NAME, '/f'], { stdio: 'inherit' })
+  }
+  try { fs.rmSync(wrapperScriptPath(readServiceConfig().dataDir)) } catch { /* already removed */ }
 }
 
 export function start(): void {

@@ -58,16 +58,24 @@ export function resolveWorkspacesFromLogs(sessions: SessionSummaryCard[]): void 
 
 /**
  * Merges historical sessions from SQLite with live sessions from the in-memory
- * span window. Live sessions always win on conflict (same sessionId) — they are
- * fresher. Result is sorted by startTime DESC.
+ * span window. Live sessions win on conflict (same sessionId) — they are fresher —
+ * unless the stored card has recorded more calls than the live one: the live card is
+ * rebuilt from whatever spans are still in memory, so a partial window must not hide
+ * a fuller card already persisted. Result is sorted by startTime DESC.
  */
 export function mergeSessions(
   dbSessions: SessionSummaryCard[],
   liveSessions: SessionSummaryCard[],
 ): SessionSummaryCard[] {
-  const liveIds = new Set(liveSessions.map(s => s.sessionId))
+  const calls = (s: SessionSummaryCard) => s.totalLlmCalls + s.totalToolCalls
+  const dbById = new Map(dbSessions.map(s => [s.sessionId, s]))
+  const liveWinners = liveSessions.filter(s => {
+    const stored = dbById.get(s.sessionId)
+    return !stored || calls(stored) <= calls(s)
+  })
+  const liveIds = new Set(liveWinners.map(s => s.sessionId))
   return [
-    ...liveSessions,
+    ...liveWinners,
     ...dbSessions.filter(s => !liveIds.has(s.sessionId)),
   ].sort((a, b) => Date.parse(b.startTime) - Date.parse(a.startTime))
 }
@@ -78,6 +86,14 @@ export function mergeSessions(
  * and SessionStore (live span window).
  */
 export class SessionRepository {
+  // listSessions() results for the current data version, keyed by filter. The sidebar (every 5 s),
+  // the dashboard (every 10 s and on every store update) and each git-outcome reply all ask for
+  // the same list; recomputing it re-reads every stored row and re-summarizes the live window
+  // (hundreds of ms at 20k sessions). Dropped as soon as the sessions table or the live span
+  // window changes — see sessionsVersion.ts and SessionStore.version.
+  private listCache = new Map<string, SessionSummaryCard[]>()
+  private listCacheVersion = ''
+
   constructor(
     private readonly reader: DatabaseReader,
     private readonly writer: DatabaseWriter,
@@ -88,16 +104,30 @@ export class SessionRepository {
   /** Returns merged session list: live window + historical DB, sorted newest-first.
    *  Capped at `MAX_SESSIONS_TO_WEBVIEW` when the caller doesn't supply its own `limit` — see that
    *  constant's doc comment. Pass `limit: Infinity` to bypass the cap entirely (used by org
-   *  reconcile, which must see every local session, not just the most recent N). */
+   *  reconcile, which must see every local session, not just the most recent N).
+   *
+   *  Identical calls between two data changes share one computed result: the returned array is a
+   *  fresh copy, but the cards in it are shared with every other caller — read them, never
+   *  mutate them. */
   listSessions(filter?: {
     source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
     limit?: number
   }): SessionSummaryCard[] {
-    const dbSessions = this.reader.listSessions(filter)
-    const liveSpans = this.store.getSpans()
-    const liveSessions = liveSpans.length > 0 ? summarizeSpans(liveSpans).sessions : []
-    const merged = mergeSessions(dbSessions, liveSessions)
-    resolveWorkspacesFromLogs(merged)
+    const version = `${this.reader.sessionsVersion()}:${this.store.version}`
+    if (version !== this.listCacheVersion) {
+      this.listCache.clear()
+      this.listCacheVersion = version
+    }
+    const key = `${filter?.source ?? ''}|${filter?.limit ?? ''}`
+    let merged = this.listCache.get(key)
+    if (!merged) {
+      const dbSessions = this.reader.listSessions(filter)
+      const liveSpans = this.store.getSpans()
+      const liveSessions = liveSpans.length > 0 ? summarizeSpans(liveSpans).sessions : []
+      merged = mergeSessions(dbSessions, liveSessions)
+      resolveWorkspacesFromLogs(merged)
+      this.listCache.set(key, merged)
+    }
     const effectiveLimit = filter?.limit ?? MAX_SESSIONS_TO_WEBVIEW
     if (merged.length > effectiveLimit) {
       if (filter?.limit === undefined) {
@@ -105,7 +135,7 @@ export class SessionRepository {
       }
       return merged.slice(0, effectiveLimit)
     }
-    return merged
+    return merged.slice()
   }
 
   /** Returns full timeline entries for one session (no blob content). */

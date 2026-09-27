@@ -23,6 +23,8 @@ import {
   type TokenResponse,
 } from './oauthClient'
 import { loadCredentials, saveCredentials, clearCredentials } from './credentials'
+import { freshCredentials } from './tokenRefresh'
+import { ForwardQueue } from '../forward/queue'
 import { orgEndpoint } from './config'
 import type { OrgCredentials } from './config'
 import { systemBrowserOpener, type UrlOpener } from './browser'
@@ -31,7 +33,7 @@ export interface LinkResult {
   orgId: string
   orgName: string
   memberId: string
-  role: 'lead' | 'member'
+  role: 'admin' | 'developer'
 }
 
 function hostnameLabel(): string {
@@ -44,31 +46,49 @@ function hostnameLabel(): string {
  * that field existed) — the roster fetch in `persistFromTokens` failed, returned nothing, or
  * simply didn't exist yet server-side, and nothing retried it until this.
  *
+ * Also re-reads the role once per process: a credential cached before core understood cloud's
+ * `admin` role name stored every admin as a plain member, and the server is authoritative anyway.
+ *
  * Cheap to call opportunistically (every status push, see `panelController.ts`'s `pushStatus`):
- * it's a no-op the instant both are resolved, i.e. as soon as it has ever once succeeded —
- * either here or at link time.
+ * after that one role check it's a no-op the instant name and email are resolved, i.e. as soon as
+ * it has ever once succeeded — either here or at link time.
  */
+let roleCheckedThisProcess = false
+
 export async function refreshOrgNameIfStale(log?: (m: string) => void): Promise<boolean> {
-  const creds = loadCredentials()
-  if (!creds || (creds.orgName !== creds.orgId && creds.email)) return false
+  const stale = loadCredentials()
+  if (!stale || (stale.orgName !== stale.orgId && stale.email && roleCheckedThisProcess)) return false
+  const creds = (await freshCredentials()) ?? stale
   const self = await fetchRosterSelf(creds.accessToken, creds.endpoint)
   if (!self?.orgName) {
     log?.('[TraceRoost] could not refresh org name (roster fetch failed or returned none) — will retry')
     return false
   }
-  saveCredentials({
+  roleCheckedThisProcess = true
+  const next = {
     ...creds,
     orgName: self.orgName,
     role: self.role,
     perDeveloperVisibility: self.perDeveloperVisibility,
     email: self.email || creds.email,
-  })
+  }
+  if (
+    next.orgName === creds.orgName && next.role === creds.role &&
+    next.perDeveloperVisibility === creds.perDeveloperVisibility && next.email === creds.email
+  ) return false
+  saveCredentials(next)
   return true
+}
+
+/** Test-only: forget that this process already re-read the role. */
+export function resetRoleCheckForTests(): void {
+  roleCheckedThisProcess = false
 }
 
 async function persistFromTokens(tokens: TokenResponse): Promise<LinkResult> {
   // Best-effort enrichment — the panel degrades gracefully if this is unavailable.
   const self = await fetchRosterSelf(tokens.accessToken)
+  if (self) roleCheckedThisProcess = true
   const creds: OrgCredentials = {
     endpoint: orgEndpoint(),
     orgId: tokens.orgId,
@@ -76,7 +96,7 @@ async function persistFromTokens(tokens: TokenResponse): Promise<LinkResult> {
     orgName: self?.orgName || tokens.orgId,
     memberId: tokens.memberId,
     email: self?.email || undefined,
-    role: self?.role ?? 'member',
+    role: self?.role ?? 'developer',
     perDeveloperVisibility: self?.perDeveloperVisibility ?? false,
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
@@ -184,10 +204,16 @@ export interface LeaveResult {
  * Local-first, immediate. The credential is deleted and forwarding stops before any network
  * call. The server-side revoke is attempted afterwards and its failure is not an error — a
  * developer who decides to leave while offline still leaves.
+ *
+ * The unsent forwarding queue goes too: every queued rollup was hashed with this org's salt
+ * (`repoKey.ts`) and must never ship to whatever org this machine links to next. Nothing is lost
+ * locally — after a re-link, reconciliation re-enqueues every session the new install hasn't
+ * received (see `deliveryLedger.ts`'s `scopedKey`), hashed for the new org.
  */
-export async function leave(): Promise<LeaveResult> {
+export async function leave(baseHome?: string): Promise<LeaveResult> {
   const creds = loadCredentials()
   clearCredentials()
+  new ForwardQueue(baseHome).clear()
   if (!creds) return { wasLinked: false, serverRevoked: false }
   const [a, b] = await Promise.all([
     revokeToken(creds.refreshToken, creds.endpoint),

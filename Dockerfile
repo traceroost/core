@@ -15,6 +15,9 @@ COPY media/tsconfig.json ./media/
 COPY media/mascot.png ./media/
 
 RUN node esbuild.js --production
+# sql.js is bundled into server.js, but it locates its .wasm via require.resolve('sql.js') at
+# runtime — ship a real (symlink-free) copy of the package so that lookup works in the image.
+RUN mkdir -p /app/runtime_modules && cp -rL node_modules/sql.js /app/runtime_modules/sql.js
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:24-alpine
@@ -23,9 +26,13 @@ WORKDIR /app
 RUN addgroup -S traceroost && adduser -S traceroost -G traceroost
 
 COPY --from=builder --chown=traceroost:traceroost /app/standalone/server.js ./standalone/server.js
+# Everything standalone/server.js serves from media/: /dashboard.js, /dashboard.css, /sidebar.js,
+# /mascot.png (favicon).
 COPY --from=builder --chown=traceroost:traceroost /app/media/dashboard.js   ./media/dashboard.js
 COPY --from=builder --chown=traceroost:traceroost /app/media/dashboard.css  ./media/dashboard.css
+COPY --from=builder --chown=traceroost:traceroost /app/media/sidebar.js     ./media/sidebar.js
 COPY --from=builder --chown=traceroost:traceroost /app/media/mascot.png     ./media/mascot.png
+COPY --from=builder --chown=traceroost:traceroost /app/runtime_modules/     ./node_modules/
 COPY --from=builder --chown=traceroost:traceroost /app/package.json        ./package.json
 
 RUN mkdir -p /data && chown traceroost:traceroost /data
@@ -33,14 +40,20 @@ VOLUME ["/data"]
 
 USER traceroost
 
+# HOME=/data puts ~/.traceroost/config.json — which holds the generated bearer token — on the
+# volume, so the token survives container re-creation instead of changing (and 401-ing every
+# configured agent) on each `docker run`. BIND_HOST=0.0.0.0 makes that token mandatory on all
+# three ports; see README → Docker for how to read it and hand it to agents.
 ENV OTLP_PORT=4318 \
     UI_PORT=3000 \
+    MCP_PORT=4316 \
     DATA_DIR=/data \
+    HOME=/data \
     BIND_HOST=0.0.0.0
 
-EXPOSE 4318 3000
+EXPOSE 4318 3000 4316
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD wget -qO- http://localhost:3000/health || exit 1
+  CMD ["sh", "-c", "wget -qO- \"http://localhost:${UI_PORT:-3000}/health\" || exit 1"]
 
 CMD ["node", "standalone/server.js"]

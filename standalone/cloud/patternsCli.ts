@@ -1,7 +1,8 @@
 /**
  * The repo-hash half of `traceroost find` (findCli.ts) — the local half of the cloud Traces
- * table's repo-hash hand-off (traces-table.tsx's HashHandoff, verb="find"). Not reachable as its
- * own CLI verb; `find` dispatches here once it's determined the hash isn't a recorded session.
+ * table's repo-hash hand-off (traces-table.tsx's HashHandoff, verb="find"). `find` dispatches
+ * here once it's determined the hash isn't a recorded session; cli.ts also routes
+ * `traceroost patterns --repo <hash|name>` here directly.
  * TraceRoost Cloud only ever holds a one-way repo_hash (privacy.ts's NEVER_SENT) and per-trace
  * counts — never a filename, a repo name, or which files were actually touched. This resolves
  * the hash locally (same trick as cohortCli.ts) and prints what cloud can't: the files these
@@ -74,14 +75,15 @@ export function groupedSignals(sessions: SessionSummaryCard[]): SignalGroup[] {
     .sort((a, b) => b.sessions - a.sessions || b.count - a.count)
 }
 
-export async function runPatternsCli(args: string[]): Promise<number> {
+/** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it. */
+export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard[]): Promise<number> {
   const repoArg = (valueAfter(args, '--repo') ?? '').trim()
   if (!repoArg) {
     console.log('Usage: traceroost patterns --repo <hash|name>')
     return 1
   }
 
-  const allSessions = loadAllSessions()
+  const allSessions = loaded ?? loadAllSessions()
   const workspaces = [...new Set(allSessions.map(s => s.workspace).filter(Boolean))]
   const root = await resolveRepo(repoArg, workspaces)
   if (!root) {
@@ -89,7 +91,7 @@ export async function runPatternsCli(args: string[]): Promise<number> {
     return 1
   }
 
-  const sessions = loadSessionsForWorkspace(root)
+  const sessions = loadSessionsForWorkspace(root, allSessions)
   if (sessions.length === 0) {
     console.log(`\nRepository: ${root}\nNo recorded sessions for this repo on this machine yet.`)
     return 0

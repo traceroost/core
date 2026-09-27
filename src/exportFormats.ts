@@ -44,9 +44,12 @@ export function exportFileExtension(format: ExportFormat): string {
 
 // Every field quoted unconditionally (matches the existing Analytics CSV export's convention) —
 // simplest approach that's always correct, no need to special-case which fields might contain a
-// comma, quote, or newline.
-function csvCell(value: string): string {
-  return '"' + value.replace(/"/g, '""') + '"'
+// comma, quote, or newline. A cell a spreadsheet would read as a formula (leading = + - @, tab or
+// CR — quoting alone doesn't stop Excel/Sheets evaluating it) gets a leading `'` so it stays text;
+// prompts and file paths come from agent traces, so they're attacker-influenced.
+export function csvCell(value: string): string {
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+  return '"' + safe.replace(/"/g, '""') + '"'
 }
 
 function joinList(items: string[]): string {

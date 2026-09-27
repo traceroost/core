@@ -26,7 +26,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { findRepoRoot } from '../gitOutcome'
+import { createOutcomeRepoCache } from '../gitOutcome'
 import type { ReconciliationService, ReconcileInput } from './reconciliationService'
 
 export interface WatchableSession {
@@ -59,6 +59,19 @@ const FALLBACK_POLL_MS = 60_000
 // gitOutcome.ts's own per-session classification gate — a large multi-repo history shouldn't spawn
 // one classification batch per repo all at once.
 const MAX_CONCURRENT_REPO_PASSES = 4
+// A workspace's repo root practically never changes, so it's resolved once (one `git rev-parse`
+// per distinct workspace, not per session per pass) and only re-resolved after this long.
+const ROOT_CACHE_TTL_MS = 10 * 60_000
+// The 60-second fallback poll exists to catch uncommitted working-tree edits; it only re-checks
+// sessions active within this window (or still running). Startup catch-up, refreshNow(), and
+// .git watch events still reconcile every retained session of the affected repos.
+const FALLBACK_RECENT_MS = 24 * 60 * 60_000
+
+/** Sessions the fallback poll re-checks: still running, or ended within FALLBACK_RECENT_MS. */
+export function isRecentlyActive(s: WatchableSession, now: number = Date.now()): boolean {
+  const end = s.endTime ? Date.parse(s.endTime) : NaN
+  return !(end > 0) || now - end < FALLBACK_RECENT_MS
+}
 
 function toReconcileInput(s: WatchableSession): ReconcileInput {
   return { sessionId: s.sessionId, workspace: s.workspace, filesChanged: s.filesChanged, endTime: s.endTime ?? '' }
@@ -70,13 +83,50 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
   const knownRoots = new Set<string>()
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
   let pendingRoots = new Set<string>() // repo roots due for a debounced pass; empty set = "all"
+  let repoCache = createOutcomeRepoCache()
+  let repoCacheCreatedAt = Date.now()
+  // One pass at a time: a pass over a large history can outlast the 60 s poll interval, and
+  // overlapping passes just multiplied the git subprocesses. A request that arrives mid-pass is
+  // merged into a single follow-up pass.
+  let passRunning = false
+  let queuedPass: { roots: Set<string> | null; recentOnly: boolean } | null = null
 
-  async function reconcileRoots(roots: Set<string> | null): Promise<void> {
+  function requestPass(roots: Set<string> | null, recentOnly = false): void {
     if (disposed) return
+    if (passRunning) {
+      if (!queuedPass) {
+        queuedPass = { roots: roots ? new Set(roots) : null, recentOnly }
+      } else {
+        if (queuedPass.roots === null || roots === null) queuedPass.roots = null
+        else for (const r of roots) queuedPass.roots.add(r)
+        queuedPass.recentOnly = queuedPass.recentOnly && recentOnly
+      }
+      return
+    }
+    passRunning = true
+    reconcileRoots(roots, recentOnly)
+      .catch(err => deps.log?.(`[TraceRoost] background reconciliation pass failed: ${(err as Error).message}`))
+      .finally(() => {
+        passRunning = false
+        const next = queuedPass
+        queuedPass = null
+        if (next) requestPass(next.roots, next.recentOnly)
+      })
+  }
+
+  async function reconcileRoots(roots: Set<string> | null, recentOnly: boolean): Promise<void> {
+    if (disposed) return
+    if (Date.now() - repoCacheCreatedAt > ROOT_CACHE_TTL_MS) {
+      repoCache = createOutcomeRepoCache()
+      repoCacheCreatedAt = Date.now()
+    }
+    const now = Date.now()
     const sessions = deps.listSessions()
     const byRoot = new Map<string, WatchableSession[]>()
     for (const s of sessions) {
-      const root = await findRepoRoot(s.workspace)
+      if (recentOnly && !isRecentlyActive(s, now)) continue
+      if (!s.workspace) continue
+      const root = await repoCache.root(s.workspace)
       if (!root) continue
       if (roots && !roots.has(root)) continue
       if (!byRoot.has(root)) byRoot.set(root, [])
@@ -106,7 +156,7 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
       const roots = pendingRoots
       pendingRoots = new Set()
       debounceTimer = undefined
-      void reconcileRoots(roots)
+      requestPass(roots)
     }, DEBOUNCE_MS)
     debounceTimer.unref?.()
   }
@@ -143,17 +193,20 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
     }
   }
 
-  const fallbackTimer = setInterval(() => { void reconcileRoots(null) }, FALLBACK_POLL_MS)
+  const fallbackTimer = setInterval(() => { requestPass(null, true) }, FALLBACK_POLL_MS)
   fallbackTimer.unref?.()
 
   // Startup/resume catch-up: reconcile everything once immediately rather than waiting for the
-  // first watch event or the first fallback tick.
-  void reconcileRoots(null)
+  // first watch event or the first fallback tick. On the next macrotask, not inline: the pass
+  // starts by listing every stored session synchronously (hundreds of ms on a large history),
+  // which otherwise ran on the extension's activation stack.
+  const startupPass = setImmediate(() => requestPass(null))
 
   return {
-    refreshNow() { void reconcileRoots(null) },
+    refreshNow() { requestPass(null) },
     dispose() {
       disposed = true
+      clearImmediate(startupPass)
       clearInterval(fallbackTimer)
       if (debounceTimer) clearTimeout(debounceTimer)
       for (const w of gitWatchers.values()) w.close()

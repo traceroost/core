@@ -9,11 +9,23 @@
 #   ./scripts/configure-copilot.sh          # uses port 4318 (default)
 #   ./scripts/configure-copilot.sh 4319     # custom port
 #   TRACEROOST_PORT=4319 ./scripts/configure-copilot.sh
+#   ./scripts/configure-copilot.sh 4318 <token>             # Docker / LAN mode (BIND_HOST=0.0.0.0)
+#   TRACEROOST_TOKEN=<token> TRACEROOST_HOST=192.168.1.20 ./scripts/configure-copilot.sh
 
 set -euo pipefail
 
 PORT=${1:-${TRACEROOST_PORT:-4318}}
-ENDPOINT="http://localhost:${PORT}"
+TOKEN=${2:-${TRACEROOST_TOKEN:-}}
+HOST=${TRACEROOST_HOST:-localhost}
+ENDPOINT="http://${HOST}:${PORT}"
+if [ -n "$TOKEN" ] && ! [[ "$TOKEN" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+  echo "Error: the token may only contain letters, digits and . _ ~ -" >&2
+  exit 1
+fi
+HEADERS_EXPORT=""
+if [ -n "$TOKEN" ]; then
+  HEADERS_EXPORT="export OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Bearer ${TOKEN}\"\n"
+fi
 
 echo "Configuring GitHub Copilot CLI for TraceRoost at ${ENDPOINT}..."
 
@@ -34,6 +46,7 @@ else
   echo ""
   echo "  export OTEL_EXPORTER_OTLP_ENDPOINT=\"${ENDPOINT}\""
   echo "  export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true"
+  [ -n "$TOKEN" ] && echo "  export OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Bearer ${TOKEN}\""
   exit 0
 fi
 
@@ -49,7 +62,7 @@ if grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT' "$PROFILE" 2>/dev/null; then
 fi
 
 # Append the exports
-printf "\n# TraceRoost — Copilot CLI telemetry\nexport OTEL_EXPORTER_OTLP_ENDPOINT=\"${ENDPOINT}\"\nexport OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true\n" >> "$PROFILE"
+printf "\n# TraceRoost — Copilot CLI telemetry\nexport OTEL_EXPORTER_OTLP_ENDPOINT=\"${ENDPOINT}\"\nexport OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true\n${HEADERS_EXPORT}" >> "$PROFILE"
 
 echo "  Updated ${PROFILE}"
 echo ""

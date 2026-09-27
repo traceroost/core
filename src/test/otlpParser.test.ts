@@ -176,4 +176,16 @@ suite('otlpParser', () => {
     assert.deepStrictEqual(spans.map(s => s.traceId), ['startup-trace', 'prewarm-trace'])
     assert.ok(spans.every(s => !hasAttr(s.attributes, 'codex.session.id')))
   })
+
+  test('skips null / non-object elements instead of throwing', () => {
+    assert.deepStrictEqual(parseTracePayload({ resourceSpans: [null] }), [])
+    assert.deepStrictEqual(parseTracePayload({ resourceSpans: [{ scopeSpans: [null, { spans: [null] }] }] }), [])
+    assert.deepStrictEqual(parseTracePayload({ resourceSpans: [{ scopeSpans: { spans: [] } }] }), [])
+    const spans = parseTracePayload({ resourceSpans: [{ scopeSpans: [{ spans: [
+      { traceId: 't', spanId: 's', name: 'n', attributes: [null, attr('a', 'b')] },
+    ] }] }] })
+    assert.strictEqual(spans.length, 1)
+    assert.deepStrictEqual(spans[0].attributes, [attr('a', 'b')])
+    assert.deepStrictEqual(parseLogPayload({ resourceLogs: [null, { scopeLogs: [null, { logRecords: [null] }] }] }), [])
+  })
 })

@@ -5,12 +5,14 @@ import { SCHEMA_SQL } from '../../database/schema'
 import { DatabaseWriter } from '../../database/writer'
 import { calcTokenCostUsd } from '../../pricing'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import type { SqlStatement } from '../../database/db'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
 }
@@ -153,6 +155,60 @@ suite('DatabaseWriter', () => {
     await w.drain()
     assert.strictEqual(countRows(db, 'timeline_entries'), 1)
     assert.strictEqual(countRows(db, 'edit_details'), 2)
+    db.close()
+  })
+
+  test('each edit_details row points at its own timeline entry (prepared-statement row ids)', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    const entry = (spanId: string, files: string[]) => ({
+      type: 'tool' as const, spanId, label: 'Edit', durationMs: 1, isError: false, timestamp: '',
+      editDetails: files.map(filePath => ({ filePath, toolName: 'Edit' })),
+    })
+    w.enqueue(makeCard({ sessionId: 'a', timeline: [entry('a1', ['x.ts']), entry('a2', []), entry('a3', ['y.ts', 'z.ts'])] }), 'ws')
+    w.enqueue(makeCard({ sessionId: 'b', timeline: [entry('b1', ['w.ts'])] }), 'ws')
+    await w.drain()
+    const rows = db.exec(`SELECT te.span_id, ed.file_path FROM edit_details ed
+      JOIN timeline_entries te ON te.id = ed.timeline_entry_id ORDER BY ed.id`)[0].values
+    assert.deepStrictEqual(rows, [['a1', 'x.ts'], ['a3', 'y.ts'], ['a3', 'z.ts'], ['b1', 'w.ts']])
+    db.close()
+  })
+
+  test('writes keep working after export() (which frees every prepared statement)', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    const tl = [{ type: 'llm' as const, spanId: 'sp', label: 'LLM', durationMs: 1, isError: false, timestamp: '' }]
+    w.enqueue(makeCard({ sessionId: 's1', timeline: tl }), 'ws')
+    await w.drain()
+    db.export()
+    w.enqueue(makeCard({ sessionId: 's2', timeline: tl }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 2)
+    assert.strictEqual(countRows(db, 'timeline_entries'), 2)
+    db.close()
+  })
+
+  test('a write that fails part-way is rolled back whole', async () => {
+    const db = await openInMemoryDb()
+    const logs: string[] = []
+    const w = new DatabaseWriter(db, makeStorageUri(), (m) => logs.push(m))
+    const bad = makeCard({
+      sessionId: 'bad',
+      timeline: [
+        { type: 'llm', spanId: 'ok', label: 'LLM', durationMs: 1, isError: false, timestamp: '' },
+        // NOT NULL span_id — fails on the second row, after the session row and one entry.
+        { type: 'llm', spanId: null as unknown as string, label: 'LLM', durationMs: 1, isError: false, timestamp: '' },
+      ],
+    })
+    w.enqueue(bad, 'ws')
+    await w.drain()
+    assert.ok(logs.some(m => m.includes('write error for session bad')))
+    assert.strictEqual(countRows(db, 'sessions'), 0)
+    assert.strictEqual(countRows(db, 'timeline_entries'), 0)
+    // The connection is still usable afterwards.
+    w.enqueue(makeCard({ sessionId: 'good' }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
     db.close()
   })
 
@@ -320,6 +376,190 @@ suite('DatabaseWriter', () => {
     await w.drain()
     const raw = queryValue(db, `SELECT models FROM sessions WHERE session_id = 'sess-1'`) as string
     assert.deepStrictEqual(JSON.parse(raw), ['claude-sonnet'])
+    db.close()
+  })
+})
+
+// ── Claude OTEL + log double counting ────────────────────────────────────────
+// Claude's OTEL cards are per interaction (session_id = interaction spanId) while its log cards
+// are per transcript (session_id = transcript id = Claude Code's session.id). The shared key is
+// claudeConversationKey — OTEL wins whichever order the two arrive in.
+
+suite('DatabaseWriter — Claude OTEL/log dedupe', () => {
+  const T0 = '2024-01-01T00:00:00.000Z'
+  const T0_PLUS_2M = '2024-01-01T00:02:00.000Z'
+  const otelInteraction = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
+    sessionId: 'interaction-span-1', traceId: 'trace-1', dataSource: 'otel',
+    claudeSessionId: 'claude-session-uuid', startTime: T0_PLUS_2M, durationMs: 30_000, ...overrides,
+  })
+  const logTranscript = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
+    sessionId: 'claude-session-uuid', traceId: 'claude-session-uuid', dataSource: 'log',
+    startTime: T0, durationMs: 10 * 60_000, ...overrides,
+  })
+
+  test('a log card arriving after OTEL of the same conversation is skipped', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelInteraction(), 'ws')
+    await w.drain()
+    w.enqueue(logTranscript(), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
+    assert.strictEqual(queryValue(db, `SELECT data_source FROM sessions`), 'otel')
+    db.close()
+  })
+
+  test('an OTEL interaction replaces an already-stored log card of the same conversation', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(logTranscript(), 'ws')
+    await w.drain()
+    w.enqueue(otelInteraction(), 'ws')
+    await w.drain()
+    // The same interaction written again (re-summarized on the next update) stays one row.
+    w.enqueue(otelInteraction(), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
+    assert.strictEqual(queryValue(db, `SELECT session_id FROM sessions`), 'interaction-span-1')
+    db.close()
+  })
+
+  test('a gap-split log segment outside every OTEL interaction is kept', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelInteraction(), 'ws')
+    await w.drain()
+    w.enqueue(logTranscript({ sessionId: 'claude-session-uuid#1', startTime: '2024-01-02T00:00:00.000Z' }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 2)
+    db.close()
+  })
+
+  test('a subagent transcript (its own file, parent session id inside) is covered by the parent\'s OTEL', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelInteraction({ startTime: T0, durationMs: 10 * 60_000 }), 'ws')
+    await w.drain()
+    w.enqueue(logTranscript({
+      sessionId: 'agent-a16e8e506b6303ff4', claudeSessionId: 'claude-session-uuid',
+      startTime: T0_PLUS_2M, durationMs: 60_000,
+    }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
+    db.close()
+  })
+
+  test('different conversations are never deduped against each other', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelInteraction({ claudeSessionId: 'another-session' }), 'ws')
+    await w.drain()
+    w.enqueue(logTranscript(), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 2)
+    db.close()
+  })
+})
+
+suite('DatabaseWriter — OTEL downgrade guard', () => {
+  test('a card with fewer calls never replaces a richer stored OTEL row', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(makeCard({ totalLlmCalls: 40, totalToolCalls: 30, inputTokens: 90_000 }), 'ws')
+    await w.drain()
+    w.enqueue(makeCard({ totalLlmCalls: 4, totalToolCalls: 3, inputTokens: 9_000 }), 'ws')
+    await w.drain()
+    assert.strictEqual(queryInt(db, `SELECT input_tokens FROM sessions WHERE session_id = 'sess-1'`), 90_000)
+    w.enqueue(makeCard({ totalLlmCalls: 41, totalToolCalls: 30, inputTokens: 95_000 }), 'ws')
+    await w.drain()
+    assert.strictEqual(queryInt(db, `SELECT input_tokens FROM sessions WHERE session_id = 'sess-1'`), 95_000)
+    db.close()
+  })
+})
+
+suite('DatabaseWriter — unchanged rewrites are skipped', () => {
+  const withTimeline = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
+    timeline: [
+      { type: 'llm', spanId: 'sp-a', label: 'LLM', durationMs: 10, isError: false, timestamp: 't1' },
+      { type: 'tool', spanId: 'sp-b', label: 'Edit', durationMs: 5, isError: false, timestamp: 't2',
+        editDetails: [{ filePath: 'x.ts', toolName: 'Edit' }] },
+    ],
+    ...overrides,
+  })
+  const timelineIds = (db: SqlDb) => JSON.stringify(db.exec('SELECT id FROM timeline_entries ORDER BY position')[0]?.values)
+  const snapshot = (db: SqlDb) => JSON.stringify([
+    db.exec('SELECT session_id, model, input_tokens, workspace FROM sessions ORDER BY session_id')[0]?.values,
+    db.exec('SELECT session_id, span_id, position, label FROM timeline_entries ORDER BY session_id, position')[0]?.values,
+    db.exec('SELECT e.file_path, t.position FROM edit_details e JOIN timeline_entries t ON t.id = e.timeline_entry_id')[0]?.values,
+  ])
+  async function write(w: DatabaseWriter, card: SessionSummaryCard, ws = 'ws') {
+    w.enqueue(card, ws)
+    await w.drain()
+  }
+
+  test('an identical card leaves its rows in place but still refreshes created_at, as a rewrite would', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    await write(w, withTimeline())
+    const ids = timelineIds(db), before = snapshot(db)
+    db.run('UPDATE sessions SET created_at = 0')
+    await write(w, withTimeline())
+    assert.strictEqual(timelineIds(db), ids, 'timeline rows were rewritten')
+    assert.strictEqual(snapshot(db), before)
+    assert.ok(queryInt(db, 'SELECT created_at FROM sessions') > 0, 'created_at not refreshed')
+    db.close()
+  })
+
+  test('any change to the card, or the fallback workspace it resolves to, is written', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    await write(w, withTimeline())
+    const ids = timelineIds(db)
+    await write(w, withTimeline({ inputTokens: 1234 }))
+    assert.notStrictEqual(timelineIds(db), ids)
+    assert.strictEqual(queryInt(db, 'SELECT input_tokens FROM sessions'), 1234)
+    await write(w, withTimeline({ inputTokens: 1234 }), 'other-ws')
+    assert.strictEqual(queryValue(db, 'SELECT workspace FROM sessions'), 'other-ws')
+    const edited = withTimeline({ inputTokens: 1234 })
+    edited.timeline[1].editDetails![0].filePath = 'y.ts'
+    await write(w, edited, 'other-ws')
+    assert.strictEqual(queryValue(db, 'SELECT file_path FROM edit_details'), 'y.ts')
+    db.close()
+  })
+
+  test('a row deleted since (retention, clearAll) or replaced by an import is written again', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    await write(w, withTimeline())
+    const full = snapshot(db)
+    db.run(`DELETE FROM sessions WHERE session_id = 'sess-1'`)
+    await write(w, withTimeline())
+    assert.strictEqual(snapshot(db), full)
+    w.clearAll()
+    await write(w, withTimeline())
+    assert.strictEqual(snapshot(db), full)
+    w.importCards([makeCard({ model: 'imported' })])
+    await write(w, withTimeline())
+    assert.strictEqual(snapshot(db), full)
+    db.close()
+  })
+
+  test('a card whose blob write failed is written again next time, so the blob is retried', async () => {
+    let fail = true
+    const written: string[] = []
+    const fakeFs = {
+      stat:      (uri: vscode.Uri) => written.includes(uri.path) ? Promise.resolve({}) : Promise.reject(new Error('not found')),
+      writeFile: (uri: vscode.Uri) => { if (fail) return Promise.reject(new Error('disk full')); written.push(uri.path); return Promise.resolve() },
+    }
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri('blob-retry'), () => {}, fakeFs as unknown as typeof import('vscode').workspace.fs)
+    const card = () => makeCard({
+      timeline: [{ type: 'llm', spanId: 'sp-retry', label: 'LLM', durationMs: 1, isError: false, timestamp: '', responseText: 'x'.repeat(600) }],
+    })
+    await write(w, card())
+    fail = false
+    await write(w, card())
+    assert.ok(written.some(p => p.includes('sp-retry-response.txt')))
     db.close()
   })
 })

@@ -78,3 +78,54 @@ function acquireLock(lockPath: string): boolean {
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
+
+// A holder of the async lock below does network I/O inside its critical section (a token refresh
+// round trip, bounded by oauthClient's own 15 s request timeout), so a waiter has to be willing to
+// wait longer than the synchronous lock's 2 s -- and must not busy-block the event loop doing it.
+const ASYNC_ACQUIRE_TIMEOUT_MS = 20_000
+
+/**
+ * `withFileLock`'s asynchronous counterpart, for a critical section that has to await something
+ * -- the credential file's refresh-then-save (see `org/tokenRefresh.ts`), where two TraceRoost
+ * hosts rotating the same refresh token at once would leave one of them holding a pair the server
+ * has already replaced. Same lock file and stale-lock rules as `withFileLock`, and the same safe
+ * degrade: if the lock can't be acquired within `ASYNC_ACQUIRE_TIMEOUT_MS`, `fn` runs unlocked.
+ * Waits with timers instead of `Atomics.wait`, so a waiting host keeps serving its event loop.
+ */
+export async function withFileLockAsync<T>(targetPath: string, fn: () => Promise<T>): Promise<T> {
+  const lockPath = `${targetPath}.lock`
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true })
+  const deadline = Date.now() + ASYNC_ACQUIRE_TIMEOUT_MS
+  let acquired = false
+  for (;;) {
+    if (tryAcquire(lockPath)) { acquired = true; break }
+    if (Date.now() >= deadline) break
+    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * 5))
+  }
+  try {
+    return await fn()
+  } finally {
+    if (acquired) {
+      try { fs.rmSync(lockPath, { force: true }) } catch { /* already gone */ }
+    }
+  }
+}
+
+/** One non-blocking attempt at `acquireLock`'s create-or-steal-if-stale step. */
+function tryAcquire(lockPath: string): boolean {
+  try {
+    const fd = fs.openSync(lockPath, 'wx')
+    fs.writeSync(fd, String(process.pid))
+    fs.closeSync(fd)
+    return true
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+  }
+  try {
+    if (Date.now() - fs.statSync(lockPath).mtimeMs > STALE_LOCK_MS) {
+      fs.rmSync(lockPath, { force: true })
+      return tryAcquire(lockPath)
+    }
+  } catch { /* lock disappeared between our failed create and this stat -- next attempt retries */ }
+  return false
+}

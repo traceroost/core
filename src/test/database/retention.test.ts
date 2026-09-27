@@ -7,12 +7,14 @@ import { DatabaseWriter } from '../../database/writer'
 import { runRetention } from '../../database/retention'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 import type * as vscode from 'vscode'
+import type { SqlStatement } from '../../database/db'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
+  prepare(sql: string): SqlStatement
   export(): Uint8Array
   close(): void
 }

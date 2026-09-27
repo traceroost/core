@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { gitOutcomes, focusedSessionId, activeTab, COLORS, goToHelp } from '../state'
 import { getAgentColor, getAgentSourceLabel, formatCompact } from '../utils'
+import { dayKeyUtc } from '../sessionMetrics'
 import type { SessionSummaryCard, GitOutcome, FileOutcome } from '../types'
 import { OUTCOME_META } from './Sessions'
 
@@ -389,7 +390,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
     const halfSlot = slotW / 2
     const halfBar = Math.max(0.5, halfSlot - barPad)
 
-    const dayKey = (t: string) => t ? new Date(t).toISOString().slice(0, 10) : 'none'
+    const dayKey = (t: string) => t ? dayKeyUtc(t) : 'none'
     const textColor = cs.getPropertyValue('--vscode-descriptionForeground').trim() || '#888'
     let lastDayLabelX = -Infinity
     const MIN_DAY_LABEL_GAP = 30

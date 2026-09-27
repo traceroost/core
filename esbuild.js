@@ -10,6 +10,11 @@ const watch = process.argv.includes('--watch');
 // shell or a .env file. See src/cloud/org/config.ts's resolveOrgEnvironment().
 const releaseDefine = { 'process.env.TRACEROOST_RELEASE_BUILD': production ? '"1"' : '""' };
 
+// jsonc-parser's `main` is a UMD build whose internal require('./impl/...') calls esbuild can't
+// follow, so the bundle would throw "Cannot find module './impl/format'" at runtime. Point the
+// Node bundles at its ESM build instead (src/autoConfigNode.ts).
+const nodeAlias = { 'jsonc-parser': path.join(__dirname, 'node_modules', 'jsonc-parser', 'lib', 'esm', 'main.js') };
+
 function copySqlWasm() {
   const sqlJsDir = path.join(__dirname, 'node_modules', 'sql.js', 'dist');
   const distDir  = path.join(__dirname, 'dist');
@@ -52,6 +57,7 @@ async function main() {
 		outfile: 'dist/extension.js',
 		external: ['vscode', 'sql.js'],
 		define: releaseDefine,
+		alias: nodeAlias,
 		logLevel: 'silent',
 		plugins: [
 			/* add to the end of plugins array */
@@ -97,6 +103,7 @@ async function main() {
 		platform: 'node',
 		outfile: 'standalone/server.js',
 		define: releaseDefine,
+		alias: nodeAlias,
 		logLevel: 'silent',
 		plugins: [esbuildProblemMatcherPlugin],
 	});
@@ -110,7 +117,13 @@ async function main() {
 		sourcesContent: false,
 		platform: 'node',
 		outfile: 'standalone/cli.js',
+		// cli.ts only reaches the server via `import('./server.js')` — left external, that's a
+		// runtime require of the sibling standalone/server.js (built just above, and shipped next to
+		// cli.js in the npm package), instead of a second copy of the whole server bundle inlined
+		// here that every `traceroost <subcommand>` had to read and compile before doing anything.
+		external: ['./server.js'],
 		define: releaseDefine,
+		alias: nodeAlias,
 		logLevel: 'silent',
 		plugins: [esbuildProblemMatcherPlugin],
 	});

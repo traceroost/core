@@ -104,6 +104,9 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    version — `pnpm-lock.yaml` doesn't carry a root package version field, and there's no separate
    `standalone/`/`media/` package.json. Grep to confirm this is still true before assuming it:
    `grep -rn "\"version\": \"<old-version>\"" --include=package.json .`
+   `release.yml` and `docker.yml` both refuse a `vX.Y.Z` tag that doesn't equal this version, so
+   a forgotten bump fails the release instead of publishing (or pushing Docker `:latest`) under
+   the wrong number.
 
 5. Commit directly to `main` — release commits in this repo are the one established exception to
    the normal "always branch + PR" workflow used for everything else. `main` has branch protection

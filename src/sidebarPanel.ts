@@ -2,8 +2,9 @@ import * as vscode from 'vscode'
 import { SessionRepository } from './sessionRepository'
 import { nanoToMs } from './summarizers/helpers'
 import { Span } from './types'
-import { calcTokenCostUsd } from './pricing'
+import { calcSessionCostUsd, type CostTimelineEntry } from './pricing'
 import { SessionSummaryCard } from './summarizers/summarizerTypes'
+import { escapeHtml, getNonce, safeJsonForScript } from './webviewHtml'
 
 // Only the most recent N sessions feed the average — averaging over full history let one
 // unusually long session skew the bar-scaling average for everyone after it, especially
@@ -26,6 +27,9 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   private cachedTimelineSessionId: string | null = null
   private cachedTimelineTurns = 0
   private cachedTurnInputTokens: number[] = []
+  // LLM entries of the cached session — per-call tokens so costUsd matches the stored cost_usd
+  // (per-call pricing, long-context tier included) instead of tiering the session's totals.
+  private cachedLlmEntries: CostTimelineEntry[] = []
 
   constructor(
     private repo: SessionRepository,
@@ -69,6 +73,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
           this.cachedTimelineSessionId = null
           this.cachedTimelineTurns = 0
           this.cachedTurnInputTokens = []
+          this.cachedLlmEntries = []
           vscode.commands.executeCommand('traceRoost.clearSessions')
         }
       }
@@ -125,6 +130,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
           this.cachedTimelineSessionId = latest.sessionId
           this.cachedTimelineTurns = llmTurns
           this.cachedTurnInputTokens = turnInputTokens
+          this.cachedLlmEntries = entries.filter(e => e.type === 'llm')
         } catch {
           turnInputTokens = this.cachedTurnInputTokens
         }
@@ -146,7 +152,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       outputTokens: latest.outputTokens,
       cacheReadTokens: latest.cacheReadTokens,
       cacheCreateTokens: latest.cacheCreateTokens,
-      costUsd: calcTokenCostUsd(Math.max(0, latest.inputTokens - latest.cacheReadTokens - latest.cacheCreateTokens), latest.cacheReadTokens, latest.cacheCreateTokens, latest.outputTokens, latest.model),
+      costUsd: calcSessionCostUsd({ ...latest, timeline: this.cachedTimelineSessionId === latest.sessionId ? this.cachedLlmEntries : [] }),
     } : null
 
     this.view.webview.postMessage({
@@ -212,6 +218,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         this.cachedTimelineSessionId = latest.sessionId
         this.cachedTimelineTurns = latest.totalLlmCalls
         this.cachedTurnInputTokens = turnInputTokens
+        this.cachedLlmEntries = entries.filter(e => e.type === 'llm')
       } catch { /* empty timeline */ }
     }
 
@@ -230,7 +237,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       outputTokens: latest.outputTokens,
       cacheReadTokens: latest.cacheReadTokens,
       cacheCreateTokens: latest.cacheCreateTokens,
-      costUsd: calcTokenCostUsd(Math.max(0, latest.inputTokens - latest.cacheReadTokens - latest.cacheCreateTokens), latest.cacheReadTokens, latest.cacheCreateTokens, latest.outputTokens, latest.model),
+      costUsd: calcSessionCostUsd({ ...latest, timeline: this.cachedTimelineSessionId === latest.sessionId ? this.cachedLlmEntries : [] }),
     } : null
 
     const burnRate = burnRateResult ? {
@@ -240,7 +247,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
     const { avgInputTokens, avgOutputTokens } = tokenAverages(all)
 
-    const initData = JSON.stringify({
+    const initData = safeJsonForScript({
       lastActivityMs: activity.lastMs,
       agentSources,
       sessionCount: all.length,
@@ -254,10 +261,13 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     const sidebarJsUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'media', 'sidebar.js')
     )
+    const nonce = getNonce()
 
     return `<!DOCTYPE html>
 <html>
 <head>
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <style>
   * { box-sizing: border-box; }
   body {
@@ -347,8 +357,8 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   ${this.collectorError ? `
   <div class="sb-error-banner" id="sb-err-banner">
     <div style="font-weight:600;margin-bottom:3px">&#9888; Collector not running</div>
-    <div>${this.collectorError}</div>
-    <button onclick="document.getElementById('sb-err-banner').remove()"
+    <div>${escapeHtml(this.collectorError)}</div>
+    <button id="sb-err-dismiss"
       style="margin-top:6px;font-size:10px;padding:2px 8px;cursor:pointer;background:transparent;border:1px solid currentColor;border-radius:3px;color:inherit">Dismiss</button>
   </div>` : ''}
 
@@ -441,8 +451,13 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     <span><span id="sb-session-count">0</span> traces stored</span>
   </div>
 
-  <script>var __SIDEBAR_INIT__ = ${initData};</script>
-  <script src="${sidebarJsUri}"></script>
+  <script nonce="${nonce}">
+    var __SIDEBAR_INIT__ = ${initData};
+    document.getElementById('sb-err-dismiss')?.addEventListener('click', function () {
+      document.getElementById('sb-err-banner')?.remove()
+    });
+  </script>
+  <script nonce="${nonce}" src="${sidebarJsUri}"></script>
 </body>
 </html>`
   }

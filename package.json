@@ -211,7 +211,28 @@
   "bin": {
     "traceroost": "./standalone/cli.js"
   },
+  "files": [
+    "dist/*.js",
+    "dist/*.wasm",
+    "standalone/cli.js",
+    "standalone/server.js",
+    "standalone/cloud/LICENSE",
+    "media/*.js",
+    "media/*.css",
+    "media/*.svg",
+    "media/*.png",
+    "schema/*.json",
+    "walkthrough/*.md",
+    "scripts/configure-*.sh",
+    "scripts/configure-*.ps1",
+    "scripts/redact-spans.js",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
   "scripts": {
+    "prepare": "node -e \"try{if(!process.env.CI&&require('fs').existsSync('.git'))require('child_process').execFileSync('git',['config','core.hooksPath','.githooks'],{stdio:'ignore'})}catch{}\"",
     "vscode:prepublish": "pnpm run package",
     "prepublishOnly": "pnpm run package",
     "compile": "pnpm run check-types && pnpm run lint && node esbuild.js",
@@ -264,8 +285,9 @@
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
     "fflate": "^0.8.3",
+    "jsonc-parser": "^3.3.1",
     "preact": "^10.29.1",
-    "sql.js": "^1.14.1"
+    "sql.js": "^1.14.2"
   },
   "pnpm": {
     "overrides": {

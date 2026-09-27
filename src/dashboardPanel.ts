@@ -19,6 +19,8 @@ import { resolveGithubUrl } from './repoRemote'
 import { orgEndpoint } from './cloud/org/config'
 import { maybeEnqueueInstructionTelemetry, type SuggestionLedger } from './cloud/org/instructionTelemetry'
 import { drainForwardQueueSoon } from './cloud/forward/scheduler'
+import { getNonce, safeJsonForScript } from './webviewHtml'
+import { WebviewSessionSync } from './webviewSessionSync'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {
@@ -30,8 +32,42 @@ function isExportFormat(value: unknown): value is ExportFormat {
   return value === 'json' || value === 'csv' || value === 'markdown'
 }
 
+// ── Webview message guards ───────────────────────────────────────────────────
+// Messages come from a webview that renders span data (prompts, tool output) — treat their
+// fields as untrusted input, not as commands the extension host obeys verbatim.
+
+/** True when `key` (unprefixed, e.g. `enableMcpServer`) is a `traceRoost.*` setting this extension
+ *  declares in package.json, and `value` has that setting's declared JSON type. */
+function isDeclaredSettingUpdate(packageJSON: unknown, key: string, value: unknown): boolean {
+  const contributes = (packageJSON as { contributes?: { configuration?: unknown } } | undefined)?.contributes
+  const sections = Array.isArray(contributes?.configuration) ? contributes.configuration : [contributes?.configuration]
+  for (const section of sections) {
+    const props = (section as { properties?: Record<string, { type?: string | string[] }> } | undefined)?.properties
+    const decl = props && Object.prototype.hasOwnProperty.call(props, `traceRoost.${key}`) ? props[`traceRoost.${key}`] : undefined
+    if (!decl) { continue }
+    const types = Array.isArray(decl.type) ? decl.type : decl.type ? [decl.type] : []
+    if (types.length === 0) { return true }
+    return types.some(t =>
+      t === 'integer' ? Number.isInteger(value)
+        : t === 'array' ? Array.isArray(value)
+        : t === 'null' ? value === null
+        : t === 'object' ? typeof value === 'object' && value !== null && !Array.isArray(value)
+        : typeof value === t)
+  }
+  return false
+}
+
+/** `child` resolves to `parent` itself or somewhere beneath it. */
+function isPathInside(parent: string, child: string): boolean {
+  const rel = path.relative(path.resolve(parent), path.resolve(child))
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined
+  /** The port the MCP server actually bound (set by extension.ts) — it can differ from the
+   *  configured traceRoost.mcpPort when that port was busy and listenWithFallback moved on. */
+  public static boundMcpPort: number | undefined
   private readonly panel: vscode.WebviewPanel
   private disposables: vscode.Disposable[] = []
   private pendingUpdate: ReturnType<typeof setTimeout> | undefined
@@ -54,6 +90,8 @@ export class DashboardPanel {
   // reconciliationService.ts (which has its own copy for the same window, ACTIVE_GRACE_MS) since
   // this one has nothing to do with git-outcome reconciliation.
   private static readonly GIT_OUTCOME_ACTIVE_GRACE_MS = 2 * 60_000
+  // What the webview already holds, so update() posts only what changed.
+  private readonly sessionSync = new WebviewSessionSync()
 
   static show(context: vscode.ExtensionContext, repo: SessionRepository, sidebarProvider?: SidebarPanel, instructionRepo?: InstructionRepository, rawDb?: TurnoverDb, reconciliation?: ReconciliationService) {
     if (DashboardPanel.currentPanel) {
@@ -134,7 +172,12 @@ export class DashboardPanel {
         }
         return
       }
-      if (msg.type === 'loadSessionDetail' && msg.sessionId) {
+      if (msg.type === 'requestFullUpdate') {
+        // The webview's copy no longer matches what this panel last posted (reloaded, or a post
+        // was missed) — start over from a full post.
+        this.sessionSync.reset()
+        this.update()
+      } else if (msg.type === 'loadSessionDetail' && msg.sessionId) {
         const timeline = this.repo.loadSessionTimeline(msg.sessionId as string)
         this.panel.webview.postMessage({ type: 'sessionDetail', sessionId: msg.sessionId, timeline })
       } else if (msg.type === 'getGitOutcome' && msg.sessionId) {
@@ -146,27 +189,27 @@ export class DashboardPanel {
         ).catch(err => console.error('[TraceRoost] sendGitOutcome failed:', err))
       } else if (msg.type === 'getRepoHash' && msg.workspace) {
         void this.sendRepoHash(msg.workspace as string)
-      } else if (msg.type === 'loadBlob' && msg.spanId && msg.field) {
-        const content = await this.repo.loadBlob(
-          msg.spanId as string,
-          msg.field as 'response' | 'thinking' | 'tool-input' | 'full-result' | 'edit-old' | 'edit-new',
-          msg.editIndex as number | undefined,
-        )
-        this.panel.webview.postMessage({ type: 'blobContent', spanId: msg.spanId, field: msg.field, content })
-      } else if (msg.type === 'askAI' && msg.prompt) {
-        const prompt = `The following efficiency issue was detected in my AI coding trace. Help me fix it:\n\n${msg.prompt}`
-        openAIChat(prompt, msg.agent)
       } else if (msg.type === 'alert' && msg.label) {
         handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider, rawDb)
       } else if (msg.type === 'automation' && msg.prompt) {
         handleAutomation(msg as { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; prompt: string })
-      } else if (msg.type === 'openFile' && msg.filePath) {
+      } else if (msg.type === 'openFile' && typeof msg.filePath === 'string' && msg.filePath) {
+        // Only files in an open workspace folder, in a workspace some recorded session ran in, or
+        // in an agent's own config/log directory — never an arbitrary path the webview names.
+        const home = require('os').homedir() as string
+        const roots = [
+          ...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
+          ...this.repo.listSessions().map(s => s.workspace).filter((w): w is string => typeof w === 'string' && path.isAbsolute(w)),
+          path.join(home, '.claude'), path.join(home, '.codex'), path.join(home, '.traceroost'),
+        ]
+        if (!path.isAbsolute(msg.filePath) || !roots.some(r => isPathInside(r, msg.filePath))) {
+          vscode.window.showWarningMessage(`TraceRoost: Not opening ${msg.filePath} — it is outside your workspace.`)
+          return
+        }
         const uri = vscode.Uri.file(msg.filePath)
         vscode.window.showTextDocument(uri, { preview: true }).then(undefined, () => {
           vscode.window.showWarningMessage(`Could not open file: ${msg.filePath}`)
         })
-      } else if (msg.type === 'agentFilterChanged' && this.sidebarProvider) {
-        this.sidebarProvider.setAgentFilter(msg.value || 'all')
       } else if (msg.type === 'searchSessions' && msg.query) {
         const result = this.repo.searchSessions(msg.query as import('./sessionRepository').SearchQuery)
         this.panel.webview.postMessage({
@@ -197,6 +240,7 @@ export class DashboardPanel {
           vscode.commands.executeCommand('traceRoost.clearSessions')
         }
       } else if (msg.type === 'setVsCodeConfig' && typeof msg.key === 'string') {
+        if (!isDeclaredSettingUpdate(this.context.extension.packageJSON, msg.key, msg.value)) { return }
         void vscode.workspace.getConfiguration('traceRoost').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
       } else if (msg.type === 'reconfigureOtel') {
         const port = vscode.workspace.getConfiguration('traceRoost').get<number>('otlpPort', 4318)
@@ -224,7 +268,13 @@ export class DashboardPanel {
         }
         const wsFolders = vscode.workspace.workspaceFolders
         const wsRoot = wsFolders?.[0]?.uri.fsPath ?? workspace
-        const absPath = require('path').join(wsRoot, targetFile)
+        const absPath = path.resolve(wsRoot, String(targetFile ?? ''))
+        // targetFile names an instruction file in the workspace (CLAUDE.md, AGENTS.md, …);
+        // `../../.bashrc` or an absolute path elsewhere must not become a write target.
+        if (!targetFile || typeof targetFile !== 'string' || absPath === path.resolve(wsRoot) || !isPathInside(wsRoot, absPath)) {
+          vscode.window.showErrorMessage(`TraceRoost: Refusing to apply suggestion — ${targetFile} is outside the workspace.`)
+          return
+        }
         try {
           appendSuggestion(absPath, appliedText, id)
           const sessions = this.repo.listSessions().filter(s => (s.workspace ?? '') === workspace)
@@ -255,7 +305,7 @@ export class DashboardPanel {
           const wsFolders = vscode.workspace.workspaceFolders
           const wsRoot = wsFolders?.[0]?.uri.fsPath ?? workspace
           const absPath = require('path').join(wsRoot, applied.appliedTo)
-          removeSuggestion(absPath, id)
+          removeSuggestion(absPath, id, applied.appliedText)
           this.instructionRepo.removeApplied(id)
           const records = this.instructionRepo.getApplied(workspace)
           this.panel.webview.postMessage({ type: 'appliedSuggestions', records })
@@ -333,9 +383,6 @@ export class DashboardPanel {
   update() {
     const sessions = this.repo.listSessions()
     const summary = this.repo.store_.getSummary()
-    const sessionSummary = sessions.length > 0
-      ? { sessions, backgroundSpans: [], efficiency: buildEfficiency(sessions) }
-      : null
 
     // Analytics data: 7-day hourly stats + lifetime totals.
     const since7d = Date.now() - 7 * 86_400_000
@@ -349,15 +396,21 @@ export class DashboardPanel {
       ? this.repo.queryBurnRate(activeSession.sessionId)
       : null
 
+    // Only what changed since the last post — see webviewSessionSync.ts.
+    const sync = this.sessionSync.next(
+      sessions,
+      () => buildEfficiency(sessions),
+      { dailyStats, lifetimeStats },
+      burnRateResult
+        ? { sessionId: activeSession!.sessionId, ...burnRateResult }
+        : null,
+    )
+
     const cfg = vscode.workspace.getConfiguration('traceRoost')
     this.panel.webview.postMessage({
       type: 'update',
       summary,
-      sessionSummary,
-      analyticsData: { dailyStats, lifetimeStats },
-      burnRate: burnRateResult
-        ? { sessionId: activeSession!.sessionId, ...burnRateResult }
-        : null,
+      ...sync,
       enableOtelIngestion: cfg.get<boolean>('enableOtelIngestion', true),
       enableLogIngestion: cfg.get<boolean>('enableLogIngestion', true),
       otlpPort: cfg.get<number>('otlpPort', 4318),
@@ -599,13 +652,15 @@ export class DashboardPanel {
     const sessionSummary = sessions.length > 0
       ? { sessions, backgroundSpans: [], efficiency: buildEfficiency(sessions) }
       : null
+    const sessionRev = this.sessionSync.seed(sessions)
 
     const mcpEnabled = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableMcpServer', true)
-    const mcpPort    = vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
+    const mcpPort    = DashboardPanel.boundMcpPort ?? vscode.workspace.getConfiguration('traceRoost').get<number>('mcpPort', 4316)
 
     const initialData = `<script nonce="${nonce}">
         window.__INITIAL_TOOL_CALLS__ = ${safeJsonForScript(summary.toolCalls)};
         window.__INITIAL_SESSION_SUMMARY__ = ${safeJsonForScript(sessionSummary)};
+        window.__INITIAL_SESSION_REV__ = ${sessionRev};
         window.__VERSION__ = ${safeJsonForScript(this.context.extension.packageJSON.version)};
         window.__MCP_ENABLED__ = ${mcpEnabled};
         window.__MCP_PORT__ = ${mcpPort};
@@ -724,17 +779,6 @@ async function handleAlertNotification(
   })
 }
 
-async function openAIChat(prompt: string, agent?: string): Promise<void> {
-  const commands = await vscode.commands.getCommands(true)
-  if (agent === 'copilot') {
-    const cmd = ['github.copilot.chat.open', 'workbench.action.chat.open'].find(c => commands.includes(c))
-    if (cmd) { vscode.commands.executeCommand(cmd, { query: prompt }); return }
-  }
-  await vscode.env.clipboard.writeText(prompt)
-  const label = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'AI'
-  vscode.window.showInformationMessage(`TraceRoost: Prompt copied — paste into your ${label} session.`)
-}
-
 async function writeAutomationPrompt(agent: string, label: string, fullPrompt: string): Promise<string | undefined> {
   const agentSlug = agent === 'claude_code' ? 'claude' : agent === 'codex' ? 'codex' : 'copilot'
   const agentName = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'Copilot'
@@ -781,18 +825,3 @@ async function handleAutomation(msg: { label: string; writePromptsFile: boolean;
   }
 }
 
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let nonce = ''
-  for (let i = 0; i < 32; i++) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return nonce
-}
-
-function safeJsonForScript(data: unknown): string {
-  return JSON.stringify(data)
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--')
-    .replace(/\$\{/g, '\\${')
-}

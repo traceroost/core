@@ -258,6 +258,23 @@ suite('detectExactToolRepeat', () => {
     assert.strictEqual(signals.length, 0)
   })
 
+  test('a label idle across several edits restarts from zero when it resumes', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [
+        ...Array.from({ length: 20 }, () => makeTool('run_tests')),
+        makeEdit('src/a.ts', 'x', 'y'),
+        makeTool('lint'),
+        makeEdit('src/a.ts', 'y', 'z'),
+        ...Array.from({ length: 30 }, () => makeTool('run_tests')),
+      ],
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 30)
+    assert.strictEqual(signals[0].severity, 'warning')
+  })
+
   test('does not sum partial streaks across an edit boundary', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
@@ -412,6 +429,35 @@ suite('detectEditRevertCycle', () => {
     detectEditRevertCycle(session, signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].count, 2)
+  })
+
+  test('critical when a file reverted earlier is reverted again as its final edit', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [
+        makeEdit('a.ts', 'x', 'y'),
+        makeEdit('a.ts', 'y', 'x'), // first revert
+        makeEdit('a.ts', 'x', 'z'),
+        makeEdit('a.ts', 'z', 'x'), // reverted again — and it's the last edit
+      ],
+    })
+    detectEditRevertCycle(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].severity, 'critical')
+    assert.strictEqual(signals[0].count, 1)
+  })
+
+  test('warning when the file moved on after its revert', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: [
+        makeEdit('a.ts', 'x', 'y'),
+        makeEdit('a.ts', 'y', 'x'),
+        makeEdit('a.ts', 'x', 'w'),
+      ],
+    })
+    detectEditRevertCycle(session, signals)
+    assert.strictEqual(signals[0].severity, 'warning')
   })
 
   test('ignores entries without editDetails', () => {
@@ -1210,10 +1256,14 @@ suite('detectCacheMiss', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       model: 'claude-opus-5',
-      timeline: [makeLlmCacheEntry(0, 112_000, 8_000, new Date().toISOString())],
+      timeline: [
+        makeLlmCacheEntry(0, 0, 112_000, new Date().toISOString()), // cold first call — never a miss
+        makeLlmCacheEntry(0, 112_000, 8_000, new Date().toISOString()),
+      ],
     })
     detectCacheMiss(session, signals)
     assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 1)
     assert.strictEqual(signals[0].severity, 'warning')
     const expectedWasteUsd = (8_000 / 1_000_000) * 6.25 - (8_000 / 1_000_000) * 0.50
     assert.ok(signals[0].evidence.includes(expectedWasteUsd.toFixed(3)), signals[0].evidence)
@@ -1223,10 +1273,49 @@ suite('detectCacheMiss', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       model: 'claude-opus-5',
-      timeline: [makeLlmCacheEntry(0, 90_000, 10_000, new Date().toISOString())],
+      timeline: [
+        makeLlmCacheEntry(0, 0, 90_000, new Date().toISOString()),
+        makeLlmCacheEntry(0, 90_000, 10_000, new Date().toISOString()),
+      ],
     })
     detectCacheMiss(session, signals)
     assert.strictEqual(signals[0].severity, 'critical')
+  })
+
+  test('the cold first call of a session (everything written to cache) is not a miss', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [makeLlmCacheEntry(0, 0, 40_000, new Date().toISOString())],
+    })
+    detectCacheMiss(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('the first call on a second model (subagent / model switch) is cold too', () => {
+    const signals: LoopSignal[] = []
+    const haiku = { ...makeLlmCacheEntry(0, 0, 30_000, new Date().toISOString()), model: 'claude-haiku-4-5' }
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [makeLlmCacheEntry(0, 0, 40_000, new Date().toISOString()), haiku],
+    })
+    detectCacheMiss(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('inclusive inputTokens is not double-counted into the prefix', () => {
+    // 2,100 re-written of a 40,000-token prompt (inputTokens inclusive of cache) = 5.25% → miss.
+    // Summing input + cacheRead + cacheCreate would make the prefix 80,000 and the share 2.6%.
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      model: 'claude-opus-5',
+      timeline: [
+        makeLlmCacheEntry(37_000, 0, 37_000, new Date().toISOString()),
+        makeLlmCacheEntry(40_000, 37_900, 2_100, new Date().toISOString()),
+      ],
+    })
+    detectCacheMiss(session, signals)
+    assert.strictEqual(signals.length, 1)
   })
 })
 
@@ -1354,6 +1443,18 @@ suite('detectBudgetOverrun', () => {
     detectBudgetOverrun(session, signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].severity, 'warning')
+  })
+
+  test('cache tokens are not double-counted (inputTokens is inclusive of cache)', () => {
+    process.env[ENV_KEY] = '1'
+    const signals: LoopSignal[] = []
+    // 1M inclusive input of which 900K cache reads: 100K × $5 + 900K × $0.50 = $0.95 < $1 cap.
+    // Pricing the inclusive 1M as raw input on top of the cache reads would be $5.45.
+    const session = makeSession({
+      model: 'claude-opus-5', inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 900_000, cacheCreateTokens: 0,
+    })
+    detectBudgetOverrun(session, signals)
+    assert.strictEqual(signals.length, 0)
   })
 
   test('no signal when under the cap', () => {

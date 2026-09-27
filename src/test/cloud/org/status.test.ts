@@ -20,7 +20,7 @@ const LINKED: OrgCredentials = {
   orgName: 'Acme Corp',
   memberId: 'mem-1',
   email: 'dev@example.com',
-  role: 'member',
+  role: 'developer',
   perDeveloperVisibility: false,
   accessToken: 'access-1',
   refreshToken: 'refresh-1',

@@ -928,7 +928,7 @@ flowchart TD
     CP_KEYS --> CP_OUT{Changed?}
     CP_OUT -- yes --> RELOAD[Show 'Reload VSCode' prompt]
 
-    CC_CFG --> CC_KEYS["env block:<br/>CLAUDE_CODE_ENABLE_TELEMETRY=1<br/>OTEL_TRACES_EXPORTER=otlp<br/>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:{port}<br/>OTELlog flags for tool details + user prompts<br/><br/>Stop hook → pending-prompt.txt"]
+    CC_CFG --> CC_KEYS["env block:<br/>CLAUDE_CODE_ENABLE_TELEMETRY=1<br/>OTEL_TRACES_EXPORTER=otlp<br/>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:{port}<br/>OTELlog flags for tool details + user prompts"]
 
     CX_CFG --> CX_KEYS["toml otel section:<br/>log_user_prompt = true<br/>exporter otlp-http endpoint=...<br/>trace_exporter otlp-http endpoint=..."]
 
@@ -968,7 +968,7 @@ flowchart TD
     MAC & LIN & WIN --> CFG[Write ~/.traceroost/config.json<br/>ports · bindHost · dataDir]
     CFG --> LOG[All 3 platforms redirect stdout/stderr<br/>to dataDir/logs/service.log]
 
-    STATUS["traceroost service status"] --> PROBE["HTTP GET http://bindHost:uiPort/<br/>(same convention as the Dockerfile HEALTHCHECK)"]
+    STATUS["traceroost service status"] --> PROBE["HTTP GET http://bindHost:uiPort/health<br/>(wildcard bind → loopback, IPv6 bracketed;<br/>same convention as the Dockerfile HEALTHCHECK)"]
 
     UPDATE["traceroost service update"] --> NPMLATEST["npm install -g traceroost@latest"]
     NPMLATEST --> RESTART["platformService.restart&#40;&#41;<br/>(re-execs whatever now sits at the same install path)"]
@@ -988,10 +988,13 @@ it was already current).
 `standalone/server.ts` reads `~/.traceroost/config.json` at startup as a fallback underneath the
 existing `OTLP_PORT`/`UI_PORT`/`MCP_PORT`/`BIND_HOST`/`DATA_DIR` env vars (env var still wins if
 set), so an ad-hoc `npx`/`node standalone/server.js` run and a service install share one config
-story instead of diverging.
+story instead of diverging. `service install` writes `config.json` just before registering the
+service (the freshly started server reads it immediately) and, if registration fails, rolls the
+service back and restores whatever `config.json` held before.
 
-`uninstall` removes the service definition only — it never touches `~/.traceroost`'s data or
-config, matching the same separation the extension's Clear-All-Data command already keeps between
+`uninstall` removes the service definition only (on Windows that includes the generated
+`<dataDir>/service/run.cmd` wrapper, and a task that's already gone isn't an error) — it never
+touches `~/.traceroost`'s data or config, matching the same separation the extension's Clear-All-Data command already keeps between
 "stop this from running" and "delete my data."
 
 ---
@@ -1330,8 +1333,10 @@ traceroost/
 │   └── sidebar.js                # Compiled sidebar script
 ├── standalone/
 │   ├── server.ts                 # Standalone HTTP server (no VS Code)
-│   ├── cli.ts                    # npx entrypoint: `traceroost` / `traceroost` — dispatches to
-│   │                              #   `service` subcommand or starts the server directly
+│   ├── cli.ts                    # npx entrypoint: `traceroost` — dispatches `service`, `org`,
+│   │                              #   `find`/`trace`/`patterns`, `advise`/`cluster`, `cohort`,
+│   │                              #   `--explain-payload`; no args (or flags only) starts the server;
+│   │                              #   any other word prints usage and exits 1
 │   └── service/
 │       ├── index.ts              # `traceroost service <cmd>` dispatch, npx-bootstrap, logs/status
 │       ├── health.ts             # HTTP probe used by `service status` on all 3 platforms

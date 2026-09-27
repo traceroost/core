@@ -11,7 +11,6 @@
 
 import { execFileSync } from 'child_process'
 import { loadAllSessions } from './sessionLoader'
-import { calcTokenCostUsd } from '../../src/pricing'
 import { classifySessionOutcome } from '../../src/gitOutcome'
 import { readServiceConfig, ensureInstallId } from '../../src/serviceConfig'
 import { loadCredentials } from '../../src/cloud/org/credentials'
@@ -127,18 +126,10 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
       console.log('')
       continue
     }
-    const cost = calcTokenCostUsd(
-      Math.max(0, card.inputTokens - card.cacheReadTokens - (card.cacheCreateTokens ?? 0)),
-      card.cacheReadTokens,
-      card.cacheCreateTokens ?? 0,
-      card.outputTokens,
-      card.model,
-    )
     const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [])
     const payload = sessionRollupPayload(toInput(card), {
       repoKey: rk.ctx,
       branch: currentBranch(rk.ctx.root),
-      costUsd: cost,
       outcome: outcome?.overall,
     })
     assertValidRollupPayload(payload)
