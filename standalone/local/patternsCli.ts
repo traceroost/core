@@ -7,34 +7,20 @@
  * counts — never a filename, a repo name, or which files were actually touched. This resolves
  * the hash locally (same trick as cohortCli.ts) and prints what cloud can't: the files these
  * sessions actually touched and the loop/behavioral patterns detected in them.
+ *
+ * Local analysis only — a plain repo name works on any install. Resolving a cloud `repo_hash` is
+ * the one cloud step, injected as `resolveHash` (see repoResolve.ts).
  */
 
 import { loadSessionsForWorkspace, loadAllSessions } from './sessionLoader'
-import { resolveRepoHash } from '../../src/cloud/org/resolveRepoHash'
-import { repoRootOf } from '../../src/cloud/attribution/commitScan'
+import { resolveRepoArg, type RepoHashResolver } from './repoResolve'
 import { detectLoopSignals, PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from '../../src/loopDetector'
 import type { LoopSignalType } from '../../src/types'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
-import path from 'path'
 
 function valueAfter(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag)
   return i >= 0 ? args[i + 1] : undefined
-}
-
-const HASH_RE = /^[a-f0-9]{64}$/
-
-// Same resolution order cohortCli.ts uses: a real repo_hash resolves via resolveRepoHash (the
-// only thing that can turn a one-way hash back into a path — it re-derives the key from each
-// candidate local clone rather than reversing the hash); anything else is treated as a
-// human-typed repo name/substring match against known session workspaces, falling back to cwd.
-async function resolveRepo(repoArg: string, sessionWorkspaces: string[]): Promise<string | null> {
-  if (HASH_RE.test(repoArg)) return resolveRepoHash(repoArg, sessionWorkspaces)
-  const match = sessionWorkspaces.find(w => w.toLowerCase().includes(repoArg.toLowerCase()))
-  if (match) return repoRootOf(match.replace(/^file:\/\//, ''))
-  const cwdRoot = await repoRootOf(process.cwd())
-  if (cwdRoot && path.basename(cwdRoot).toLowerCase() === repoArg.toLowerCase()) return cwdRoot
-  return null
 }
 
 export type FileTouch = { path: string; count: number }
@@ -75,8 +61,9 @@ export function groupedSignals(sessions: SessionSummaryCard[]): SignalGroup[] {
     .sort((a, b) => b.sessions - a.sessions || b.count - a.count)
 }
 
-/** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it. */
-export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard[]): Promise<number> {
+/** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it.
+ *  `resolveHash` resolves a cloud repo_hash (repoResolve.ts) — absent, only names resolve. */
+export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard[], resolveHash?: RepoHashResolver): Promise<number> {
   const repoArg = (valueAfter(args, '--repo') ?? '').trim()
   if (!repoArg) {
     console.log('Usage: traceroost patterns --repo <hash|name>')
@@ -85,7 +72,7 @@ export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard
 
   const allSessions = loaded ?? loadAllSessions()
   const workspaces = [...new Set(allSessions.map(s => s.workspace).filter(Boolean))]
-  const root = await resolveRepo(repoArg, workspaces)
+  const root = await resolveRepoArg(repoArg, workspaces, resolveHash)
   if (!root) {
     console.log('Not a repository on this machine. Nothing was requested from anywhere.')
     return 1

@@ -6,8 +6,8 @@
  * never blame output.
  */
 
-import type { AttributionCache } from '../cloud/attribution'
-import type { CommitAttribution } from '../cloud/attribution/types'
+import type { AttributionCache } from '../attribution'
+import type { CommitAttribution } from '../attribution/types'
 
 interface WriteableDb {
   exec(sql: string, params?: unknown[]): Array<{ columns: string[]; values: unknown[][] }>

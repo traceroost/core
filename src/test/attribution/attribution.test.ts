@@ -3,9 +3,9 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { attributeRepository, memoryAttributionCache } from '../../../cloud/attribution'
-import { scanCommits, hasAgentTrailer } from '../../../cloud/attribution/commitScan'
-import type { AttributionSession } from '../../../cloud/attribution/types'
+import { attributeRepository, memoryAttributionCache } from '../../attribution'
+import { scanCommits, hasAgentTrailer } from '../../attribution/commitScan'
+import type { AttributionSession } from '../../attribution/types'
 
 let repo: string
 const clock = Date.parse('2026-03-01T09:00:00Z')

@@ -11,7 +11,7 @@
  *     --outfile=/tmp/calibrateSignals.js && node /tmp/calibrateSignals.js
  */
 
-import { loadAllSessions } from '../standalone/cloud/sessionLoader'
+import { loadAllSessions } from '../standalone/local/sessionLoader'
 import { detectLoopSignals } from '../src/loopDetector'
 import { detectSessionRiskSignals } from '../src/sessionRiskSignals'
 import { classifySessionOutcome, GitOutcome } from '../src/gitOutcome'

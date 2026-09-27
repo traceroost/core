@@ -15,6 +15,7 @@
 
 import { loadAllSessions } from './sessionLoader'
 import { runPatternsCli } from './patternsCli'
+import type { RepoHashResolver } from './repoResolve'
 import { runTraceCli, findSessionById } from './traceCli'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
@@ -47,7 +48,9 @@ export function findDeepLink(hash: string, reporter?: string): string {
   return `vscode://${EXTENSION_ID}/find?${query.toString()}`
 }
 
-export async function runFindCli(args: string[]): Promise<number> {
+/** `resolveHash` resolves a cloud repo_hash (repoResolve.ts) — absent, a hash that isn't a
+ *  recorded session id reports "not a repository on this machine". */
+export async function runFindCli(args: string[], resolveHash?: RepoHashResolver): Promise<number> {
   const hash = firstPositional(args)
   const reporter = valueAfter(args, '--reporter')?.trim() || undefined
   if (!hash) {
@@ -59,7 +62,7 @@ export async function runFindCli(args: string[]): Promise<number> {
   const code =
     classify(hash, sessions) === 'trace'
       ? await runTraceCli(['--id', hash], sessions)
-      : await runPatternsCli(['--repo', hash], sessions)
+      : await runPatternsCli(['--repo', hash], sessions, resolveHash)
 
   if (code !== 0) {
     // patternsCli/traceCli already printed their own "not found" line — this just adds the one

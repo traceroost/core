@@ -23,6 +23,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **`traceroost service status` with an IPv6 or wildcard `--bind-host`** — `::`/`0.0.0.0` are probed on loopback and IPv6 addresses are bracketed, instead of always reporting "not reachable".
 - **The npm package shipped the whole repo** (CLAUDE.md, Dockerfile, docs, runbooks, scripts, `packages/`) — `package.json` now has a `files` allowlist; the VSIX's `.vscodeignore` drops the same dev-only files.
 
+### Changed
+
+- **The free, local engines and CLI commands moved out of the `cloud/` directories, and are now MIT-licensed** — `src/cloud/attribution/` → `src/attribution/`, `src/cloud/turnover/` → `src/turnover/`, and `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` → `standalone/local/` (with their tests). They were under the BSL zone only because of where they sat; they are covered by the root MIT `LICENSE` from this version on. The `cloud/` directories (BSL) now hold only TraceRoost Pro's org linking and uploading. No behavior change.
+
 ### Removed
 
 - **Copilot's "Annual plan (request)" pricing-mode toggle** — the Cost and Analytics tabs' Copilot billing model selector is gone; Copilot cost is now always estimated with token-based AI Credits, matching Claude Code, Codex, and every other agent. The Pricing page's `Request ×` and `Annual ×` multiplier columns are removed along with the underlying `multiplier`/`multiplierAnnualPostJun1` rate fields.

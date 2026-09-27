@@ -1057,11 +1057,11 @@ graph LR
 editor IntelliSense and can be run manually via `tsc -p standalone/tsconfig.json --noEmit` — it
 isn't wired into `pnpm run compile`/`check-types`, so most of `standalone/**` still won't fail CI
 on a type error alone. One slice is covered a different way: `tsconfig.test.standalone.json`
-(`standalone/cloud/{patternsCli,traceCli,findCli}.ts` + their tests) is compiled by
+(`standalone/local/{patternsCli,traceCli,findCli,repoResolve}.ts` + their tests) is compiled by
 `compile-tests:standalone`, which `pnpm run test:unit` (CI's `mocha` step) runs before `mocha` —
-so a type error in those three files does fail CI today. The rest of `standalone/**`
-(`server.ts`, `cli.ts`, `service/**`, `org-cli.ts`, `adviseCli.ts`, `cohortCli.ts`,
-`explainPayload.ts`, `sessionLoader.ts`) is still uncovered — the remaining gap.
+so a type error in those files does fail CI today. The rest of `standalone/**`
+(`server.ts`, `cli.ts`, `service/**`, `local/{adviseCli,cohortCli,sessionLoader}.ts`, and
+`cloud/{org-cli,explainPayload,clusterCli,adviseTelemetry}.ts`) is still uncovered — the remaining gap.
 
 ---
 
@@ -1157,30 +1157,32 @@ makes no request.
 
 ### The free outcome metric (AL 05–07)
 
-`src/cloud/attribution/` and `src/cloud/turnover/` are **free forever, local, single-developer**. They have
-no transport — the engines have no network path at all — and nothing they produce is gated.
+`src/attribution/` and `src/turnover/` are **free forever, local, single-developer**. They have
+no transport — the engines have no network path at all — and nothing they produce is gated. They
+sit outside `src/cloud/` (they were moved out of it) so that nothing free depends on the cloud
+directories, and they are MIT-licensed like the rest of the tool.
 
 | Module | Responsibility |
 |---|---|
-| `src/cloud/attribution/commitScan.ts` | `git log --numstat` for a repo/window; detects an agent trailer, then discards the message |
-| `src/cloud/attribution/sessionJoin.ts` | Candidate-session lookup (workspace in repo, span ends ≤ commit within a 72h lookback) |
-| `src/cloud/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
-| `src/cloud/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
+| `src/attribution/commitScan.ts` | `git log --numstat` for a repo/window; detects an agent trailer, then discards the message |
+| `src/attribution/sessionJoin.ts` | Candidate-session lookup (workspace in repo, span ends ≤ commit within a 72h lookback) |
+| `src/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
+| `src/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
 | `src/database/attributionRepository.ts` | SQLite cache — a commit's attribution never changes once computed |
-| `src/cloud/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed` — a cohort is measured only once its window fully elapses |
-| `src/cloud/turnover/survival.ts` | One `git blame HEAD` per file, bucketed by originating commit; proportional surviving-AI-lines estimate |
-| `src/cloud/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
-| `src/cloud/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
+| `src/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed` — a cohort is measured only once its window fully elapses |
+| `src/turnover/survival.ts` | One `git blame HEAD` per file, bucketed by originating commit; proportional surviving-AI-lines estimate |
+| `src/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
+| `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
 | `src/database/turnoverRepository.ts` | One row per repo; recompute skipped when `HEAD` is unmoved |
 
 There was previously a dedicated free **Outcomes** dashboard tab (`media/src/cloud/tabs/Outcomes.tsx`)
 surfacing this engine's output directly, billed as the free tier's activation event. It was retired
 in commit `0ee7842` in favor of folding outcome signal (merged/committed/abandoned, per-file) inline
 into the Sessions tab's Files sub-tab — see §10's tab overview, "git outcome banner + per-file
-badges." Its report-assembly file, `src/cloud/turnover/localReport.ts`, had no other caller and was
+badges." Its report-assembly file, `src/cloud/turnover/localReport.ts` (as the path was then), had no other caller and was
 removed with it. The attribution/turnover engine itself is unaffected by that retirement and is
 still free, local, and single-developer with no network path — reachable today via
-`traceroost cohort` (§15's "the hand-off"), not via a dashboard tab.
+`traceroost cohort` (§15's "the hand-off", `standalone/local/cohortCli.ts`), not via a dashboard tab.
 
 Confidence is the honest part: **certain** (trailer, or a session lists the file and the commit
 lands in that session's own span), **probable** (session lists the file, commit within the
@@ -1246,6 +1248,9 @@ traceroost/
 │   │   ├── fileBlameRepository.ts # SQLite cache for per-file blame (AL 06) — re-blamed only when a file's blob sha changes
 │   │   ├── traceRevisionRepository.ts # Canonical trace revisions (staged feature 10, Stage 1) — advances only on a real outcome change
 │   │   └── types.ts              # Shared DB types
+│   ├── attribution/              # Free, local commit attribution (AL 05) — git + session records, no network (§15)
+│   ├── turnover/                 # Free, local cohort/survival engine (AL 06/07) built on attribution/ (§15)
+│   ├── cloud/                    # TraceRoost Pro client — org link (org/) + upload (forward/); BSL, see NOTICE.md (§15)
 │   ├── summarizers/
 │   │   ├── claude.ts             # Claude Code session builder
 │   │   ├── copilot.ts            # Copilot session builder
@@ -1337,6 +1342,17 @@ traceroost/
 │   │                              #   `find`/`trace`/`patterns`, `advise`/`cluster`, `cohort`,
 │   │                              #   `--explain-payload`; no args (or flags only) starts the server;
 │   │                              #   any other word prints usage and exits 1
+│   ├── local/                    # Free, local-only CLI analysis — no cloud imports (MIT)
+│   │   ├── sessionLoader.ts      # Loads recorded sessions without starting the server
+│   │   ├── traceCli.ts / patternsCli.ts / findCli.ts  # `trace`, `patterns`, `find`
+│   │   ├── cohortCli.ts          # `cohort` — the turnover engine (src/turnover/) on the CLI
+│   │   ├── adviseCli.ts          # `advise --list|--apply`
+│   │   └── repoResolve.ts        # `--repo <name|hash>`; hash resolution is injected from cloud/
+│   ├── cloud/                    # Pro (org link + upload) CLI surfaces (BSL, see NOTICE.md)
+│   │   ├── org-cli.ts            # `org link|status|leave|verify`
+│   │   ├── explainPayload.ts     # `--explain-payload`
+│   │   ├── clusterCli.ts         # `cluster`
+│   │   └── adviseTelemetry.ts    # advise --apply's ledger + SuggestionEvent step
 │   └── service/
 │       ├── index.ts              # `traceroost service <cmd>` dispatch, npx-bootstrap, logs/status
 │       ├── health.ts             # HTTP probe used by `service status` on all 3 platforms

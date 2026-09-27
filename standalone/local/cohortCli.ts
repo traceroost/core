@@ -5,37 +5,25 @@
  * example" cannot be answered there — but it can be answered here, on a machine that has the
  * repository. Repository hashes resolve locally because the client re-derives the key from the
  * clone. The service hands over a hash and never learns a name.
+ *
+ * The turnover engine itself is free and local (src/turnover/) — `--repo <name>` works on any
+ * install. Resolving a cloud `repo_hash` is the one cloud step, injected as `resolveHash`
+ * (see repoResolve.ts).
  */
 
-import * as path from 'path'
 import { loadAllSessions } from './sessionLoader'
-import { resolveRepoHash } from '../../src/cloud/org/resolveRepoHash'
-import { repoRootOf } from '../../src/cloud/attribution/commitScan'
-import { computeTurnover } from '../../src/cloud/turnover'
-import { toAttributionSessions } from '../../src/cloud/attribution/fromSessions'
+import { resolveRepoArg, type RepoHashResolver } from './repoResolve'
+import { computeTurnover } from '../../src/turnover'
+import { toAttributionSessions } from '../../src/attribution/fromSessions'
 
 function valueAfter(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag)
   return i >= 0 ? args[i + 1] : undefined
 }
 
-const HASH_RE = /^[a-f0-9]{64}$/
 const MONTH_RE = /^\d{4}-\d{2}$/
 
-async function resolveRepo(repoArg: string, sessionWorkspaces: string[]): Promise<string | null> {
-  if (HASH_RE.test(repoArg)) {
-    return resolveRepoHash(repoArg, sessionWorkspaces)
-  }
-  // A name: match a session workspace whose path contains it, then resolve to the repo root.
-  const match = sessionWorkspaces.find(w => w.toLowerCase().includes(repoArg.toLowerCase()))
-  if (match) return repoRootOf(match.replace(/^file:\/\//, ''))
-  // Or the cwd if it looks right.
-  const cwdRoot = await repoRootOf(process.cwd())
-  if (cwdRoot && path.basename(cwdRoot).toLowerCase() === repoArg.toLowerCase()) return cwdRoot
-  return null
-}
-
-export async function runCohortCli(args: string[]): Promise<number> {
+export async function runCohortCli(args: string[], resolveHash?: RepoHashResolver): Promise<number> {
   const repoArg = (valueAfter(args, '--repo') ?? '').trim()
   const merged = (valueAfter(args, '--merged') ?? '').trim()
   const window = (valueAfter(args, '--window') ?? '90').trim()
@@ -47,7 +35,7 @@ export async function runCohortCli(args: string[]): Promise<number> {
 
   const sessions = loadAllSessions()
   const workspaces = [...new Set(sessions.map(s => s.workspace).filter(Boolean))]
-  const root = await resolveRepo(repoArg, workspaces)
+  const root = await resolveRepoArg(repoArg, workspaces, resolveHash)
   if (!root) {
     console.log('Not a repository on this machine. Nothing was requested from anywhere.')
     return 1

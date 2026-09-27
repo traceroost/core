@@ -40,29 +40,41 @@ async function main() {
     process.exitCode = await runOrgCli(args.slice(1))
     return
   }
-  if (args[0] === 'advise' || args[0] === 'cluster') {
-    const { runAdviseCli } = await import('./cloud/adviseCli.js')
-    process.exitCode = await runAdviseCli(args[0] === 'cluster' ? args : args.slice(1))
+  // Local analysis (free, standalone/local/) — the one cloud step some of them have (resolving a
+  // cloud repo_hash, recording an applied suggestion for org telemetry) is passed in from
+  // standalone/cloud/ / src/cloud/, never imported by the local modules themselves.
+  if (args[0] === 'advise') {
+    const { runAdviseCli } = await import('./local/adviseCli.js')
+    const { recordAppliedAndEmit } = await import('./cloud/adviseTelemetry.js')
+    process.exitCode = await runAdviseCli(args.slice(1), recordAppliedAndEmit)
+    return
+  }
+  if (args[0] === 'cluster') {
+    const { runClusterCli } = await import('./cloud/clusterCli.js')
+    process.exitCode = await runClusterCli(args.slice(1))
     return
   }
   if (args[0] === 'cohort') {
-    const { runCohortCli } = await import('./cloud/cohortCli.js')
-    process.exitCode = await runCohortCli(args.slice(1))
+    const { runCohortCli } = await import('./local/cohortCli.js')
+    const { resolveRepoHash } = await import('../src/cloud/org/resolveRepoHash.js')
+    process.exitCode = await runCohortCli(args.slice(1), resolveRepoHash)
     return
   }
   if (args[0] === 'find') {
-    const { runFindCli } = await import('./cloud/findCli.js')
-    process.exitCode = await runFindCli(args.slice(1))
+    const { runFindCli } = await import('./local/findCli.js')
+    const { resolveRepoHash } = await import('../src/cloud/org/resolveRepoHash.js')
+    process.exitCode = await runFindCli(args.slice(1), resolveRepoHash)
     return
   }
   if (args[0] === 'trace') {
-    const { runTraceCli } = await import('./cloud/traceCli.js')
+    const { runTraceCli } = await import('./local/traceCli.js')
     process.exitCode = await runTraceCli(args.slice(1))
     return
   }
   if (args[0] === 'patterns') {
-    const { runPatternsCli } = await import('./cloud/patternsCli.js')
-    process.exitCode = await runPatternsCli(args.slice(1))
+    const { runPatternsCli } = await import('./local/patternsCli.js')
+    const { resolveRepoHash } = await import('../src/cloud/org/resolveRepoHash.js')
+    process.exitCode = await runPatternsCli(args.slice(1), undefined, resolveRepoHash)
     return
   }
   if (args[0] !== undefined && !args[0].startsWith('-')) {

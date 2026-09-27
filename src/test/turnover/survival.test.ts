@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { buildSurvivalIndex, survivingAiLines, type FileBlameCache } from '../../../cloud/turnover/survival'
+import { buildSurvivalIndex, survivingAiLines, type FileBlameCache } from '../../turnover/survival'
 
 let repo: string
 

@@ -72,8 +72,10 @@ network otherwise. `--explain-payload` (`standalone/cloud/explainPayload.ts`) pr
 
 ## The free tier: fully local, no such diagram needed for privacy — but here's the pipeline
 
-`src/cloud/attribution/` and `src/cloud/turnover/` have no network path in their dependency graph at all —
-not gated, not disabled, structurally absent. It's free forever, and reachable directly via
+`src/attribution/` and `src/turnover/` have no network path in their dependency graph at all —
+not gated, not disabled, structurally absent. (They lived under `src/cloud/` until they were moved
+out so a core-only build can drop every cloud directory without losing them — see "What ships
+where" below.) It's free forever, and reachable directly via
 `traceroost cohort` — no org link required to run it yourself. There was previously a dedicated
 free **Outcomes** dashboard tab surfacing it automatically; retired in commit `0ee7842` in favor of
 inline git-outcome signal (merged/committed/abandoned) in the Sessions tab's Files sub-tab instead
@@ -90,7 +92,7 @@ graph LR
     COH --> SURV["turnover/survival.ts<br/>surviving-AI-lines estimate"]
     SURV --> COMP["turnover/index.ts<br/>computeTurnover()"]
     COMP --> TDB[("turnoverRepository<br/>one row per repo")]
-    TDB --> CLI["cohortCli.ts<br/>traceroost cohort"]
+    TDB --> CLI["standalone/local/cohortCli.ts<br/>traceroost cohort"]
 ```
 
 `computeTurnover()` returns `TurnoverResult | InsufficientData` — never a bare percentage without
@@ -109,9 +111,10 @@ the denominator rather than guessed at.
 | Dashboard tab (free) | Sessions → Files sub-tab: git outcome banner + per-file badges | `gitOutcome.ts`; no dedicated tab today — see `ARCHITECTURE.md` §10. Retired the earlier **Outcomes** tab (`0ee7842`) |
 | CLI | `traceroost org <link\|status\|leave> [--device]` | `standalone/cloud/org-cli.ts` |
 | CLI | `traceroost --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` |
-| CLI | `traceroost advise --apply <id>` | `standalone/cloud/adviseCli.ts` — regenerates instruction text with real paths, appends, captures a baseline |
-| CLI | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/cloud/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo |
-| CLI | `traceroost find <hash>` | `standalone/cloud/findCli.ts` — classifies a hash as a session/trace or a repo and dispatches to `traceCli.ts` (`--id`) or `patternsCli.ts` accordingly; both share `sessionLoader.ts` |
+| CLI (free) | `traceroost advise <--list\|--apply <id>>` | `standalone/local/adviseCli.ts` — regenerates instruction text with real paths and appends it. The cloud step (suggestion ledger + a `SuggestionEvent` when linked) is `standalone/cloud/adviseTelemetry.ts`, passed in by `cli.ts` |
+| CLI (Pro) | `traceroost cluster --repo <hash> --id <id>` | `standalone/cloud/clusterCli.ts` — resolves a Repeat work cluster via `GET /api/clusters/resolve`, matched against local sessions |
+| CLI (free) | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/local/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo. A 64-hex `repo_hash` resolves through `src/cloud/org/resolveRepoHash.ts`, injected by `cli.ts` (`standalone/local/repoResolve.ts`); a repo name needs nothing from `cloud/` |
+| CLI (free) | `traceroost find <hash>` | `standalone/local/findCli.ts` — classifies a hash as a session/trace or a repo and dispatches to `traceCli.ts` (`--id`) or `patternsCli.ts` accordingly; both share `sessionLoader.ts`, all under `standalone/local/`. Repo-hash resolution is injected the same way as `cohort` |
 | Standalone HTTP | `GET/POST /api/org` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview |
 | Deep links | `vscode://agentlens.agentlens-dashboard/advise?id=…`, `vscode://agentlens.agentlens-dashboard/cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source. Routed through VS Code's own URI scheme, not a custom-registered one — see `src/extension.ts`'s "Deep links" comment |
 

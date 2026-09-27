@@ -61,7 +61,9 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 | `standalone/server.ts` | Standalone HTTP server |
 | `src/summarizers/` | Per-agent span → trace summarizers |
 | `src/otlpCollector.ts` | OTLP/HTTP ingestion for the VS Code extension |
-| `src/cloud/`, `media/src/cloud/`, `standalone/cloud/` | Org/cloud client — BSL-licensed, see [NOTICE.md](NOTICE.md) |
+| `src/attribution/`, `src/turnover/` | Free, local commit-attribution and turnover engines (MIT) |
+| `standalone/local/` | Free, local CLI analysis — `find`, `trace`, `patterns`, `cohort`, `advise` (MIT) |
+| `src/cloud/`, `media/src/cloud/`, `standalone/cloud/` | Org/cloud client (link + upload) — BSL-licensed, see [NOTICE.md](NOTICE.md). Local code never imports from these directories |
 
 ## Branching and commit conventions
 
