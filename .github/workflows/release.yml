@@ -154,6 +154,15 @@ jobs:
       # for the VSIX build only — so the extension keeps publishing to the
       # existing agentlens.agentlens-dashboard listing (installs update in place)
       # while npm gets the new name. This checkout is discarded after the job.
+      #
+      # Also drops package.json's `files` allowlist (added for npm — see CHANGELOG "The npm
+      # package shipped the whole repo") for this VSIX-only copy: current vsce refuses to run
+      # at all when both a .vscodeignore file and a `files` property exist ("VSCE does not
+      # support combining both strategies"), where older vsce silently preferred .vscodeignore
+      # (see .vscodeignore's own header comment). The VSIX has always been built from
+      # .vscodeignore, never `files`, so dropping `files` here changes nothing about what ships
+      # in the VSIX — it only satisfies vsce's newer up-front check. publish-npm runs
+      # prepare-edition.mjs on its own separate checkout and is unaffected.
       - name: Set VS Code Marketplace identity
         run: |
           node -e '
@@ -162,6 +171,7 @@ jobs:
             const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
             p.name = id.name;
             p.publisher = id.publisher;
+            delete p.files;
             fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
             console.log(`vsce identity: ${id.publisher}.${id.name}`);
           '
