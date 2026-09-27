@@ -3,8 +3,9 @@ import * as http from 'http'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { EventEmitter } from 'events'
 import {
-  listenWithFallback, PortScanExhaustedError,
+  listenWithFallback, PortScanExhaustedError, isUnavailablePort,
   readResolvedPorts, writeResolvedPorts, resolvedPortsPath,
   type ResolvedPorts,
 } from '../portResolver'
@@ -18,6 +19,21 @@ function listenPlain(server: http.Server, port: number, host: string): Promise<v
     server.once('error', reject)
     server.listen(port, host, () => { server.removeListener('error', reject); resolve() })
   })
+}
+
+/** The first port after `after` that this machine will actually bind on `host` — on Windows,
+ *  ports inside an excluded port range (Hyper-V/WinNAT reservations) refuse binds with EACCES, so
+ *  "taken + 1" isn't necessarily the next usable port. Probes with a plain listen. */
+async function nextBindablePort(after: number, host: string): Promise<number> {
+  for (let port = after + 1; port < after + 200; port++) {
+    const probe = http.createServer()
+    try {
+      await listenPlain(probe, port, host)
+      await close(probe)
+      return port
+    } catch { /* in use or reserved — keep going */ }
+  }
+  throw new Error(`no bindable port after ${after}`)
 }
 
 function close(server: http.Server): Promise<void> {
@@ -46,11 +62,12 @@ suite('portResolver', () => {
       await listenPlain(blocker, 0, '127.0.0.1')
       const takenPort = (blocker.address() as { port: number }).port
 
+      const expected = await nextBindablePort(takenPort, '127.0.0.1')
       const server = http.createServer()
       try {
         const bound = await listenWithFallback(server, takenPort, '127.0.0.1')
         assert.notStrictEqual(bound, takenPort)
-        assert.strictEqual(bound, takenPort + 1)
+        assert.strictEqual(bound, expected)
       } finally {
         await close(server)
         await close(blocker)
@@ -62,13 +79,14 @@ suite('portResolver', () => {
       await listenPlain(blocker, 0, '127.0.0.1')
       const takenPort = (blocker.address() as { port: number }).port
 
+      const expected = await nextBindablePort(takenPort, '127.0.0.1')
       let calledWith: [number, number] | undefined
       const server = http.createServer()
       try {
         await listenWithFallback(server, takenPort, '127.0.0.1', {
           onFallback: (requested, bound) => { calledWith = [requested, bound] },
         })
-        assert.deepStrictEqual(calledWith, [takenPort, takenPort + 1])
+        assert.deepStrictEqual(calledWith, [takenPort, expected])
       } finally {
         await close(server)
         await close(blocker)
@@ -166,6 +184,57 @@ suite('portResolver', () => {
     test('returns undefined when no record has been written yet', () => {
       const home = tmpHome()
       assert.strictEqual(readResolvedPorts(home), undefined)
+    })
+  })
+
+  suite('Windows excluded port ranges', () => {
+    /** A server double whose listen() fails with `codes[port]` for listed ports and binds otherwise. */
+    function fakeServer(codes: Record<number, string>): http.Server {
+      const ee = new EventEmitter() as EventEmitter & { listen: (port: number) => void; address: () => { port: number } }
+      let bound = 0
+      ee.listen = (port: number) => {
+        setImmediate(() => {
+          const code = codes[port]
+          if (code) ee.emit('error', Object.assign(new Error(`listen ${code}`), { code }))
+          else { bound = port; ee.emit('listening') }
+        })
+      }
+      ee.address = () => ({ port: bound })
+      return ee as unknown as http.Server
+    }
+
+    test('isUnavailablePort: EADDRINUSE everywhere, EACCES only on Windows', () => {
+      assert.strictEqual(isUnavailablePort('EADDRINUSE', 'linux'), true)
+      assert.strictEqual(isUnavailablePort('EADDRINUSE', 'win32'), true)
+      assert.strictEqual(isUnavailablePort('EACCES', 'win32'), true)
+      assert.strictEqual(isUnavailablePort('EACCES', 'linux'), false)
+      assert.strictEqual(isUnavailablePort('EACCES', 'darwin'), false)
+      assert.strictEqual(isUnavailablePort('EADDRNOTAVAIL', 'win32'), false)
+    })
+
+    test('on Windows, a reserved (EACCES) preferred port falls back to the next bindable one', async () => {
+      let fell: [number, number] | undefined
+      const bound = await listenWithFallback(fakeServer({ 4318: 'EACCES', 4319: 'EACCES', 4320: 'EADDRINUSE' }), 4318, '127.0.0.1', {
+        platform: 'win32', onFallback: (r, b) => { fell = [r, b] },
+      })
+      assert.strictEqual(bound, 4321)
+      assert.deepStrictEqual(fell, [4318, 4321])
+    })
+
+    test('off Windows, EACCES (a privileged port) is still a hard error', async () => {
+      await assert.rejects(
+        listenWithFallback(fakeServer({ 80: 'EACCES' }), 80, '127.0.0.1', { platform: 'linux' }),
+        (e: NodeJS.ErrnoException) => e.code === 'EACCES',
+      )
+    })
+
+    test('a scan that only meets reserved ports ends in PortScanExhaustedError, not a hang', async () => {
+      const codes: Record<number, string> = {}
+      for (let p = 5000; p <= 5003; p++) codes[p] = 'EACCES'
+      await assert.rejects(
+        listenWithFallback(fakeServer(codes), 5000, '127.0.0.1', { platform: 'win32', cap: 3 }),
+        PortScanExhaustedError,
+      )
     })
   })
 })

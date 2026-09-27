@@ -49,12 +49,16 @@ function runWorker(workerPath: string, sessionId: string, home: string): Promise
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [workerPath, sessionId], {
       env: { ...process.env, HOME: home, USERPROFILE: home },
-      stdio: 'inherit',
+      stdio: ['ignore', 'inherit', 'pipe'],
     })
+    // Keep the worker's stderr so a failure says why (e.g. the EPERM a Windows delete-pending lock
+    // file used to throw), rather than only an exit code.
+    let stderr = ''
+    child.stderr!.on('data', (d: Buffer) => { stderr += d.toString() })
     child.on('error', reject)
-    child.on('exit', (code) => {
+    child.on('close', (code) => {
       if (code === 0) resolve()
-      else reject(new Error(`worker for ${sessionId} exited with code ${code}`))
+      else reject(new Error(`worker for ${sessionId} exited with code ${code}:\n${stderr.trim()}`))
     })
   })
 }

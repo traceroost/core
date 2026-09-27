@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { withFileLock } from '../../../cloud/forward/fileLock'
+import { withFileLock, isLockContention } from '../../../cloud/forward/fileLock'
 
 suite('cloud/forward/fileLock', () => {
   let dir: string
@@ -71,5 +71,17 @@ suite('cloud/forward/fileLock', () => {
       assert.strictEqual(withFileLock(target, () => i), i)
     }
     assert.strictEqual(fs.existsSync(`${target}.lock`), false)
+  })
+
+  test('isLockContention: EEXIST everywhere; EPERM/EACCES/EBUSY only on Windows (delete-pending lock file)', () => {
+    for (const platform of ['win32', 'linux', 'darwin'] as NodeJS.Platform[]) {
+      assert.strictEqual(isLockContention('EEXIST', platform), true, platform)
+      assert.strictEqual(isLockContention('ENOENT', platform), false, platform)
+      assert.strictEqual(isLockContention(undefined, platform), false, platform)
+    }
+    for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
+      assert.strictEqual(isLockContention(code, 'win32'), true, code)
+      assert.strictEqual(isLockContention(code, 'linux'), false, `${code} is a real error off Windows`)
+    }
   })
 })
