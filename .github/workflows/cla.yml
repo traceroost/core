@@ -31,7 +31,9 @@ jobs:
           # Dedicated, unprotected branch for signature storage — main requires PRs, so the
           # action's own commit of the signature record can't land there directly.
           branch: cla-signatures
-          allowlist: RogerReed
+          # Claude <noreply@anthropic.com> commits have no GitHub account, so the action matches
+          # them by author name.
+          allowlist: RogerReed,Claude
           custom-notsigned-prcomment: |
             Thanks for this contribution! Before it can be merged, please read the
             [Contributor License Agreement](https://github.com/traceroost/core/blob/main/.github/CLA.md)
