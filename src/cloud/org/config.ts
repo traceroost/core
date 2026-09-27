@@ -1,7 +1,7 @@
 /**
- * TraceRoost Pro — org link configuration and credential shape.
+ * TraceRoost Cloud — org link configuration and credential shape.
  *
- * Everything in `src/cloud/org/` is the *client* half of TraceRoost Pro. None of it runs, makes
+ * Everything in `src/cloud/org/` is the *client* half of TraceRoost Cloud. None of it runs, makes
  * a request, or reads anything unless an org has been explicitly linked (see `credentials.ts`).
  * An unlinked install never touches the network — that is the invariant AL 01 exists to protect,
  * and it is enforced structurally here: `orgEndpoint()` is only ever read after `loadCredentials()`
@@ -10,7 +10,7 @@
 
 import { loadSelectedEnvironment } from './environmentSelection'
 
-/** The hosted TraceRoost Pro service's real environments — mirrors `cloud/infra`'s Pulumi
+/** The hosted TraceRoost Cloud service's real environments — mirrors `cloud/infra`'s Pulumi
  *  stacks exactly (`Pulumi.test.yaml`, `Pulumi.stage.yaml`, `Pulumi.prod.yaml`). Production has
  *  no subdomain: `cloud`'s prod stack CNAMEs the bare apex, not `app.`. */
 export type OrgEnvironment = 'production' | 'stage' | 'test'
@@ -55,7 +55,7 @@ export interface ResolvedEnvironment {
  */
 export function resolveOrgEnvironment(): ResolvedEnvironment {
   // Environment selection (the picker, TRACEROOST_ORG_ENV, TRACEROOST_ORG_URL) exists for
-  // developing and testing TraceRoost Pro itself, never for a real install. `TRACEROOST_RELEASE_BUILD`
+  // developing and testing TraceRoost Cloud itself, never for a real install. `TRACEROOST_RELEASE_BUILD`
   // is baked in by esbuild.js at build time for both real release paths (`vscode:prepublish` and
   // `prepublishOnly`, both → `pnpm run package`) — not read from the real environment at runtime —
   // so a shipped install can't be pointed anywhere but production by setting a shell/`.env` var.

@@ -1,5 +1,5 @@
 /**
- * Which build of TraceRoost this is. `full` ships TraceRoost Pro's org linking and uploading
+ * Which build of TraceRoost this is. `full` ships TraceRoost Cloud's org linking and uploading
  * (`src/cloud/**`); `core` is built without any of it — see src/cloudBridge.ts and esbuild.js's
  * `--edition` flag. Tests and unbundled runs are always `full`.
  */

@@ -13,7 +13,7 @@
 // silently starting the server. `--help`/`-h` prints the usage. No arguments (or other flags
 // only) starts the server.
 
-// TraceRoost Pro (org link + upload) subcommands and the cloud step of local ones come only
+// TraceRoost Cloud (org link + upload) subcommands and the cloud step of local ones come only
 // through this seam — see cliCloud.ts. The core edition's build swaps in inert stubs. Loaded
 // lazily, like every subcommand, so plain `traceroost` doesn't initialize the cloud CLI modules.
 const loadCloud = async () => (await import('./cliCloud.js')).cliCloud

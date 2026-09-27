@@ -3,7 +3,7 @@
 If you're browsing the tree wondering why this exists outside the rest of
 `src/`, this is the short answer. For the deep architecture, see
 [CLOUD_ARCHITECTURE.md](../../CLOUD_ARCHITECTURE.md) and
-[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-pro--org-link). For
+[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-cloud--org-link). For
 what shipped feature-by-feature, see CLOUD_ARCHITECTURE.md's "What ships
 where" table.
 
@@ -26,7 +26,7 @@ code: `media/src/cloud/panels/` (the Org panel) and `standalone/cloud/`
 ## Why this directory is only the cloud
 
 Everything under `src/cloud/`, `media/src/cloud/` and `standalone/cloud/` is
-TraceRoost Pro's linking and uploading — and nothing else. The free, local
+TraceRoost Cloud's linking and uploading — and nothing else. The free, local
 features that used to sit beside it were moved out:
 
 | Was | Now | What it is |

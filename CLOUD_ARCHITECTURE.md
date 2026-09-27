@@ -8,7 +8,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 
 | Doc | Covers |
 | --- | --- |
-| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--org-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
+| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-cloud--org-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
 | [`src/cloud/README.md`](src/cloud/README.md) | Why this code lives in one directory, and under a different license |
 | [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
 | [`schema/rollup.v1.json`](schema/rollup.v1.json) | The exact wire contract |
@@ -43,7 +43,7 @@ graph TB
         LOCAL[("Local SQLite<br/>sessions, spans, attribution, turnover")]
     end
 
-    subgraph Service["TraceRoost Pro service (hosted)"]
+    subgraph Service["TraceRoost Cloud service (hosted)"]
         OAUTH["OAuth / PKCE authorization server"]
         INGEST["POST /api/ingest (+ /batch)<br/>validates against schema/rollup.v1.json"]
         STORE[("Rollup storage")]

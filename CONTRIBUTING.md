@@ -56,7 +56,7 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 
 The same sources build two editions (README → Editions): **full** (the default — what `F5`,
 `pnpm run local`, `pnpm run package` and the unit tests use) and **core**, which contains no
-TraceRoost Pro (org link + upload) code. The split is made at build time, not with a runtime flag:
+TraceRoost Cloud (org link + upload) code. The split is made at build time, not with a runtime flag:
 
 - Non-cloud code reaches `src/cloud/`, `media/src/cloud/` and `standalone/cloud/` only through
   three seams — `src/cloudBridge.ts` (extension host + standalone server), `media/src/orgPanel.ts`
@@ -85,7 +85,7 @@ pnpm run test:unit                         # tests run against the sources — s
 ```
 
 CI builds and checks both (`build-and-test` and `core-edition` in `.github/workflows/ci.yml`).
-Releases are core until TraceRoost Pro launches — see
+Releases are core until TraceRoost Cloud launches — see
 [runbooks/RELEASING.md](runbooks/RELEASING.md#editions).
 
 ## Project structure

@@ -584,7 +584,7 @@ export function App() {
         commands?: string[]
         entries?: ActionLogEntry[]
       }
-      // Org panel (TraceRoost Pro) messages — see orgPanel.ts; the core edition's stub handles none.
+      // Org panel (TraceRoost Cloud) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
       if (msg.type === 'update') {
         if (msg.enableOtelIngestion !== undefined) enableOtelIngestion.value = msg.enableOtelIngestion

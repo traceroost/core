@@ -67,7 +67,7 @@ jobs:
           path: test-results/ux/
           retention-days: 14
 
-  # The core edition (no TraceRoost Pro — org link + upload — code at all) is built from the same
+  # The core edition (no TraceRoost Cloud — org link + upload — code at all) is built from the same
   # sources with `--edition=core`; see runbooks/RELEASING.md → "Editions". This job proves no cloud
   # code reaches the core bundles or the core-prepared package, and that the core CLI still runs.
   # Unit tests run against the TypeScript sources (both editions share them), so the tests for the

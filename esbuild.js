@@ -23,7 +23,7 @@ if (edition !== 'full' && edition !== 'core') {
 const core = edition === 'core';
 
 // Baked in at build time, not read at runtime — so a real release install can't be pointed at a
-// non-production TraceRoost Pro environment just by setting TRACEROOST_ORG_ENV/_URL in the
+// non-production TraceRoost Cloud environment just by setting TRACEROOST_ORG_ENV/_URL in the
 // shell or a .env file. See src/cloud/org/config.ts's resolveOrgEnvironment().
 // TRACEROOST_EDITION is baked in the same way: `process.env.TRACEROOST_EDITION !== 'core'` checks
 // in the sources fold to a constant, so the core bundles drop the Pro-only branches entirely.

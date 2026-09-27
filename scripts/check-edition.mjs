@@ -2,7 +2,7 @@
 // Verifies a built edition — run after `node esbuild.js [--production] --edition=<edition>`.
 //
 //   node scripts/check-edition.mjs core [--package <package.json>] [--skip-manifest]
-//     Fails if any shipped bundle contains a TraceRoost Pro (org link + upload) marker — a cloud
+//     Fails if any shipped bundle contains a TraceRoost Cloud (org link + upload) marker — a cloud
 //     module path, a Pro endpoint or hostname, a forwarding-queue/link identifier — or if the
 //     package manifest (default: ./package.json; pass the core-prepared one from
 //     scripts/prepare-edition.mjs) still contributes an Org command or ships a cloud file.
@@ -41,7 +41,7 @@ const BUNDLES = [
   'media/sidebar.js',
 ]
 
-/** Strings that only TraceRoost Pro code carries. Each is a plain substring (case-sensitive). */
+/** Strings that only TraceRoost Cloud code carries. Each is a plain substring (case-sensitive). */
 const MARKERS = [
   'cloud/org',          // module paths (esbuild keeps them as comments in unminified bundles,
   'cloud/forward',      //   and in import-path strings)
@@ -79,7 +79,7 @@ function manifestProblems(pkg) {
     if (/(^|\/)cloud(\/|$)/.test(f)) problems.push(`files ships ${f}`)
   }
   const walkthroughs = JSON.stringify(pkg.contributes?.walkthroughs ?? [])
-  if (/traceRoost\.org|TraceRoost Cloud|TraceRoost Pro/.test(walkthroughs)) problems.push('contributes.walkthroughs mentions the Org/Pro feature')
+  if (/traceRoost\.org|TraceRoost Cloud/.test(walkthroughs)) problems.push('contributes.walkthroughs mentions the Org/Pro feature')
   if (pkg.traceroostEdition !== undefined && pkg.traceroostEdition !== 'core') problems.push(`traceroostEdition is ${pkg.traceroostEdition}`)
   return problems
 }
@@ -99,7 +99,7 @@ for (const rel of BUNDLES) {
   report.push({ rel, bytes: text.length, hits })
   if (edition === 'core' && hits.length > 0) {
     failed = true
-    console.error(`✘ ${rel} contains TraceRoost Pro code:`)
+    console.error(`✘ ${rel} contains TraceRoost Cloud code:`)
     for (const [m, n] of hits) {
       const i = text.indexOf(m)
       const context = text.slice(Math.max(0, i - 60), i + m.length + 40).replace(/\s+/g, ' ')

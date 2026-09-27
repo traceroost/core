@@ -38,10 +38,10 @@ Until npm's trusted publisher and the Docker Hub repo exist, do the `main` commi
 
 ## Editions
 
-Every release ships one edition — **core** (no TraceRoost Pro / org-link / upload code at all) or
+Every release ships one edition — **core** (no TraceRoost Cloud / org-link / upload code at all) or
 **full** (with it). See CONTRIBUTING.md → Editions for how the split works in the source.
 
-**Currently: `core`.** Until TraceRoost Pro launches, the VSIX, the npm package and the Docker
+**Currently: `core`.** Until TraceRoost Cloud launches, the VSIX, the npm package and the Docker
 image are all built with `--edition=core`.
 
 How a release picks its edition (`release.yml` and `docker.yml`, identical rule):

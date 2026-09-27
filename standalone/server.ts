@@ -33,7 +33,7 @@ import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { listenWithFallback, writeResolvedPorts, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
-// TraceRoost Pro (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
+// TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud } from '../src/cloudBridge'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
@@ -2243,7 +2243,7 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
-  // ── Org (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
+  // ── Org (TraceRoost Cloud) — AL 01 ──────────────────────────────────────────
   // GET returns the local status (no network). POST runs an action (link/leave/explain).
   // Both reply with an array of webview messages the polyfill re-dispatches.
   // Not served at all in the core edition (literal edition check, so esbuild drops the handler).

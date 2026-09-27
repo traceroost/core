@@ -22,7 +22,7 @@ TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry f
 12. [Auto-Configuration](#12-auto-configuration)
 13. [Background Service Mode](#13-background-service-mode)
 14. [Build Pipeline](#14-build-pipeline)
-15. [TraceRoost Pro — org link](#15-traceroost-pro--org-link)
+15. [TraceRoost Cloud — org link](#15-traceroost-cloud--org-link)
 
 ---
 
@@ -1075,9 +1075,9 @@ so a type error in those files does fail CI today. The rest of `standalone/**`
 
 ---
 
-## 15. TraceRoost Pro — org link
+## 15. TraceRoost Cloud — org link
 
-Everything in `src/cloud/org/` is the **client half of TraceRoost Pro** — an optional layer that lets a
+Everything in `src/cloud/org/` is the **client half of TraceRoost Cloud** — an optional layer that lets a
 lead see cross-developer aggregates. The rest of the codebase reaches it only through
 `src/cloudBridge.ts` (implemented by `src/cloud/bridge.ts`), `media/src/orgPanel.ts` and
 `standalone/cliCloud.ts`, so the core edition (§14) can be built without any of it. It is built against two rules:
@@ -1261,7 +1261,7 @@ traceroost/
 │   │   └── types.ts              # Shared DB types
 │   ├── attribution/              # Free, local commit attribution (AL 05) — git + session records, no network (§15)
 │   ├── turnover/                 # Free, local cohort/survival engine (AL 06/07) built on attribution/ (§15)
-│   ├── cloud/                    # TraceRoost Pro client — org link (org/) + upload (forward/); BSL, see NOTICE.md (§15)
+│   ├── cloud/                    # TraceRoost Cloud client — org link (org/) + upload (forward/); BSL, see NOTICE.md (§15)
 │   ├── cloudBridge.ts            # The one seam to cloud/ (interface + full impl via cloud/bridge.ts); §14 Editions
 │   ├── cloudBridge.core.ts       # Core edition's inert CloudBridge — swapped in by `esbuild.js --edition=core`
 │   ├── edition.ts                # NOT_AVAILABLE_IN_CORE message

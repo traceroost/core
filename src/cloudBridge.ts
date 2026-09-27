@@ -1,5 +1,5 @@
 /**
- * The one seam between the free, local product and TraceRoost Pro (org link + upload, `src/cloud/`).
+ * The one seam between the free, local product and TraceRoost Cloud (org link + upload, `src/cloud/`).
  *
  * Nothing outside a `cloud/` directory imports runtime code from one — it asks `cloud` here
  * instead. Two implementations satisfy `CloudBridge`:

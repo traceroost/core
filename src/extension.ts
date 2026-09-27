@@ -20,7 +20,7 @@ import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
 import { startMcpHttpServer } from './mcpServer'
 import { InstructionRepository } from './database/instructionRepository'
-// TraceRoost Pro (org link + upload) — only ever through this seam; see cloudBridge.ts.
+// TraceRoost Cloud (org link + upload) — only ever through this seam; see cloudBridge.ts.
 import { cloud, type ForwardSchedulerHandle } from './cloudBridge'
 import { ReconciliationService } from './reconcile/reconciliationService'
 import { startBackgroundReconciliation, type BackgroundWatcher } from './reconcile/backgroundWatcher'
@@ -824,7 +824,7 @@ export async function activate(context: vscode.ExtensionContext) {
   notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
 }
 
-// ── Org (TraceRoost Pro) commands ───────────────────────────────────────────
+// ── Org (TraceRoost Cloud) commands ───────────────────────────────────────────
 //
 // Every capability here is inert until an org is explicitly linked. Registering the commands
 // does nothing on its own — `getOrgStatus()` and `loadCredentials()` touch only local disk.

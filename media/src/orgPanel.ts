@@ -1,5 +1,5 @@
 /**
- * The webview's one seam to TraceRoost Pro's Org panel (media/src/cloud/panels/OrgPanel.tsx) —
+ * The webview's one seam to TraceRoost Cloud's Org panel (media/src/cloud/panels/OrgPanel.tsx) —
  * App.tsx and tabs/Pricing.tsx import it from here, never from the cloud directory directly.
  *
  * The core edition's build (`node esbuild.js --edition=core`) resolves the re-export below to

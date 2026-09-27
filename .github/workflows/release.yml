@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       edition:
-        description: 'Edition to build — core (no TraceRoost Pro code) or full (with org link + upload)'
+        description: 'Edition to build — core (no TraceRoost Cloud code) or full (with org link + upload)'
         type: choice
         options: [core, full]
         default: core
@@ -19,7 +19,7 @@ permissions:
 
 # Which edition this run ships (see runbooks/RELEASING.md → "Editions"). A manual run uses its
 # `edition` input; a tag push uses the TRACEROOST_RELEASE_EDITION repository variable, and `core`
-# when that isn't set. Until TraceRoost Pro launches every tagged release is `core`: the VSIX, the
+# when that isn't set. Until TraceRoost Cloud launches every tagged release is `core`: the VSIX, the
 # npm package and the Docker image carry no org-link/upload code at all.
 # To ship `full` at launch: set the repository variable TRACEROOST_RELEASE_EDITION=full
 # (Settings → Secrets and variables → Actions → Variables) — docker.yml reads the same variable —
