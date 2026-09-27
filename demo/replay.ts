@@ -37,6 +37,7 @@ import * as http   from 'node:http'
 import * as fs     from 'node:fs'
 import * as path   from 'node:path'
 import * as crypto from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 
 // ── CLI ────────────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,18 @@ const PORT     = parseInt(flag('port', '4318')) || 4318
 const SCENARIO = flag('scenario', 'all')
 const FIXTURE  = flag('fixture', '')
 const FILE     = flag('file', '')
+// `--demo-repo <dir>`: creates a scratch git repo at <dir> holding every file the story touches,
+// with each file's git state chosen so the Outcome column / Outcome filter / "Outcome vs. tokens"
+// chart have all three verdicts to show (see seedDemoRepo). Claude and Codex sessions then point
+// into it — absolute file paths for Claude, a `cwd` for Codex — so the server resolves real git
+// outcomes for them. Copilot's OTEL spans carry no workspace, so its sessions stay unclassified.
+// Off by default: without it the replay is unchanged (relative paths, no workspace, no outcomes).
+const DEMO_REPO = flag('demo-repo', '') ? path.resolve(flag('demo-repo', '')) : ''
+// `--backdate-min <n>`: shifts every session n minutes into the past. The dashboard holds back a
+// session's git outcome until it has been over for 2 minutes (the active-session grace window —
+// src/reconcile/reconciliationService.ts ACTIVE_GRACE_MS), so a demo recorded right after the
+// replay needs its sessions to have "ended" earlier than that to show any outcome at all.
+const BACKDATE_MS = (parseFloat(flag('backdate-min', '0')) || 0) * 60_000
 
 type Agent = 'claude' | 'codex' | 'copilot'
 const ALL_AGENTS: Agent[] = ['claude', 'codex', 'copilot']
@@ -80,9 +93,73 @@ function attr(key: string, value: string | number | boolean): object {
 // Timeline helper — accumulates simulated wall-clock ms from a base offset
 class Timeline {
   private t: number
-  constructor(offsetBack = 300_000) { this.t = Date.now() - offsetBack }
+  constructor(offsetBack = 300_000) { this.t = Date.now() - offsetBack - BACKDATE_MS }
   tick(ms: number): number { this.t += ms; return this.t }
   now(): number { return this.t }
+}
+
+// ── Demo repo (--demo-repo) ────────────────────────────────────────────────────
+
+// Which verdict each story file should get. Anything not listed here ends up merged. A session's
+// outcome is the worst of its files', so every chapter lands on one of the three consistently.
+const DEMO_COMMITTED_ONLY = [
+  'src/store/inventory/stock.ts', 'src/store/inventory/reorder.ts',
+  'tests/adoption.e2e.spec.ts', 'tests/checkout.e2e.spec.ts',
+]
+const DEMO_UNCOMMITTED = [
+  'src/api/search.ts', 'src/cache/redis.ts', 'src/config.ts',
+  'src/utils/breedValidator.ts', 'src/utils/breedValidator.test.ts',
+]
+const DEMO_FILES = [
+  'package.json', 'tsconfig.json', 'README.md',
+  'src/models/pet.ts', 'src/api/adoption.ts', 'src/api/upload.ts', 'src/utils/imageResize.ts',
+  'src/store/checkout/cart.ts', 'src/store/pricing/discounts.ts', 'src/store/pets/petService.ts',
+  ...DEMO_COMMITTED_ONLY, ...DEMO_UNCOMMITTED,
+]
+
+/** Creates the --demo-repo git repo: everything committed to `main` (the trunk gitOutcome.ts
+ *  resolves when there's no origin), then a feature branch checked out on top of it where the
+ *  committed-only files get one more commit and the uncommitted ones are edited but left dirty.
+ *  So on disk: merged = working tree, HEAD and main agree; committed = working tree and HEAD agree
+ *  but main differs; uncommitted = working tree differs from HEAD. */
+function seedDemoRepo(root: string): void {
+  if (fs.existsSync(path.join(root, '.git'))) { err(`--demo-repo ${root} is already a git repo — pass an empty or new directory`); process.exit(1) }
+  const git = (...a: string[]) => execFileSync('git', ['-c', 'user.name=PetHaven Demo', '-c', 'user.email=demo@example.com', '-c', 'commit.gpgsign=false', ...a], { cwd: root, stdio: 'ignore' })
+  const write = (rel: string, body: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true })
+    fs.writeFileSync(path.join(root, rel), body)
+  }
+  fs.mkdirSync(root, { recursive: true })
+  git('init', '-q', '-b', 'main')
+  for (const f of DEMO_FILES) write(f, `// PetHaven — ${f}\n`)
+  git('add', '-A'); git('commit', '-q', '-m', 'PetHaven: initial layout')
+  git('checkout', '-q', '-b', 'feature/pethaven')
+  for (const f of DEMO_COMMITTED_ONLY) write(f, `// PetHaven — ${f}\n// feature branch work\n`)
+  git('add', '-A'); git('commit', '-q', '-m', 'PetHaven: inventory service and e2e tests')
+  for (const f of DEMO_UNCOMMITTED) write(f, `// PetHaven — ${f}\n// work in progress\n`)
+  ok(`Demo repo ready at ${root} (${DEMO_FILES.length} files: merged / ${DEMO_COMMITTED_ONLY.length} committed-only / ${DEMO_UNCOMMITTED.length} uncommitted)`)
+}
+
+/** The scenarios below write Codex's apply_patch calls as a readable `{ path, diff }`; real Codex
+ *  sends the patch body itself (`*** Update File: <path>` headers), which is what
+ *  src/summarizers/codex.ts parses changed files out of. Send the real shape, so Codex sessions
+ *  record their changed files (and, with --demo-repo, get a git outcome). */
+function codexArgs(toolName: string, args: object): object {
+  const a = args as { path?: unknown; diff?: unknown }
+  if (toolName !== 'apply_patch' || typeof a.path !== 'string') return args
+  return { input: `*** Begin Patch\n*** Update File: ${a.path}\n@@\n${String(a.diff ?? '')}\n*** End Patch` }
+}
+
+/** Claude tool inputs carry relative paths; with --demo-repo, make them absolute paths inside it
+ *  (the Claude summarizer derives a session's workspace from its changed files' absolute paths). */
+function inDemoRepo(toolInput: object): object {
+  if (!DEMO_REPO) return toolInput
+  const out: Record<string, unknown> = { ...(toolInput as Record<string, unknown>) }
+  for (const key of ['file_path', 'filePath']) {
+    const v = out[key]
+    if (typeof v === 'string' && v && !path.isAbsolute(v)) out[key] = path.join(DEMO_REPO, v)
+  }
+  return out
 }
 
 // ── OTLP builders ──────────────────────────────────────────────────────────────
@@ -210,7 +287,7 @@ function toolSpan(tl: Timeline, traceId: string, parentId: string, opts: {
     error: opts.error,
     attrs: [
       attr('tool_name',  opts.toolName),
-      attr('tool_input', JSON.stringify(opts.toolInput)),
+      attr('tool_input', JSON.stringify(inDemoRepo(opts.toolInput))),
       attr('duration_ms', dur),
     ],
   })
@@ -257,6 +334,7 @@ function codexSession(traceId: string): CodexCtx {
       attr('conversation.id', traceId),
       attr('codex.conversation.id', traceId),
       attr('codex.session.id', traceId),
+      ...(DEMO_REPO ? [attr('cwd', DEMO_REPO)] : []),
     ],
   }
 }
@@ -327,7 +405,7 @@ function codexToolTurn(tl: Timeline, ctx: CodexCtx, opts: {
       attr('event.name', 'codex.tool_result'),
       attr('tool_name', opts.toolName),
       attr('call_id', callId),
-      attr('arguments', JSON.stringify(opts.args)),
+      attr('arguments', JSON.stringify(codexArgs(opts.toolName, opts.args))),
       attr('output', opts.output),
       attr('duration_ms', toolDur),
       attr('success', opts.success ?? true),
@@ -1682,6 +1760,7 @@ async function main() {
     process.exit(1)
   }
   log('Collector reachable.\n')
+  if (DEMO_REPO) seedDemoRepo(DEMO_REPO)
 
   try {
     if (FILE) {
