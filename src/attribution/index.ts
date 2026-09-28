@@ -7,6 +7,7 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { recordAction } from '../actionLog'
 import { scanCommits, isShallow, repoRootOf } from './commitScan'
 import { joinCommitToSessions, DEFAULT_LOOKBACK_HOURS } from './sessionJoin'
 import { countLinesIntroducedByCommit } from './blame'
@@ -49,7 +50,10 @@ export interface AttributionResult {
 
 async function localGitEmail(repoRoot: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('git', ['config', 'user.email'], { cwd: repoRoot, timeout: 5000 })
+    const stdout = await recordAction(repoRoot, 'Finding your git email', 'git config user.email', async () => {
+      const { stdout } = await execFileAsync('git', ['config', 'user.email'], { cwd: repoRoot, timeout: 5000 })
+      return stdout
+    })
     return stdout.trim() || null
   } catch {
     return null

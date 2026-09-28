@@ -21,6 +21,7 @@ import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
 import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from '../src/gitOutcome'
+import { onActionLogChanged, getActionLogHistory } from '../src/actionLog'
 import { ReconciliationService, type ReconcileResult } from '../src/reconcile/reconciliationService'
 import { startBackgroundReconciliation, type BackgroundWatcher } from '../src/reconcile/backgroundWatcher'
 import { detectSessionRiskSignals } from '../src/sessionRiskSignals'
@@ -238,6 +239,10 @@ const fallbackInFlight = new Map<string, Promise<GitOutcome | null>>()
 // rather than inside startLogIngestion's conditional setup.
 onRunningGitCommandsChanged(commands => broadcastSse({ type: 'runningGitCommands', commands }))
 
+// action-log.md: pushed to every connected client on every change; a freshly connecting client
+// also gets the current backlog once, at SSE connect time (see the `/events` handler below).
+onActionLogChanged(entries => broadcastSse({ type: 'actionLog', entries }))
+
 async function loadOrComputeGitOutcome(sessionId: string, workspace: string, filesChanged: string[], endTime: string): Promise<{ outcome: GitOutcome | null; revision: number | null; deferred: boolean }> {
   if (reconciliationService) {
     const result = await reconciliationService.reconcile({ sessionId, workspace, filesChanged, endTime })
@@ -262,7 +267,7 @@ async function loadOrComputeGitOutcome(sessionId: string, workspace: string, fil
 function pushGitOutcomeResult(r: ReconcileResult): void {
   const card = buildSessionSummary()?.sessions.find(s => s.sessionId === r.sessionId) ?? null
   if (!card) return
-  const riskSignals = detectSessionRiskSignals(card, card.workspace)
+  const riskSignals = detectSessionRiskSignals(card, card.workspace, r.outcome)
   const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], r.outcome)
   broadcastSse({ type: 'gitOutcome', sessionId: r.sessionId, outcome: r.outcome, riskSignals, temperedLoopSignals, revision: r.revision })
 }
@@ -2041,6 +2046,7 @@ const uiServer = http.createServer((req, res) => {
     syncSseClients() // tabs already open get any pending change before this one joins
     const rev = sseSync.revision
     res.write(`data: ${query.get('rev') === String(rev) ? updateFrame(derivedViews(), rev, rev, '') : fullUpdateFrame()}\n\n`)
+    res.write(`data: ${JSON.stringify({ type: 'actionLog', entries: getActionLogHistory() })}\n\n`)
     sseClients.push(res)
     if (SSE_CLIENT_ID.test(clientId)) sseClientsById.set(clientId, res)
     req.on('close', () => {
@@ -2347,7 +2353,7 @@ const uiServer = http.createServer((req, res) => {
         // known, same lifecycle as git-outcome classification — computed here rather than eagerly
         // for every session. See sessionRiskSignals.ts and temperLoopSignalSeverity's docstring.
         const card = buildSessionSummary()?.sessions.find(s => s.sessionId === sessionId) ?? null
-        const riskSignals = card ? detectSessionRiskSignals(card, body.workspace ?? '') : []
+        const riskSignals = card ? detectSessionRiskSignals(card, body.workspace ?? '', outcome) : []
         const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals, revision }))

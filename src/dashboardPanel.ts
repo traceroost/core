@@ -8,6 +8,7 @@ import { computeBaseline } from './instructionEffectiveness'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
 import { serializeExport, exportFileExtension, type ExportFormat } from './exportFormats'
 import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from './gitOutcome'
+import { onActionLogChanged, getActionLogHistory } from './actionLog'
 import { ReconciliationService, type ReconcileResult } from './reconcile/reconciliationService'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
@@ -329,6 +330,14 @@ export class DashboardPanel {
       this.panel.webview.postMessage({ type: 'runningGitCommands', commands })
     })
     this.disposables.push({ dispose: unsubscribeRunningCommands })
+
+    // action-log.md: the persistent Log panel's history, pushed on every change plus once up
+    // front so a freshly opened panel doesn't start blank waiting for the next action to run.
+    this.panel.webview.postMessage({ type: 'actionLog', entries: getActionLogHistory() })
+    const unsubscribeActionLog = onActionLogChanged(entries => {
+      this.panel.webview.postMessage({ type: 'actionLog', entries })
+    })
+    this.disposables.push({ dispose: unsubscribeActionLog })
   }
 
   /** Posts a reconciliation result to the webview in the same shape sendGitOutcome's
@@ -337,7 +346,7 @@ export class DashboardPanel {
   private pushGitOutcomeResult(r: ReconcileResult): void {
     const card = this.repo.listSessions().find(s => s.sessionId === r.sessionId) ?? null
     if (!card) return // session no longer retained locally — nothing to update in the UI
-    const riskSignals = detectSessionRiskSignals(card, card.workspace)
+    const riskSignals = detectSessionRiskSignals(card, card.workspace, r.outcome)
     const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], r.outcome)
     this.panel.webview.postMessage({
       type: 'gitOutcome', sessionId: r.sessionId, outcome: r.outcome, riskSignals, temperedLoopSignals,
@@ -491,7 +500,7 @@ export class DashboardPanel {
     // known, same lifecycle as git-outcome classification — computed here rather than eagerly
     // for every session. See sessionRiskSignals.ts and temperLoopSignalSeverity's docstring.
     const card = this.repo.listSessions().find(s => s.sessionId === sessionId) ?? null
-    const riskSignals = card ? detectSessionRiskSignals(card, workspace) : []
+    const riskSignals = card ? detectSessionRiskSignals(card, workspace, outcome) : []
     const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
     this.panel.webview.postMessage({ type: 'gitOutcome', sessionId, outcome, riskSignals, temperedLoopSignals, revision })
   }

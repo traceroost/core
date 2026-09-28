@@ -14,6 +14,7 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { recordAction } from '../actionLog'
 
 const execFileAsync = promisify(execFile)
 const GIT_TIMEOUT_MS = 15_000
@@ -22,8 +23,10 @@ const MAX_BUFFER = 128 * 1024 * 1024
 
 async function git(cwd: string, args: string[], timeout = GIT_TIMEOUT_MS): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, timeout, maxBuffer: MAX_BUFFER })
-    return stdout
+    return await recordAction(cwd, 'Blaming a file for turnover survival', `git ${args.join(' ')}`, async () => {
+      const { stdout } = await execFileAsync('git', args, { cwd, timeout, maxBuffer: MAX_BUFFER })
+      return stdout
+    })
   } catch {
     return null
   }

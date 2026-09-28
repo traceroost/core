@@ -12,6 +12,7 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { recordAction } from '../actionLog'
 
 const execFileAsync = promisify(execFile)
 const GIT_TIMEOUT_MS = 10_000
@@ -20,8 +21,10 @@ const MAX_BLAME_BYTES = 16 * 1024 * 1024
 
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_BLAME_BYTES })
-    return stdout
+    return await recordAction(cwd, 'Blaming a file to count AI-introduced lines', `git ${args.join(' ')}`, async () => {
+      const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_BLAME_BYTES })
+      return stdout
+    })
   } catch {
     return null
   }

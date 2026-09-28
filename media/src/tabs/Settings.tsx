@@ -194,7 +194,8 @@ export function SessionsPager({ page, totalPages }: { page: number; totalPages: 
           onBlur={commitPageInput}
           onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
           aria-label="Jump to page"
-          style="width:4ch;font-size:11px;padding:1px 2px;border:1px solid var(--border);border-radius:3px;background:var(--vscode-dropdown-background,var(--card-bg));color:var(--fg);text-align:center"
+          class="pager-page-input"
+          style="width:5ch;font-size:11px;padding:1px 2px;border:1px solid var(--border);border-radius:3px;background:var(--vscode-dropdown-background,var(--card-bg));color:var(--fg);text-align:center"
         />
         of {totalPages}
       </span>

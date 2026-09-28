@@ -14,12 +14,16 @@ import type { TurnoverRepository } from '../database/turnoverRepository'
 import type { AttributionCache } from '../attribution'
 import type { AttributionSession } from '../attribution/types'
 import type { FileBlameCache } from './survival'
+import { recordAction } from '../actionLog'
 
 const execFileAsync = promisify(execFile)
 
 async function headSha(repoRoot: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, timeout: 5000 })
+    const stdout = await recordAction(repoRoot, 'Checking HEAD for turnover recompute', 'git rev-parse HEAD', async () => {
+      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, timeout: 5000 })
+      return stdout
+    })
     return stdout.trim() || null
   } catch {
     return null

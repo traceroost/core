@@ -5,14 +5,17 @@
  * not eagerly for every loaded session, since detectHallucinatedImports reads files from the
  * workspace on disk.
  *
- * Two detectors:
+ * Three detectors:
  *   - detectFailedCheckSubmission — the session's last test/build run failed and nothing followed.
  *   - detectHallucinatedImports   — an edit imports a package absent from the project's manifest
  *                                   and unresolvable on disk.
+ *   - detectSkippedChecks         — the session's changes reached the shared branch, but no
+ *                                   test/build check ever ran. See .staged-issues/
+ *                                   signal-catalog-05-skipped-checks-and-rejected-edits.md.
  *
- * Both are deliberately narrow. See .staged-issues/additional-malfunction-detections.md for the
- * broader set of failure modes considered and rejected as too false-positive-prone to ship —
- * these two are the ones that survived that review.
+ * The first two are deliberately narrow. See .staged-issues/additional-malfunction-detections.md
+ * for the broader set of failure modes considered and rejected as too false-positive-prone to
+ * ship — these are the ones that survived that review.
  */
 
 import * as fs from 'fs'
@@ -20,6 +23,7 @@ import * as path from 'path'
 import { LoopSignal } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import { PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from './loopDetector'
+import { GitOutcome } from './gitOutcome'
 
 // ── Detector: failed check submission ────────────────────────────────────────
 
@@ -61,6 +65,40 @@ export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSi
     examples: [invocation.slice(0, 100)],
     patternName: PATTERN_NAMES.failed_check_submission,
     action: LOOP_SIGNAL_ACTIONS.failed_check_submission,
+  }
+}
+
+// ── Detector: skipped checks ─────────────────────────────────────────────────
+
+/**
+ * Datadog's own published rule: `commit_count > 0 && push_count > 0 && test_fix_cycle_count == 0`
+ * — changes shipped without ever being verified. This codebase has no reliable way to observe a
+ * `git push` directly: default Claude Code telemetry redacts Bash tool arguments, so a session's
+ * own `Bash` tool calls carry no command text to match `git push` against (see the spike in
+ * .staged-issues/signal-catalog-05-skipped-checks-and-rejected-edits.md). Uses `outcome.overall
+ * === 'merged'` instead — gitOutcome.ts's `resolveTrunkRef` already prefers a remote-tracking ref
+ * (`refs/remotes/origin/HEAD`/`origin/main`) over the local branch when a remote exists, so
+ * 'merged' already means this content reached the remote-tracked trunk, which requires a push to
+ * be true. A reasonable proxy in this product's single-developer scope, not literal push detection
+ * — see the SIGNAL_FORMULAS caveat for the real risk this introduces (a task with nothing to test
+ * will always fire this).
+ */
+export function detectSkippedChecks(session: SessionSummaryCard, outcome: GitOutcome | null): LoopSignal | null {
+  if (!outcome || outcome.overall !== 'merged') { return null }
+
+  const ranCheck = session.timeline.some(
+    e => e.type === 'tool' && TEST_RUNNER_PATTERN.test(e.toolInput || e.label || ''),
+  )
+  if (ranCheck) { return null }
+
+  return {
+    type: 'skipped_checks',
+    severity: 'warning',
+    evidence: 'This session\'s changes reached the shared branch, but no test/build check ever ran during the session.',
+    count: 1,
+    examples: [],
+    patternName: PATTERN_NAMES.skipped_checks,
+    action: LOOP_SIGNAL_ACTIONS.skipped_checks,
   }
 }
 
@@ -353,12 +391,16 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
   }
 }
 
-/** Runs both post-hoc detectors and returns whatever fired. */
-export function detectSessionRiskSignals(session: SessionSummaryCard, workspaceRoot: string): LoopSignal[] {
+/** Runs all post-hoc detectors and returns whatever fired. `outcome` is optional (defaults to
+ *  null, disabling detectSkippedChecks) since several existing callers don't have a GitOutcome
+ *  in hand — passing it in is free wherever one's already been computed for the same session. */
+export function detectSessionRiskSignals(session: SessionSummaryCard, workspaceRoot: string, outcome: GitOutcome | null = null): LoopSignal[] {
   const signals: LoopSignal[] = []
   const failedCheck = detectFailedCheckSubmission(session)
   if (failedCheck) { signals.push(failedCheck) }
   const hallucinatedImport = detectHallucinatedImports(session, workspaceRoot)
   if (hallucinatedImport) { signals.push(hallucinatedImport) }
+  const skippedChecks = detectSkippedChecks(session, outcome)
+  if (skippedChecks) { signals.push(skippedChecks) }
   return signals
 }

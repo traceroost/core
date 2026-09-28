@@ -1269,13 +1269,13 @@ suite('detectCacheMiss', () => {
     assert.ok(signals[0].evidence.includes(expectedWasteUsd.toFixed(3)), signals[0].evidence)
   })
 
-  test('critical at 10,000+ re-written tokens', () => {
+  test('critical at 90,000+ re-written tokens (calibrated 2026-09-26, ~p90 of real fired-session waste)', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       model: 'claude-opus-5',
       timeline: [
-        makeLlmCacheEntry(0, 0, 90_000, new Date().toISOString()),
-        makeLlmCacheEntry(0, 90_000, 10_000, new Date().toISOString()),
+        makeLlmCacheEntry(0, 0, 90_000, new Date().toISOString()), // cold first call — never a miss
+        makeLlmCacheEntry(0, 90_000, 90_000, new Date().toISOString()),
       ],
     })
     detectCacheMiss(session, signals)
