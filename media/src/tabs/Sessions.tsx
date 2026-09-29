@@ -607,7 +607,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
         {/* Agent / Start / Source / From, merged into one column, in that left-to-right order
             (colors match the Outcome bar's own Source/From pills — see
             DATA_SOURCE_COLORS/INITIATOR_COLORS in utils.ts) */}
-        <td style="padding:4px 2px;white-space:nowrap">
+        <td style="padding:4px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
           <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--agent-${sess.source === 'claude_code' ? 'claude' : sess.source},${color});flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(sess.source)} />
           <span style="margin-left:6px;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums">{formatSessionTime(sess)}</span>
           <span style="margin-left:6px" dangerouslySetInnerHTML={{ __html: getDataSourceBadgeHtml(sess.dataSource ?? 'otel') }} />
@@ -615,7 +615,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
         </td>
 
         {/* Model */}
-        <td style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:64px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
+        <td style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:92px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
           {sess.model || '—'}
           {(sess.models?.length ?? 0) > 1 && (
             <span
@@ -753,11 +753,11 @@ export function Sessions() {
       <div role="region" aria-label="Traces table" tabIndex={0}>
       <table class="trace-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <colgroup>
-          <col style="width:8px" /><col style="width:18px" /><col style="width:128px" /><col style="width:64px" />
-          <col style="width:140px" />
+          <col style="width:8px" /><col style="width:18px" /><col style="width:132px" /><col style="width:92px" />
+          <col style="width:122px" />
           {showWorkspace && <col style="width:110px" />}
           {showOutcome && <col style="width:36px" />}
-          <col style="width:46px" /><col style="width:38px" /><col style="width:50px" /><col style="width:46px" /><col style="width:70px" />
+          <col style="width:42px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
@@ -768,7 +768,7 @@ export function Sessions() {
                 Agent / <strong style="font-weight:800">Start</strong> / Source / From{sortArrow('start_time')}
               </button>
             </th>
-            <th scope="col" aria-sort={sortKey === 'model' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort + ';padding-left:8px'}>
+            <th scope="col" aria-sort={sortKey === 'model' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
               <button class="sort-button" onClick={() => onSortClick('model')}>Model{sortArrow('model')}</button>
             </th>
             {sortHeader('prompt', 'Prompt (ID)')}
