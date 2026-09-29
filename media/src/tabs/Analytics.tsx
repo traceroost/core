@@ -215,13 +215,14 @@ export function Analytics() {
           <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasAgentBreakdown}
             tip="Tokens and traces per day (or week), stacked by what happened to the work locally per git — merged, committed, or still uncommitted. Traces with no changed files, or outside a git repo, aren't counted." />
           <p style="font-size:12px;margin:0 0 4px">
-            <strong>{fmtN(trendSummary.total.tokens)}</strong> tokens across{' '}
+            <strong>{formatCompact(trendSummary.total.tokens)}</strong> tokens across{' '}
             <strong>{trendSummary.total.sessions.toLocaleString()}</strong> trace{trendSummary.total.sessions === 1 ? '' : 's'} —{' '}
             <strong>{pct(trendSummary.landedShare)}</strong> went to work that's merged or committed,{' '}
             <strong>{pct(trendSummary.uncommittedShare)}</strong> to work still uncommitted.
           </p>
           <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
-            Tokens are input + output. Only traces with a resolved git outcome are counted.
+            Tokens are input + output, excluding cache reads. Only traces with a merged,
+            committed, or uncommitted outcome are counted.
             {trend.unit === 'week' ? ' Grouped by week (Monday start, UTC).' : ''}
           </p>
           <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:8px">
@@ -256,9 +257,9 @@ export function Analytics() {
                         {meta.label}
                       </td>
                       <td style="padding:3px 8px;text-align:right">{m.sessions.toLocaleString()}</td>
-                      <td style="padding:3px 8px;text-align:right">{fmtN(m.tokens)}</td>
+                      <td style="padding:3px 8px;text-align:right">{formatCompact(m.tokens)}</td>
                       <td style="padding:3px 8px;text-align:right;color:var(--muted)">{trendSummary.total.tokens > 0 ? pct(m.tokens / trendSummary.total.tokens) : '—'}</td>
-                      <td style="padding:3px 0 3px 8px;text-align:right">{median !== undefined ? fmtN(median) : '—'}</td>
+                      <td style="padding:3px 0 3px 8px;text-align:right">{median !== undefined ? formatCompact(median) : '—'}</td>
                     </tr>
                   )
                 })}
