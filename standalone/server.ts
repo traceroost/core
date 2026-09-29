@@ -461,16 +461,40 @@ async function startLogIngestion() {
     process.once('exit', () => { unsubscribe(); unsubscribeForwarding(); backgroundWatcher?.dispose(); reconciliationService?.dispose() })
   }
 
-  // Register the poll first so it always runs, even if no files exist yet at startup.
-  setInterval(runLogScan, 5_000)
-  // Pro: catch sessions that never got a matching transcript file at all — see the doc
-  // comment on checkStaleOtelSessions for why this needs its own idle-based check rather
-  // than firing from the same per-file-change trigger runLogScan uses.
-  setInterval(checkStaleOtelSessions, 5_000)
-  // Watch log directories for file-system events so updates appear immediately,
-  // without waiting for the next poll interval.
-  setupLogWatcher()
   console.log('[TraceRoost] Log ingestion enabled — scanning local trace logs')
+  try {
+    await ingestHistoricalLogs()
+  } finally {
+    // Always clear the progress banner, even if the initial pass bailed out early.
+    if (logIngestProgress) {
+      logIngestProgress = null
+      broadcastSse({ type: 'logIngest', logIngest: null })
+    }
+    // Only now start the poll and watcher: runLogScan() racing the initial pass would see every
+    // not-yet-parsed file as "changed" and parse it (and enqueue it) a second time. Files that
+    // change or appear during the pass are still caught — parseFile() records the state it read,
+    // so scan() sees anything newer on its first run.
+    setInterval(runLogScan, 5_000)
+    // Pro: catch sessions that never got a matching transcript file at all — see the doc
+    // comment on checkStaleOtelSessions for why this needs its own idle-based check rather
+    // than firing from the same per-file-change trigger runLogScan uses.
+    setInterval(checkStaleOtelSessions, 5_000)
+    // Watch log directories for file-system events so updates appear immediately,
+    // without waiting for the next poll interval.
+    setupLogWatcher()
+    runLogScan()
+  }
+}
+
+/** Progress of the one-time historical log pass at startup; null once it's done. Inlined into
+ *  the page and broadcast over SSE so the dashboard can show it instead of a bare spinner. */
+let logIngestProgress: { done: number; total: number } | null = null
+
+/** How long the initial pass may hold the event loop before yielding, so page loads, SSE and
+ *  OTLP requests are served between slices rather than after the whole history is parsed. */
+const INGEST_SLICE_MS = 30
+
+async function ingestHistoricalLogs(): Promise<void> {
 
   const AGENT_KEY_LABEL: Record<string, string> = {
     claude:               'Claude Code',
@@ -504,14 +528,25 @@ async function startLogIngestion() {
     void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
   }
 
-  // Run the initial batch synchronously so logSessions is populated before the
-  // browser's first HTTP request. The setImmediate approach deferred this past
-  // the first page load, causing a blank screen on startup.
+  // Parse the history in time slices, yielding between them: the dashboard opens right away and
+  // fills in as sessions load (schedulePushUpdate below), with a progress banner meanwhile,
+  // rather than the page request waiting behind the whole pass.
   let files: ReturnType<typeof logReader.collectFileMeta>
   try { files = logReader.collectFileMeta() } catch { return }
+  files = files.filter(f => f.agentKey !== 'opencode')  // already handled above
+
+  logIngestProgress = { done: 0, total: files.length }
+  broadcastSse({ type: 'logIngest', logIngest: logIngestProgress })
+  let sliceStart = performance.now()
 
   for (const file of files) {
-    if (file.agentKey === 'opencode') continue  // already handled above
+    if (performance.now() - sliceStart > INGEST_SLICE_MS) {
+      await new Promise<void>(resolve => setImmediate(resolve))
+      broadcastSse({ type: 'logIngest', logIngest: logIngestProgress })
+      schedulePushUpdate()
+      sliceStart = performance.now()
+    }
+    logIngestProgress.done++
     try {
       // Usually one result; a Claude Code transcript split by a large gap between prompts
       // (see splitClaudeLinesOnPromptGaps) can yield more than one.
@@ -556,7 +591,7 @@ async function startLogIngestion() {
     .map(v => `  ${v.label.padEnd(20)} ${String(v.count).padStart(4)}  (${v.dir})`)
     .join('\n')
   console.log(`[TraceRoost] Loaded ${total} traces from local logs:\n${lines}`)
-  // Push loaded sessions to any SSE clients that connected before the scan finished.
+  // Push the final state to any SSE clients that connected before the scan finished.
   pushUpdate()
 }
 
@@ -1342,6 +1377,7 @@ function getHtml(): string {
     window.__INITIAL_SESSION_SUMMARY__ = ${sessionSummaryJson};
     window.__INITIAL_SESSION_REV__ = ${sessionRev};
     window.__INITIAL_COLLECTOR_CONFLICT__ = ${JSON.stringify(collectorConflict)};
+    window.__INITIAL_LOG_INGEST__ = ${JSON.stringify(logIngestProgress)};
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(PACKAGE_VERSION)};
 

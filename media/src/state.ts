@@ -4,7 +4,7 @@ import { formatTraceIdHash } from './hash'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
-  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry, CollectorConflict,
+  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry, CollectorConflict, LogIngestProgress,
 } from './types'
 export type { CollectorConflict } from './types'
 
@@ -355,6 +355,11 @@ export const otlpPort = signal(4318)
 // banner (see CollectorConflictBanner in App.tsx) rather than a one-time toast, since a whole
 // session's worth of OTel data can silently go to the wrong place.
 export const collectorConflict = signal<CollectorConflict>(window.__INITIAL_COLLECTOR_CONFLICT__ ?? null)
+
+// The host's startup log pass, inlined as window.__INITIAL_LOG_INGEST__ and then updated by
+// 'logIngest' messages as it runs (SSE on the background/npx service, postMessage in VS Code) — drives LogIngestBanner in App.tsx, so a large history shows
+// sessions filling in with a progress bar rather than a page that looks empty or stuck.
+export const logIngestProgress = signal<LogIngestProgress>(window.__INITIAL_LOG_INGEST__ ?? null)
 
 export type OtelReconfigureResult = {
   claudeCode: { changed: boolean; error?: string }

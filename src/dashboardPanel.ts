@@ -71,6 +71,12 @@ export class DashboardPanel {
    *  window isn't actually receiving OTel, rather than a one-time toast that's easy to miss or
    *  dismiss and forget about. */
   public static collectorConflict: { owner: 'standalone' | 'foreign'; port: number } | undefined
+  /** Progress of extension.ts's batched log load (startBatchedLoad); null when none is running.
+   *  Inlined into a panel opened mid-load and posted to an open one as it advances, so the
+   *  webview shows a progress banner rather than an empty dashboard. */
+  private static logIngestProgress: { done: number; total: number } | null = null
+  private static lastLogIngestPostAt = 0
+  private static refreshTimer: ReturnType<typeof setTimeout> | undefined
   private readonly panel: vscode.WebviewPanel
   private disposables: vscode.Disposable[] = []
   private pendingUpdate: ReturnType<typeof setTimeout> | undefined
@@ -391,6 +397,30 @@ export class DashboardPanel {
     }, 300)
   }
 
+  /** Records the batched log load's progress and forwards it to the open panel, if any —
+   *  throttled, since the load advances every few milliseconds. The final null always goes out. */
+  static setLogIngestProgress(progress: { done: number; total: number } | null): void {
+    DashboardPanel.logIngestProgress = progress
+    const current = DashboardPanel.currentPanel
+    if (!current) return
+    const now = Date.now()
+    if (progress && now - DashboardPanel.lastLogIngestPostAt < 150) return
+    DashboardPanel.lastLogIngestPostAt = now
+    current.panel.webview.postMessage({ type: 'logIngest', logIngest: progress })
+  }
+
+  /** Coalesced refresh of the open panel, for writes that don't go through the span store's
+   *  onUpdate — log-ingested sessions go straight to the database. */
+  static refreshSoon(): void {
+    if (DashboardPanel.refreshTimer) return
+    // Longer than scheduleUpdate's 300 ms: each update() re-reads every session from the
+    // database, and a first-run load on a large history lands a batch every few milliseconds.
+    DashboardPanel.refreshTimer = setTimeout(() => {
+      DashboardPanel.refreshTimer = undefined
+      DashboardPanel.currentPanel?.update()
+    }, 1000)
+  }
+
   update() {
     const sessions = this.repo.listSessions()
     const summary = this.repo.store_.getSummary()
@@ -669,6 +699,7 @@ export class DashboardPanel {
         window.__INITIAL_TOOL_CALLS__ = ${safeJsonForScript(summary.toolCalls)};
         window.__INITIAL_SESSION_SUMMARY__ = ${safeJsonForScript(sessionSummary)};
         window.__INITIAL_SESSION_REV__ = ${sessionRev};
+        window.__INITIAL_LOG_INGEST__ = ${safeJsonForScript(DashboardPanel.logIngestProgress)};
         window.__VERSION__ = ${safeJsonForScript(this.context.extension.packageJSON.version)};
         window.__MCP_ENABLED__ = ${mcpEnabled};
         window.__MCP_PORT__ = ${mcpPort};

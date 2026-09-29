@@ -7,7 +7,7 @@ import {
   getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   repoInfo, repoDisplayName, repoTooltipName,
-  requestGitOutcomesFor, availableWorkspaces, hasAnyWorkspace,
+  requestGitOutcomesFor, availableWorkspaces, hasAnyWorkspace, logIngestProgress,
 } from '../state'
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
@@ -792,7 +792,7 @@ export function Sessions() {
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
+          {sessions.length === 0 && <tr><td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : logIngestProgress.value ? 'Loading traces from local logs…' : 'No traces recorded yet.'}</div></td></tr>}
           {pageSessions.map(sess => (
             <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} showOutcome={showOutcome} conversation={conversationInfo.get(sess.sessionId)} />
           ))}
