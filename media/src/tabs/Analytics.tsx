@@ -10,17 +10,21 @@ import { buildDailyCostMap } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 import { PRICING_LAST_UPDATED } from '../pricing'
 
-import { ContextGrowthChart, SessionTokenChart, OutcomeTokenChart } from './SessionCharts'
+import { ContextGrowthChart, SessionTokenChart, OutcomeTrendChart, buildOutcomeTokenBuckets } from './SessionCharts'
 import { CostBarChart, fmtUsd } from './Cost'
 import { computeStats } from './Agents'
+import { SectionNav, type NavSection } from '../SectionNav'
+import { buildTrendBins, summarize, TREND_OUTCOMES } from './outcomeTrend'
+import { OUTCOME_META } from './Sessions'
+import { gitOutcomes } from '../state'
 
 // ── Section heading helper ────────────────────────────────────────────────────
 
-function SectionHead({ title, tip, first, helpAnchor }: { title: string; tip?: string; first?: boolean; helpAnchor?: string }) {
+function SectionHead({ id, title, tip, first, helpAnchor }: { id: string; title: string; tip?: string; first?: boolean; helpAnchor?: string }) {
   return (
     <>
       {!first && <div style="border-top:1px solid var(--border);margin:16px 0 8px" />}
-    <div style={`display:flex;align-items:center;gap:7px;margin:${first ? '8px' : '0'} 0 6px`}>
+    <div id={id} style={`display:flex;align-items:center;gap:7px;margin:${first ? '8px' : '0'} 0 6px`}>
       <h3
         class={tip ? 'has-metric-tip' : undefined}
         style="font-size:12px;color:var(--muted);margin:0"
@@ -169,13 +173,32 @@ export function Analytics() {
     return String(n)
   }
 
+  const hasAgentBreakdown = copilotSess.length > 0 || claudeSess.length > 0 || codexSess.length > 0
+
+  // Outcome & token spend over time — same binning `requestGitOutcomesFor` above keeps filling in,
+  // so this grows as outcomes resolve rather than waiting for all of them up front.
+  const trend = buildTrendBins(sessions, gitOutcomes.value)
+  const trendSummary = summarize(trend.bins)
+  const outcomeBuckets = buildOutcomeTokenBuckets(sessions, gitOutcomes.value)
+  const medianByOutcome = new Map(outcomeBuckets.map(b => [b.outcome, b.medianTokens]))
+  const pct = (n: number) => `${Math.round(n * 100)}%`
+
+  const navSections: NavSection[] = [
+    ...(hasAgentBreakdown ? [{ id: 'analytics-agent-breakdown', label: 'Agent breakdown' }] : []),
+    ...(trend.bins.length > 0 ? [{ id: 'analytics-outcome-tokens', label: 'Outcome & token spend' }] : []),
+    ...(pricedSess.length > 0 ? [{ id: 'analytics-cost', label: 'Estimated cost' }] : []),
+    { id: 'analytics-token-usage', label: 'Token usage' },
+    { id: 'analytics-context-growth', label: 'Context growth' },
+  ]
+
   return (
     <div id="analytics-content">
+    <SectionNav label="Analytics sections" sections={navSections}>
 
       {/* Agent breakdown */}
-      {(copilotSess.length > 0 || claudeSess.length > 0 || codexSess.length > 0) && (
+      {hasAgentBreakdown && (
         <>
-          <SectionHead title="AGENT BREAKDOWN" first />
+          <SectionHead id="analytics-agent-breakdown" title="AGENT BREAKDOWN" first />
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             {copilotSess.length > 0 && <AgentCard source="copilot"    sessions={copilotSess} />}
             {claudeSess.length  > 0 && <AgentCard source="claude_code" sessions={claudeSess} />}
@@ -184,10 +207,71 @@ export function Analytics() {
         </>
       )}
 
+      {/* Outcome & token spend over time — see .staged-issues (cloud repo) for the design this
+          ports; analytics-outcome-tokens used to be a single median-per-outcome bar chart
+          (buildOutcomeTokenBuckets still feeds this section's median column). */}
+      {trend.bins.length > 0 && (
+        <>
+          <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasAgentBreakdown}
+            tip="Tokens and traces per day (or week), stacked by what happened to the work locally per git — merged, committed, or still uncommitted. Traces with no changed files, or outside a git repo, aren't counted." />
+          <p style="font-size:12px;margin:0 0 4px">
+            <strong>{fmtN(trendSummary.total.tokens)}</strong> tokens across{' '}
+            <strong>{trendSummary.total.sessions.toLocaleString()}</strong> trace{trendSummary.total.sessions === 1 ? '' : 's'} —{' '}
+            <strong>{pct(trendSummary.landedShare)}</strong> went to work that's merged or committed,{' '}
+            <strong>{pct(trendSummary.uncommittedShare)}</strong> to work still uncommitted.
+          </p>
+          <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
+            Tokens are input + output. Only traces with a resolved git outcome are counted.
+            {trend.unit === 'week' ? ' Grouped by week (Monday start, UTC).' : ''}
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:8px">
+            {TREND_OUTCOMES.filter(o => trendSummary.byOutcome[o].sessions > 0).map(o => (
+              <span key={o} style="display:inline-flex;align-items:center;gap:4px">
+                <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${OUTCOME_META[o]!.color}`} />
+                {OUTCOME_META[o]!.label}
+              </span>
+            ))}
+          </div>
+          <OutcomeTrendChart bins={trend.bins} unit={trend.unit} />
+          <div class="h-scroll-hint" style="margin-top:10px">
+            <table style="font-size:11px;width:100%;border-collapse:collapse">
+              <thead>
+                <tr style="color:var(--muted);border-bottom:1px solid var(--vscode-panel-border)">
+                  <th style="text-align:left;font-weight:400;padding:3px 8px 3px 0">Outcome</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Traces</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Tokens</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Share of tokens</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 0 3px 8px">Median / trace</th>
+                </tr>
+              </thead>
+              <tbody>
+                {TREND_OUTCOMES.filter(o => trendSummary.byOutcome[o].sessions > 0).map(o => {
+                  const m = trendSummary.byOutcome[o]
+                  const meta = OUTCOME_META[o]!
+                  const median = medianByOutcome.get(o)
+                  return (
+                    <tr key={o} style="border-top:1px solid var(--vscode-panel-border)">
+                      <td style="padding:3px 8px 3px 0">
+                        <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${meta.color};margin-right:6px`} />
+                        {meta.label}
+                      </td>
+                      <td style="padding:3px 8px;text-align:right">{m.sessions.toLocaleString()}</td>
+                      <td style="padding:3px 8px;text-align:right">{fmtN(m.tokens)}</td>
+                      <td style="padding:3px 8px;text-align:right;color:var(--muted)">{trendSummary.total.tokens > 0 ? pct(m.tokens / trendSummary.total.tokens) : '—'}</td>
+                      <td style="padding:3px 0 3px 8px;text-align:right">{median !== undefined ? fmtN(median) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       {/* Estimated cost */}
       {pricedSess.length > 0 && (
         <>
-          <SectionHead title="ESTIMATED COST" first={copilotSess.length === 0 && claudeSess.length === 0 && codexSess.length === 0} helpAnchor="help-costs" />
+          <SectionHead id="analytics-cost" title="ESTIMATED COST" first={!hasAgentBreakdown && trend.bins.length === 0} helpAnchor="help-costs" />
           {disclaimer}
 
           {copilotSess.length > 0 && (
@@ -330,7 +414,7 @@ export function Analytics() {
       )}
 
       {/* Token usage per session */}
-      <SectionHead title="TOKEN USAGE PER TRACE" />
+      <SectionHead id="analytics-token-usage" title="TOKEN USAGE PER TRACE" />
       <div style="display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--muted)">
         <span><span style="display:inline-block;width:10px;height:3px;background:#FFB74D;border-radius:1px;vertical-align:middle" /> Input tokens</span>
         <span><span style="display:inline-block;width:10px;height:3px;background:#81C784;border-radius:1px;vertical-align:middle" /> Output tokens</span>
@@ -338,14 +422,11 @@ export function Analytics() {
       {/* Always pass newest-first (rangedSessions); chart reverses internally to oldest-first */}
       <SessionTokenChart sessions={timeOrdered} />
 
-      {/* Outcome vs. tokens — did the sessions that spent more tokens tend to land? */}
-      <SectionHead title="OUTCOME VS. TOKENS" tip="Median input+output tokens per trace, grouped by what happened to the work locally (merged / committed / uncommitted). Traces with no changed files, or outside a git repo, aren't counted." />
-      <OutcomeTokenChart sessions={sessions} />
-
       {/* Context growth */}
-      <SectionHead title="CONTEXT GROWTH" />
+      <SectionHead id="analytics-context-growth" title="CONTEXT GROWTH" />
       <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
 
+    </SectionNav>
     </div>
   )
 }
