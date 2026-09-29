@@ -293,7 +293,11 @@ Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install fro
 
 ### Docker (OTEL only)
 
-> **Note:** Docker cannot read local log files from your host machine without explicit volume mounts for each agent directory. Docker mode receives OTEL traces only — log file ingestion is not available. Use the local option above if you need log file history.
+> **Docker is the least capable way to run TraceRoost — prefer the [background service](#local-otel-and-log-files) or the [VS Code extension](#vs-code-extension-otel-and-log-files).** The container is isolated from your host, so:
+>
+> - **No log file ingestion** — it receives OTEL traces only, with no log-file backfill of past history or of sessions sent while it wasn't running.
+> - **No agent auto-configuration** — auto-config writes to the *container's* filesystem, not your host's agent configs. Run the [setup scripts](#configuring-agents-for-local--docker) or follow [Manual Configuration](#manual-configuration).
+> - **No git outcomes** — it can't see your local git repos.
 
 ```bash
 # Ephemeral — data cleared on container stop (always pulls latest)
@@ -526,7 +530,7 @@ point at.
 
 ### Docker (OTEL only)
 
-> **Log file ingestion is not available in Docker mode.** The container is isolated from the host filesystem. Use the native process option above if you need local log-file history.
+> **Docker receives OTEL only.** The container is isolated from the host filesystem, so there's no log file ingestion, no agent auto-configuration (use the [setup scripts](#configuring-agents-for-local--docker)), and no git outcomes. Use the native process option above unless you specifically need a container.
 
 Quick-start commands are in [Ways to Run](#docker-otel-only). Additional options:
 

@@ -2,7 +2,7 @@ import { signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   sessionSummary, toolCalls,
-  selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
+  selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
   sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
@@ -13,6 +13,7 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
+  collectorConflict, type CollectorConflict,
   getSessionsPagination, applySessionDelta, type SessionDelta,
 } from './state'
 import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry } from './types'
@@ -298,6 +299,15 @@ function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
                     <span style={`font-size:12px;font-weight:600;color:${color}`}>{a.label}</span>
                   </div>
                   {a.detail && <div style="font-size:11px;color:var(--muted);line-height:1.4">{a.detail}</div>}
+                  {a.sessionId && (
+                    <span
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false }}
+                      onKeyDown={e => { if (e.key === 'Enter') { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false } }}
+                      style="display:inline-block;margin-top:4px;font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline"
+                    >View trace →</span>
+                  )}
                 </div>
               )
             })}
@@ -579,6 +589,7 @@ export function App() {
         enableOtelIngestion?: boolean
         enableLogIngestion?: boolean
         otlpPort?: number
+        collectorConflict?: CollectorConflict
         currentWorkspace?: string | null
         results?: OtelReconfigureResult
         commands?: string[]
@@ -590,6 +601,7 @@ export function App() {
         if (msg.enableOtelIngestion !== undefined) enableOtelIngestion.value = msg.enableOtelIngestion
         if (msg.enableLogIngestion !== undefined) enableLogIngestion.value = msg.enableLogIngestion
         if (msg.otlpPort !== undefined) otlpPort.value = msg.otlpPort
+        if (msg.collectorConflict !== undefined) collectorConflict.value = msg.collectorConflict
         if (msg.currentWorkspace !== undefined) currentWorkspace.value = msg.currentWorkspace
         if (msg.summary?.toolCalls) toolCalls.value = msg.summary.toolCalls
         if (msg.sessionSummary !== undefined) {
@@ -642,7 +654,7 @@ export function App() {
             }
             const alertNotifications = checkAlerts()
             for (const a of alertNotifications) {
-              vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity })
+              vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
             }
           }, 0)
         }
@@ -775,6 +787,7 @@ export function App() {
         </div>
       </div>
 
+      <CollectorConflictBanner />
       {showFilterBars && <TimeRangePicker />}
       {showFilterBars && <SearchFilterBar />}
       {showFilterBars && <OutcomeFilterBar />}
@@ -807,6 +820,60 @@ export function App() {
 // the version/paging row — rather than drifting down to the panel's full flex-filled height
 // whenever content is shorter than the viewport. Sticky still keeps it pinned to the visible
 // bottom edge while scrolling through long content.
+// Shown on both hosts this ships as — the VS Code extension (owner 'standalone'/'foreign') and
+// the background/npx service (owner 'plugin'/'foreign', which fell back to boundPort instead of
+// failing to start; see standalone/server.ts's startOtlpServer). Dismissible per conflict identity
+// (see dismissedKey below) — it reappears if a *different* conflict shows up (e.g. the other host
+// stops and something else grabs the port), rather than staying dismissed forever once read.
+function CollectorConflictBanner() {
+  const conflict = collectorConflict.value
+  const [dismissedKey, setDismissedKey] = useState<string | null>(null)
+  if (!conflict) return null
+  const { owner, port, boundPort } = conflict
+  const key = `${owner}:${port}:${boundPort ?? ''}`
+  if (dismissedKey === key) return null
+  return (
+    <div class="collector-conflict-banner" role="alert">
+      <span class="collector-conflict-banner-icon">⚠</span>
+      <div style="flex:1">
+        {owner === 'standalone' ? (
+          <>
+            <strong>Not receiving OTel</strong> — the background service already holds port <code>{port}</code>.
+            <ul style="margin:2px 0 0;padding-left:16px">
+              <li>New sessions here come from log files only (no prompt/tool content).</li>
+              <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command).</li>
+              <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension traceroost.traceroost</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
+            </ul>
+          </>
+        ) : owner === 'plugin' ? (
+          <>
+            <strong>Two TraceRoost hosts are running</strong> — the VS Code extension already holds port <code>{port}</code>; this service moved to port <code>{boundPort}</code> instead.
+            <ul style="margin:2px 0 0;padding-left:16px">
+              <li>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.</li>
+              <li>Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (<code>code --uninstall-extension traceroost.traceroost</code>), then reload.</li>
+              <li>Prefer VS Code instead? Stop this service with <code>traceroost service stop</code>.</li>
+            </ul>
+          </>
+        ) : boundPort !== undefined ? (
+          <>
+            <strong>Not receiving OTel on the default port</strong> — port <code>{port}</code> is in use by another (non-TraceRoost) application, so this service moved to port <code>{boundPort}</code> instead. Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed.
+          </>
+        ) : (
+          <>
+            <strong>Not receiving OTel.</strong> Port <code>{port}</code> is in use by another application, not
+            TraceRoost. Change the <em>traceRoost.otlpPort</em> setting to a free port and reload this window.
+          </>
+        )}
+      </div>
+      <button
+        aria-label="Dismiss"
+        onClick={() => setDismissedKey(key)}
+        style="background:none;border:none;color:inherit;opacity:0.7;cursor:pointer;font-size:13px;line-height:1;padding:1px 2px;flex-shrink:0"
+      >✕</button>
+    </div>
+  )
+}
+
 function GitCommandStatusBar() {
   const commands = runningGitCommands.value
   if (commands.length === 0) return null

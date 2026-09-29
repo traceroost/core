@@ -275,12 +275,25 @@ export interface VersionCheckResponse {
   recommendedCommand: string
 }
 
+/** 'standalone' — the background/npx service holds the OTLP port (seen from the VS Code
+ *  extension's own collector). 'plugin' — the VS Code extension holds it instead (seen from the
+ *  background/npx service). 'foreign' — an unrelated, non-TraceRoost process holds it, seen from
+ *  either host. `boundPort` is only set when the reporting host fell back to a different port
+ *  rather than failing to start (the background service's behavior, via listenWithFallback) —
+ *  the port it's actually bound to. */
+export type CollectorConflict = {
+  owner: 'standalone' | 'plugin' | 'foreign'
+  port: number
+  boundPort?: number
+} | null
+
 declare global {
   interface Window {
     acquireVsCodeApi(): VsCodeApi
     __INITIAL_TOOL_CALLS__?: Record<string, number>
     __INITIAL_SESSION_SUMMARY__?: FullSummary | null
     __INITIAL_SESSION_REV__?: number
+    __INITIAL_COLLECTOR_CONFLICT__?: CollectorConflict
     __STANDALONE__?: boolean
     __VERSION__?: string
   }

@@ -4,8 +4,9 @@ import { formatTraceIdHash } from './hash'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
-  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry,
+  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry, CollectorConflict,
 } from './types'
+export type { CollectorConflict } from './types'
 
 // Maximum sessions rendered in any single chart or table
 export const CHART_MAX = 25
@@ -343,6 +344,17 @@ export const activeTab = signal('sessions')
 export const enableOtelIngestion = signal(true)
 export const enableLogIngestion = signal(true)
 export const otlpPort = signal(4318)
+
+// Set when this host's own OTLP collector lost the port to (or, for the background/npx service,
+// fell back away from it because of) another TraceRoost host or an unrelated app — never for
+// another VS Code window running this same extension, which is expected and shares one database.
+// The VS Code extension sets this via dashboardPanel.ts's 'update' message; the background/npx
+// service inlines it as window.__INITIAL_COLLECTOR_CONFLICT__ (read here, at init, the same way
+// __INITIAL_SESSION_SUMMARY__ is) and also broadcasts it over SSE as an 'update' message for tabs
+// already open when the (async) port-owner probe resolves. Drives a persistent top-of-window
+// banner (see CollectorConflictBanner in App.tsx) rather than a one-time toast, since a whole
+// session's worth of OTel data can silently go to the wrong place.
+export const collectorConflict = signal<CollectorConflict>(window.__INITIAL_COLLECTOR_CONFLICT__ ?? null)
 
 export type OtelReconfigureResult = {
   claudeCode: { changed: boolean; error?: string }

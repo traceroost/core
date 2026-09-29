@@ -100,3 +100,27 @@
 
 .tabs { overflow-x: auto; scrollbar-width: thin; }
 .tabs > * { flex-shrink: 0; }
+
+/* Persistent (non-dismissible) warning shown while this window's own OTLP collector isn't
+   bound — see CollectorConflictBanner in App.tsx. */
+.collector-conflict-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 7px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--warning, #ffb74d);
+  border-bottom: 1px solid var(--warning, #ffb74d);
+  background: color-mix(in srgb, var(--warning, #ffb74d) 10%, transparent);
+}
+.collector-conflict-banner code {
+  color: var(--fg);
+  background: var(--hover);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.collector-conflict-banner-icon {
+  flex-shrink: 0;
+  line-height: 1.5;
+}
