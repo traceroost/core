@@ -124,3 +124,28 @@
   flex-shrink: 0;
   line-height: 1.5;
 }
+
+/* Startup log-history progress — see LogIngestBanner in App.tsx. */
+.log-ingest-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+.log-ingest-banner strong { color: var(--fg); font-weight: 600; }
+.log-ingest-banner-track {
+  flex: 1;
+  max-width: 240px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.log-ingest-banner-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}

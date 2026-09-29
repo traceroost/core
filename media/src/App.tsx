@@ -13,10 +13,10 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  collectorConflict, type CollectorConflict,
+  collectorConflict, type CollectorConflict, logIngestProgress,
   getSessionsPagination, applySessionDelta, type SessionDelta,
 } from './state'
-import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry } from './types'
+import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS } from './utils'
 
@@ -590,6 +590,7 @@ export function App() {
         enableLogIngestion?: boolean
         otlpPort?: number
         collectorConflict?: CollectorConflict
+        logIngest?: LogIngestProgress
         currentWorkspace?: string | null
         results?: OtelReconfigureResult
         commands?: string[]
@@ -597,6 +598,9 @@ export function App() {
       }
       // Org panel (TraceRoost Pro) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
+      // Its own message type rather than a field on 'update': it's sent many times a second during
+      // a startup log load, and every 'update' also re-runs alert and automation checks.
+      if (msg.type === 'logIngest') { logIngestProgress.value = msg.logIngest ?? null; return }
       if (msg.type === 'update') {
         if (msg.enableOtelIngestion !== undefined) enableOtelIngestion.value = msg.enableOtelIngestion
         if (msg.enableLogIngestion !== undefined) enableLogIngestion.value = msg.enableLogIngestion
@@ -788,6 +792,7 @@ export function App() {
       </div>
 
       <CollectorConflictBanner />
+      <LogIngestBanner />
       {showFilterBars && <TimeRangePicker />}
       {showFilterBars && <SearchFilterBar />}
       {showFilterBars && <OutcomeFilterBar />}
@@ -870,6 +875,23 @@ function CollectorConflictBanner() {
         onClick={() => setDismissedKey(key)}
         style="background:none;border:none;color:inherit;opacity:0.7;cursor:pointer;font-size:13px;line-height:1;padding:1px 2px;flex-shrink:0"
       >✕</button>
+    </div>
+  )
+}
+
+// Shown while the host's startup pass is still parsing local log history — sessions fill in
+// underneath as it goes. See ingestHistoricalLogs in standalone/server.ts and startBatchedLoad in
+// extension.ts (via DashboardPanel.setLogIngestProgress).
+function LogIngestBanner() {
+  const progress = logIngestProgress.value
+  if (!progress || progress.total === 0) return null
+  const pct = Math.min(100, Math.round((progress.done / progress.total) * 100))
+  return (
+    <div class="log-ingest-banner" role="status" aria-live="polite">
+      <span>Loading traces from local logs… <strong>{progress.done.toLocaleString()}</strong> of {progress.total.toLocaleString()} files</span>
+      <div class="log-ingest-banner-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+        <div class="log-ingest-banner-fill" style={`width:${pct}%`} />
+      </div>
     </div>
   )
 }

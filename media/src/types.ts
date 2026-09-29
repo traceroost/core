@@ -287,6 +287,10 @@ export type CollectorConflict = {
   boundPort?: number
 } | null
 
+/** Progress of the host's one-time historical log pass at startup (standalone/server.ts's
+ *  ingestHistoricalLogs, extension.ts's startBatchedLoad); null when no pass is running. */
+export type LogIngestProgress = { done: number; total: number } | null
+
 declare global {
   interface Window {
     acquireVsCodeApi(): VsCodeApi
@@ -294,6 +298,7 @@ declare global {
     __INITIAL_SESSION_SUMMARY__?: FullSummary | null
     __INITIAL_SESSION_REV__?: number
     __INITIAL_COLLECTOR_CONFLICT__?: CollectorConflict
+    __INITIAL_LOG_INGEST__?: LogIngestProgress
     __STANDALONE__?: boolean
     __VERSION__?: string
   }

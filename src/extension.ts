@@ -484,6 +484,7 @@ export async function activate(context: vscode.ExtensionContext) {
           const ws = fallbackWorkspace()
           let written = 0
           for (let i = idx; i < Math.min(idx + batchSize, files.length); i++) {
+            progress.done++
             try {
               // Usually one result; a Claude Code transcript split by a large gap between
               // prompts (see splitClaudeLinesOnPromptGaps) can yield more than one.
@@ -515,8 +516,10 @@ export async function activate(context: vscode.ExtensionContext) {
               // the whole database file.
               traceRoostDb?.saveSoon()
               provider.refresh()
+              DashboardPanel.refreshSoon()
             }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
           }
+          DashboardPanel.setLogIngestProgress(progress)
           const next = idx + batchSize
           if (next < files.length) {
             setTimeout(() => step(next), delayMs)
@@ -546,6 +549,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
       const fastFiles = allFiles.filter(f => f.agentKey !== 'copilot_vscode_json' && f.agentKey !== 'opencode')
       const slowFiles = allFiles.filter(f => f.agentKey === 'copilot_vscode_json')
+      // Drives the dashboard's progress banner (see DashboardPanel.setLogIngestProgress).
+      const progress = { done: 0, total: fastFiles.length + slowFiles.length }
+      DashboardPanel.setLogIngestProgress(progress)
 
       // Saves are coalesced (saveSoon), so the cross-window signal and the processed-files record
       // wait for the save that actually covers everything enqueued so far.
@@ -558,10 +564,12 @@ export async function activate(context: vscode.ExtensionContext) {
         afterSaved(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
         // Slow-pass: legacy .json snapshots loaded at low priority after fast pass completes.
         processGroup(slowFiles, 2, 50, () => {
+          DashboardPanel.setLogIngestProgress(null)
           afterSaved(saved => {
             if (saved) writeLastWriteSignal(context.globalStorageUri)
             persistFileState()
           })
+          DashboardPanel.refreshSoon()
           const total = [...countByKey.values()].reduce((s, n) => s + n, 0)
           if (total > 0) {
             const breakdown = [...countByKey.entries()]
