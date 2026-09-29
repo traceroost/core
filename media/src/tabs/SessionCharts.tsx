@@ -4,7 +4,7 @@ import { getAgentColor, getAgentSourceLabel, formatCompact } from '../utils'
 import { dayKeyUtc } from '../sessionMetrics'
 import type { SessionSummaryCard, GitOutcome, FileOutcome } from '../types'
 import { OUTCOME_META } from './Sessions'
-import { TREND_OUTCOMES, niceMax, type TrendBin } from './outcomeTrend'
+import { TREND_OUTCOMES, TREND_COLOR, niceMax, type TrendBin } from './outcomeTrend'
 
 export function TurnsLink() {
   return (
@@ -541,7 +541,7 @@ export function OutcomeTrendChart({ bins, unit }: { bins: TrendBin[]; unit: 'day
       const segH = (bin.byOutcome[o][key] / scaleMax) * h
       y -= segH
       const drawH = Math.max(1, segH - (si > 0 ? 1 : 0))
-      return <rect key={o} x={x} y={y} width={barW} height={drawH} fill={OUTCOME_META[o]!.color} opacity={hover === i ? 1 : 0.85} />
+      return <rect key={o} x={x} y={y} width={barW} height={drawH} fill={TREND_COLOR[o]} opacity={hover === i ? 1 : 0.85} />
     })
   }
 
@@ -598,7 +598,7 @@ export function OutcomeTrendChart({ bins, unit }: { bins: TrendBin[]; unit: 'day
           <div style="font-weight:600;margin-bottom:2px">{binLabel(hovered, unit)}</div>
           {TREND_OUTCOMES.filter(o => hovered.byOutcome[o].sessions > 0).slice().reverse().map(o => (
             <div key={o}>
-              <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${OUTCOME_META[o]!.color};margin-right:6px`} />
+              <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${TREND_COLOR[o]};margin-right:6px`} />
               {OUTCOME_META[o]!.label}: <strong>{formatCompact(hovered.byOutcome[o].tokens)}</strong> tokens, {hovered.byOutcome[o].sessions} trace{hovered.byOutcome[o].sessions === 1 ? '' : 's'}
             </div>
           ))}

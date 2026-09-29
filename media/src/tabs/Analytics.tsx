@@ -14,7 +14,7 @@ import { ContextGrowthChart, SessionTokenChart, OutcomeTrendChart, buildOutcomeT
 import { CostBarChart, fmtUsd } from './Cost'
 import { computeStats } from './Agents'
 import { SectionNav, type NavSection } from '../SectionNav'
-import { buildTrendBins, summarize, TREND_OUTCOMES } from './outcomeTrend'
+import { buildTrendBins, summarize, TREND_OUTCOMES, TREND_COLOR } from './outcomeTrend'
 import { OUTCOME_META } from './Sessions'
 import { gitOutcomes } from '../state'
 
@@ -227,7 +227,7 @@ export function Analytics() {
           <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:8px">
             {TREND_OUTCOMES.filter(o => trendSummary.byOutcome[o].sessions > 0).map(o => (
               <span key={o} style="display:inline-flex;align-items:center;gap:4px">
-                <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${OUTCOME_META[o]!.color}`} />
+                <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${TREND_COLOR[o]}`} />
                 {OUTCOME_META[o]!.label}
               </span>
             ))}
@@ -252,7 +252,7 @@ export function Analytics() {
                   return (
                     <tr key={o} style="border-top:1px solid var(--vscode-panel-border)">
                       <td style="padding:3px 8px 3px 0">
-                        <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${meta.color};margin-right:6px`} />
+                        <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${TREND_COLOR[o]};margin-right:6px`} />
                         {meta.label}
                       </td>
                       <td style="padding:3px 8px;text-align:right">{m.sessions.toLocaleString()}</td>
