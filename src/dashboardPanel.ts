@@ -64,6 +64,13 @@ export class DashboardPanel {
   /** The port the MCP server actually bound (set by extension.ts) — it can differ from the
    *  configured traceRoost.mcpPort when that port was busy and listenWithFallback moved on. */
   public static boundMcpPort: number | undefined
+  /** Set by extension.ts when this window's own OTLP collector lost the port to the TraceRoost
+   *  background service or an unrelated app — never for another VS Code window running this same
+   *  extension, which shares one database by design and isn't a conflict. Read on every 'update'
+   *  postMessage below so the webview shows a persistent warning banner for as long as this
+   *  window isn't actually receiving OTel, rather than a one-time toast that's easy to miss or
+   *  dismiss and forget about. */
+  public static collectorConflict: { owner: 'standalone' | 'foreign'; port: number } | undefined
   private readonly panel: vscode.WebviewPanel
   private disposables: vscode.Disposable[] = []
   private pendingUpdate: ReturnType<typeof setTimeout> | undefined
@@ -186,7 +193,7 @@ export class DashboardPanel {
       } else if (msg.type === 'getRepoHash' && msg.workspace) {
         void this.sendRepoHash(msg.workspace as string)
       } else if (msg.type === 'alert' && msg.label) {
-        handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider, rawDb)
+        handleAlertNotification(msg as { label: string; detail?: string; severity: string; sessionId?: string }, context, repo, sidebarProvider, rawDb)
       } else if (msg.type === 'automation' && msg.prompt) {
         handleAutomation(msg as { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; prompt: string })
       } else if (msg.type === 'openFile' && typeof msg.filePath === 'string' && msg.filePath) {
@@ -418,6 +425,7 @@ export class DashboardPanel {
       enableOtelIngestion: cfg.get<boolean>('enableOtelIngestion', true),
       enableLogIngestion: cfg.get<boolean>('enableLogIngestion', true),
       otlpPort: cfg.get<number>('otlpPort', 4318),
+      collectorConflict: DashboardPanel.collectorConflict ?? null,
       // The one real folder Apply/getInstructionFiles below actually act on
       // (vscode.workspace.workspaceFolders[0], same source those handlers already use) — the
       // webview has no other way to know it, and it is not the same thing as the Repo toolbar's
@@ -745,7 +753,7 @@ function buildEfficiency(sessions: SessionSummaryCard[]) {
 // ── Alert / automation helpers (unchanged) ────────────────────────────────────
 
 async function handleAlertNotification(
-  msg: { label: string; detail?: string; severity: string },
+  msg: { label: string; detail?: string; severity: string; sessionId?: string },
   context: vscode.ExtensionContext,
   repo: SessionRepository,
   sidebarProvider?: SidebarPanel,
@@ -759,18 +767,30 @@ async function handleAlertNotification(
     ...(msg.detail ? [`Detail: ${msg.detail}`] : []),
   ].join('\n')
 
+  // Most alerts point at one offending trace (evaluateAlert's `worst` session) — jump straight to
+  // it in the Sessions tab instead of the generic Alerts tab. Aggregate alerts (e.g. daily_cost)
+  // have no single trace responsible, so those still fall back to the Alerts tab.
+  const viewLabel = msg.sessionId ? 'View Trace' : 'View Alerts'
+
   let promise: Thenable<string | undefined>
   if (msg.severity === 'error') {
-    promise = vscode.window.showErrorMessage(text, 'View Alerts', 'Copy Prompt')
+    promise = vscode.window.showErrorMessage(text, viewLabel, 'Copy Prompt')
   } else if (msg.severity === 'info') {
-    promise = vscode.window.showInformationMessage(text, 'View Alerts', 'Copy Prompt')
+    promise = vscode.window.showInformationMessage(text, viewLabel, 'Copy Prompt')
   } else {
-    promise = vscode.window.showWarningMessage(text, 'View Alerts', 'Copy Prompt')
+    promise = vscode.window.showWarningMessage(text, viewLabel, 'Copy Prompt')
   }
   promise.then(action => {
-    if (action === 'View Alerts') {
+    if (action === viewLabel) {
       DashboardPanel.show(context, repo, sidebarProvider, undefined, rawDb)
-      DashboardPanel.switchToTab('alerts')
+      setTimeout(() => {
+        if (msg.sessionId) {
+          DashboardPanel.switchToTab('sessions')
+          DashboardPanel.sendFilter(undefined, undefined, undefined, msg.sessionId)
+        } else {
+          DashboardPanel.switchToTab('alerts')
+        }
+      }, 250)
     } else if (action === 'Copy Prompt') {
       vscode.env.clipboard.writeText(clipboardPrompt).then(() => {
         vscode.window.showInformationMessage('TraceRoost: Alert prompt copied — paste into your AI chat.')

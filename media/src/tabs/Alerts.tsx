@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { displaySessions } from '../state'
+import { displaySessions, activeTab, focusedSessionId } from '../state'
 import { buildDisplaySummary, formatMs } from '../utils'
 import {
   fmtUsd,
@@ -57,6 +57,9 @@ interface AlertResult {
   triggered: boolean
   detail?: string
   key?: string
+  /** The specific trace responsible for this alert, when the alert is about one trace rather
+   *  than an aggregate (e.g. daily_cost has none) — lets callers link straight to it. */
+  sessionId?: string
 }
 
 const DEFAULT_CONFIGS: AlertConfig[] = [
@@ -218,6 +221,7 @@ function evaluateAlert(
       return {
         triggered: true,
         key: worst.session.traceId || worst.session.sessionId,
+        sessionId: worst.session.sessionId,
         detail: 'Peak context ' + worst.usage.peakTokens.toLocaleString() + ' tokens vs '
           + worst.profile.label + ' threshold ' + worst.threshold.toLocaleString()
           + ' — "' + sessionDisplayName(worst.session) + '"',
@@ -232,6 +236,7 @@ function evaluateAlert(
       return {
         triggered: true,
         key: worst.session.traceId || worst.session.sessionId,
+        sessionId: worst.session.sessionId,
         detail: over.length + ' trace(s) reached threshold. Worst: ' + worst.session.totalLlmCalls
           + ' turns vs ' + worst.profile.label + ' alert ' + worst.profile.turnAlert
           + ' — "' + sessionDisplayName(worst.session) + '"',
@@ -245,6 +250,7 @@ function evaluateAlert(
       return {
         triggered: true,
         key: worst.session.traceId || worst.session.sessionId,
+        sessionId: worst.session.sessionId,
         detail: 'Worst: ' + worst.health.errorCount + ' error(s) vs '
           + worst.profile.label + ' threshold ' + worst.profile.consecutiveErrorAlert
           + ' — "' + sessionDisplayName(worst.session) + '"',
@@ -259,6 +265,7 @@ function evaluateAlert(
       return {
         triggered: true,
         key: longest.session.traceId || longest.session.sessionId,
+        sessionId: longest.session.sessionId,
         detail: long.length + ' trace(s) exceeded threshold. Longest active compute: ' + formatMs(longest.activeMs)
           + ' vs ' + longest.profile.label + ' alert ' + longest.profile.activeMinutesAlert + 'min',
       }
@@ -276,6 +283,7 @@ function evaluateAlert(
       return {
         triggered: true,
         key: worst.session.traceId || worst.session.sessionId,
+        sessionId: worst.session.sessionId,
         detail: '0% cache hit rate on ' + worst.session.inputTokens.toLocaleString()
           + ' input tokens vs ' + worst.profile.label + ' gate ' + worst.threshold.toLocaleString()
           + ' — "' + sessionDisplayName(worst.session) + '"',
@@ -291,6 +299,7 @@ function evaluateAlert(
       return {
         triggered: true,
         key: (worst.session.traceId || worst.session.sessionId) + ':' + worst.repeat.key,
+        sessionId: worst.session.sessionId,
         detail: '"' + worst.repeat.display + '" repeated ' + worst.repeat.count + ' times without intervening file changes vs '
           + worst.profile.label + ' alert ' + worst.profile.identicalRepeatAlert + ' — "' + sessionDisplayName(worst.session) + '"',
       }
@@ -315,6 +324,7 @@ export interface TriggeredAlert {
   label: string
   severity: 'error' | 'warning' | 'info'
   detail: string
+  sessionId?: string
 }
 
 export function getTriggeredAlerts(): TriggeredAlert[] {
@@ -325,7 +335,7 @@ export function getTriggeredAlerts(): TriggeredAlert[] {
   for (const cfg of configs) {
     if (!cfg.enabled) continue
     const result = evaluateAlert(cfg, sessions, efficiency, profiles)
-    if (result.triggered) out.push({ label: cfg.label, severity: cfg.severity, detail: result.detail ?? '' })
+    if (result.triggered) out.push({ label: cfg.label, severity: cfg.severity, detail: result.detail ?? '', sessionId: result.sessionId })
   }
   return out
 }
@@ -342,6 +352,7 @@ export interface AlertNotification {
   label: string
   detail?: string
   severity: 'error' | 'warning' | 'info'
+  sessionId?: string
 }
 
 export function checkAlerts(): AlertNotification[] {
@@ -367,7 +378,7 @@ export function checkAlerts(): AlertNotification[] {
       activeKeys.add(key)
       if (firedAlertKeys.has(key)) { continue }
       firedAlertKeys.add(key)
-      notifications.push({ label: cfg.label, detail: result.detail, severity: cfg.severity })
+      notifications.push({ label: cfg.label, detail: result.detail, severity: cfg.severity, sessionId: result.sessionId })
     }
   }
   for (const key of Array.from(firedAlertKeys)) {
@@ -446,7 +457,7 @@ export function Alerts() {
         </div>
       )}
 
-      {results.map(({ config: cfg, triggered, detail }) => {
+      {results.map(({ config: cfg, triggered, detail, sessionId }) => {
         const sev = cfg.severity
         const trigColor = sev === 'error' ? 'var(--error)' : sev === 'info' ? '#4fc3f7' : '#f6a623'
         const borderColor = triggered ? trigColor : 'var(--border)'
@@ -479,7 +490,21 @@ export function Alerts() {
               )}
             </div>
             {triggered && detail && (
-              <div style={`font-size:12px;padding:7px 10px;background:var(--panel-bg);border-radius:4px;border-left:3px solid ${trigColor};margin-bottom:8px;line-height:1.4`}>{detail}</div>
+              <div style={`font-size:12px;padding:7px 10px;background:var(--panel-bg);border-radius:4px;border-left:3px solid ${trigColor};margin-bottom:8px;line-height:1.4`}>
+                {detail}
+                {sessionId && (
+                  <>
+                    {' '}
+                    <span
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => { focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
+                      onKeyDown={e => { if (e.key === 'Enter') { focusedSessionId.value = sessionId; activeTab.value = 'sessions' } }}
+                      style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline;white-space:nowrap"
+                    >View trace →</span>
+                  </>
+                )}
+              </div>
             )}
             {hasSharedThreshold(cfg) ? (
               <AgentThresholdNumberInputs

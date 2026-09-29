@@ -236,6 +236,13 @@ export async function activate(context: vscode.ExtensionContext) {
   const port = traceRoostCfg.get<number>('otlpPort', 4318)
   collector = new OtlpCollector(port, store, outputChannel)
   let collectorFailed = false
+  // Set only when another TraceRoost-owned process (the standalone/background service, most
+  // often) or an unrelated app holds the port — never for the benign case of another VS Code
+  // window already running this same extension (owner 'plugin'), which shares one database by
+  // design. Surfaced persistently in the dashboard UI via DashboardPanel.collectorConflict,
+  // not just as a one-time toast, since the wrong data source can otherwise go unnoticed for a
+  // whole session.
+  let collectorConflict: { owner: 'standalone' | 'foreign'; port: number } | undefined
   try {
     await collector.start()
     collector.setIngestionEnabled(traceRoostCfg.get<boolean>('enableOtelIngestion', true))
@@ -244,11 +251,26 @@ export async function activate(context: vscode.ExtensionContext) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
       const owner = await detectPortOwner(port)
       if (owner === 'standalone') {
-        outputChannel.appendLine(`Port ${port} is in use by the TraceRoost standalone server — change traceRoost.otlpPort`)
+        collectorConflict = { owner, port }
+        outputChannel.appendLine(
+          `Not receiving OTel — the background service already holds port ${port}.\n` +
+          `  - New sessions here come from log files only (no prompt/tool content).\n` +
+          `  - Run TraceRoost one way per machine — background service, VS Code extension, or Docker. ` +
+          `Recommended: the background service — it starts at login and keeps capturing OTel even when ` +
+          `VS Code is closed, so nothing gets missed. Install with \`npx traceroost@latest service install\` ` +
+          `(macOS/Linux/Windows all use the same command).\n` +
+          `  - The service already holds this port, so: keep it and uninstall this extension ` +
+          `(\`code --uninstall-extension traceroost.traceroost\`), then reload — or, to use VS Code instead, ` +
+          `stop the service with \`traceroost service stop\`.`
+        )
         vscode.window.showErrorMessage(
-          `TraceRoost: Port ${port} is already in use by the TraceRoost standalone server. Change the traceRoost.otlpPort setting to use a different port.`
+          `TraceRoost: the background service is already receiving OTel data on port ${port}. This window won't ` +
+          `see live OTel sessions until you stop the service (\`traceroost service stop\`) and reload, or view its ` +
+          `dashboard instead. Run TraceRoost one way per machine — extension, background service, local run, or ` +
+          `Docker, not several at once — and stick to the default ports.`
         )
       } else if (owner === 'foreign') {
+        collectorConflict = { owner, port }
         outputChannel.appendLine(`Port ${port} is in use by an unknown process — change traceRoost.otlpPort`)
         vscode.window.showErrorMessage(
           `TraceRoost: Port ${port} is already in use by another application. Change the traceRoost.otlpPort setting to use a different port.`
@@ -259,6 +281,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     collector = undefined
   }
+  DashboardPanel.collectorConflict = collectorConflict
 
   // ── Auto-configure agents ────────────────────────────────────────────────────
   const autoConfigureAgents = traceRoostCfg.get<boolean>('autoConfigureAgents', true)
@@ -800,21 +823,30 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(statusBar)
 
   function updateStatusBar() {
-    if (collectorFailed) {
-      statusBar.text = '$(graph) TraceRoost — syncing'
+    if (collectorConflict) {
+      statusBar.text = '$(warning) TraceRoost — not receiving OTel'
+      statusBar.color = new vscode.ThemeColor('statusBarItem.warningForeground')
+      statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
     } else {
+      // collectorFailed alone means another VS Code window already runs the collector and this
+      // window reads the shared database — normal operation, so no suffix, just a tooltip hint.
       statusBar.text = '$(graph) TraceRoost'
+      statusBar.tooltip = collectorFailed
+        ? 'Open TraceRoost Dashboard (collector running in another VS Code window)'
+        : 'Open TraceRoost Dashboard'
+      statusBar.color = undefined
+      statusBar.backgroundColor = undefined
     }
-    statusBar.color = undefined
-    statusBar.backgroundColor = undefined
     statusBar.show()
   }
 
   updateStatusBar()
   context.subscriptions.push(store.onUpdate(updateStatusBar))
 
-  if (collectorFailed) {
-    outputChannel.appendLine('TraceRoost syncing — collector already running in another window')
+  if (collectorConflict) {
+    // Already logged/shown in detail where collectorConflict was set, above.
+  } else if (collectorFailed) {
+    outputChannel.appendLine('TraceRoost active — collector already running in another VS Code window; sharing its database')
   } else {
     vscode.window.showInformationMessage(`TraceRoost active — listening on port ${port}`)
     outputChannel.appendLine(`TraceRoost active — OTLP collector listening on port ${port}`)

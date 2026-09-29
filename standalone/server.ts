@@ -32,7 +32,7 @@ import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
-import { listenWithFallback, writeResolvedPorts, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
+import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
 // TraceRoost Pro (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud } from '../src/cloudBridge'
 import { resolveGithubUrl } from '../src/repoRemote'
@@ -65,6 +65,16 @@ const AUTH_TOKEN = fileConfig.authToken
 // (POST /action { type: 'reconfigureOtel' }); unset (the default) changes nothing for a real
 // user, since nobody sets this by hand.
 const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
+
+// Set when this service's OTLP receiver fell back to a different port than requested — i.e. some
+// other process already held OTLP_PORT (see listenWithFallback in startOtlpServer below). Unlike
+// the VS Code extension's own collectorConflict (which fails outright and shows the analogous
+// 'standalone' owner), this service keeps running on the fallback port, so there's no data loss —
+// just two hosts running where the "one way per machine" story says there should be one. Read by
+// getHtml() to inline into the page and by startOtlpServer to broadcast once the (async)
+// port-owner probe resolves — see CollectorConflict in media/src/types.ts for the shared shape
+// this mirrors, and CollectorConflictBanner in App.tsx for how it's rendered.
+let collectorConflict: { owner: 'plugin' | 'foreign'; port: number; boundPort: number } | null = null
 
 // Turns the "BIND_HOST=0.0.0.0 ships with zero access control" footgun into a startup error:
 // once bindHost is exposed beyond loopback, a token must actually be in place (it always will
@@ -1331,6 +1341,7 @@ function getHtml(): string {
     window.__INITIAL_TOOL_CALLS__ = {};
     window.__INITIAL_SESSION_SUMMARY__ = ${sessionSummaryJson};
     window.__INITIAL_SESSION_REV__ = ${sessionRev};
+    window.__INITIAL_COLLECTOR_CONFLICT__ = ${JSON.stringify(collectorConflict)};
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(PACKAGE_VERSION)};
 
@@ -2489,6 +2500,29 @@ async function startOtlpServer(): Promise<void> {
   }
   recordResolvedPort('otlp', OTLP_PORT, bound)
   console.log(`[TraceRoost] OTLP receiver → http://localhost:${bound}`)
+
+  if (bound !== OTLP_PORT) {
+    // Fell back rather than failing — find out who has the default port so the dashboard banner
+    // (and this log line) can say something more useful than "a port was busy". Best-effort: a
+    // failed probe just means no banner, not a startup error, since the fallback already succeeded.
+    void detectPortOwner(OTLP_PORT).then(owner => {
+      // 'standalone' means another copy of this same service — two background services fighting
+      // over a port is a user error to fix on their own terms, not something to nag about here.
+      if (owner === 'standalone') return
+      collectorConflict = { owner, port: OTLP_PORT, boundPort: bound }
+      if (owner === 'plugin') {
+        console.warn(
+          `[TraceRoost] Two TraceRoost hosts are running — the VS Code extension already holds port ${OTLP_PORT}; this service moved to port ${bound} instead.\n` +
+          `  - Agents are already pointed at ${bound}, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.\n` +
+          `  - Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (\`code --uninstall-extension traceroost.traceroost\`), then reload.\n` +
+          `  - Prefer VS Code instead? Stop this service with \`traceroost service stop\`.`
+        )
+      } else {
+        console.warn(`[TraceRoost] Port ${OTLP_PORT} is in use by another application — this service moved to port ${bound} instead. Agents are already pointed at ${bound}, so nothing's being missed.`)
+      }
+      broadcastSse({ type: 'update', collectorConflict })
+    }).catch(() => { /* best effort */ })
+  }
 
   // Auto-configure Claude Code, Codex, and Copilot to point at this collector — only after the
   // real bind succeeds, against `bound` (the port actually listening), never the static OTLP_PORT,
