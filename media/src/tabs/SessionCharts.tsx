@@ -492,19 +492,17 @@ export function buildOutcomeTokenBuckets(
     .map(o => ({ outcome: o, medianTokens: median(tokensByOutcome[o]!), count: tokensByOutcome[o]!.length }))
 }
 
-// ── Outcome & token spend over time — two small multiples on a shared time axis ───
+// ── Outcome & token spend over time ────────────────────────────────────────────
 // The cloud-first design (analytics/outcome-trend-chart.tsx in the cloud repo), ported to core's
 // local git-outcome model (outcomeTrend.ts) and superseding the single median-bar chart above
 // (buildOutcomeTokenBuckets is still used for the per-outcome median in Analytics.tsx's table).
-// Two panels rather than one dual-axis chart: tokens and trace counts differ by orders of
-// magnitude, and a second y-scale invites reading a crossing of the two as meaningful when it's
-// only an artifact of where each axis happens to start.
+// Used to carry a second "traces per day" panel beneath this one; dropped as not pulling its
+// weight once tokens already has the story, and the hover tooltip still surfaces the per-outcome
+// trace count for anyone who wants it.
 
 const TREND_W = 600
 const TREND_PAD = { top: 14, right: 12, bottom: 16, left: 44 }
 const TREND_TOKENS_H = 100
-const TREND_PANEL_GAP = 20
-const TREND_TRACES_H = 50
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function shortDate(day: string): string {
@@ -524,21 +522,19 @@ export function OutcomeTrendChart({ bins, unit }: { bins: TrendBin[]; unit: 'day
   const chartW = TREND_W - TREND_PAD.left - TREND_PAD.right
   const slotW = chartW / bins.length
   const barW = Math.max(1, Math.min(20, slotW * 0.7))
-  const tracesTop = TREND_PAD.top + TREND_TOKENS_H + TREND_PANEL_GAP
-  const H = tracesTop + TREND_TRACES_H + TREND_PAD.bottom
+  const H = TREND_PAD.top + TREND_TOKENS_H + TREND_PAD.bottom
 
   const tokenScale = niceMax(Math.max(...bins.map(b => b.total.tokens), 0))
-  const traceScale = niceMax(Math.max(...bins.map(b => b.total.sessions), 0))
 
   const labelEvery = Math.max(1, Math.ceil(bins.length / Math.max(1, Math.floor(chartW / 70))))
   const last = bins.length - 1
 
-  function stack(bin: TrendBin, i: number, key: 'tokens' | 'sessions', top: number, h: number, scaleMax: number) {
+  function stack(bin: TrendBin, i: number, top: number, h: number, scaleMax: number) {
     const x = TREND_PAD.left + (i + 0.5) * slotW - barW / 2
     let y = top + h
-    const present = TREND_OUTCOMES.filter(o => bin.byOutcome[o][key] > 0)
+    const present = TREND_OUTCOMES.filter(o => bin.byOutcome[o].tokens > 0)
     return present.map((o, si) => {
-      const segH = (bin.byOutcome[o][key] / scaleMax) * h
+      const segH = (bin.byOutcome[o].tokens / scaleMax) * h
       y -= segH
       const drawH = Math.max(1, segH - (si > 0 ? 1 : 0))
       return <rect key={o} x={x} y={y} width={barW} height={drawH} fill={TREND_COLOR[o]} opacity={hover === i ? 1 : 0.85} />
@@ -564,13 +560,11 @@ export function OutcomeTrendChart({ bins, unit }: { bins: TrendBin[]; unit: 'day
   return (
     <div style="position:relative">
       <svg viewBox={`0 0 ${TREND_W} ${H}`} style="width:100%;height:auto;display:block"
-        role="img" aria-label={`Tokens and traces per ${unit}, stacked by outcome.`}
+        role="img" aria-label={`Tokens per ${unit}, stacked by outcome.`}
         onMouseLeave={() => setHover(null)}
       >
         <text x={TREND_PAD.left} y={TREND_PAD.top - 4} font-size="9" fill="var(--vscode-descriptionForeground,#888)">Tokens (in + out) per {unit}</text>
         {axis(TREND_PAD.top, TREND_TOKENS_H, tokenScale)}
-        <text x={TREND_PAD.left} y={tracesTop - 4} font-size="9" fill="var(--vscode-descriptionForeground,#888)">Traces per {unit}</text>
-        {axis(tracesTop, TREND_TRACES_H, traceScale)}
 
         {bins.map((b, i) => (
           <g key={b.start}
@@ -579,14 +573,13 @@ export function OutcomeTrendChart({ bins, unit }: { bins: TrendBin[]; unit: 'day
           >
             {hover === i && (
               <rect x={TREND_PAD.left + i * slotW} y={TREND_PAD.top} width={slotW}
-                height={tracesTop + TREND_TRACES_H - TREND_PAD.top} fill="var(--foreground)" opacity="0.05" />
+                height={TREND_TOKENS_H} fill="var(--foreground)" opacity="0.05" />
             )}
-            {stack(b, i, 'tokens', TREND_PAD.top, TREND_TOKENS_H, tokenScale.max)}
-            {stack(b, i, 'sessions', tracesTop, TREND_TRACES_H, traceScale.max)}
+            {stack(b, i, TREND_PAD.top, TREND_TOKENS_H, tokenScale.max)}
             <rect x={TREND_PAD.left + i * slotW} y={TREND_PAD.top} width={slotW}
-              height={tracesTop + TREND_TRACES_H - TREND_PAD.top} fill="transparent" />
+              height={TREND_TOKENS_H} fill="transparent" />
             {(i % labelEvery === 0 || i === last) && (
-              <text x={Math.min(TREND_PAD.left + (i + 0.5) * slotW, TREND_W - 20)} y={tracesTop + TREND_TRACES_H + 12}
+              <text x={Math.min(TREND_PAD.left + (i + 0.5) * slotW, TREND_W - 20)} y={TREND_PAD.top + TREND_TOKENS_H + 12}
                 text-anchor="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">{shortDate(b.start)}</text>
             )}
           </g>
