@@ -189,8 +189,8 @@ export function Analytics() {
   const hasPlan = hasPlanData(plan)
 
   const navSections: NavSection[] = [
-    ...(hasPlan ? [{ id: 'analytics-plan-limits', label: 'Plan limits' }] : []),
     ...(hasAgentBreakdown ? [{ id: 'analytics-agent-breakdown', label: 'Agent breakdown' }] : []),
+    ...(hasPlan ? [{ id: 'analytics-plan-limits', label: 'Plan limits' }] : []),
     ...(trend.bins.length > 0 ? [{ id: 'analytics-outcome-tokens', label: 'Outcome & token spend' }] : []),
     ...(pricedSess.length > 0 ? [{ id: 'analytics-cost', label: 'Estimated cost' }] : []),
     { id: 'analytics-token-usage', label: 'Token usage' },
@@ -201,24 +201,24 @@ export function Analytics() {
     <div id="analytics-content">
     <SectionNav label="Analytics sections" sections={navSections}>
 
-      {/* Subscription plan limits — Claude Code and Codex only, and only when they've written any. */}
-      {hasPlan && (
-        <>
-          <SectionHead id="analytics-plan-limits" title="PLAN LIMITS" first helpAnchor="help-plan-limits"
-            tip="How much of your Claude or ChatGPT plan's 5-hour and weekly windows you've used, read from files Claude Code and Codex write themselves. No credentials are read and nothing is sent anywhere." />
-          <PlanLimitsSection snapshot={plan} />
-        </>
-      )}
-
       {/* Agent breakdown */}
       {hasAgentBreakdown && (
         <>
-          <SectionHead id="analytics-agent-breakdown" title="AGENT BREAKDOWN" first={!hasPlan} />
+          <SectionHead id="analytics-agent-breakdown" title="AGENT BREAKDOWN" first />
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             {copilotSess.length > 0 && <AgentCard source="copilot"    sessions={copilotSess} />}
             {claudeSess.length  > 0 && <AgentCard source="claude_code" sessions={claudeSess} />}
             {codexSess.length   > 0 && <AgentCard source="codex"      sessions={codexSess} />}
           </div>
+        </>
+      )}
+
+      {/* Subscription plan limits — Claude Code and Codex only, and only when they've written any. */}
+      {hasPlan && (
+        <>
+          <SectionHead id="analytics-plan-limits" title="PLAN LIMITS" first={!hasAgentBreakdown} helpAnchor="help-plan-limits"
+            tip="How much of your Claude or ChatGPT plan's 5-hour and weekly windows you've used, read from files Claude Code and Codex write themselves. No credentials are read and nothing is sent anywhere." />
+          <PlanLimitsSection snapshot={plan} />
         </>
       )}
 
