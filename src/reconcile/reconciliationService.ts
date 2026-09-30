@@ -40,6 +40,7 @@ import {
   type OutcomeRepoCache,
   type RepoTipsSnapshot,
 } from '../gitOutcome'
+import * as crypto from 'crypto'
 import { GitOutcomeRepository } from '../database/gitOutcomeRepository'
 import { OutcomeKeyRepository } from '../database/outcomeKeyRepository'
 import { TraceRevisionRepository } from '../database/traceRevisionRepository'
@@ -223,12 +224,28 @@ export class ReconciliationService {
     const prior = snapshot ? this.keys.get(sessionId) : undefined
     const keyBefore = await resolveOutcomeCacheKey(workspace, filesChanged, cache, snapshot && { snapshot, prior })
     if (!keyBefore) {
+      // resolveOutcomeCacheKey only ever resolves one repo root from `workspace` -- a session
+      // whose filesChanged spans more than one repo has no single `workspace` to give it (empty
+      // string; see spanSummarizer.ts) and lands here even though classifySessionOutcome (which
+      // groups per-file by each file's own repo) could still classify it. No durable cache for
+      // this case -- there's no single root/fileSha to key it by -- so it's reclassified on every
+      // check, but that's a perf tradeoff, not a correctness gap: this is the only path that would
+      // otherwise silently and permanently report "not applicable" for a real, classifiable
+      // multi-repo session.
+      if (!workspace && filesChanged.length > 0) {
+        const outcome = await classifySessionOutcome(workspace, filesChanged, cache)
+        if (outcome) {
+          const fingerprint = crypto.createHash('sha256').update(filesChanged.slice().sort().join('\0')).digest('hex')
+          const { revision, changed } = this.revisions.recordCheck(sessionId, fingerprint, outcome.overall)
+          return { sessionId, outcome, revision, changed, deferred: false }
+        }
+      }
       // Nothing to classify (no repo, no in-repo files). Still record the check so a session that
       // *used* to resolve (e.g. its repo directory temporarily vanished) doesn't keep a stale
       // revision forever -- but never overwrite a real prior fingerprint with "unresolvable"; a
       // transient git failure should read as stale/unavailable, not as a fresh 'not applicable'.
-      const prior = this.revisions.get(sessionId)
-      if (prior) return { sessionId, outcome: null, revision: prior.revision, changed: false, deferred: false }
+      const priorRevision = this.revisions.get(sessionId)
+      if (priorRevision) return { sessionId, outcome: null, revision: priorRevision.revision, changed: false, deferred: false }
       return { sessionId, outcome: null, revision: null, changed: false, deferred: false }
     }
 
