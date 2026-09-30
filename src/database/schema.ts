@@ -110,6 +110,49 @@ CREATE TABLE IF NOT EXISTS trace_revision_counter (
   id   INTEGER PRIMARY KEY CHECK (id = 1),
   next INTEGER NOT NULL DEFAULT 1
 );
+
+-- Subscription plan-limit readings (Claude Pro/Max, ChatGPT plans): how full the 5-hour and weekly
+-- windows were at a moment, read from files the agent CLIs write themselves (Codex rollout
+-- token_count events; Claude Code's cached reading in ~/.claude.json). See src/planUsage/.
+-- Percentages, timestamps and a salted account hash only -- never a credential or account id.
+-- Follows trace retention.
+CREATE TABLE IF NOT EXISTS limit_readings (
+  provider      TEXT    NOT NULL,
+  account_hash  TEXT    NOT NULL DEFAULT '',
+  window_kind   TEXT    NOT NULL,
+  used_pct      REAL    NOT NULL,
+  resets_at     INTEGER,
+  observed_at   INTEGER NOT NULL,
+  source        TEXT    NOT NULL,
+  session_id    TEXT,
+  plan_type     TEXT,
+  PRIMARY KEY (provider, account_hash, window_kind, observed_at, source)
+);
+CREATE INDEX IF NOT EXISTS idx_limit_readings_observed ON limit_readings (observed_at);
+
+-- Plan limits hit (a request refused until the window resets). Follows trace retention.
+CREATE TABLE IF NOT EXISTS limit_hits (
+  provider      TEXT    NOT NULL,
+  session_id    TEXT    NOT NULL,
+  window_kind   TEXT    NOT NULL,
+  hit_at        INTEGER NOT NULL,
+  resets_at     INTEGER,
+  PRIMARY KEY (provider, session_id, window_kind, hit_at)
+);
+
+-- One row per completed plan window, written when its reset is detected: the peak it reached and
+-- whether a limit was hit. Kept 12 months regardless of trace retention -- it's what the
+-- week-over-week chart reads once the raw readings have aged out.
+CREATE TABLE IF NOT EXISTS limit_window_rollups (
+  provider      TEXT    NOT NULL,
+  account_hash  TEXT    NOT NULL DEFAULT '',
+  window_kind   TEXT    NOT NULL,
+  window_end    INTEGER NOT NULL,
+  peak_pct      REAL    NOT NULL,
+  hit           INTEGER NOT NULL DEFAULT 0,
+  coverage      TEXT    NOT NULL,
+  PRIMARY KEY (provider, account_hash, window_kind, window_end)
+);
 `
 
 export const SCHEMA_SQL = `

@@ -58,7 +58,7 @@ import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizer
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
 import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
-import { CodexLimitCollector, type LimitReading, type LimitHit } from './planUsage/limitReadings'
+import { CodexLimitCollector, claudeLimitHit, dedupeHits, CLAUDE_SYNTHETIC_MODEL, type LimitReading, type LimitHit } from './planUsage/limitReadings'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
 
@@ -482,6 +482,7 @@ export class LogReader {
     let idx = 0
     let initiator: 'user' | 'agent' | 'api' = 'user'
     const usageLines = claudeUsageRows(parsed)
+    const limitHits: LimitHit[] = []
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       if (parsed[lineIndex] === undefined) continue
@@ -519,12 +520,19 @@ export class LogReader {
 
       if (entry['type'] === 'assistant') {
         const msg = entry['message'] as Record<string, unknown> | undefined
-        if (msg?.['model']) model = msg['model'] as string
+        // Limit refusals and API errors Claude Code writes itself carry model '<synthetic>' and
+        // zero usage: not an LLM call, so they don't set the model or count as a turn.
+        const synthetic = msg?.['model'] === CLAUDE_SYNTHETIC_MODEL
+        if (synthetic) {
+          const hit = claudeLimitHit(entry, sessionId)
+          if (hit) limitHits.push(hit)
+        }
+        if (msg?.['model'] && !synthetic) model = msg['model'] as string
         const rawUsage = msg?.['usage'] as Record<string, unknown> | undefined
         if (rawUsage?.['speed'] === 'fast') hasFastMode = true
         const usage = rawUsage as Record<string, number> | undefined
         let msgTotalInput = 0, msgCacheRead = 0, msgCacheCreate = 0, msgOutput = 0
-        if (usage && usageLines.has(lineIndex)) {
+        if (usage && usageLines.has(lineIndex) && !synthetic) {
           const inp  = usage['input_tokens']                ?? 0
           const cr   = usage['cache_read_input_tokens']     ?? 0
           const cc   = usage['cache_creation_input_tokens'] ?? 0
@@ -624,7 +632,8 @@ export class LogReader {
     // Claude Code's own session id — equal to the file name for a main transcript, the parent's id
     // for a subagent transcript (subagents/agent-*.jsonl). Shared with its OTEL spans' session.id.
     if (claudeSessionId) card.claudeSessionId = claudeSessionId
-    return { workspace, card }
+    const hits = dedupeHits(limitHits)
+    return { workspace, card, ...(hits.length > 0 ? { limitHits: hits } : {}) }
   }
 
   // ── Codex ───────────────────────────────────────────────────────────────────

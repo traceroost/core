@@ -153,3 +153,53 @@ export class CodexLimitCollector {
     return [...this.hits]
   }
 }
+
+const CLAUDE_RATE_LIMIT_TYPE_TO_KIND: Record<string, LimitWindowKind> = {
+  five_hour: 'five_hour',
+  seven_day: 'weekly',
+  seven_day_opus: 'weekly_opus',
+  seven_day_sonnet: 'weekly_sonnet',
+}
+
+/** The model Claude Code puts on assistant entries it writes itself (limit refusals, API errors)
+ *  — not an LLM call, so it must never count as a turn, a model, or usage. */
+export const CLAUDE_SYNTHETIC_MODEL = '<synthetic>'
+
+/**
+ * A Claude Code session-log entry recording a plan-limit refusal, or null. Claude Code writes a
+ * synthetic assistant entry with a structured `quotaLimits` object when a request is refused:
+ *
+ *   { type: 'assistant', timestamp, message: { model: '<synthetic>', ... },
+ *     error: 'rate_limit', apiErrorStatus: 429,
+ *     quotaLimits: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: 1789516200, ... } }
+ *
+ * Detected by the structured object only — never by the message text, whose wording varies by
+ * version. A `quotaLimits` without a rejection (a status other than 'rejected' and no
+ * `error: 'rate_limit'`) is not a hit.
+ */
+export function claudeLimitHit(entry: Record<string, unknown>, sessionId: string): LimitHit | null {
+  const q = entry['quotaLimits']
+  if (!q || typeof q !== 'object' || Array.isArray(q)) return null
+  const quota = q as Record<string, unknown>
+  if (quota['status'] !== 'rejected' && entry['error'] !== 'rate_limit') return null
+  const kind = typeof quota['rateLimitType'] === 'string' ? CLAUDE_RATE_LIMIT_TYPE_TO_KIND[quota['rateLimitType']] : undefined
+  if (!kind) return null
+  const hitAt = typeof entry['timestamp'] === 'string' ? Date.parse(entry['timestamp']) : NaN
+  if (!Number.isFinite(hitAt)) return null
+  const resetsAtSec = finiteNumber(quota['resetsAt'])
+  return { provider: 'claude', sessionId, windowKind: kind, hitAt, resetsAt: resetsAtSec === undefined ? undefined : resetsAtSec * 1000 }
+}
+
+/** Collapses repeated refusals for the same window reset into one hit — a user retrying three
+ *  times against the same wall is one hit, not three. Keeps the earliest. */
+export function dedupeHits(hits: LimitHit[]): LimitHit[] {
+  const seen = new Set<string>()
+  const out: LimitHit[] = []
+  for (const h of [...hits].sort((a, b) => a.hitAt - b.hitAt)) {
+    const key = `${h.provider}|${h.sessionId}|${h.windowKind}|${h.resetsAt ?? h.hitAt}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(h)
+  }
+  return out
+}
