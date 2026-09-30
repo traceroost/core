@@ -376,6 +376,25 @@ function WeeklyPeaksChart({ rollups }: { rollups: WindowRollup[] }) {
 
 // ── Section ───────────────────────────────────────────────────────────────────
 
+/** Where each agent's history comes from, for agents whose history starts inside the chart's range
+ *  — so a line that begins mid-chart reads as "not collected yet", not "no usage". */
+function HistoryNote({ notes }: { notes: Array<[LimitProvider, number]> }) {
+  const how: Record<LimitProvider, string> = {
+    claude: 'Claude Code keeps only its latest reading, so TraceRoost records a new one each time it changes while TraceRoost is running. The longer it runs, the more history you get.',
+    codex: 'Read back from the Codex session logs on this machine, as far as they go.',
+  }
+  return (
+    <div style="margin:0 0 8px;padding:6px 10px;font-size:11px;color:var(--muted);background:var(--card-bg);border:1px solid var(--border);border-radius:4px;line-height:1.5">
+      {notes.map(([p, t]) => (
+        <div key={p} style="display:flex;gap:6px;align-items:baseline">
+          <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${colorOf(p)}`} />
+          <span><strong style="color:var(--fg)">{PROVIDER_LABEL[p]} history starts {fmtDay(t)}.</strong> {how[p]}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const VIEW_KEY = 'traceroost.planLimitsView'
 
 function readViewPref(): Chart1View | null {
@@ -425,12 +444,12 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
           </div>
           <p style="font-size:11px;color:var(--muted);margin:0 0 6px">
             {view === 'weekly'
-              ? 'How full the weekly window was over the last two weeks. Hover a rise to see which traces used it; click to open them.'
+              ? 'How full the weekly window was over the last two weeks.'
               : 'The 5-hour window over the last week — how fast each one filled and when it blocked you (shaded).'}
             {view === 'five_hour' && snapshot.meters.some(m => m.provider === 'claude') && fiveHourLines(snapshot).every(s => s.provider !== 'claude')
               ? " Claude's 5-hour readings are too sparse to draw; its limit hits still show." : ''}
-            {historyNotes.map(([p, t]) => ` ${PROVIDER_LABEL[p]} history starts ${fmtDay(t)}.`).join('')}
           </p>
+          {historyNotes.length > 0 && <HistoryNote notes={historyNotes} />}
           <LimitLineChart view={view} snapshot={snapshot} now={now} />
         </>
       )}
