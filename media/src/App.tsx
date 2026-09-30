@@ -547,18 +547,22 @@ export function App() {
     // GIT_OUTCOME_FLUSH_MS window instead; any other message flushes them first, so ordering
     // against gitOutcomeDeferred/update is unchanged.
     let pendingOutcomes: Record<string, GitOutcome | null> | null = null
+    const settledOutcomeIds = new Set<string>()
     const flushOutcomes = () => {
       const pending = pendingOutcomes
       if (!pending) return
       pendingOutcomes = null
       gitOutcomes.value = { ...gitOutcomes.value, ...pending }
-      for (const id in pending) {
+      for (const id of settledOutcomeIds) {
         gitOutcomeRequestSettled(id)
         if (deferredGitOutcomeSessionIds.has(id)) deferredGitOutcomeSessionIds.delete(id)
       }
+      settledOutcomeIds.clear()
     }
     const handler = (e: MessageEvent) => {
-      if (pendingOutcomes && (e.data as { type?: unknown } | null)?.type !== 'gitOutcome') flushOutcomes()
+      const incomingType = (e.data as { type?: unknown } | null)?.type
+      if (pendingOutcomes && incomingType !== 'gitOutcome' && incomingType !== 'gitOutcomeCache'
+        && incomingType !== 'gitOutcomeCacheBatch') flushOutcomes()
       const msg = e.data as {
         type: string
         summary?: { toolCalls?: Record<string, number> }
@@ -574,6 +578,7 @@ export function App() {
         sessionId?: string
         timeline?: TimelineEntry[]
         outcome?: GitOutcome | null
+        outcomes?: Record<string, GitOutcome>
         workspace?: string
         name?: string | null
         hash?: string | null
@@ -664,17 +669,33 @@ export function App() {
         }
       } else if (msg.type === 'sessionDetail' && msg.sessionId) {
         sessionTimelines.value = { ...sessionTimelines.value, [msg.sessionId]: msg.timeline ?? [] }
+      } else if (msg.type === 'gitOutcomeCache' && msg.sessionId) {
+        if (!pendingOutcomes) {
+          pendingOutcomes = {}
+          setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
+        }
+        pendingOutcomes[msg.sessionId] = msg.outcome ?? null
+      } else if (msg.type === 'gitOutcomeCacheBatch' && msg.outcomes) {
+        if (!pendingOutcomes) {
+          pendingOutcomes = {}
+          setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
+        }
+        const current = gitOutcomes.peek()
+        for (const [id, outcome] of Object.entries(msg.outcomes)) {
+          if (current[id] === undefined && pendingOutcomes[id] === undefined) pendingOutcomes[id] = outcome
+        }
       } else if (msg.type === 'gitOutcome' && msg.sessionId) {
         if (!pendingOutcomes) {
           pendingOutcomes = {}
           setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
         }
         pendingOutcomes[msg.sessionId] = msg.outcome ?? null
+        settledOutcomeIds.add(msg.sessionId)
       } else if (msg.type === 'gitOutcomeDeferred' && msg.sessionId) {
         // Session is still inside its active-session grace window — no git classification ran or
         // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
-        // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). It stays absent from
-        // gitOutcomes, so no outcome badge renders for it either.
+        // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). A provisional stored
+        // value, if present, stays visible until the grace revisit supplies the fresh result.
         gitOutcomeRequestSettled(msg.sessionId)
         deferredGitOutcomeSessionIds.add(msg.sessionId)
       } else if (msg.type === 'runningGitCommands' && Array.isArray(msg.commands)) {

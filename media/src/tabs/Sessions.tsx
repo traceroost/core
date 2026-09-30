@@ -655,7 +655,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
             under the "O" header instead of riding along inside the Repo cell. */}
         {showOutcome && (
           <td style="padding:4px 0;text-align:left">
-            {sess.workspace && <GitOutcomeBadge sessionId={sess.sessionId} />}
+            <GitOutcomeBadge sessionId={sess.sessionId} />
           </td>
         )}
 

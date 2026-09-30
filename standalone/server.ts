@@ -261,16 +261,29 @@ async function loadOrComputeGitOutcome(sessionId: string, workspace: string, fil
   }
 }
 
+let pendingGitOutcomeResults = new Map<string, ReconcileResult>()
+let pendingGitOutcomeFlush: ReturnType<typeof setTimeout> | undefined
+
 /** Pushes an unsolicited reconciliation result to every open tab, exactly like DashboardPanel's
  *  pushGitOutcomeResult — the background watcher calls this via the service subscription below,
  *  so "leave Traces open through multiple commits and a merge" converges without the tab
  *  re-requesting anything. */
 function pushGitOutcomeResult(r: ReconcileResult): void {
-  const card = buildSessionSummary()?.sessions.find(s => s.sessionId === r.sessionId) ?? null
-  if (!card) return
-  const riskSignals = detectSessionRiskSignals(card, card.workspace, r.outcome)
-  const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], r.outcome)
-  broadcastSse({ type: 'gitOutcome', sessionId: r.sessionId, outcome: r.outcome, riskSignals, temperedLoopSignals, revision: r.revision })
+  pendingGitOutcomeResults.set(r.sessionId, r)
+  if (pendingGitOutcomeFlush) return
+  pendingGitOutcomeFlush = setTimeout(() => {
+    pendingGitOutcomeFlush = undefined
+    const pending = pendingGitOutcomeResults
+    pendingGitOutcomeResults = new Map()
+    const cards = new Map((buildSessionSummary()?.sessions ?? []).map(card => [card.sessionId, card]))
+    for (const result of pending.values()) {
+      const card = cards.get(result.sessionId)
+      if (!card) continue
+      const riskSignals = detectSessionRiskSignals(card, card.workspace, result.outcome)
+      const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], result.outcome)
+      broadcastSse({ type: 'gitOutcome', sessionId: result.sessionId, outcome: result.outcome, riskSignals, temperedLoopSignals, revision: result.revision })
+    }
+  }, 50)
 }
 
 // Repo info, keyed by workspace path. `hash` is repoKey.ts's repoHash — the same hash
@@ -1769,6 +1782,26 @@ function getHtml(): string {
                   data: { type: 'gitOutcome', sessionId: msg.sessionId, outcome: null, riskSignals: [], temperedLoopSignals: null }
                 }));
               });
+          } else if (msg.type === 'getGitOutcomes' && Array.isArray(msg.sessionIds)) {
+            fetch('/api/git-outcomes', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionIds: msg.sessionIds }),
+            })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                window.dispatchEvent(new MessageEvent('message', {
+                  data: { type: 'gitOutcomeCacheBatch', outcomes: data.outcomes || {} }
+                }));
+              })
+              .catch(function(e) {
+                console.warn('[TraceRoost] batched git outcome fetch failed', e);
+                (msg.sessionIds || []).forEach(function(sessionId) {
+                  window.dispatchEvent(new MessageEvent('message', {
+                    data: { type: 'gitOutcome', sessionId: sessionId, outcome: null, riskSignals: [], temperedLoopSignals: null }
+                  }));
+                });
+              });
           } else if (msg.type === 'getRepoHash' && msg.workspace) {
             fetch('/api/repo-hash', {
               method: 'POST',
@@ -2395,6 +2428,67 @@ const uiServer = http.createServer((req, res) => {
         res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals, revision }))
       } catch (e) {
         console.warn('[TraceRoost] Malformed /api/git-outcome body:', e)
+        res.writeHead(400); res.end()
+      }
+    })
+    return
+  }
+
+  if (req.method === 'POST' && url === '/api/git-outcomes') {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { sessionIds?: unknown[] }
+        const ids = [...new Set((body.sessionIds ?? []).filter((id): id is string => typeof id === 'string'))].slice(0, 20_000)
+        const requested = new Set(ids)
+        const cards = (buildSessionSummary()?.sessions ?? []).filter(card => requested.has(card.sessionId))
+        const inputs = cards.map(card => ({
+          sessionId: card.sessionId,
+          workspace: card.workspace,
+          filesChanged: card.filesChanged,
+          endTime: card.startTime && card.durationMs
+            ? new Date(Date.parse(card.startTime) + card.durationMs).toISOString()
+            : card.startTime,
+        }))
+        const outcomes = reconciliationService?.getCachedOutcomes(inputs.map(input => input.sessionId)) ?? {}
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ outcomes }))
+
+        // The HTTP reply paints persisted results first. Reconciliation publishes current results
+        // through the existing SSE subscription, sharing one HEAD/trunk snapshot for this batch.
+        setImmediate(() => {
+          void (async () => {
+            if (reconciliationService) {
+              try {
+                const results = await reconciliationService.reconcileMany(inputs)
+                for (const result of results) {
+                  if (result.deferred) broadcastSse({ type: 'gitOutcomeDeferred', sessionId: result.sessionId })
+                }
+              } catch (err) {
+                console.warn('[TraceRoost] batched git-outcome reconciliation failed:', err)
+                await Promise.all(inputs.map(async input => {
+                  try {
+                    const result = await reconciliationService!.reconcile(input)
+                    if (result.deferred) broadcastSse({ type: 'gitOutcomeDeferred', sessionId: result.sessionId })
+                  } catch {
+                    broadcastSse({ type: 'gitOutcome', sessionId: input.sessionId, outcome: null })
+                  }
+                }))
+              }
+              return
+            }
+            await Promise.all(cards.map(async card => {
+              let outcome: GitOutcome | null = null
+              try { outcome = await classifySessionOutcome(card.workspace, card.filesChanged) } catch { /* report unresolved below */ }
+              const riskSignals = detectSessionRiskSignals(card, card.workspace, outcome)
+              const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], outcome)
+              broadcastSse({ type: 'gitOutcome', sessionId: card.sessionId, outcome, riskSignals, temperedLoopSignals })
+            }))
+          })()
+        })
+      } catch (e) {
+        console.warn('[TraceRoost] Malformed /api/git-outcomes body:', e)
         res.writeHead(400); res.end()
       }
     })

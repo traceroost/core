@@ -105,6 +105,15 @@ export class ReconciliationService {
     this.keys = new OutcomeKeyRepository(db)
   }
 
+  /** Last persisted result for startup display; callers must still reconcile it for freshness. */
+  getCachedOutcome(sessionId: string): GitOutcome | undefined {
+    return this.outcomes.getCached(sessionId)
+  }
+
+  getCachedOutcomes(sessionIds: string[]): Record<string, GitOutcome> {
+    return this.outcomes.getCachedMany(sessionIds)
+  }
+
   /** Notified after every completed (non-deferred, non-error) reconcile that produced a result --
    *  including "checked, unchanged" ones, so a freshness indicator can update its checked-at time
    *  even when the verdict didn't move. Returns an unsubscribe function. */
