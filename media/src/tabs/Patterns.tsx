@@ -8,6 +8,7 @@ import type { SessionSummaryCard } from '../types'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
+import { SectionNav, type NavSection } from '../SectionNav'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -348,7 +349,7 @@ function actionTipFor(a: CostSavingAction): string | null {
 /** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
  *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
  *  See .staged-issues/value-prop-and-cost-savings.md, Step 1. */
-function SaveMoneyCard({ sessions }: { sessions: SessionSummaryCard[] }) {
+function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
   const [expanded, setExpanded] = useState(false)
   const workspace = currentWorkspace.value
 
@@ -358,14 +359,12 @@ function SaveMoneyCard({ sessions }: { sessions: SessionSummaryCard[] }) {
     }
   }, [workspace])
 
-  const existingText = instructionFiles.value.map(f => f.content).join('\n')
-  const actions = getCostSavingActions(sessions, existingText)
   if (actions.length === 0) return null
 
   const shown = expanded ? actions : actions.slice(0, 3)
 
   return (
-    <section>
+    <section id="advisor-save-money">
       <h3 style={sectionHead}>How to spend less</h3>
       <div style="display:flex;flex-direction:column;gap:10px">
         {shown.map(a => {
@@ -408,31 +407,41 @@ export function Patterns() {
   }
 
   const divider = <div style="border-top:1px solid var(--border);margin:16px 0 8px" />
+  const existingText = instructionFiles.value.map(f => f.content).join('\n')
+  const actions = getCostSavingActions(sessions, existingText)
+  const navSections: NavSection[] = [
+    ...(actions.length > 0 ? [{ id: 'advisor-save-money', label: 'How to spend less' }] : []),
+    { id: 'advisor-instructions', label: 'Instructions file' },
+    { id: 'advisor-efficiency-map', label: 'Efficiency map' },
+    { id: 'advisor-hot-files', label: 'Hot files' },
+  ]
 
   return (
     <div id="patterns-content" style="padding-top:8px">
-      <SaveMoneyCard sessions={sessions} />
+    <SectionNav label="Advisor sections" sections={navSections}>
+      <SaveMoneyCard actions={actions} />
 
-      {divider}
+      {actions.length > 0 && divider}
 
-      <section>
+      <section id="advisor-instructions">
         <h3 style={sectionHead}>Instructions File</h3>
         <Instructions />
       </section>
 
       {divider}
 
-      <section>
+      <section id="advisor-efficiency-map">
         <h3 style={sectionHead}>Efficiency Map</h3>
         <EfficiencyMap sessions={sessions} />
       </section>
 
       {divider}
 
-      <section>
+      <section id="advisor-hot-files">
         <h3 style={sectionHead}>Hot Files</h3>
         <HotFiles sessions={sessions} />
       </section>
+    </SectionNav>
     </div>
   )
 }
