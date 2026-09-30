@@ -58,6 +58,7 @@ import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizer
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
 import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
+import { CodexLimitCollector, type LimitReading, type LimitHit } from './planUsage/limitReadings'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
 
@@ -235,6 +236,12 @@ export interface LogSessionResult {
   card: SessionSummaryCard
   /** Workspace path extracted from the log file (cwd). May be empty for Copilot. */
   workspace: string
+  /** Subscription plan-limit readings found in this session's log (Codex only today). Kept off the
+   *  card on purpose: limit data comes only from logs, so it must survive an OTEL card replacing
+   *  this one — see .staged-features/subscription-limit-usage.md. Absent when there are none. */
+  limitReadings?: LimitReading[]
+  /** Plan limits hit during this session. Absent when there are none. */
+  limitHits?: LimitHit[]
 }
 
 /** SQL NULL (and an absent column) → null; anything else → its string form. */
@@ -688,6 +695,7 @@ export class LogReader {
     //   2. OpenAI input_tokens includes cached_input_tokens, so we must subtract to
     //      get the non-cached portion that _buildCard expects for correct billing.
     let lastTotalUsage: Record<string, number> | undefined
+    const limits = new CodexLimitCollector(sessionId)
 
     for (const line of lines) {
       let entry: Record<string, unknown>
@@ -724,6 +732,7 @@ export class LogReader {
           const last  = info?.['last_token_usage']  as Record<string, number> | undefined
           if (total) lastTotalUsage = total
           if (last) turns++
+          limits.add(payload, ts)
         }
       }
     }
@@ -751,9 +760,13 @@ export class LogReader {
       totalOutput    = Math.max(0, curOutput - baseOutput)
     }
 
+    const limitReadings = limits.readingsOut()
+    const limitHits = limits.hitsOut()
     return {
       result: {
         workspace,
+        ...(limitReadings.length > 0 ? { limitReadings } : {}),
+        ...(limitHits.length > 0 ? { limitHits } : {}),
         card: _buildCard(sessionId, 'codex', model || 'codex', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate: 0, peakContextPerTurn: 0, turns, totalToolCalls: 0, toolCounts: {}, filesRead: new Set(), filesChanged: new Set(), filesWritten: new Set(), filesSearched: new Set(), userRequest: userRequest.slice(0, 500), timeline: [], initiator: 'user' }, workspace),
       },
       cumulativeUsage: lastTotalUsage,
