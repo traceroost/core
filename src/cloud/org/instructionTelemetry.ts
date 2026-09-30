@@ -15,7 +15,7 @@ import * as path from 'path'
 import { generateSuggestions, type SuggestionCard } from '../../instructionAdvisor'
 import { detectInstructionFiles, readAllInstructionContent } from '../../instructionFiles'
 import { computeBaseline } from '../../instructionEffectiveness'
-import { deriveRepoKey } from '../forward/repoKey'
+import { deriveRepoKey } from '../../repoKey'
 import {
   buildInstructionFileState,
   buildFileFootprints,
@@ -25,7 +25,7 @@ import {
 } from '../forward/buildInstructionTelemetry'
 import type { InstructionFileKind, RollupPayload } from '../forward/schema'
 import { SCHEMA_VERSION } from '../forward/schema'
-import { repoKeyFingerprint } from '../forward/repoKey'
+import { repoKeyFingerprint } from '../../repoKey'
 import { ForwardQueue } from '../forward/queue'
 import { loadCredentials } from './credentials'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'

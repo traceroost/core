@@ -3,7 +3,7 @@ import * as crypto from 'crypto'
 import { buildSessionRollup, sessionRollupPayload, toUuid, type SessionRollupInput } from '../../../cloud/forward/buildSessionRollup'
 import { validateRollupPayload } from '../../../cloud/forward/validate'
 import { stableStringify } from '../../../cloud/forward/preview'
-import { authorHash, type RepoKeyContext } from '../../../cloud/forward/repoKey'
+import { authorHash, type RepoKeyContext } from '../../../repoKey'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('test-key').digest() }
 const BUILD = { repoKey: CTX, branch: 'main', outcome: 'merged' }
@@ -88,7 +88,7 @@ suite('forward/buildSessionRollup', () => {
   })
 
   // A session whose workspace can't be keyed (not a repo, shallow clone, no root commit) is
-  // still sent — just without repo grouping, never with a fake hash. See src/cloud/forward/repoKey.ts.
+  // still sent — just without repo grouping, never with a fake hash. See src/repoKey.ts.
   test('without a repoKey, the payload omits repo_key_fp/repo_hash/branch_hash/file_hashes but still validates', () => {
     const { repoKey: _repoKey, branch: _branch, ...rest } = BUILD
     const payload = sessionRollupPayload(BASE, rest)

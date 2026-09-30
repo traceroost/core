@@ -6,7 +6,7 @@
  * a public repository).
  */
 
-import { commitHash, repoHash, authorHash, type RepoKeyContext } from './repoKey'
+import { commitHash, repoHash, authorHash, type RepoKeyContext } from '../../repoKey'
 import { toWireAttribution } from './wireAttribution'
 import type { CommitRecord } from './schema'
 

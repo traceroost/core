@@ -33,6 +33,7 @@ features that used to sit beside it were moved out:
 | --- | --- | --- |
 | `src/cloud/attribution/` | `src/attribution/` | who wrote which surviving lines, from git history + session records, no network |
 | `src/cloud/turnover/` | `src/turnover/` | the cohort/survival engine behind `traceroost cohort`, built on `attribution/`'s output |
+| `src/cloud/forward/repoKey.ts` | `src/repoKey.ts` | the repo hash every install shows in the Traces table's Repo (ID) column, from the repo's root commit — no network |
 | `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` | `standalone/local/` | the local CLI analysis commands |
 
 Where a local command has one optional cloud step — resolving a cloud

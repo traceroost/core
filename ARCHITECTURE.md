@@ -1104,7 +1104,7 @@ lead see cross-developer aggregates. The rest of the codebase reaches it only th
 | `src/cloud/org/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
 | `src/cloud/org/panelController.ts` | Transport-agnostic handler for `org*` webview messages; `reconcileLocalSessions` runs a bounded 6-worker pool, not serially |
 | `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
-| `src/cloud/forward/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
+| `src/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
 | `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
 | `src/cloud/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
 | `src/cloud/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
