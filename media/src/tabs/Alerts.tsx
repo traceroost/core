@@ -26,6 +26,7 @@ import {
   type AgentThresholdProfiles,
 } from '../agentProfiles'
 import type { SessionSummaryCard } from '../types'
+import { planUsage, PROVIDER_LABEL } from '../planUsage'
 
 const ALERT_TOOLTIPS: Record<string, string> = {
   context_window: 'Peak context use is the largest single LLM input in a trace, not the average. Cache hits can make high input cheap, but they still occupy the context window.',
@@ -35,6 +36,8 @@ const ALERT_TOOLTIPS: Record<string, string> = {
   no_cache:       'Only checks sessions above the input-token gate. Cache can be low for small sessions without being a problem.',
   tool_loop:      'Counts identical tool plus argument repeats, not just the same tool name.',
   daily_cost:     'Estimated cost only, not a real billing figure. Sums today (UTC) across every agent using token-based pricing.',
+  plan_weekly:    'Read from files Claude Code and Codex write themselves. Fires once per weekly window per agent. Claude\'s figure is its latest cached reading, so it can lag.',
+  plan_five_hour: 'Read from files Claude Code and Codex write themselves. Fires once per 5-hour window per agent.',
 }
 
 type AgentThresholdMap = Record<AgentSource, number>
@@ -69,6 +72,8 @@ const DEFAULT_CONFIGS: AlertConfig[] = [
   { id: 'error_spike', label: 'Error Spike', severity: 'error', description: 'Fires when any session reaches its agent-specific error count threshold.', enabled: true, threshold: 5, unit: 'agent profile', min: 2, max: 20, step: 1 },
   { id: 'long_session', label: 'Long Active Trace', severity: 'info', description: 'Fires when active LLM/tool compute time exceeds the agent-specific threshold. Wall-clock idle time does not count.', enabled: true, threshold: 60, unit: 'agent profile', min: 10, max: 240, step: 10 },
   { id: 'no_cache', label: 'Zero Cache Utilization', severity: 'info', description: 'Fires when any session above that agent\'s input-token gate has 0% cache hit rate.', enabled: true, threshold: 30000, unit: 'tokens', min: 5000, max: 200000, step: 5000, agentThresholds: { claude_code: 30000, copilot: 30000, codex: 30000, opencode: 30000, cursor: 30000 } },
+  { id: 'plan_weekly', label: 'Weekly Plan Limit Filling Up', severity: 'warning', description: 'Fires when a Claude or ChatGPT plan\'s weekly window reaches this share.', enabled: true, threshold: 80, unit: '%', min: 10, max: 100, step: 5 },
+  { id: 'plan_five_hour', label: '5-Hour Plan Limit Filling Up', severity: 'warning', description: 'Fires when a Claude or ChatGPT plan\'s 5-hour window reaches this share.', enabled: true, threshold: 90, unit: '%', min: 10, max: 100, step: 5 },
   { id: 'tool_loop', label: 'Identical Tool Repeat', severity: 'warning', description: 'Fires when the same tool with identical arguments repeats beyond the agent-specific threshold without a file change between repeats.', enabled: true, threshold: 5, unit: 'agent profile', min: 3, max: 20, step: 1 },
 ]
 
@@ -194,12 +199,41 @@ function sharedAlertMetricName(cfg: AlertConfig): string {
   return cfg.id === 'context_window' ? 'Context window tokens' : 'Input tokens'
 }
 
+/** The plan-limit alerts exist only once Claude Code or Codex has produced a plan reading — no
+ *  data, no setting (see media/src/planUsage.ts). */
+function isPlanAlert(cfg: AlertConfig): boolean {
+  return cfg.id === 'plan_weekly' || cfg.id === 'plan_five_hour'
+}
+
+function planAlertsAvailable(): boolean {
+  return (planUsage.value?.meters.length ?? 0) > 0
+}
+
+/** Fires once per window per agent: keyed by the window's reset time. */
+function evaluatePlanAlert(cfg: AlertConfig): AlertResult {
+  const kind = cfg.id === 'plan_weekly' ? 'weekly' : 'five_hour'
+  let worst: { provider: 'claude' | 'codex'; usedPct: number; resetsAt?: number; observedAt: number } | undefined
+  for (const m of planUsage.value?.meters ?? []) {
+    const w = m.windows.find(x => x.windowKind === kind && !x.resetSinceReading)
+    if (w && w.usedPct >= cfg.threshold && (!worst || w.usedPct > worst.usedPct)) worst = { provider: m.provider, ...w }
+  }
+  if (!worst) return { triggered: false }
+  const resets = worst.resetsAt ? ' · resets ' + new Date(worst.resetsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : ''
+  return {
+    triggered: true,
+    key: worst.provider + ':' + (worst.resetsAt ?? worst.observedAt),
+    detail: PROVIDER_LABEL[worst.provider] + ' ' + (kind === 'weekly' ? 'weekly' : '5-hour') + ' window at '
+      + Math.round(worst.usedPct) + '% vs threshold ' + cfg.threshold + '%' + resets,
+  }
+}
+
 function evaluateAlert(
   cfg: AlertConfig,
   sessions: SessionSummaryCard[],
   _eff: EffSummary,
   profiles: AgentThresholdProfiles = getAgentProfiles()
 ): AlertResult {
+  if (isPlanAlert(cfg)) return evaluatePlanAlert(cfg)
   if (!sessions?.length) return { triggered: false }
   switch (cfg.id) {
     case 'context_window': {
@@ -394,7 +428,7 @@ export function Alerts() {
   const hasSessions = sessions.length > 0
 
   const { sessions: displayed, efficiency } = buildDisplaySummary()
-  const results = configs.map(cfg => ({
+  const results = configs.filter(cfg => !isPlanAlert(cfg) || planAlertsAvailable()).map(cfg => ({
     config: cfg,
     ...(cfg.enabled ? evaluateAlert(cfg, displayed, efficiency, profiles) : { triggered: false } as AlertResult),
   }))

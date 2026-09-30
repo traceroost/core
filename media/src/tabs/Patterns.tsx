@@ -6,6 +6,7 @@ import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
+import { planUsage } from '../planUsage'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { SectionNav, type NavSection } from '../SectionNav'
@@ -349,6 +350,10 @@ function actionTipFor(a: CostSavingAction): string | null {
 /** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
  *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
  *  See .staged-issues/value-prop-and-cost-savings.md, Step 1. */
+function fmtPts(p: number): string {
+  return p < 1 ? '<1 pt' : `${Math.round(p)} pt${Math.round(p) === 1 ? '' : 's'}`
+}
+
 function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
   const [expanded, setExpanded] = useState(false)
   const workspace = currentWorkspace.value
@@ -365,7 +370,7 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
 
   return (
     <section id="advisor-save-money">
-      <h3 style={sectionHead}>How to spend less</h3>
+      <h3 style={sectionHead}>{actions.some(a => a.limitPts !== undefined) ? 'How to use less of your limit' : 'How to spend less'}</h3>
       <div style="display:flex;flex-direction:column;gap:10px">
         {shown.map(a => {
           const tip = actionTipFor(a)
@@ -378,7 +383,14 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
                 <ActionIcon a={a} />
               </span>
               <div>
-                <div style="font-weight:600">{a.title}</div>
+                <div style="font-weight:600">
+                  {a.title}
+                  {a.limitPts !== undefined
+                    ? <span style="font-weight:400;color:var(--muted);margin-left:6px" title="Estimated waste converted into points of your weekly plan limit, from how much of the window your past sessions used per dollar of work">≈ {fmtPts(a.limitPts)} of weekly limit</span>
+                    : a.estimatedUsd !== undefined
+                      ? <span style="font-weight:400;color:var(--muted);margin-left:6px">≈ ${a.estimatedUsd.toFixed(2)}</span>
+                      : null}
+                </div>
                 <div style="color:var(--muted);margin:2px 0">{a.evidence}</div>
                 <div>{a.action}</div>
               </div>
@@ -408,7 +420,7 @@ export function Patterns() {
 
   const divider = <div style="border-top:1px solid var(--border);margin:16px 0 8px" />
   const existingText = instructionFiles.value.map(f => f.content).join('\n')
-  const actions = getCostSavingActions(sessions, existingText)
+  const actions = getCostSavingActions(sessions, existingText, planUsage.value)
   const navSections: NavSection[] = [
     ...(actions.length > 0 ? [{ id: 'advisor-save-money', label: 'How to spend less' }] : []),
     { id: 'advisor-instructions', label: 'Instructions file' },

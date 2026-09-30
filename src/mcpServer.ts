@@ -9,6 +9,7 @@
  *   get_efficiency_report      — trends and recurring efficiency problems
  *   get_instruction_suggestions — pending Advisor suggestions for one workspace
  *   check_automation_triggers  — currently-triggered stuck-agent corrections for one workspace
+ *   get_plan_limits            — Claude / ChatGPT plan 5-hour and weekly window usage (src/planUsage/)
  *
  * Transport: Streamable HTTP — expose via a route on an existing http.Server
  * or start a dedicated server with startMcpHttpServer().
@@ -18,6 +19,7 @@ import * as http from 'http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { listenWithFallback } from './portResolver'
+import { getPlanUsageService } from './planUsage/planUsageService'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -138,9 +140,50 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'get_plan_limits',
+    description:
+      'Returns how full the Claude Pro/Max and ChatGPT plan windows (5-hour and weekly) are right ' +
+      'now, when each resets, and recent limit hits — read from files Claude Code and Codex write ' +
+      'themselves. Call this before starting a large task to check there is headroom; if the ' +
+      '5-hour window is nearly full, prefer a smaller scope or a cheaper model. Only Claude Code ' +
+      'and Codex subscription use produces this data.',
+    inputSchema: { type: 'object' as const, properties: {} },
+  },
 ]
 
 // ── Tool handlers ─────────────────────────────────────────────────────────────
+
+const WINDOW_NAME: Record<string, string> = { five_hour: '5h', weekly: 'weekly', weekly_opus: 'weekly_opus', weekly_sonnet: 'weekly_sonnet' }
+const AGENT_OF: Record<string, string> = { claude: 'claude_code', codex: 'codex' }
+const iso = (ms: number | undefined) => (ms === undefined ? undefined : new Date(ms).toISOString())
+
+function handleGetPlanLimits(sessions: SessionSummaryCard[]) {
+  const svc = getPlanUsageService()
+  const snap = svc?.snapshot(sessions)
+  if (!snap || (snap.meters.length === 0 && snap.hits.length === 0)) {
+    return { available: false, reason: 'No plan-limit data yet. Only Claude Code and Codex subscription sessions write it locally.' }
+  }
+  return {
+    available: true,
+    meters: snap.meters.map(m => ({
+      agent: AGENT_OF[m.provider],
+      ...(m.planType ? { plan: m.planType } : {}),
+      asOf: iso(m.observedAt),
+      windows: m.windows.map(w => ({
+        window: WINDOW_NAME[w.windowKind],
+        usedPct: w.resetSinceReading ? 0 : Math.round(w.usedPct),
+        ...(w.resetSinceReading ? { note: 'window has reset since the last reading' } : {}),
+        ...(w.resetsAt ? { resetsAt: iso(w.resetsAt) } : {}),
+      })),
+    })),
+    ...(snap.hits.length > 0 ? {
+      recentLimitHits: snap.hits.slice(-10).map(h => ({
+        agent: AGENT_OF[h.provider], window: WINDOW_NAME[h.windowKind], at: iso(h.hitAt), ...(h.resetsAt ? { resetsAt: iso(h.resetsAt) } : {}), sessionId: h.sessionId,
+      })),
+    } : {}),
+  }
+}
 
 function handleGetRecentSessions(
   sessions: SessionSummaryCard[],
@@ -151,6 +194,8 @@ function handleGetRecentSessions(
   if (args.workspace) filtered = filtered.filter(s => s.sessionId.includes(args.workspace!) || (s.userRequest ?? '').includes(args.workspace!))
   const limit = Math.min(args.limit ?? 10, 50)
   const top = filtered.slice(0, limit)
+  let plan: ReturnType<NonNullable<ReturnType<typeof getPlanUsageService>>['snapshot']>['sessions'] = {}
+  try { plan = getPlanUsageService()?.snapshot(sessions).sessions ?? {} } catch { /* omitted below */ }
   return top.map(s => ({
     sessionId:   s.sessionId,
     date:        s.startTime.slice(0, 16).replace('T', ' '),
@@ -164,7 +209,21 @@ function handleGetRecentSessions(
     topTools:    Object.entries(s.toolCounts ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([t, n]) => `${t}×${n}`),
     loopSignals: (s.loopSignals ?? []).map(l => l.type),
     filesChanged: s.filesChanged?.slice(0, 5) ?? [],
+    ...limitUsedField(plan[s.sessionId]),
   }))
+}
+
+/** Share of the plan windows a session used — omitted entirely when there's no value. */
+function limitUsedField(u: { fiveHourPct?: number; weeklyPct?: number; approximate: boolean; hits?: unknown[] } | undefined) {
+  if (!u || (u.fiveHourPct === undefined && u.weeklyPct === undefined && !u.hits?.length)) return {}
+  return {
+    limitUsed: {
+      ...(u.fiveHourPct !== undefined ? { fiveHourPct: +u.fiveHourPct.toFixed(1) } : {}),
+      ...(u.weeklyPct !== undefined ? { weeklyPct: +u.weeklyPct.toFixed(1) } : {}),
+      approximate: u.approximate,
+      ...(u.hits?.length ? { limitHits: u.hits.length } : {}),
+    },
+  }
 }
 
 function handleGetWorkspacePatterns(
@@ -425,6 +484,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
         break
       case 'check_automation_triggers':
         result = handleCheckAutomationTriggers(sessions, opts.getTimeline ?? null, args as { workspace?: string })
+        break
+      case 'get_plan_limits':
+        result = handleGetPlanLimits(sessions)
         break
       default:
         return { content: [{ type: 'text', text: `Unknown tool: ${req.params.name}` }], isError: true }

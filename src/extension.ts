@@ -13,6 +13,7 @@ import { DatabaseReader, openReadonlySnapshot } from './database/reader'
 import { DatabaseWriter } from './database/writer'
 import { migrateGlobalStateToSqlite } from './database/migration'
 import { runRetention } from './database/retention'
+import { PlanUsageService, getPlanUsageService, setPlanUsageService } from './planUsage/planUsageService'
 import { SessionRepository } from './sessionRepository'
 import { summarizeSpans, summarizeTraces } from './spanSummarizer'
 import { LogReader, type FileState } from './logReader'
@@ -146,6 +147,7 @@ export async function activate(context: vscode.ExtensionContext) {
     writer = new DatabaseWriter(traceRoostDb.raw, context.globalStorageUri, log)
     const reader = new DatabaseReader(traceRoostDb.raw, context.globalStorageUri)
     repository = new SessionRepository(reader, writer, store, log)
+    setPlanUsageService(new PlanUsageService(traceRoostDb.raw, { log }))
 
     // Run one-time migration before registering the onUpdate subscriber. Only the window that
     // owns the database file can persist it — anywhere else it would mark globalState migrated
@@ -156,11 +158,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // only the orphaned-blob sweep (a full timeline scan) is left to finish after activation.
     const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
     void runRetention(traceRoostDb.raw, retentionDays, traceRoostDb.blobsDir, log)
+    getPlanUsageService()?.runRetention(retentionDays)
 
     // Periodic retention: once per 24 hours while the extension is active.
     const retentionTimer = setInterval(() => {
       const days = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
       void runRetention(traceRoostDb!.raw, days, traceRoostDb!.blobsDir, log)
+      getPlanUsageService()?.runRetention(days)
     }, 24 * 60 * 60 * 1000)
     context.subscriptions.push({ dispose: () => clearInterval(retentionTimer) })
 
@@ -400,7 +404,16 @@ export async function activate(context: vscode.ExtensionContext) {
     // progress is skipped.
     let logScanInFlight = false
     const LOG_SCAN_BATCH = 10
+    // Claude Code caches its plan-usage reading in ~/.claude.json; a new fetch there is a new
+    // reading even when no session log changed.
+    const pollClaudePlanUsage = () => {
+      if (!traceRoostDb?.isOwner || !getPlanUsageService()?.pollClaudeCache()) return
+      traceRoostDb.saveSoon()
+      provider.refresh()
+      DashboardPanel.refreshSoon()
+    }
     const runLogScan = runLogScanFn = () => {
+      pollClaudePlanUsage()
       if (logScanInFlight) return
       let files: ReturnType<typeof lr.collectFileMeta>
       let results: ReturnType<typeof lr.scan>
@@ -426,6 +439,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     const writeScanResults = (results: ReturnType<typeof lr.scan>) => {
       if (results.length === 0) return
+      getPlanUsageService()?.ingest(results)
       const ws = fallbackWorkspace()
       for (const { card, workspace } of results) {
         card.loopSignals = detectLoopSignals(card)
@@ -489,6 +503,7 @@ export async function activate(context: vscode.ExtensionContext) {
               // Usually one result; a Claude Code transcript split by a large gap between
               // prompts (see splitClaudeLinesOnPromptGaps) can yield more than one.
               const results = lr.parseFile(files[i].filePath, files[i].agentKey)
+              getPlanUsageService()?.ingest(results)
               for (const result of results) {
                 result.card.loopSignals = detectLoopSignals(result.card)
                 result.card.oneShotStats = computeOneShotStats(result.card)
@@ -584,7 +599,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Defer off the activation stack so activation itself completes instantly.
-    setImmediate(() => startBatchedLoad!())
+    setImmediate(() => { startBatchedLoad!(); pollClaudePlanUsage() })
     logReaderTimer = setInterval(runLogScan, 30_000)
     context.subscriptions.push({ dispose: () => clearInterval(logReaderTimer) })
     outputChannel.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')

@@ -33,6 +33,7 @@ import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
+import { planUsage, type PlanUsageSnapshot } from './planUsage'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -600,6 +601,7 @@ export function App() {
         results?: OtelReconfigureResult
         commands?: string[]
         entries?: ActionLogEntry[]
+        snapshot?: PlanUsageSnapshot
       }
       // Org panel (TraceRoost Pro) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
@@ -702,6 +704,18 @@ export function App() {
         runningGitCommands.value = msg.commands
       } else if (msg.type === 'actionLog' && Array.isArray(msg.entries)) {
         actionLog.value = msg.entries
+      } else if (msg.type === 'planUsage' && msg.snapshot) {
+        const first = planUsage.peek() === null
+        planUsage.value = msg.snapshot
+        // Plan-limit alerts read this snapshot, which arrives on its own message. The first one
+        // only primes checkAlerts' fired set, the same as the initial update does.
+        setTimeout(() => {
+          const alertNotifications = checkAlerts()
+          if (first) return
+          for (const a of alertNotifications) {
+            vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
+          }
+        }, 0)
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
         const entry = msg.name ? { name: msg.name, hash: msg.hash ?? null, githubUrl: msg.githubUrl ?? null } : null
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }

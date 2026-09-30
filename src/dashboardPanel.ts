@@ -17,6 +17,7 @@ import { resolveGithubUrl } from './repoRemote'
 import { cloud, type OrgPanelDeps, type SuggestionLedger } from './cloudBridge'
 import { getNonce, safeJsonForScript } from './webviewHtml'
 import { WebviewSessionSync } from './webviewSessionSync'
+import { getPlanUsageService } from './planUsage/planUsageService'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {
@@ -475,6 +476,21 @@ export class DashboardPanel {
       // freeform search box (workspaceFilter), which can match any historical repo's sessions.
       currentWorkspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
     })
+    this.postPlanUsage(sessions)
+  }
+
+  /** Subscription plan limits (src/planUsage/) — its own message, sent only when it changed. */
+  private lastPlanUsageJson: string | null = null
+  private postPlanUsage(sessions: SessionSummaryCard[]): void {
+    const svc = getPlanUsageService()
+    if (!svc) return
+    try {
+      const snapshot = svc.snapshot(sessions)
+      const json = JSON.stringify({ ...snapshot, generatedAt: 0 })
+      if (json === this.lastPlanUsageJson) return
+      this.lastPlanUsageJson = json
+      this.panel.webview.postMessage({ type: 'planUsage', snapshot })
+    } catch { /* plan limits stay hidden; the rest of the dashboard is unaffected */ }
   }
 
   private async importSessions(rawSessions: Record<string, unknown>[]): Promise<void> {

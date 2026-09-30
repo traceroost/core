@@ -512,7 +512,16 @@ function binLabel(bin: TrendBin, unit: 'day' | 'week'): string {
   return unit === 'day' || bin.start === bin.end ? shortDate(bin.start) : `${shortDate(bin.start)} – ${shortDate(bin.end)}`
 }
 
-export function OutcomeTrendChart({ bins, unit }: { bins: TrendBin[]; unit: 'day' | 'week' }) {
+/** A plan limit hit, marked above the bin it fell in (see media/src/planUsage.ts). */
+export interface TrendHitMarker { t: number; label: string }
+
+/** Index of the bin a timestamp falls in (bins are UTC days `start`..`end` inclusive), or -1. */
+function binIndexOf(bins: TrendBin[], t: number): number {
+  const day = new Date(t).toISOString().slice(0, 10)
+  return bins.findIndex(b => b.start <= day && day <= b.end)
+}
+
+export function OutcomeTrendChart({ bins, unit, hitMarkers = [] }: { bins: TrendBin[]; unit: 'day' | 'week'; hitMarkers?: TrendHitMarker[] }) {
   const [hover, setHover] = useState<number | null>(null)
 
   if (bins.length === 0) {
@@ -566,6 +575,10 @@ export function OutcomeTrendChart({ bins, unit }: { bins: TrendBin[]; unit: 'day
         <text x={TREND_PAD.left} y={TREND_PAD.top - 4} font-size="9" fill="var(--vscode-descriptionForeground,#888)">Tokens (in + out) per {unit}</text>
         {axis(TREND_PAD.top, TREND_TOKENS_H, tokenScale)}
 
+        {[...new Set(hitMarkers.map(m => binIndexOf(bins, m.t)).filter(i => i >= 0))].map(i => {
+          const cx = TREND_PAD.left + (i + 0.5) * slotW
+          return <path key={`hit${i}`} d={`M${cx - 4},${TREND_PAD.top - 10} L${cx + 4},${TREND_PAD.top - 10} L${cx},${TREND_PAD.top - 4} Z`} fill="var(--vscode-charts-red,#f44747)" />
+        })}
         {bins.map((b, i) => (
           <g key={b.start}
             onMouseEnter={() => setHover(i)}
@@ -598,6 +611,9 @@ export function OutcomeTrendChart({ bins, unit }: { bins: TrendBin[]; unit: 'day
           <div style="margin-top:4px;padding-top:4px;border-top:1px solid var(--vscode-panel-border,#333);color:var(--muted)">
             Total: <strong style="color:var(--foreground)">{formatCompact(hovered.total.tokens)}</strong> tokens, {hovered.total.sessions} trace{hovered.total.sessions === 1 ? '' : 's'}
           </div>
+          {hitMarkers.filter(m => binIndexOf(bins, m.t) === hover).map(m => (
+            <div key={m.t} style="color:var(--vscode-charts-red,#f44747)">{m.label}</div>
+          ))}
         </div>
       )}
     </div>

@@ -16,7 +16,9 @@ import { computeStats } from './Agents'
 import { SectionNav, type NavSection } from '../SectionNav'
 import { buildTrendBins, summarize, TREND_OUTCOMES, TREND_COLOR } from './outcomeTrend'
 import { OUTCOME_META } from './Sessions'
-import { gitOutcomes } from '../state'
+import { gitOutcomes, selectedAgentFilter } from '../state'
+import { planUsage, hasPlanData, forAgentFilter, PROVIDER_LABEL } from '../planUsage'
+import { PlanLimitsSection } from './PlanLimits'
 
 // ── Section heading helper ────────────────────────────────────────────────────
 
@@ -183,7 +185,11 @@ export function Analytics() {
   const medianByOutcome = new Map(outcomeBuckets.map(b => [b.outcome, b.medianTokens]))
   const pct = (n: number) => `${Math.round(n * 100)}%`
 
+  const plan = forAgentFilter(planUsage.value, selectedAgentFilter.value)
+  const hasPlan = hasPlanData(plan)
+
   const navSections: NavSection[] = [
+    ...(hasPlan ? [{ id: 'analytics-plan-limits', label: 'Plan limits' }] : []),
     ...(hasAgentBreakdown ? [{ id: 'analytics-agent-breakdown', label: 'Agent breakdown' }] : []),
     ...(trend.bins.length > 0 ? [{ id: 'analytics-outcome-tokens', label: 'Outcome & token spend' }] : []),
     ...(pricedSess.length > 0 ? [{ id: 'analytics-cost', label: 'Estimated cost' }] : []),
@@ -195,10 +201,19 @@ export function Analytics() {
     <div id="analytics-content">
     <SectionNav label="Analytics sections" sections={navSections}>
 
+      {/* Subscription plan limits — Claude Code and Codex only, and only when they've written any. */}
+      {hasPlan && (
+        <>
+          <SectionHead id="analytics-plan-limits" title="PLAN LIMITS" first helpAnchor="help-plan-limits"
+            tip="How much of your Claude or ChatGPT plan's 5-hour and weekly windows you've used, read from files Claude Code and Codex write themselves. No credentials are read and nothing is sent anywhere." />
+          <PlanLimitsSection snapshot={plan} />
+        </>
+      )}
+
       {/* Agent breakdown */}
       {hasAgentBreakdown && (
         <>
-          <SectionHead id="analytics-agent-breakdown" title="AGENT BREAKDOWN" first />
+          <SectionHead id="analytics-agent-breakdown" title="AGENT BREAKDOWN" first={!hasPlan} />
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             {copilotSess.length > 0 && <AgentCard source="copilot"    sessions={copilotSess} />}
             {claudeSess.length  > 0 && <AgentCard source="claude_code" sessions={claudeSess} />}
@@ -212,7 +227,7 @@ export function Analytics() {
           (buildOutcomeTokenBuckets still feeds this section's median column). */}
       {trend.bins.length > 0 && (
         <>
-          <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasAgentBreakdown}
+          <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasPlan && !hasAgentBreakdown}
             tip="Tokens and traces per day (or week), stacked by what happened to the work locally per git — merged, committed, or still uncommitted. Traces with no changed files, or outside a git repo, aren't counted." />
           <p style="font-size:12px;margin:0 0 4px">
             <strong>{formatCompact(trendSummary.total.tokens)}</strong> tokens across{' '}
@@ -233,7 +248,8 @@ export function Analytics() {
               </span>
             ))}
           </div>
-          <OutcomeTrendChart bins={trend.bins} unit={trend.unit} />
+          <OutcomeTrendChart bins={trend.bins} unit={trend.unit}
+            hitMarkers={(plan?.hits ?? []).map(h => ({ t: h.hitAt, label: `${PROVIDER_LABEL[h.provider]} ${h.windowKind === 'five_hour' ? '5-hour' : 'weekly'} limit hit` }))} />
           <div class="h-scroll-hint" style="margin-top:10px">
             <table style="font-size:11px;width:100%;border-collapse:collapse">
               <thead>
@@ -272,7 +288,7 @@ export function Analytics() {
       {/* Estimated cost */}
       {pricedSess.length > 0 && (
         <>
-          <SectionHead id="analytics-cost" title="ESTIMATED COST" first={!hasAgentBreakdown && trend.bins.length === 0} helpAnchor="help-costs" />
+          <SectionHead id="analytics-cost" title="ESTIMATED COST" first={!hasPlan && !hasAgentBreakdown && trend.bins.length === 0} helpAnchor="help-costs" />
           {disclaimer}
 
           {copilotSess.length > 0 && (

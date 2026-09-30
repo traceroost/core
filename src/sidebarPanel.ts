@@ -5,6 +5,7 @@ import { Span } from './types'
 import { calcSessionCostUsd, type CostTimelineEntry } from './pricing'
 import { SessionSummaryCard } from './summarizers/summarizerTypes'
 import { escapeHtml, getNonce, safeJsonForScript } from './webviewHtml'
+import { getPlanUsageService } from './planUsage/planUsageService'
 
 // Only the most recent N sessions feed the average — averaging over full history let one
 // unusually long session skew the bar-scaling average for everyone after it, especially
@@ -16,6 +17,18 @@ export function tokenAverages(all: SessionSummaryCard[]): { avgInputTokens: numb
   return {
     avgInputTokens: recent.length > 0 ? recent.reduce((s, x) => s + x.inputTokens, 0) / recent.length : 1,
     avgOutputTokens: recent.length > 0 ? recent.reduce((s, x) => s + x.outputTokens, 0) / recent.length : 1,
+  }
+}
+
+/** The live Plan limit card for the latest trace, and the compact meter line — both absent when
+ *  there's no plan-limit data (see src/planUsage/). */
+function planLimitFields(latest: SessionSummaryCard | null, burnRate: { costPerHour: number } | null) {
+  const svc = getPlanUsageService()
+  if (!svc) return { planLimit: null, planMeters: [] }
+  try {
+    return { planLimit: svc.liveCard(latest ?? undefined, burnRate) ?? null, planMeters: svc.meters() }
+  } catch {
+    return { planLimit: null, planMeters: [] }
   }
 }
 
@@ -168,6 +181,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         tokensPerMinute: Math.round(burnRateResult.burnRate.tokensPerMinute),
         costPerHour: burnRateResult.burnRate.costPerHour,
       } : null,
+      ...planLimitFields(latest, burnRateResult?.burnRate ?? null),
     })
   }
 
@@ -256,6 +270,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       burnRate,
       avgInputTokens,
       avgOutputTokens,
+      ...planLimitFields(latest, burnRate),
     })
 
     const sidebarJsUri = webview.asWebviewUri(
@@ -346,6 +361,20 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
     padding: 8px 10px; margin-bottom: 8px; border-radius: 4px;
     font-size: 11px; line-height: 1.4;
   }
+  .sb-plan-meters { font-size: 10px; color: var(--vscode-descriptionForeground); padding-bottom: 6px; cursor: pointer; }
+  .sb-plan-meters:hover { color: var(--vscode-foreground); }
+  .sb-plan-row { display: flex; align-items: center; gap: 6px; font-size: 10px; margin-top: 3px; }
+  .sb-plan-label { width: 18px; color: var(--vscode-descriptionForeground); }
+  .sb-plan-bar { flex: 1; height: 6px; border-radius: 3px; background: rgba(128,128,128,.25); overflow: hidden; }
+  .sb-plan-fill { height: 100%; background: var(--vscode-charts-blue, #4fc3f7); }
+  .sb-plan-fill.warn { background: var(--vscode-charts-yellow, #f6a623); }
+  .sb-plan-fill.crit { background: var(--vscode-charts-red, #f44747); }
+  .sb-plan-pct { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+  .sb-plan-note { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 4px; line-height: 1.4; }
+  .sb-plan-note.warn { color: var(--vscode-charts-yellow, #f6a623); }
+  .sb-plan-blocked { font-size: 11px; font-weight: 600; color: var(--vscode-charts-red, #f44747); margin-bottom: 2px; }
+  #sb-plan-limit.warn { border-color: var(--vscode-charts-yellow, #f6a623); }
+  #sb-plan-limit.blocked { border-color: var(--vscode-charts-red, #f44747); }
   .sb-live-header {
     font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
     color: var(--vscode-descriptionForeground); font-weight: 600;
@@ -364,6 +393,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
   <div class="sb-body">
 
+    <div id="sb-plan-meters" class="sb-plan-meters" style="display:none" title="Plan limits — open Analytics"></div>
     <div class="sb-live-header" title="Updates live as the current agent trace progresses">Live &middot; Current Trace Activity</div>
 
     <!-- Status row -->
@@ -433,6 +463,9 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         <div id="sb-burn" class="sb-burn"></div>
         <div id="sb-burn-waiting" class="sb-muted" style="display:none;font-size:10px;font-style:italic">Waiting for data…</div>
       </div>
+
+      <!-- Plan limit (subscription 5-hour / weekly windows) — rendered by sidebarWebview.ts, absent when there's no data -->
+      <div class="sb-card" id="sb-plan-limit" style="display:none"></div>
 
     </div>
 

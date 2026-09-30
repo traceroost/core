@@ -81,6 +81,18 @@ export function toSessionSpan(card: SessionSummaryCard): SessionSpan | undefined
   }
 }
 
+let current: PlanUsageService | undefined
+
+/** The process's service, once its host has a database to back it (undefined before that, and
+ *  for the lifetime of a host with no database — everything plan-related then stays hidden). */
+export function getPlanUsageService(): PlanUsageService | undefined {
+  return current
+}
+
+export function setPlanUsageService(svc: PlanUsageService | undefined): void {
+  current = svc
+}
+
 export class PlanUsageService {
   private readonly repo: LimitRepository
   private claudeMtimeMs: number | undefined
@@ -126,6 +138,12 @@ export class PlanUsageService {
       this.opts.log?.(`[TraceRoost] plan usage: Claude cache read skipped (${(err as Error).message})`)
       return false
     }
+  }
+
+  /** Current meters only — cheap enough for the sidebar's every-5s refresh. */
+  meters(): PlanMeter[] {
+    const now = this.now()
+    return currentMeters(this.repo.readingsSince(now - ATTRIBUTION_LOOKBACK_MS), now)
   }
 
   /** Readings and hits follow trace retention; rollups are kept a year. */
