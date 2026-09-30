@@ -35,6 +35,9 @@ import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, Sessio
 import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
 
+/** The REPO filter's empty state, shown as its placeholder and first list entry. */
+const REPO_ALL = 'All'
+
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
 // duplicates content already visible in the main dashboard. VS Code's native
@@ -1501,13 +1504,18 @@ function OutcomeFilterBar() {
             type="text"
             list="tr-repo-options"
             class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
-            placeholder="Name or ID"
+            placeholder="All"
             value={workspaceFilter.value}
-            onInput={e => { workspaceFilter.value = (e.target as HTMLInputElement).value }}
-            title="Matches a repo's name or its hash. Pick one from the list, or type to narrow further."
+            onInput={e => {
+              // "All" from the list (or typed) means no repo filter, not a repo named "All".
+              const v = (e.target as HTMLInputElement).value
+              workspaceFilter.value = v.trim().toLowerCase() === REPO_ALL.toLowerCase() ? '' : v
+            }}
+            title="All repos by default. Pick one from the list, or type a repo's name or hash to narrow."
             style="flex:none;width:110px"
           />
           <datalist id="tr-repo-options">
+            <option value={REPO_ALL} />
             {repoOptions.map(name => <option key={name} value={name} />)}
           </datalist>
         </span>

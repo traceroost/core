@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'preact/hooks'
-import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode } from '../state'
+import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode, availableWorkspaces, workspaceFilter } from '../state'
 import { Instructions, instructionFiles } from './Instructions'
 import { getAgentSourceLabel, formatSessionTime } from '../utils'
 import { calcSessionCost } from '../sessionMetrics'
@@ -350,6 +350,26 @@ function actionTipFor(a: CostSavingAction): string | null {
 /** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
  *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
  *  See .staged-issues/value-prop-and-cost-savings.md, Step 1. */
+/** Suggests narrowing to one repo via the header's REPO filter: instruction-file suggestions are
+ *  only as specific as the traces behind them. Gone once a repo is chosen, when there's only one
+ *  repo (the filter isn't shown), or when this window's open folder already scopes them. */
+function RepoFilterHint() {
+  if (workspaceFilter.value.trim() !== '' || availableWorkspaces.value.length < 2 || currentWorkspace.value !== null) return null
+  const focusRepo = () => {
+    const el = document.getElementById('tr-filter-repo') as HTMLInputElement | null
+    if (!el) return
+    el.scrollIntoView({ block: 'nearest' })
+    el.focus()
+  }
+  return (
+    <div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;padding:6px 10px;font-size:11px;color:var(--muted);background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
+      <span style="flex:1">Tip: pick a repo in <strong style="color:var(--fg)">Repo</strong> in the header above for suggestions tailored to that repo's instruction file.</span>
+      <button onClick={focusRepo}
+        style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap">Choose repo ↑</button>
+    </div>
+  )
+}
+
 function fmtPts(p: number): string {
   return p < 1 ? '<1 pt' : `${Math.round(p)} pt${Math.round(p) === 1 ? '' : 's'}`
 }
@@ -437,6 +457,7 @@ export function Patterns() {
 
       <section id="advisor-instructions">
         <h3 style={sectionHead}>Instructions File</h3>
+        <RepoFilterHint />
         <Instructions />
       </section>
 
