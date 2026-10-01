@@ -3,7 +3,7 @@ import { PRICING_LAST_UPDATED, RATES, PRICING_SECTIONS, normalizeCostKey, type M
 import { orgStatus, requestOrgStatus, displayOrgName, type CloudRate } from '../orgPanel'
 
 // Table styling matches the established convention duplicated per-component across
-// the codebase (see Help.tsx's CostSection, Cost.tsx) rather than a shared import.
+// the codebase (see Help.tsx's CostSection, Analytics.tsx's cost table) rather than a shared import.
 const tblStyle = 'width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px'
 const thStyle = 'text-align:left;padding:5px 10px 5px 0;border-bottom:2px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;white-space:nowrap'
 const tdStyle = 'padding:5px 10px 5px 0;border-bottom:1px solid var(--border);vertical-align:top'

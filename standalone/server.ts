@@ -2249,6 +2249,11 @@ function sendInstructionResult(res: http.ServerResponse, result: InstructionResu
 
 /** An automation prompt is a few KB; the rest is headroom. */
 const MAX_PROMPT_BODY_BYTES = 1024 * 1024
+/** A session export (Export tab JSON — per-session summaries, no timelines) runs to a few KB a
+ *  session; the OTLP receiver's 50 MB cap leaves room for tens of thousands of them. */
+const MAX_IMPORT_BODY_BYTES = 50 * 1024 * 1024
+/** /action and /api/org carry one small webview message. */
+const MAX_ACTION_BODY_BYTES = 64 * 1024
 
 function sendTooLarge(res: http.ServerResponse): void {
   res.writeHead(413, { 'Content-Type': 'text/plain', 'Connection': 'close' }); res.end('Payload Too Large')
@@ -2342,11 +2347,10 @@ const uiServer = http.createServer((req, res) => {
   }
 
   if (req.method === 'POST' && url === '/api/import') {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', () => {
+    readBodyLimited(req, MAX_IMPORT_BODY_BYTES).then(raw => {
+      if (!raw) { sendTooLarge(res); return }
       try {
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { sessions?: unknown[] }
+        const body = JSON.parse(raw.toString('utf-8')) as { sessions?: unknown[] }
         if (!Array.isArray(body.sessions)) {
           res.writeHead(400, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'sessions array required' }))
@@ -2371,6 +2375,9 @@ const uiServer = http.createServer((req, res) => {
         res.writeHead(400, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: String(e) }))
       }
+    }).catch(e => {
+      console.warn(`[TraceRoost] ${url} error:`, e)
+      if (!res.headersSent) { res.writeHead(500); res.end() }
     })
     return
   }
@@ -2460,11 +2467,10 @@ const uiServer = http.createServer((req, res) => {
   }
 
   if (req.method === 'POST' && url === '/action') {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', async () => {
+    readBodyLimited(req, MAX_ACTION_BODY_BYTES).then(async raw => {
+      if (!raw) { sendTooLarge(res); return }
       try {
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type?: string }
+        const body = JSON.parse(raw.toString('utf-8')) as { type?: string }
         if (body.type === 'clearAll') {
           clearAllData()
         } else if (body.type === 'reconfigureOtel') {
@@ -2488,6 +2494,9 @@ const uiServer = http.createServer((req, res) => {
         }
       } catch (e) { console.warn('[TraceRoost] Malformed /action body:', e) }
       res.writeHead(200); res.end()
+    }).catch(e => {
+      console.warn(`[TraceRoost] ${url} error:`, e)
+      if (!res.headersSent) { res.writeHead(500); res.end() }
     })
     return
   }
@@ -2518,13 +2527,12 @@ const uiServer = http.createServer((req, res) => {
   // Both reply with an array of webview messages the polyfill re-dispatches.
   // Not served at all in the core edition (literal edition check, so esbuild drops the handler).
   if (process.env.TRACEROOST_EDITION !== 'core' && url === '/api/org' && (req.method === 'GET' || req.method === 'POST')) {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', async () => {
+    readBodyLimited(req, MAX_ACTION_BODY_BYTES).then(async body => {
+      if (!body) { sendTooLarge(res); return }
       const outbox: Record<string, unknown>[] = []
       const msg = req.method === 'GET'
         ? { type: 'getOrgStatus' }
-        : (() => { try { return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type: string } } catch { return { type: 'getOrgStatus' } } })()
+        : (() => { try { return JSON.parse(body.toString('utf-8')) as { type: string } } catch { return { type: 'getOrgStatus' } } })()
       try {
         await cloud.handleOrgMessage(msg, {
           post: (m) => outbox.push(m),
@@ -2554,6 +2562,9 @@ const uiServer = http.createServer((req, res) => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ messages: outbox }))
+    }).catch(e => {
+      console.warn(`[TraceRoost] ${url} error:`, e)
+      if (!res.headersSent) { res.writeHead(500); res.end() }
     })
     return
   }

@@ -1330,7 +1330,7 @@ traceroost/
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
 │   │       ├── outcomeTrend.ts   # Day/week binning for OUTCOME & TOKEN SPEND OVER TIME
 │   │       ├── Insights.tsx      # InsightCard component + generateInsights; clipboard copy icon
-│   │       ├── Cost.tsx          # CostBarChart (canvas), per-session cost table, M/K token toggle, CSV export, fmtUsd
+│   │       ├── Cost.tsx          # CostBarChart (canvas, used by Analytics), fmtUsd re-export
 │   │       ├── SessionCharts.tsx # ContextGrowthChart (animated), SessionTokenChart, TurnsLink
 │   │       ├── Traces.tsx        # Waterfall rows (Step/StepRow), background span groups
 │   │       ├── Flow.tsx          # Turn-to-tool semantic graph (canvas), FlowCanvas component
