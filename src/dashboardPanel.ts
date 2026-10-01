@@ -591,7 +591,7 @@ export class DashboardPanel {
       sessionId: card.sessionId,
       workspace: card.workspace,
       filesChanged: card.filesChanged,
-      endTime: card.startTime && card.durationMs
+      endTime: card.startTime && card.durationMs && !Number.isNaN(Date.parse(card.startTime))
         ? new Date(Date.parse(card.startTime) + card.durationMs).toISOString()
         : card.startTime,
     }))

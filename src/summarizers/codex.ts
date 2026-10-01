@@ -184,7 +184,7 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
                 const m = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
                 if (m) {
                   const patchFp = m[1].trim()
-                  if (patchFp && patchFp.includes('/')) {
+                  if (patchFp && /[\\/]/.test(patchFp)) {
                     filesChanged.add(patchFp)
                     foundFilePath = true
                   }
@@ -195,7 +195,7 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
             if (fp) {
               foundFilePath = true
               if (toolName === 'read_file' || toolName === 'Read') {
-                filesRead.add(String(fp).split('/').pop() || String(fp))
+                filesRead.add(String(fp).split(/[\\/]/).pop() || String(fp))
               } else if (toolName === 'grep_search' || toolName === 'file_search' || toolName === 'Glob' || toolName === 'Grep') {
                 filesSearched.add(String(args.query || args.pattern || fp))
               } else if (toolName !== 'apply_patch') {

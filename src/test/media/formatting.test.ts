@@ -11,6 +11,7 @@ import {
   fmtUsd, oneShotRate, avgEditsPerFile, buildDailyCostMap, getDailyCostUsd, sessionDisplayName,
   getPeakContextUsage, getIdenticalToolRepeat, getErrorHealth, getActiveComputeMs, calcSessionCost,
 } from '../../../media/src/sessionMetrics'
+import { buildTrendBins } from '../../../media/src/tabs/outcomeTrend'
 import type { Span, TimelineEntry } from '../../../media/src/types'
 
 // Webview data formatting: the labels, numbers and per-day/per-session metrics the dashboard
@@ -46,6 +47,13 @@ suite('media/utils — label formatting', () => {
     assert.strictEqual(formatToolLabel({ label: 'Read', toolInput: '/r/src/main.ts' }), 'Read main.ts')
     assert.strictEqual(formatToolLabel({ label: 'Read', toolInput: '~/notes.md' }), 'Read notes.md')
     assert.strictEqual(formatToolLabel({ label: 'Bash', toolInput: 'git status' }), 'Bash git status')
+  })
+
+  test('formatToolLabel takes the basename of Windows paths too', () => {
+    assert.strictEqual(formatToolLabel({ label: 'Edit', toolInput: '{"file_path":"C:\\\\r\\\\src\\\\app.ts"}' }), 'Edit app.ts')
+    assert.strictEqual(formatToolLabel({ label: 'Read', toolInput: 'C:\\r\\src\\main.ts' }), 'Read main.ts')
+    assert.strictEqual(formatToolLabel({ label: 'file_search **\\src\\README.md' }), 'Find README.md')
+    assert.strictEqual(formatToolLabel({ label: 'grep_search "needle" in src\\a.ts' }), 'Grep "needle" in a.ts')
   })
 
   test('formatToolLabel rewrites Copilot tool labels', () => {
@@ -203,6 +211,18 @@ suite('media/sessionMetrics', () => {
     assert.strictEqual(getDailyCostUsd([a, b, c], '2026-05-02'), costA, 'same tokens, same model → same cost')
     assert.strictEqual(getDailyCostUsd([a], '1999-01-01'), 0)
     assert.strictEqual(buildDailyCostMap([makeCard({ startTime: '' })]).has('unknown'), true)
+    // A non-empty but unparseable startTime buckets as 'unknown' too, instead of throwing (which
+    // used to wipe out the whole map, and every chart and alert built on it).
+    const bad = buildDailyCostMap([a, makeCard({ sessionId: 'bad', startTime: 'not a date' })])
+    assert.deepStrictEqual([...bad.keys()].sort(), ['2026-05-01', 'unknown'])
+  })
+
+  test('buildTrendBins leaves undatable sessions out instead of losing every bin', () => {
+    const ok = makeCard({ sessionId: 'ok', startTime: '2026-05-01T10:00:00.000Z' })
+    const bad = makeCard({ sessionId: 'bad', startTime: 'garbage' })
+    const outcome = { overall: 'committed' as const, files: {}, reason: '' }
+    const { bins } = buildTrendBins([ok, bad], { ok: outcome, bad: outcome })
+    assert.deepStrictEqual(bins.map(b => [b.start, b.total.sessions]), [['2026-05-01', 1]])
   })
 
   test('calcSessionCost flags unknown models and accumulates per-turn cost', () => {

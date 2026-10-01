@@ -65,7 +65,8 @@ export function buildTrendBins(
   const counted: Array<{ s: SessionSummaryCard; outcome: FileOutcome }> = []
   for (const s of sessions) {
     const go = outcomes[s.sessionId]
-    if (go && (TREND_OUTCOMES as string[]).includes(go.overall)) counted.push({ s, outcome: go.overall })
+    // An undatable session can't be placed on the axis (and 'unknown' would sort past every real day).
+    if (go && (TREND_OUTCOMES as string[]).includes(go.overall) && dayKeyUtc(s.startTime) !== 'unknown') counted.push({ s, outcome: go.overall })
   }
   if (counted.length === 0) return { bins: [], unit: 'day' }
 

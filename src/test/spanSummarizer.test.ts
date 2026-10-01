@@ -154,6 +154,26 @@ suite('SpanSummarizer', () => {
       assert.ok(result.sessions[0].timeline.length > 0)
     })
 
+    test('Copilot tool calls with Windows paths: apply_patch headers count, read_file keeps the basename', () => {
+      const agent = makeAgentSpan({ spanId: 'a1' })
+      const patch = '*** Begin Patch\n*** Update File: C:\\work\\app\\src\\a.ts\n@@\n-old\n+new\n*** End Patch'
+      const tool = (name: string, args: object) => makeChildSpan('a1', {
+        name: `execute_tool ${name}`,
+        attributes: [makeAttr('gen_ai.tool.name', name), makeAttr('gen_ai.tool.call.arguments', JSON.stringify(args))],
+      })
+      const session = summarizeSpans([
+        agent,
+        tool('apply_patch', { input: patch }),
+        tool('read_file', { filePath: 'C:\\work\\app\\README.md', startLine: 1, endLine: 5 }),
+      ]).sessions[0]
+      assert.deepStrictEqual(session.filesChanged, ['C:\\work\\app\\src\\a.ts'])
+      assert.deepStrictEqual(session.filesRead, ['README.md'])
+      const entries = session.timeline.filter(e => e.type === 'tool')
+      assert.deepStrictEqual(entries.flatMap(e => e.editDetails ?? []),
+        [{ filePath: 'C:\\work\\app\\src\\a.ts', oldString: 'old', newString: 'new' }])
+      assert.deepStrictEqual(entries.map(e => e.label), ['apply_patch a.ts', 'read_file README.md L1-5'])
+    })
+
     test('detects error spans', () => {
       const agent = makeAgentSpan({ spanId: 'a1' })
       const child = makeChildSpan('a1', {

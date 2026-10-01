@@ -382,7 +382,7 @@ export function formatToolLabel(entry: { label?: string; toolInput?: string }): 
         const parsed = JSON.parse(raw) as Record<string, unknown>
         const fp = String(parsed.file_path || parsed.filePath || '')
         if (fp) {
-          const base = fp.split('/').pop() || fp
+          const base = fp.split(/[\\/]/).pop() || fp
           // MultiEdit may touch multiple files
           if (toolName === 'MultiEdit' && Array.isArray(parsed.edits)) {
             const count = (parsed.edits as unknown[]).length
@@ -400,7 +400,7 @@ export function formatToolLabel(entry: { label?: string; toolInput?: string }): 
     } else {
       // Raw string — bash command or file path
       const isFilePath = raw.startsWith('/') || raw.startsWith('~') || /^[A-Za-z]:[/\\]/.test(raw)
-      if (isFilePath) return toolName + ' ' + (raw.split('/').pop() || raw)
+      if (isFilePath) return toolName + ' ' + (raw.split(/[\\/]/).pop() || raw)
       return 'Bash ' + (raw.length > 60 ? raw.slice(0, 57) + '…' : raw)
     }
   }
@@ -412,14 +412,14 @@ export function formatToolLabel(entry: { label?: string; toolInput?: string }): 
       return 'Read ' + args
     }
     case 'file_search': {
-      const file = args.replace(/^\*\*\//, '').split('/').pop() ?? args
+      const file = args.replace(/^\*\*\//, '').split(/[\\/]/).pop() ?? args
       if (file.indexOf('*') !== -1) return 'Find files matching ' + file
       return 'Find ' + file
     }
     case 'grep_search': {
       const gm = args.match(/^"([^"]*?)"\s+in\s+(.*)$/)
       if (gm) {
-        const inFile = gm[2].replace(/^\*\*\//, '').split('/').pop() ?? gm[2]
+        const inFile = gm[2].replace(/^\*\*\//, '').split(/[\\/]/).pop() ?? gm[2]
         return 'Grep "' + gm[1] + '" in ' + inFile
       }
       return 'Grep ' + args

@@ -366,25 +366,44 @@ const PAGE = 4096
 const SALT1 = 0x11223344
 const SALT2 = 0x55667788
 
-/** A SQLite WAL file whose frames carry every page of `db`. `commit` marks the last frame as a
- *  commit frame (non-zero db-size field); `salt` lets a test fake a stale WAL generation. */
-function buildWal(frames: Array<{ db: Uint8Array; commit: boolean; salt?: [number, number] }>): Buffer {
+/** SQLite's WAL checksum over `buf` (8-byte aligned), continuing from `seed`. Native byte
+ *  order for magic 0x377f0682 is little-endian. */
+function walChecksum(buf: Buffer, seed: [number, number]): [number, number] {
+  let [s0, s1] = seed
+  for (let i = 0; i < buf.length; i += 8) {
+    s0 = (s0 + buf.readUInt32LE(i) + s1) >>> 0
+    s1 = (s1 + buf.readUInt32LE(i + 4) + s0) >>> 0
+  }
+  return [s0, s1]
+}
+
+/** A SQLite WAL file whose frames carry every page of `db`, with valid cumulative checksums.
+ *  `commit` marks the last frame as a commit frame (non-zero db-size field); `salt` lets a test
+ *  fake a stale WAL generation; `badChecksum` corrupts the first frame's stored checksum. */
+function buildWal(frames: Array<{ db: Uint8Array; commit: boolean; salt?: [number, number]; badChecksum?: boolean }>): Buffer {
   const hdr = Buffer.alloc(32)
   hdr.writeUInt32BE(0x377f0682, 0)
   hdr.writeUInt32BE(3007000, 4)
   hdr.writeUInt32BE(PAGE, 8)
   hdr.writeUInt32BE(SALT1, 16)
   hdr.writeUInt32BE(SALT2, 20)
+  let ck = walChecksum(hdr.subarray(0, 24), [0, 0])
+  hdr.writeUInt32BE(ck[0], 24)
+  hdr.writeUInt32BE(ck[1], 28)
   const parts: Buffer[] = [hdr]
-  for (const { db, commit, salt } of frames) {
+  for (const { db, commit, salt, badChecksum } of frames) {
     const nPages = db.length / PAGE
     for (let p = 1; p <= nPages; p++) {
       const fh = Buffer.alloc(24)
+      const page = Buffer.from(db.subarray((p - 1) * PAGE, p * PAGE))
       fh.writeUInt32BE(p, 0)
       fh.writeUInt32BE(commit && p === nPages ? nPages : 0, 4)
       fh.writeUInt32BE(salt?.[0] ?? SALT1, 8)
       fh.writeUInt32BE(salt?.[1] ?? SALT2, 12)
-      parts.push(fh, Buffer.from(db.subarray((p - 1) * PAGE, p * PAGE)))
+      ck = walChecksum(page, walChecksum(fh.subarray(0, 8), ck))
+      fh.writeUInt32BE(badChecksum && p === 1 ? ck[0] ^ 1 : ck[0], 16)
+      fh.writeUInt32BE(ck[1], 20)
+      parts.push(fh, page)
     }
   }
   return Buffer.concat(parts)
@@ -441,6 +460,33 @@ suite('LogReader — OpenCode WAL merge and parts', () => {
     fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'), buildWal([{ db: walState, commit: true, salt: [1, 2] }]))
     const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.sessionId)
     assert.deepStrictEqual(ids, ['old'])
+  })
+
+  test('frames after the last commit frame (an in-flight transaction) are not applied', () => {
+    const db = newDb()
+    db.run(OC_SCHEMA)
+    addSession(db, 'old', 'Checkpointed session')
+    const main = db.export()
+    addSession(db, 'committed', 'Committed in the WAL')
+    const committed = db.export()
+    addSession(db, 'uncommitted', 'Still being written')
+    const inFlight = db.export()
+    db.close()
+    fs.writeFileSync(path.join(dataDir, 'opencode.db'), main)
+    fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'),
+      buildWal([{ db: committed, commit: true }, { db: inFlight, commit: false }]))
+    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.sessionId).sort()
+    assert.deepStrictEqual(ids, ['committed', 'old'])
+  })
+
+  test('a WAL with no commit frame, or a bad frame checksum, leaves the main DB as is', () => {
+    const [main, walState] = twoGenerations()
+    fs.writeFileSync(path.join(dataDir, 'opencode.db'), main)
+    const read = () => new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.sessionId)
+    fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'), buildWal([{ db: walState, commit: false }]))
+    assert.deepStrictEqual(read(), ['old'])
+    fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'), buildWal([{ db: walState, commit: true, badChecksum: true }]))
+    assert.deepStrictEqual(read(), ['old'])
   })
 
   test('a truncated or foreign -wal file is ignored rather than corrupting the read', () => {

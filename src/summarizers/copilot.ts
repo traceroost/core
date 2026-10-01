@@ -91,7 +91,7 @@ export function buildCopilotSessions(
         if (toolName === 'read_file') {
           try {
             const args = JSON.parse(argsStr)
-            const file = (args.filePath || '').split('/').pop()
+            const file = (args.filePath || '').split(/[\\/]/).pop()
             if (file) { filesRead.add(file) }
           } catch { /* skip */ }
         }
@@ -125,7 +125,7 @@ export function buildCopilotSessions(
               const m = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
               if (m) {
                 const fp = m[1].trim()
-                if (fp && fp.includes('/')) { filesChanged.add(fp) }
+                if (fp && /[\\/]/.test(fp)) { filesChanged.add(fp) }  // a path (either separator), not *** Begin/End Patch
               }
             }
           } catch { /* skip */ }
@@ -290,7 +290,7 @@ function extractCopilotEditDetails(toolName: string, argsStr: string): EditDetai
         const fileMatch = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
         if (fileMatch) {
           const candidate = fileMatch[1].trim()
-          if (!candidate.includes('/')) continue  // skip *** Begin Patch, *** End Patch, etc.
+          if (!/[\\/]/.test(candidate)) continue  // skip *** Begin Patch, *** End Patch, etc. (a path has either separator)
           if (currentFile) {
             details.push({
               filePath: currentFile,

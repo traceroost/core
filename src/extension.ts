@@ -379,7 +379,7 @@ export async function activate(context: vscode.ExtensionContext) {
         sessionId: s.sessionId,
         workspace: s.workspace,
         filesChanged: s.filesChanged,
-        endTime: s.startTime && s.durationMs ? new Date(Date.parse(s.startTime) + s.durationMs).toISOString() : s.startTime,
+        endTime: s.startTime && s.durationMs && !Number.isNaN(Date.parse(s.startTime)) ? new Date(Date.parse(s.startTime) + s.durationMs).toISOString() : s.startTime,
       })),
       log: (msg) => outputChannel!.appendLine(msg),
     })

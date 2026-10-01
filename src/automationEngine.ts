@@ -13,6 +13,7 @@
  * resets on server restart.
  */
 
+import * as path from 'path'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
 
 // ── Agent profiles (mirrors media/src/agentProfiles.ts defaults) ───────────────
@@ -284,16 +285,27 @@ export interface AutomationTrigger {
 // identical prompt. Process-lifetime only — resets on server restart, not persisted to disk.
 const firedSet = new Set<string>()
 
+/** Windows-style path: a drive letter (`C:\`, `c:/`) or a UNC share (`\\host\share`). */
+const WINDOWS_PATH_RE = /^(?:[a-zA-Z]:[\\/]|\\\\)/
+
+/** Comparable form of a workspace path: resolved (`.`/`..` collapsed), `/` separators, no
+ *  trailing separator, and lower-cased when Windows-style (those filesystems are case-insensitive). */
+function normalizeWorkspacePath(p: string): string {
+  const win = WINDOWS_PATH_RE.test(p)
+  const resolved = (win ? path.win32.resolve(p) : path.posix.resolve(p.replace(/\\/g, '/'))).replace(/\\/g, '/')
+  const trimmed = resolved.length > 1 ? resolved.replace(/\/+$/, '') : resolved
+  return win ? trimmed.toLowerCase() : trimmed
+}
+
 /** True when `sessionWs` is `workspace` or inside it — on a path-segment boundary, so `/repo`
- *  doesn't match `/repo-other`. An empty `workspace` matches nothing (it used to match every
- *  session, since every string starts with ''). */
+ *  doesn't match `/repo-other`. Both sides are normalized first (see normalizeWorkspacePath), so
+ *  `C:\Work\Repo\` matches a session recorded at `c:/work/repo/pkg`. An empty `workspace`
+ *  matches nothing (it used to match every session, since every string starts with ''). */
 export function workspaceMatches(sessionWs: string, workspace: string): boolean {
-  if (!workspace || !sessionWs) return false
-  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '')
-  const a = norm(sessionWs)
-  const b = norm(workspace)
-  if (!b) return false
-  return a === b || a.startsWith(b + '/')
+  if (!workspace.trim() || !sessionWs.trim()) return false
+  const a = normalizeWorkspacePath(sessionWs)
+  const b = normalizeWorkspacePath(workspace)
+  return a === b || a.startsWith(b.endsWith('/') ? b : b + '/')
 }
 
 /**

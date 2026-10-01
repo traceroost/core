@@ -81,13 +81,16 @@ export interface ErrorHealth {
 // 'YYYY-MM-DD', UTC — matches the day-grouping convention used by the Cost tab's daily chart.
 // Called per session on every chart redraw, where Date parsing + toISOString dominated; the same
 // startTime strings recur on every redraw, so memoize (capped well above MAX_SESSIONS_TO_WEBVIEW).
+// A missing or unparseable startTime buckets as 'unknown' (toISOString would throw on an Invalid
+// Date and take every chart/total built on this down with it).
 const dayKeyCache = new Map<string, string>()
 export function dayKeyUtc(t: string | undefined): string {
   if (!t) return 'unknown'
   let key = dayKeyCache.get(t)
   if (key === undefined) {
     if (dayKeyCache.size >= 50_000) dayKeyCache.clear()
-    key = new Date(t).toISOString().slice(0, 10)
+    const ms = Date.parse(t)
+    key = Number.isNaN(ms) ? 'unknown' : new Date(ms).toISOString().slice(0, 10)
     dayKeyCache.set(t, key)
   }
   return key

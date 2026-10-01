@@ -28,7 +28,7 @@ import { calcSessionCostUsd } from './pricing'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
 import { generateSuggestions } from './instructionAdvisor'
 import { readAllInstructionContent } from './instructionFiles'
-import { checkAutomationTriggers } from './automationEngine'
+import { checkAutomationTriggers, workspaceMatches } from './automationEngine'
 import { isAllowedHostHeader, isAllowedOrigin, isAuthorized, isLoopbackHost } from './httpSecurity'
 
 /** Largest MCP request body accepted (413 above it). Tool calls are tiny JSON-RPC messages. */
@@ -48,6 +48,15 @@ function sessionCost(s: SessionSummaryCard): number {
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
+const WORKSPACE_FILTER_DESC =
+  'Only sessions recorded in this workspace or a folder inside it (path-segment match; separators, ' +
+  'trailing separator and, for Windows paths, case are ignored)'
+
+/** Sessions whose recorded workspace is `workspace` or under it; all sessions when it is unset/blank. */
+function filterByWorkspace(sessions: SessionSummaryCard[], workspace: string | undefined): SessionSummaryCard[] {
+  return workspace?.trim() ? sessions.filter(s => workspaceMatches(s.workspace ?? '', workspace)) : sessions
+}
+
 const TOOLS = [
   {
     name: 'get_recent_sessions',
@@ -60,7 +69,7 @@ const TOOLS = [
       properties: {
         limit:     { type: 'number',  description: 'Max sessions to return (default 10, max 50)' },
         agent:     { type: 'string',  description: 'Filter by agent: copilot | claude_code | codex | opencode | cursor' },
-        workspace: { type: 'string',  description: 'Filter by workspace path prefix' },
+        workspace: { type: 'string',  description: WORKSPACE_FILTER_DESC },
       },
     },
   },
@@ -73,7 +82,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        workspace: { type: 'string', description: 'Filter by workspace path prefix' },
+        workspace: { type: 'string', description: WORKSPACE_FILTER_DESC },
         days:      { type: 'number', description: 'Only include sessions from the last N days (default: all)' },
       },
     },
@@ -100,7 +109,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        workspace: { type: 'string', description: 'Filter by workspace path prefix' },
+        workspace: { type: 'string', description: WORKSPACE_FILTER_DESC },
         days:      { type: 'number', description: 'Analyse sessions from last N days (default 30)' },
       },
     },
@@ -191,7 +200,7 @@ function handleGetRecentSessions(
 ) {
   let filtered = sessions
   if (args.agent)     filtered = filtered.filter(s => s.source === args.agent)
-  if (args.workspace) filtered = filtered.filter(s => s.sessionId.includes(args.workspace!) || (s.userRequest ?? '').includes(args.workspace!))
+  filtered = filterByWorkspace(filtered, args.workspace)
   const limit = Math.min(args.limit ?? 10, 50)
   const top = filtered.slice(0, limit)
   let plan: ReturnType<NonNullable<ReturnType<typeof getPlanUsageService>>['snapshot']>['sessions'] = {}
@@ -230,19 +239,18 @@ function handleGetWorkspacePatterns(
   sessions: SessionSummaryCard[],
   args: { workspace?: string; days?: number },
 ) {
-  let filtered = sessions
+  let filtered = filterByWorkspace(sessions, args.workspace)
   if (args.days) {
     const cutoff = Date.now() - args.days * 86_400_000
     filtered = filtered.filter(s => Date.parse(s.startTime) >= cutoff)
   }
   if (filtered.length === 0) return { message: 'No sessions found matching the filters.' }
 
-  // File frequency
+  // File frequency — sessions touching each file, so a file both read and changed in one
+  // session counts once (otherwise `sessions`/`pct` could exceed the session count / 100%).
   const fileFreq = new Map<string, number>()
-  const countFile = (f: string) => fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1)
   for (const s of filtered) {
-    for (const f of s.filesRead ?? []) countFile(f)
-    for (const f of s.filesChanged ?? []) countFile(f)
+    for (const f of new Set([...(s.filesRead ?? []), ...(s.filesChanged ?? [])])) fileFreq.set(f, (fileFreq.get(f) ?? 0) + 1)
   }
   const hotFiles = [...fileFreq.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -341,7 +349,7 @@ function handleGetEfficiencyReport(
 ) {
   const cutoffDays = args.days ?? 30
   const cutoff = Date.now() - cutoffDays * 86_400_000
-  const recent = sessions.filter(s => Date.parse(s.startTime) >= cutoff)
+  const recent = filterByWorkspace(sessions, args.workspace).filter(s => Date.parse(s.startTime) >= cutoff)
   if (recent.length === 0) return { message: `No sessions in the last ${cutoffDays} days.` }
   // Each session priced (sessionCost walks its whole timeline) and dated once, reused below.
   const costOf = new Map(recent.map(s => [s, sessionCost(s)]))
@@ -407,7 +415,7 @@ function handleGetInstructionSuggestions(
   if (!workspace) {
     return { error: 'workspace is required — instruction suggestions are repo-scoped.' }
   }
-  const filtered = sessions.filter(s => (s.workspace ?? '') === workspace || s.workspace?.startsWith(workspace))
+  const filtered = filterByWorkspace(sessions, workspace)
   if (filtered.length < 5) {
     return { message: `Not enough history for workspace "${workspace}" (${filtered.length} sessions, need 5).`, suggestions: [] }
   }

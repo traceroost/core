@@ -263,7 +263,8 @@
     "check-types": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json && tsc --noEmit -p standalone/tsconfig.json",
     "lint": "eslint src media/src",
     "test": "vscode-test",
-    "test:unit": "pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && mocha",
+    "clean-tests": "node -e \"for (const d of ['out/test', 'out/test-media', 'out/test-standalone']) require('fs').rmSync(d, { recursive: true, force: true })\"",
+    "test:unit": "pnpm run clean-tests && pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && mocha",
     "test:ux": "playwright test",
     "test:ux:report": "playwright show-report"
   },

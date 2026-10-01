@@ -222,7 +222,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   useEffect(() => {
     // undefined = not yet requested; null = requested but not applicable (no repo, no files, etc)
     if (gitOutcomes.value[sess.sessionId] === undefined && sess.filesChanged.length > 0 && vscode) {
-      const endTime = sess.startTime && sess.durationMs
+      const endTime = sess.startTime && sess.durationMs && !Number.isNaN(Date.parse(sess.startTime))
         ? new Date(new Date(sess.startTime).getTime() + sess.durationMs).toISOString()
         : sess.startTime
       vscode.postMessage({

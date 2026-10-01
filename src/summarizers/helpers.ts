@@ -246,7 +246,7 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
     const args = JSON.parse(argsJson)
     switch (toolName) {
       case 'read_file': {
-        const file = (args.filePath || '').split('/').pop() || args.filePath
+        const file = (args.filePath || '').split(/[\\/]/).pop() || args.filePath
         return `${file} L${args.startLine}-${args.endLine}`
       }
       case 'file_search':
@@ -258,7 +258,7 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
       }
       case 'list_dir': {
         const p = args.path || ''
-        const parts = p.split('/').filter(Boolean)
+        const parts = p.split(/[\\/]/).filter(Boolean)
         return parts[parts.length - 1] || p
       }
       case 'manage_todo_list': {
@@ -274,11 +274,11 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
         return `"${(args.query || '').slice(0, 60)}"`
       case 'replace_string_in_file':
       case 'multi_replace_string_in_file': {
-        const file = (args.filePath || '').split('/').pop()
+        const file = (args.filePath || '').split(/[\\/]/).pop()
         return file || 'edit'
       }
       case 'create_file': {
-        const file = (args.filePath || '').split('/').pop()
+        const file = (args.filePath || '').split(/[\\/]/).pop()
         return file || 'new file'
       }
       case 'apply_patch': {
@@ -288,7 +288,7 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
           const m = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
           if (m) {
             const fp = m[1].trim()
-            if (fp.includes('/')) { files.push(fp.split('/').pop() || '') }
+            if (/[\\/]/.test(fp)) { files.push(fp.split(/[\\/]/).pop() || '') }
           }
         }
         return files.length > 0 ? files.filter(Boolean).join(', ') : 'patch'

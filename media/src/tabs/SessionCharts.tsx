@@ -412,7 +412,8 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
       if (i > 0 && dayKey(s.startTime) !== dayKey(sessionData[i - 1].startTime)) {
         ctx.strokeStyle = gridColor; ctx.lineWidth = 0.8
         ctx.beginPath(); ctx.moveTo(slotX, pad.top); ctx.lineTo(slotX, pad.top + chartH); ctx.stroke()
-        const label = s.startTime ? new Date(s.startTime).toISOString().slice(5, 10) : ''
+        const day = dayKey(s.startTime)
+        const label = /^\d{4}-/.test(day) ? day.slice(5, 10) : ''
         if (label && slotX - lastDayLabelX >= MIN_DAY_LABEL_GAP) {
           ctx.fillStyle = textColor
           ctx.font = '8px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')

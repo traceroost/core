@@ -108,6 +108,31 @@ suite('mcpServer tools', () => {
       assert.deepStrictEqual(rows.map(r => r.sessionId), ['c'])
     })
 
+    test('filters by the session\'s recorded workspace, including subfolders, not by id or prompt text', async () => {
+      sessions = [
+        card({ sessionId: 'root', workspace: '/home/u/core' }),
+        card({ sessionId: 'sub', workspace: '/home/u/core/packages/x' }),
+        card({ sessionId: 'sibling', workspace: '/home/u/core-other' }),
+        card({ sessionId: 'mentions', workspace: '/home/u/else', userRequest: 'look at /home/u/core please' }),
+        card({ sessionId: 'unknown', workspace: undefined }),
+      ]
+      const ids = async (workspace: string) =>
+        (await call(client, 'get_recent_sessions', { workspace }) as Array<{ sessionId: string }>).map(r => r.sessionId)
+      assert.deepStrictEqual(await ids('/home/u/core'), ['root', 'sub'])
+      assert.deepStrictEqual(await ids('/home/u/core/'), ['root', 'sub'], 'trailing separator ignored')
+      assert.deepStrictEqual(await ids('/home/u/core/packages/x'), ['sub'])
+      assert.deepStrictEqual(await ids('   '), ['root', 'sub', 'sibling', 'mentions', 'unknown'], 'blank → no filter')
+    })
+
+    test('Windows workspace paths match regardless of separator, trailing separator and case', async () => {
+      sessions = [
+        card({ sessionId: 'win', workspace: 'C:\\Work\\Repo\\src' }),
+        card({ sessionId: 'other', workspace: 'C:\\Work\\Repo2' }),
+      ]
+      const rows = await call(client, 'get_recent_sessions', { workspace: 'c:/work/repo/' }) as Array<{ sessionId: string }>
+      assert.deepStrictEqual(rows.map(r => r.sessionId), ['win'])
+    })
+
     test('attaches per-session plan-limit usage when the plan service knows it', async () => {
       setPlanUsageService({
         snapshot: () => ({ meters: [], hits: [], sessions: { lim: { fiveHourPct: 12.345, approximate: true, hits: [{}] } } }),
@@ -146,6 +171,26 @@ suite('mcpServer tools', () => {
       const all = await call(client, 'get_workspace_patterns') as Record<string, unknown>
       assert.strictEqual(all.sessionCount, 3, 'no days → every session')
     })
+    test('counts a file once per session even when it was both read and changed', async () => {
+      sessions = [
+        card({ sessionId: '1', filesRead: ['a.ts', 'a.ts'], filesChanged: ['a.ts'] }),
+        card({ sessionId: '2', filesRead: ['a.ts'] }),
+      ]
+      const r = await call(client, 'get_workspace_patterns') as { hotFiles: unknown[] }
+      assert.deepStrictEqual(r.hotFiles, [{ file: 'a.ts', sessions: 2, pct: 100 }])
+    })
+
+    test('honours the workspace filter', async () => {
+      sessions = [
+        card({ sessionId: 'in', workspace: '/repo/a/pkg', filesRead: ['in.ts'] }),
+        card({ sessionId: 'out', workspace: '/repo/b', filesRead: ['out.ts'] }),
+      ]
+      const r = await call(client, 'get_workspace_patterns', { workspace: '/repo/a' }) as { sessionCount: number; hotFiles: Array<{ file: string }> }
+      assert.strictEqual(r.sessionCount, 1)
+      assert.deepStrictEqual(r.hotFiles.map(f => f.file), ['in.ts'])
+      assert.deepStrictEqual(await call(client, 'get_workspace_patterns', { workspace: '/nowhere' }),
+        { message: 'No sessions found matching the filters.' })
+    })
   })
 
   suite('get_efficiency_report', () => {
@@ -171,6 +216,12 @@ suite('mcpServer tools', () => {
       assert.strictEqual(r.errorRate, '17%')
       const ranking = r.agentRanking as Array<{ agentModel: string; sessions: number }>
       assert.deepStrictEqual(ranking.map(a => a.agentModel), ['codex/unknown', 'claude_code/claude-sonnet-4-6'])
+    })
+
+    test('honours the workspace filter', async () => {
+      sessions = [card({ sessionId: 'in', workspace: '/repo/a' }), card({ sessionId: 'out', workspace: '/repo/b' })]
+      assert.strictEqual((await call(client, 'get_efficiency_report', { workspace: '/repo/a' }) as { sessionCount: number }).sessionCount, 1)
+      assert.strictEqual((await call(client, 'get_efficiency_report') as { sessionCount: number }).sessionCount, 2)
     })
 
     test('a flat cost history is "stable"; no first-half sessions is "no data"', async () => {
