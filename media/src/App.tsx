@@ -799,7 +799,7 @@ export function App() {
   return (
     <>
       <div class="tabs">
-        <span class="tr-wordmark" title="TraceRoost">
+        <span class="tr-wordmark">
           <Wordmark size={15} />
         </span>
         <button
