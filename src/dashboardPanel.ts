@@ -910,8 +910,11 @@ async function handleAlertNotification(
 }
 
 async function writeAutomationPrompt(agent: string, label: string, fullPrompt: string): Promise<string | undefined> {
-  const agentSlug = agent === 'claude_code' ? 'claude' : agent === 'codex' ? 'codex' : 'copilot'
-  const agentName = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'Copilot'
+  // Same per-agent file as standalone/promptsFile.ts: claude_code keeps its historical 'claude' slug.
+  const names: Record<string, string> = { claude_code: 'Claude', codex: 'Codex', copilot: 'Copilot', opencode: 'OpenCode', cursor: 'Cursor' }
+  const known = agent in names ? agent : 'copilot'
+  const agentSlug = known === 'claude_code' ? 'claude' : known
+  const agentName = names[known]
   const filename = `traceroost-prompts-${agentSlug}.md`
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]
   if (!workspaceFolder) {
@@ -926,7 +929,7 @@ async function writeAutomationPrompt(agent: string, label: string, fullPrompt: s
     const data = await vscode.workspace.fs.readFile(fileUri)
     existing = Buffer.from(data).toString('utf8')
   } catch { /* file doesn't exist yet */ }
-  const content = existing ? existing + entry : `# Automation Prompts — ${agentName}\n\n${entry}`
+  const content = existing ? existing + entry : `# TraceRoost Prompts — ${agentName}\n\n${entry}`
   await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf8'))
   return filename
 }

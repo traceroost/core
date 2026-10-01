@@ -609,6 +609,8 @@ When **Write prompts file** is enabled for an automation rule, each trigger appe
 | Claude Code | `traceroost-prompts-claude.md` |
 | GitHub Copilot | `traceroost-prompts-copilot.md` |
 | Codex | `traceroost-prompts-codex.md` |
+| OpenCode | `traceroost-prompts-opencode.md` |
+| Cursor CLI | `traceroost-prompts-cursor.md` |
 
 In the VS Code extension, files are written to the workspace root. In local mode, files are written to the directory where the server is running.
 

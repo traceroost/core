@@ -59,7 +59,7 @@ const TOOLS = [
       type: 'object' as const,
       properties: {
         limit:     { type: 'number',  description: 'Max sessions to return (default 10, max 50)' },
-        agent:     { type: 'string',  description: 'Filter by agent: copilot | claude_code | codex' },
+        agent:     { type: 'string',  description: 'Filter by agent: copilot | claude_code | codex | opencode | cursor' },
         workspace: { type: 'string',  description: 'Filter by workspace path prefix' },
       },
     },
