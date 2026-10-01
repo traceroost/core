@@ -1,7 +1,7 @@
 /**
  * Bridges local instruction-advisor state to the AL 08 wire records and the forwarding queue.
  *
- * The split that makes this Pro: the cloud finds the pattern (some file is read in 62% of
+ * The split that makes this a Cloud feature: the cloud finds the pattern (some file is read in 62% of
  * sessions by four of six developers), the machine writes the text (which file, and the
  * sentence). Neither half can do the other's job. `suggestedText`, `evidence` and `title` never
  * leave this machine — only `suggestion_id` (hashed), the enums, and the numeric baseline.
@@ -15,7 +15,7 @@ import * as path from 'path'
 import { generateSuggestions, type SuggestionCard } from '../../instructionAdvisor'
 import { detectInstructionFiles, readAllInstructionContent } from '../../instructionFiles'
 import { computeBaseline } from '../../instructionEffectiveness'
-import { deriveRepoKey } from '../forward/repoKey'
+import { deriveRepoKey } from '../../repoKey'
 import {
   buildInstructionFileState,
   buildFileFootprints,
@@ -25,7 +25,7 @@ import {
 } from '../forward/buildInstructionTelemetry'
 import type { InstructionFileKind, RollupPayload } from '../forward/schema'
 import { SCHEMA_VERSION } from '../forward/schema'
-import { repoKeyFingerprint } from '../forward/repoKey'
+import { repoKeyFingerprint } from '../../repoKey'
 import { ForwardQueue } from '../forward/queue'
 import { loadCredentials } from './credentials'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'

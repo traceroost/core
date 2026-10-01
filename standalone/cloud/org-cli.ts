@@ -176,7 +176,7 @@ export async function runOrgCli(args: string[]): Promise<number> {
     default:
       console.log('Usage: traceroost org <link|status|verify|leave> [--device]')
       console.log('  link    Join an org (opens a browser; --device for headless machines)')
-      console.log('  status  Show this machine\'s Pro state')
+      console.log('  status  Show this machine\'s Cloud state')
       console.log('  verify  Compare local trace count against what the server has')
       console.log('  leave   Unlink this machine (local-first, works offline)')
       return sub ? 1 : 0

@@ -28,7 +28,37 @@ interface BurnRate {
   costPerHour: number
 }
 
+/** Mirrors src/planUsage/consumption.ts's MeterWindow / PlanMeter and planUsageService.ts's
+ *  LivePlanLimit — the sidebar bundle can't import host code. */
+interface PlanMeterWindow {
+  windowKind: 'five_hour' | 'weekly' | 'weekly_opus' | 'weekly_sonnet'
+  usedPct: number
+  resetsAt?: number
+  observedAt: number
+  resetSinceReading: boolean
+}
+interface PlanMeter {
+  provider: 'claude' | 'codex'
+  planType?: string
+  observedAt: number
+  approximate: boolean
+  windows: PlanMeterWindow[]
+}
+interface LivePlanLimit {
+  provider: 'claude' | 'codex'
+  planType?: string
+  approximate: boolean
+  observedAt: number
+  windows: PlanMeterWindow[]
+  thisTrace?: { fiveHourPct?: number; weeklyPct?: number }
+  pace?: { minutesToLimit?: number; pctAtReset?: number }
+  blocked?: { windowKind: PlanMeterWindow['windowKind']; resetsAt?: number }
+  severity: 'normal' | 'warn' | 'blocked'
+}
+
 interface SidebarInit {
+  planLimit?: LivePlanLimit | null
+  planMeters?: PlanMeter[]
   lastActivityMs: number
   agentSources: string[]
   sessionCount: number
@@ -177,12 +207,111 @@ const state = {
   burnRate: __SIDEBAR_INIT__.burnRate,
   avgInputTokens: __SIDEBAR_INIT__.avgInputTokens ?? 1,
   avgOutputTokens: __SIDEBAR_INIT__.avgOutputTokens ?? 1,
+  planLimit: __SIDEBAR_INIT__.planLimit ?? null,
+  planMeters: __SIDEBAR_INIT__.planMeters ?? [],
+}
+
+// ── Plan limits ───────────────────────────────────────────────────────────────
+
+const PROVIDER_LABEL: Record<string, string> = { claude: 'Claude', codex: 'Codex' }
+const WINDOW_SHORT: Record<string, string> = { five_hour: '5h', weekly: 'wk' }
+
+function esc(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
+}
+
+function fmtPct(p: number): string {
+  return p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`
+}
+
+/** "+6%", or "<1%" for a share too small to round up — never "+<1%". */
+function fmtDelta(p: number): string {
+  return p > 0 && p < 1 ? '<1%' : `+${Math.round(p)}%`
+}
+
+function fmtClock(ms: number): string {
+  const d = new Date(ms)
+  const sameDay = new Date().toDateString() === d.toDateString()
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return sameDay ? time : `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`
+}
+
+function fmtMinutes(min: number): string {
+  if (min < 1) return 'under a minute'
+  const h = Math.floor(min / 60), m = Math.round(min % 60)
+  return h > 0 ? `~${h}h ${m}m` : `~${m}m`
+}
+
+function primaryWindows(windows: PlanMeterWindow[]): PlanMeterWindow[] {
+  return windows.filter(w => w.windowKind === 'five_hour' || w.windowKind === 'weekly')
+}
+
+function renderPlan() {
+  const { planLimit, planMeters, isActive } = state
+
+  // Compact meter line — only when there's data and no live card is showing it already.
+  const metersEl = document.getElementById('sb-plan-meters')
+  if (metersEl) {
+    const parts = planMeters
+      .map(m => {
+        // A window that reset since its last reading says nothing about now — leave it out.
+        const ws = primaryWindows(m.windows).filter(w => !w.resetSinceReading).map(w => `${WINDOW_SHORT[w.windowKind]} ${fmtPct(w.usedPct)}`)
+        return ws.length > 0 ? `${PROVIDER_LABEL[m.provider] ?? m.provider} ${ws.join(' ')}` : ''
+      })
+      .filter(Boolean)
+    const show = parts.length > 0 && !(isActive && planLimit)
+    metersEl.style.display = show ? '' : 'none'
+    if (show) metersEl.textContent = parts.join(' · ')
+  }
+
+  const card = document.getElementById('sb-plan-limit')
+  if (!card) return
+  if (!planLimit || primaryWindows(planLimit.windows).length === 0) {
+    card.style.display = 'none'
+    card.innerHTML = ''
+    return
+  }
+  const approx = planLimit.approximate ? '≈ ' : ''
+  const title = `Plan limit · ${PROVIDER_LABEL[planLimit.provider] ?? planLimit.provider}${planLimit.planType ? ' ' + planLimit.planType.charAt(0).toUpperCase() + planLimit.planType.slice(1) : ''}`
+  let html = ''
+  if (planLimit.blocked) {
+    const which = planLimit.blocked.windowKind === 'five_hour' ? '5-hour' : 'weekly'
+    html += `<div class="sb-plan-blocked">Blocked by the ${which} limit${planLimit.blocked.resetsAt ? ' · resets ' + esc(fmtClock(planLimit.blocked.resetsAt)) : ''}</div>`
+  }
+  html += `<div class="sb-section-label">${esc(title)}</div>`
+  for (const w of primaryWindows(planLimit.windows)) {
+    const fill = w.usedPct >= 90 ? ' crit' : w.usedPct >= 75 ? ' warn' : ''
+    const atReset = w.windowKind === 'five_hour' && planLimit.pace?.pctAtReset !== undefined
+      ? ` <span class="sb-muted">→ ~${Math.round(planLimit.pace.pctAtReset)}% at reset</span>` : ''
+    const resetTip = w.resetsAt ? ` title="Resets ${esc(fmtClock(w.resetsAt))}"` : ''
+    html += `<div class="sb-plan-row"${resetTip}><span class="sb-plan-label">${WINDOW_SHORT[w.windowKind]}</span>`
+      + `<span class="sb-plan-bar"><span class="sb-plan-fill${fill}" style="display:block;width:${Math.min(100, Math.max(0, w.usedPct))}%"></span></span>`
+      + `<span class="sb-plan-pct">${w.resetSinceReading ? 'reset' : fmtPct(w.usedPct)}</span>${atReset}</div>`
+  }
+  const t = planLimit.thisTrace
+  if (t) {
+    const bits = [
+      t.fiveHourPct !== undefined ? `5h ${fmtDelta(t.fiveHourPct)}` : '',
+      t.weeklyPct !== undefined ? `wk ${fmtDelta(t.weeklyPct)}` : '',
+    ].filter(Boolean)
+    if (bits.length > 0) html += `<div class="sb-plan-note">This trace so far: ${approx}${bits.join(' · ')}</div>`
+  }
+  if (planLimit.pace?.minutesToLimit !== undefined && !planLimit.blocked) {
+    html += `<div class="sb-plan-note warn">At this pace: 5-hour limit in ${fmtMinutes(planLimit.pace.minutesToLimit)}</div>`
+  }
+  if (planLimit.provider === 'claude') {
+    html += `<div class="sb-plan-note">as of ${esc(fmtAgo(planLimit.observedAt))}</div>`
+  }
+  card.innerHTML = html
+  card.className = 'sb-card' + (planLimit.severity === 'normal' ? '' : ' ' + planLimit.severity)
+  card.style.display = ''
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
 function render() {
   const { isActive, lastActivityMs, currentSession, burnRate, avgInputTokens, avgOutputTokens } = state
+  renderPlan()
 
   // Status row
   const dot = document.getElementById('sb-dot')
@@ -355,6 +484,8 @@ interface UpdateMsg {
   burnRate?: BurnRate | null
   avgInputTokens?: number
   avgOutputTokens?: number
+  planLimit?: LivePlanLimit | null
+  planMeters?: PlanMeter[]
 }
 
 window.addEventListener('message', (e: MessageEvent<UpdateMsg>) => {
@@ -373,12 +504,19 @@ window.addEventListener('message', (e: MessageEvent<UpdateMsg>) => {
   if ('burnRate' in msg && msg.burnRate != null) state.burnRate = msg.burnRate
   if (msg.avgInputTokens != null) state.avgInputTokens = msg.avgInputTokens
   if (msg.avgOutputTokens != null) state.avgOutputTokens = msg.avgOutputTokens
+  if ('planLimit' in msg) state.planLimit = msg.planLimit ?? null
+  if (msg.planMeters) state.planMeters = msg.planMeters
   render()
 })
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : null
+
+document.getElementById('sb-plan-meters')?.addEventListener('click', () => {
+  if (vscode) vscode.postMessage({ type: 'openDashboardTab', tab: 'analytics' })
+  else window.postMessage({ type: 'switchTab', tab: 'analytics' }, '*')
+})
 
 document.getElementById('sb-open-btn')?.addEventListener('click', () => {
   if (vscode) vscode.postMessage({ type: 'openDashboardTab', tab: 'sessions' })

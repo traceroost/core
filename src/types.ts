@@ -71,6 +71,9 @@ export interface LoopSignal {
   patternName: string
   /** Actionable recommendation for the user */
   action: string
+  /** Estimated avoidable cost in USD, for the signals that can price it (file_reread,
+   *  cache_miss). The Advisor converts it to plan-limit points for subscription users. */
+  wasteUsd?: number
 }
 
 export interface SessionSummary {

@@ -7,7 +7,7 @@ const watch = process.argv.includes('--watch');
 
 // ── Edition ──────────────────────────────────────────────────────────────────
 // `--edition=full` (the default — dev, tests and CI's main job all build this) bundles TraceRoost
-// Pro's org linking and uploading (src/cloud/**, media/src/cloud/**, standalone/cloud/**).
+// Cloud's org linking and uploading (src/cloud/**, media/src/cloud/**, standalone/cloud/**).
 // `--edition=core` builds without any of it: the three seams below resolve to inert stubs, and
 // the build fails outright if any module under a cloud/ directory would still be bundled.
 // `TRACEROOST_EDITION=core` in the environment works too (the flag wins), so `npm publish`'s
@@ -23,10 +23,10 @@ if (edition !== 'full' && edition !== 'core') {
 const core = edition === 'core';
 
 // Baked in at build time, not read at runtime — so a real release install can't be pointed at a
-// non-production TraceRoost Pro environment just by setting TRACEROOST_ORG_ENV/_URL in the
+// non-production TraceRoost Cloud environment just by setting TRACEROOST_ORG_ENV/_URL in the
 // shell or a .env file. See src/cloud/org/config.ts's resolveOrgEnvironment().
 // TRACEROOST_EDITION is baked in the same way: `process.env.TRACEROOST_EDITION !== 'core'` checks
-// in the sources fold to a constant, so the core bundles drop the Pro-only branches entirely.
+// in the sources fold to a constant, so the core bundles drop the Cloud-only branches entirely.
 const releaseDefine = {
 	'process.env.TRACEROOST_RELEASE_BUILD': production ? '"1"' : '""',
 	'process.env.TRACEROOST_EDITION': JSON.stringify(edition),

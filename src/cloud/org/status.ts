@@ -1,5 +1,5 @@
 /**
- * The single source of truth for "what is this machine's Pro state right now" — consumed by the
+ * The single source of truth for "what is this machine's Cloud state right now" — consumed by the
  * Org panel (AL 01), the tab-bar state dot, and `traceroost org status`.
  *
  * It is rendered from **local data only**. An unlinked install produces a complete status object
@@ -59,7 +59,7 @@ export interface OrgStatus {
   lastRollupAt?: string | null
   degradedReason?: string
   /**
-   * Which TraceRoost Pro environment this machine would talk to. Populated unconditionally —
+   * Which TraceRoost Cloud environment this machine would talk to. Populated unconditionally —
    * including on an unlinked install, where it's the only way to see where linking would even
    * point — so the panel never has to guess or hide this. On a linked machine it echoes back the
    * environment its own credential's `endpoint` (above) resolves to, not `resolveOrgEnvironment()`

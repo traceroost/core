@@ -1,8 +1,12 @@
 import * as assert from 'assert'
+import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
+import { execFileSync } from 'child_process'
 import { cloudBridge as core } from '../cloudBridge.core'
 import { cloud } from '../cloudBridge'
 import { NOT_AVAILABLE_IN_CORE } from '../edition'
+import { deriveRepoKey, repoHash } from '../repoKey'
 import type { SessionSummaryCard } from '../summarizers/summarizerTypes'
 
 // The core edition's CloudBridge is what every seam call resolves to in a `--edition=core` build —
@@ -49,14 +53,24 @@ suite('cloudBridge.core (core edition seam)', () => {
     assert.strictEqual(posted[0].error, NOT_AVAILABLE_IN_CORE)
   })
 
-  test('describeRepo still names a local git repo, just without a cloud hash', async () => {
-    const repoRoot = path.resolve(__dirname, '..', '..', '..')
-    const info = await core.describeRepo(repoRoot)
-    // CI checkouts are git repos; tolerate running from an extracted tarball.
-    if (info) {
-      assert.strictEqual(info.hash, null)
-      assert.ok(info.root.length > 0)
+  test('describeRepo shows the same repo hash an unlinked full-edition install does', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tr-core-repo-'))
+    try {
+      const run = (args: string[]) => execFileSync('git', args, { cwd: dir })
+      run(['init', '-q', '-b', 'main'])
+      run(['config', 'user.email', 't@example.com'])
+      run(['config', 'user.name', 'T'])
+      fs.writeFileSync(path.join(dir, 'README.md'), 'root\n')
+      run(['add', '-A'])
+      run(['commit', '-qm', 'root'])
+
+      const rk = await deriveRepoKey(dir, 'unlinked-preview')
+      assert.ok(rk.ok)
+      const info = await core.describeRepo(dir)
+      assert.deepStrictEqual(info, { root: rk.ctx.root, hash: repoHash(rk.ctx) })
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
     }
-    assert.strictEqual(await core.describeRepo(path.parse(repoRoot).root), null)
+    assert.strictEqual(await core.describeRepo(path.parse(os.tmpdir()).root), null)
   })
 })

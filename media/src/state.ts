@@ -4,8 +4,9 @@ import { formatTraceIdHash } from './hash'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
-  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry,
+  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry, CollectorConflict, LogIngestProgress,
 } from './types'
+export type { CollectorConflict } from './types'
 
 // Maximum sessions rendered in any single chart or table
 export const CHART_MAX = 25
@@ -202,17 +203,7 @@ function signalsScore(signals: LoopSignal[] | undefined): number {
   return critical * 1000 + signals.length
 }
 
-// Caps how many not-yet-resolved sessions get a `getGitOutcome` request fired per call, and
-// staggers them a little — not to protect the host from concurrent git subprocesses (it now
-// bounds that itself, gitOutcome.ts's per-session classification gate), just so switching the
-// Outcome filter on over a large, otherwise-unfiltered session set doesn't fire an enormous
-// number of postMessage calls in one synchronous burst. The host caches each sessionId's result
-// (dashboardPanel.ts's gitOutcomeCache), so re-calling this for sessions already resolved (or
-// already in flight) is cheap: they're filtered out below.
-const GIT_OUTCOME_FETCH_CAP = 150
-const GIT_OUTCOME_FETCH_STAGGER_MS = 2
-
-// Sessions requestGitOutcomesFor has scheduled or posted a `getGitOutcome` for and the host hasn't
+// Sessions requestGitOutcomesFor has scheduled or posted a `getGitOutcomes` batch for and the host hasn't
 // answered yet (with `gitOutcome` or `gitOutcomeDeferred` — App.tsx calls gitOutcomeRequestSettled
 // on either), mapped to when they were requested. Every `update` re-calls requestGitOutcomesFor
 // with every session; without this, each one re-requested everything still unresolved and started
@@ -256,40 +247,7 @@ function postGitOutcomeRequests(pending: SessionSummaryCard[]): void {
   if (!vscode) return
   const requestedAt = Date.now()
   for (const s of needsFetch) gitOutcomeRequestsInFlight.set(s.sessionId, requestedAt)
-  const batch = needsFetch.slice(0, GIT_OUTCOME_FETCH_CAP)
-  batch.forEach((s, i) => {
-    const endTime = s.startTime && s.durationMs
-      ? new Date(new Date(s.startTime).getTime() + s.durationMs).toISOString()
-      : s.startTime
-    setTimeout(() => {
-      vscode?.postMessage({
-        type: 'getGitOutcome',
-        sessionId: s.sessionId,
-        workspace: s.workspace,
-        filesChanged: s.filesChanged,
-        endTime,
-      })
-    }, i * GIT_OUTCOME_FETCH_STAGGER_MS)
-  })
-
-  // The cap above only bounds one *batch* — a caller passing more than that (the Outcome filter
-  // does, with every session currently matching the other filters, unlike the Sessions table's own
-  // per-page call) must still see every one of them eventually resolve, or its "resolving N
-  // outcomes" spinner spins forever. Chain the remainder as a follow-up batch once this one's
-  // stagger window finishes, rather than silently dropping it.
-  const overflow = needsFetch.slice(GIT_OUTCOME_FETCH_CAP)
-  if (overflow.length > 0) {
-    setTimeout(() => {
-      // Same re-filter the chained call always did: skip anything resolved in the meantime.
-      const cacheNow = gitOutcomes.peek()
-      const rest = overflow.filter(s => {
-        if (cacheNow[s.sessionId] === undefined) return true
-        gitOutcomeRequestsInFlight.delete(s.sessionId)
-        return false
-      })
-      if (rest.length > 0) postGitOutcomeRequests(rest)
-    }, batch.length * GIT_OUTCOME_FETCH_STAGGER_MS)
-  }
+  vscode.postMessage({ type: 'getGitOutcomes', sessionIds: needsFetch.map(s => s.sessionId) })
 }
 
 // `hash` is the same one traceroost-cloud shows in its own Repo column (repoKey.ts's repoHash).
@@ -343,6 +301,22 @@ export const activeTab = signal('sessions')
 export const enableOtelIngestion = signal(true)
 export const enableLogIngestion = signal(true)
 export const otlpPort = signal(4318)
+
+// Set when this host's own OTLP collector lost the port to (or, for the background/npx service,
+// fell back away from it because of) another TraceRoost host or an unrelated app — never for
+// another VS Code window running this same extension, which is expected and shares one database.
+// The VS Code extension sets this via dashboardPanel.ts's 'update' message; the background/npx
+// service inlines it as window.__INITIAL_COLLECTOR_CONFLICT__ (read here, at init, the same way
+// __INITIAL_SESSION_SUMMARY__ is) and also broadcasts it over SSE as an 'update' message for tabs
+// already open when the (async) port-owner probe resolves. Drives a persistent top-of-window
+// banner (see CollectorConflictBanner in App.tsx) rather than a one-time toast, since a whole
+// session's worth of OTel data can silently go to the wrong place.
+export const collectorConflict = signal<CollectorConflict>(window.__INITIAL_COLLECTOR_CONFLICT__ ?? null)
+
+// The host's startup log pass, inlined as window.__INITIAL_LOG_INGEST__ and then updated by
+// 'logIngest' messages as it runs (SSE on the background/npx service, postMessage in VS Code) — drives LogIngestBanner in App.tsx, so a large history shows
+// sessions filling in with a progress bar rather than a page that looks empty or stuck.
+export const logIngestProgress = signal<LogIngestProgress>(window.__INITIAL_LOG_INGEST__ ?? null)
 
 export type OtelReconfigureResult = {
   claudeCode: { changed: boolean; error?: string }
@@ -512,6 +486,11 @@ export const availableWorkspaces = computed<string[]>(() => {
     shortWorkspaceName(a).localeCompare(shortWorkspaceName(b), undefined, { sensitivity: 'base' })
   )
 })
+
+// Whether any trace has a workspace at all — the Traces table's Outcome column needs one to
+// classify against git. Unlike the Repo column (availableWorkspaces.length > 1, since with a
+// single repo there's nothing to tell apart), a single repo is exactly where outcomes matter.
+export const hasAnyWorkspace = computed<boolean>(() => availableWorkspaces.value.some(ws => ws !== ''))
 
 export const agentFilteredSessions = computed<SessionSummaryCard[]>(() => {
   let all = sessionSummary.value?.sessions ?? []

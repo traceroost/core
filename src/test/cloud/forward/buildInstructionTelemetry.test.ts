@@ -6,7 +6,7 @@ import {
   buildSuggestionEvents,
 } from '../../../cloud/forward/buildInstructionTelemetry'
 import { validateRollupPayload } from '../../../cloud/forward/validate'
-import type { RepoKeyContext } from '../../../cloud/forward/repoKey'
+import type { RepoKeyContext } from '../../../repoKey'
 import type { RollupPayload } from '../../../cloud/forward/schema'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('k').digest() }

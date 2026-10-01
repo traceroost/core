@@ -1,6 +1,6 @@
 // Pricing data for Copilot cost estimation.
 // Token rates: https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
-export const PRICING_LAST_UPDATED = '2026-09-15'
+export const PRICING_LAST_UPDATED = '2026-09-28'
 
 export interface ModelRates {
   inputPerMTok: number              // USD per 1M input tokens
@@ -49,6 +49,9 @@ export const RATES: Record<string, ModelRates> = {
   // premium models
   'gpt-5.2':             { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00 },
   'gpt-5.2-codex':       { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00 },
+  // gpt-5.3-codex: standard rate reconfirmed present on OpenAI's API pricing page as of 2026-09-28
+  // (alongside a separate fast-mode row at $3.50/$0.35/$28.00, not modeled) — the 2026-09-01 refresh's
+  // "standard rate is gone" finding turned out to be a temporary page state, not a real change.
   'gpt-5.3-codex':       { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00 },
   'gpt-5.4':             { inputPerMTok: 2.50,  cacheReadPerMTok: 0.25,   cacheWritePerMTok: 0, outputPerMTok: 15.00,
                            longContextThresholdTokens: 272_000,
@@ -88,6 +91,17 @@ export const RATES: Record<string, ModelRates> = {
   'gpt-6-astra':         { inputPerMTok: 10.00, cacheReadPerMTok: 1.00,   cacheWritePerMTok: 12.50, outputPerMTok: 50.00,
                            longContextThresholdTokens: 272_000,
                            inputAboveThresholdPerMTok: 20.00, cacheReadAboveThresholdPerMTok: 2.00, cacheWriteAboveThresholdPerMTok: 25.00, outputAboveThresholdPerMTok: 75.00 },
+  // gpt-6-sol, gpt-6-luna: added 2026-09-28 — rest of the GPT-6 family alongside gpt-6-astra, three-way
+  // cross-verified (Copilot's pricing page, OpenAI's own API pricing page, and the Codex CLI credits page:
+  // Sol 50/5/250 credits, Luna 2.5/0.25/12.5 credits, both ÷25 matching the USD rates below exactly). Sol's
+  // long-context threshold (272K) matches Astra/Terra/Sol-5.6; Luna's is 272K here too — unlike
+  // gpt-5.6-luna's lower 200K threshold, independently confirmed by asking specifically about each model.
+  'gpt-6-sol':           { inputPerMTok: 2.00,  cacheReadPerMTok: 0.20,   cacheWritePerMTok: 2.50, outputPerMTok: 10.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.40, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 15.00 },
+  'gpt-6-luna':          { inputPerMTok: 0.10,  cacheReadPerMTok: 0.01,   cacheWritePerMTok: 0.125, outputPerMTok: 0.50,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 0.20, cacheReadAboveThresholdPerMTok: 0.02, cacheWriteAboveThresholdPerMTok: 0.25, outputAboveThresholdPerMTok: 0.75 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, not
   // independently confirmed as reachable through Copilot specifically this pass.
   'gpt-4.1-nano':        { inputPerMTok: 0.10,  cacheReadPerMTok: 0.025,  cacheWritePerMTok: 0, outputPerMTok: 0.40 },
@@ -119,6 +133,14 @@ export const RATES: Record<string, ModelRates> = {
   'claude-opus-4-8':       { inputPerMTok:  5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok:  6.25, outputPerMTok: 25.00 },
   // claude-opus-5: added 2026-08-07, now GA per both Anthropic's and Copilot's pricing pages — same rate as Opus 4.8.
   'claude-opus-5':         { inputPerMTok:  5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok:  6.25, outputPerMTok: 25.00 },
+  // claude-opus-5-5: added 2026-09-28 — new, confirmed on both Anthropic's own pricing page and Copilot's model
+  // list (matching exactly). Cheaper than Opus 5 despite the higher version number. Cache-hit rate is 0.05x
+  // base input ($0.20/MTok) rather than the usual 0.1x — Anthropic's own stated exception, not a computed value.
+  'claude-opus-5-5':       { inputPerMTok:  4.00, cacheReadPerMTok: 0.20, cacheWritePerMTok:  5.00, outputPerMTok: 20.00 },
+  // claude-sonnet-5-5: added 2026-09-28 — new, confirmed on both Anthropic's own pricing page and Copilot's
+  // model list. Identical rate to Sonnet 5 (including the standard 0.1x cache-hit multiplier) — same pattern
+  // as Sonnet 4/4.6 sharing a rate. No fast mode (only Opus 5.5/5/4.8 support it).
+  'claude-sonnet-5-5':     { inputPerMTok:  2.00, cacheReadPerMTok: 0.20, cacheWritePerMTok:  2.50, outputPerMTok: 10.00 },
   // fast mode (/fast toggle in Claude Code) — model ID appended with -fast by logReader when usage.speed === 'fast'.
   // Opus 4.6 fast mode was removed 2026-06-29: requests run at standard speed/rates despite the -fast suffix.
   'claude-opus-4-6-fast':  { inputPerMTok:  5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok:  6.25, outputPerMTok:  25.00 },
@@ -131,6 +153,12 @@ export const RATES: Record<string, ModelRates> = {
   // same rate; Copilot's own docs don't yet list a distinct fast-mode row for it, so the rate is carried over
   // from Opus 4.8's fast-mode entry as a best estimate.
   'claude-opus-5-fast':    { inputPerMTok: 10.00, cacheReadPerMTok: 1.00, cacheWritePerMTok: 12.50, outputPerMTok:  50.00 },
+  // claude-opus-5-5-fast: added 2026-09-28 — Anthropic's fast-mode table gives Opus 5.5 its own row this time
+  // (unlike Opus 5/4.8 sharing one): input $8, output $40. Cache write/read aren't listed directly for fast
+  // mode, but the docs state caching multipliers "stack on top of fast mode pricing" — cache write here uses
+  // the same 1.25x-of-base-input as every other model's 5-minute-cache convention in this file, and cache read
+  // uses Opus 5.5's own stated 0.05x (not the usual 0.1x), both applied to the $8 fast-mode input.
+  'claude-opus-5-5-fast':  { inputPerMTok:  8.00, cacheReadPerMTok: 0.40, cacheWritePerMTok: 10.00, outputPerMTok:  40.00 },
   'claude-fable-5':        { inputPerMTok: 10.00, cacheReadPerMTok: 1.00, cacheWritePerMTok: 12.50, outputPerMTok:  50.00 },  // not yet listed in Copilot billing docs
   'claude-mythos-5':       { inputPerMTok: 10.00, cacheReadPerMTok: 1.00, cacheWritePerMTok: 12.50, outputPerMTok:  50.00 },  // limited availability preview; not yet listed in Copilot billing docs
   // claude-fable-5-1 / claude-mythos-5-1: added 2026-09-01 — new on Anthropic's pricing page. Same as Fable 5
@@ -198,6 +226,12 @@ export const RATES: Record<string, ModelRates> = {
   // muse-spark-1.3-contributor-free: added 2026-09-15 — 1.2 is gone from the Zen docs, replaced by this; both
   // keys kept (same pattern as ling-3.0-tiny-free/-flash-fin-free above) since it's $0 either way.
   'muse-spark-1.3-contributor-free': { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  // Added 2026-09-28 — new free/evaluation models on the Zen docs this pass. Slugs guessed from display name
+  // (same risk-tolerance as prior additions — a wrong guess just falls back to ~$? rather than mis-pricing).
+  'space-bunny-free':            { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  'longcat-2.5-preview-free':    { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  'mimo-v2.6-flash-free':        { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  'jev-1.13-free':               { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
 }
 
 // ── UI display grouping ──────────────────────────────────────────────────────────
@@ -215,7 +249,7 @@ export interface PricingSection {
 export const PRICING_SECTIONS: PricingSection[] = [
   {
     label: 'OpenAI (GPT / Codex family)',
-    verified: '2026-09-15',
+    verified: '2026-09-28',
     sources: [
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
       { label: 'OpenAI API pricing', url: 'https://developers.openai.com/api/docs/pricing' },
@@ -225,27 +259,28 @@ export const PRICING_SECTIONS: PricingSection[] = [
       'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-5', 'gpt-5-nano', 'gpt-5-mini', 'gpt-4o', 'gpt-4o-mini',
       'gpt-5.1', 'gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1-codex-max',
       'gpt-5.2', 'gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
-      'gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-5.6-cyber', 'gpt-6-astra', 'codex-mini-latest',
+      'gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-5.6-cyber',
+      'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'codex-mini-latest',
     ],
   },
   {
     label: 'Anthropic (Claude)',
-    verified: '2026-09-15',
+    verified: '2026-09-28',
     sources: [
       { label: 'Anthropic API pricing', url: 'https://platform.claude.com/docs/en/about-claude/pricing' },
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
     ],
     modelKeys: [
       'claude-opus-4', 'claude-opus-4-1', 'claude-haiku-3-5', 'claude-haiku-4-5',
-      'claude-sonnet-4', 'claude-sonnet-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5',
-      'claude-opus-4-5', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-opus-4-8', 'claude-opus-5',
-      'claude-opus-4-6-fast', 'claude-opus-4-7-fast', 'claude-opus-4-8-fast', 'claude-opus-5-fast',
+      'claude-sonnet-4', 'claude-sonnet-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-sonnet-5-5',
+      'claude-opus-4-5', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-opus-4-8', 'claude-opus-5', 'claude-opus-5-5',
+      'claude-opus-4-6-fast', 'claude-opus-4-7-fast', 'claude-opus-4-8-fast', 'claude-opus-5-fast', 'claude-opus-5-5-fast',
       'claude-fable-5', 'claude-mythos-5', 'claude-fable-5-1', 'claude-mythos-5-1',
     ],
   },
   {
     label: 'Google (Gemini)',
-    verified: '2026-09-15',
+    verified: '2026-09-28',
     sources: [
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
     ],
@@ -253,7 +288,7 @@ export const PRICING_SECTIONS: PricingSection[] = [
   },
   {
     label: 'Fine-tuned & other Copilot-marketplace models',
-    verified: '2026-09-15',
+    verified: '2026-09-28',
     sources: [
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
     ],
@@ -261,7 +296,7 @@ export const PRICING_SECTIONS: PricingSection[] = [
   },
   {
     label: 'OpenCode Zen (free evaluation models)',
-    verified: '2026-09-15',
+    verified: '2026-09-28',
     sources: [
       { label: 'OpenCode Zen docs', url: 'https://opencode.ai/docs/zen/' },
     ],
@@ -269,6 +304,7 @@ export const PRICING_SECTIONS: PricingSection[] = [
       'big-pickle', 'deepseek-v4-flash-free', 'mimo-v2.5-free', 'hy3-free',
       'laguna-s-2.1-free', 'ling-3.0-tiny-free', 'ling-3.0-flash-fin-free', 'nemotron-3-ultra-free',
       'nemotron-3.5-lightning-free', 'muse-spark-1.2-contributor-free', 'muse-spark-1.3-contributor-free',
+      'space-bunny-free', 'longcat-2.5-preview-free', 'mimo-v2.6-flash-free', 'jev-1.13-free',
     ],
   },
 ]

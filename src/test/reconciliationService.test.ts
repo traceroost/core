@@ -75,6 +75,7 @@ suite('reconciliationService', () => {
     assert.strictEqual(first.outcome?.overall, 'merged')
     assert.strictEqual(first.revision, 1)
     assert.strictEqual(first.changed, true)
+    assert.deepStrictEqual(service.getCachedOutcomes(['s1', 'missing']), { s1: first.outcome })
 
     const second = await service.reconcile({ sessionId: 's1', workspace: repoDir, filesChanged: [abs], endTime: LONG_AGO })
     assert.strictEqual(second.revision, 1, 'a repeated check of identical evidence must not allocate a new revision')
@@ -237,6 +238,7 @@ suite('reconciliationService', () => {
     for (const [i, r] of results.entries()) {
       assert.strictEqual(r.outcome?.overall, i % 5 === 4 ? 'abandoned' : 'merged', r.sessionId)
       assert.strictEqual(r.changed, true)
+      assert.strictEqual(service.getCachedOutcome(r.sessionId)?.overall, r.outcome?.overall)
     }
     const other = new ReconciliationService(await openInMemoryDb())
     const oneByOne = await Promise.all(inputs.map(i => other.reconcile(i)))
@@ -247,6 +249,7 @@ suite('reconciliationService', () => {
     for (const [i, r] of again.entries()) {
       assert.strictEqual(r.outcome?.overall, 'merged', r.sessionId)
       assert.strictEqual(r.changed, i % 5 === 4, r.sessionId)
+      assert.strictEqual(service.getCachedOutcome(r.sessionId)?.overall, 'merged', r.sessionId)
     }
   })
 })

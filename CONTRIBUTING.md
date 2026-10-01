@@ -56,7 +56,7 @@ node esbuild.js        # Bundle — outputs to dist/ and media/
 
 The same sources build two editions (README → Editions): **full** (the default — what `F5`,
 `pnpm run local`, `pnpm run package` and the unit tests use) and **core**, which contains no
-TraceRoost Pro (org link + upload) code. The split is made at build time, not with a runtime flag:
+TraceRoost Cloud (org link + upload) code. The split is made at build time, not with a runtime flag:
 
 - Non-cloud code reaches `src/cloud/`, `media/src/cloud/` and `standalone/cloud/` only through
   three seams — `src/cloudBridge.ts` (extension host + standalone server), `media/src/orgPanel.ts`
@@ -68,11 +68,11 @@ TraceRoost Pro (org link + upload) code. The split is made at build time, not wi
   directory in `src/` or `media/src/` outside the seams.
 - `node esbuild.js --edition=core` resolves each seam to its stub, defines
   `process.env.TRACEROOST_EDITION`, and fails the build if any module under a `cloud/` directory
-  would still be bundled. Pro-only code outside the seams (a VS Code command registration, a
+  would still be bundled. Cloud-only code outside the seams (a VS Code command registration, a
   standalone route, Help-tab sections) is wrapped in a literal
   `process.env.TRACEROOST_EDITION !== 'core'` check so the core build drops it entirely.
-- `node scripts/check-edition.mjs core` then greps the five shipped bundles for Pro markers
-  (cloud module paths, Pro endpoints and hostnames, queue/link identifiers) and checks the
+- `node scripts/check-edition.mjs core` then greps the five shipped bundles for Cloud markers
+  (cloud module paths, Cloud endpoints and hostnames, queue/link identifiers) and checks the
   packaged manifest; `check-edition.mjs full` checks the markers are still present in a full build.
 
 ```bash
@@ -85,7 +85,7 @@ pnpm run test:unit                         # tests run against the sources — s
 ```
 
 CI builds and checks both (`build-and-test` and `core-edition` in `.github/workflows/ci.yml`).
-Releases are core until TraceRoost Pro launches — see
+Releases are core until TraceRoost Cloud launches — see
 [runbooks/RELEASING.md](runbooks/RELEASING.md#editions).
 
 ## Continuous integration
@@ -110,6 +110,7 @@ for what each job proves and the commands.
 | `src/summarizers/` | Per-agent span → trace summarizers |
 | `src/otlpCollector.ts` | OTLP/HTTP ingestion for the VS Code extension |
 | `src/attribution/`, `src/turnover/` | Free, local commit-attribution and turnover engines (MIT) |
+| `src/repoKey.ts` | Repository-key derivation — the repo hash shown in the Traces table's Repo (ID) column, and the HMAC primitives the cloud client builds on (MIT) |
 | `standalone/local/` | Free, local CLI analysis — `find`, `trace`, `patterns`, `cohort`, `advise` (MIT) |
 | `src/cloud/`, `media/src/cloud/`, `standalone/cloud/` | Org/cloud client (link + upload) — BSL-licensed, see [NOTICE.md](NOTICE.md). Local code never imports from these directories |
 

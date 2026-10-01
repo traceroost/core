@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       edition:
-        description: 'Edition to build — core (no TraceRoost Pro code) or full (with org link + upload)'
+        description: 'Edition to build — core (no TraceRoost Cloud code) or full (with org link + upload)'
         type: choice
         options: [core, full]
         default: core
@@ -19,7 +19,7 @@ permissions:
 
 # Which edition this run ships (see runbooks/RELEASING.md → "Editions"). A manual run uses its
 # `edition` input; a tag push uses the TRACEROOST_RELEASE_EDITION repository variable, and `core`
-# when that isn't set. Until TraceRoost Pro launches every tagged release is `core`: the VSIX, the
+# when that isn't set. Until TraceRoost Cloud launches every tagged release is `core`: the VSIX, the
 # npm package and the Docker image carry no org-link/upload code at all.
 # To ship `full` at launch: set the repository variable TRACEROOST_RELEASE_EDITION=full
 # (Settings → Secrets and variables → Actions → Variables) — docker.yml reads the same variable —
@@ -44,10 +44,10 @@ jobs:
       attestations: write
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10
 
@@ -87,7 +87,7 @@ jobs:
           subject-path: privacy-certificate.json
 
       - name: Upload privacy certificate
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: privacy-certificate
           path: privacy-certificate.json
@@ -98,10 +98,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10
 
@@ -154,6 +154,15 @@ jobs:
       # for the VSIX build only — so the extension keeps publishing to the
       # existing agentlens.agentlens-dashboard listing (installs update in place)
       # while npm gets the new name. This checkout is discarded after the job.
+      #
+      # Also drops package.json's `files` allowlist (added for npm — see CHANGELOG "The npm
+      # package shipped the whole repo") for this VSIX-only copy: current vsce refuses to run
+      # at all when both a .vscodeignore file and a `files` property exist ("VSCE does not
+      # support combining both strategies"), where older vsce silently preferred .vscodeignore
+      # (see .vscodeignore's own header comment). The VSIX has always been built from
+      # .vscodeignore, never `files`, so dropping `files` here changes nothing about what ships
+      # in the VSIX — it only satisfies vsce's newer up-front check. publish-npm runs
+      # prepare-edition.mjs on its own separate checkout and is unaffected.
       - name: Set VS Code Marketplace identity
         run: |
           node -e '
@@ -162,8 +171,6 @@ jobs:
             const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
             p.name = id.name;
             p.publisher = id.publisher;
-            // `files` is the npm tarball's allowlist; the VSIX's contents come from .vscodeignore,
-            // and vsce refuses to package a manifest that has both.
             delete p.files;
             fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
             console.log(`vsce identity: ${id.publisher}.${id.name}`);
@@ -176,12 +183,12 @@ jobs:
         run: vsce package --no-dependencies
 
       # Belt and braces: `package:core` already ran this during `vsce package`; re-run it on what
-      # actually got packed (and, for `full`, confirm the Pro code really is there).
+      # actually got packed (and, for `full`, confirm the Cloud code really is there).
       - name: Check the ${{ env.EDITION }} edition bundles
         run: node scripts/check-edition.mjs "$EDITION"
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vsix-package
           path: '*.vsix'
@@ -255,10 +262,10 @@ jobs:
       id-token: write  # Required for npm Trusted Publishing (OIDC — no stored secret needed)
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10
 

@@ -1,6 +1,6 @@
 // Pricing data for extension-host cost computation (cost_usd stored in sessions table).
 // Rate table is kept in sync with media/src/pricing.ts — update both when rates change.
-// PRICING_LAST_UPDATED: 2026-09-15
+// PRICING_LAST_UPDATED: 2026-09-28
 
 export interface ModelRates {
   inputPerMTok: number
@@ -40,6 +40,9 @@ const RATES: Record<string, ModelRates> = {
   'gpt-5.1-codex-max':  { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00, contextWindowTokens: 256_000 },
   'gpt-5.2':            { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00, contextWindowTokens: 256_000 },
   'gpt-5.2-codex':      { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00, contextWindowTokens: 256_000 },
+  // gpt-5.3-codex: standard rate reconfirmed present on OpenAI's API pricing page as of 2026-09-28
+  // (alongside a separate fast-mode row at $3.50/$0.35/$28.00, not modeled) — the 2026-09-01 refresh's
+  // "standard rate is gone" finding turned out to be a temporary page state, not a real change.
   'gpt-5.3-codex':      { inputPerMTok: 1.75,  cacheReadPerMTok: 0.175,  cacheWritePerMTok: 0, outputPerMTok: 14.00, contextWindowTokens: 256_000 },
   // gpt-5.4: long-context surcharge above 272K tokens/call confirmed 2026-08-12 (2x input/cache-read, 1.5x output).
   'gpt-5.4':            { inputPerMTok: 2.50,  cacheReadPerMTok: 0.25,   cacheWritePerMTok: 0, outputPerMTok: 15.00, contextWindowTokens: 272_000,
@@ -82,6 +85,18 @@ const RATES: Record<string, ModelRates> = {
   'gpt-6-astra':        { inputPerMTok: 10.00, cacheReadPerMTok: 1.00,   cacheWritePerMTok: 12.50, outputPerMTok: 50.00, contextWindowTokens: 256_000,
                           longContextThresholdTokens: 272_000,
                           inputAboveThresholdPerMTok: 20.00, cacheReadAboveThresholdPerMTok: 2.00, cacheWriteAboveThresholdPerMTok: 25.00, outputAboveThresholdPerMTok: 75.00 },
+  // gpt-6-sol, gpt-6-luna: added 2026-09-28 — rest of the GPT-6 family alongside gpt-6-astra, three-way
+  // cross-verified (Copilot's pricing page, OpenAI's own API pricing page, and the Codex CLI credits page:
+  // Sol 50/5/250 credits, Luna 2.5/0.25/12.5 credits, both ÷25 matching the USD rates below exactly). Same
+  // tiered shape as the rest of the 5.6/6 families: cache-write at 1.25x input. Sol's long-context threshold
+  // (272K) matches Astra/Terra/Sol-5.6; Luna's is 272K here too — unlike gpt-5.6-luna's lower 200K threshold,
+  // independently confirmed by asking specifically about each model rather than assuming they matched.
+  'gpt-6-sol':          { inputPerMTok: 2.00,  cacheReadPerMTok: 0.20,   cacheWritePerMTok: 2.50, outputPerMTok: 10.00, contextWindowTokens: 256_000,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.40, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 15.00 },
+  'gpt-6-luna':         { inputPerMTok: 0.10,  cacheReadPerMTok: 0.01,   cacheWritePerMTok: 0.125, outputPerMTok: 0.50, contextWindowTokens: 256_000,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 0.20, cacheReadAboveThresholdPerMTok: 0.02, cacheWriteAboveThresholdPerMTok: 0.25, outputAboveThresholdPerMTok: 0.75 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, but
   // not independently confirmed as reachable through Copilot or Codex CLI specifically (neither's own docs
   // mentioned them this pass). Added on this file's existing philosophy that a model which never appears in
@@ -129,6 +144,15 @@ const RATES: Record<string, ModelRates> = {
   'claude-opus-4-8':    { inputPerMTok:  5.00, cacheReadPerMTok: 0.50,  cacheWritePerMTok:  6.25, outputPerMTok: 25.00, contextWindowTokens: 1_000_000 },
   // claude-opus-5: added 2026-08-07, now GA per Anthropic's pricing page — same rate as Opus 4.8.
   'claude-opus-5':      { inputPerMTok:  5.00, cacheReadPerMTok: 0.50,  cacheWritePerMTok:  6.25, outputPerMTok: 25.00, contextWindowTokens: 1_000_000 },
+  // claude-opus-5-5: added 2026-09-28 — new, confirmed on both Anthropic's own pricing page and Copilot's
+  // model list (matching exactly). Cheaper than Opus 5 despite the higher version number. Cache-hit rate
+  // is 0.05x base input ($0.20/MTok) rather than the usual 0.1x — Anthropic's own stated exception, not a
+  // computed value.
+  'claude-opus-5-5':    { inputPerMTok:  4.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok:  5.00, outputPerMTok: 20.00, contextWindowTokens: 1_000_000 },
+  // claude-sonnet-5-5: added 2026-09-28 — new, confirmed on both Anthropic's own pricing page and Copilot's
+  // model list. Identical rate to Sonnet 5 (including the standard 0.1x cache-hit multiplier) — same pattern
+  // as Sonnet 4/4.6 sharing a rate. No fast mode (only Opus 5.5/5/4.8 support it).
+  'claude-sonnet-5-5':  { inputPerMTok:  2.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok:  2.50, outputPerMTok: 10.00, contextWindowTokens: 1_000_000 },
   // fast mode for Opus 4.6 was removed 2026-06-29 — requests now run at standard speed/rates despite the -fast suffix.
   'claude-opus-4-6-fast':{ inputPerMTok:  5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok:  6.25, outputPerMTok:  25.00, contextWindowTokens: 1_000_000 },
   // fast mode for Opus 4.7 is confirmed removed as of this refresh (2026-08-07) — Anthropic's docs now state
@@ -137,6 +161,12 @@ const RATES: Record<string, ModelRates> = {
   'claude-opus-4-8-fast':{ inputPerMTok: 10.00, cacheReadPerMTok: 1.00, cacheWritePerMTok: 12.50, outputPerMTok:  50.00, contextWindowTokens: 1_000_000 },
   // claude-opus-5-fast: added 2026-08-07 — Anthropic's fast-mode table lists Opus 5 and Opus 4.8 together at the same rate.
   'claude-opus-5-fast':  { inputPerMTok: 10.00, cacheReadPerMTok: 1.00, cacheWritePerMTok: 12.50, outputPerMTok:  50.00, contextWindowTokens: 1_000_000 },
+  // claude-opus-5-5-fast: added 2026-09-28 — Anthropic's fast-mode table gives Opus 5.5 its own row this
+  // time (unlike Opus 5/4.8 sharing one): input $8, output $40. Cache write/read aren't listed directly for
+  // fast mode, but the docs state caching multipliers "stack on top of fast mode pricing" — cache write here
+  // uses the same 1.25x-of-base-input as every other model's 5-minute-cache convention in this file, and
+  // cache read uses Opus 5.5's own stated 0.05x (not the usual 0.1x), both applied to the $8 fast-mode input.
+  'claude-opus-5-5-fast':{ inputPerMTok:  8.00, cacheReadPerMTok: 0.40, cacheWritePerMTok: 10.00, outputPerMTok: 40.00, contextWindowTokens: 1_000_000 },
   'claude-fable-5':      { inputPerMTok: 10.00, cacheReadPerMTok: 1.00, cacheWritePerMTok: 12.50, outputPerMTok:  50.00, contextWindowTokens: 1_000_000 },
   // claude-mythos-5: limited-availability preview (anthropic.com/glasswing), same rates as Fable 5.
   'claude-mythos-5':     { inputPerMTok: 10.00, cacheReadPerMTok: 1.00, cacheWritePerMTok: 12.50, outputPerMTok:  50.00, contextWindowTokens: 1_000_000 },
@@ -188,6 +218,12 @@ const RATES: Record<string, ModelRates> = {
   // muse-spark-1.3-contributor-free: added 2026-09-15 — 1.2 is gone from the Zen docs, replaced by this; both
   // keys kept (see ling-3.0-tiny-free/-flash-fin-free above for the same pattern) since it's $0 either way.
   'muse-spark-1.3-contributor-free': { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  // Added 2026-09-28 — new free/evaluation models on the Zen docs this pass. Slugs guessed from display name
+  // (same risk-tolerance as prior additions — a wrong guess just falls back to ~$? rather than mis-pricing).
+  'space-bunny-free':            { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'longcat-2.5-preview-free':    { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'mimo-v2.6-flash-free':        { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'jev-1.13-free':               { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
 }
 
 // Exported so callers that build a model ID by appending their own suffix (e.g.

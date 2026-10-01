@@ -1,5 +1,5 @@
 /**
- * The one seam between the free, local product and TraceRoost Pro (org link + upload, `src/cloud/`).
+ * The one seam between the free, local product and TraceRoost Cloud (org link + upload, `src/cloud/`).
  *
  * Nothing outside a `cloud/` directory imports runtime code from one — it asks `cloud` here
  * instead. Two implementations satisfy `CloudBridge`:
@@ -90,7 +90,8 @@ export interface CloudBridge {
 
   // ── Repository identity ───────────────────────────────────────────────────
   /** The git root for `workspace`, plus the org-salted repo hash TraceRoost Cloud shows for it
-   *  (null in the core edition, which has no use for one). Null when not a usable repo. */
+   *  (unlinked/core installs salt with 'unlinked-preview'; null for a shallow clone). Null when not
+   *  a usable repo. */
   describeRepo(workspace: string): Promise<{ root: string; hash: string | null } | null>
   /** Cloud `repo_hash` → local clone root, for the dashboard's hash hand-off deep links. Always
    *  null in the core edition. Never a network call. */

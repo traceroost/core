@@ -2,15 +2,31 @@
 
 All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
-## [Unreleased]
-
-### Decided
-
-- **The model/agent cost-per-outcome comparator will not be a local/free feature** — real local session history shows near-zero within-agent model diversity per repo, so a single developer's history structurally can't supply the "same task, different model" comparison this needs. See [docs/decisions/0002](docs/decisions/0002-model-cost-per-outcome-comparator-scope.md). No user-facing change; nothing was built or removed.
+## [0.17.1] — 2026-09-28
 
 ### Added
 
-- **A core edition, built without any TraceRoost Pro code** — `node esbuild.js --edition=core` builds the VSIX, npm package and Docker image with no org linking or uploading compiled in at all (not a runtime switch): no Org panel or Org commands, and `traceroost org`, `--explain-payload` and `cluster` print "not available in the TraceRoost core edition". Every free, local feature is unchanged. The build refuses to bundle anything from a `cloud/` directory, and `scripts/check-edition.mjs` (run in CI and on every release) checks the shipped bundles and manifest. Releases ship the core edition until TraceRoost Pro launches — see `runbooks/RELEASING.md` → Editions.
+- **The dashboard opens immediately while your local log history loads** — the npx/background service used to parse every log file before serving the page, which meant a long spinner on a large (~900-trace) history. The initial pass now runs in small slices, so the page appears at once and sessions fill in as they're read, with a progress banner above the dashboard. In VS Code the open dashboard also refreshes as each batch of log sessions is saved, instead of only on its 10-second timer. (#263)
+- **Triggered alerts link straight to the trace that tripped them** — the toast, bell dropdown and Alerts tab now jump to that specific trace in the Sessions tab. Aggregate alerts like daily cost still open the Alerts tab. (#261)
+- **Pricing for new models** — GPT-6 Sol and Luna, Claude Opus 5.5 (with its own fast-mode rate) and Sonnet 5.5, and four new OpenCode Zen free-evaluation models. (#262)
+
+### Fixed
+
+- **"No such column: Infinity" when loading every stored session** — the "no cap" path passed `LIMIT Infinity` straight into SQL, which SQLite rejects; it now returns every row as intended. (#261)
+
+### Changed
+
+- **The OTel port-conflict banner explains what to do** — it recommends the background service (which survives VS Code closing) with its install command, gives next steps depending on which host you want to keep, can be dismissed per conflict, and now also appears when running the npx/background service, not only in VS Code. (#261)
+- **The Sessions table's Model column is wider**, so more model names show without truncation. (#261)
+- **Docs now spell out what the Docker image can't do** — it receives OTel traces only: no log-file ingestion, no agent auto-configuration and no git outcomes. The README and in-app Help point to the background service or IDE extension instead. (#261)
+
+---
+
+## [0.17.0] — 2026-09-27
+
+### Added
+
+- **A core edition, built without any TraceRoost Cloud code** — `node esbuild.js --edition=core` builds the VSIX, npm package and Docker image with no org linking or uploading compiled in at all (not a runtime switch): no Org panel or Org commands, and `traceroost org`, `--explain-payload` and `cluster` print "not available in the TraceRoost core edition". Every free, local feature is unchanged. The build refuses to bundle anything from a `cloud/` directory, and `scripts/check-edition.mjs` (run in CI and on every release) checks the shipped bundles and manifest. Releases ship the core edition until TraceRoost Cloud launches — see `runbooks/RELEASING.md` → Editions.
 - **The Cost tab now points to Advisor's "How to spend less" card** — closing the gap where the 30-day cost chart and per-trace cost table had no action attached to any number on the screen.
 - **Cursor CLI (`cursor-agent`) sessions are now fully wired through the UI** — agent filter pills, per-agent Settings thresholds, Alerts/Automation configs, the Agents tab comparison, and a Sessions-tab banner explaining Cursor's real data gaps (no token/cost/model data exists in its local transcript format, confirmed by hands-on testing, not guessed) now all recognize `source: 'cursor'` instead of silently falling back to Copilot's styling. Also fixed a real turn-counting bug found via a live multi-turn `cursor-agent --resume` session: resuming removes the previous turn's `turn_ended` marker, so counting `turn_ended` lines undercounted real turns — now counted from `user`-role lines instead, which persist across a resume.
 
@@ -32,11 +48,27 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Changed
 
-- **The free, local engines and CLI commands moved out of the `cloud/` directories, and are now MIT-licensed** — `src/cloud/attribution/` → `src/attribution/`, `src/cloud/turnover/` → `src/turnover/`, and `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` → `standalone/local/` (with their tests). They were under the BSL zone only because of where they sat; they are covered by the root MIT `LICENSE` from this version on. The `cloud/` directories (BSL) now hold only TraceRoost Pro's org linking and uploading. No behavior change.
+- **The Traces table's Out (git outcome) column now shows with a single repo** — it used to appear only once traces came from two or more workspaces, alongside the Repo column, so anyone working in one project never saw it. It now shows whenever any trace has a workspace; the Repo column and Repo filter still need two or more repos to have anything to tell apart.
+- **The free, local engines and CLI commands moved out of the `cloud/` directories, and are now MIT-licensed** — `src/cloud/attribution/` → `src/attribution/`, `src/cloud/turnover/` → `src/turnover/`, and `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` → `standalone/local/` (with their tests). They were under the BSL zone only because of where they sat; they are covered by the root MIT `LICENSE` from this version on. The `cloud/` directories (BSL) now hold only TraceRoost Cloud's org linking and uploading. No behavior change.
 
 ### Removed
 
 - **Copilot's "Annual plan (request)" pricing-mode toggle** — the Cost and Analytics tabs' Copilot billing model selector is gone; Copilot cost is now always estimated with token-based AI Credits, matching Claude Code, Codex, and every other agent. The Pricing page's `Request ×` and `Annual ×` multiplier columns are removed along with the underlying `multiplier`/`multiplierAnnualPostJun1` rate fields.
+
+---
+
+## [0.16.3] — 2026-09-15
+
+### Fixed
+
+- **The standalone server's "Unauthorized" page was a bare `text/plain` dump** — easy to mistake for a broken server rather than a wrong or missing token. It's now a styled page explaining what's missing, showing the exact URL shape to use, and pointing at `traceroost service status` as a way to get that URL again if TraceRoost is running as a background service.
+- **The Traces table's agent/badge column had no header**, just a sort arrow, and the "Time" column header (shared with the Advisor tab's evidence table) was ambiguous next to Duration. Both are now labeled — "Source/From" and "Start Time" respectively — and the Source/From filter bar is reordered to match the column order.
+- **The per-row workspace label was cramped into the timestamp cell**, shown only when a session spanned multiple workspaces. It's now a proper "Project" column with its own header, sortable like every other column.
+
+### Changed
+
+- **The dashboard no longer requires the access token while running on loopback** (127.0.0.1, the default) — matches how the OTLP and MCP endpoints already behaved. Loopback binding already rules out every other machine reaching the port; the token there was only ever defending against a malicious webpage in the same browser, not the "some other machine" threat it's meant to stop. A token is still required the moment the server is bound beyond loopback. The printed/auto-opened dashboard URL no longer carries `?token=` when it isn't needed.
+- **Model pricing refreshed** — added GPT-6 Astra (new OpenAI flagship) and Gemini 3.8 Flash; resolved a stale known gap where Copilot's own extra 50%-off promotion on GPT-5.6 Sol (which ended on schedule) was still being flagged as unaccounted-for. All existing rates re-verified against each vendor's current pricing page.
 
 ---
 

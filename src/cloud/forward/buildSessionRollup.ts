@@ -36,7 +36,7 @@ import {
   repoKeyFingerprint,
   authorHash,
   type RepoKeyContext,
-} from './repoKey'
+} from '../../repoKey'
 
 /** The only fields of a session the builder is allowed to see. Every one is a scalar, an enum,
  *  a number, or an array of paths/enums — nothing that can hold free text. */

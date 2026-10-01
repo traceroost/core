@@ -37,7 +37,7 @@ export default typescriptEslint.config(
     },
   },
   {
-    // Editions (CONTRIBUTING.md → Editions): non-cloud code reaches TraceRoost Pro only through
+    // Editions (CONTRIBUTING.md → Editions): non-cloud code reaches TraceRoost Cloud only through
     // the seams, so the core build can leave every cloud/ directory out. Type-only imports are
     // erased and stay allowed. (esbuild.js enforces the same thing for real in a core build.)
     files: ["src/**/*.ts", "media/src/**/*.ts", "media/src/**/*.tsx"],
@@ -47,7 +47,7 @@ export default typescriptEslint.config(
         patterns: [{
           group: ["**/cloud/*", "**/cloud/**"],
           allowTypeImports: true,
-          message: "Import TraceRoost Pro code through a seam (src/cloudBridge.ts, media/src/orgPanel.ts) — see CONTRIBUTING.md → Editions.",
+          message: "Import TraceRoost Cloud code through a seam (src/cloudBridge.ts, media/src/orgPanel.ts) — see CONTRIBUTING.md → Editions.",
         }],
       }],
     },

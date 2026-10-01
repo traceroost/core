@@ -1,5 +1,5 @@
 /**
- * The core edition's Org panel (see media/src/orgPanel.ts): TraceRoost with no Pro code built in.
+ * The core edition's Org panel (see media/src/orgPanel.ts): TraceRoost with no Cloud code built in.
  * Same exports as media/src/cloud/panels/OrgPanel.tsx — typed against it, so the two can't drift —
  * but the button and panel render nothing, the signals never change, and no message is sent or
  * handled. Must not import runtime code from media/src/cloud/ (type-only imports are erased).

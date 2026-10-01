@@ -119,12 +119,38 @@ suite('DatabaseReader', () => {
     db.close()
   })
 
-  test('listSessions with limit: Infinity returns every row (no LIMIT clause)', async () => {
+  // sessionRepository.ts's `limit: Infinity` convention ("bypass the cap", used by org reconcile
+  // to see every retained session) must not reach the raw SQL string as `LIMIT Infinity` — SQLite
+  // parses that as an unresolved column reference and throws "no such column: Infinity".
+  test('listSessions with limit: Infinity returns every row, not just none', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'a', startTime: '2024-01-01T00:00:00.000Z' }),
+      makeCard({ sessionId: 'b', startTime: '2024-02-01T00:00:00.000Z' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const results = reader.listSessions({ limit: Infinity })
+    assert.strictEqual(results.length, 2)
+    db.close()
+  })
+
+  test('listSessions with a finite limit still caps the row count', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'a', startTime: '2024-01-01T00:00:00.000Z' }),
+      makeCard({ sessionId: 'b', startTime: '2024-02-01T00:00:00.000Z' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const results = reader.listSessions({ limit: 1 })
+    assert.strictEqual(results.length, 1)
+    assert.strictEqual(results[0].sessionId, 'b')
+    db.close()
+  })
+
+  test('listSessions rounds a fractional limit down', async () => {
     const db = await openDb()
     await seedDb(db, [makeCard({ sessionId: 'a' }), makeCard({ sessionId: 'b' }), makeCard({ sessionId: 'c' })])
     const reader = new DatabaseReader(db, makeStorageUri())
-    assert.strictEqual(reader.listSessions({ limit: Infinity }).length, 3)
-    assert.strictEqual(reader.listSessions({ limit: 2 }).length, 2)
     assert.strictEqual(reader.listSessions({ limit: 1.7 }).length, 1)
     db.close()
   })

@@ -1,5 +1,5 @@
 /**
- * The core edition's `CloudBridge` (src/cloudBridge.ts): TraceRoost with no Pro code built in.
+ * The core edition's `CloudBridge` (src/cloudBridge.ts): TraceRoost with no Cloud code built in.
  *
  * `node esbuild.js --edition=core` resolves `src/cloud/bridge.ts` to this file, so nothing under
  * `src/cloud/` is bundled. Everything here is inert — never linked, nothing queued, nothing sent,
@@ -12,6 +12,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import type { CloudBridge } from './cloudBridge'
 import { NOT_AVAILABLE_IN_CORE } from './edition'
+import { deriveRepoKey, repoHash } from './repoKey'
 
 const execFileAsync = promisify(execFile)
 
@@ -44,7 +45,13 @@ export const cloudBridge: CloudBridge = {
   },
   buildPayloadPreview: async () => [],
 
+  // Same hash an unlinked full-edition install shows (src/cloud/bridge.ts): the 'unlinked-preview'
+  // salt, since core never has an org to salt with. Only ever displayed locally, never sent.
   describeRepo: async (workspace) => {
+    const rk = await deriveRepoKey(workspace, 'unlinked-preview')
+    if (rk.ok) return { root: rk.ctx.root, hash: repoHash(rk.ctx) }
+    if (rk.reason === 'not-a-repo') return null
+    // Not keyable (e.g. a shallow clone has no root commit) — still show the repo's name.
     try {
       const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], { cwd: workspace, timeout: 5000 })
       const root = stdout.trim()

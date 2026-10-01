@@ -3,7 +3,7 @@
 If you're browsing the tree wondering why this exists outside the rest of
 `src/`, this is the short answer. For the deep architecture, see
 [CLOUD_ARCHITECTURE.md](../../CLOUD_ARCHITECTURE.md) and
-[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-pro--org-link). For
+[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-cloud--org-link). For
 what shipped feature-by-feature, see CLOUD_ARCHITECTURE.md's "What ships
 where" table.
 
@@ -26,13 +26,14 @@ code: `media/src/cloud/panels/` (the Org panel) and `standalone/cloud/`
 ## Why this directory is only the cloud
 
 Everything under `src/cloud/`, `media/src/cloud/` and `standalone/cloud/` is
-TraceRoost Pro's linking and uploading — and nothing else. The free, local
+TraceRoost Cloud's linking and uploading — and nothing else. The free, local
 features that used to sit beside it were moved out:
 
 | Was | Now | What it is |
 | --- | --- | --- |
 | `src/cloud/attribution/` | `src/attribution/` | who wrote which surviving lines, from git history + session records, no network |
 | `src/cloud/turnover/` | `src/turnover/` | the cohort/survival engine behind `traceroost cohort`, built on `attribution/`'s output |
+| `src/cloud/forward/repoKey.ts` | `src/repoKey.ts` | the repo hash every install shows in the Traces table's Repo (ID) column, from the repo's root commit — no network |
 | `standalone/cloud/{sessionLoader,traceCli,patternsCli,findCli,cohortCli,adviseCli}.ts` | `standalone/local/` | the local CLI analysis commands |
 
 Where a local command has one optional cloud step — resolving a cloud
@@ -54,7 +55,7 @@ what the core edition does (`node esbuild.js --edition=core`; see
 CONTRIBUTING.md → Editions). The directory is the
 unit the core build leaves out, and the unit covered by the different license
 below. The free/paid rule itself is unchanged — see
-CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Pro, and
+CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Cloud, and
 `attribution/` and `turnover/` are free forever.
 
 ## The license split
@@ -62,7 +63,7 @@ CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Pro, and
 This is the one directory in the repository **not** covered by the root
 [MIT LICENSE](../../LICENSE). See [NOTICE.md](../../NOTICE.md) for the exact
 scope and [LICENSE](LICENSE) here for the terms (Business Source License
-1.1 — currently a draft pending legal review).
+1.1).
 
 Why: everything else in this repository — the dashboard, the log readers,
 the standalone server, the extension shell — is a local developer tool with

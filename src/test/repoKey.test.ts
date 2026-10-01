@@ -12,7 +12,7 @@ import {
   repoKeyFingerprint,
   authorHash,
   toRepoRelativePosix,
-} from '../../../cloud/forward/repoKey'
+} from '../repoKey'
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, {
@@ -37,7 +37,7 @@ function makeRepo(dir: string): void {
   git(dir, ['commit', '-qm', 'second'])
 }
 
-suite('forward/repoKey', () => {
+suite('repoKey', () => {
   let tmp: string
   setup(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'al-repokey-')) })
   teardown(() => { fs.rmSync(tmp, { recursive: true, force: true }) })

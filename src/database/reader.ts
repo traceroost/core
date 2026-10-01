@@ -90,9 +90,9 @@ export class DatabaseReader {
       sql += ' WHERE ' + conditions.join(' AND ')
     }
     sql += ' ORDER BY start_time DESC'
-    // `limit: Infinity` means "no cap" (SessionRepository.listSessions' documented bypass, used by
-    // background reconciliation and org reconcile) — interpolated as-is it was `LIMIT Infinity`,
-    // which SQLite rejects ("no such column: Infinity"), so those callers got nothing at all.
+    // `limit: Infinity` (sessionRepository.ts's "bypass the cap" convention, used by org reconcile
+    // to see every retained session) means "no LIMIT clause" — `LIMIT Infinity` isn't valid SQL;
+    // SQLite parses the bare word as an unresolved column reference ("no such column: Infinity").
     if (filter?.limit !== null && filter?.limit !== undefined && Number.isFinite(filter.limit)) {
       sql += ` LIMIT ${Math.max(0, Math.floor(filter.limit))}`
     }

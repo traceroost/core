@@ -4,7 +4,7 @@ import { makeCard } from './fixtures'
 import { gitOutcomes, requestGitOutcomesFor, gitOutcomeRequestSettled, setVscode } from '../../../media/src/state'
 
 suite('requestGitOutcomesFor — in-flight tracking', () => {
-  let posted: string[] = []
+  let posted: string[][] = []
   const realNow = Date.now
   const settle = (ms = 10) => new Promise(r => setTimeout(r, ms))
   const cards = (n: number, prefix: string) =>
@@ -13,7 +13,7 @@ suite('requestGitOutcomesFor — in-flight tracking', () => {
   setup(() => {
     posted = []
     gitOutcomes.value = {}
-    setVscode({ postMessage: (m: unknown) => { const msg = m as { type: string; sessionId: string }; if (msg.type === 'getGitOutcome') posted.push(msg.sessionId) } } as never)
+    setVscode({ postMessage: (m: unknown) => { const msg = m as { type: string; sessionIds: string[] }; if (msg.type === 'getGitOutcomes') posted.push(msg.sessionIds) } } as never)
   })
   teardown(() => {
     Date.now = realNow
@@ -27,7 +27,7 @@ suite('requestGitOutcomesFor — in-flight tracking', () => {
     await settle()
     requestGitOutcomesFor(sessions)
     await settle()
-    assert.deepStrictEqual(posted, ['inflight-0', 'inflight-1', 'inflight-2'])
+    assert.deepStrictEqual(posted, [['inflight-0', 'inflight-1', 'inflight-2']])
   })
 
   test('once answered but still unresolved (deferred), the next call asks again', async () => {
@@ -37,7 +37,7 @@ suite('requestGitOutcomesFor — in-flight tracking', () => {
     gitOutcomeRequestSettled(s.sessionId)
     requestGitOutcomesFor([s])
     await settle()
-    assert.deepStrictEqual(posted, [s.sessionId, s.sessionId])
+    assert.deepStrictEqual(posted, [[s.sessionId], [s.sessionId]])
   })
 
   test('resolved sessions are never requested; sessions without changed files resolve locally', async () => {
@@ -46,18 +46,30 @@ suite('requestGitOutcomesFor — in-flight tracking', () => {
     gitOutcomes.value = { [a.sessionId]: null }
     requestGitOutcomesFor([a, b, none])
     await settle()
-    assert.deepStrictEqual(posted, [b.sessionId])
+    assert.deepStrictEqual(posted, [[b.sessionId]])
     assert.strictEqual(gitOutcomes.value['resolved-none'], null)
   })
 
-  test('a large set is requested exactly once across the chained batches, even when re-called mid-chain', async () => {
+  test('a provisional cached outcome remains in flight until the fresh result settles', async () => {
+    const [s] = cards(1, 'provisional-')
+    requestGitOutcomesFor([s])
+    gitOutcomes.value = { [s.sessionId]: { overall: 'merged', files: {}, reason: '' } }
+    requestGitOutcomesFor([s])
+    assert.deepStrictEqual(posted, [[s.sessionId]])
+
+    gitOutcomeRequestSettled(s.sessionId)
+    gitOutcomes.value = { [s.sessionId]: { overall: 'committed', files: {}, reason: '' } }
+    requestGitOutcomesFor([s])
+    assert.deepStrictEqual(posted, [[s.sessionId]])
+  })
+
+  test('a large set is sent in one batch and is not requested again while in flight', async () => {
     const sessions = cards(400, 'chain-')
     requestGitOutcomesFor(sessions)
-    await settle(1)
     requestGitOutcomesFor(sessions)
-    await settle(1200)
-    assert.strictEqual(posted.length, 400)
-    assert.strictEqual(new Set(posted).size, 400)
+    assert.strictEqual(posted.length, 1)
+    assert.strictEqual(posted[0].length, 400)
+    assert.strictEqual(new Set(posted[0]).size, 400)
   })
 
   test('a request that is never answered stops blocking a new one after the expiry', async () => {
@@ -68,6 +80,6 @@ suite('requestGitOutcomesFor — in-flight tracking', () => {
     Date.now = () => t0 + 61_000
     requestGitOutcomesFor([s])
     await settle()
-    assert.deepStrictEqual(posted, [s.sessionId, s.sessionId])
+    assert.deepStrictEqual(posted, [[s.sessionId], [s.sessionId]])
   })
 })

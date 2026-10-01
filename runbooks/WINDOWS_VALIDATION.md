@@ -56,6 +56,13 @@ install the VSIX artifact from the latest `Windows E2E` or `Release` run.
    without errors.
 5. **A real logon.** CI starts the Task Scheduler task with `schtasks /run`; confirm once that it
    also starts on its own at the next Windows sign-in.
+6. **Git outcomes in a real repo.** In a local git repo with actual commits, confirm the outcome
+   badges (merged / committed / uncommitted) resolve on the Sessions tab, and that the Analytics
+   "Outcome vs. tokens" chart populates. Both go through `execFile('git', args, { cwd, timeout })`
+   in `gitOutcome.ts`, `repoRemote.ts`, and `repoKey.ts` — `execFile` (not `exec`) means no shell
+   is involved, so this should resolve `git`/`git.exe` via PATH cleanly, but confirm it doesn't
+   hang: process startup is generally slower on Windows, and `GIT_TIMEOUT_MS` was only ever tuned
+   against Unix behavior.
 
 If something breaks, fix it, add a regression test at the lowest level that can see it (unit test,
 or a step in one of the `tests/e2e/` suites), and re-run just the affected item.

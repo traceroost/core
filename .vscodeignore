@@ -27,7 +27,6 @@ vsce-identity.json
 # package.json's `files` allowlist when this file exists, so exclusions go here.)
 media/src/**
 demo/**
-docs/**
 runbooks/**
 .githooks/**
 scripts/build-brand.mjs
