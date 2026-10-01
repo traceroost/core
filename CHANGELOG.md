@@ -2,6 +2,34 @@
 
 All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
+## [0.18.0] — 2026-10-01
+
+### Added
+
+- **Subscription plan limits for Claude Pro/Max and ChatGPT plans** — how full your 5-hour and weekly windows are, how much of them each trace used, and when a limit blocked you, shown in Analytics (Plan limits, under Agent Breakdown), the sidebar, Alerts, a Traces column and the MCP server. Codex readings come from every turn's rollout events; Claude's come from the reading Claude Code caches in `~/.claude.json`, which it refreshes rarely — the card says how old it is and that running `/usage` in Claude Code refreshes it. Read only from files the CLIs already write: no credentials, no network calls (#264)
+- **Outcome & token spend over time in Analytics** — merged, committed and uncommitted work against token spend, above Estimated cost. Multi-repo sessions are classified instead of silently dropped, and stored git outcomes show immediately (#264)
+- **Apply instruction suggestions from the dashboard** — suggestion cards get a target-file picker and an Apply button (Apply was unreachable before), and Apply, Dismiss and Remove now work in the npx/service dashboard too, with records kept in `DATA_DIR`. Started inside a git repo, the standalone server scopes suggestions to that repo (#266)
+- **OpenCode and Cursor CLI in Agent Breakdown**, alongside Copilot, Claude Code and Codex, and each gets its own prompts file (#266)
+- **A section nav rail in Analytics and Advisor**; the repo filter defaults to All, and the Advisor suggests a repo filter (#264)
+
+### Fixed
+
+- **Codex reasoning tokens were billed twice** — they were counted on top of output tokens. Stored Codex sessions are re-derived from their rollout files once on the first start after upgrading, so Codex costs drop; sessions that came in over OTEL, or whose rollout file is gone, keep their stored values (#266)
+- **Windows: `traceroost service` didn't work** — it ran `npm` directly instead of `npm.cmd`, and `service stop`/`uninstall` left the server running. A reserved port (EACCES) now falls back to the next port instead of aborting startup, and file locks retry Windows-only transient errors (#250, #266)
+- **Windows PowerShell 5.1 configure scripts didn't parse**, and wrote a BOM into `settings.json` that Node can't read (#250)
+- **The npx/service dashboard counted a Claude session twice** when it arrived over OTEL and from its transcript (#250)
+- **Service:** a systemd re-install never restarted the service, so a new port didn't take effect; `service install` now detects its own global install for upgrade-on-reinstall on macOS and Linux; `service update` exits cleanly with no service installed; macOS `restart` waits for launchd (#250, #266)
+- **Auto-config no longer overwrites your own OTLP collector** for Codex and Copilot — it keeps a non-local collector and warns, as Claude Code already did (#266)
+- **Security:** a malformed cookie could crash the server (reachable in LAN mode); `/api/instructions/apply` refuses targets outside the workspace; every standalone POST route caps its body size; the git-outcome tooltip escapes branch names (#266)
+- **MCP:** the `workspace` filter matches the session's recorded workspace, including subfolders, and hot-file counts no longer exceed 100% (#266)
+- **Smaller fixes:** OpenCode's WAL merge applies only committed frames; Windows tool paths show a file name; an unparseable start time no longer breaks the cost map, trend chart or git outcomes; import's duplicate check covers the full history and standalone accepts Cursor sessions; `find --reporter` and `advise` parse arguments correctly; "clear all" in the npx dashboard clears everything; header icon buttons have accessible names; no spurious warning when Copilot Chat isn't installed (#250, #266)
+
+### Changed
+
+- **Windows end-to-end CI, more test coverage and dependency updates** — a Windows/macOS/Linux end-to-end workflow (extension host, packed npm and VSIX artifacts, service lifecycle, PowerShell scripts), unit coverage up to 85% of lines, GitHub Actions updates, and internal naming and docs cleanup. No user-facing product change (#250, #252–#257, #259, #265, #266)
+
+---
+
 ## [0.17.1] — 2026-09-28
 
 ### Added
