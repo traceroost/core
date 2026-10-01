@@ -203,17 +203,7 @@ function signalsScore(signals: LoopSignal[] | undefined): number {
   return critical * 1000 + signals.length
 }
 
-// Caps how many not-yet-resolved sessions get a `getGitOutcome` request fired per call, and
-// staggers them a little — not to protect the host from concurrent git subprocesses (it now
-// bounds that itself, gitOutcome.ts's per-session classification gate), just so switching the
-// Outcome filter on over a large, otherwise-unfiltered session set doesn't fire an enormous
-// number of postMessage calls in one synchronous burst. The host caches each sessionId's result
-// (dashboardPanel.ts's gitOutcomeCache), so re-calling this for sessions already resolved (or
-// already in flight) is cheap: they're filtered out below.
-const GIT_OUTCOME_FETCH_CAP = 150
-const GIT_OUTCOME_FETCH_STAGGER_MS = 2
-
-// Sessions requestGitOutcomesFor has scheduled or posted a `getGitOutcome` for and the host hasn't
+// Sessions requestGitOutcomesFor has scheduled or posted a `getGitOutcomes` batch for and the host hasn't
 // answered yet (with `gitOutcome` or `gitOutcomeDeferred` — App.tsx calls gitOutcomeRequestSettled
 // on either), mapped to when they were requested. Every `update` re-calls requestGitOutcomesFor
 // with every session; without this, each one re-requested everything still unresolved and started
@@ -257,40 +247,7 @@ function postGitOutcomeRequests(pending: SessionSummaryCard[]): void {
   if (!vscode) return
   const requestedAt = Date.now()
   for (const s of needsFetch) gitOutcomeRequestsInFlight.set(s.sessionId, requestedAt)
-  const batch = needsFetch.slice(0, GIT_OUTCOME_FETCH_CAP)
-  batch.forEach((s, i) => {
-    const endTime = s.startTime && s.durationMs
-      ? new Date(new Date(s.startTime).getTime() + s.durationMs).toISOString()
-      : s.startTime
-    setTimeout(() => {
-      vscode?.postMessage({
-        type: 'getGitOutcome',
-        sessionId: s.sessionId,
-        workspace: s.workspace,
-        filesChanged: s.filesChanged,
-        endTime,
-      })
-    }, i * GIT_OUTCOME_FETCH_STAGGER_MS)
-  })
-
-  // The cap above only bounds one *batch* — a caller passing more than that (the Outcome filter
-  // does, with every session currently matching the other filters, unlike the Sessions table's own
-  // per-page call) must still see every one of them eventually resolve, or its "resolving N
-  // outcomes" spinner spins forever. Chain the remainder as a follow-up batch once this one's
-  // stagger window finishes, rather than silently dropping it.
-  const overflow = needsFetch.slice(GIT_OUTCOME_FETCH_CAP)
-  if (overflow.length > 0) {
-    setTimeout(() => {
-      // Same re-filter the chained call always did: skip anything resolved in the meantime.
-      const cacheNow = gitOutcomes.peek()
-      const rest = overflow.filter(s => {
-        if (cacheNow[s.sessionId] === undefined) return true
-        gitOutcomeRequestsInFlight.delete(s.sessionId)
-        return false
-      })
-      if (rest.length > 0) postGitOutcomeRequests(rest)
-    }, batch.length * GIT_OUTCOME_FETCH_STAGGER_MS)
-  }
+  vscode.postMessage({ type: 'getGitOutcomes', sessionIds: needsFetch.map(s => s.sessionId) })
 }
 
 // `hash` is the same one traceroost-cloud shows in its own Repo column (repoKey.ts's repoHash).

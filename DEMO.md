@@ -59,13 +59,17 @@ Note: for the plain (non-`story`) scenario matrix, `--agents` still *filters* ra
 
 Requires `npx playwright install chromium` once. The browser window stays open after replay finishes; close it manually or `Ctrl+C` the terminal.
 
-### Regenerating media/demo.gif
+### Regenerating the README demo GIF
 
-`pnpm run demo:gif` runs the same `--tour` walkthrough above, headless, on a fully isolated instance — a scratch server, scratch `HOME`, real agent config never touched — and records it straight to `media/demo.gif`.
+`pnpm run demo:gif` runs the same `--tour` walkthrough above, headless, on a fully isolated instance — a scratch server, scratch `HOME`, real agent config never touched — records it to `media/demo.gif` (gitignored), uploads it to `https://static.traceroost.com/demo.<hash>.gif`, and rewrites the README's image link to that URL. Commit the README change to publish the new GIF.
+
+Everything on static.traceroost.com is immutable: names carry a content hash, the bucket refuses to overwrite an existing file, and responses are cached for a year. A new recording is always a new URL, and old URLs keep serving the GIF they always did. The bucket is provisioned by the `traceroost/static` repo; the upload reads its name from that repo's Pulumi stack outputs, so it needs `aws` and `pulumi` on `PATH` and logged in.
 
 ```bash
-pnpm run demo:gif                       # writes media/demo.gif (asks first if it already exists)
-pnpm run demo:gif -- --force            # overwrite without asking
+pnpm run demo:gif                       # record, upload, and point README.md at the new URL
+pnpm run demo:gif -- --no-upload        # write media/demo.gif only; README.md untouched
+pnpm run demo:gif -- --max-mb 5         # size budget (default 7 MB)
+pnpm run demo:gif -- --force            # overwrite media/demo.gif if it already exists
 pnpm run demo:gif -- --out /tmp/x.gif   # write elsewhere instead, for review first
 pnpm run demo:gif -- --dry-run          # run the tour, skip recording — for tuning pause lengths
 pnpm run demo:gif -- --speed 2          # faster tour -> shorter capture
@@ -73,6 +77,8 @@ pnpm run demo:gif -- --headed           # show the browser while it records (deb
 pnpm run demo:gif -- --edition full     # record the full edition (default: core, what releases ship)
 pnpm run demo:gif -- --no-outcomes      # skip the scratch git repo (no Outcome column/chart data)
 ```
+
+To stay within the size budget, the encoder drops near-duplicate frames (the tour spends most of its time paused on a view). The remaining frames are held longer, so the timing doesn't change. If the result is over budget, it retries with a looser duplicate threshold, and it fails without uploading if the last step is still too large.
 
 By default the replay also seeds a scratch git repo (`demo/replay.ts --demo-repo`) — some story files merged into `main`, some only committed on a feature branch, some left uncommitted — and backdates the sessions past the dashboard's 2-minute active-session grace window, so the Traces table's Out column and Analytics' Outcome vs. Tokens chart show real merged / committed / uncommitted verdicts for the Claude and Codex sessions. (Copilot's OTEL spans carry no workspace, so its rows stay unclassified.)
 

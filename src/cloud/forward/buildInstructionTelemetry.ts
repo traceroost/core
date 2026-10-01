@@ -18,7 +18,7 @@ import {
   type SuggestionPriority,
   type SuggestionAction,
 } from './schema'
-import { repoHash, fileHash, type RepoKeyContext } from './repoKey'
+import { repoHash, fileHash, type RepoKeyContext } from '../../repoKey'
 
 function sha256(s: string): string {
   return crypto.createHash('sha256').update(s).digest('hex')

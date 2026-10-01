@@ -831,6 +831,15 @@ function CostSection() {
       <h3 class="help-heading">{HELP_SECTIONS.costs.heading}</h3>
       <div class="help-overview-body">
 
+        <h4 style={subHeadStyle} id="help-plan-limits">Plan limits: your 5-hour and weekly windows</h4>
+        <p>On a Claude Pro/Max or ChatGPT plan you don't pay per token. What runs out is your plan's <strong>5-hour</strong> and <strong>weekly</strong> usage windows. When Claude Code or Codex has recorded them, TraceRoost shows how full each window is (Analytics → Plan limits, and the sidebar), how much of it each trace used (the Traces table's <em>Limit used</em> column), when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save.</p>
+        <p>It reads only files those tools already write on your machine:</p>
+        <ul style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.8">
+          <li><strong style="color:var(--fg)">Codex</strong>: the <code style={codeStyle}>rate_limits</code> on each turn in <code style={codeStyle}>~/.codex/sessions/…/rollout-*.jsonl</code>. Exact, per turn.</li>
+          <li><strong style="color:var(--fg)">Claude Code</strong>: the usage reading Claude Code caches for itself in <code style={codeStyle}>~/.claude.json</code> (only its <code style={codeStyle}>cachedUsageUtilization</code> and your account's id, which is hashed before it's stored), plus the limit-refusal records in its session logs. The cached reading updates only when Claude Code refreshes it, which can be days apart, so Claude figures are marked ≈ and show how old they are. To refresh it, run <code style={codeStyle}>/usage</code> in Claude Code; TraceRoost picks up the new reading within 30 seconds.</li>
+        </ul>
+        <p style="font-size:12px;color:var(--muted)">No credential or token is ever read, no network call is made, and none of this leaves your machine. Copilot, Cursor and OpenCode don't record plan limits locally, so nothing about limits appears for them. If you don't see plan limits at all, you haven't used Claude Code or Codex on a subscription plan since installing TraceRoost, or you're running in Docker, which can't see these files.</p>
+
         <h4 style={subHeadStyle}>Why TraceRoost costs look higher than your subscription</h4>
         <p>TraceRoost calculates every trace's cost using the published <strong>API metered rates</strong> — the per-token prices a developer pays when calling the Anthropic, OpenAI, or GitHub Copilot APIs directly. These are real public rates, not estimates.</p>
         <p>If you use Claude Code on a <strong>Claude Pro or Max plan</strong>, or Copilot on a subscription plan, the cost TraceRoost shows is the <em>API-equivalent value</em> of the compute you consumed — not what appears on your credit card. Subscription plans bundle a large monthly compute allowance at a flat rate that works out to roughly <strong>15–30× cheaper per token</strong> than paying metered API rates with the same dollar amount.</p>
@@ -1023,6 +1032,10 @@ Before any task: call get_recent_sessions (recent work + cost) and get_workspace
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_instruction_suggestions</code></dt>
             <dd class="glossary-def" style="display:block">Returns pending Advisor suggestions for improving the agent instruction file (CLAUDE.md, AGENTS.md, etc.) for the specified workspace — the same ready-to-paste text shown in the Advisor tab's Instructions File section. Use at the start of a trace to check for improvements before beginning work. Requires <code style={codeStyle}>workspace</code> (absolute path) — cross-workspace suggestions aren't meaningful.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term"><code style={codeStyle}>get_plan_limits</code></dt>
+            <dd class="glossary-def" style="display:block">How full the Claude Pro/Max and ChatGPT plan windows (5-hour and weekly) are right now, when each resets, and recent limit hits (see <a href="#help-plan-limits">Plan limits</a>). An agent can call this before a large task to check it has headroom. <code style={codeStyle}>get_recent_sessions</code> also includes each trace's <code style={codeStyle}>limitUsed</code> when there is one.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>check_automation_triggers</code></dt>

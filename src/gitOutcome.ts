@@ -448,30 +448,81 @@ function summarize(overall: FileOutcome, files: Record<string, FileOutcome>, tru
   }
 }
 
+interface FileRepoGroup {
+  root: string
+  trunkRef: string | null
+  files: Array<{ absPath: string; relPath: string }>
+}
+
+/** Groups `filesChanged` by the repo each one actually lives in.
+ *
+ *  With a `workspace` (the common case — a session that ran with one cwd), every file is
+ *  resolved against that single root, exactly as before this function existed: one `findRepoRoot`
+ *  call, one trunk lookup, files outside it dropped. Returns at most one group.
+ *
+ *  Without one — a session whose `filesChanged` spans more than one repo has no single cwd to
+ *  report, so `workspace` comes back `''` (see spanSummarizer.ts) — each file's own containing
+ *  repo is discovered independently (`findRepoRoot` from that file's own directory) and grouped by
+ *  it, so a multi-repo session still gets classified instead of being dropped outright just
+ *  because there's no one shared root to hang it on. A file with no discoverable repo at all
+ *  (moved, deleted along with its directory, or genuinely outside git) is silently excluded, the
+ *  same as "outside the repo" already is in the single-workspace case. */
+async function resolveFileRepoGroups(
+  workspace: string, filesChanged: string[], cache?: OutcomeRepoCache,
+): Promise<FileRepoGroup[]> {
+  if (workspace) {
+    if (!fs.existsSync(workspace)) return []
+    const root = cache ? await cache.root(workspace) : await findRepoRoot(workspace)
+    if (!root) return []
+    const files = filesChanged
+      .map((absPath): [string, string | null] => [absPath, relativeToRoot(root, absPath)])
+      .filter((pair): pair is [string, string] => pair[1] !== null)
+      .map(([absPath, relPath]) => ({ absPath, relPath }))
+    if (files.length === 0) return []
+    const trunkRef = cache ? await cache.trunkRef(root) : await resolveTrunkRef(root)
+    return [{ root, trunkRef, files }]
+  }
+
+  const withRoots = await Promise.all(
+    filesChanged.map(async absPath => ({
+      absPath,
+      root: cache ? await cache.root(path.dirname(absPath)) : await findRepoRoot(path.dirname(absPath)),
+    })),
+  )
+  const byRoot = new Map<string, string[]>()
+  for (const { absPath, root } of withRoots) {
+    if (!root) continue
+    const list = byRoot.get(root)
+    if (list) list.push(absPath)
+    else byRoot.set(root, [absPath])
+  }
+
+  const groups: FileRepoGroup[] = []
+  for (const [root, absPaths] of byRoot) {
+    const files = absPaths
+      .map((absPath): [string, string | null] => [absPath, relativeToRoot(root, absPath)])
+      .filter((pair): pair is [string, string] => pair[1] !== null)
+      .map(([absPath, relPath]) => ({ absPath, relPath }))
+    if (files.length === 0) continue
+    const trunkRef = cache ? await cache.trunkRef(root) : await resolveTrunkRef(root)
+    groups.push({ root, trunkRef, files })
+  }
+  return groups
+}
+
 /**
  * Returns null (rather than an "ambiguous" result) when there's nothing meaningful to classify —
- * no workspace, no changed files, the workspace path doesn't exist, it isn't a git repo at all, or
- * every changed file falls outside the repo root. Callers should treat null as "not applicable,"
- * distinct from a computed-but-inconclusive result.
+ * no changed files, no discoverable repo for any of them, or every changed file falls outside the
+ * repo(s) it's in. Callers should treat null as "not applicable," distinct from a
+ * computed-but-inconclusive result.
  */
 export async function classifySessionOutcome(workspace: string, filesChanged: string[], cache?: OutcomeRepoCache): Promise<GitOutcome | null> {
-  if (!workspace || filesChanged.length === 0) return null
-  if (!fs.existsSync(workspace)) return null
+  if (filesChanged.length === 0) return null
 
-  const root = cache ? await cache.root(workspace) : await findRepoRoot(workspace)
-  if (!root) return null
+  const groups = await resolveFileRepoGroups(workspace, filesChanged, cache)
+  if (groups.length === 0) return null
 
-  // Files outside the repo (global settings, cross-project memory notes, etc. — a session's
-  // filesChanged isn't scoped to the repo it ran in) have no git status to speak of. Drop them
-  // before classifying rather than counting them as 'ambiguous': that outranks 'merged'/'committed'
-  // in OUTCOME_PRIORITY, so a single unrelated housekeeping edit would otherwise drag an entire
-  // cleanly-merged session's verdict down to ambiguous.
-  const inRepo = filesChanged
-    .map((absPath): [string, string | null] => [absPath, relativeToRoot(root, absPath)])
-    .filter((pair): pair is [string, string] => pair[1] !== null)
-  if (inRepo.length === 0) return null
-
-  const trunkRef = cache ? await cache.trunkRef(root) : await resolveTrunkRef(root)
+  const allFiles = groups.flatMap(g => g.files.map(f => ({ ...f, root: g.root, trunkRef: g.trunkRef })))
 
   // Each file's classification is independent — run them concurrently rather than
   // one at a time. This is the dominant cost of the whole function (each file spawns
@@ -483,8 +534,8 @@ export async function classifySessionOutcome(workspace: string, filesChanged: st
   let files: Record<string, FileOutcome>
   try {
     const entries = await Promise.all(
-      inRepo.slice(0, MAX_FILES).map(async ([absPath, rel]): Promise<[string, FileOutcome]> =>
-        [absPath, await classifyFile(root, rel, trunkRef)]
+      allFiles.slice(0, MAX_FILES).map(async ({ absPath, relPath, root, trunkRef }): Promise<[string, FileOutcome]> =>
+        [absPath, await classifyFile(root, relPath, trunkRef)]
       )
     )
     files = Object.fromEntries(entries)
@@ -494,6 +545,10 @@ export async function classifySessionOutcome(workspace: string, filesChanged: st
 
   const values = Object.values(files)
   const overall = OUTCOME_PRIORITY.find(p => values.includes(p)) ?? 'ambiguous'
+  // A multi-repo result has no single trunk to name in the summary — summarize() falls back to
+  // the generic "the trunk branch" phrasing (trunkDisplayName(null)) rather than picking one of
+  // several arbitrarily.
+  const trunkRef = groups.length === 1 ? groups[0].trunkRef : null
 
   return { overall, files, reason: summarize(overall, files, trunkRef) }
 }

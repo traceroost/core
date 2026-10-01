@@ -7,7 +7,7 @@
 [![CI](https://github.com/traceroost/core/actions/workflows/ci.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
 
-![TraceRoost dashboard showing OTEL traces, live run monitoring, and agent observability charts](media/demo.gif)
+![TraceRoost dashboard showing OTEL traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.0bf8a13d8bf3.gif)
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. Nothing leaves your machine.
 
@@ -83,6 +83,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - **One-shot / Retry Rate** — Tracks what fraction of edited files reached their final state in a single edit pass vs. needed retries, per trace (Files sub-tab) and aggregated per-agent in Analytics — a proxy for correction effort
 - **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, and top tools for Copilot, Claude, and Codex), estimated cost with a daily total overlay, token usage per trace, and context growth
 - **Advisor** — Project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Select a specific project from the filter for tailored suggestions; all-projects view surfaces only universal patterns.
+- **Plan Limits** — For Claude Pro/Max and ChatGPT-plan users: how full your 5-hour and weekly windows are, how much of them each trace used, when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save — live in the sidebar, charted in Analytics, and as a Traces column. Read only from files Claude Code and Codex already write (no credentials, no network); Copilot, Cursor and OpenCode don't record plan limits, so nothing appears for them
 - **Cost Estimation** — Estimates trace cost for Copilot, Claude Code, and Codex (all token-based), broken down by model in a day-grouped table
 - **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and sixteen signals with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for turns, errors, active time, repeat tool calls, and estimated daily cost — per-agent or shared

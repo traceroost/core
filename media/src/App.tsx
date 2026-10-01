@@ -33,6 +33,10 @@ import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
+import { planUsage, type PlanUsageSnapshot } from './planUsage'
+
+/** The REPO filter's empty state, shown as its placeholder and first list entry. */
+const REPO_ALL = 'All'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -547,18 +551,22 @@ export function App() {
     // GIT_OUTCOME_FLUSH_MS window instead; any other message flushes them first, so ordering
     // against gitOutcomeDeferred/update is unchanged.
     let pendingOutcomes: Record<string, GitOutcome | null> | null = null
+    const settledOutcomeIds = new Set<string>()
     const flushOutcomes = () => {
       const pending = pendingOutcomes
       if (!pending) return
       pendingOutcomes = null
       gitOutcomes.value = { ...gitOutcomes.value, ...pending }
-      for (const id in pending) {
+      for (const id of settledOutcomeIds) {
         gitOutcomeRequestSettled(id)
         if (deferredGitOutcomeSessionIds.has(id)) deferredGitOutcomeSessionIds.delete(id)
       }
+      settledOutcomeIds.clear()
     }
     const handler = (e: MessageEvent) => {
-      if (pendingOutcomes && (e.data as { type?: unknown } | null)?.type !== 'gitOutcome') flushOutcomes()
+      const incomingType = (e.data as { type?: unknown } | null)?.type
+      if (pendingOutcomes && incomingType !== 'gitOutcome' && incomingType !== 'gitOutcomeCache'
+        && incomingType !== 'gitOutcomeCacheBatch') flushOutcomes()
       const msg = e.data as {
         type: string
         summary?: { toolCalls?: Record<string, number> }
@@ -574,6 +582,7 @@ export function App() {
         sessionId?: string
         timeline?: TimelineEntry[]
         outcome?: GitOutcome | null
+        outcomes?: Record<string, GitOutcome>
         workspace?: string
         name?: string | null
         hash?: string | null
@@ -595,6 +604,7 @@ export function App() {
         results?: OtelReconfigureResult
         commands?: string[]
         entries?: ActionLogEntry[]
+        snapshot?: PlanUsageSnapshot
       }
       // Org panel (TraceRoost Pro) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
@@ -664,23 +674,51 @@ export function App() {
         }
       } else if (msg.type === 'sessionDetail' && msg.sessionId) {
         sessionTimelines.value = { ...sessionTimelines.value, [msg.sessionId]: msg.timeline ?? [] }
+      } else if (msg.type === 'gitOutcomeCache' && msg.sessionId) {
+        if (!pendingOutcomes) {
+          pendingOutcomes = {}
+          setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
+        }
+        pendingOutcomes[msg.sessionId] = msg.outcome ?? null
+      } else if (msg.type === 'gitOutcomeCacheBatch' && msg.outcomes) {
+        if (!pendingOutcomes) {
+          pendingOutcomes = {}
+          setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
+        }
+        const current = gitOutcomes.peek()
+        for (const [id, outcome] of Object.entries(msg.outcomes)) {
+          if (current[id] === undefined && pendingOutcomes[id] === undefined) pendingOutcomes[id] = outcome
+        }
       } else if (msg.type === 'gitOutcome' && msg.sessionId) {
         if (!pendingOutcomes) {
           pendingOutcomes = {}
           setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
         }
         pendingOutcomes[msg.sessionId] = msg.outcome ?? null
+        settledOutcomeIds.add(msg.sessionId)
       } else if (msg.type === 'gitOutcomeDeferred' && msg.sessionId) {
         // Session is still inside its active-session grace window — no git classification ran or
         // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
-        // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). It stays absent from
-        // gitOutcomes, so no outcome badge renders for it either.
+        // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). A provisional stored
+        // value, if present, stays visible until the grace revisit supplies the fresh result.
         gitOutcomeRequestSettled(msg.sessionId)
         deferredGitOutcomeSessionIds.add(msg.sessionId)
       } else if (msg.type === 'runningGitCommands' && Array.isArray(msg.commands)) {
         runningGitCommands.value = msg.commands
       } else if (msg.type === 'actionLog' && Array.isArray(msg.entries)) {
         actionLog.value = msg.entries
+      } else if (msg.type === 'planUsage' && msg.snapshot) {
+        const first = planUsage.peek() === null
+        planUsage.value = msg.snapshot
+        // Plan-limit alerts read this snapshot, which arrives on its own message. The first one
+        // only primes checkAlerts' fired set, the same as the initial update does.
+        setTimeout(() => {
+          const alertNotifications = checkAlerts()
+          if (first) return
+          for (const a of alertNotifications) {
+            vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
+          }
+        }, 0)
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
         const entry = msg.name ? { name: msg.name, hash: msg.hash ?? null, githubUrl: msg.githubUrl ?? null } : null
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
@@ -761,7 +799,7 @@ export function App() {
   return (
     <>
       <div class="tabs">
-        <span class="tr-wordmark" title="TraceRoost">
+        <span class="tr-wordmark">
           <Wordmark size={15} />
         </span>
         <button
@@ -1466,13 +1504,18 @@ function OutcomeFilterBar() {
             type="text"
             list="tr-repo-options"
             class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
-            placeholder="Name or ID"
+            placeholder="All"
             value={workspaceFilter.value}
-            onInput={e => { workspaceFilter.value = (e.target as HTMLInputElement).value }}
-            title="Matches a repo's name or its hash. Pick one from the list, or type to narrow further."
+            onInput={e => {
+              // "All" from the list (or typed) means no repo filter, not a repo named "All".
+              const v = (e.target as HTMLInputElement).value
+              workspaceFilter.value = v.trim().toLowerCase() === REPO_ALL.toLowerCase() ? '' : v
+            }}
+            title="All repos by default. Pick one from the list, or type a repo's name or hash to narrow."
             style="flex:none;width:110px"
           />
           <datalist id="tr-repo-options">
+            <option value={REPO_ALL} />
             {repoOptions.map(name => <option key={name} value={name} />)}
           </datalist>
         </span>

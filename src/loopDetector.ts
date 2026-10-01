@@ -1060,6 +1060,7 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
     examples: reread.slice(0, 3).map(([path, n]) => `${path.split('/').pop() || path} ×${n}`),
     patternName: PATTERN_NAMES.file_reread,
     action: LOOP_SIGNAL_ACTIONS.file_reread,
+    ...(wasteUsd > 0 ? { wasteUsd } : {}),
   })
 }
 
@@ -1125,6 +1126,7 @@ export function detectCacheMiss(session: SessionSummaryCard, signals: LoopSignal
     examples: [`${totalWasted.toLocaleString()} cache-write tokens across ${misses.length} call(s)`],
     patternName: PATTERN_NAMES.cache_miss,
     action: LOOP_SIGNAL_ACTIONS.cache_miss,
+    ...(wasteUsd > 0 ? { wasteUsd } : {}),
   })
 }
 

@@ -57,6 +57,9 @@ export interface LoopSignal {
   examples: string[]
   patternName: string
   action: string
+  /** Estimated avoidable cost in USD, for the signals that can price it (file_reread,
+   *  cache_miss). The Advisor converts it to plan-limit points for subscription users. */
+  wasteUsd?: number
 }
 
 // Mirrors src/gitOutcome.ts. Fetched lazily per session (see sessionTimelines in state.ts for the

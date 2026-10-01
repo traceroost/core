@@ -99,3 +99,35 @@
 .bar-value { font-size: 9px; color: var(--fg); margin-bottom: 2px; }
 .bar-chart-container { padding: 8px 0 20px; }
 .axis-label { font-size: 11px; color: var(--muted); text-align: center; margin-top: 8px; }
+
+/* ── Section nav rail (SectionNav.tsx) — left jump links on Analytics / Advisor, mirroring cloud's
+   .analytics-nav-rail. Collapses to a wrapped row when the panel is narrow. */
+.section-nav-shell { display: flex; align-items: flex-start; gap: 20px; }
+.section-nav-rail {
+  position: sticky;
+  top: 8px;
+  display: flex;
+  flex: 0 0 150px;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 8px;
+}
+.section-nav-rail button {
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 10px;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.section-nav-rail button:hover { background: var(--hover); color: var(--fg); }
+.section-nav-rail button.active { background: var(--hover); color: var(--fg); font-weight: 600; }
+.section-nav-content { flex: 1; min-width: 0; }
+.section-nav-content [id] { scroll-margin-top: 8px; }
+@media (max-width: 640px) {
+  .section-nav-shell { flex-direction: column; align-items: stretch; gap: 8px; }
+  .section-nav-rail { position: static; flex: none; flex-direction: row; flex-wrap: wrap; gap: 4px; padding-top: 0; }
+}

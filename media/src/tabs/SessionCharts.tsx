@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { gitOutcomes, focusedSessionId, activeTab, COLORS, goToHelp } from '../state'
+import { focusedSessionId, activeTab, COLORS, goToHelp } from '../state'
 import { getAgentColor, getAgentSourceLabel, formatCompact } from '../utils'
 import { dayKeyUtc } from '../sessionMetrics'
 import type { SessionSummaryCard, GitOutcome, FileOutcome } from '../types'
 import { OUTCOME_META } from './Sessions'
+import { TREND_OUTCOMES, TREND_COLOR, niceMax, type TrendBin } from './outcomeTrend'
 
 export function TurnsLink() {
   return (
@@ -491,48 +492,131 @@ export function buildOutcomeTokenBuckets(
     .map(o => ({ outcome: o, medianTokens: median(tokensByOutcome[o]!), count: tokensByOutcome[o]!.length }))
 }
 
-export function OutcomeTokenChart({ sessions }: { sessions: SessionSummaryCard[] }) {
-  const buckets = buildOutcomeTokenBuckets(sessions, gitOutcomes.value)
+// ── Outcome & token spend over time ────────────────────────────────────────────
+// The cloud-first design (analytics/outcome-trend-chart.tsx in the cloud repo), ported to core's
+// local git-outcome model (outcomeTrend.ts) and superseding the single median-bar chart above
+// (buildOutcomeTokenBuckets is still used for the per-outcome median in Analytics.tsx's table).
+// Used to carry a second "traces per day" panel beneath this one; dropped as not pulling its
+// weight once tokens already has the story, and the hover tooltip still surfaces the per-outcome
+// trace count for anyone who wants it.
 
-  if (buckets.length === 0) {
+const TREND_W = 600
+const TREND_PAD = { top: 14, right: 12, bottom: 16, left: 44 }
+const TREND_TOKENS_H = 100
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function shortDate(day: string): string {
+  return `${MONTHS[Number(day.slice(5, 7)) - 1]} ${Number(day.slice(8, 10))}`
+}
+function binLabel(bin: TrendBin, unit: 'day' | 'week'): string {
+  return unit === 'day' || bin.start === bin.end ? shortDate(bin.start) : `${shortDate(bin.start)} – ${shortDate(bin.end)}`
+}
+
+/** A plan limit hit, marked above the bin it fell in (see media/src/planUsage.ts). */
+export interface TrendHitMarker { t: number; label: string }
+
+/** Index of the bin a timestamp falls in (bins are UTC days `start`..`end` inclusive), or -1. */
+function binIndexOf(bins: TrendBin[], t: number): number {
+  const day = new Date(t).toISOString().slice(0, 10)
+  return bins.findIndex(b => b.start <= day && day <= b.end)
+}
+
+export function OutcomeTrendChart({ bins, unit, hitMarkers = [] }: { bins: TrendBin[]; unit: 'day' | 'week'; hitMarkers?: TrendHitMarker[] }) {
+  const [hover, setHover] = useState<number | null>(null)
+
+  if (bins.length === 0) {
     return <div class="empty-state" style="font-size:11px">No traces with a resolved outcome yet — merged, committed, or uncommitted, per local git.</div>
   }
 
-  const W = 600, H = 150
-  const pad = { top: 14, right: 16, bottom: 22, left: 44 }
-  const chartW = W - pad.left - pad.right, chartH = H - pad.top - pad.bottom
-  const maxTokens = Math.max(...buckets.map(b => b.medianTokens), 1)
-  const slotW = chartW / buckets.length
-  const barW = Math.min(70, slotW * 0.5)
+  const chartW = TREND_W - TREND_PAD.left - TREND_PAD.right
+  const slotW = chartW / bins.length
+  const barW = Math.max(1, Math.min(20, slotW * 0.7))
+  const H = TREND_PAD.top + TREND_TOKENS_H + TREND_PAD.bottom
+
+  const tokenScale = niceMax(Math.max(...bins.map(b => b.total.tokens), 0))
+
+  const labelEvery = Math.max(1, Math.ceil(bins.length / Math.max(1, Math.floor(chartW / 70))))
+  const last = bins.length - 1
+
+  function stack(bin: TrendBin, i: number, top: number, h: number, scaleMax: number) {
+    const x = TREND_PAD.left + (i + 0.5) * slotW - barW / 2
+    let y = top + h
+    const present = TREND_OUTCOMES.filter(o => bin.byOutcome[o].tokens > 0)
+    return present.map((o, si) => {
+      const segH = (bin.byOutcome[o].tokens / scaleMax) * h
+      y -= segH
+      const drawH = Math.max(1, segH - (si > 0 ? 1 : 0))
+      return <rect key={o} x={x} y={y} width={barW} height={drawH} fill={TREND_COLOR[o]} opacity={hover === i ? 1 : 0.85} />
+    })
+  }
+
+  function axis(top: number, h: number, scale: { max: number; step: number }) {
+    const ticks: number[] = []
+    for (let v = 0; v <= scale.max + 1e-9; v += scale.step) ticks.push(v)
+    return ticks.map(v => {
+      const y = top + h - (v / scale.max) * h
+      return (
+        <g key={v}>
+          <line x1={TREND_PAD.left} y1={y} x2={TREND_W - TREND_PAD.right} y2={y} stroke="var(--vscode-panel-border,#333)" stroke-width="0.5" />
+          <text x={TREND_PAD.left - 6} y={y} text-anchor="end" dominant-baseline="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">{formatCompact(v)}</text>
+        </g>
+      )
+    })
+  }
+
+  const hovered = hover !== null ? bins[hover] : null
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style="width:100%;height:150px;display:block">
-      {[0, 1, 2, 3].map(i => {
-        const y = pad.top + chartH * i / 3
-        const val = maxTokens * (3 - i) / 3
-        return (
-          <g key={i}>
-            <line x1={pad.left} y1={y} x2={pad.left + chartW} y2={y} stroke="var(--vscode-panel-border,#333)" stroke-width="0.5" />
-            {val > 0 && <text x={pad.left - 6} y={y} text-anchor="end" dominant-baseline="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">{formatCompact(val)}</text>}
+    <div style="position:relative">
+      <svg viewBox={`0 0 ${TREND_W} ${H}`} style="width:100%;height:auto;display:block"
+        role="img" aria-label={`Tokens per ${unit}, stacked by outcome.`}
+        onMouseLeave={() => setHover(null)}
+      >
+        <text x={TREND_PAD.left} y={TREND_PAD.top - 4} font-size="9" fill="var(--vscode-descriptionForeground,#888)">Tokens (in + out) per {unit}</text>
+        {axis(TREND_PAD.top, TREND_TOKENS_H, tokenScale)}
+
+        {[...new Set(hitMarkers.map(m => binIndexOf(bins, m.t)).filter(i => i >= 0))].map(i => {
+          const cx = TREND_PAD.left + (i + 0.5) * slotW
+          return <path key={`hit${i}`} d={`M${cx - 4},${TREND_PAD.top - 10} L${cx + 4},${TREND_PAD.top - 10} L${cx},${TREND_PAD.top - 4} Z`} fill="var(--vscode-charts-red,#f44747)" />
+        })}
+        {bins.map((b, i) => (
+          <g key={b.start}
+            onMouseEnter={() => setHover(i)}
+            style={hover === i ? 'filter:brightness(1)' : undefined}
+          >
+            {hover === i && (
+              <rect x={TREND_PAD.left + i * slotW} y={TREND_PAD.top} width={slotW}
+                height={TREND_TOKENS_H} fill="var(--foreground)" opacity="0.05" />
+            )}
+            {stack(b, i, TREND_PAD.top, TREND_TOKENS_H, tokenScale.max)}
+            <rect x={TREND_PAD.left + i * slotW} y={TREND_PAD.top} width={slotW}
+              height={TREND_TOKENS_H} fill="transparent" />
+            {(i % labelEvery === 0 || i === last) && (
+              <text x={Math.min(TREND_PAD.left + (i + 0.5) * slotW, TREND_W - 20)} y={TREND_PAD.top + TREND_TOKENS_H + 12}
+                text-anchor="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">{shortDate(b.start)}</text>
+            )}
           </g>
-        )
-      })}
-      {buckets.map((b, i) => {
-        const meta = OUTCOME_META[b.outcome]!
-        const x = pad.left + i * slotW + (slotW - barW) / 2
-        const barH = Math.max((b.medianTokens / maxTokens) * chartH, 1)
-        const y = pad.top + chartH - barH
-        return (
-          <g key={b.outcome}>
-            <rect x={x} y={y} width={barW} height={barH} fill={meta.color} rx="2" />
-            <text x={x + barW / 2} y={y - 4} text-anchor="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">
-              {formatCompact(b.medianTokens)} · {b.count}
-            </text>
-            <text x={x + barW / 2} y={pad.top + chartH + 13} text-anchor="middle" font-size="10" fill={meta.color}>{meta.label}</text>
-          </g>
-        )
-      })}
-    </svg>
+        ))}
+      </svg>
+
+      {hovered && (
+        <div style={`position:absolute;top:${TREND_PAD.top}px;${hover !== null && hover / bins.length > 0.6 ? 'right' : 'left'}:8px;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--vscode-panel-border,#333);border-radius:4px;padding:8px 10px;font-size:11px;line-height:1.7;pointer-events:none;z-index:10;white-space:nowrap`}>
+          <div style="font-weight:600;margin-bottom:2px">{binLabel(hovered, unit)}</div>
+          {TREND_OUTCOMES.filter(o => hovered.byOutcome[o].sessions > 0).slice().reverse().map(o => (
+            <div key={o}>
+              <span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${TREND_COLOR[o]};margin-right:6px`} />
+              {OUTCOME_META[o]!.label}: <strong>{formatCompact(hovered.byOutcome[o].tokens)}</strong> tokens, {hovered.byOutcome[o].sessions} trace{hovered.byOutcome[o].sessions === 1 ? '' : 's'}
+            </div>
+          ))}
+          <div style="margin-top:4px;padding-top:4px;border-top:1px solid var(--vscode-panel-border,#333);color:var(--muted)">
+            Total: <strong style="color:var(--foreground)">{formatCompact(hovered.total.tokens)}</strong> tokens, {hovered.total.sessions} trace{hovered.total.sessions === 1 ? '' : 's'}
+          </div>
+          {hitMarkers.filter(m => binIndexOf(bins, m.t) === hover).map(m => (
+            <div key={m.t} style="color:var(--vscode-charts-red,#f44747)">{m.label}</div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

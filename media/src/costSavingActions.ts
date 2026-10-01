@@ -12,6 +12,7 @@
  */
 
 import type { SessionSummaryCard, LoopSignalType } from './types'
+import { providerOfSource, weeklyPointsFor, type PlanUsageSnapshot } from './planUsage'
 
 export type CostSavingActionKind = 'cache_rate' | 'loop_signal' | 'hot_file'
 
@@ -29,6 +30,11 @@ export interface CostSavingAction {
   /** Only set for kind 'loop_signal' — worst severity seen across occurrences, same escalation
    *  rule as Sessions.tsx's SignalsCell (any 'critical' occurrence wins). */
   loopSignalSeverity?: 'warning' | 'critical'
+  /** Estimated avoidable cost across the sessions in view, where the signal can price it. */
+  estimatedUsd?: number
+  /** The same waste in points of the weekly plan limit, summed over subscription sessions only
+   *  (see media/src/planUsage.ts). Set only when there's enough history to convert. */
+  limitPts?: number
 }
 
 const CACHE_RATE_LOW_THRESHOLD = 0.6
@@ -54,23 +60,30 @@ function aggregateCacheHitRate(sessions: SessionSummaryCard[]): CostSavingAction
   }
 }
 
-function loopSignalActions(sessions: SessionSummaryCard[]): CostSavingAction[] {
-  const byType = new Map<LoopSignalType, { count: number; sessionIds: Set<string>; patternName: string; action: string; severity: 'warning' | 'critical' }>()
+function loopSignalActions(sessions: SessionSummaryCard[], plan: PlanUsageSnapshot | null): CostSavingAction[] {
+  const byType = new Map<LoopSignalType, { count: number; sessionIds: Set<string>; patternName: string; action: string; severity: 'warning' | 'critical'; usd: number; pts: number }>()
   for (const s of sessions) {
     const seenTypes = new Set<LoopSignalType>()
+    const provider = providerOfSource(s.source)
+    const onPlan = !!provider && !!plan?.sessions[s.sessionId]
     for (const signal of s.loopSignals ?? []) {
       if (seenTypes.has(signal.type)) continue
       seenTypes.add(signal.type)
-      const entry = byType.get(signal.type) ?? { count: 0, sessionIds: new Set<string>(), patternName: signal.patternName, action: signal.action, severity: 'warning' as const }
+      const entry = byType.get(signal.type) ?? { count: 0, sessionIds: new Set<string>(), patternName: signal.patternName, action: signal.action, severity: 'warning' as const, usd: 0, pts: 0 }
       if (signal.severity === 'critical') entry.severity = 'critical'
       entry.count++
       entry.sessionIds.add(s.sessionId)
+      if (signal.wasteUsd && signal.wasteUsd > 0) {
+        entry.usd += signal.wasteUsd
+        const pts = onPlan && provider ? weeklyPointsFor(plan, provider, signal.wasteUsd) : undefined
+        if (pts !== undefined) entry.pts += pts
+      }
       byType.set(signal.type, entry)
     }
   }
 
   const results: CostSavingAction[] = []
-  for (const [type, { count, sessionIds, patternName, action, severity }] of byType) {
+  for (const [type, { count, sessionIds, patternName, action, severity, usd, pts }] of byType) {
     const pct = sessionIds.size / sessions.length
     results.push({
       id: `loop_signal:${type}`,
@@ -82,6 +95,8 @@ function loopSignalActions(sessions: SessionSummaryCard[]): CostSavingAction[] {
       priority: pct >= 0.2 ? 'high' : pct >= 0.08 ? 'medium' : 'low',
       loopSignalType: type,
       loopSignalSeverity: severity,
+      ...(usd > 0 ? { estimatedUsd: usd } : {}),
+      ...(pts > 0 ? { limitPts: pts } : {}),
     })
   }
   return results.sort((a, b) => b.affectedSessions - a.affectedSessions)
@@ -135,17 +150,22 @@ const PRIORITY_WEIGHT: Record<CostSavingAction['priority'], number> = { high: 2,
 export function getCostSavingActions(
   sessions: SessionSummaryCard[],
   existingInstructionText: string,
+  plan: PlanUsageSnapshot | null = null,
 ): CostSavingAction[] {
   if (sessions.length === 0) return []
 
   const cacheAction = aggregateCacheHitRate(sessions)
   const hotFile = hotFileAction(sessions, existingInstructionText)
-  const rest = [...loopSignalActions(sessions), ...(hotFile ? [hotFile] : [])]
+  const rest = [...loopSignalActions(sessions, plan), ...(hotFile ? [hotFile] : [])]
     .sort((a, b) => {
       const weightDiff = PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority]
       if (weightDiff !== 0) return weightDiff
       return b.affectedSessions - a.affectedSessions
     })
 
-  return cacheAction ? [cacheAction, ...rest] : rest
+  const ordered = cacheAction ? [cacheAction, ...rest] : rest
+  // Subscription users pay in plan-limit points, not dollars: when any action can be measured in
+  // them, those lead, largest first; the rest keep their order after them.
+  const priced = ordered.filter(a => a.limitPts !== undefined).sort((a, b) => b.limitPts! - a.limitPts!)
+  return priced.length > 0 ? [...priced, ...ordered.filter(a => a.limitPts === undefined)] : ordered
 }

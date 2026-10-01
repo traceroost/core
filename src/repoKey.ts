@@ -39,7 +39,7 @@ import { promisify } from 'util'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { recordAction } from '../../actionLog'
+import { recordAction } from './actionLog'
 
 const execFileAsync = promisify(execFile)
 

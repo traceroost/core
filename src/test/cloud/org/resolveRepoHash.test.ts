@@ -4,7 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import { resolveRepoHash } from '../../../cloud/org/resolveRepoHash'
-import { deriveRepoKey, repoHash } from '../../../cloud/forward/repoKey'
+import { deriveRepoKey, repoHash } from '../../../repoKey'
 import { setCredentialStore } from '../../../cloud/org/credentials'
 
 function makeRepo(dir: string): void {

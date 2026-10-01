@@ -98,6 +98,7 @@ Releases are core until TraceRoost Pro launches — see
 | `src/summarizers/` | Per-agent span → trace summarizers |
 | `src/otlpCollector.ts` | OTLP/HTTP ingestion for the VS Code extension |
 | `src/attribution/`, `src/turnover/` | Free, local commit-attribution and turnover engines (MIT) |
+| `src/repoKey.ts` | Repository-key derivation — the repo hash shown in the Traces table's Repo (ID) column, and the HMAC primitives the cloud client builds on (MIT) |
 | `standalone/local/` | Free, local CLI analysis — `find`, `trace`, `patterns`, `cohort`, `advise` (MIT) |
 | `src/cloud/`, `media/src/cloud/`, `standalone/cloud/` | Org/cloud client (link + upload) — BSL-licensed, see [NOTICE.md](NOTICE.md). Local code never imports from these directories |
 

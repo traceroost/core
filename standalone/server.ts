@@ -22,6 +22,7 @@ import { computeOneShotStats } from '../src/oneShotRate'
 import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from '../src/gitOutcome'
 import { onActionLogChanged, getActionLogHistory } from '../src/actionLog'
 import { ReconciliationService, type ReconcileResult } from '../src/reconcile/reconciliationService'
+import { PlanUsageService, getPlanUsageService, setPlanUsageService } from '../src/planUsage/planUsageService'
 import { startBackgroundReconciliation, type BackgroundWatcher } from '../src/reconcile/backgroundWatcher'
 import { detectSessionRiskSignals } from '../src/sessionRiskSignals'
 import { temperLoopSignalSeverity } from '../src/loopDetector'
@@ -261,16 +262,29 @@ async function loadOrComputeGitOutcome(sessionId: string, workspace: string, fil
   }
 }
 
+let pendingGitOutcomeResults = new Map<string, ReconcileResult>()
+let pendingGitOutcomeFlush: ReturnType<typeof setTimeout> | undefined
+
 /** Pushes an unsolicited reconciliation result to every open tab, exactly like DashboardPanel's
  *  pushGitOutcomeResult — the background watcher calls this via the service subscription below,
  *  so "leave Traces open through multiple commits and a merge" converges without the tab
  *  re-requesting anything. */
 function pushGitOutcomeResult(r: ReconcileResult): void {
-  const card = buildSessionSummary()?.sessions.find(s => s.sessionId === r.sessionId) ?? null
-  if (!card) return
-  const riskSignals = detectSessionRiskSignals(card, card.workspace, r.outcome)
-  const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], r.outcome)
-  broadcastSse({ type: 'gitOutcome', sessionId: r.sessionId, outcome: r.outcome, riskSignals, temperedLoopSignals, revision: r.revision })
+  pendingGitOutcomeResults.set(r.sessionId, r)
+  if (pendingGitOutcomeFlush) return
+  pendingGitOutcomeFlush = setTimeout(() => {
+    pendingGitOutcomeFlush = undefined
+    const pending = pendingGitOutcomeResults
+    pendingGitOutcomeResults = new Map()
+    const cards = new Map((buildSessionSummary()?.sessions ?? []).map(card => [card.sessionId, card]))
+    for (const result of pending.values()) {
+      const card = cards.get(result.sessionId)
+      if (!card) continue
+      const riskSignals = detectSessionRiskSignals(card, card.workspace, result.outcome)
+      const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], result.outcome)
+      broadcastSse({ type: 'gitOutcome', sessionId: result.sessionId, outcome: result.outcome, riskSignals, temperedLoopSignals, revision: result.revision })
+    }
+  }, 50)
 }
 
 // Repo info, keyed by workspace path. `hash` is repoKey.ts's repoHash — the same hash
@@ -375,9 +389,32 @@ function checkStaleOtelSessions() {
   }
 }
 
+const PLAN_USAGE_RETENTION_DAYS = 90
+
+/** Coalesced flush of outcomes-cache.db after plan-limit data lands — it's otherwise only saved
+ *  at shutdown, and Claude's cached readings can't be re-derived from logs after a crash. */
+let outcomesSaveTimer: ReturnType<typeof setTimeout> | null = null
+function saveOutcomesSoon(): void {
+  planUsageVersion++
+  if (outcomesSaveTimer) return
+  outcomesSaveTimer = setTimeout(() => {
+    outcomesSaveTimer = null
+    try { outcomesDb?.save() } catch { /* next save retries */ }
+  }, 5_000)
+}
+
+/** Claude Code caches its plan-usage reading in ~/.claude.json; a new fetch there is a new
+ *  reading even when no session log changed. Returns true when one was stored. */
+function pollClaudePlanUsage(): boolean {
+  if (!getPlanUsageService()?.pollClaudeCache()) return false
+  saveOutcomesSoon()
+  return true
+}
+
 function runLogScan() {
   const results = logReader.scan()
-  let changed = false
+  let changed = pollClaudePlanUsage()
+  if (getPlanUsageService()?.ingest(results)) saveOutcomesSoon()
   for (const { card } of results) {
     card.oneShotStats = computeOneShotStats(card)
     setLogSession(card)
@@ -436,6 +473,15 @@ async function startLogIngestion() {
   // Live trace reconciliation (staged feature 10) — runs from server lifecycle, not from any
   // particular browser tab being open, so a commit/merge made while the tab is closed is already
   // reconciled by the time it's reopened. See reconciliationService.ts and backgroundWatcher.ts.
+  if (outcomesDb) {
+    // Subscription plan limits (src/planUsage/) share this small database. Readings follow the
+    // same default retention the editor uses; rollups are kept a year.
+    const planUsage = new PlanUsageService(outcomesDb.raw, { log: (m) => console.log(m) })
+    setPlanUsageService(planUsage)
+    planUsage.runRetention(PLAN_USAGE_RETENTION_DAYS)
+    setInterval(() => planUsage.runRetention(PLAN_USAGE_RETENTION_DAYS), 24 * 60 * 60 * 1000).unref()
+    pollClaudePlanUsage()
+  }
   if (outcomesDb) {
     reconciliationService = new ReconciliationService(outcomesDb.raw)
     const unsubscribe = reconciliationService.subscribe(pushGitOutcomeResult)
@@ -551,6 +597,7 @@ async function ingestHistoricalLogs(): Promise<void> {
       // Usually one result; a Claude Code transcript split by a large gap between prompts
       // (see splitClaudeLinesOnPromptGaps) can yield more than one.
       const results = logReader.parseFile(file.filePath, file.agentKey)
+      if (getPlanUsageService()?.ingest(results)) saveOutcomesSoon()
       for (const result of results) {
         result.card.oneShotStats = computeOneShotStats(result.card)
         setLogSession(result.card)
@@ -856,8 +903,38 @@ function computeSidebarPayload(base: ReturnType<typeof sidebarPayloadBase>) {
     costUsd: calcSessionCostUsd(latest),
   } : null
 
-  return { isActive, lastActivityMs: lastMs, sessionCount: base.sessionCount, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens }
+  return { isActive, lastActivityMs: lastMs, sessionCount: base.sessionCount, agentSources, currentSession, burnRate, avgInputTokens, avgOutputTokens, ...planLimitFields(latest, burnRate) }
 }
+
+/** The sidebar's live Plan limit card and compact meter line — absent when there's no plan-limit
+ *  data. Same fields the editor's sidebarPanel.ts sends. */
+function planLimitFields(latest: ReturnType<typeof sidebarPayloadBase>['latest'], burnRate: { costPerHour: number } | null) {
+  const svc = getPlanUsageService()
+  if (!svc) return { planLimit: null, planMeters: [] }
+  try {
+    return { planLimit: svc.liveCard(latest ?? undefined, burnRate) ?? null, planMeters: svc.meters() }
+  } catch {
+    return { planLimit: null, planMeters: [] }
+  }
+}
+
+/** The dashboard's plan-limit snapshot (src/planUsage/), sent as its own `planUsage` message —
+ *  null when there's no service. Rebuilt at most once per data version or Claude poll. */
+let planUsageCache: { key: string; json: string } | null = null
+function planUsageMessage(): string | null {
+  const svc = getPlanUsageService()
+  if (!svc) return null
+  const key = `${dataVersion}|${planUsageVersion}`
+  if (planUsageCache?.key === key) return planUsageCache.json
+  try {
+    const json = JSON.stringify({ type: 'planUsage', snapshot: svc.snapshot(buildSessionSummary()?.sessions ?? []) })
+    planUsageCache = { key, json }
+    return json
+  } catch {
+    return null
+  }
+}
+let planUsageVersion = 0
 
 // Legacy shape kept for data the Preact dashboard still reads
 function computeSidebarData(summary: ReturnType<typeof summarizeSpans>, _allSpans: Span[]) {
@@ -1104,6 +1181,7 @@ function writeSse(data: string): void {
   })
 }
 
+let lastSentPlanUsage: string | null = null
 function pushUpdate() {
   if (pushUpdateTimer) { clearTimeout(pushUpdateTimer); pushUpdateTimer = null }
   lastPushUpdateAt = Date.now()
@@ -1111,6 +1189,8 @@ function pushUpdate() {
   const started = performance.now()
   // Nothing session-shaped changed: still send the live sidebar fields, as every push always has.
   if (!syncSseClients()) writeSse(updateFrame(derivedViews(), sseSync.revision, sseSync.revision, ''))
+  const plan = planUsageMessage()
+  if (plan && plan !== lastSentPlanUsage) { writeSse(plan); lastSentPlanUsage = plan }
   lastPushUpdateCostMs = performance.now() - started
 }
 
@@ -1357,6 +1437,20 @@ function getHtml(): string {
     .sb-model { font-size: 10px; color: var(--vscode-textLink-foreground); margin-bottom: 4px; }
     #sa-sidebar canvas { display: block; width: 100%; height: 80px; }
     .sb-turn-label { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 3px; }
+    .sb-plan-meters { font-size: 10px; color: var(--vscode-descriptionForeground); padding-bottom: 6px; cursor: pointer; }
+    .sb-plan-meters:hover { color: var(--vscode-foreground); }
+    .sb-plan-row { display: flex; align-items: center; gap: 6px; font-size: 10px; margin-top: 3px; }
+    .sb-plan-label { width: 18px; color: var(--vscode-descriptionForeground); }
+    .sb-plan-bar { flex: 1; height: 6px; border-radius: 3px; background: rgba(128,128,128,.25); overflow: hidden; }
+    .sb-plan-fill { height: 100%; background: var(--vscode-charts-blue, #4fc3f7); }
+    .sb-plan-fill.warn { background: var(--vscode-charts-yellow, #f6a623); }
+    .sb-plan-fill.crit { background: var(--vscode-charts-red, #f44747); }
+    .sb-plan-pct { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+    .sb-plan-note { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 4px; line-height: 1.4; }
+    .sb-plan-note.warn { color: var(--vscode-charts-yellow, #f6a623); }
+    .sb-plan-blocked { font-size: 11px; font-weight: 600; color: var(--vscode-charts-red, #f44747); margin-bottom: 2px; }
+    #sb-plan-limit.warn { border-color: var(--vscode-charts-yellow, #f6a623); }
+    #sb-plan-limit.blocked { border-color: var(--vscode-charts-red, #f44747); }
     .sb-burn { font-size: 12px; font-weight: 600; color: var(--vscode-charts-green, #81c784); }
     .sb-counters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; text-align: center; }
     .sb-counter-val { font-size: 16px; font-weight: 700; color: var(--vscode-textLink-foreground); }
@@ -1769,6 +1863,26 @@ function getHtml(): string {
                   data: { type: 'gitOutcome', sessionId: msg.sessionId, outcome: null, riskSignals: [], temperedLoopSignals: null }
                 }));
               });
+          } else if (msg.type === 'getGitOutcomes' && Array.isArray(msg.sessionIds)) {
+            fetch('/api/git-outcomes', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionIds: msg.sessionIds }),
+            })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                window.dispatchEvent(new MessageEvent('message', {
+                  data: { type: 'gitOutcomeCacheBatch', outcomes: data.outcomes || {} }
+                }));
+              })
+              .catch(function(e) {
+                console.warn('[TraceRoost] batched git outcome fetch failed', e);
+                (msg.sessionIds || []).forEach(function(sessionId) {
+                  window.dispatchEvent(new MessageEvent('message', {
+                    data: { type: 'gitOutcome', sessionId: sessionId, outcome: null, riskSignals: [], temperedLoopSignals: null }
+                  }));
+                });
+              });
           } else if (msg.type === 'getRepoHash' && msg.workspace) {
             fetch('/api/repo-hash', {
               method: 'POST',
@@ -1858,6 +1972,7 @@ function getHtml(): string {
         <span style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--vscode-descriptionForeground);font-weight:600">Live &middot; Current Trace Activity</span>
       </div>
       <div style="flex:1;overflow-y:auto;padding:8px 8px 8px;font-family:var(--vscode-font-family);color:var(--vscode-foreground)">
+        <div id="sb-plan-meters" class="sb-plan-meters" style="display:none" title="Plan limits — open Analytics"></div>
         <!-- Status row -->
         <div class="sb-card" style="margin-bottom:6px">
           <div class="sb-row" style="margin-bottom:2px">
@@ -1924,6 +2039,9 @@ function getHtml(): string {
             <div id="sb-burn" class="sb-burn"></div>
             <div id="sb-burn-waiting" class="sb-muted" style="display:none;font-size:10px;font-style:italic">Waiting for data…</div>
           </div>
+
+          <!-- Plan limit (subscription 5-hour / weekly windows) — rendered by sidebarWebview.ts, absent when there's no data -->
+          <div class="sb-card" id="sb-plan-limit" style="display:none"></div>
 
         </div>
 
@@ -2083,6 +2201,8 @@ const uiServer = http.createServer((req, res) => {
     const rev = sseSync.revision
     res.write(`data: ${query.get('rev') === String(rev) ? updateFrame(derivedViews(), rev, rev, '') : fullUpdateFrame()}\n\n`)
     res.write(`data: ${JSON.stringify({ type: 'actionLog', entries: getActionLogHistory() })}\n\n`)
+    const plan = planUsageMessage()
+    if (plan) res.write(`data: ${plan}\n\n`)
     sseClients.push(res)
     if (SSE_CLIENT_ID.test(clientId)) sseClientsById.set(clientId, res)
     req.on('close', () => {
@@ -2395,6 +2515,67 @@ const uiServer = http.createServer((req, res) => {
         res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals, revision }))
       } catch (e) {
         console.warn('[TraceRoost] Malformed /api/git-outcome body:', e)
+        res.writeHead(400); res.end()
+      }
+    })
+    return
+  }
+
+  if (req.method === 'POST' && url === '/api/git-outcomes') {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { sessionIds?: unknown[] }
+        const ids = [...new Set((body.sessionIds ?? []).filter((id): id is string => typeof id === 'string'))].slice(0, 20_000)
+        const requested = new Set(ids)
+        const cards = (buildSessionSummary()?.sessions ?? []).filter(card => requested.has(card.sessionId))
+        const inputs = cards.map(card => ({
+          sessionId: card.sessionId,
+          workspace: card.workspace,
+          filesChanged: card.filesChanged,
+          endTime: card.startTime && card.durationMs
+            ? new Date(Date.parse(card.startTime) + card.durationMs).toISOString()
+            : card.startTime,
+        }))
+        const outcomes = reconciliationService?.getCachedOutcomes(inputs.map(input => input.sessionId)) ?? {}
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ outcomes }))
+
+        // The HTTP reply paints persisted results first. Reconciliation publishes current results
+        // through the existing SSE subscription, sharing one HEAD/trunk snapshot for this batch.
+        setImmediate(() => {
+          void (async () => {
+            if (reconciliationService) {
+              try {
+                const results = await reconciliationService.reconcileMany(inputs)
+                for (const result of results) {
+                  if (result.deferred) broadcastSse({ type: 'gitOutcomeDeferred', sessionId: result.sessionId })
+                }
+              } catch (err) {
+                console.warn('[TraceRoost] batched git-outcome reconciliation failed:', err)
+                await Promise.all(inputs.map(async input => {
+                  try {
+                    const result = await reconciliationService!.reconcile(input)
+                    if (result.deferred) broadcastSse({ type: 'gitOutcomeDeferred', sessionId: result.sessionId })
+                  } catch {
+                    broadcastSse({ type: 'gitOutcome', sessionId: input.sessionId, outcome: null })
+                  }
+                }))
+              }
+              return
+            }
+            await Promise.all(cards.map(async card => {
+              let outcome: GitOutcome | null = null
+              try { outcome = await classifySessionOutcome(card.workspace, card.filesChanged) } catch { /* report unresolved below */ }
+              const riskSignals = detectSessionRiskSignals(card, card.workspace, outcome)
+              const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], outcome)
+              broadcastSse({ type: 'gitOutcome', sessionId: card.sessionId, outcome, riskSignals, temperedLoopSignals })
+            }))
+          })()
+        })
+      } catch (e) {
+        console.warn('[TraceRoost] Malformed /api/git-outcomes body:', e)
         res.writeHead(400); res.end()
       }
     })

@@ -163,14 +163,16 @@ suite('filteredSessions — filters', () => {
       makeCard({ sessionId: 'a' }),
       makeCard({ sessionId: 'b' }),
       makeCard({ sessionId: 'c' }),
+      makeCard({ sessionId: 'no-workspace', workspace: '' }),
     ])
     gitOutcomes.value = {
       a: { overall: 'merged', files: {}, reason: '' },
       b: { overall: 'committed', files: {}, reason: '' },
       c: { overall: 'abandoned', files: {}, reason: '' },
+      'no-workspace': { overall: 'merged', files: {}, reason: '' },
     }
     outcomeFilter.value = 'merged'
-    assert.deepStrictEqual(ids(filteredSessions.value), ['a'])
+    assert.deepStrictEqual(ids(filteredSessions.value), ['a', 'no-workspace'])
   })
 
   test('outcome filter excludes a session whose outcome has not resolved yet', () => {
