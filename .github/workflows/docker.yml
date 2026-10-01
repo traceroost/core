@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Publish as this release (e.g. 0.15.5): tags it X.Y.Z, X.Y, X and latest, as a tag push would. Leave empty for a sha- test build.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -46,11 +51,11 @@ jobs:
           images: |
             agentlens/agentlens
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-,enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=semver,pattern={{version}},value=${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
+            type=semver,pattern={{major}},value=${{ inputs.version }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') || inputs.version != '' }}
+            type=sha,prefix=sha-,enable=${{ github.event_name == 'workflow_dispatch' && inputs.version == '' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6

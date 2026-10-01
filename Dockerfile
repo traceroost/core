@@ -12,9 +12,15 @@ COPY src/ ./src/
 COPY standalone/ ./standalone/
 COPY media/src/ ./media/src/
 COPY media/tsconfig.json ./media/
-COPY media/dashboard.css media/help-mascot.png media/mascot.png ./media/
+# media/dashboard.css isn't copied: it's build output (esbuild bundles media/src/styles), not a
+# tracked file, and the build below generates it.
+COPY media/help-mascot.png media/mascot.png ./media/
 
 RUN node esbuild.js --production
+
+# The server loads sql.js at runtime (OpenCode's SQLite database) via require.resolve, so ship
+# the package's files next to the bundle, as main's Dockerfile does.
+RUN mkdir -p /app/runtime_modules && cp -rL node_modules/sql.js /app/runtime_modules/sql.js
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:24-alpine
@@ -27,6 +33,9 @@ COPY --from=builder --chown=agentlens:agentlens /app/media/dashboard.js   ./medi
 COPY --from=builder --chown=agentlens:agentlens /app/media/dashboard.css  ./media/dashboard.css
 COPY --from=builder --chown=agentlens:agentlens /app/media/help-mascot.png ./media/help-mascot.png
 COPY --from=builder --chown=agentlens:agentlens /app/media/mascot.png     ./media/mascot.png
+COPY --from=builder --chown=agentlens:agentlens /app/runtime_modules/     ./node_modules/
+# server.js reads its version from ../package.json at startup.
+COPY --from=builder --chown=agentlens:agentlens /app/package.json        ./package.json
 
 RUN mkdir -p /data && chown agentlens:agentlens /data
 VOLUME ["/data"]
