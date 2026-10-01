@@ -194,6 +194,8 @@ export function OrgButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (active ? ' active' : '')}
+        aria-label="TraceRoost Cloud org"
+        aria-expanded={active}
         onClick={() => { orgOpen.value = !orgOpen.value; if (orgOpen.value) requestOrgStatus() }}
       ><IconCloud /></button>
       <span style={`position:absolute;top:3px;right:2px;width:7px;height:7px;border-radius:50%;background:${DOT_COLOR[indicator]};box-shadow:0 0 0 1.5px var(--vscode-editor-background)${sending ? ';animation:tr-pulse 1.4s ease-in-out infinite' : ''}`} />

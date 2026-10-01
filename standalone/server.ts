@@ -43,6 +43,8 @@ import {
   extractCookieToken, authCookieHeader,
 } from '../src/httpSecurity'
 import { SseSessionSync, type SyncSummary } from './sseSessionSync'
+import { isStrictlyInside } from './pathGuard'
+import { autoConfigLogLines } from './autoConfigLog'
 
 // Load `.env` from the current working directory, if one exists — lets `pnpm run local` point at
 // a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
@@ -2351,8 +2353,15 @@ const uiServer = http.createServer((req, res) => {
           res.end(JSON.stringify({ error: 'workspace, targetFile, appliedText, and id are required' }))
           return
         }
-        const absPath = path.join(workspace, targetFile)
-        appendSuggestion(absPath, appliedText, id)
+        // Same guard as dashboardPanel.ts's applyInstructionSuggestion: targetFile names an
+        // instruction file inside the workspace — `../../.bashrc` or an absolute path elsewhere
+        // must not become an append target.
+        if (typeof targetFile !== 'string' || !isStrictlyInside(workspace, targetFile)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'targetFile must be a file inside workspace' }))
+          return
+        }
+        appendSuggestion(path.resolve(workspace, targetFile), appliedText, id)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ ok: true }))
       } catch (e) {
@@ -2763,27 +2772,7 @@ async function startOtlpServer(): Promise<void> {
       autoConfigureCodex(bound),
       autoConfigureCopilotStandalone(bound),
     ]).then(([claudeResult, codexResult, copilotResults]) => {
-      if (claudeResult.warning) {
-        console.warn(`[TraceRoost] ${claudeResult.warning}`)
-      }
-      if (claudeResult.error) {
-        console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
-      } else if (claudeResult.changed) {
-        console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
-      }
-      if (codexResult.error) {
-        console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
-      } else if (codexResult.changed) {
-        console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
-      }
-      const copilotChanged = copilotResults.filter(r => r.changed)
-      const copilotErrors  = copilotResults.filter(r => r.error)
-      if (copilotChanged.length > 0) {
-        console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
-      }
-      for (const r of copilotErrors) {
-        console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
-      }
+      for (const { level, text } of autoConfigLogLines(claudeResult, codexResult, copilotResults)) console[level](text)
     }).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
   }
 }

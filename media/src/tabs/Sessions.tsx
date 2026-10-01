@@ -12,7 +12,7 @@ import {
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
   getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
-  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash,
+  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash, esc,
 } from '../utils'
 import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
@@ -61,7 +61,9 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   return (
     <span
       style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;flex-shrink:0`}
-      title={`<b>${meta.label}</b>\n${meta.description}\n${go.reason}`}
+      // data-tip-html renders this as markup: go.reason names the repo's trunk branch, and a ref
+      // name may contain `<`/`>` — escape it, the one non-static piece here.
+      title={`<b>${meta.label}</b>\n${meta.description}\n${esc(go.reason)}`}
       data-tip-html
     >{meta.letter}</span>
   )

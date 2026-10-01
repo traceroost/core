@@ -336,6 +336,8 @@ function BellButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
+        aria-label={count > 0 ? `Alerts (${count})` : 'Alerts'}
+        aria-expanded={open}
         onClick={() => { bellOpen.value = !bellOpen.value }}
       ><IconBell /></button>
       {count > 0 && <span class="alert-badge">{count}</span>}
@@ -388,6 +390,8 @@ function UpdateButton() {
       <button
         class={'icon-btn' + (open ? ' active' : '')}
         title={`Update available — v${info.latestVersion}`}
+        aria-label={`Update available — v${info.latestVersion}`}
+        aria-expanded={open}
         onClick={() => { versionCheckOpen.value = !versionCheckOpen.value }}
       ><IconUpdate /></button>
       <span class="alert-badge">!</span>
@@ -401,6 +405,8 @@ function GearButton() {
   return (
     <button
       class={'icon-btn' + (active ? ' active' : '')}
+      aria-label="Settings"
+      aria-expanded={active}
       onClick={() => { configOpen.value = !configOpen.value }}
     ><IconGear /></button>
   )
@@ -411,6 +417,8 @@ function HelpButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
+      aria-label="Help"
+      aria-pressed={isActive}
       onClick={() => { activeTab.value = 'help' }}
     ><IconHelp /></button>
   )
@@ -422,6 +430,8 @@ function LogButton() {
     <button
       class={'icon-btn' + (active ? ' active' : '')}
       title="Action log — every command TraceRoost has run on your machine"
+      aria-label="Action log"
+      aria-expanded={active}
       onClick={() => { actionLogOpen.value = !actionLogOpen.value }}
     ><IconLog /></button>
   )
@@ -432,6 +442,8 @@ function PricingButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
+      aria-label="Pricing"
+      aria-pressed={isActive}
       onClick={() => { activeTab.value = 'pricing' }}
     ><IconDollar /></button>
   )

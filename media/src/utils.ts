@@ -79,13 +79,16 @@ export function getInputTokens(span: Span): number {
     + intAttr(attrs, 'codex.turn.token_usage.cached_input_tokens')
 }
 
+/** Same precedence as src/summarizers/helpers.ts's token extraction: Codex log events carry
+ *  output_token_count, and their reasoning_token_count is a breakdown of it (OpenAI's output count
+ *  already includes reasoning), so it is never added on top. */
 export function getOutputTokens(span: Span): number {
   const attrs = span.attributes ?? []
   return intAttr(attrs, 'gen_ai.usage.output_tokens')
     || intAttr(attrs, 'output_tokens')
     || intAttr(attrs, 'completion_tokens')
-    || (intAttr(attrs, 'output_token_count') + intAttr(attrs, 'reasoning_token_count'))
     || intAttr(attrs, 'codex.turn.token_usage.output_tokens')
+    || intAttr(attrs, 'output_token_count')
 }
 
 // ── Span classification ───────────────────────────────────────────────────────

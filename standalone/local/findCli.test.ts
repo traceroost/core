@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { classify, findDeepLink } from './findCli'
+import { classify, findDeepLink, firstPositional } from './findCli'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 function makeCard(overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCard {
@@ -74,5 +74,22 @@ suite('findDeepLink', () => {
 
   test('omits reporter entirely when not given, rather than an empty param', () => {
     assert.ok(!findDeepLink('sess-1').includes('reporter'))
+  })
+})
+
+suite('findCli firstPositional', () => {
+  test('takes the hash whether --reporter comes before or after it', () => {
+    assert.strictEqual(firstPositional(['abc123', '--reporter', 'dev@example.com']), 'abc123')
+    assert.strictEqual(firstPositional(['--reporter', 'dev@example.com', 'abc123']), 'abc123')
+  })
+
+  test('accepts the legacy --repo/--id spellings', () => {
+    assert.strictEqual(firstPositional(['--repo', 'abc123']), 'abc123')
+    assert.strictEqual(firstPositional(['--id', 'sess-1']), 'sess-1')
+  })
+
+  test('is empty when only --reporter is given', () => {
+    assert.strictEqual(firstPositional(['--reporter', 'dev@example.com']), '')
+    assert.strictEqual(firstPositional([]), '')
   })
 })

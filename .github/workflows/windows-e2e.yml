@@ -51,10 +51,10 @@ jobs:
       matrix:
         os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10
 
@@ -87,7 +87,7 @@ jobs:
             node tests/e2e/vscode/run.mjs --label dev-full
           fi
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: e2e-extension-host-${{ matrix.os }}
@@ -104,10 +104,10 @@ jobs:
       matrix:
         os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10
 
@@ -159,7 +159,7 @@ jobs:
           done
           exit $status
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: e2e-artifact-smoke-${{ matrix.os }}
@@ -176,10 +176,10 @@ jobs:
       matrix:
         os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10
 
@@ -224,12 +224,12 @@ jobs:
           if [ -n "$OPENAI_API_KEY" ]; then have=true; else echo "::notice title=real agents::OPENAI_API_KEY is not set — the Codex run is skipped. Add it under Settings → Secrets and variables → Actions."; fi
           echo "any=$have" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.keys.outputs.any == 'true'
 
       - name: Setup pnpm
         if: steps.keys.outputs.any == 'true'
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10
 
@@ -267,7 +267,7 @@ jobs:
 
       # Raw transcripts, exported OTEL spans and the database — turn them into committed fixtures
       # with `node tests/e2e/captures-to-fixtures.mjs <downloaded dir>`.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && steps.keys.outputs.any == 'true'
         with:
           name: e2e-real-agents-${{ matrix.os }}

@@ -2,17 +2,15 @@ import { useState } from 'preact/hooks'
 import { useEffect, useRef } from 'preact/hooks'
 import { sessionSummary, filteredSessions, dailyStats, lifetimeStats, selectedAgentFilter, focusedSessionId, activeTab } from '../state'
 import { getAgentColor, formatCompact, formatSessionTime } from '../utils'
-import { calcSessionCost, dayKeyUtc } from '../sessionMetrics'
+import { calcSessionCost, dayKeyUtc, fmtUsd } from '../sessionMetrics'
 import { PRICING_LAST_UPDATED } from '../pricing'
 import type { SessionSummaryCard, DailyStatRow } from '../types'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-export function fmtUsd(usd: number): string {
-  if (usd === 0) return '$0.00'
-  if (usd < 0.01) return '<$0.01'
-  return '$' + usd.toFixed(2)
-}
+// One definition (sessionMetrics.ts) so every tab formats costs the same way; re-exported here
+// for the tabs that already import it from Cost.
+export { fmtUsd }
 
 function fmtCredits(credits: number): string {
   if (credits === 0) return '0'
@@ -203,7 +201,7 @@ export function HistoryChart({ rows }: { rows: DailyStatRow[] }) {
           <div>Cache read: {formatCompact(hovRow.cacheReadTokens)}</div>
           <div>Cache write: {formatCompact(hovRow.cacheCreateTokens)}</div>
           <div>Output tokens: {formatCompact(hovRow.outputTokens)}</div>
-          <div style="margin-top:4px;color:var(--vscode-charts-green,#81c784)">Estimated cost: <strong>{'$' + (hovRow.costUsd).toFixed(2)}</strong></div>
+          <div style="margin-top:4px;color:var(--vscode-charts-green,#81c784)">Estimated cost: <strong>{fmtUsd(hovRow.costUsd)}</strong></div>
         </div>
       )}
     </div>
@@ -491,7 +489,7 @@ export function Cost() {
               <div style="display:flex;gap:20px;font-size:11px;color:var(--muted);flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--vscode-panel-border)">
                 <span>{lifetime.totalSessions} total traces</span>
                 <span>{formatCompact(lifetime.totalTokens)} total tokens</span>
-                <span style="color:var(--foreground)">~{'$' + lifetime.totalCostUsd.toFixed(2)} estimated lifetime cost</span>
+                <span style="color:var(--foreground)">~{fmtUsd(lifetime.totalCostUsd)} estimated lifetime cost</span>
                 {lifetime.oldestSessionMs > 0 && (
                   <span>{new Date(lifetime.oldestSessionMs).toISOString().slice(0, 10)} → {new Date(lifetime.newestSessionMs).toISOString().slice(0, 10)}</span>
                 )}

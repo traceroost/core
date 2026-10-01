@@ -24,10 +24,12 @@ import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
  *  marketplace listing. */
 const EXTENSION_ID = 'agentlens.agentlens-dashboard'
 
-/** The first arg that isn't a flag — supports a bare `find <hash>`, and `find --repo <hash>` /
- *  `find --id <hash>` for anyone (or any old copied command) still typing the flag out. */
-function firstPositional(args: string[]): string {
-  return (args.find(a => !a.startsWith('-')) ?? '').trim()
+/** The first arg that isn't a flag (or `--reporter`'s value) — supports a bare `find <hash>`,
+ *  `find --reporter <email> <hash>` in either order, and `find --repo <hash>` / `find --id <hash>`
+ *  for anyone (or any old copied command) still typing the flag out. Exported for testing. */
+export function firstPositional(args: string[]): string {
+  const found = args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '--reporter')
+  return (found ?? '').trim()
 }
 
 function valueAfter(args: string[], flag: string): string | undefined {
