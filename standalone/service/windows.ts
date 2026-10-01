@@ -3,6 +3,7 @@ import * as path from 'path'
 import { execFileSync } from 'child_process'
 import {
   generateWindowsWrapperScript, WINDOWS_TASK_NAME, serviceLogPath, readServiceConfig, type ServiceProgram,
+  readServiceProcessRecord, clearServiceProcessRecord, tasklistShowsImage,
 } from '../../src/serviceConfig'
 import { probeServiceHealth } from './health'
 
@@ -25,15 +26,39 @@ export function isInstalled(): boolean {
  *  ~5s). This is the Windows analogue of macОS's bootout-and-wait. */
 function endRunningInstanceAndWait(): void {
   try { execFileSync('schtasks', ['/query', '/tn', WINDOWS_TASK_NAME], { stdio: 'ignore' }) }
-  catch { return }  // task doesn't exist yet — nothing to stop
+  catch { endServerProcess(); return }  // no task (yet) — but a server from a removed one may linger
   try { execFileSync('schtasks', ['/end', '/tn', WINDOWS_TASK_NAME], { stdio: 'ignore' }) } catch { /* wasn't running */ }
   for (let i = 0; i < 50; i++) {
     let out = ''
     try { out = execFileSync('schtasks', ['/query', '/tn', WINDOWS_TASK_NAME, '/fo', 'list'], { encoding: 'utf-8' }) }
-    catch { return }
-    if (!/status:\s*running/i.test(out)) { return }
+    catch { break }
+    if (!/status:\s*running/i.test(out)) { break }
     sleepSync(100)
   }
+  endServerProcess()
+}
+
+/** `schtasks /end` ends only the task's own process — the wrapper cmd.exe — and leaves its node
+ *  child (the actual server, still holding the UI/OTLP/MCP ports) running. End that server too,
+ *  by the pid it recorded at startup (serviceConfig.ts's ServiceProcessRecord), after checking the
+ *  pid still belongs to the same executable. Waits (bounded ~5s) for it to be gone. */
+function endServerProcess(): void {
+  const record = readServiceProcessRecord()
+  if (!record) return
+  let listing = ''
+  try {
+    listing = execFileSync('tasklist', ['/FI', `PID eq ${record.pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf-8' })
+  } catch { return }
+  if (!tasklistShowsImage(listing, record.pid, record.image)) {
+    clearServiceProcessRecord(record.pid)  // stale record — that process is long gone
+    return
+  }
+  try { execFileSync('taskkill', ['/PID', String(record.pid), '/T', '/F'], { stdio: 'ignore' }) } catch { /* already exiting */ }
+  for (let i = 0; i < 50; i++) {
+    try { process.kill(record.pid, 0) } catch { break }
+    sleepSync(100)
+  }
+  clearServiceProcessRecord(record.pid)
 }
 
 function sleepSync(ms: number): void {
@@ -67,6 +92,7 @@ export function uninstall(): void {
     try { execFileSync('schtasks', ['/end', '/tn', WINDOWS_TASK_NAME], { stdio: 'ignore' }) } catch { /* not running */ }
     execFileSync('schtasks', ['/delete', '/tn', WINDOWS_TASK_NAME, '/f'], { stdio: 'inherit' })
   }
+  endServerProcess()
   try { fs.rmSync(wrapperScriptPath(readServiceConfig().dataDir)) } catch { /* already removed */ }
 }
 
@@ -76,6 +102,7 @@ export function start(): void {
 
 export function stop(): void {
   execFileSync('schtasks', ['/end', '/tn', WINDOWS_TASK_NAME], { stdio: 'inherit' })
+  endServerProcess()
 }
 
 export function restart(): void {

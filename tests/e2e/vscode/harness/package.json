@@ -1,0 +1,9 @@
+{
+  "name": "traceroost-e2e-harness",
+  "displayName": "TraceRoost E2E harness (test only)",
+  "description": "Empty extension occupying --extensionDevelopmentPath while tests/e2e/vscode/run.mjs tests a TraceRoost VSIX installed the way a user installs it. Never packaged or published.",
+  "version": "0.0.0",
+  "publisher": "traceroost-e2e",
+  "private": true,
+  "engines": { "vscode": "^1.118.0" }
+}

@@ -15,7 +15,7 @@ automated — there's no cron job or CI check that triggers them.
 | Cut a release | Someone asks for a release (e.g. "release these changes as X.Y.Z") | [`RELEASING.md`](RELEASING.md) |
 | Switch releases from the core to the full edition | TraceRoost Cloud launches (releases are core — no org-link/upload code — until then) | [`RELEASING.md` → Editions](RELEASING.md#editions) |
 | Calibrate loop/malfunction signals | The session corpus has grown since the last pass, or a signal's fire rate looks suspicious (fires on nearly everything, or never fires) | [`SIGNAL_CALIBRATION.md`](SIGNAL_CALIBRATION.md) |
-| Validate Windows manually | Before a release, or after touching path handling, git subprocess calls, or local storage — CI's `windows-latest` leg catches build/test breakage but never actually opens VS Code | [`WINDOWS_VALIDATION.md`](WINDOWS_VALIDATION.md) |
+| Validate Windows | Before a release: check the latest `Windows E2E` run (`.github/workflows/windows-e2e.yml` — real VS Code, npm package, Task Scheduler service and configure scripts on Windows x64/ARM64), then do the short manual list (Copilot sign-in, visual pass, org link) | [`WINDOWS_VALIDATION.md`](WINDOWS_VALIDATION.md) |
 
 ## Adding a new runbook
 

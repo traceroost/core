@@ -60,7 +60,19 @@ export class PortScanExhaustedError extends Error {
 }
 
 /**
- * Binds `server` starting at `preferredPort`. On `EADDRINUSE`, scans upward
+ * True when a bind failure means "this port can't be used — try the next one". EADDRINUSE
+ * everywhere. On Windows also EACCES: ports inside an excluded port range (reserved by Hyper-V,
+ * WSL, WinNAT or Docker — see `netsh int ipv4 show excludedportrange protocol=tcp`) refuse binds
+ * with EACCES, and those ranges move on every reboot and can cover 3000/4316/4318. Elsewhere
+ * EACCES means a privileged port, which scanning upward within the cap won't fix, so it stays fatal.
+ */
+export function isUnavailablePort(code: string | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  return code === 'EADDRINUSE' || (platform === 'win32' && code === 'EACCES')
+}
+
+/**
+ * Binds `server` starting at `preferredPort`. On `EADDRINUSE` (or, on Windows, `EACCES` from an
+ * excluded port range — see isUnavailablePort), scans upward
  * (`preferredPort + 1`, `+2`, … up to `+cap`) until a free port binds. Never sticky across calls —
  * each call starts back at `preferredPort`, so a restart after the conflict clears returns to the
  * configured port rather than drifting further from it.
@@ -72,15 +84,16 @@ export async function listenWithFallback(
   server: http.Server,
   preferredPort: number,
   host: string,
-  opts: { cap?: number; onFallback?: (requested: number, bound: number) => void } = {},
+  opts: { cap?: number; onFallback?: (requested: number, bound: number) => void; platform?: NodeJS.Platform } = {},
 ): Promise<number> {
   const cap = opts.cap ?? DEFAULT_SCAN_CAP
+  const platform = opts.platform ?? process.platform
   for (let offset = 0; offset <= cap; offset++) {
     const candidate = preferredPort + offset
     const outcome = await new Promise<'bound' | 'retry'>((resolve, reject) => {
       const onError = (err: NodeJS.ErrnoException) => {
         server.removeListener('listening', onListening)
-        if (err.code === 'EADDRINUSE') { resolve('retry'); return }
+        if (isUnavailablePort(err.code, platform)) { resolve('retry'); return }
         reject(err)
       }
       const onListening = () => {

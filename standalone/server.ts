@@ -16,6 +16,7 @@ import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
 import { classifyOtlpPayload, objectItems } from '../src/otlpParser'
+import { logCardsNotCoveredByOtel } from '../src/claudeConversation'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
@@ -31,7 +32,7 @@ import { detectInstructionFiles, appendSuggestion } from '../src/instructionFile
 import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
-import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest } from '../src/serviceConfig'
+import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
@@ -138,6 +139,14 @@ if (isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) 
 const mediaDir  = path.join(__dirname, '..', 'media')
 const DATA_DIR  = process.env.DATA_DIR ?? fileConfig.dataDir
 const DATA_FILE = path.join(DATA_DIR, 'spans.json')
+
+// Running as the background service: record this process so `traceroost service stop/uninstall`
+// can end it on Windows, where ending the Scheduled Task only kills the wrapper cmd.exe and not
+// this node child (see standalone/service/windows.ts's endServerProcess).
+if (process.env.TRACEROOST_SERVICE === '1') {
+  try { writeServiceProcessRecord({ pid: process.pid, image: path.basename(process.execPath) }) } catch (e) { console.warn('[TraceRoost] Could not record the service process:', e) }
+  process.on('exit', () => { try { clearServiceProcessRecord(process.pid) } catch { /* best effort */ } })
+}
 
 // ── Span store with file persistence ─────────────────────────────────────────
 //
@@ -713,16 +722,22 @@ function agentLabelFromSpanName(name: string): string {
 }
 
 function processTraces(payload: unknown, collectorPath = '/v1/traces'): { count: number; agent: string } {
-  const p = payload as { resourceSpans?: Array<{ scopeSpans?: Array<{ spans?: unknown[] }> }> }
-  const rawSpans = objectItems<{ scopeSpans?: unknown }>(p?.resourceSpans).flatMap(rs =>
-    objectItems<{ spans?: unknown }>(rs.scopeSpans).flatMap(ss => objectItems(ss.spans))
-  )
+  const p = payload as { resourceSpans?: Array<{ resource?: { attributes?: unknown }; scopeSpans?: Array<{ spans?: unknown[] }> }> }
+  // Resource-level attributes (Claude Code puts `session.id` there) are merged onto every span, the
+  // span's own value winning on a key collision — same as the extension's collector
+  // (otlpCollector.ts), so the Claude OTEL card carries the session id the transcript dedupe keys on.
+  const rawSpans = objectItems<{ resource?: { attributes?: unknown }; scopeSpans?: unknown }>(p?.resourceSpans).flatMap(rs => {
+    const resourceAttrs = toAttrs(rs.resource?.attributes)
+    return objectItems<{ spans?: unknown }>(rs.scopeSpans).flatMap(ss => objectItems(ss.spans).map(span => ({ span, resourceAttrs })))
+  })
   let count = 0
   let agent = 'unknown'
-  for (const raw of rawSpans) {
+  for (const { span: raw, resourceAttrs } of rawSpans) {
     const s = raw as Record<string, unknown>
     if (typeof s.traceId !== 'string' || typeof s.spanId !== 'string' || typeof s.name !== 'string') continue
     let attrs = toAttrs(s.attributes)
+    const own = new Set(attrs.map(a => a.key))
+    attrs = [...attrs, ...resourceAttrs.filter(a => !own.has(a.key))]
     if (isCodexWebsocketTraceSpan(s.name, attrs)) continue
     if (agent === 'unknown') agent = agentLabelFromSpanName(s.name)
     attrs = [...attrs, { key: '_traceroost.collector_path', value: { stringValue: collectorPath } }]
@@ -1028,18 +1043,14 @@ function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
   let summary: ReturnType<typeof summarizeSpans> | null = null
   try { summary = summarizeSpans(spans) } catch (e) { console.warn('[TraceRoost] summarizeSpans error:', e) }
 
-  // Merge log-sourced sessions; OTEL wins on ID collision, but backfills conversationId from the
-  // log-sourced sibling when OTEL's own card doesn't have one — buildClaudeSessions (the live OTEL
-  // path) never does cross-trace/multi-segment linking, only logReader.ts's file parser does, so a
-  // bare "OTEL wins" would silently drop conversation-highlight info the log side already worked out.
+  // Merge log-sourced sessions; OTEL wins — on an ID collision, and for a Claude transcript whose
+  // conversation an OTEL interaction already covers (same Claude session id, overlapping time; the
+  // rule the extension's database writer applies — see claudeConversation.ts), so one Claude
+  // session is listed once, not once per ingestion path. OTEL backfills conversationId from the
+  // log-sourced sibling when it has none — buildClaudeSessions (the live OTEL path) never does
+  // cross-trace/multi-segment linking, only logReader.ts's file parser does.
   if (logSessions.size > 0) {
-    const otelById = new Map((summary?.sessions ?? []).map(s => [s.sessionId, s]))
-    const logOnly = [...logSessions.values()].filter(s => {
-      const otelSession = otelById.get(s.sessionId)
-      if (!otelSession) return true
-      if (!otelSession.conversationId && s.conversationId) otelSession.conversationId = s.conversationId
-      return false
-    })
+    const logOnly = logCardsNotCoveredByOtel(summary?.sessions ?? [], logSessions.values())
     if (logOnly.length > 0) {
       const merged = sortNewestFirst([...logOnly, ...(summary?.sessions ?? [])])
       summary = { ...(summary ?? { backgroundSpans: [], efficiency: { totalInputTokens: 0, totalOutputTokens: 0, totalLlmCalls: 0, avgInputPerCall: 0, avgTtft: 0, cacheHitRate: 0, toolDefWaste: 0, sysInstructionWaste: 0, topTokenConsumers: [] } }), sessions: merged }

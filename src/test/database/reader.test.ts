@@ -147,6 +147,14 @@ suite('DatabaseReader', () => {
     db.close()
   })
 
+  test('listSessions rounds a fractional limit down', async () => {
+    const db = await openDb()
+    await seedDb(db, [makeCard({ sessionId: 'a' }), makeCard({ sessionId: 'b' }), makeCard({ sessionId: 'c' })])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    assert.strictEqual(reader.listSessions({ limit: 1.7 }).length, 1)
+    db.close()
+  })
+
   test('loadSessionTimeline returns entries in position order', async () => {
     const db = await openDb()
     await seedDb(db, [makeCard()])

@@ -7,11 +7,11 @@
 # Usage:
 #   .\scripts\configure-copilot.ps1              # uses port 4318 (default)
 #   .\scripts\configure-copilot.ps1 -Port 4319   # custom port
-#   .\scripts\configure-copilot.ps1 -Token <token>   # Docker / LAN mode (BIND_HOST=0.0.0.0) — see README -> Docker
+#   .\scripts\configure-copilot.ps1 -Token <token>   # Docker / LAN mode (BIND_HOST=0.0.0.0) - see README -> Docker
 
 param(
     [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 }),
-    # Bearer token — required when TraceRoost is bound beyond localhost (Docker / LAN mode).
+    # Bearer token - required when TraceRoost is bound beyond localhost (Docker / LAN mode).
     [string]$Token = $env:TRACEROOST_TOKEN,
     [string]$HostName = $(if ($env:TRACEROOST_HOST) { $env:TRACEROOST_HOST } else { "localhost" })
 )
@@ -37,7 +37,7 @@ if ($existing) {
         [System.Environment]::SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", $Endpoint, "User")
         Write-Host "Updated."
     } else {
-        Write-Host "Value matches — no changes needed."
+        Write-Host "Value matches - no changes needed."
     }
 } else {
     [System.Environment]::SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", $Endpoint, "User")

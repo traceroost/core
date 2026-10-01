@@ -6,7 +6,7 @@ import { execFileSync, spawn } from 'child_process'
 import {
   parseServiceInstallFlags, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
   shouldBlockRepeatedBootstrap, childEnvForReexec, readPackageManifest,
-  describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure,
+  describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure, npmInvocation,
   type ServiceConfig, type ServiceProgram,
 } from '../../src/serviceConfig'
 import { readResolvedPorts } from '../../src/portResolver'
@@ -143,7 +143,8 @@ terminal, or a reboot.`)
  *  if `npm root -g` can't be run at all (npm missing / not on PATH). */
 function globalPackageDir(): string | undefined {
   try {
-    const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf-8' }).trim()
+    const npm = npmInvocation(['root', '-g'])
+    const globalRoot = execFileSync(npm.file, npm.args, { encoding: 'utf-8', shell: npm.shell }).trim()
     return path.join(globalRoot, SELF_PACKAGE_NAME)
   } catch {
     return undefined
@@ -196,7 +197,8 @@ function ensureLatestGlobalInstall(): GlobalInstallOutcome | null {
   console.log(`[TraceRoost] Fetching the latest ${SELF_PACKAGE_NAME} from npm:`)
   console.log(`  npm install -g ${spec}`)
   try {
-    execFileSync('npm', ['install', '-g', spec], { stdio: 'inherit' })
+    const npm = npmInvocation(['install', '-g', spec])
+    execFileSync(npm.file, npm.args, { stdio: 'inherit', shell: npm.shell })
   } catch (e) {
     const fallback = readGlobalVersion()
     console.error(couldNotDownloadMessage(describeNpmFailure(e), fallback, SELF_PACKAGE_NAME))

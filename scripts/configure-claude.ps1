@@ -4,11 +4,11 @@
 # Usage:
 #   .\scripts\configure-claude.ps1              # uses port 4318 (default)
 #   .\scripts\configure-claude.ps1 -Port 4319   # custom port
-#   .\scripts\configure-claude.ps1 -Token <token>   # Docker / LAN mode (BIND_HOST=0.0.0.0) — see README -> Docker
+#   .\scripts\configure-claude.ps1 -Token <token>   # Docker / LAN mode (BIND_HOST=0.0.0.0) - see README -> Docker
 
 param(
     [int]$Port = $(if ($env:TRACEROOST_PORT) { [int]$env:TRACEROOST_PORT } else { 4318 }),
-    # Bearer token — required when TraceRoost is bound beyond localhost (Docker / LAN mode).
+    # Bearer token - required when TraceRoost is bound beyond localhost (Docker / LAN mode).
     [string]$Token = $env:TRACEROOST_TOKEN,
     [string]$HostName = $(if ($env:TRACEROOST_HOST) { $env:TRACEROOST_HOST } else { "localhost" })
 )
@@ -30,7 +30,7 @@ if (Test-Path $SettingsPath) {
     if ($content) {
         try {
             $parsed = $content | ConvertFrom-Json
-            $settings = @{}
+            $settings = [ordered]@{}
             $parsed.PSObject.Properties | ForEach-Object { $settings[$_.Name] = $_.Value }
             if ($null -eq $settings["env"]) {
                 $settings["env"] = [ordered]@{}
@@ -61,7 +61,10 @@ if ($Token) { $env["OTEL_EXPORTER_OTLP_HEADERS"] = "Authorization=Bearer $Token"
 $dir = Split-Path $SettingsPath
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 
-$settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsPath -Encoding UTF8
+# UTF-8 *without* a byte-order mark: Windows PowerShell 5.1's `Set-Content -Encoding UTF8`
+# writes one, and Node's JSON.parse (Claude Code, TraceRoost's auto-config) rejects it.
+$json = ($settings | ConvertTo-Json -Depth 10) + [Environment]::NewLine
+[System.IO.File]::WriteAllText($SettingsPath, $json, (New-Object System.Text.UTF8Encoding $false))
 Write-Host "Updated $SettingsPath"
 Write-Host ""
 Write-Host "Done. Restart Claude Code to apply:"

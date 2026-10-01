@@ -50,3 +50,7 @@ Dockerfile
 cspell.json
 pnpm-workspace.yaml
 tsconfig.*.json
+
+# End-to-end suites and their output (tests/e2e/, run by .github/workflows/windows-e2e.yml)
+tests/**
+test-results/**

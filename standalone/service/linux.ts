@@ -24,7 +24,11 @@ export function install(program: ServiceProgram): void {
   fs.mkdirSync(path.dirname(serviceLogPath(program.config)), { recursive: true })
   fs.writeFileSync(unitPath(), generateSystemdUnit(program), 'utf-8')
   systemctl('daemon-reload')
-  systemctl('enable', '--now', SYSTEMD_UNIT_NAME)
+  systemctl('enable', SYSTEMD_UNIT_NAME)
+  // `restart`, not `enable --now`: --now only starts a stopped unit, so re-running install to
+  // change ports/data-dir left the old process running on the old ports. restart starts a stopped
+  // unit too, so this covers the first install as well.
+  systemctl('restart', SYSTEMD_UNIT_NAME)
 }
 
 export function uninstall(): void {

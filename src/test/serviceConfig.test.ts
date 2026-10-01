@@ -2,6 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { execFileSync } from 'child_process'
 import {
   defaultServiceConfig, serviceConfigPath, readServiceConfig, writeServiceConfig,
   serviceLogPath, parseServiceInstallFlags, isRunningFromNpx,
@@ -9,7 +10,8 @@ import {
   generateLaunchdPlist, generateSystemdUnit, generateWindowsWrapperScript,
   launchdLabel, SYSTEMD_UNIT_NAME, WINDOWS_TASK_NAME,
   generateAuthToken, ensureAuthToken, readPackageManifest,
-  describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure,
+  describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure, npmInvocation,
+  servicePidPath, writeServiceProcessRecord, readServiceProcessRecord, clearServiceProcessRecord, tasklistShowsImage,
   type ServiceProgram,
 } from '../serviceConfig'
 
@@ -402,6 +404,75 @@ suite('serviceConfig', () => {
       assert.ok(msg.includes('offline'))
       assert.ok(/nothing is installed/i.test(msg))
       assert.ok(!msg.includes('v'.concat('undefined')))
+    })
+  })
+
+  suite('npmInvocation', () => {
+    test('runs npm.cmd through the shell on Windows, plain npm elsewhere', () => {
+      assert.deepStrictEqual(npmInvocation(['root', '-g'], 'win32'), { file: 'npm.cmd', args: ['root', '-g'], shell: true })
+      assert.deepStrictEqual(npmInvocation(['root', '-g'], 'darwin'), { file: 'npm', args: ['root', '-g'], shell: false })
+      assert.deepStrictEqual(npmInvocation(['install', '-g', 'traceroost@latest'], 'linux'), { file: 'npm', args: ['install', '-g', 'traceroost@latest'], shell: false })
+    })
+
+    test('refuses arguments a shell would interpret', () => {
+      for (const bad of ['a b', 'x&calc', 'x|y', '"q"', '%PATH%', 'a;b']) {
+        assert.throws(() => npmInvocation(['install', '-g', bad], 'win32'), /not shell-safe/)
+      }
+    })
+
+    // The regression itself, on whatever OS this runs (ci.yml runs the unit tests on Windows too):
+    // `service install`/`update` resolve the global npm root this way. A bare
+    // execFileSync('npm', ...) threw ENOENT on Windows.
+    test('actually runs npm on this platform', () => {
+      const npm = npmInvocation(['--version'])
+      const out = execFileSync(npm.file, npm.args, { encoding: 'utf-8', shell: npm.shell }).trim()
+      assert.match(out, /^\d+\.\d+\.\d+/)
+      if (process.platform === 'win32') {
+        assert.throws(() => execFileSync('npm', ['--version'], { stdio: 'ignore' }), 'a bare npm is not spawnable on Windows — the bug npmInvocation fixes')
+      }
+    })
+  })
+
+  suite('service process record (Windows stop/uninstall)', () => {
+    test('round-trips under the default data dir, beside config.json', () => {
+      const home = tmpHome()
+      try {
+        assert.strictEqual(servicePidPath(home), path.join(home, '.traceroost', 'service.pid'))
+        assert.strictEqual(readServiceProcessRecord(home), undefined)
+        writeServiceProcessRecord({ pid: 4242, image: 'node.exe' }, home)
+        assert.deepStrictEqual(readServiceProcessRecord(home), { pid: 4242, image: 'node.exe' })
+      } finally { fs.rmSync(home, { recursive: true, force: true }) }
+    })
+
+    test('clear only removes the record for the pid that wrote it', () => {
+      const home = tmpHome()
+      try {
+        writeServiceProcessRecord({ pid: 10, image: 'node.exe' }, home)
+        clearServiceProcessRecord(11, home)
+        assert.deepStrictEqual(readServiceProcessRecord(home), { pid: 10, image: 'node.exe' }, 'a newer instance\'s record survives')
+        clearServiceProcessRecord(10, home)
+        assert.strictEqual(readServiceProcessRecord(home), undefined)
+      } finally { fs.rmSync(home, { recursive: true, force: true }) }
+    })
+
+    test('a malformed record reads as none', () => {
+      const home = tmpHome()
+      try {
+        fs.mkdirSync(path.join(home, '.traceroost'), { recursive: true })
+        for (const bad of ['', 'nope', '{"pid":-1,"image":"node.exe"}', '{"pid":12}', '{"pid":1.5,"image":"x"}']) {
+          fs.writeFileSync(servicePidPath(home), bad)
+          assert.strictEqual(readServiceProcessRecord(home), undefined, bad)
+        }
+      } finally { fs.rmSync(home, { recursive: true, force: true }) }
+    })
+
+    test('tasklistShowsImage matches pid and image (pid-reuse guard)', () => {
+      const out = '"node.exe","4242","Console","1","52,340 K"\r\n'
+      assert.strictEqual(tasklistShowsImage(out, 4242, 'node.exe'), true)
+      assert.strictEqual(tasklistShowsImage(out, 4242, 'NODE.EXE'), true)
+      assert.strictEqual(tasklistShowsImage(out, 4243, 'node.exe'), false)
+      assert.strictEqual(tasklistShowsImage('"notepad.exe","4242","Console","1","1 K"', 4242, 'node.exe'), false, 'reused pid, different program')
+      assert.strictEqual(tasklistShowsImage('INFO: No tasks are running which match the specified criteria.', 4242, 'node.exe'), false)
     })
   })
 })

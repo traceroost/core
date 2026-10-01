@@ -94,7 +94,7 @@ export class DatabaseReader {
     // to see every retained session) means "no LIMIT clause" — `LIMIT Infinity` isn't valid SQL;
     // SQLite parses the bare word as an unresolved column reference ("no such column: Infinity").
     if (filter?.limit !== null && filter?.limit !== undefined && Number.isFinite(filter.limit)) {
-      sql += ` LIMIT ${filter.limit}`
+      sql += ` LIMIT ${Math.max(0, Math.floor(filter.limit))}`
     }
 
     const results = this.db.exec(sql)

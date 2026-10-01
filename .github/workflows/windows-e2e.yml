@@ -1,0 +1,276 @@
+name: Windows E2E
+
+# Real end-to-end coverage on Windows (x64 and ARM64), with macOS and Linux alongside for
+# comparison. ci.yml's windows-latest leg covers lint/types/unit tests/build and the Playwright UX
+# evaluations against a stub; this workflow runs the product for real:
+#
+#   extension-host    the dev-built extension inside a real, isolated VS Code (src/test/integration)
+#   artifact-smoke    npm-pack both editions → npm install -g → run the CLI and server → real OS
+#                     service install/status/uninstall → package both VSIXes and install them into
+#                     a fresh VS Code
+#   configure-scripts scripts/configure-*.ps1 under pwsh (and Windows PowerShell 5.1 on Windows)
+#   real-agents       Claude Code + Codex CLIs against the extension — nightly / manual / release
+#                     only (spends API credits); skips with a notice when the secrets are missing
+#
+# What each job proves, and what stays manual: runbooks/WINDOWS_VALIDATION.md.
+
+on:
+  push:
+    branches: [main, cloud]
+  pull_request:
+    branches: [main, cloud]
+  release:
+    types: [published]
+  schedule:
+    - cron: '17 6 * * *' # nightly, 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      real_agents:
+        description: Also run the real-agent job (needs ANTHROPIC_API_KEY / OPENAI_API_KEY secrets)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-e2e-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The oldest VS Code engines.vscode allows — keep in step with tests/e2e/vscode/run.mjs.
+  VSCODE_TEST_VERSION: 1.118.0
+
+jobs:
+  extension-host:
+    name: extension host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache VS Code
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .vscode-test
+          key: vscode-${{ runner.os }}-${{ runner.arch }}-${{ env.VSCODE_TEST_VERSION }}
+
+      - name: Build extension (full edition) and compile the integration suites
+        run: |
+          node esbuild.js
+          pnpm run compile-tests
+
+      - name: Run the extension-host suite
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a node tests/e2e/vscode/run.mjs --label dev-full
+          else
+            node tests/e2e/vscode/run.mjs --label dev-full
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: e2e-extension-host-${{ matrix.os }}
+          path: test-results/e2e/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  artifact-smoke:
+    name: shipped artifacts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache VS Code
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .vscode-test
+          key: vscode-${{ runner.os }}-${{ runner.arch }}-${{ env.VSCODE_TEST_VERSION }}
+
+      # systemd --user needs a running user manager; GitHub's Ubuntu runners don't start one for
+      # the runner account until lingering is enabled. artifact-smoke.mjs skips (with a notice) if
+      # it still isn't reachable.
+      - name: Start a systemd user manager (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo loginctl enable-linger "$USER" || true
+          uid="$(id -u)"
+          for i in $(seq 1 20); do [ -S "/run/user/$uid/bus" ] && break; sleep 0.5; done
+          echo "XDG_RUNTIME_DIR=/run/user/$uid" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" >> "$GITHUB_ENV"
+
+      - name: npm package smoke (both editions) + OS service round trip
+        run: node tests/e2e/artifact-smoke.mjs --edition core --edition full --service
+
+      - name: Compile the integration suites
+        run: pnpm run compile-tests
+
+      - name: Package the VSIX (core and full)
+        run: |
+          node tests/e2e/package-vsix.mjs --edition core
+          node tests/e2e/package-vsix.mjs --edition full
+
+      - name: Install each VSIX into a fresh VS Code and run the extension-host suite against it
+        shell: bash
+        run: |
+          status=0
+          for edition in core full; do
+            args="tests/e2e/vscode/run.mjs --vsix test-results/e2e/traceroost-$edition.vsix --edition $edition --label vsix-$edition"
+            if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a node $args || status=1; else node $args || status=1; fi
+          done
+          exit $status
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: e2e-artifact-smoke-${{ matrix.os }}
+          path: test-results/e2e/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  configure-scripts:
+    name: configure scripts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # For the cross-check that TraceRoost's own auto-config (src/autoConfigNode.ts) reads what the
+      # scripts write and finds nothing left to change.
+      - name: Compile sources for the auto-config cross-check
+        run: pnpm run compile-tests
+
+      - name: Run scripts/configure-*.ps1 (pwsh everywhere; also Windows PowerShell 5.1 on Windows)
+        run: node tests/e2e/configure-scripts.mjs
+
+  real-agents:
+    name: real agents (${{ matrix.os }})
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.real_agents)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Check for API key secrets
+        id: keys
+        shell: bash
+        run: |
+          have=false
+          if [ -n "$ANTHROPIC_API_KEY" ]; then have=true; else echo "::notice title=real agents::ANTHROPIC_API_KEY is not set — the Claude Code run is skipped. Add it under Settings → Secrets and variables → Actions."; fi
+          if [ -n "$OPENAI_API_KEY" ]; then have=true; else echo "::notice title=real agents::OPENAI_API_KEY is not set — the Codex run is skipped. Add it under Settings → Secrets and variables → Actions."; fi
+          echo "any=$have" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.keys.outputs.any == 'true'
+
+      - name: Setup pnpm
+        if: steps.keys.outputs.any == 'true'
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - name: Setup Node.js 24
+        if: steps.keys.outputs.any == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.keys.outputs.any == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the agent CLIs
+        if: steps.keys.outputs.any == 'true'
+        run: npm install -g @anthropic-ai/claude-code @openai/codex
+
+      - name: Cache VS Code
+        if: steps.keys.outputs.any == 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .vscode-test
+          key: vscode-${{ runner.os }}-${{ runner.arch }}-${{ env.VSCODE_TEST_VERSION }}
+
+      - name: Build extension and compile the integration suites
+        if: steps.keys.outputs.any == 'true'
+        run: |
+          node esbuild.js
+          pnpm run compile-tests
+
+      - name: Run Claude Code and Codex against TraceRoost
+        if: steps.keys.outputs.any == 'true'
+        run: node tests/e2e/real-agents.mjs
+
+      # Raw transcripts, exported OTEL spans and the database — turn them into committed fixtures
+      # with `node tests/e2e/captures-to-fixtures.mjs <downloaded dir>`.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && steps.keys.outputs.any == 'true'
+        with:
+          name: e2e-real-agents-${{ matrix.os }}
+          path: test-results/e2e/
+          retention-days: 30
+          if-no-files-found: ignore

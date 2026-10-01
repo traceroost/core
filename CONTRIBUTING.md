@@ -88,6 +88,18 @@ CI builds and checks both (`build-and-test` and `core-edition` in `.github/workf
 Releases are core until TraceRoost Cloud launches — see
 [runbooks/RELEASING.md](runbooks/RELEASING.md#editions).
 
+## Continuous integration
+
+| Workflow | Runs on | What it covers |
+| --- | --- | --- |
+| `ci.yml` | every push/PR to `main`/`cloud`; Ubuntu + Windows | lint, types, unit tests, production build, edition checks, Playwright UX evaluations |
+| `windows-e2e.yml` | every push/PR to `main`/`cloud`, nightly, manual, on release; Windows x64 + ARM64, macOS, Ubuntu | the extension inside a real VS Code, the npm package installed globally and run (including `traceroost service` on Task Scheduler / launchd / systemd), both VSIXes installed into a fresh VS Code, and `scripts/configure-*.ps1` under PowerShell 7 and 5.1. Its `real-agents` job (nightly/manual/release only) drives the real Claude Code and Codex CLIs and needs the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` repository secrets — it skips with a notice without them |
+
+The end-to-end suites live in `tests/e2e/` (plain Node scripts) and `src/test/integration/`
+(`*.itest.ts`, run inside VS Code by `tests/e2e/vscode/run.mjs` — not part of `pnpm test` /
+`test:unit`). Each runs locally too; see [runbooks/WINDOWS_VALIDATION.md](runbooks/WINDOWS_VALIDATION.md)
+for what each job proves and the commands.
+
 ## Project structure
 
 | Path | Purpose |

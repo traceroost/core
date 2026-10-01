@@ -60,7 +60,7 @@ function acquireLock(lockPath: string): boolean {
       fs.closeSync(fd)
       return true
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      if (!isLockContention((err as NodeJS.ErrnoException).code)) throw err
     }
     // Someone else holds it. A stale lock (its holder crashed without cleaning up) is stolen
     // immediately rather than waited out.
@@ -73,6 +73,18 @@ function acquireLock(lockPath: string): boolean {
     if (Date.now() >= deadline) return false
     sleepSync(RETRY_DELAY_MS)
   }
+}
+
+/**
+ * True when a failed exclusive create of the lock file means "another process holds (or is just
+ * releasing) it" — retry — rather than a real error. EEXIST everywhere; on Windows also EPERM /
+ * EACCES / EBUSY, which is what CreateFile reports for a file another process has open or has
+ * deleted but not yet closed ("delete pending") — i.e. exactly the moment a holder releases the
+ * lock while we race to take it. Treating those as fatal crashed concurrent enqueues on Windows.
+ */
+export function isLockContention(code: string | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  if (code === 'EEXIST') return true
+  return platform === 'win32' && (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY')
 }
 
 function sleepSync(ms: number): void {
