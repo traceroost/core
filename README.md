@@ -1,8 +1,15 @@
 <h1><img src="media/mascot.png" alt="AgentLens logo" width="48" align="center" /> AgentLens</h1>
 
-> **Note:** AgentLens is transitioning to TraceRoost.
+> ## AgentLens is now TraceRoost
 >
-> AgentLens is transitioning to TraceRoost because several unrelated projects already use the AgentLens name. During the transition, release identifiers such as `agentlens-dashboard`, `agentlens.agentlens-dashboard`, and `agentlens/agentlens` remain unchanged. The rebrand will be completed in a future release.
+> **This is the final AgentLens release.** The `agentlens-dashboard` npm package and the `agentlens/agentlens` Docker image get no further updates. Everything continues as [TraceRoost](https://github.com/traceroost/core):
+>
+> - **npx:** `npx traceroost@latest`
+> - **Docker:** `docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost`
+> - **Background service:** run `npx agentlens-dashboard@latest service uninstall` first, then `npx traceroost@latest service install`, so the two don't compete for the same ports.
+> - **VS Code:** nothing to do. The AgentLens extension already updates to TraceRoost in place.
+>
+> TraceRoost rebuilds your history from your agents' local session files on first run.
 
 [![CI](https://github.com/traceroost/core/actions/workflows/ci.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)

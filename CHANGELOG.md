@@ -2,6 +2,16 @@
 
 All notable changes to AgentLens are documented here.
 
+## [0.15.5] — 2026-10-01
+
+**The final AgentLens release. AgentLens is now TraceRoost.** The `agentlens-dashboard` npm package and the `agentlens/agentlens` Docker image get no further updates; switch with `npx traceroost@latest` or the `traceroost/traceroost` image. The VS Code extension already updates to TraceRoost in place.
+
+### Changed
+
+- **"AgentLens is now TraceRoost" notice** — the standalone dashboard shows a bar at the top with the commands to switch, and the server prints the same notice at startup (terminal, service logs and Docker logs) and before every `service` command. If you run AgentLens as a background service, uninstall it before installing TraceRoost's so the two don't compete for the same ports.
+
+---
+
 ## [0.15.4] — 2026-09-07
 
 ### Fixed

@@ -4,9 +4,12 @@
 // `agentlens service <install|uninstall|start|stop|restart|status|logs>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
 
+import { printMovedNotice } from './movedNotice'
+
 async function main() {
   const args = process.argv.slice(2)
   if (args[0] === 'service') {
+    printMovedNotice()
     const { runServiceCli } = await import('./service/index.js')
     process.exitCode = await runServiceCli(args.slice(1))
     return

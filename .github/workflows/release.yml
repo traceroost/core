@@ -55,6 +55,8 @@ jobs:
         with:
           files: '*.vsix'
           generate_release_notes: true
+          # Don't take "Latest" from TraceRoost's own releases (main's v0.17.x and later).
+          make_latest: false
 
   # This branch does NOT publish the VS Code extension. The
   # agentlens.agentlens-dashboard marketplace listing is published from `main`

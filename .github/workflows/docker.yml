@@ -41,9 +41,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
+          # agentlens/agentlens only: ghcr.io/traceroost/core is TraceRoost's image (main's
+          # docker.yml), and this branch's `latest`/major tags would overwrite it there.
           images: |
             agentlens/agentlens
-            ghcr.io/${{ github.repository }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

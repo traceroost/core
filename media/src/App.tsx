@@ -269,6 +269,20 @@ function PricingButton() {
   )
 }
 
+/** The final AgentLens release's "we've moved" bar — standalone only (npx, service, Docker); the
+ *  VS Code listing already ships TraceRoost. Not dismissible: this build gets no more updates. */
+function MovedToTraceRoostBar() {
+  const code = 'font-family:var(--vscode-editor-font-family,monospace);background:rgba(128,128,128,.18);padding:1px 5px;border-radius:3px;user-select:all'
+  return (
+    <div role="status" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:7px 12px;font-size:12px;line-height:1.5;background:#0FBFA6;color:#06231f">
+      <strong>AgentLens is now TraceRoost.</strong>
+      <span>This is the final AgentLens release and it gets no more updates. Switch with <code style={code}>npx traceroost@latest</code> or Docker image <code style={code}>traceroost/traceroost</code>.</span>
+      <span>Running it as a service? Run <code style={code}>npx agentlens-dashboard@latest service uninstall</code> first, then <code style={code}>npx traceroost@latest service install</code>.</span>
+      <a href="https://github.com/traceroost/core#readme" target="_blank" rel="noopener" style="color:#06231f;text-decoration:underline">Learn more</a>
+    </div>
+  )
+}
+
 export function App() {
   // Global smart tooltip for [data-tip] elements
   useEffect(() => {
@@ -428,6 +442,7 @@ export function App() {
 
   return (
     <>
+      {window.__STANDALONE__ === true && <MovedToTraceRoostBar />}
       <div class="tabs">
         <button
           class="sidebar-toggle-btn"

@@ -28,6 +28,7 @@ import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, isRunningFromNpx } from '../src/serviceConfig'
 import { isAllowedHostHeader, isAuthorized, isLoopbackHost, extractCookieToken, authCookieHeader } from '../src/httpSecurity'
+import { printMovedNotice } from './movedNotice'
 
 // `agentlens service install` persists its port/host/data-dir choices to
 // ~/.agentlens/config.json (see src/serviceConfig.ts) so a background-service install and an
@@ -1748,6 +1749,7 @@ uiServer.listen(UI_PORT, BIND_HOST, () => {
   const url = `${plainUrl}/?token=${AUTH_TOKEN}`
   console.log(`[AgentLens] Dashboard      → ${url}`)
   console.log(`[AgentLens] MCP server     → http://localhost:${MCP_PORT}/mcp`)
+  printMovedNotice()
 
   // Auto-open browser — includes the access token so the browser gets its auth cookie on
   // first load; the printed URL above is the fallback if auto-open fails or you're opening on
