@@ -786,6 +786,9 @@ export function App() {
       }
     }
     window.addEventListener('message', handler)
+    // Standalone only: the page holds the server's first frames until the dashboard listens (see
+    // standalone/server.ts's _deliver) — release them now.
+    ;(window as unknown as { __trDashboardListening?: () => void }).__trDashboardListening?.()
     return () => window.removeEventListener('message', handler)
   }, [])
 

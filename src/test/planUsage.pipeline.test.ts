@@ -343,6 +343,7 @@ suite('PlanUsageService', () => {
     assert.deepStrictEqual(snap.series, { weekly: [], fiveHour: [] })
     assert.deepStrictEqual(snap.weeklyRollups, [])
     assert.deepStrictEqual(snap.historyStartsAt, {})
+    assert.deepStrictEqual(snap.planStatus, [])
     assert.strictEqual(svc.liveCard(card('s', 'codex', T0 - HOUR, HOUR), null), undefined)
   })
 
@@ -375,6 +376,19 @@ suite('PlanUsageService', () => {
     assert.strictEqual(live.thisTrace?.fiveHourPct, 60)
     assert.ok(live.pace?.minutesToLimit !== undefined)
     assert.strictEqual(svc.liveCard(cards[1], { costPerHour: 5 }), undefined)
+  })
+
+  test('a windowless plan status reaches the snapshot, and a newer one is never replaced by an older', () => {
+    const now = T0 + 2 * HOUR
+    const svc = new PlanUsageService(createDb(), { claudeConfigPath: '/nonexistent/.claude.json', now: () => now })
+    const status = (observedAt: number, planType: string) => ({
+      provider: 'codex' as const, planType, observedAt, noWindows: true, hasCredits: true, unlimitedCredits: false, limitReached: false, sessionId: 's1',
+    })
+    assert.strictEqual(svc.ingest([{ card: card('s1', 'codex', T0, HOUR), workspace: '', planStatus: status(now - HOUR, 'business') }]), true)
+    svc.ingest([{ card: card('s0', 'codex', T0 - 5 * HOUR, HOUR), workspace: '', planStatus: status(now - 4 * HOUR, 'plus') }])
+    const snap = svc.snapshot([])
+    assert.deepStrictEqual(snap.meters, [])
+    assert.deepStrictEqual(snap.planStatus, [status(now - HOUR, 'business')])
   })
 
   test('stores a Claude cache reading once per fetch', () => {

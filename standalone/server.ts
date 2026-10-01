@@ -1963,6 +1963,27 @@ function getHtml(): string {
 
     // SSE → dispatch as window message (picked up by Preact app AND sidebar handler below)
     // Falls back to polling /api/summary every 2s if EventSource fails (e.g. Safari private mode).
+    //
+    // Held until the dashboard says it's listening (App.tsx calls __trDashboardListening from the
+    // effect that adds its message handler). The stream's first frames — the update, the action
+    // log, the plan-limit snapshot — arrive before dashboard.js has even loaded, and the plan
+    // snapshot is only re-sent when it changes, so dispatching them straight away lost them and
+    // left Plan limits hidden on an idle dashboard.
+    var _dashboardListening = false;
+    var _pendingFrames = [];
+    function _deliver(data) {
+      if (_dashboardListening) window.dispatchEvent(new MessageEvent('message', { data: data }));
+      else _pendingFrames.push(data);
+    }
+    window.__trDashboardListening = function() {
+      if (_dashboardListening) return;
+      _dashboardListening = true;
+      var q = _pendingFrames;
+      _pendingFrames = [];
+      for (var i = 0; i < q.length; i++) window.dispatchEvent(new MessageEvent('message', { data: q[i] }));
+    };
+    // Never hold them forever: if dashboard.js fails to load, the sidebar handler still gets them.
+    setTimeout(window.__trDashboardListening, 10000);
     var _sseOk = false;
     var _pollTimer = null;
     function _startPolling() {
@@ -1972,9 +1993,7 @@ function getHtml(): string {
         fetch('/api/summary')
           .then(function(r) { return r.json(); })
           .then(function(summary) {
-            window.dispatchEvent(new MessageEvent('message', {
-              data: { type: 'update', sessionSummary: summary }
-            }));
+            _deliver({ type: 'update', sessionSummary: summary });
           })
           .catch(function(e) { console.warn('[TraceRoost] poll failed', e); });
       }, 2000);
@@ -1992,7 +2011,7 @@ function getHtml(): string {
         if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
       };
       _es.onmessage = function(e) {
-        window.dispatchEvent(new MessageEvent('message', { data: JSON.parse(e.data) }));
+        _deliver(JSON.parse(e.data));
       };
       _es.onerror = function() {
         if (!_sseOk) {

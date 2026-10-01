@@ -11,7 +11,7 @@
 import type { LogSessionResult } from '../logReader'
 import type { SessionSummaryCard } from '../summarizers/summarizerTypes'
 import { calcSessionCostUsd } from '../pricing'
-import type { LimitHit, LimitProvider, LimitWindowKind } from './limitReadings'
+import type { LimitHit, LimitProvider, LimitWindowKind, PlanStatus } from './limitReadings'
 import { LimitRepository, type WindowRollup } from './limitRepository'
 import { claudeConfigPath, readClaudeCachedUsage } from './claudeCache'
 import {
@@ -44,6 +44,9 @@ export interface PlanUsageSnapshot {
   weeklyRollups: WindowRollup[]
   /** First stored reading per provider — charts say "history starts" rather than showing zeros. */
   historyStartsAt: Partial<Record<LimitProvider, number>>
+  /** Each provider's latest plan status (last 30 days). The dashboard shows it for a provider
+   *  that has no meter because its plan reports no 5-hour or weekly window. */
+  planStatus: PlanStatus[]
   /** Weekly-window points per dollar of estimated cost — turns a waste estimate in dollars into
    *  points of the weekly limit. Absent until there's enough history to be meaningful. */
   weeklyPtsPerDollar: Partial<Record<LimitProvider, number>>
@@ -116,6 +119,7 @@ export class PlanUsageService {
     for (const r of results) {
       if (r.limitReadings?.length) { this.repo.insertReadings(r.limitReadings); any = true }
       if (r.limitHits?.length) { this.repo.insertHits(r.limitHits); any = true }
+      if (r.planStatus) { this.repo.upsertPlanStatus(r.planStatus); any = true }
     }
     if (any) this.refreshRollups()
     return any
@@ -212,6 +216,7 @@ export class PlanUsageService {
       hits,
       weeklyRollups,
       historyStartsAt,
+      planStatus: this.repo.planStatuses(now - ATTRIBUTION_LOOKBACK_MS),
       weeklyPtsPerDollar,
     }
   }

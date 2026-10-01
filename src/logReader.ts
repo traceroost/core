@@ -58,7 +58,7 @@ import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizer
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
 import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
-import { CodexLimitCollector, claudeLimitHit, dedupeHits, CLAUDE_SYNTHETIC_MODEL, type LimitReading, type LimitHit } from './planUsage/limitReadings'
+import { CodexLimitCollector, claudeLimitHit, dedupeHits, CLAUDE_SYNTHETIC_MODEL, type LimitReading, type LimitHit, type PlanStatus } from './planUsage/limitReadings'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
 
@@ -242,6 +242,8 @@ export interface LogSessionResult {
   limitReadings?: LimitReading[]
   /** Plan limits hit during this session. Absent when there are none. */
   limitHits?: LimitHit[]
+  /** The plan status from this session's last rate-limit event (Codex only). Absent when none. */
+  planStatus?: PlanStatus
 }
 
 /** SQL NULL (and an absent column) → null; anything else → its string form. */
@@ -772,11 +774,13 @@ export class LogReader {
 
     const limitReadings = limits.readingsOut()
     const limitHits = limits.hitsOut()
+    const planStatus = limits.statusOut()
     return {
       result: {
         workspace,
         ...(limitReadings.length > 0 ? { limitReadings } : {}),
         ...(limitHits.length > 0 ? { limitHits } : {}),
+        ...(planStatus ? { planStatus } : {}),
         card: _buildCard(sessionId, 'codex', model || 'codex', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate: 0, peakContextPerTurn: 0, turns, totalToolCalls: 0, toolCounts: {}, filesRead: new Set(), filesChanged: new Set(), filesWritten: new Set(), filesSearched: new Set(), userRequest: userRequest.slice(0, 500), timeline: [], initiator: 'user' }, workspace),
       },
       cumulativeUsage: lastTotalUsage,

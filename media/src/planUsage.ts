@@ -63,6 +63,19 @@ export interface WindowRollup {
   coverage: 'full' | 'partial'
 }
 
+/** A provider's latest plan status — see src/planUsage/limitReadings.ts's PlanStatus. */
+export interface PlanStatus {
+  provider: LimitProvider
+  planType?: string
+  observedAt: number
+  noWindows: boolean
+  hasCredits?: boolean
+  unlimitedCredits?: boolean
+  creditBalance?: string
+  limitReached: boolean
+  sessionId?: string
+}
+
 export interface SessionPlanUsage {
   fiveHourPct?: number
   weeklyPct?: number
@@ -78,6 +91,8 @@ export interface PlanUsageSnapshot {
   hits: LimitHit[]
   weeklyRollups: WindowRollup[]
   historyStartsAt: Partial<Record<LimitProvider, number>>
+  /** Optional: a host older than this webview bundle doesn't send it. */
+  planStatus?: PlanStatus[]
   weeklyPtsPerDollar: Partial<Record<LimitProvider, number>>
 }
 
@@ -101,9 +116,17 @@ export function planLabel(planType: string | undefined): string {
   return planType ? planType.charAt(0).toUpperCase() + planType.slice(1) : ''
 }
 
+/** Statuses to show as their own card: the provider reported no 5-hour or weekly window and has
+ *  no meter (a ChatGPT Business Codex account, metered in credits). A provider with a meter
+ *  already shows its plan there. */
+export function windowlessPlans(s: PlanUsageSnapshot): PlanStatus[] {
+  return (s.planStatus ?? []).filter(st => st.noWindows && !s.meters.some(m => m.provider === st.provider))
+}
+
 /** Whether the PLAN LIMITS section renders at all. */
 export function hasPlanData(s: PlanUsageSnapshot | null): s is PlanUsageSnapshot {
-  return !!s && (s.meters.length > 0 || s.series.weekly.length > 0 || s.series.fiveHour.length > 0 || s.hits.length > 0)
+  return !!s && (s.meters.length > 0 || s.series.weekly.length > 0 || s.series.fiveHour.length > 0 || s.hits.length > 0
+    || windowlessPlans(s).length > 0)
 }
 
 /** "5h 12% · wk 3%" for the Traces column, "≈"-prefixed when approximate; null when there's no
@@ -190,5 +213,6 @@ export function forAgentFilter(s: PlanUsageSnapshot | null, filter: string): Pla
     series: { weekly: keep(s.series.weekly), fiveHour: keep(s.series.fiveHour) },
     hits: keep(s.hits),
     weeklyRollups: keep(s.weeklyRollups),
+    ...(s.planStatus ? { planStatus: keep(s.planStatus) } : {}),
   }
 }

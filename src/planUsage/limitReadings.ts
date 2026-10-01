@@ -37,6 +37,28 @@ export interface LimitReading {
   planType?: string
 }
 
+/**
+ * A provider's latest plan status, kept alongside the window readings for plans that report no
+ * 5-hour or weekly window at all — a ChatGPT Business Codex account, for example, sends
+ * `primary: null, secondary: null` and is metered in credits instead. Without this the dashboard
+ * would have nothing to show for that account and would look broken.
+ */
+export interface PlanStatus {
+  provider: LimitProvider
+  planType?: string
+  /** Epoch ms. */
+  observedAt: number
+  /** The provider reported no 5-hour or weekly window. */
+  noWindows: boolean
+  hasCredits?: boolean
+  unlimitedCredits?: boolean
+  /** The credit balance as reported — kept only when it's a plain decimal number. */
+  creditBalance?: string
+  /** A spend cap was reached (`spend_control_reached`), or a limit with no window to attach to. */
+  limitReached: boolean
+  sessionId?: string
+}
+
 export interface LimitHit {
   provider: LimitProvider
   sessionId: string
@@ -106,6 +128,7 @@ export class CodexLimitCollector {
   private readonly lastByKind = new Map<LimitWindowKind, { reading: LimitReading; kept: boolean }>()
   private readonly hits: LimitHit[] = []
   private reachedRun = false
+  private status: PlanStatus | undefined
 
   constructor(private readonly sessionId: string) {}
 
@@ -132,7 +155,21 @@ export class CodexLimitCollector {
     }
 
     const reached = rl['rate_limit_reached_type']
-    if (reached !== null && reached !== undefined && reached !== false) {
+    const reachedSet = reached !== null && reached !== undefined && reached !== false
+    const spendCapped = rl['spend_control_reached'] !== null && rl['spend_control_reached'] !== undefined && rl['spend_control_reached'] !== false
+    const credits = rl['credits'] && typeof rl['credits'] === 'object' && !Array.isArray(rl['credits']) ? rl['credits'] as Record<string, unknown> : undefined
+    const balance = credits?.['balance']
+    this.status = {
+      provider: 'codex', planType, observedAt, sessionId: this.sessionId,
+      noWindows: windows.length === 0,
+      ...(typeof credits?.['has_credits'] === 'boolean' ? { hasCredits: credits['has_credits'] } : {}),
+      ...(typeof credits?.['unlimited'] === 'boolean' ? { unlimitedCredits: credits['unlimited'] } : {}),
+      ...(typeof balance === 'string' && /^-?\d+(\.\d+)?$/.test(balance) ? { creditBalance: balance }
+        : typeof balance === 'number' && Number.isFinite(balance) ? { creditBalance: String(balance) } : {}),
+      limitReached: spendCapped || (reachedSet && windows.length === 0),
+    }
+
+    if (reachedSet) {
       const w = reachedWindow(reached, windows)
       if (w && !this.reachedRun) {
         this.hits.push({ provider: 'codex', sessionId: this.sessionId, windowKind: w.kind, hitAt: observedAt, resetsAt: w.resetsAt })
@@ -151,6 +188,11 @@ export class CodexLimitCollector {
 
   hitsOut(): LimitHit[] {
     return [...this.hits]
+  }
+
+  /** The plan status from the session's last `rate_limits` event, if it had one. */
+  statusOut(): PlanStatus | undefined {
+    return this.status
   }
 }
 

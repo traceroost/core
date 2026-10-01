@@ -3,7 +3,7 @@ import './domShim'
 import { makeCard } from './fixtures'
 import {
   chart1Views, chart2Rollups, defaultChart1View, fiveHourLines, forAgentFilter, hasPlanData, limitUsedLabel,
-  showLimitColumn, weeklyPointsFor, type PlanUsageSnapshot, type LimitHit, type WindowRollup,
+  showLimitColumn, weeklyPointsFor, windowlessPlans, type PlanUsageSnapshot, type LimitHit, type WindowRollup,
 } from '../../../media/src/planUsage'
 import { getCostSavingActions } from '../../../media/src/costSavingActions'
 
@@ -96,6 +96,20 @@ suite('planUsage — no data, no UI', () => {
     assert.deepStrictEqual(chart2Rollups(s), [])
     s.weeklyRollups.push(rollup('codex', T0 + 168 * HOUR, 30), rollup('claude', T0, 50))
     assert.deepStrictEqual(chart2Rollups(s).map(r => r.provider), ['codex', 'codex'])
+  })
+
+  test('a plan that reports no windows still shows the section, as its own card', () => {
+    const business: PlanUsageSnapshot = { ...empty(), planStatus: [
+      { provider: 'codex', planType: 'business', observedAt: T0, noWindows: true, hasCredits: true, limitReached: false },
+    ] }
+    assert.strictEqual(hasPlanData(business), true)
+    assert.deepStrictEqual(windowlessPlans(business).map(s => s.planType), ['business'])
+    assert.strictEqual(hasPlanData(forAgentFilter(business, 'claude_code')), false)
+    // A provider with a meter shows its plan there, not as a second card.
+    const withMeter: PlanUsageSnapshot = { ...codexOnly(), planStatus: business.planStatus }
+    assert.deepStrictEqual(windowlessPlans(withMeter), [])
+    // A plan that does report windows never gets the card.
+    assert.strictEqual(hasPlanData({ ...empty(), planStatus: [{ ...business.planStatus![0], noWindows: false }] }), false)
   })
 
   test('the agent filter narrows to that agent, and hides everything for agents without plan data', () => {
