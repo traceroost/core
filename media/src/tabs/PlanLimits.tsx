@@ -73,6 +73,10 @@ function MeterBar({ pct }: { pct: number }) {
   )
 }
 
+// Neither CLI can be asked for a reading (no provider calls, no spawning a CLI), so an old
+// reading gets a hint telling the user how to refresh it themselves.
+const REFRESH_HINT_AFTER_MS = 3_600_000
+
 function MeterCard({ meter, now }: { meter: PlanMeter; now: number }) {
   const primary = meter.windows.filter(w => isPrimaryWindow(w.windowKind))
   const perModel = meter.windows.filter(w => !isPrimaryWindow(w.windowKind))
@@ -85,7 +89,7 @@ function MeterCard({ meter, now }: { meter: PlanMeter; now: number }) {
         {meter.planType && <span style="color:var(--muted)">{planLabel(meter.planType)}</span>}
         <span style="flex:1" />
         <span style={`font-size:10px;color:var(--muted);${stale ? 'opacity:.6' : ''}`}
-          title={meter.provider === 'claude' ? "Claude Code's own cached reading, refreshed whenever Claude Code fetches it" : 'From the latest Codex turn'}>
+          title={meter.provider === 'claude' ? "Claude Code's own cached reading. It refreshes only when Claude Code fetches it; run /usage in Claude Code to refresh it now" : 'From the latest Codex turn'}>
           as of {fmtAge(meter.observedAt, now)}
         </span>
       </div>
@@ -102,6 +106,13 @@ function MeterCard({ meter, now }: { meter: PlanMeter; now: number }) {
       {perModel.length > 0 && (
         <div style="font-size:10px;color:var(--muted);margin-top:6px">
           {perModel.map(w => `${WINDOW_LABEL[w.windowKind]} ${w.resetSinceReading ? 'reset' : fmtPct(w.usedPct)}`).join(' · ')}
+        </div>
+      )}
+      {now - meter.observedAt > REFRESH_HINT_AFTER_MS && (
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">
+          {meter.provider === 'claude'
+            ? <>Claude Code refreshes this rarely. Run <code>/usage</code> in Claude Code to update it.</>
+            : 'Updates on your next Codex turn.'}
         </div>
       )}
     </div>
