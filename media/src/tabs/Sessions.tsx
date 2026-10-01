@@ -794,7 +794,7 @@ export function Sessions() {
             )}
             {showOutcome && (
               <th scope="col" aria-sort={sortKey === 'outcome' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--tr-brand);padding-left:0;padding-right:0'}>
-                <button class="sort-button" onClick={() => onSortClick('outcome')} title={`<b>Git outcome</b>\nWhether each trace's changed files were committed, reverted, or left uncommitted, per local git history`} data-tip-html>Out{sortArrow('outcome')}</button>
+                <button class="sort-button" onClick={() => onSortClick('outcome')} title={`<b>Git outcome</b>\nWhether each trace's changed files are merged into the trunk branch (M), committed but not yet merged (C), or still uncommitted (U), per local git history`} data-tip-html>Out{sortArrow('outcome')}</button>
               </th>
             )}
             <th scope="col" aria-sort={sortKey === 'signals' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--fg);padding-left:0'}>

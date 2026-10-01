@@ -45,6 +45,7 @@ import {
 import { SseSessionSync, type SyncSummary } from './sseSessionSync'
 import { isStrictlyInside } from './pathGuard'
 import { autoConfigLogLines } from './autoConfigLog'
+import { promptsFileFor, IMPORT_SOURCES } from './promptsFile'
 
 // Load `.env` from the current working directory, if one exists — lets `pnpm run local` point at
 // a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
@@ -1720,9 +1721,11 @@ function getHtml(): string {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ agent: msg.agent, label: msg.label, prompt: autoFull })
-              }).then(function() {
-                var slug = msg.agent === 'claude_code' ? 'claude' : msg.agent === 'codex' ? 'codex' : 'copilot';
-                showToast('Prompt written to traceroost-prompts-' + slug + '.md');
+              }).then(function(r) {
+                if (!r.ok) throw new Error('write failed');
+                return r.json();
+              }).then(function(data) {
+                showToast('Prompt written to ' + data.filename);
               }).catch(function() {
                 showActionNotification(autoLabel, autoFull, '#f6a623', autoPreview, viewAutomations, 30000);
               });
@@ -2246,14 +2249,13 @@ const uiServer = http.createServer((req, res) => {
           res.end(JSON.stringify({ error: 'sessions array required' }))
           return
         }
-        const VALID_SOURCES = new Set(['copilot', 'claude_code', 'codex', 'opencode'])
         let imported = 0
         let skipped = 0
         for (const raw of body.sessions) {
           if (typeof raw !== 'object' || raw === null) continue
           const s = raw as Record<string, unknown>
           const id = typeof s['sessionId'] === 'string' ? s['sessionId'] : ''
-          if (!id || !VALID_SOURCES.has(s['source'] as string)) continue
+          if (!id || !IMPORT_SOURCES.has(s['source'] as string)) continue
           if (logSessions.has(id)) { skipped++; continue }
           const card = buildImportCardStandalone(s)
           setLogSession(card)
@@ -2289,9 +2291,7 @@ const uiServer = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const { agent, label, prompt } = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { agent: string; label: string; prompt: string }
-        const agentSlug = agent === 'claude_code' ? 'claude' : agent === 'codex' ? 'codex' : 'copilot'
-        const agentName = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'Copilot'
-        const filename = `traceroost-prompts-${agentSlug}.md`
+        const { filename, agentName } = promptsFileFor(agent)
         const filePath = path.join(process.cwd(), filename)
         const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
         const entry = `## ${timestamp} — ${label}\n\n${prompt}\n\n---\n\n`
@@ -2300,10 +2300,12 @@ const uiServer = http.createServer((req, res) => {
         const content = existing ? existing + entry : `# TraceRoost Prompts — ${agentName}\n\n${entry}`
         fs.writeFileSync(filePath, content, 'utf-8')
         console.log(`[TraceRoost] Prompt written to ${filePath}`)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ filename }))
       } catch (e) {
         console.warn('[TraceRoost] write-prompts-file error:', e)
+        res.writeHead(500); res.end()
       }
-      res.writeHead(200); res.end()
     })
     return
   }

@@ -30,6 +30,8 @@
     "standalone/service/globalInstall.test.ts",
     "standalone/autoConfigLog.ts",
     "standalone/autoConfigLog.test.ts",
+    "standalone/promptsFile.ts",
+    "standalone/promptsFile.test.ts",
     "standalone/pathGuard.ts",
     "standalone/pathGuard.test.ts",
     "standalone/sseSessionSync.ts",
