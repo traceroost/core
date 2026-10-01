@@ -32,8 +32,9 @@ jobs:
           # action's own commit of the signature record can't land there directly.
           branch: cla-signatures
           # Claude <noreply@anthropic.com> commits have no GitHub account, so the action matches
-          # them by author name.
-          allowlist: RogerReed,Claude
+          # them by author name. Commits made from a Claude Code web session are attributed to the
+          # `claude` GitHub account instead, and Dependabot's to `dependabot[bot]`.
+          allowlist: RogerReed,Claude,claude,dependabot[bot]
           custom-notsigned-prcomment: |
             Thanks for this contribution! Before it can be merged, please read the
             [Contributor License Agreement](https://github.com/traceroost/core/blob/main/.github/CLA.md)
