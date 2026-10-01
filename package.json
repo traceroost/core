@@ -265,21 +265,23 @@
     "test": "vscode-test",
     "clean-tests": "node -e \"for (const d of ['out/test', 'out/test-media', 'out/test-standalone']) require('fs').rmSync(d, { recursive: true, force: true })\"",
     "test:unit": "pnpm run clean-tests && pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && mocha",
+    "test:coverage": "pnpm run clean-tests && pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && c8 mocha --reporter dot",
     "test:ux": "playwright test",
     "test:ux:report": "playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "1.56.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.118.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^3.1.0",
+    "c8": "^12.0.0",
     "esbuild": "^0.27.7",
     "eslint": "^9.39.4",
     "mocha": "^11.7.5",
     "npm-run-all": "^4.1.5",
-    "playwright": "^1.63.0",
+    "playwright": "1.56.1",
     "sharp": "^0.35.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.2"
@@ -293,6 +295,27 @@
     "jsonc-parser": "^3.3.1",
     "preact": "^10.29.1",
     "sql.js": "^1.14.2"
+  },
+  "c8": {
+    "all": true,
+    "src": [
+      "out"
+    ],
+    "include": [
+      "out/**"
+    ],
+    "exclude": [
+      "out/test/test/**",
+      "out/test-media/src/test/**",
+      "**/*.test.js",
+      "out/**/types.js",
+      "out/**/summarizerTypes.js"
+    ],
+    "reporter": [
+      "text-summary",
+      "lcov"
+    ],
+    "reportDir": "coverage"
   },
   "pnpm": {
     "overrides": {

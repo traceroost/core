@@ -38,3 +38,5 @@ playwright-report/
 .vscodeignore.edition-backup
 # README demo GIF — built by `pnpm run demo:gif` and served from static.traceroost.com
 media/demo.gif
+# Unit-test coverage (`pnpm run test:coverage`)
+coverage/
