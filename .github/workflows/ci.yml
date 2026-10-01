@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, cloud]
 
+# Read-only: nothing in CI writes to the repo (artifact uploads need no token scope).
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ${{ matrix.os }}
@@ -45,6 +49,31 @@ jobs:
 
       - name: Unit tests
         run: pnpm run test:unit
+
+      # Informational only: the target is 80% lines and branches, but nothing here can fail the
+      # job (continue-on-error, no c8 thresholds). Reuses the test build the step above compiled;
+      # `pnpm run test:coverage` is the local equivalent (it cleans and recompiles first).
+      - name: Unit test coverage (informational)
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: |
+          pnpm exec c8 mocha --reporter dot
+          {
+            echo '### Unit test coverage'
+            echo 'Target: 80% lines and branches (informational; does not fail CI).'
+            echo '```'
+            pnpm exec c8 report --reporter=text-summary
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        with:
+          name: core-coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build production bundle
         run: pnpm run package

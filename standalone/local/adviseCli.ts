@@ -85,10 +85,12 @@ export async function runAdviseCli(args: string[], afterApply?: AfterApplyHook):
 
   if (args.includes('--list')) return runList(abs)
   const applyId = valueAfter(args, '--apply')
-  if (applyId) return runApply(abs, applyId, afterApply)
+  if (applyId && !applyId.startsWith('-')) return runApply(abs, applyId, afterApply)
 
   console.log('Usage:')
   console.log('  traceroost advise --list                 list instruction suggestions for this repo')
   console.log('  traceroost advise --apply <id> [--repo p] draft + append a suggestion, capture a baseline')
-  return 0
+  // Like every other subcommand's usage fallback (cohort, trace, find, service): no valid
+  // action — including `--apply` with its id missing — is a usage error, not success.
+  return 1
 }

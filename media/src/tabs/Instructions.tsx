@@ -223,7 +223,7 @@ function TextBlock({ label, text }: { label: string; text: string }) {
 }
 
 function SuggestionCardView({
-  card, dismissed, applied, repoWorkspaces, onDismiss,
+  card, dismissed, applied, files, repoWorkspaces, onApply, onDismiss,
 }: {
   card: SuggestionCard
   dismissed: boolean
@@ -233,6 +233,21 @@ function SuggestionCardView({
   onApply: (id: string, targetFile: string, text: string) => void
   onDismiss: (id: string) => void
 }) {
+  // Target picker: the detected instruction files (getInstructionFiles), an existing one first.
+  // The host resolves the choice against the open folder; a missing file is created on apply.
+  const defaultFile = files.find(f => f.exists)?.relativePath ?? files[0]?.relativePath ?? ''
+  const [targetFile, setTargetFile] = useState('')
+  const [applying, setApplying] = useState(false)
+  const chosen = files.some(f => f.relativePath === targetFile) ? targetFile : defaultFile
+
+  // In flight until the host's appliedSuggestions reply hides this card; a refusal or failure
+  // (shown by the host as an error) leaves it here, so re-enable after a while.
+  useEffect(() => {
+    if (!applying) return
+    const t = setTimeout(() => setApplying(false), 5000)
+    return () => clearTimeout(t)
+  }, [applying])
+
   if (dismissed || applied) return null
 
   const catColor = CAT_COLOR[card.category]
@@ -244,7 +259,7 @@ function SuggestionCardView({
     : repoWorkspaces.join(', ') || undefined
 
   return (
-    <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden">
+    <div data-suggestion-id={card.id} style="border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden">
       <div style="padding:10px 12px;display:flex;align-items:flex-start;gap:8px">
         <span style={`font-size:9px;padding:2px 6px;border-radius:8px;background:${catColor}22;color:${catColor};text-transform:uppercase;letter-spacing:.3px;flex-shrink:0;margin-top:1px`}>
           {card.category}
@@ -276,7 +291,7 @@ function SuggestionCardView({
       <div style="padding:10px 12px;border-top:1px solid var(--border);background:var(--card-bg);display:flex;flex-direction:column;gap:10px">
         <TextBlock label="Recommended addition:" text={card.suggestedText} />
         <TextBlock label="Ask your agent:" text={card.inquiryText} />
-        <div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <button
             onClick={() => {
               evidenceSessionIds.value = new Set(card.evidenceSessions)
@@ -287,6 +302,30 @@ function SuggestionCardView({
             style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap"
             title="View the traces that triggered this suggestion"
           >View traces ↗</button>
+          {files.length > 0 && (
+            <div style="display:flex;align-items:center;gap:4px;margin-left:auto;min-width:0">
+              <select
+                aria-label="Instruction file to apply to"
+                value={chosen}
+                disabled={applying}
+                onChange={e => setTargetFile((e.target as HTMLSelectElement).value)}
+                style="padding:2px 4px;font-size:10px;border-radius:3px;border:1px solid var(--border);background:var(--vscode-input-background,transparent);color:var(--muted);cursor:pointer;min-width:0;max-width:180px"
+              >
+                {files.map(f => (
+                  <option key={f.relativePath} value={f.relativePath}>
+                    {f.relativePath}{f.exists ? '' : ' (create)'}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => { setApplying(true); onApply(card.id, chosen, card.suggestedText) }}
+                disabled={applying || !chosen}
+                aria-busy={applying}
+                style={`padding:2px 8px;font-size:10px;border-radius:3px;cursor:${applying ? 'default' : 'pointer'};border:1px solid var(--border);background:transparent;color:var(--fg);white-space:nowrap;opacity:${applying ? 0.6 : 1}`}
+                title={`Append the recommended addition to ${chosen}`}
+              >{applying ? 'Applying…' : 'Apply'}</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -535,7 +574,7 @@ export function Instructions() {
                 card={card}
                 dismissed={dismissed.has(card.id)}
                 applied={appliedIds.has(card.id)}
-                files={files}
+                files={workspace === null ? [] : files /* no open folder: nothing to apply into */}
                 repoWorkspaces={evidenceWorkspaces(card.evidenceSessions, wsSessions)}
                 onApply={handleApply}
                 onDismiss={handleDismiss}

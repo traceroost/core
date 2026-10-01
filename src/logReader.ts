@@ -755,14 +755,15 @@ export class LogReader {
     if (lastTotalUsage) {
       const baseCacheRead = baselineUsage?.['cached_input_tokens'] ?? 0
       const baseInputRaw  = Math.max(0, (baselineUsage?.['input_tokens'] ?? 0) - baseCacheRead)
-      const baseOutput    = (baselineUsage?.['output_tokens'] ?? 0) + (baselineUsage?.['reasoning_output_tokens'] ?? 0)
+      const baseOutput    = baselineUsage?.['output_tokens'] ?? 0
 
       const curCacheRead = lastTotalUsage['cached_input_tokens'] ?? 0
       // input_tokens includes cached, so subtract to get the raw (non-cached) portion that
       // _buildCard will re-add alongside cacheRead.
       const curInputRaw  = Math.max(0, (lastTotalUsage['input_tokens'] ?? 0) - curCacheRead)
-      // Include reasoning tokens in output — they're billed at the output rate for o-series.
-      const curOutput    = (lastTotalUsage['output_tokens'] ?? 0) + (lastTotalUsage['reasoning_output_tokens'] ?? 0)
+      // output_tokens already includes reasoning_output_tokens (a breakdown of it, as in OpenAI's
+      // usage.output_tokens_details) — adding the two billed reasoning twice.
+      const curOutput    = lastTotalUsage['output_tokens'] ?? 0
 
       totalCacheRead = Math.max(0, curCacheRead - baseCacheRead)
       totalInput     = Math.max(0, curInputRaw - baseInputRaw)
@@ -2231,12 +2232,15 @@ function _strOrUndef(v: unknown): string | undefined {
 }
 
 /**
- * Merges outstanding WAL frames into the database buffer so sql.js can read
- * sessions written since the last checkpoint. SQLite WAL format (spec §2):
+ * Merges committed WAL frames into the database buffer so sql.js can read
+ * sessions written since the last checkpoint. SQLite WAL format (https://sqlite.org/fileformat2.html#walformat):
  *   - 32-byte header: magic, version, page size, seq, salt1, salt2, cksum1, cksum2
  *   - Frames: 24-byte frame header + pageSize bytes of page data
  *     Frame header: pgno (4), dbSize (4), salt1 (4), salt2 (4), cksum1 (4), cksum2 (4)
- * Frames whose salts don't match the WAL header belong to a stale WAL — stop there.
+ * Like SQLite's own reader, a frame is valid only if its salts match the header and its
+ * cumulative checksum (seeded by the header's) matches; reading stops at the first invalid
+ * frame. Only frames up to and including the last valid commit frame (non-zero dbSize) are
+ * applied — later frames are an in-flight or rolled-back transaction SQLite would not show.
  */
 function _mergeWal(dbBuf: Uint8Array, walBuf: Uint8Array): Uint8Array {
   const dv = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength)
@@ -2245,33 +2249,52 @@ function _mergeWal(dbBuf: Uint8Array, walBuf: Uint8Array): Uint8Array {
   const magic = wDv.getUint32(0)
   if (magic !== 0x377f0682 && magic !== 0x377f0683) return dbBuf
   const pageSize = wDv.getUint32(8)
-  if (pageSize < 512 || (pageSize & (pageSize - 1)) !== 0) return dbBuf
+  if (pageSize < 512 || pageSize > 65536 || (pageSize & (pageSize - 1)) !== 0) return dbBuf
   const salt1 = wDv.getUint32(16)
   const salt2 = wDv.getUint32(20)
 
-  const FRAME = 24 + pageSize
-  let result = new Uint8Array(dbBuf)
-  let off = 32
-
-  while (off + FRAME <= walBuf.length) {
-    const pgno   = wDv.getUint32(off)
-    const fSalt1 = wDv.getUint32(off + 8)
-    const fSalt2 = wDv.getUint32(off + 12)
-    if (fSalt1 !== salt1 || fSalt2 !== salt2) break  // stale generation
-    if (pgno >= 1) {
-      const pageOff = (pgno - 1) * pageSize
-      const pageEnd = pageOff + pageSize
-      if (pageEnd > result.length) {
-        const ext = new Uint8Array(pageEnd)
-        ext.set(result)
-        result = ext
-      }
-      result.set(walBuf.slice(off + 24, off + 24 + pageSize), pageOff)
+  // Checksum words are big-endian when the magic's low bit is set, little-endian otherwise.
+  const bigEndian = (magic & 1) === 1
+  let s0 = 0, s1 = 0
+  const checksum = (off: number, len: number) => {
+    for (let i = off; i < off + len; i += 8) {
+      s0 = (s0 + wDv.getUint32(i, !bigEndian) + s1) >>> 0
+      s1 = (s1 + wDv.getUint32(i + 4, !bigEndian) + s0) >>> 0
     }
-    off += FRAME
   }
+  checksum(0, 24)
+  if (s0 !== wDv.getUint32(24) || s1 !== wDv.getUint32(28)) return dbBuf  // corrupt/unsynced header
 
-  return result
+  const FRAME = 24 + pageSize
+  // Last valid commit: the byte offset just past its frame, and the db size (pages) it records.
+  let commitEnd = 0
+  let commitPages = 0
+  for (let off = 32; off + FRAME <= walBuf.length; off += FRAME) {
+    const pgno   = wDv.getUint32(off)
+    const dbSize = wDv.getUint32(off + 4)
+    if (pgno === 0) break
+    if (wDv.getUint32(off + 8) !== salt1 || wDv.getUint32(off + 12) !== salt2) break  // stale generation
+    checksum(off, 8)
+    checksum(off + 24, pageSize)
+    if (s0 !== wDv.getUint32(off + 16) || s1 !== wDv.getUint32(off + 20)) break  // torn/unsynced write
+    if (dbSize !== 0) { commitEnd = off + FRAME; commitPages = dbSize }
+  }
+  if (commitEnd === 0) return dbBuf
+
+  let result = new Uint8Array(dbBuf)
+  for (let off = 32; off < commitEnd; off += FRAME) {
+    const pageOff = (wDv.getUint32(off) - 1) * pageSize
+    const pageEnd = pageOff + pageSize
+    if (pageEnd > result.length) {
+      const ext = new Uint8Array(pageEnd)
+      ext.set(result)
+      result = ext
+    }
+    result.set(walBuf.subarray(off + 24, off + 24 + pageSize), pageOff)
+  }
+  // The last commit records the database's size after it — a VACUUM can shrink it.
+  const size = commitPages * pageSize
+  return result.length > size ? result.slice(0, size) : result
 }
 
 function _parseTs(ts: string): number {

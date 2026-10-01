@@ -11,6 +11,7 @@ import {
 } from '../../src/serviceConfig'
 import { readResolvedPorts } from '../../src/portResolver'
 import { waitForServiceHealth } from './health'
+import { isPathInsideDir } from './globalInstall'
 import * as macos from './macos'
 import * as linux from './linux'
 import * as windows from './windows'
@@ -87,8 +88,7 @@ function buildProgram(config: ServiceConfig): ServiceProgram {
 function isRunningFromGlobalInstall(): boolean {
   const dir = globalPackageDir()
   if (!dir) { return false }
-  const running = process.argv[1] ?? ''
-  return running === dir || running.startsWith(dir + path.sep)
+  return isPathInsideDir(process.argv[1] ?? '', dir)
 }
 
 /** Builds the ServiceProgram for `service install`. When run from the global install, first brings
@@ -375,6 +375,12 @@ export async function runServiceCli(args: string[]): Promise<number> {
       const { version, previousVersion } = outcome
       if (previousVersion && version && previousVersion === version) {
         console.log('[TraceRoost] No restart needed.')
+        return 0
+      }
+      if (!safeIsInstalled(platformService)) {
+        // Nothing to restart — `systemctl restart`/`launchctl bootstrap` on a missing unit would
+        // throw after a successful update and turn it into a stack trace and exit 1.
+        console.log('[TraceRoost] No background service is installed — run `traceroost service install` to set one up on this version.')
         return 0
       }
       console.log('[TraceRoost] Restarting the background service on the new version...')

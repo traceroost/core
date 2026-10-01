@@ -36,7 +36,9 @@ async function main() {
 
   const html = `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TraceRoost UX evaluation</title><style>${theme}</style><link rel="stylesheet" href="/dashboard.css"></head><body><div id="sa-main"><div id="app"></div></div><script>
 window.__STANDALONE__ = true; window.__VERSION__ = 'UX fixture';
+window.__posted = [];
 window.acquireVsCodeApi = () => ({ getState: () => ({}), setState: () => {}, postMessage: msg => {
+ window.__posted.push(msg);
  if (msg.type === 'searchSessions') setTimeout(() => window.postMessage({ type: 'searchResults', sessions: ${JSON.stringify(sessions)}, totalCount: 64, context: msg.context }, '*'), 150);
 }});
 </script><script src="/dashboard.js"></script></body></html>`

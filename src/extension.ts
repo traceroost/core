@@ -6,7 +6,7 @@ import { detectPortOwner } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
-import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
+import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult } from './autoConfig'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
 import { DatabaseReader, openReadonlySnapshot } from './database/reader'
@@ -16,7 +16,8 @@ import { runRetention } from './database/retention'
 import { PlanUsageService, getPlanUsageService, setPlanUsageService } from './planUsage/planUsageService'
 import { SessionRepository } from './sessionRepository'
 import { summarizeSpans, summarizeTraces } from './spanSummarizer'
-import { LogReader, type FileState } from './logReader'
+import { LogReader } from './logReader'
+import { restoreLogFileState, writeLogFileState } from './logFileState'
 import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
 import { startMcpHttpServer } from './mcpServer'
@@ -64,33 +65,6 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
   } catch {
     return 0
   }
-}
-
-// ── Log-reader file-state persistence ────────────────────────────────────────
-//
-// Without this, every extension activation re-parses every historical source-tool log file from
-// scratch — LogReader.fileState is an in-memory Map that starts empty on every process start. This
-// is pure waste today, at current scale, for anyone with more than a few weeks of log history, so
-// it's fixed unconditionally rather than gated behind the stress-test in scalability.md. See
-// .staged-issues/scalability.md, risk #1.
-
-const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
-
-function readLogFileState(storageUri: vscode.Uri): Record<string, FileState> {
-  try {
-    const filePath = path.join(storageUri.fsPath, LOG_FILE_STATE_FILENAME)
-    const raw = fs.readFileSync(filePath, 'utf8')
-    return JSON.parse(raw) as Record<string, FileState>
-  } catch {
-    return {}
-  }
-}
-
-function writeLogFileState(storageUri: vscode.Uri, state: Record<string, FileState>): void {
-  try {
-    const filePath = path.join(storageUri.fsPath, LOG_FILE_STATE_FILENAME)
-    fs.writeFileSync(filePath, JSON.stringify(state))
-  } catch { /* non-fatal — worst case, the next activation re-parses from scratch */ }
 }
 
 // ── Activate ─────────────────────────────────────────────────────────────────
@@ -316,6 +290,11 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   }
 
+  // A user endpoint left alone on purpose (it points at their own collector) — log why.
+  for (const r of [copilotResult, claudeResult, codexResult] as ConfigResult[]) {
+    if (r.warning) outputChannel.appendLine(`Auto-configure: ${r.warning}`)
+  }
+
   const configuredAgents: string[] = []
   if (copilotResult.changed) configuredAgents.push('Copilot')
   if (claudeResult.changed) configuredAgents.push('Claude Code')
@@ -374,7 +353,7 @@ export async function activate(context: vscode.ExtensionContext) {
         sessionId: s.sessionId,
         workspace: s.workspace,
         filesChanged: s.filesChanged,
-        endTime: s.startTime && s.durationMs ? new Date(Date.parse(s.startTime) + s.durationMs).toISOString() : s.startTime,
+        endTime: s.startTime && s.durationMs && !Number.isNaN(Date.parse(s.startTime)) ? new Date(Date.parse(s.startTime) + s.durationMs).toISOString() : s.startTime,
       })),
       log: (msg) => outputChannel!.appendLine(msg),
     })
@@ -387,12 +366,16 @@ export async function activate(context: vscode.ExtensionContext) {
   let startBatchedLoad: ((onAllDone?: () => void) => void) | undefined
   if (enableLogIngestion && writer) {
     logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
-    logReader.importFileState(readLogFileState(context.globalStorageUri))
+    // Also re-derives what a parser fix needs re-read (see LOG_FILE_STATE_VERSION) — e.g. Codex
+    // sessions stored with reasoning tokens counted twice.
+    const reparse = restoreLogFileState(logReader, context.globalStorageUri.fsPath,
+      vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90))
+    if (reparse > 0) outputChannel.appendLine(`TraceRoost: re-reading ${reparse} Codex log file(s) to correct stored token counts and cost.`)
     const lr = logReader  // non-null alias for use inside closures
     // Only once the parsed sessions are actually on disk: a read-only window (see TraceRoostDb)
     // recording files as processed would make the owning window skip them on its next activation.
     const persistFileState = () => {
-      if (traceRoostDb?.isOwner) writeLogFileState(context.globalStorageUri, lr.exportFileState())
+      if (traceRoostDb?.isOwner) writeLogFileState(context.globalStorageUri.fsPath, lr.exportFileState())
     }
     const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
 

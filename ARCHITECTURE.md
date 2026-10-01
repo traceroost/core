@@ -1,6 +1,6 @@
 # TraceRoost Architecture
 
-TraceRoost is a VS Code extension that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database and Cursor CLI's transcript files), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
+TraceRoost is a VS Code extension (and the same code as a standalone server — `npx traceroost`, Docker, or a background service; see §13) that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database and Cursor CLI's transcript files), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
 
 > **Naming:** the UI calls one prompt-to-response run a **Trace** (the Traces tab, the Waterfall sub-tab). The codebase predates that and still says `session` throughout — `SessionSummaryCard`, `sessions` table, `session_id`, `listSessions`, the `get_recent_sessions` MCP tool, etc. Read "session" as "trace" everywhere below; the two are the same thing.
 
@@ -205,14 +205,14 @@ A parallel, network-free ingestion path that reads session files written to disk
 | Agent | Format | Default path | Env override |
 | --- | --- | --- | --- |
 | Claude Code | JSONL (append log) | `~/.claude/projects/<project>/<uuid>.jsonl` | `CLAUDE_CONFIG_DIR` (comma-separated config dirs) |
-| Codex | JSONL (append log) | `~/.codex/sessions/<project>/<uuid>.jsonl` | `CODEX_HOME` (comma-separated home dirs) |
+| Codex | JSONL (append log) | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (scanned recursively) | `CODEX_HOME` (comma-separated home dirs) |
 | Copilot CLI | JSONL (event log) | `~/.copilot/session-state/<uuid>/events.jsonl` | — (written automatically) |
 | Copilot Chat (VS Code-family, newer) | JSONL (delta log) | `workspaceStorage/<hash>/chatSessions/<uuid>.jsonl` | — |
 | Copilot Chat (VS Code-family, older) | JSON (snapshot) | `workspaceStorage/<hash>/chatSessions/<uuid>.json` | — |
 | OpenCode | SQLite database (WAL mode) | `~/.local/share/opencode/opencode.db` (Linux/Mac) | `OPENCODE_DATA_DIR` (comma-separated data dirs) |
 | Cursor CLI (`cursor-agent`) | JSONL (append log, one file per session) | `~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl` | `XDG_CONFIG_HOME` — checked live 2026-09-19 against a real install and does **not** relocate transcripts (only `cursor-agent`'s own config); probed defensively anyway in case a future version honors it |
 
-`workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. TraceRoost scans all known VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro — via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude.
+`workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. TraceRoost scans all known VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro — via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`, Codex `%LOCALAPPDATA%\Codex\sessions` and `%APPDATA%\Codex\sessions`, Copilot CLI `%APPDATA%\copilot\session-state`, OpenCode `%APPDATA%\opencode`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude, and OpenCode honors `XDG_DATA_HOME`.
 
 ### Copilot Chat — delta log format (`.jsonl`)
 
@@ -276,7 +276,7 @@ flowchart TD
     INC -- cards --> WRI
 ```
 
-**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `extension.ts`'s `readLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`.
+**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `logFileState.ts`'s `restoreLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`. The file carries a version (`LOG_FILE_STATE_VERSION`): a parser fix that must correct already-stored sessions bumps it, and restoring an older file forgets the affected files so they're re-parsed and their rows rewritten once — version 2 re-reads Codex rollouts (within retention) stored with reasoning tokens counted twice (`logFileState.codexReparse.test.ts`).
 
 **Two-phase startup loading:** the fast group (all non-.json files) runs first and surfaces recent sessions immediately. The slow group (legacy .json snapshots) starts after the fast group finishes, with a 50 ms gap between each 2-file batch to keep the extension host responsive (each ~60 ms parsing window).
 
@@ -804,7 +804,7 @@ graph TD
 
 ### Tab component overview
 
-Five tabs in the sticky tab bar (Sessions, Analytics, Advisor, Export, Import). The header also carries a `$` icon (`Pricing.tsx` — the rate tables behind it) between the gear and Help icons, a Help icon button, and a bell icon. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. The bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
+Five tabs in the sticky tab bar (Traces — routing id `sessions` — Analytics, Advisor, Export, Import). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx` — the rate tables behind it), and Help. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. The bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
 
 ```mermaid
 graph LR
@@ -1048,10 +1048,11 @@ graph LR
 
 `sql.js` is loaded dynamically at runtime (not bundled) to keep the extension bundle small. The WASM binary is copied to `dist/sql-wasm.wasm` during the build and located via `extensionUri` at activation.
 
-`standalone/cli.js` dynamically imports either `standalone/server.js`'s source or
-`standalone/service/index.ts` at runtime depending on the `service` subcommand check — esbuild
-bundles both paths into the one output file regardless, so there's no separate service-only
-bundle to keep track of.
+`standalone/cli.js` dispatches on its first argument. The subcommand modules (`service/**`,
+`local/**`, and in the full edition `cloud/**` via `cliCloud.ts`) are bundled into `cli.js`
+itself; the server is reached only through `import('./server.js')`, which `esbuild.js` leaves
+external so the npm package ships one copy of the server (`standalone/server.js`) rather than a
+second one inlined into the CLI.
 
 ### Type-check vs bundle
 
@@ -1059,19 +1060,16 @@ bundle to keep track of.
 graph LR
     TSC1["tsc --noEmit<br/>tsconfig.json — checks src/"] --> TC_ONLY[Type errors only<br/>No output]
     TSC2["tsc --noEmit -p media/tsconfig.json<br/>checks media/src/"] --> TC_ONLY
+    TSC3["tsc --noEmit -p standalone/tsconfig.json<br/>checks standalone/"] --> TC_ONLY
     ESB[esbuild.js] --> BUNDLES[Bundles output<br/>No type checking]
     TC_ONLY & BUNDLES --> CI["pnpm run compile<br/>passes only when both succeed"]
 ```
 
-`standalone/tsconfig.json` covers `standalone/**` (including `cli.ts` and `service/**`) for
-editor IntelliSense and can be run manually via `tsc -p standalone/tsconfig.json --noEmit` — it
-isn't wired into `pnpm run compile`/`check-types`, so most of `standalone/**` still won't fail CI
-on a type error alone. One slice is covered a different way: `tsconfig.test.standalone.json`
-(`standalone/local/{patternsCli,traceCli,findCli,repoResolve}.ts` + their tests) is compiled by
-`compile-tests:standalone`, which `pnpm run test:unit` (CI's `mocha` step) runs before `mocha` —
-so a type error in those files does fail CI today. The rest of `standalone/**`
-(`server.ts`, `cli.ts`, `service/**`, `local/{adviseCli,cohortCli,sessionLoader}.ts`, and
-`cloud/{org-cli,explainPayload,clusterCli,adviseTelemetry}.ts`) is still uncovered — the remaining gap.
+`pnpm run check-types` runs a third pass, `tsc --noEmit -p standalone/tsconfig.json`, which
+covers all of `standalone/**` (server, CLI, `local/`, `service/`, `db/`, `cloud/`) together with
+the `src/**` it imports, so a type error anywhere in the standalone code fails `compile` and CI.
+Separately, `tsconfig.test.standalone.json` compiles the unit-tested standalone files and their
+tests for `pnpm run test:unit` (`compile-tests:standalone`).
 
 ---
 
@@ -1106,7 +1104,7 @@ lead see cross-developer aggregates. The rest of the codebase reaches it only th
 | `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
 | `src/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
 | `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
-| `src/cloud/forward/buildCommitRecords.ts` / `buildTurnoverSamples.ts` | Wire mappers for AL 05 / AL 06 domain data |
+| `src/cloud/forward/buildCommitRecords.ts` | Wire mapper for AL 05 commit records (schema'd, but nothing builds and sends them yet — see CLOUD_ARCHITECTURE.md) |
 | `src/cloud/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
 | `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders (AL 08) — prose fields structurally unreachable |
 | `src/cloud/org/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
@@ -1146,9 +1144,9 @@ is **not** in the payload — the service derives identity from the bearer token
   new tab-bar icon carrying a state dot (grey unlinked / green reporting / amber queued or
   degraded). The unlinked state is what almost every install shows forever; it states plainly
   that nothing is sent and offers `Show the exact payload` *before* linking.
-- **CLI** — `traceroost org <link|status|leave> [--device]` (`standalone/cloud/org-cli.ts`).
-- **Command palette** — `TraceRoost: Link This Machine to an Org`, `… Org Link Status`,
-  `… Leave Org`.
+- **CLI** — `traceroost org <link|status|verify|leave> [--device]` (`standalone/cloud/org-cli.ts`).
+- **Command palette** — `TraceRoost: Link This Machine to an Org (Cloud)`, `TraceRoost: Org Link Status (Cloud)`,
+  `TraceRoost: Unlink (Cloud)`.
 - **Standalone server** — `GET/POST /api/org`, dispatched through the same `panelController`.
 
 ### The free/paid boundary (AL 09)
@@ -1229,7 +1227,7 @@ traceroost/
 │   ├── vscodeFamilyIdes.ts       # App-directory names for VS Code-family IDEs (Copilot Chat log discovery)
 │   ├── exportData.ts             # JSON export helpers
 │   ├── exportFormats.ts          # CSV + Markdown export serialization
-│   ├── gitOutcome.ts             # On-demand git-outcome classification (reverted/productive/abandoned/ambiguous)
+│   ├── gitOutcome.ts             # On-demand git-outcome classification (merged/committed/abandoned — shown as Uncommitted — /ambiguous)
 │   ├── oneShotRate.ts            # One-shot / retry-rate metric — per-file edit-count aggregation
 │   ├── logReader.ts              # LogReader — local log ingestion (Claude/Codex/Copilot CLI/Copilot Chat JSONL+JSON/OpenCode SQLite/Cursor CLI JSONL)
 │   ├── loopDetector.ts           # Loop signal detection; shares getFileEditCounts with oneShotRate.ts
@@ -1243,10 +1241,20 @@ traceroost/
 │   ├── sessionRiskSignals.ts     # Post-hoc, on-demand risk detectors (session detail view) — malfunction patterns visible only once a session is complete
 │   ├── automationEngine.ts       # Server-side port of Automation's threshold evaluation for MCP tools — hand-kept in sync with media/src/tabs/Automation.tsx's own copy
 │   ├── claudeUsageLines.ts       # Selects whole cumulative usage snapshots from growing Claude Code output lines
+│   ├── claudeConversation.ts     # One rule (shared by DB writer and standalone server) for counting a Claude conversation's OTEL + transcript cards once
+│   ├── actionLog.ts              # Persistent record of every shell command TraceRoost runs (header action-log button)
+│   ├── repoKey.ts                # Repo hash from the clone's root commit (Traces table Repo (ID) column; HMAC primitives for cloud/)
+│   ├── suggestionRules.ts        # Instruction-suggestion rules — byte-identical copy of media/src/suggestionRules.ts (test-enforced)
+│   ├── webviewHtml.ts            # CSP nonce + shared webview HTML helpers
+│   ├── webviewSessionSync.ts     # Revision-checked delta protocol for posting sessions to the dashboard webview
+│   ├── edition.ts                # NOT_AVAILABLE_IN_CORE message
+│   ├── planUsage/                # Claude Pro/Max + ChatGPT plan-limit readings (Codex rollouts, ~/.claude.json cache) → PlanUsageSnapshot
 │   ├── types.ts                  # Shared extension-host types
 │   ├── reconcile/
 │   │   ├── reconciliationService.ts # Trace-outcome reconciliation (staged feature 10, Stage 1) — in-flight dedup over GitOutcomeRepository, not a long-lived cache
-│   │   └── backgroundWatcher.ts  # Debounced fs.watch + fallback-poll orchestrator driving reconciliationService
+│   │   ├── backgroundWatcher.ts  # Debounced fs.watch + fallback-poll orchestrator driving reconciliationService
+│   │   ├── keyedDebouncer.ts     # Per-key debounce with a max wait, coalescing bursts of updates for one session
+│   │   └── payloadHash.ts        # Content hash of a session's built rollup — detects any change worth re-forwarding
 │   ├── database/
 │   │   ├── schema.ts             # SCHEMA_SQL — CREATE TABLE statements + indexes
 │   │   ├── db.ts                 # TraceRoostDb — open, migrate, save, dispose
@@ -1258,46 +1266,29 @@ traceroost/
 │   │   ├── gitOutcomeRepository.ts # SQLite cache for per-session git-outcome classification; invalidated by cache key, not TTL
 │   │   ├── fileBlameRepository.ts # SQLite cache for per-file blame (AL 06) — re-blamed only when a file's blob sha changes
 │   │   ├── traceRevisionRepository.ts # Canonical trace revisions (staged feature 10, Stage 1) — advances only on a real outcome change
+│   │   ├── outcomeKeyRepository.ts # What each session's git-outcome cache key was built from — lets reconcile skip `git log`
+│   │   ├── attributionRepository.ts / turnoverRepository.ts # Caches for the attribution/turnover engines (§15)
+│   │   ├── sessionsVersion.ts    # Write counter for the sessions table — cheap staleness check for SessionRepository's memo
 │   │   └── types.ts              # Shared DB types
 │   ├── attribution/              # Free, local commit attribution (AL 05) — git + session records, no network (§15)
 │   ├── turnover/                 # Free, local cohort/survival engine (AL 06/07) built on attribution/ (§15)
 │   ├── cloud/                    # TraceRoost Cloud client — org link (org/) + upload (forward/); BSL, see NOTICE.md (§15)
 │   ├── cloudBridge.ts            # The one seam to cloud/ (interface + full impl via cloud/bridge.ts); §14 Editions
 │   ├── cloudBridge.core.ts       # Core edition's inert CloudBridge — swapped in by `esbuild.js --edition=core`
-│   ├── edition.ts                # NOT_AVAILABLE_IN_CORE message
 │   ├── summarizers/
 │   │   ├── claude.ts             # Claude Code session builder
 │   │   ├── copilot.ts            # Copilot session builder
 │   │   ├── codex.ts              # Codex session builder
 │   │   ├── helpers.ts            # Shared attribute/token extraction
 │   │   └── summarizerTypes.ts    # SessionSummaryCard, TimelineEntry, etc.
-│   └── test/
-│       ├── sessionStore.test.ts
-│       ├── spanStore.test.ts
-│       ├── spanSummarizer.test.ts
-│       ├── otlpCollector.test.ts
-│       ├── otlpParser.test.ts
-│       ├── loopDetector.test.ts
-│       ├── logReader.opencode.test.ts
-│       ├── logReader.cursor.test.ts
-│       ├── logReader.fileState.test.ts
-│       ├── gitOutcome.test.ts
-│       ├── oneShotRate.test.ts
-│       ├── exportFormats.test.ts
-│       ├── serviceConfig.test.ts
-│       ├── extension.test.ts
-│       ├── database/
-│       │   ├── writer.test.ts
-│       │   ├── reader.test.ts
-│       │   ├── reader.analytics.test.ts
-│       │   ├── migration.test.ts
-│       │   ├── retention.test.ts
-│       │   └── sessionRepository.test.ts
-│       └── pricing.test.ts
+│   └── test/                     # Mocha unit tests (`pnpm run test:unit`), mirroring src/ (database/, cloud/, attribution/,
+│                                 #   turnover/, reconcile/, media/ for webview logic); integration/ holds the `*.itest.ts`
+│                                 #   suites run inside a real VS Code by tests/e2e/vscode/run.mjs
 ├── media/
 │   ├── src/
 │   │   ├── dashboard.tsx         # Entry point — mounts App into the webview DOM
-│   │   ├── App.tsx               # Preact root, message handler, tab router, sticky tab bar,<br/>bell icon (Alerts popover) + gear icon (ConfigPanel: Alerts · Automation)
+│   │   ├── App.tsx               # Preact root, message handler, tab router, sticky tab bar, header icons
+│   │   │                         #   (bell · action log · gear ConfigPanel · $ Pricing · Help; Org/update where applicable)
 │   │   ├── state.ts              # Signals: sessions, timelines, blobs, analytics, sort, time range, gitOutcomes
 │   │   ├── types.ts              # Frontend types mirroring backend + analytics types
 │   │   ├── pricing.ts            # Browser pricing: rate table, lookupRates, calcTokenCost
@@ -1312,6 +1303,12 @@ traceroost/
 │   │   ├── BrandMark.tsx         # Inline brand mark SVG (currentColor) — mirrors media/brand/mark-currentcolor.svg
 │   │   ├── Wordmark.tsx          # "traceroost" wordmark as real text, not SVG, for crispness at small sizes
 │   │   ├── sidebarWebview.ts     # Sidebar JS (no JSX)
+│   │   ├── SectionNav.tsx        # Left-hand jump rail for the long single-page tabs (Analytics, Advisor)
+│   │   ├── planUsage.ts          # Plan-limit snapshot (mirrors src/planUsage/) + the "no data, no UI" render rules
+│   │   ├── suggestionRules.ts    # Instruction-suggestion rules — byte-identical copy of src/suggestionRules.ts
+│   │   ├── orgPanel.ts           # The webview's one seam to the Org panel (cloud/panels/OrgPanel.tsx)
+│   │   ├── orgPanel.core.tsx     # Core edition's inert Org panel stub
+│   │   ├── cloud/panels/OrgPanel.tsx # TraceRoost Cloud Org panel (full edition; BSL)
 │   │   ├── styles/
 │   │   │   ├── base.css          # Global variables, layout primitives
 │   │   │   ├── tabs.css          # Tab bar (sticky), tab-mini buttons
@@ -1329,9 +1326,11 @@ traceroost/
 │   │       ├── Sessions.tsx      # Sortable session table, expand-in-place detail panel
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
-│   │       ├── Analytics.tsx     # ESTIMATED COST · AGENT BREAKDOWN (incl. one-shot rate) · TOKEN USAGE · CONTEXT GROWTH
+│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · PLAN LIMITS · OUTCOME & TOKEN SPEND · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
+│   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
+│   │       ├── outcomeTrend.ts   # Day/week binning for OUTCOME & TOKEN SPEND OVER TIME
 │   │       ├── Insights.tsx      # InsightCard component + generateInsights; clipboard copy icon
-│   │       ├── Cost.tsx          # CostBarChart (canvas), per-session cost table, M/K token toggle, CSV export, fmtUsd
+│   │       ├── Cost.tsx          # CostBarChart (canvas, used by Analytics), fmtUsd re-export
 │   │       ├── SessionCharts.tsx # ContextGrowthChart (animated), SessionTokenChart, TurnsLink
 │   │       ├── Traces.tsx        # Waterfall rows (Step/StepRow), background span groups
 │   │       ├── Flow.tsx          # Turn-to-tool semantic graph (canvas), FlowCanvas component
@@ -1342,11 +1341,11 @@ traceroost/
 │   │       ├── Import.tsx        # Import tab — preview + import a TraceRoost JSON export
 │   │       ├── Alerts.tsx        # Alert config UI (incl. daily cost threshold), checkAlerts, AlertNotification type
 │   │       ├── Automation.tsx    # Automation config UI, checkAutomations, prompt building
-│   │       ├── Settings.tsx      # OTEL/log ingestion toggles, MCP toggle, reconfigure button (in gear-icon ConfigPanel)
+│   │       ├── Settings.tsx      # Theme (standalone), page size, OTEL/log ingestion toggles + Clear All Data, MCP toggle, Configure OTEL (in gear-icon ConfigPanel)
 │   │       ├── IngestionNote.tsx # Shared OTEL-vs-log-richness callout used by Help/Settings
 │   │       ├── Export.tsx        # Full or redacted export UI — format: JSON · CSV · Markdown
 │   │       ├── Pricing.tsx       # Rate tables behind the header's $ icon — reads from ../pricing and the Org panel's cloud rates
-│   │       └── Help.tsx          # Sticky TOC nav, glossary, OTEL setup guide
+│   │       └── Help.tsx          # Sticky TOC nav, setup, signal/alert/automation reference, MCP setup, glossary (Cloud/Privacy sections full edition only)
 │   ├── dashboard.js              # Compiled Preact bundle
 │   ├── dashboard.css             # Compiled styles
 │   └── sidebar.js                # Compiled sidebar script
@@ -1363,6 +1362,9 @@ traceroost/
 │   │   ├── adviseCli.ts          # `advise --list|--apply`
 │   │   └── repoResolve.ts        # `--repo <name|hash>`; hash resolution is injected from cloud/
 │   ├── cliCloud.ts               # CLI seam to cloud/ (core stub: cliCloud.core.ts)
+│   ├── versionCheck.ts           # npm "update available" check for the standalone dashboard
+│   ├── sseSessionSync.ts         # SSE side of the revision-checked session update protocol (src/webviewSessionSync.ts's twin)
+│   ├── db/outcomesDb.ts          # Small SQLite DB for the standalone server's attribution/turnover/blame caches
 │   ├── cloud/                    # Cloud (org link + upload) CLI surfaces (BSL, see NOTICE.md)
 │   │   ├── cliBridge.ts          # Full edition's CliCloud
 │   │   ├── org-cli.ts            # `org link|status|leave|verify`

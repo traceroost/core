@@ -25,6 +25,11 @@ suite('automationEngine', () => {
     assert.ok(!workspaceMatches('/repo', ''))
     assert.ok(!workspaceMatches('', '/repo'))
     assert.ok(workspaceMatches('C:\\work\\repo\\a', 'C:\\work\\repo'))
+    assert.ok(workspaceMatches('C:\\Work\\Repo\\a', 'c:/work/repo/'), 'Windows paths: case and separators ignored')
+    assert.ok(!workspaceMatches('C:\\work\\repo2', 'C:\\work\\repo'))
+    assert.ok(!workspaceMatches('/Repo/a', '/repo'), 'POSIX paths stay case-sensitive')
+    assert.ok(workspaceMatches('/repo/a', '/repo/b/../'), 'resolved before comparing')
+    assert.ok(workspaceMatches('/repo', '/'))
   })
 
   test('context compaction uses the per-agent threshold (Copilot fires below the old flat 140K)', () => {

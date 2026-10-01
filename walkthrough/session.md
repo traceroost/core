@@ -25,4 +25,4 @@ Every trace row shows a source badge:
 - **OTEL** — full telemetry: real-time timing, loop detection, file diffs, streaming speed
 - **Log** — log file fallback: token counts, tool calls, prompts where available; no timing data
 
-When OTEL data arrives for a trace already shown as **Log**, the badge upgrades automatically and the richer data replaces it.
+When TraceRoost can match OTEL data to a trace already shown as **Log** (always for Claude Code), the richer OTEL entry replaces it.

@@ -20,11 +20,25 @@
     "standalone/local/traceCli.ts",
     "standalone/local/findCli.ts",
     "standalone/local/patternsCli.test.ts",
+    "standalone/local/adviseCli.ts",
+    "standalone/local/adviseCli.test.ts",
     "standalone/local/traceCli.test.ts",
     "standalone/local/findCli.test.ts",
     "standalone/service/health.ts",
     "standalone/service/health.test.ts",
+    "standalone/service/globalInstall.ts",
+    "standalone/service/globalInstall.test.ts",
+    "standalone/autoConfigLog.ts",
+    "standalone/autoConfigLog.test.ts",
+    "standalone/promptsFile.ts",
+    "standalone/promptsFile.test.ts",
+    "standalone/pathGuard.ts",
+    "standalone/pathGuard.test.ts",
     "standalone/sseSessionSync.ts",
-    "standalone/sseSessionSync.test.ts"
+    "standalone/sseSessionSync.test.ts",
+    "standalone/instructionActions.ts",
+    "standalone/instructionActions.test.ts",
+    "standalone/requestBody.ts",
+    "standalone/requestBody.test.ts"
   ]
 }

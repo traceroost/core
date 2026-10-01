@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // TraceRoost standalone server — run with: npx traceroost@latest  |  bunx traceroost@latest  |  node standalone/cli.js
 // (use the @latest tag — a bare `npx traceroost` re-runs npx's cached copy without checking npm for a newer release)
-// `traceroost service <install|uninstall|start|stop|restart|status|logs>` manages running this
+// `traceroost service <install|uninstall|start|stop|restart|status|logs|update>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
-// `traceroost org <link|status|leave> [--device]` links this machine to an org (Cloud, AL 01) —
+// `traceroost org <link|status|verify|leave> [--device]` links this machine to an org (Cloud, AL 01) —
 // full edition only; the core edition prints "not available" and exits 1 (see cliCloud.ts).
 // `traceroost find <repo hash | trace/session id>` resolves a cloud dashboard hash-handoff
 // locally (traces-table.tsx's HashHandoff) and prints what it finds, ending with a `vscode://`
@@ -27,7 +27,7 @@ const USAGE = [
   '  traceroost                                   start the server (UI, OTLP receiver, MCP)',
   CLOUD && '  traceroost --explain-payload [--last|--all|--session <id>|--since <date>] [--dry-run]',
   '  traceroost service <install|uninstall|start|stop|restart|status|logs|update>',
-  CLOUD && '  traceroost org <link|status|leave> [--device]',
+  CLOUD && '  traceroost org <link|status|verify|leave> [--device]',
   '  traceroost find <repo hash | trace/session id> [--reporter <email>]',
   '  traceroost trace --id <sessionId>',
   '  traceroost patterns --repo <hash|name>',

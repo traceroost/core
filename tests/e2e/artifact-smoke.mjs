@@ -217,16 +217,11 @@ async function serviceRoundTrip(inst, edition) {
     console.log(inst1.stdout + inst1.stderr)
     assertEqual(inst1.status, 0, `service install exits 0\n${inst1.stdout}${inst1.stderr}\n--- service log ---\n${dumpLog()}`)
     installed = true
-    const fetched = inst1.stdout.includes('Fetching the latest traceroost from npm')
-    if (IS_WIN) {
-      assert(fetched, 'service install recognized it runs from the global npm install')
-      assert(/Keeping the version already installed \(v\d/.test(inst1.stdout + inst1.stderr), 'failed download falls back to the installed version')
-    } else if (!fetched) {
-      // Known, not Windows-specific: launched through the npm bin symlink, process.argv[1] is the
-      // symlink (<prefix>/bin/traceroost), so isRunningFromGlobalInstall() never matches the
-      // package dir and install skips its upgrade step. Reported, not asserted, here.
-      notice('service install did not detect its global npm install (argv[1] is the bin symlink) — the upgrade-on-reinstall step is skipped on this OS')
-    }
+    // Launched through the npm bin link, argv[1] is the symlink (<prefix>/bin/traceroost on
+    // macOS/Linux) — install must still resolve it to its own global package and run the upgrade
+    // step, then fall back to the tarball under test when the (dead) registry fails.
+    assert(inst1.stdout.includes('Fetching the latest traceroost from npm'), 'service install recognized it runs from the global npm install')
+    assert(/Keeping the version already installed \(v\d/.test(inst1.stdout + inst1.stderr), 'failed download falls back to the installed version')
     const healthy = await waitFor('`service status` to report the service healthy', () => traceroost(inst, ['service', 'status'], env).status === 0, { timeoutMs: 60_000, intervalMs: 2000 })
       .catch(e => { throw new Error(`${e.message}\n--- service log ---\n${dumpLog()}`) })
     assert(healthy, 'service healthy')

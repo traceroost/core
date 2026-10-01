@@ -292,7 +292,8 @@ export const workspaceFilter = signal<WorkspaceFilter>('')
 // is open. Distinct from workspaceFilter above (a freeform search box that can match any
 // historical repo's sessions): this is what Apply/getInstructionFiles actually write to, so
 // Instructions.tsx scopes its evidence and applied/dismissed state to this, not the search box.
-export const currentWorkspace = signal<string | null>(null)
+// The standalone server inlines its own counterpart (the repo it was started in, if any).
+export const currentWorkspace = signal<string | null>(window.__INITIAL_CURRENT_WORKSPACE__ ?? null)
 export const outcomeFilter = signal<OutcomeFilter>('all')
 export const activeTab = signal('sessions')
 

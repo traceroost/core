@@ -12,7 +12,7 @@ import {
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
   getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
-  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash,
+  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash, esc,
 } from '../utils'
 import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
@@ -61,7 +61,9 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   return (
     <span
       style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;flex-shrink:0`}
-      title={`<b>${meta.label}</b>\n${meta.description}\n${go.reason}`}
+      // data-tip-html renders this as markup: go.reason names the repo's trunk branch, and a ref
+      // name may contain `<`/`>` — escape it, the one non-static piece here.
+      title={`<b>${meta.label}</b>\n${meta.description}\n${esc(go.reason)}`}
       data-tip-html
     >{meta.letter}</span>
   )
@@ -220,7 +222,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   useEffect(() => {
     // undefined = not yet requested; null = requested but not applicable (no repo, no files, etc)
     if (gitOutcomes.value[sess.sessionId] === undefined && sess.filesChanged.length > 0 && vscode) {
-      const endTime = sess.startTime && sess.durationMs
+      const endTime = sess.startTime && sess.durationMs && !Number.isNaN(Date.parse(sess.startTime))
         ? new Date(new Date(sess.startTime).getTime() + sess.durationMs).toISOString()
         : sess.startTime
       vscode.postMessage({
@@ -792,7 +794,7 @@ export function Sessions() {
             )}
             {showOutcome && (
               <th scope="col" aria-sort={sortKey === 'outcome' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--tr-brand);padding-left:0;padding-right:0'}>
-                <button class="sort-button" onClick={() => onSortClick('outcome')} title={`<b>Git outcome</b>\nWhether each trace's changed files were committed, reverted, or left uncommitted, per local git history`} data-tip-html>Out{sortArrow('outcome')}</button>
+                <button class="sort-button" onClick={() => onSortClick('outcome')} title={`<b>Git outcome</b>\nWhether each trace's changed files are merged into the trunk branch (M), committed but not yet merged (C), or still uncommitted (U), per local git history`} data-tip-html>Out{sortArrow('outcome')}</button>
               </th>
             )}
             <th scope="col" aria-sort={sortKey === 'signals' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--fg);padding-left:0'}>

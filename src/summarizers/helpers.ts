@@ -246,7 +246,7 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
     const args = JSON.parse(argsJson)
     switch (toolName) {
       case 'read_file': {
-        const file = (args.filePath || '').split('/').pop() || args.filePath
+        const file = (args.filePath || '').split(/[\\/]/).pop() || args.filePath
         return `${file} L${args.startLine}-${args.endLine}`
       }
       case 'file_search':
@@ -258,7 +258,7 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
       }
       case 'list_dir': {
         const p = args.path || ''
-        const parts = p.split('/').filter(Boolean)
+        const parts = p.split(/[\\/]/).filter(Boolean)
         return parts[parts.length - 1] || p
       }
       case 'manage_todo_list': {
@@ -274,11 +274,11 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
         return `"${(args.query || '').slice(0, 60)}"`
       case 'replace_string_in_file':
       case 'multi_replace_string_in_file': {
-        const file = (args.filePath || '').split('/').pop()
+        const file = (args.filePath || '').split(/[\\/]/).pop()
         return file || 'edit'
       }
       case 'create_file': {
-        const file = (args.filePath || '').split('/').pop()
+        const file = (args.filePath || '').split(/[\\/]/).pop()
         return file || 'new file'
       }
       case 'apply_patch': {
@@ -288,7 +288,7 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
           const m = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
           if (m) {
             const fp = m[1].trim()
-            if (fp.includes('/')) { files.push(fp.split('/').pop() || '') }
+            if (/[\\/]/.test(fp)) { files.push(fp.split(/[\\/]/).pop() || '') }
           }
         }
         return files.length > 0 ? files.filter(Boolean).join(', ') : 'patch'
@@ -352,15 +352,14 @@ export function extractTokenCounts(span: Span): { input: number; output: number;
     getAttrInt(span, 'gen_ai.usage.cache_creation.input_tokens') ||
     getAttrInt(span, 'cache_creation_tokens')
 
-  // Codex splits output into output_token_count + reasoning_token_count; try them
-  // as a combined fallback after the standard keys.
-  const outputStd =
+  // Codex log events carry output_token_count; their reasoning_token_count is a breakdown of
+  // it (OpenAI's output count already includes reasoning), so it is never added on top.
+  const output =
     getAttrInt(span, 'gen_ai.usage.output_tokens') ||
     getAttrInt(span, 'output_tokens') ||
     getAttrInt(span, 'completion_tokens') ||
-    getAttrInt(span, 'codex.turn.token_usage.output_tokens')
-  const output = outputStd ||
-    (getAttrInt(span, 'output_token_count') + getAttrInt(span, 'reasoning_token_count'))
+    getAttrInt(span, 'codex.turn.token_usage.output_tokens') ||
+    getAttrInt(span, 'output_token_count')
 
   return { input, output, cacheRead, cacheCreate }
 }

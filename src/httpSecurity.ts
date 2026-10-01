@@ -100,7 +100,11 @@ export function extractCookieToken(req: Pick<IncomingMessage, 'headers'>): strin
   const cookie = req.headers['cookie']
   if (typeof cookie !== 'string') return null
   const match = new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`).exec(cookie)
-  return match ? decodeURIComponent(match[1]) : null
+  if (!match) return null
+  // A malformed escape (`%E0%A4%A`) makes decodeURIComponent throw — inside a request handler
+  // that would be an uncaught exception taking the whole server down, reachable by anyone who
+  // can reach the port. A cookie that doesn't decode simply carries no token.
+  try { return decodeURIComponent(match[1]) } catch { return null }
 }
 
 export function extractToken(req: Pick<IncomingMessage, 'headers' | 'url'>): string | null {

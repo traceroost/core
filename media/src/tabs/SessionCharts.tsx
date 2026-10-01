@@ -412,7 +412,8 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
       if (i > 0 && dayKey(s.startTime) !== dayKey(sessionData[i - 1].startTime)) {
         ctx.strokeStyle = gridColor; ctx.lineWidth = 0.8
         ctx.beginPath(); ctx.moveTo(slotX, pad.top); ctx.lineTo(slotX, pad.top + chartH); ctx.stroke()
-        const label = s.startTime ? new Date(s.startTime).toISOString().slice(5, 10) : ''
+        const day = dayKey(s.startTime)
+        const label = /^\d{4}-/.test(day) ? day.slice(5, 10) : ''
         if (label && slotX - lastDayLabelX >= MIN_DAY_LABEL_GAP) {
           ctx.fillStyle = textColor
           ctx.font = '8px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
@@ -433,7 +434,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
   }
 
   const presentSources = new Set(sessions.map(s => s.source).filter(Boolean))
-  const agentSources = (['copilot', 'claude_code', 'codex'] as const).filter(src => presentSources.has(src))
+  const agentSources = (['copilot', 'claude_code', 'codex', 'opencode', 'cursor'] as const).filter(src => presentSources.has(src))
 
   return (
     <>
@@ -443,7 +444,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
         <div style="display:flex;gap:10px;justify-content:center;margin-top:4px;flex-wrap:wrap">
           {agentSources.map(src => (
             <span key={src} style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)">
-              <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${getAgentColor(src)}`} />
+              <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--agent-${src === 'claude_code' ? 'claude' : src},${getAgentColor(src)})`} />
               {getAgentSourceLabel(src)}
             </span>
           ))}

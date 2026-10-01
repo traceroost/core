@@ -95,9 +95,12 @@ export function stop(): void {
   execFileSync('launchctl', ['bootout', serviceTarget()], { stdio: 'inherit' })
 }
 
+/** Same teardown race as a reinstall: a bare `bootout` + `bootstrap` (what `service update` runs
+ *  to land on the new version) fails with `Bootstrap failed: 5: Input/output error` while launchd
+ *  is still tearing the old instance down — so wait it out and retry the same way install does. */
 export function restart(): void {
-  try { stop() } catch { /* wasn't running */ }
-  start()
+  bootOutAndWait()
+  bootstrapWithRetry()
 }
 
 export async function status(uiPort: number, bindHost: string): Promise<boolean> {

@@ -28,7 +28,6 @@ import { startBackgroundReconciliation, type BackgroundWatcher } from '../src/re
 import { detectSessionRiskSignals } from '../src/sessionRiskSignals'
 import { temperLoopSignalSeverity } from '../src/loopDetector'
 import { generateSuggestions } from '../src/instructionAdvisor'
-import { detectInstructionFiles, appendSuggestion } from '../src/instructionFiles'
 import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
@@ -43,6 +42,10 @@ import {
   extractCookieToken, authCookieHeader,
 } from '../src/httpSecurity'
 import { SseSessionSync, type SyncSummary } from './sseSessionSync'
+import { autoConfigLogLines } from './autoConfigLog'
+import { promptsFileFor, IMPORT_SOURCES } from './promptsFile'
+import { handleInstructionMessage, loadInstructionState, saveInstructionState, MAX_INSTRUCTION_BODY_BYTES, type InstructionHost, type InstructionResult } from './instructionActions'
+import { readBodyLimited } from './requestBody'
 
 // Load `.env` from the current working directory, if one exists — lets `pnpm run local` point at
 // a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell vars.
@@ -139,6 +142,13 @@ if (isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) 
 const mediaDir  = path.join(__dirname, '..', 'media')
 const DATA_DIR  = process.env.DATA_DIR ?? fileConfig.dataDir
 const DATA_FILE = path.join(DATA_DIR, 'spans.json')
+// Applied/dismissed instruction suggestions — the extension's instruction_applied/_dismissed tables.
+const INSTRUCTIONS_FILE = path.join(DATA_DIR, 'instruction-suggestions.json')
+// This server's counterpart of the extension's open folder (workspaceFolders[0]), which the
+// Instructions tab scopes to and applies into: the repo `npx traceroost` was started in. Not the
+// background service's working directory, which is wherever the service manager put it.
+const CURRENT_WORKSPACE: string | null = process.env.TRACEROOST_SERVICE !== '1' && fs.existsSync(path.join(process.cwd(), '.git'))
+  ? process.cwd() : null
 
 // Running as the background service: record this process so `traceroost service stop/uninstall`
 // can end it on Windows, where ending the Scheduled Task only kills the wrapper cmd.exe and not
@@ -1483,6 +1493,7 @@ function getHtml(): string {
     window.__INITIAL_SESSION_REV__ = ${sessionRev};
     window.__INITIAL_COLLECTOR_CONFLICT__ = ${JSON.stringify(collectorConflict)};
     window.__INITIAL_LOG_INGEST__ = ${JSON.stringify(logIngestProgress)};
+    window.__INITIAL_CURRENT_WORKSPACE__ = ${safeJsonText(JSON.stringify(CURRENT_WORKSPACE))};
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(PACKAGE_VERSION)};
 
@@ -1686,6 +1697,15 @@ function getHtml(): string {
       setTimeout(function() { notif.remove(); }, dismissMs || 30000);
     }
 
+    var INSTRUCTION_ROUTES = {
+      getInstructionFiles:          { path: '/api/instruction-files', get: true },
+      getAppliedSuggestions:        { path: '/api/instructions/applied', get: true },
+      getDismissedSuggestions:      { path: '/api/instructions/dismissed', get: true },
+      applyInstructionSuggestion:   { path: '/api/instructions/apply' },
+      dismissInstructionSuggestion: { path: '/api/instructions/dismiss' },
+      removeInstructionSuggestion:  { path: '/api/instructions/remove' },
+    };
+
     window.acquireVsCodeApi = function() {
       return {
         getState: function() { return null; },
@@ -1701,9 +1721,24 @@ function getHtml(): string {
             }
           } else if (msg.type === 'clearAll') {
             fetch('/api/clear', { method: 'POST' });
+          } else if (Object.prototype.hasOwnProperty.call(INSTRUCTION_ROUTES, msg.type)) {
+            // Instructions tab — answered by the same messages dashboardPanel.ts posts back
+            // (standalone/instructionActions.ts); an error is what the extension would show.
+            var route = INSTRUCTION_ROUTES[msg.type];
+            (route.get
+              ? fetch(route.path + '?workspace=' + encodeURIComponent(msg.workspace || ''))
+              : fetch(route.path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msg) })
+            ).then(function(r) { return r.json(); }).then(function(data) {
+              (data.messages || []).forEach(function(m) {
+                window.dispatchEvent(new MessageEvent('message', { data: m }));
+              });
+              if (data.error) showToast(data.error);
+            }).catch(function() {
+              showToast('TraceRoost: instruction file request failed');
+            });
           } else if (msg.type === 'automation' && msg.prompt) {
             // Build full prompt matching VS Code format: [label] + session ID + body
-            var sessionLine = msg.sessionId ? 'Session ID: ' + msg.sessionId + '\\n' : '';
+            var sessionLine = msg.sessionId ? 'Trace ID: ' + msg.sessionId + '\\n' : '';
             var autoFull = '[' + (msg.label || 'Automation') + ']\\n\\n' + sessionLine + msg.prompt;
             var autoPreview = msg.prompt.length > 160 ? msg.prompt.slice(0, 160) + '…' : msg.prompt;
             var autoLabel = 'Automation: ' + (msg.label || 'Automation');
@@ -1718,9 +1753,11 @@ function getHtml(): string {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ agent: msg.agent, label: msg.label, prompt: autoFull })
-              }).then(function() {
-                var slug = msg.agent === 'claude_code' ? 'claude' : msg.agent === 'codex' ? 'codex' : 'copilot';
-                showToast('Prompt written to traceroost-prompts-' + slug + '.md');
+              }).then(function(r) {
+                if (!r.ok) throw new Error('write failed');
+                return r.json();
+              }).then(function(data) {
+                showToast('Prompt written to ' + data.filename);
               }).catch(function() {
                 showActionNotification(autoLabel, autoFull, '#f6a623', autoPreview, viewAutomations, 30000);
               });
@@ -2165,6 +2202,82 @@ function unauthorizedHtml(port: number): string {
 
 const SSE_CLIENT_ID = /^[A-Za-z0-9_-]{1,64}$/
 
+/** Settings → Clear all data (POST /api/clear from the page, POST /action {type:'clearAll'} from
+ *  Settings.tsx's no-host path) — the extension's traceRoost.clearSessions: drop OTEL spans and the
+ *  log-session cache, then re-read the local log files so log-sourced traces come back. */
+function clearAllData(): void {
+  spans = []
+  logSessions.clear()
+  dataVersion++
+  logReader.clearFileState()
+  try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
+  pushUpdate()          // send cleared state to clients immediately
+  // Re-ingest on a later turn, after the caller's response is sent, so the client sees the cleared state first.
+  setImmediate(() => runLogScan())
+}
+
+// ── Instructions tab routes (polyfill → standalone/instructionActions.ts) ─────
+const INSTRUCTION_GET_ROUTES = new Map([
+  ['/api/instruction-files', 'getInstructionFiles'],
+  ['/api/instructions/applied', 'getAppliedSuggestions'],
+  ['/api/instructions/dismissed', 'getDismissedSuggestions'],
+])
+const INSTRUCTION_POST_ROUTES = new Map([
+  ['/api/instructions/apply', 'applyInstructionSuggestion'],
+  ['/api/instructions/dismiss', 'dismissInstructionSuggestion'],
+  ['/api/instructions/remove', 'removeInstructionSuggestion'],
+])
+
+const instructionHost: InstructionHost = {
+  root: CURRENT_WORKSPACE,
+  sessions: () => buildSessionSummary()?.sessions ?? [],
+  load: () => loadInstructionState(INSTRUCTIONS_FILE),
+  save: (state) => saveInstructionState(INSTRUCTIONS_FILE, state),
+}
+
+function runInstructionMessage(msg: unknown): InstructionResult {
+  const result = handleInstructionMessage(msg, instructionHost)
+  if (result.error) console.warn(`[TraceRoost] ${result.error}`)
+  if (result.changed) emitInstructionTelemetry(result.changed)
+  return result
+}
+
+function sendInstructionResult(res: http.ServerResponse, result: InstructionResult): void {
+  res.writeHead(result.status, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ messages: result.messages, ...(result.error ? { error: result.error } : {}) }))
+}
+
+/** An automation prompt is a few KB; the rest is headroom. */
+const MAX_PROMPT_BODY_BYTES = 1024 * 1024
+/** A session export (Export tab JSON — per-session summaries, no timelines) runs to a few KB a
+ *  session; the OTLP receiver's 50 MB cap leaves room for tens of thousands of them. */
+const MAX_IMPORT_BODY_BYTES = 50 * 1024 * 1024
+/** /action and /api/org carry one small webview message. */
+const MAX_ACTION_BODY_BYTES = 64 * 1024
+
+function sendTooLarge(res: http.ServerResponse): void {
+  res.writeHead(413, { 'Content-Type': 'text/plain', 'Connection': 'close' }); res.end('Payload Too Large')
+}
+
+/** dashboardPanel.ts's emitInstructionTelemetry: after any apply / dismiss / remove, queue the
+ *  workspace's instruction-telemetry rollup — a hard no-op unless an org is linked (and always in
+ *  the core edition). */
+function emitInstructionTelemetry(workspace: string): void {
+  const state = loadInstructionState(INSTRUCTIONS_FILE)
+  const ledger = {
+    applied: state.applied.filter(a => a.workspace === workspace).map(a => ({
+      id: a.id,
+      atIso: a.appliedAt || new Date().toISOString(),
+      card: { id: a.id, category: a.category as 'context' | 'behavior' | 'prompting' },
+    })),
+    dismissed: state.dismissed.filter(d => d.workspace === workspace).map(d => ({ id: d.id, atIso: d.dismissedAt })),
+    reverted: [],
+  }
+  void cloud.enqueueInstructionTelemetry(CURRENT_WORKSPACE ?? workspace, buildSessionSummary()?.sessions ?? [], ledger)
+    .then(enqueued => { if (enqueued) cloud.drainUploadsSoon() })
+    .catch(() => { /* telemetry is best-effort */ })
+}
+
 const uiServer = http.createServer((req, res) => {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
@@ -2234,24 +2347,22 @@ const uiServer = http.createServer((req, res) => {
   }
 
   if (req.method === 'POST' && url === '/api/import') {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', () => {
+    readBodyLimited(req, MAX_IMPORT_BODY_BYTES).then(raw => {
+      if (!raw) { sendTooLarge(res); return }
       try {
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { sessions?: unknown[] }
+        const body = JSON.parse(raw.toString('utf-8')) as { sessions?: unknown[] }
         if (!Array.isArray(body.sessions)) {
           res.writeHead(400, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'sessions array required' }))
           return
         }
-        const VALID_SOURCES = new Set(['copilot', 'claude_code', 'codex', 'opencode'])
         let imported = 0
         let skipped = 0
         for (const raw of body.sessions) {
           if (typeof raw !== 'object' || raw === null) continue
           const s = raw as Record<string, unknown>
           const id = typeof s['sessionId'] === 'string' ? s['sessionId'] : ''
-          if (!id || !VALID_SOURCES.has(s['source'] as string)) continue
+          if (!id || !IMPORT_SOURCES.has(s['source'] as string)) continue
           if (logSessions.has(id)) { skipped++; continue }
           const card = buildImportCardStandalone(s)
           setLogSession(card)
@@ -2264,32 +2375,30 @@ const uiServer = http.createServer((req, res) => {
         res.writeHead(400, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: String(e) }))
       }
+    }).catch(e => {
+      console.warn(`[TraceRoost] ${url} error:`, e)
+      if (!res.headersSent) { res.writeHead(500); res.end() }
     })
     return
   }
 
   if (req.method === 'POST' && url === '/api/clear') {
-    spans = []
-    logSessions.clear()
-    dataVersion++
-    logReader.clearFileState()
-    try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
-    pushUpdate()          // send cleared state to clients immediately
+    clearAllData()
     res.writeHead(200); res.end()
-    // Re-ingest after the response is sent so the client sees the cleared state first.
-    setImmediate(() => runLogScan())
     return
   }
 
   if (req.method === 'POST' && url === '/api/write-prompts-file') {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', () => {
+    readBodyLimited(req, MAX_PROMPT_BODY_BYTES).then(body => {
+      if (!body) { sendTooLarge(res); return }
       try {
-        const { agent, label, prompt } = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { agent: string; label: string; prompt: string }
-        const agentSlug = agent === 'claude_code' ? 'claude' : agent === 'codex' ? 'codex' : 'copilot'
-        const agentName = agent === 'claude_code' ? 'Claude' : agent === 'codex' ? 'Codex' : 'Copilot'
-        const filename = `traceroost-prompts-${agentSlug}.md`
+        const { agent, label, prompt } = JSON.parse(body.toString('utf-8')) as { agent: unknown; label: unknown; prompt: unknown }
+        if (typeof label !== 'string' || typeof prompt !== 'string' || !prompt) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'label and prompt strings are required' }))
+          return
+        }
+        const { filename, agentName } = promptsFileFor(agent)
         const filePath = path.join(process.cwd(), filename)
         const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
         const entry = `## ${timestamp} — ${label}\n\n${prompt}\n\n---\n\n`
@@ -2298,16 +2407,21 @@ const uiServer = http.createServer((req, res) => {
         const content = existing ? existing + entry : `# TraceRoost Prompts — ${agentName}\n\n${entry}`
         fs.writeFileSync(filePath, content, 'utf-8')
         console.log(`[TraceRoost] Prompt written to ${filePath}`)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ filename }))
       } catch (e) {
         console.warn('[TraceRoost] write-prompts-file error:', e)
+        res.writeHead(500); res.end()
       }
-      res.writeHead(200); res.end()
+    }).catch(e => {
+      console.warn('[TraceRoost] write-prompts-file error:', e)
+      if (!res.headersSent) { res.writeHead(500); res.end() }
     })
     return
   }
 
-  if (req.method === 'GET' && url?.startsWith('/api/instruction-suggestions')) {
-    const parsed = new URL(url, 'http://localhost')
+  if (req.method === 'GET' && url === '/api/instruction-suggestions') {
+    const parsed = new URL(req.url ?? url, 'http://localhost')
     const workspace = parsed.searchParams.get('workspace')?.trim()
     if (!workspace) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
@@ -2324,57 +2438,41 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
-  if (req.method === 'GET' && url?.startsWith('/api/instruction-files')) {
-    const parsed = new URL(url, 'http://localhost')
-    const workspace = parsed.searchParams.get('workspace')?.trim()
-    if (!workspace) {
-      res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'workspace query param is required' }))
-      return
-    }
-    const files = detectInstructionFiles(workspace)
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(files))
+  // Instructions tab (see standalone/instructionActions.ts): each route answers one webview
+  // message with the messages dashboardPanel.ts would post back, which the polyfill re-dispatches.
+  const instructionGet = INSTRUCTION_GET_ROUTES.get(url)
+  if (req.method === 'GET' && instructionGet) {
+    // `url` has its query string stripped; the workspace is in the raw req.url.
+    const workspace = new URLSearchParams((req.url ?? '').split('?')[1] ?? '').get('workspace')?.trim() ?? ''
+    sendInstructionResult(res, runInstructionMessage({ type: instructionGet, workspace }))
     return
   }
-
-  if (req.method === 'POST' && url === '/api/instructions/apply') {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', () => {
-      try {
-        const { workspace, targetFile, appliedText, id } = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as {
-          workspace: string; targetFile: string; appliedText: string; id: string
-        }
-        if (!workspace || !targetFile || !appliedText || !id) {
-          res.writeHead(400, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'workspace, targetFile, appliedText, and id are required' }))
-          return
-        }
-        const absPath = path.join(workspace, targetFile)
-        appendSuggestion(absPath, appliedText, id)
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ ok: true }))
-      } catch (e) {
-        console.warn('[TraceRoost] /api/instructions/apply error:', e)
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: String(e) }))
+  const instructionPost = req.method === 'POST' ? INSTRUCTION_POST_ROUTES.get(url) : undefined
+  if (instructionPost) {
+    readBodyLimited(req, MAX_INSTRUCTION_BODY_BYTES).then(body => {
+      if (!body) { sendTooLarge(res); return }
+      let msg: unknown
+      try { msg = JSON.parse(body.toString('utf-8')) } catch {
+        sendInstructionResult(res, { status: 400, messages: [], error: 'invalid JSON body' })
+        return
       }
+      // The route names the action; the body is the webview message itself.
+      sendInstructionResult(res, runInstructionMessage(
+        typeof msg === 'object' && msg !== null ? { ...msg, type: instructionPost } : msg))
+    }).catch(e => {
+      console.warn(`[TraceRoost] ${url} error:`, e)
+      if (!res.headersSent) sendInstructionResult(res, { status: 500, messages: [], error: String(e) })
     })
     return
   }
 
   if (req.method === 'POST' && url === '/action') {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', async () => {
+    readBodyLimited(req, MAX_ACTION_BODY_BYTES).then(async raw => {
+      if (!raw) { sendTooLarge(res); return }
       try {
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type?: string }
+        const body = JSON.parse(raw.toString('utf-8')) as { type?: string }
         if (body.type === 'clearAll') {
-          spans = []
-          dataVersion++
-          try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
-          pushUpdate()
+          clearAllData()
         } else if (body.type === 'reconfigureOtel') {
           if (AUTOCONFIG_DISABLED) {
             res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -2396,6 +2494,9 @@ const uiServer = http.createServer((req, res) => {
         }
       } catch (e) { console.warn('[TraceRoost] Malformed /action body:', e) }
       res.writeHead(200); res.end()
+    }).catch(e => {
+      console.warn(`[TraceRoost] ${url} error:`, e)
+      if (!res.headersSent) { res.writeHead(500); res.end() }
     })
     return
   }
@@ -2426,13 +2527,12 @@ const uiServer = http.createServer((req, res) => {
   // Both reply with an array of webview messages the polyfill re-dispatches.
   // Not served at all in the core edition (literal edition check, so esbuild drops the handler).
   if (process.env.TRACEROOST_EDITION !== 'core' && url === '/api/org' && (req.method === 'GET' || req.method === 'POST')) {
-    const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', async () => {
+    readBodyLimited(req, MAX_ACTION_BODY_BYTES).then(async body => {
+      if (!body) { sendTooLarge(res); return }
       const outbox: Record<string, unknown>[] = []
       const msg = req.method === 'GET'
         ? { type: 'getOrgStatus' }
-        : (() => { try { return JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { type: string } } catch { return { type: 'getOrgStatus' } } })()
+        : (() => { try { return JSON.parse(body.toString('utf-8')) as { type: string } } catch { return { type: 'getOrgStatus' } } })()
       try {
         await cloud.handleOrgMessage(msg, {
           post: (m) => outbox.push(m),
@@ -2462,6 +2562,9 @@ const uiServer = http.createServer((req, res) => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ messages: outbox }))
+    }).catch(e => {
+      console.warn(`[TraceRoost] ${url} error:`, e)
+      if (!res.headersSent) { res.writeHead(500); res.end() }
     })
     return
   }
@@ -2545,7 +2648,7 @@ const uiServer = http.createServer((req, res) => {
           sessionId: card.sessionId,
           workspace: card.workspace,
           filesChanged: card.filesChanged,
-          endTime: card.startTime && card.durationMs
+          endTime: card.startTime && card.durationMs && !Number.isNaN(Date.parse(card.startTime))
             ? new Date(Date.parse(card.startTime) + card.durationMs).toISOString()
             : card.startTime,
         }))
@@ -2763,27 +2866,7 @@ async function startOtlpServer(): Promise<void> {
       autoConfigureCodex(bound),
       autoConfigureCopilotStandalone(bound),
     ]).then(([claudeResult, codexResult, copilotResults]) => {
-      if (claudeResult.warning) {
-        console.warn(`[TraceRoost] ${claudeResult.warning}`)
-      }
-      if (claudeResult.error) {
-        console.warn(`[TraceRoost] Could not auto-configure Claude Code: ${claudeResult.error}`)
-      } else if (claudeResult.changed) {
-        console.log(`[TraceRoost] Claude Code configured — restart Claude Code in your terminal to activate tracing`)
-      }
-      if (codexResult.error) {
-        console.warn(`[TraceRoost] Could not auto-configure Codex: ${codexResult.error}`)
-      } else if (codexResult.changed) {
-        console.log(`[TraceRoost] Codex configured — restart Codex in your terminal to activate tracing`)
-      }
-      const copilotChanged = copilotResults.filter(r => r.changed)
-      const copilotErrors  = copilotResults.filter(r => r.error)
-      if (copilotChanged.length > 0) {
-        console.log(`[TraceRoost] Copilot configured — reload VS Code window to activate tracing (Ctrl+Shift+P → "Reload Window")`)
-      }
-      for (const r of copilotErrors) {
-        console.warn(`[TraceRoost] Could not auto-configure Copilot: ${r.error}`)
-      }
+      for (const { level, text } of autoConfigLogLines(claudeResult, codexResult, copilotResults)) console[level](text)
     }).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
   }
 }

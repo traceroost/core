@@ -1,7 +1,7 @@
 {
   "name": "traceroost",
   "displayName": "TraceRoost - Agentic AI Monitoring & Observability",
-  "description": "Agentic AI monitoring and observability — OTEL traces and local log file ingestion for Copilot, Claude Code, Codex, and OpenCode. VS Code extension, npx, and Docker.",
+  "description": "Agentic AI monitoring and observability — OTEL traces and local log file ingestion for Copilot, Claude Code, Codex, OpenCode, and Cursor CLI. VS Code extension, npx, and Docker.",
   "version": "0.17.1",
   "publisher": "traceroost",
   "license": "MIT",
@@ -31,6 +31,7 @@
     "claude",
     "codex",
     "opencode",
+    "cursor",
     "tracing",
     "dashboard"
   ],
@@ -114,7 +115,7 @@
           {
             "id": "traceroost.welcome",
             "title": "What is TraceRoost?",
-            "description": "TraceRoost gives you a live observability dashboard for GitHub Copilot, Claude Code, and Codex — token usage, latency, file changes, and loop detection.\n\n[Open TraceRoost Sidebar](command:workbench.view.extension.traceroost)",
+            "description": "TraceRoost gives you a live observability dashboard for GitHub Copilot, Claude Code, and Codex (plus OpenCode and Cursor CLI from their local logs) — token usage, latency, file changes, and loop detection.\n\n[Open TraceRoost Sidebar](command:workbench.view.extension.traceroost)",
             "media": {
               "markdown": "walkthrough/welcome.md"
             },
@@ -152,7 +153,7 @@
           {
             "id": "traceroost.loopDetection",
             "title": "Detect Loops and Inefficiencies",
-            "description": "The Traces tab surfaces five failure patterns per trace — deadlocks, error spirals, context accumulation, and more. The Advisor tab analyzes patterns across traces to generate specific suggestions for improving your agent instruction file.",
+            "description": "The Traces tab flags seventeen stuck-agent and waste signals per trace — tool-call deadlocks, error spirals, context accumulation, avoidable cache misses, and more. The Advisor tab analyzes patterns across traces to generate specific suggestions for improving your agent instruction file.",
             "media": {
               "markdown": "walkthrough/loops.md"
             }
@@ -171,7 +172,7 @@
         "traceRoost.autoConfigureAgents": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically write OTEL telemetry settings into Claude Code's (~/.claude/settings.json), Codex's (~/.codex/config.toml), and GitHub Copilot's own configuration so they send trace data to TraceRoost. Runs on every activation but only rewrites a file when something's actually missing, so it's silent after the first successful run (shows a notification only when it changes something). Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab), or rely on traceRoost.enableLogIngestion alone. Codex and Copilot CLI traces have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
+          "description": "Automatically write OTEL telemetry settings into Claude Code's (~/.claude/settings.json), Codex's (~/.codex/config.toml), and GitHub Copilot's own configuration so they send trace data to TraceRoost. Runs on every activation but only rewrites a file when something's actually missing, so it's silent after the first successful run (shows a notification only when it changes something). Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab's Setup section), or rely on traceRoost.enableLogIngestion alone. Codex and Copilot CLI traces have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
         },
         "traceRoost.enableOtelIngestion": {
           "type": "boolean",
@@ -181,17 +182,17 @@
         "traceRoost.enableLogIngestion": {
           "type": "boolean",
           "default": true,
-          "description": "Read local trace logs for Claude Code, Codex, and Copilot CLI as a data source. Log data has lower fidelity than OTEL — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. Log and OTEL traces are shown as separate entries rather than merged. Loading is done incrementally in the background and will not block the UI."
+          "description": "Read the local logs and databases Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI write as a data source. Log data has lower fidelity than OTEL — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. When OTEL captured the same trace (always detected for Claude Code), the OTEL entry wins and the log entry is dropped; otherwise the two can appear as separate entries. Loading is done incrementally in the background and will not block the UI."
         },
         "traceRoost.enableMcpServer": {
           "type": "boolean",
           "default": true,
-          "description": "Start the TraceRoost MCP server so Claude Code can query your trace history. The server listens on traceRoost.mcpPort (default 4316). See the TraceRoost Help tab → Agent Integration for setup instructions."
+          "description": "Start the TraceRoost MCP server so Claude Code can query your trace history. The server listens on traceRoost.mcpPort (default 4316). See the TraceRoost Help tab → MCP for setup instructions."
         },
         "traceRoost.mcpPort": {
           "type": "number",
           "default": 4316,
-          "description": "Local port for the TraceRoost MCP server (when traceRoost.enableMcpServer is true). Configure Claude Code to connect with: { \"mcpServers\": { \"traceroost\": { \"url\": \"http://localhost:4316/mcp\" } } }"
+          "description": "Local port for the TraceRoost MCP server (when traceRoost.enableMcpServer is true). Register it with Claude Code with: claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp"
         },
         "traceRoost.sessionRetentionDays": {
           "type": "number",
@@ -259,25 +260,28 @@
     "compile-tests:standalone": "tsc -p tsconfig.test.standalone.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
-    "check-types": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json",
+    "check-types": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json && tsc --noEmit -p standalone/tsconfig.json",
     "lint": "eslint src media/src",
     "test": "vscode-test",
-    "test:unit": "pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && mocha",
+    "clean-tests": "node -e \"for (const d of ['out/test', 'out/test-media', 'out/test-standalone']) require('fs').rmSync(d, { recursive: true, force: true })\"",
+    "test:unit": "pnpm run clean-tests && pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && mocha",
+    "test:coverage": "pnpm run clean-tests && pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && c8 mocha --reporter dot",
     "test:ux": "playwright test",
     "test:ux:report": "playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "1.56.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.118.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^3.1.0",
+    "c8": "^12.0.0",
     "esbuild": "^0.27.7",
     "eslint": "^9.39.4",
     "mocha": "^11.7.5",
     "npm-run-all": "^4.1.5",
-    "playwright": "^1.63.0",
+    "playwright": "1.56.1",
     "sharp": "^0.35.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.2"
@@ -291,6 +295,27 @@
     "jsonc-parser": "^3.3.1",
     "preact": "^10.29.1",
     "sql.js": "^1.14.2"
+  },
+  "c8": {
+    "all": true,
+    "src": [
+      "out"
+    ],
+    "include": [
+      "out/**"
+    ],
+    "exclude": [
+      "out/test/test/**",
+      "out/test-media/src/test/**",
+      "**/*.test.js",
+      "out/**/types.js",
+      "out/**/summarizerTypes.js"
+    ],
+    "reporter": [
+      "text-summary",
+      "lcov"
+    ],
+    "reportDir": "coverage"
   },
   "pnpm": {
     "overrides": {

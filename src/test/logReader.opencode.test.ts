@@ -102,13 +102,9 @@ suite('LogReader — OpenCode', () => {
     insertMessage(db, 'msg-a1', 'sess-1', 'assistant')
     insertMessage(db, 'msg-a2', 'sess-1', 'assistant')
 
-    const dataDir = os.tmpdir()
-    const ocDbPath = path.join(dataDir, `opencode-${Date.now()}.db`)
-    fs.writeFileSync(ocDbPath, Buffer.from(db.export()))
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-db-'))
+    fs.writeFileSync(path.join(dataDir, 'opencode.db'), Buffer.from(db.export()))
     db.close()
-    const finalPath = path.join(dataDir, 'opencode.db')
-    if (fs.existsSync(finalPath)) return  // skip if real DB present
-    fs.renameSync(ocDbPath, finalPath)
     const origEnv = process.env['OPENCODE_DATA_DIR']
     process.env['OPENCODE_DATA_DIR'] = dataDir
 
@@ -130,8 +126,9 @@ suite('LogReader — OpenCode', () => {
       assert.strictEqual(sess!.card.cacheCreateTokens, 100)
       assert.strictEqual(sess!.card.startTime, '2024-01-01T00:00:00.000Z')
     } finally {
-      process.env['OPENCODE_DATA_DIR'] = origEnv
-      try { fs.unlinkSync(finalPath) } catch { /* cleanup */ }
+      if (origEnv === undefined) delete process.env['OPENCODE_DATA_DIR']
+      else process.env['OPENCODE_DATA_DIR'] = origEnv
+      fs.rmSync(dataDir, { recursive: true, force: true })
     }
   })
 
@@ -144,10 +141,8 @@ suite('LogReader — OpenCode', () => {
     insertMessage(db, 'msg-r', 'root-1', 'assistant')
     insertMessage(db, 'msg-c', 'child-1', 'assistant')
 
-    const dataDir = os.tmpdir()
-    const finalPath = path.join(dataDir, 'opencode.db')
-    if (fs.existsSync(finalPath)) return
-    fs.writeFileSync(finalPath, Buffer.from(db.export()))
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-db-'))
+    fs.writeFileSync(path.join(dataDir, 'opencode.db'), Buffer.from(db.export()))
     db.close()
     const origEnv = process.env['OPENCODE_DATA_DIR']
     process.env['OPENCODE_DATA_DIR'] = dataDir
@@ -159,8 +154,9 @@ suite('LogReader — OpenCode', () => {
       assert.ok(ids.includes('root-1'), 'root session should be present')
       assert.ok(!ids.includes('child-1'), 'subagent session should be excluded')
     } finally {
-      process.env['OPENCODE_DATA_DIR'] = origEnv
-      try { fs.unlinkSync(finalPath) } catch { /* cleanup */ }
+      if (origEnv === undefined) delete process.env['OPENCODE_DATA_DIR']
+      else process.env['OPENCODE_DATA_DIR'] = origEnv
+      fs.rmSync(dataDir, { recursive: true, force: true })
     }
   })
 
