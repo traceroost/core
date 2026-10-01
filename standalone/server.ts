@@ -1314,7 +1314,10 @@ function getHtml(): string {
   </script>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>TraceRoost</title>
-  <link rel="icon" href="/mascot.png" type="image/png">
+  <!-- Versioned so an upgrade always gets a fresh icon: browsers cache favicons per URL very
+       persistently, and AgentLens served its old icon at this same /mascot.png. The server
+       ignores the query string. -->
+  <link rel="icon" href="/mascot.png?v=${encodeURIComponent(PACKAGE_VERSION)}" type="image/png">
   <link rel="stylesheet" href="/dashboard.css">
   <style>
     /* ── VS Code theme variable shim ─────────────────────────────────────────
