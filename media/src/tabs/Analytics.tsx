@@ -46,14 +46,20 @@ function SectionHead({ id, title, tip, first, helpAnchor }: { id: string; title:
 
 // ── Agent breakdown cards ─────────────────────────────────────────────────────
 
+const BREAKDOWN_SOURCES = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor'] as const
+
 function AgentCard({ source, sessions }: { source: string; sessions: SessionSummaryCard[] }) {
   const s = computeStats(sessions)
   if (s.sessions === 0) return null
-  const color = getAgentColor(source)
+  // Theme-aware like the Sessions table's agent dot: OpenCode's literal white is invisible on a
+  // light page, so the CSS variable (var(--fg) for OpenCode) wins where one is defined.
+  const color = `var(--agent-${source === 'claude_code' ? 'claude' : source},${getAgentColor(source)})`
   const label = getAgentSourceLabel(source)
+  // Cursor CLI records no token counts at all — show that as missing rather than as 0 / 0%.
+  const hasTokens = s.totalInput > 0 || s.totalOutput > 0 || s.totalCache > 0
   const topTools = Object.entries(s.toolCounts).sort((a, b) => b[1] - a[1]).slice(0, 4)
   return (
-    <div style={`background:var(--card-bg);border:1px solid var(--border);border-left:3px solid ${color};border-radius:6px;padding:12px 14px;flex:1;min-width:180px`}>
+    <div data-agent-card={source} style={`background:var(--card-bg);border:1px solid var(--border);border-left:3px solid ${color};border-radius:6px;padding:12px 14px;flex:1;min-width:180px`}>
       <div style={`display:flex;align-items:center;gap:6px;margin-bottom:10px`}>
         <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${color}`} />
         <span style="font-weight:600;font-size:13px">{label}</span>
@@ -62,9 +68,9 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
         <div><span style="color:var(--muted)">LLM calls</span> <strong>{s.totalLlm}</strong></div>
         <div><span style="color:var(--muted)">Tool calls</span> <strong>{s.totalTools}</strong></div>
-        <div><span style="color:var(--muted)">Input tokens</span> <strong>{formatCompact(s.totalInput)}</strong></div>
-        <div><span style="color:var(--muted)">Output tokens</span> <strong>{formatCompact(s.totalOutput)}</strong></div>
-        <div><span style="color:var(--muted)">Cache hit</span> <strong>{(s.cacheHitRate * 100).toFixed(0)}%</strong></div>
+        <div><span style="color:var(--muted)">Input tokens</span> <strong>{hasTokens ? formatCompact(s.totalInput) : '—'}</strong></div>
+        <div><span style="color:var(--muted)">Output tokens</span> <strong>{hasTokens ? formatCompact(s.totalOutput) : '—'}</strong></div>
+        <div><span style="color:var(--muted)">Cache hit</span> <strong>{hasTokens ? `${(s.cacheHitRate * 100).toFixed(0)}%` : '—'}</strong></div>
         <div><span style="color:var(--muted)">Avg dur</span> <strong>{formatMs(s.avgDuration)}</strong></div>
         {s.avgTtft > 0 && <div><span style="color:var(--muted)">Avg TTFT</span> <strong>{formatMs(s.avgTtft)}</strong></div>}
         {s.oneShotRate !== null && (
@@ -112,8 +118,10 @@ export function Analytics() {
 
   const pricedSess = sessions.filter(s => s.source === 'copilot' || s.source === 'codex' || s.source === 'claude_code' || s.source === 'opencode')
   const copilotSess = sessions.filter(s => s.source === 'copilot')
-  const claudeSess  = sessions.filter(s => s.source === 'claude_code')
-  const codexSess   = sessions.filter(s => s.source === 'codex')
+  // One Agent breakdown card per source with traces in view, in the agent filter's order.
+  const breakdown = BREAKDOWN_SOURCES
+    .map(source => ({ source, sessions: sessions.filter(s => s.source === source) }))
+    .filter(b => b.sessions.length > 0)
 
   // Charts need time-ordered sessions and must respect all active filters (text, initiator, source).
   // filteredSessions applies all filters but may be sorted by cost/model for the Sessions table,
@@ -175,7 +183,7 @@ export function Analytics() {
     return String(n)
   }
 
-  const hasAgentBreakdown = copilotSess.length > 0 || claudeSess.length > 0 || codexSess.length > 0
+  const hasAgentBreakdown = breakdown.length > 0
 
   // Outcome & token spend over time — same binning `requestGitOutcomesFor` above keeps filling in,
   // so this grows as outcomes resolve rather than waiting for all of them up front.
@@ -206,9 +214,7 @@ export function Analytics() {
         <>
           <SectionHead id="analytics-agent-breakdown" title="AGENT BREAKDOWN" first />
           <div style="display:flex;gap:12px;flex-wrap:wrap">
-            {copilotSess.length > 0 && <AgentCard source="copilot"    sessions={copilotSess} />}
-            {claudeSess.length  > 0 && <AgentCard source="claude_code" sessions={claudeSess} />}
-            {codexSess.length   > 0 && <AgentCard source="codex"      sessions={codexSess} />}
+            {breakdown.map(b => <AgentCard key={b.source} source={b.source} sessions={b.sessions} />)}
           </div>
         </>
       )}

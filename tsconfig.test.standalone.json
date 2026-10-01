@@ -35,6 +35,10 @@
     "standalone/pathGuard.ts",
     "standalone/pathGuard.test.ts",
     "standalone/sseSessionSync.ts",
-    "standalone/sseSessionSync.test.ts"
+    "standalone/sseSessionSync.test.ts",
+    "standalone/instructionActions.ts",
+    "standalone/instructionActions.test.ts",
+    "standalone/requestBody.ts",
+    "standalone/requestBody.test.ts"
   ]
 }

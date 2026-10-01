@@ -434,7 +434,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
   }
 
   const presentSources = new Set(sessions.map(s => s.source).filter(Boolean))
-  const agentSources = (['copilot', 'claude_code', 'codex'] as const).filter(src => presentSources.has(src))
+  const agentSources = (['copilot', 'claude_code', 'codex', 'opencode', 'cursor'] as const).filter(src => presentSources.has(src))
 
   return (
     <>
@@ -444,7 +444,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
         <div style="display:flex;gap:10px;justify-content:center;margin-top:4px;flex-wrap:wrap">
           {agentSources.map(src => (
             <span key={src} style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)">
-              <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${getAgentColor(src)}`} />
+              <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--agent-${src === 'claude_code' ? 'claude' : src},${getAgentColor(src)})`} />
               {getAgentSourceLabel(src)}
             </span>
           ))}

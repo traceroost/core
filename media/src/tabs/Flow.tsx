@@ -707,7 +707,7 @@ export function Flow() {
   const selectedIdx = focusedIdx >= 0 ? focusedIdx : manualIdx
 
   if (sessions.length === 0) {
-    return <div id="flow-content"><div class="empty-state">No agent traces recorded — start a Copilot, Claude, or Codex run</div></div>
+    return <div id="flow-content"><div class="empty-state">No agent traces recorded — start a Copilot, Claude, Codex, OpenCode, or Cursor run</div></div>
   }
 
   const allSessions = sessions.map(sess => {

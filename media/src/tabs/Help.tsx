@@ -775,7 +775,7 @@ function AnalyticsSection() {
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agent Breakdown</dt>
-            <dd class="glossary-def" style="display:block">One card per agent showing total input tokens, output tokens, cache hit rate, estimated cost, One-shot rate, and top tools used — all scoped to the active time range and source filter. One-shot rate is the file-level percentage of edited files that got it right on the first pass, aggregated across all of the agent's traces; hidden when fewer than 2 files were edited (not enough data for a meaningful rate).</dd>
+            <dd class="glossary-def" style="display:block">One card per agent with traces in view — Copilot, Claude, Codex, OpenCode, and Cursor CLI — showing LLM and tool call counts, total input and output tokens, cache hit rate, average duration and TTFT (OTEL only), One-shot rate, and top tools used — all scoped to the active time range and source filter. Cursor CLI records no token counts, so its token and cache figures show as —. One-shot rate is the file-level percentage of edited files that got it right on the first pass, aggregated across all of the agent's traces; hidden when fewer than 2 files were edited (not enough data for a meaningful rate).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Plan Limits</dt>
