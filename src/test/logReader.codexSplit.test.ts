@@ -143,6 +143,19 @@ suite('LogReader — Codex session splitting (integration)', () => {
     assert.strictEqual(results[0].card.conversationId, undefined, 'a file that never split has no group to color-code')
   })
 
+  test('reasoning_output_tokens is a breakdown of output_tokens, not added on top of it', () => {
+    const filePath = path.join(tmpDir, 'sess-reasoning.jsonl')
+    const usage = tokenCount('2026-01-01T00:00:05.000Z', 1000, 300)
+    ;(usage.payload.info.total_token_usage as Record<string, number>).reasoning_output_tokens = 120
+    writeJsonl(filePath, [
+      sessionMeta('2026-01-01T00:00:00.000Z', '/workspace'),
+      ...turn('2026-01-01T00:00:01.000Z', 'first'),
+      usage,
+    ])
+    const results = new LogReader().parseFile(filePath, 'codex')
+    assert.strictEqual(results[0].card.outputTokens, 300)
+  })
+
   test('a real multi-day gap splits into two sessions, each reporting only its own token delta', () => {
     // Reproduces the real-world shape found in an actual Codex transcript: total_token_usage
     // climbs monotonically across the whole file with no resets, even across a multi-day gap.

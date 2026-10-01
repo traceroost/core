@@ -157,6 +157,18 @@ suite('autoConfigNode', () => {
       assert.deepStrictEqual(await autoConfigureCopilotStandalone(4318), [{ changed: false }])
     })
 
+    test('does not overwrite an otlpEndpoint pointing at another collector', async function () {
+      if (process.platform !== 'linux') { this.skip() }
+      fs.mkdirSync(path.dirname(codeSettings()), { recursive: true })
+      fs.writeFileSync(codeSettings(), '{ "github.copilot.chat.otel.otlpEndpoint": "https://otel.example.com" }\n')
+      const [result] = await autoConfigureCopilotStandalone(4318)
+      assert.strictEqual(result.changed, true)
+      assert.match(result.warning ?? '', /otel\.example\.com/)
+      const written = JSON.parse(fs.readFileSync(codeSettings(), 'utf-8'))
+      assert.strictEqual(written['github.copilot.chat.otel.otlpEndpoint'], 'https://otel.example.com')
+      assert.strictEqual(written['github.copilot.chat.otel.enabled'], true)
+    })
+
     test('leaves a file it cannot parse untouched', async function () {
       if (process.platform !== 'linux') { this.skip() }
       fs.mkdirSync(path.dirname(codeSettings()), { recursive: true })
@@ -227,6 +239,19 @@ suite('autoConfigNode', () => {
       assert.ok(text.includes(withHeaders), text)
       assert.strictEqual(text.split('\n').filter(l => /^\s*exporter\s*[=.]/.test(l)).length, 1, text)
       assert.ok(text.includes('trace_exporter = '))
+    })
+
+    test('does not overwrite an exporter pointing at another collector', async () => {
+      fs.mkdirSync(path.dirname(configPath()), { recursive: true })
+      const own = 'exporter = { otlp-http = { endpoint = "https://otel.example.com/v1/logs", protocol = "binary" } }'
+      fs.writeFileSync(configPath(), `[otel]\n${own}\n`)
+      const result = await autoConfigureCodex(4318)
+      assert.strictEqual(result.changed, true)
+      assert.match(result.warning ?? '', /exporter .*otel\.example\.com/)
+      const text = fs.readFileSync(configPath(), 'utf-8')
+      assert.ok(text.includes(own), text)
+      assert.ok(text.includes('trace_exporter = { otlp-http = { endpoint = "http://localhost:4318"'), text)
+      assert.ok(text.includes('log_user_prompt = true'), text)
     })
 
     test('reports no change when already configured', async () => {

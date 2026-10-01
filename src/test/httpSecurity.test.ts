@@ -143,6 +143,11 @@ suite('httpSecurity', () => {
     test('returns null when the cookie is absent', () => {
       assert.strictEqual(extractCookieToken(req({ cookie: 'foo=bar' })), null)
     })
+
+    test('a malformed percent-escape yields no token instead of throwing out of the request handler', () => {
+      assert.strictEqual(extractCookieToken(req({ cookie: `${AUTH_COOKIE_NAME}=%E0%A4%A` })), null)
+      assert.strictEqual(isAuthorized(req({ cookie: `${AUTH_COOKIE_NAME}=%E0%A4%A` }), 'secret'), false)
+    })
   })
 
   suite('isAuthorized', () => {

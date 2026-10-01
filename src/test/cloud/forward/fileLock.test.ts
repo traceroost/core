@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { withFileLock, isLockContention } from '../../../cloud/forward/fileLock'
+import { withFileLock, withFileLockAsync, isLockContention } from '../../../cloud/forward/fileLock'
 
 suite('cloud/forward/fileLock', () => {
   let dir: string
@@ -82,6 +82,31 @@ suite('cloud/forward/fileLock', () => {
     for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
       assert.strictEqual(isLockContention(code, 'win32'), true, code)
       assert.strictEqual(isLockContention(code, 'linux'), false, `${code} is a real error off Windows`)
+    }
+  })
+
+  test('withFileLockAsync retries (rather than throws on) a Windows delete-pending EPERM, like withFileLock', async () => {
+    // The real module object — `import * as fs` gives a read-only namespace view of it, which
+    // fileLock.ts reads through, so patching the module itself is what it sees.
+    const nodeFs = require('fs') as { openSync: typeof fs.openSync }
+    const realOpenSync = nodeFs.openSync
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    let failures = 0
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+    nodeFs.openSync = ((...args: Parameters<typeof fs.openSync>) => {
+      if (args[0] === `${target}.lock` && failures < 2) {
+        failures++
+        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' })
+      }
+      return realOpenSync(...args)
+    }) as typeof fs.openSync
+    try {
+      assert.strictEqual(await withFileLockAsync(target, async () => 'ran'), 'ran')
+      assert.strictEqual(failures, 2)
+      assert.strictEqual(fs.existsSync(`${target}.lock`), false)
+    } finally {
+      nodeFs.openSync = realOpenSync
+      Object.defineProperty(process, 'platform', platform)
     }
   })
 })

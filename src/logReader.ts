@@ -755,14 +755,15 @@ export class LogReader {
     if (lastTotalUsage) {
       const baseCacheRead = baselineUsage?.['cached_input_tokens'] ?? 0
       const baseInputRaw  = Math.max(0, (baselineUsage?.['input_tokens'] ?? 0) - baseCacheRead)
-      const baseOutput    = (baselineUsage?.['output_tokens'] ?? 0) + (baselineUsage?.['reasoning_output_tokens'] ?? 0)
+      const baseOutput    = baselineUsage?.['output_tokens'] ?? 0
 
       const curCacheRead = lastTotalUsage['cached_input_tokens'] ?? 0
       // input_tokens includes cached, so subtract to get the raw (non-cached) portion that
       // _buildCard will re-add alongside cacheRead.
       const curInputRaw  = Math.max(0, (lastTotalUsage['input_tokens'] ?? 0) - curCacheRead)
-      // Include reasoning tokens in output — they're billed at the output rate for o-series.
-      const curOutput    = (lastTotalUsage['output_tokens'] ?? 0) + (lastTotalUsage['reasoning_output_tokens'] ?? 0)
+      // output_tokens already includes reasoning_output_tokens (a breakdown of it, as in OpenAI's
+      // usage.output_tokens_details) — adding the two billed reasoning twice.
+      const curOutput    = lastTotalUsage['output_tokens'] ?? 0
 
       totalCacheRead = Math.max(0, curCacheRead - baseCacheRead)
       totalInput     = Math.max(0, curInputRaw - baseInputRaw)

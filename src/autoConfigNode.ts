@@ -53,7 +53,7 @@ async function writeConfigFile(filePath: string, content: string, existed: boole
 
 /** True for an OTLP endpoint on this machine — the only kind TraceRoost ever writes, so the only
  *  kind it may take back over (its port can legitimately move after a port fallback). */
-function isLoopbackEndpoint(value: string): boolean {
+export function isLoopbackEndpoint(value: string): boolean {
   try {
     const host = new URL(value).hostname.replace(/^\[|\]$/g, '').toLowerCase()
     return host === 'localhost' || host === '::1' || /^127\./.test(host)
@@ -120,11 +120,21 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
     // rest are dropped, otherwise the result would define the key twice.
     // Iterate in reverse insertion order so splice indices stay valid.
     let changed = false
+    let warning: string | undefined
     for (const { key, line } of [...requiredOtelKeys].reverse()) {
       const re = keyLineRe(key)
       const matches: number[] = []
       for (let i = otelIdx + 1; i < sectionEnd; i++) {
         if (re.test(lines[i])) { matches.push(i) }
+      }
+      // Same rule as Claude Code's OTEL_EXPORTER_OTLP_ENDPOINT below: an exporter the user aimed
+      // at a collector of their own is theirs — only a loopback endpoint is ever taken back over.
+      const foreign = matches
+        .map(i => /\bendpoint\s*=\s*["']([^"']+)["']/.exec(lines[i])?.[1])
+        .find(ep => ep !== undefined && !isLoopbackEndpoint(ep))
+      if (foreign) {
+        warning = `[otel] ${key} in ${configPath} points at ${foreign}; left as is (TraceRoost listens on ${endpoint})`
+        continue
       }
       // An exporter line already aimed at this endpoint is left alone — it may carry extras we
       // don't write ourselves, e.g. the `headers = { "Authorization" = … }` a LAN/Docker setup needs.
@@ -147,10 +157,10 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
     }
 
     if (!changed) {
-      return { changed: false }
+      return warning ? { changed: false, warning } : { changed: false }
     }
     await writeConfigFile(configPath, lines.join('\n'), true)
-    return { changed: true }
+    return warning ? { changed: true, warning } : { changed: true }
   } catch (e) {
     return { changed: false, error: String(e) }
   }
@@ -314,8 +324,16 @@ export async function autoConfigureCopilotStandalone(port: number): Promise<Conf
       }
 
       let changed = false
+      let warning: string | undefined
       for (const [key, value] of Object.entries(required)) {
-        if (settings[key] !== value) {
+        const current = settings[key]
+        if (key === 'github.copilot.chat.otel.otlpEndpoint' && typeof current === 'string' && current
+          && !isLoopbackEndpoint(current)) {
+          // The user exports to a collector of their own — don't hijack it (as for Claude Code).
+          warning = `${key} in ${settingsPath} points at ${current}; left as is (TraceRoost listens on http://localhost:${port})`
+          continue
+        }
+        if (current !== value) {
           text = applyEdits(text, modify(text, [key], value, {
             formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' },
           }))
@@ -323,11 +341,11 @@ export async function autoConfigureCopilotStandalone(port: number): Promise<Conf
         }
       }
 
-      if (!changed) { results.push({ changed: false }); continue }
+      if (!changed) { results.push(warning ? { changed: false, warning } : { changed: false }); continue }
 
       if (!text.endsWith('\n')) { text += '\n' }
       await writeConfigFile(settingsPath, text, raw !== undefined)
-      results.push({ changed: true })
+      results.push(warning ? { changed: true, warning } : { changed: true })
     } catch (e) {
       results.push({ changed: false, error: String(e) })
     }

@@ -1,8 +1,9 @@
 import * as vscode from 'vscode'
+import { isLoopbackEndpoint, type ConfigResult } from './autoConfigNode'
 export type { ConfigResult } from './autoConfigNode'
 export { autoConfigureClaudeCode, autoConfigureCodex } from './autoConfigNode'
 
-export async function autoConfigureCopilot(port: number): Promise<{ changed: boolean; error?: string }> {
+export async function autoConfigureCopilot(port: number): Promise<ConfigResult> {
   try {
     const config = vscode.workspace.getConfiguration()
     const endpoint = `http://localhost:${port}`
@@ -30,6 +31,11 @@ export async function autoConfigureCopilot(port: number): Promise<{ changed: boo
     }
 
     const existing = config.get<string>('github.copilot.chat.otel.otlpEndpoint')
+    if (typeof existing === 'string' && existing && !isLoopbackEndpoint(existing)) {
+      // The user exports to a collector of their own — don't hijack it (same rule as Claude Code
+      // and Codex in autoConfigNode.ts).
+      return { changed, warning: `github.copilot.chat.otel.otlpEndpoint points at ${existing}; left as is (TraceRoost listens on ${endpoint})` }
+    }
     if (existing !== endpoint) {
       await config.update('github.copilot.chat.otel.otlpEndpoint', endpoint, vscode.ConfigurationTarget.Global)
       changed = true

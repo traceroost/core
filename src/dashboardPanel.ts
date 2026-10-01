@@ -495,7 +495,9 @@ export class DashboardPanel {
 
   private async importSessions(rawSessions: Record<string, unknown>[]): Promise<void> {
     try {
-      const existing = new Set(this.repo.listSessions().map(s => s.sessionId))
+      // Every stored id, not the webview list's most-recent-20k cap — an older session past the
+      // cap would otherwise read as new and be overwritten by the imported copy.
+      const existing = new Set(this.repo.listSessions({ limit: Infinity }).map(s => s.sessionId))
       const BATCH = 50
       let imported = 0
       let skipped = 0

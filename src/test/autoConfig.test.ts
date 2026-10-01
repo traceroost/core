@@ -44,4 +44,16 @@ suite('autoConfigureCopilot', () => {
       ])
       assert.deepStrictEqual(await autoConfigureCopilot(4318), { changed: false }, 'second run changes nothing')
     }))
+
+  test('leaves an endpoint aimed at the user\'s own collector alone, with a warning', () =>
+    withConfig(COPILOT_DEFAULTS, {
+      'github.copilot.chat.otel.enabled': true,
+      'github.copilot.chat.otel.exporterType': 'otlp-http',
+      'github.copilot.chat.otel.otlpEndpoint': 'https://otel.example.com',
+    }, async writes => {
+      const result = await autoConfigureCopilot(4318)
+      assert.strictEqual(result.changed, false)
+      assert.match(result.warning ?? '', /otel\.example\.com/)
+      assert.deepStrictEqual(writes, [])
+    }))
 })

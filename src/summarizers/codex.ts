@@ -403,17 +403,17 @@ function extractCodexTokenCounts(span: Span): { input: number; output: number; c
   const cacheCreate = getAttrInt(span, 'gen_ai.usage.cache_creation.input_tokens')
     || getAttrInt(span, 'cache_creation_tokens')
 
-  const reasoning = getAttrInt(span, 'reasoning_token_count')
-    || getAttrInt(span, 'codex.usage.reasoning_output_tokens')
-    || getAttrInt(span, 'codex.turn.token_usage.reasoning_output_tokens')
-
-  const outputBase = getAttrInt(span, 'gen_ai.usage.output_tokens')
+  // Reasoning tokens (`reasoning_token_count`, `*.reasoning_output_tokens`) are a breakdown of
+  // the output count, not an addition to it — OpenAI's usage.output_tokens already includes them
+  // (output_tokens_details.reasoning_tokens is a subset), and Codex copies both through as is.
+  // Adding them again billed every reasoning token twice at the output rate.
+  const output = getAttrInt(span, 'gen_ai.usage.output_tokens')
     || getAttrInt(span, 'output_token_count')
     || getAttrInt(span, 'output_tokens')
     || getAttrInt(span, 'completion_tokens')
     || getAttrInt(span, 'codex.turn.token_usage.output_tokens')
 
-  return { input, output: outputBase + reasoning, cacheRead, cacheCreate }
+  return { input, output, cacheRead, cacheCreate }
 }
 
 function isDuplicateCodexTokenRecord(span: Span): boolean {

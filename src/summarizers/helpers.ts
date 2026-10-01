@@ -352,15 +352,14 @@ export function extractTokenCounts(span: Span): { input: number; output: number;
     getAttrInt(span, 'gen_ai.usage.cache_creation.input_tokens') ||
     getAttrInt(span, 'cache_creation_tokens')
 
-  // Codex splits output into output_token_count + reasoning_token_count; try them
-  // as a combined fallback after the standard keys.
-  const outputStd =
+  // Codex log events carry output_token_count; their reasoning_token_count is a breakdown of
+  // it (OpenAI's output count already includes reasoning), so it is never added on top.
+  const output =
     getAttrInt(span, 'gen_ai.usage.output_tokens') ||
     getAttrInt(span, 'output_tokens') ||
     getAttrInt(span, 'completion_tokens') ||
-    getAttrInt(span, 'codex.turn.token_usage.output_tokens')
-  const output = outputStd ||
-    (getAttrInt(span, 'output_token_count') + getAttrInt(span, 'reasoning_token_count'))
+    getAttrInt(span, 'codex.turn.token_usage.output_tokens') ||
+    getAttrInt(span, 'output_token_count')
 
   return { input, output, cacheRead, cacheCreate }
 }

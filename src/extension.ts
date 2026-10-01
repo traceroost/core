@@ -6,7 +6,7 @@ import { detectPortOwner } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
-import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
+import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult } from './autoConfig'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
 import { DatabaseReader, openReadonlySnapshot } from './database/reader'
@@ -314,6 +314,11 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showWarningMessage(
       `TraceRoost: Could not auto-configure Codex. Manually add [otel] exporter = { otlp-http = { endpoint = "http://localhost:${port}" } } to ~/.codex/config.toml`
     )
+  }
+
+  // A user endpoint left alone on purpose (it points at their own collector) — log why.
+  for (const r of [copilotResult, claudeResult, codexResult] as ConfigResult[]) {
+    if (r.warning) outputChannel.appendLine(`Auto-configure: ${r.warning}`)
   }
 
   const configuredAgents: string[] = []

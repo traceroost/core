@@ -1247,7 +1247,7 @@ suite('SpanSummarizer', () => {
       const codex = result.sessions.find(s => s.source === 'codex')
       assert.ok(codex)
       assert.strictEqual(codex.inputTokens, 100)
-      assert.strictEqual(codex.outputTokens, 15)
+      assert.strictEqual(codex.outputTokens, 10, 'reasoning tokens are part of the output count, not added to it')
       assert.strictEqual(codex.cacheReadTokens, 80)
       assert.strictEqual(codex.totalLlmCalls, 1)
       assert.strictEqual(codex.timeline.filter(e => e.type === 'llm').length, 1)

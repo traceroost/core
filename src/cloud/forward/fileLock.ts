@@ -131,7 +131,9 @@ function tryAcquire(lockPath: string): boolean {
     fs.closeSync(fd)
     return true
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+    // Same contention test as the synchronous path — on Windows a lock file being released
+    // ("delete pending") fails the create with EPERM/EACCES/EBUSY, not EEXIST.
+    if (!isLockContention((err as NodeJS.ErrnoException).code)) throw err
   }
   try {
     if (Date.now() - fs.statSync(lockPath).mtimeMs > STALE_LOCK_MS) {
