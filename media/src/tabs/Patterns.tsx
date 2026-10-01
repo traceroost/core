@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from 'preact/hooks'
-import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode } from '../state'
+import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode, availableWorkspaces, workspaceFilter } from '../state'
 import { Instructions, instructionFiles } from './Instructions'
 import { getAgentSourceLabel, formatSessionTime } from '../utils'
 import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
+import { planUsage } from '../planUsage'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
+import { SectionNav, type NavSection } from '../SectionNav'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -348,7 +350,31 @@ function actionTipFor(a: CostSavingAction): string | null {
 /** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
  *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
  *  See .staged-issues/value-prop-and-cost-savings.md, Step 1. */
-function SaveMoneyCard({ sessions }: { sessions: SessionSummaryCard[] }) {
+/** Suggests narrowing to one repo via the header's REPO filter: instruction-file suggestions are
+ *  only as specific as the traces behind them. Gone once a repo is chosen, when there's only one
+ *  repo (the filter isn't shown), or when this window's open folder already scopes them. */
+function RepoFilterHint() {
+  if (workspaceFilter.value.trim() !== '' || availableWorkspaces.value.length < 2 || currentWorkspace.value !== null) return null
+  const focusRepo = () => {
+    const el = document.getElementById('tr-filter-repo') as HTMLInputElement | null
+    if (!el) return
+    el.scrollIntoView({ block: 'nearest' })
+    el.focus()
+  }
+  return (
+    <div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;padding:6px 10px;font-size:11px;color:var(--muted);background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
+      <span style="flex:1">Tip: pick a repo in <strong style="color:var(--fg)">Repo</strong> in the header above for suggestions tailored to that repo's instruction file.</span>
+      <button onClick={focusRepo}
+        style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap">Choose repo ↑</button>
+    </div>
+  )
+}
+
+function fmtPts(p: number): string {
+  return p < 1 ? '<1 pt' : `${Math.round(p)} pt${Math.round(p) === 1 ? '' : 's'}`
+}
+
+function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
   const [expanded, setExpanded] = useState(false)
   const workspace = currentWorkspace.value
 
@@ -358,15 +384,13 @@ function SaveMoneyCard({ sessions }: { sessions: SessionSummaryCard[] }) {
     }
   }, [workspace])
 
-  const existingText = instructionFiles.value.map(f => f.content).join('\n')
-  const actions = getCostSavingActions(sessions, existingText)
   if (actions.length === 0) return null
 
   const shown = expanded ? actions : actions.slice(0, 3)
 
   return (
-    <section>
-      <h3 style={sectionHead}>How to spend less</h3>
+    <section id="advisor-save-money">
+      <h3 style={sectionHead}>{actions.some(a => a.limitPts !== undefined) ? 'How to use less of your limit' : 'How to spend less'}</h3>
       <div style="display:flex;flex-direction:column;gap:10px">
         {shown.map(a => {
           const tip = actionTipFor(a)
@@ -379,7 +403,14 @@ function SaveMoneyCard({ sessions }: { sessions: SessionSummaryCard[] }) {
                 <ActionIcon a={a} />
               </span>
               <div>
-                <div style="font-weight:600">{a.title}</div>
+                <div style="font-weight:600">
+                  {a.title}
+                  {a.limitPts !== undefined
+                    ? <span style="font-weight:400;color:var(--muted);margin-left:6px" title="Estimated waste converted into points of your weekly plan limit, from how much of the window your past sessions used per dollar of work">≈ {fmtPts(a.limitPts)} of weekly limit</span>
+                    : a.estimatedUsd !== undefined
+                      ? <span style="font-weight:400;color:var(--muted);margin-left:6px">≈ ${a.estimatedUsd.toFixed(2)}</span>
+                      : null}
+                </div>
                 <div style="color:var(--muted);margin:2px 0">{a.evidence}</div>
                 <div>{a.action}</div>
               </div>
@@ -408,31 +439,42 @@ export function Patterns() {
   }
 
   const divider = <div style="border-top:1px solid var(--border);margin:16px 0 8px" />
+  const existingText = instructionFiles.value.map(f => f.content).join('\n')
+  const actions = getCostSavingActions(sessions, existingText, planUsage.value)
+  const navSections: NavSection[] = [
+    ...(actions.length > 0 ? [{ id: 'advisor-save-money', label: 'How to spend less' }] : []),
+    { id: 'advisor-instructions', label: 'Instructions file' },
+    { id: 'advisor-efficiency-map', label: 'Efficiency map' },
+    { id: 'advisor-hot-files', label: 'Hot files' },
+  ]
 
   return (
     <div id="patterns-content" style="padding-top:8px">
-      <SaveMoneyCard sessions={sessions} />
+    <SectionNav label="Advisor sections" sections={navSections}>
+      <SaveMoneyCard actions={actions} />
 
-      {divider}
+      {actions.length > 0 && divider}
 
-      <section>
+      <section id="advisor-instructions">
         <h3 style={sectionHead}>Instructions File</h3>
+        <RepoFilterHint />
         <Instructions />
       </section>
 
       {divider}
 
-      <section>
+      <section id="advisor-efficiency-map">
         <h3 style={sectionHead}>Efficiency Map</h3>
         <EfficiencyMap sessions={sessions} />
       </section>
 
       {divider}
 
-      <section>
+      <section id="advisor-hot-files">
         <h3 style={sectionHead}>Hot Files</h3>
         <HotFiles sessions={sessions} />
       </section>
+    </SectionNav>
     </div>
   )
 }

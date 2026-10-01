@@ -41,7 +41,7 @@ code that does something OS-sensitive and has never actually run on Windows befo
 - In a real local git repo with actual commits, confirm the outcome badges (merged / committed /
   uncommitted) resolve on the Sessions tab, and that the new Analytics "Outcome vs. tokens" chart
   populates. Both go through `execFile('git', args, { cwd, timeout })` in `gitOutcome.ts`,
-  `repoRemote.ts`, and `cloud/forward/repoKey.ts` — `execFile` (not `exec`) means no shell is
+  `repoRemote.ts`, and `repoKey.ts` — `execFile` (not `exec`) means no shell is
   involved, so this should resolve `git`/`git.exe` via PATH cleanly, but confirm it doesn't hang:
   process startup is generally slower on Windows, and `GIT_TIMEOUT_MS` was only ever tuned against
   Unix behavior.

@@ -18,7 +18,7 @@ import { startPricingSync } from './org/pricingSync'
 import { resolveRepoHash } from './org/resolveRepoHash'
 import { handleOrgMessage } from './org/panelController'
 import { buildPayloadPreviewTexts } from './org/payloadPreview'
-import { deriveRepoKey, repoHash } from './forward/repoKey'
+import { deriveRepoKey, repoHash } from '../repoKey'
 import { maybeForwardOnContentChange } from './org/contentChangeForward'
 
 export const cloudBridge: CloudBridge = {

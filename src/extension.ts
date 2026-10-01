@@ -13,6 +13,7 @@ import { DatabaseReader, openReadonlySnapshot } from './database/reader'
 import { DatabaseWriter } from './database/writer'
 import { migrateGlobalStateToSqlite } from './database/migration'
 import { runRetention } from './database/retention'
+import { PlanUsageService, getPlanUsageService, setPlanUsageService } from './planUsage/planUsageService'
 import { SessionRepository } from './sessionRepository'
 import { summarizeSpans, summarizeTraces } from './spanSummarizer'
 import { LogReader, type FileState } from './logReader'
@@ -146,6 +147,7 @@ export async function activate(context: vscode.ExtensionContext) {
     writer = new DatabaseWriter(traceRoostDb.raw, context.globalStorageUri, log)
     const reader = new DatabaseReader(traceRoostDb.raw, context.globalStorageUri)
     repository = new SessionRepository(reader, writer, store, log)
+    setPlanUsageService(new PlanUsageService(traceRoostDb.raw, { log }))
 
     // Run one-time migration before registering the onUpdate subscriber. Only the window that
     // owns the database file can persist it — anywhere else it would mark globalState migrated
@@ -156,11 +158,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // only the orphaned-blob sweep (a full timeline scan) is left to finish after activation.
     const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
     void runRetention(traceRoostDb.raw, retentionDays, traceRoostDb.blobsDir, log)
+    getPlanUsageService()?.runRetention(retentionDays)
 
     // Periodic retention: once per 24 hours while the extension is active.
     const retentionTimer = setInterval(() => {
       const days = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
       void runRetention(traceRoostDb!.raw, days, traceRoostDb!.blobsDir, log)
+      getPlanUsageService()?.runRetention(days)
     }, 24 * 60 * 60 * 1000)
     context.subscriptions.push({ dispose: () => clearInterval(retentionTimer) })
 
@@ -236,6 +240,13 @@ export async function activate(context: vscode.ExtensionContext) {
   const port = traceRoostCfg.get<number>('otlpPort', 4318)
   collector = new OtlpCollector(port, store, outputChannel)
   let collectorFailed = false
+  // Set only when another TraceRoost-owned process (the standalone/background service, most
+  // often) or an unrelated app holds the port — never for the benign case of another VS Code
+  // window already running this same extension (owner 'plugin'), which shares one database by
+  // design. Surfaced persistently in the dashboard UI via DashboardPanel.collectorConflict,
+  // not just as a one-time toast, since the wrong data source can otherwise go unnoticed for a
+  // whole session.
+  let collectorConflict: { owner: 'standalone' | 'foreign'; port: number } | undefined
   try {
     await collector.start()
     collector.setIngestionEnabled(traceRoostCfg.get<boolean>('enableOtelIngestion', true))
@@ -244,11 +255,26 @@ export async function activate(context: vscode.ExtensionContext) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
       const owner = await detectPortOwner(port)
       if (owner === 'standalone') {
-        outputChannel.appendLine(`Port ${port} is in use by the TraceRoost standalone server — change traceRoost.otlpPort`)
+        collectorConflict = { owner, port }
+        outputChannel.appendLine(
+          `Not receiving OTel — the background service already holds port ${port}.\n` +
+          `  - New sessions here come from log files only (no prompt/tool content).\n` +
+          `  - Run TraceRoost one way per machine — background service, VS Code extension, or Docker. ` +
+          `Recommended: the background service — it starts at login and keeps capturing OTel even when ` +
+          `VS Code is closed, so nothing gets missed. Install with \`npx traceroost@latest service install\` ` +
+          `(macOS/Linux/Windows all use the same command).\n` +
+          `  - The service already holds this port, so: keep it and uninstall this extension ` +
+          `(\`code --uninstall-extension traceroost.traceroost\`), then reload — or, to use VS Code instead, ` +
+          `stop the service with \`traceroost service stop\`.`
+        )
         vscode.window.showErrorMessage(
-          `TraceRoost: Port ${port} is already in use by the TraceRoost standalone server. Change the traceRoost.otlpPort setting to use a different port.`
+          `TraceRoost: the background service is already receiving OTel data on port ${port}. This window won't ` +
+          `see live OTel sessions until you stop the service (\`traceroost service stop\`) and reload, or view its ` +
+          `dashboard instead. Run TraceRoost one way per machine — extension, background service, local run, or ` +
+          `Docker, not several at once — and stick to the default ports.`
         )
       } else if (owner === 'foreign') {
+        collectorConflict = { owner, port }
         outputChannel.appendLine(`Port ${port} is in use by an unknown process — change traceRoost.otlpPort`)
         vscode.window.showErrorMessage(
           `TraceRoost: Port ${port} is already in use by another application. Change the traceRoost.otlpPort setting to use a different port.`
@@ -259,6 +285,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     collector = undefined
   }
+  DashboardPanel.collectorConflict = collectorConflict
 
   // ── Auto-configure agents ────────────────────────────────────────────────────
   const autoConfigureAgents = traceRoostCfg.get<boolean>('autoConfigureAgents', true)
@@ -377,7 +404,16 @@ export async function activate(context: vscode.ExtensionContext) {
     // progress is skipped.
     let logScanInFlight = false
     const LOG_SCAN_BATCH = 10
+    // Claude Code caches its plan-usage reading in ~/.claude.json; a new fetch there is a new
+    // reading even when no session log changed.
+    const pollClaudePlanUsage = () => {
+      if (!traceRoostDb?.isOwner || !getPlanUsageService()?.pollClaudeCache()) return
+      traceRoostDb.saveSoon()
+      provider.refresh()
+      DashboardPanel.refreshSoon()
+    }
     const runLogScan = runLogScanFn = () => {
+      pollClaudePlanUsage()
       if (logScanInFlight) return
       let files: ReturnType<typeof lr.collectFileMeta>
       let results: ReturnType<typeof lr.scan>
@@ -403,6 +439,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     const writeScanResults = (results: ReturnType<typeof lr.scan>) => {
       if (results.length === 0) return
+      getPlanUsageService()?.ingest(results)
       const ws = fallbackWorkspace()
       for (const { card, workspace } of results) {
         card.loopSignals = detectLoopSignals(card)
@@ -461,10 +498,12 @@ export async function activate(context: vscode.ExtensionContext) {
           const ws = fallbackWorkspace()
           let written = 0
           for (let i = idx; i < Math.min(idx + batchSize, files.length); i++) {
+            progress.done++
             try {
               // Usually one result; a Claude Code transcript split by a large gap between
               // prompts (see splitClaudeLinesOnPromptGaps) can yield more than one.
               const results = lr.parseFile(files[i].filePath, files[i].agentKey)
+              getPlanUsageService()?.ingest(results)
               for (const result of results) {
                 result.card.loopSignals = detectLoopSignals(result.card)
                 result.card.oneShotStats = computeOneShotStats(result.card)
@@ -492,8 +531,10 @@ export async function activate(context: vscode.ExtensionContext) {
               // the whole database file.
               traceRoostDb?.saveSoon()
               provider.refresh()
+              DashboardPanel.refreshSoon()
             }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
           }
+          DashboardPanel.setLogIngestProgress(progress)
           const next = idx + batchSize
           if (next < files.length) {
             setTimeout(() => step(next), delayMs)
@@ -523,6 +564,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
       const fastFiles = allFiles.filter(f => f.agentKey !== 'copilot_vscode_json' && f.agentKey !== 'opencode')
       const slowFiles = allFiles.filter(f => f.agentKey === 'copilot_vscode_json')
+      // Drives the dashboard's progress banner (see DashboardPanel.setLogIngestProgress).
+      const progress = { done: 0, total: fastFiles.length + slowFiles.length }
+      DashboardPanel.setLogIngestProgress(progress)
 
       // Saves are coalesced (saveSoon), so the cross-window signal and the processed-files record
       // wait for the save that actually covers everything enqueued so far.
@@ -535,10 +579,12 @@ export async function activate(context: vscode.ExtensionContext) {
         afterSaved(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
         // Slow-pass: legacy .json snapshots loaded at low priority after fast pass completes.
         processGroup(slowFiles, 2, 50, () => {
+          DashboardPanel.setLogIngestProgress(null)
           afterSaved(saved => {
             if (saved) writeLastWriteSignal(context.globalStorageUri)
             persistFileState()
           })
+          DashboardPanel.refreshSoon()
           const total = [...countByKey.values()].reduce((s, n) => s + n, 0)
           if (total > 0) {
             const breakdown = [...countByKey.entries()]
@@ -553,7 +599,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Defer off the activation stack so activation itself completes instantly.
-    setImmediate(() => startBatchedLoad!())
+    setImmediate(() => { startBatchedLoad!(); pollClaudePlanUsage() })
     logReaderTimer = setInterval(runLogScan, 30_000)
     context.subscriptions.push({ dispose: () => clearInterval(logReaderTimer) })
     outputChannel.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')
@@ -800,21 +846,30 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(statusBar)
 
   function updateStatusBar() {
-    if (collectorFailed) {
-      statusBar.text = '$(graph) TraceRoost — syncing'
+    if (collectorConflict) {
+      statusBar.text = '$(warning) TraceRoost — not receiving OTel'
+      statusBar.color = new vscode.ThemeColor('statusBarItem.warningForeground')
+      statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
     } else {
+      // collectorFailed alone means another VS Code window already runs the collector and this
+      // window reads the shared database — normal operation, so no suffix, just a tooltip hint.
       statusBar.text = '$(graph) TraceRoost'
+      statusBar.tooltip = collectorFailed
+        ? 'Open TraceRoost Dashboard (collector running in another VS Code window)'
+        : 'Open TraceRoost Dashboard'
+      statusBar.color = undefined
+      statusBar.backgroundColor = undefined
     }
-    statusBar.color = undefined
-    statusBar.backgroundColor = undefined
     statusBar.show()
   }
 
   updateStatusBar()
   context.subscriptions.push(store.onUpdate(updateStatusBar))
 
-  if (collectorFailed) {
-    outputChannel.appendLine('TraceRoost syncing — collector already running in another window')
+  if (collectorConflict) {
+    // Already logged/shown in detail where collectorConflict was set, above.
+  } else if (collectorFailed) {
+    outputChannel.appendLine('TraceRoost active — collector already running in another VS Code window; sharing its database')
   } else {
     vscode.window.showInformationMessage(`TraceRoost active — listening on port ${port}`)
     outputChannel.appendLine(`TraceRoost active — OTLP collector listening on port ${port}`)

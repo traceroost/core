@@ -211,6 +211,46 @@ suite('gitOutcome', () => {
     assert.strictEqual(result!.files[path.join(repoDir, abandonedFile)], 'abandoned')
   })
 
+  test('classifies a session spanning two repos with no shared workspace, grouping each file by its own repo', async () => {
+    const file = `file${fileCounter}.txt`
+    writeFile(file, 'v1')
+    commitAll('initial', '2026-01-01T00:00:00Z')
+    writeFile(file, 'v2')
+    commitAll('session change kept', '2026-01-04T00:00:00Z') // merged, on trunk itself
+
+    // A second, unrelated repo — same shape a session that edited files in two different
+    // checkouts in one sitting would report, which has no single cwd to call `workspace`.
+    const otherRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-gitoutcome-other-'))
+    try {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: otherRepo })
+      execFileSync('git', ['config', 'user.email', 'test@traceroost.local'], { cwd: otherRepo })
+      execFileSync('git', ['config', 'user.name', 'TraceRoost Test'], { cwd: otherRepo })
+      const otherFile = 'other.txt'
+      fs.writeFileSync(path.join(otherRepo, otherFile), 'v1')
+      execFileSync('git', ['add', '-A'], { cwd: otherRepo })
+      execFileSync('git', ['commit', '-m', 'initial', '--allow-empty'], {
+        cwd: otherRepo,
+        env: { ...process.env, GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z' },
+      })
+      fs.writeFileSync(path.join(otherRepo, otherFile), 'v2') // left uncommitted
+
+      const result = await classifySessionOutcome('', [path.join(repoDir, file), path.join(otherRepo, otherFile)])
+      assert.ok(result, 'expected a non-null result — each file resolves to its own repo')
+      assert.strictEqual(result!.files[path.join(repoDir, file)], 'merged')
+      assert.strictEqual(result!.files[path.join(otherRepo, otherFile)], 'abandoned')
+      // Worst-first across repos, same as within one repo.
+      assert.strictEqual(result!.overall, 'abandoned')
+    } finally {
+      fs.rmSync(otherRepo, { recursive: true, force: true })
+    }
+  })
+
+  test('returns null for an empty workspace when no changed file resolves to any repo', async () => {
+    const outsideAnyRepo = path.join(os.tmpdir(), 'not-in-any-repo.md')
+    const result = await classifySessionOutcome('', [outsideAnyRepo])
+    assert.strictEqual(result, null)
+  })
+
   test('createOutcomeRepoCache: same result with and without a cache — caching never changes the answer', async () => {
     const file = `file${fileCounter}.txt`
     writeFile(file, 'v1')

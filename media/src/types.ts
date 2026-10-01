@@ -57,6 +57,9 @@ export interface LoopSignal {
   examples: string[]
   patternName: string
   action: string
+  /** Estimated avoidable cost in USD, for the signals that can price it (file_reread,
+   *  cache_miss). The Advisor converts it to plan-limit points for subscription users. */
+  wasteUsd?: number
 }
 
 // Mirrors src/gitOutcome.ts. Fetched lazily per session (see sessionTimelines in state.ts for the
@@ -275,12 +278,30 @@ export interface VersionCheckResponse {
   recommendedCommand: string
 }
 
+/** 'standalone' — the background/npx service holds the OTLP port (seen from the VS Code
+ *  extension's own collector). 'plugin' — the VS Code extension holds it instead (seen from the
+ *  background/npx service). 'foreign' — an unrelated, non-TraceRoost process holds it, seen from
+ *  either host. `boundPort` is only set when the reporting host fell back to a different port
+ *  rather than failing to start (the background service's behavior, via listenWithFallback) —
+ *  the port it's actually bound to. */
+export type CollectorConflict = {
+  owner: 'standalone' | 'plugin' | 'foreign'
+  port: number
+  boundPort?: number
+} | null
+
+/** Progress of the host's one-time historical log pass at startup (standalone/server.ts's
+ *  ingestHistoricalLogs, extension.ts's startBatchedLoad); null when no pass is running. */
+export type LogIngestProgress = { done: number; total: number } | null
+
 declare global {
   interface Window {
     acquireVsCodeApi(): VsCodeApi
     __INITIAL_TOOL_CALLS__?: Record<string, number>
     __INITIAL_SESSION_SUMMARY__?: FullSummary | null
     __INITIAL_SESSION_REV__?: number
+    __INITIAL_COLLECTOR_CONFLICT__?: CollectorConflict
+    __INITIAL_LOG_INGEST__?: LogIngestProgress
     __STANDALONE__?: boolean
     __VERSION__?: string
   }

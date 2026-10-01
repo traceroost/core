@@ -1,7 +1,7 @@
 import * as assert from 'assert'
 import * as crypto from 'crypto'
 import { buildCommitRecords, type CommitAttributionInput } from '../../../cloud/forward/buildCommitRecords'
-import { authorHash, type RepoKeyContext } from '../../../cloud/forward/repoKey'
+import { authorHash, type RepoKeyContext } from '../../../repoKey'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('test-key').digest() }
 

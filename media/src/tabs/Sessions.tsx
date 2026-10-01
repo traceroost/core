@@ -7,7 +7,7 @@ import {
   getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   repoInfo, repoDisplayName, repoTooltipName,
-  requestGitOutcomesFor, availableWorkspaces, hasAnyWorkspace,
+  requestGitOutcomesFor, availableWorkspaces, hasAnyWorkspace, logIngestProgress,
 } from '../state'
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
@@ -25,6 +25,8 @@ import { LogIngestionNote } from './IngestionNote'
 import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
+import { planUsage, showLimitColumn } from '../planUsage'
+import { LimitUsedCell, LimitHitBanner } from './PlanLimits'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
@@ -263,6 +265,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
 
   return (
     <div style="border-top:1px solid var(--border)" onClick={e => e.stopPropagation()}>
+      <LimitHitBanner sessionId={sess.sessionId} />
       <div style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         <span
           style="display:flex;align-items:center;gap:5px;padding:3px 4px;margin-right:4px;font-size:10px;color:var(--muted);white-space:nowrap"
@@ -534,8 +537,8 @@ function isSameIdSet(current: Set<string> | null, ids: string[]): boolean {
 // for the id suffix within the column's own max-width.
 const PROMPT_PREVIEW_CHARS = 60
 
-function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
-  sess: SessionSummaryCard; showWorkspace: boolean; showOutcome: boolean
+function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation }: {
+  sess: SessionSummaryCard; showWorkspace: boolean; showOutcome: boolean; showLimit: boolean
   conversation?: { color: string; index: number; total: number; memberIds: string[]; firstPrompt: string }
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -607,7 +610,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
         {/* Agent / Start / Source / From, merged into one column, in that left-to-right order
             (colors match the Outcome bar's own Source/From pills — see
             DATA_SOURCE_COLORS/INITIATOR_COLORS in utils.ts) */}
-        <td style="padding:4px 2px;white-space:nowrap">
+        <td style="padding:4px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
           <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--agent-${sess.source === 'claude_code' ? 'claude' : sess.source},${color});flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(sess.source)} />
           <span style="margin-left:6px;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums">{formatSessionTime(sess)}</span>
           <span style="margin-left:6px" dangerouslySetInnerHTML={{ __html: getDataSourceBadgeHtml(sess.dataSource ?? 'otel') }} />
@@ -615,7 +618,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
         </td>
 
         {/* Model */}
-        <td style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:64px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
+        <td style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:92px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
           {sess.model || '—'}
           {(sess.models?.length ?? 0) > 1 && (
             <span
@@ -655,7 +658,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
             under the "O" header instead of riding along inside the Repo cell. */}
         {showOutcome && (
           <td style="padding:4px 0;text-align:left">
-            {sess.workspace && <GitOutcomeBadge sessionId={sess.sessionId} />}
+            <GitOutcomeBadge sessionId={sess.sessionId} />
           </td>
         )}
 
@@ -690,11 +693,18 @@ function SessionRow({ sess, showWorkspace, showOutcome, conversation }: {
               : <span style="color:var(--muted)">—</span>
           }
         </td>
+
+        {/* Plan limit used — Claude Code / Codex subscription windows; blank when there's no value. */}
+        {showLimit && (
+          <td style="padding:4px 6px 4px 2px;text-align:left;font-size:10px;color:var(--muted)">
+            <LimitUsedCell sessionId={sess.sessionId} />
+          </td>
+        )}
       </tr>
 
       {expanded && (
         <tr style="border-bottom:1px solid var(--vscode-panel-border)">
-          <td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0)} style="padding:0">
+          <td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)} style="padding:0">
             <SessionDetail sess={sess} />
           </td>
         </tr>
@@ -741,6 +751,8 @@ export function Sessions() {
   // for why the clamping happens there rather than here.
   const { page, totalPages, pageSize } = getSessionsPagination(sessions.length)
   const pageSessions = sessions.slice(page * pageSize, (page + 1) * pageSize)
+  // Only when a row on this page has a value — an all-blank column is UI without data.
+  const showLimit = showLimitColumn(pageSessions, planUsage.value)
   const conversationInfo = buildConversationInfo(sessions)
 
   // Fetches git outcomes for just the current page (bounded by pagination already, same cap/
@@ -753,11 +765,12 @@ export function Sessions() {
       <div role="region" aria-label="Traces table" tabIndex={0}>
       <table class="trace-table" style="width:100%;border-collapse:collapse;font-size:11px">
         <colgroup>
-          <col style="width:8px" /><col style="width:18px" /><col style="width:128px" /><col style="width:64px" />
-          <col style="width:140px" />
+          <col style="width:8px" /><col style="width:18px" /><col style="width:132px" /><col style="width:92px" />
+          <col style="width:122px" />
           {showWorkspace && <col style="width:110px" />}
           {showOutcome && <col style="width:36px" />}
-          <col style="width:46px" /><col style="width:38px" /><col style="width:50px" /><col style="width:46px" /><col style="width:70px" />
+          <col style="width:42px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
+          {showLimit && <col style="width:96px" />}
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
@@ -768,7 +781,7 @@ export function Sessions() {
                 Agent / <strong style="font-weight:800">Start</strong> / Source / From{sortArrow('start_time')}
               </button>
             </th>
-            <th scope="col" aria-sort={sortKey === 'model' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort + ';padding-left:8px'}>
+            <th scope="col" aria-sort={sortKey === 'model' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
               <button class="sort-button" onClick={() => onSortClick('model')}>Model{sortArrow('model')}</button>
             </th>
             {sortHeader('prompt', 'Prompt (ID)')}
@@ -789,12 +802,15 @@ export function Sessions() {
             {sortHeader('duration_ms', 'Duration')}
             {sortHeader('total_tokens', 'Tokens', 'left', '<b>Tokens</b>\nAccumulated input and output tokens across all turns')}
             {sortHeader('cost', 'Est Cost')}
+            {showLimit && (
+              <th scope="col" style={thSort + ';text-align:left'} title={`<b>Limit used</b>\nShare of your Claude or ChatGPT plan's 5-hour (5h) and weekly (wk) window this trace used. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Limit used</th>
+            )}
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : 'No traces recorded yet.'}</div></td></tr>}
+          {sessions.length === 0 && <tr><td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : logIngestProgress.value ? 'Loading traces from local logs…' : 'No traces recorded yet.'}</div></td></tr>}
           {pageSessions.map(sess => (
-            <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} showOutcome={showOutcome} conversation={conversationInfo.get(sess.sessionId)} />
+            <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} showOutcome={showOutcome} showLimit={showLimit} conversation={conversationInfo.get(sess.sessionId)} />
           ))}
         </tbody>
       </table>

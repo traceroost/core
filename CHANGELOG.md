@@ -2,6 +2,26 @@
 
 All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
+## [0.17.1] — 2026-09-28
+
+### Added
+
+- **The dashboard opens immediately while your local log history loads** — the npx/background service used to parse every log file before serving the page, which meant a long spinner on a large (~900-trace) history. The initial pass now runs in small slices, so the page appears at once and sessions fill in as they're read, with a progress banner above the dashboard. In VS Code the open dashboard also refreshes as each batch of log sessions is saved, instead of only on its 10-second timer. (#263)
+- **Triggered alerts link straight to the trace that tripped them** — the toast, bell dropdown and Alerts tab now jump to that specific trace in the Sessions tab. Aggregate alerts like daily cost still open the Alerts tab. (#261)
+- **Pricing for new models** — GPT-6 Sol and Luna, Claude Opus 5.5 (with its own fast-mode rate) and Sonnet 5.5, and four new OpenCode Zen free-evaluation models. (#262)
+
+### Fixed
+
+- **"No such column: Infinity" when loading every stored session** — the "no cap" path passed `LIMIT Infinity` straight into SQL, which SQLite rejects; it now returns every row as intended. (#261)
+
+### Changed
+
+- **The OTel port-conflict banner explains what to do** — it recommends the background service (which survives VS Code closing) with its install command, gives next steps depending on which host you want to keep, can be dismissed per conflict, and now also appears when running the npx/background service, not only in VS Code. (#261)
+- **The Sessions table's Model column is wider**, so more model names show without truncation. (#261)
+- **Docs now spell out what the Docker image can't do** — it receives OTel traces only: no log-file ingestion, no agent auto-configuration and no git outcomes. The README and in-app Help point to the background service or IDE extension instead. (#261)
+
+---
+
 ## [0.17.0] — 2026-09-27
 
 ### Added

@@ -32,6 +32,41 @@ export class GitOutcomeRepository {
     }
   }
 
+  /** Returns the last stored classification without checking freshness; callers must revalidate it. */
+  getCached(sessionId: string): GitOutcome | undefined {
+    const escaped = sessionId.replace(/'/g, "''")
+    const rows = this.db.exec(
+      `SELECT overall, files_json, reason FROM git_outcome WHERE session_id = '${escaped}'`,
+    )
+    if (!rows[0] || rows[0].values.length === 0) return undefined
+    const [overall, filesJson, reason] = rows[0].values[0] as [string, string, string]
+    try {
+      return { overall: overall as GitOutcome['overall'], files: JSON.parse(filesJson), reason }
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Reads the last stored classifications for a batch without checking freshness. */
+  getCachedMany(sessionIds: string[]): Record<string, GitOutcome> {
+    if (sessionIds.length === 0) return {}
+    const ids = [...new Set(sessionIds)]
+    const quotedIds = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(', ')
+    const rows = this.db.exec(
+      `SELECT session_id, overall, files_json, reason FROM git_outcome WHERE session_id IN (${quotedIds})`,
+    )
+    const outcomes: Record<string, GitOutcome> = {}
+    for (const row of rows[0]?.values ?? []) {
+      const [sessionId, overall, filesJson, reason] = row as [string, string, string, string]
+      try {
+        outcomes[sessionId] = { overall: overall as GitOutcome['overall'], files: JSON.parse(filesJson), reason }
+      } catch {
+        // Ignore malformed rows; reconciliation will recompute them.
+      }
+    }
+    return outcomes
+  }
+
   put(sessionId: string, repoRoot: string, cacheKey: string, outcome: GitOutcome): void {
     this.db.run(
       `INSERT OR REPLACE INTO git_outcome (session_id, repo_root, head_sha, overall, files_json, reason, computed_at)

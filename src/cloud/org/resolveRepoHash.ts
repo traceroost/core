@@ -8,7 +8,7 @@
  * a deep link.
  */
 
-import { deriveRepoKey, repoHash as computeRepoHash } from '../forward/repoKey'
+import { deriveRepoKey, repoHash as computeRepoHash } from '../../repoKey'
 import { loadCredentials } from './credentials'
 
 /** Candidate local roots, derived from a caller-supplied list of workspace paths (session

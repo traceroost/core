@@ -9,7 +9,7 @@ import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } fro
 import { serializeExport, exportFileExtension, type ExportFormat } from './exportFormats'
 import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from './gitOutcome'
 import { onActionLogChanged, getActionLogHistory } from './actionLog'
-import { ReconciliationService, type ReconcileResult } from './reconcile/reconciliationService'
+import { ReconciliationService, type ReconcileInput, type ReconcileResult } from './reconcile/reconciliationService'
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
 import { resolveGithubUrl } from './repoRemote'
@@ -17,6 +17,7 @@ import { resolveGithubUrl } from './repoRemote'
 import { cloud, type OrgPanelDeps, type SuggestionLedger } from './cloudBridge'
 import { getNonce, safeJsonForScript } from './webviewHtml'
 import { WebviewSessionSync } from './webviewSessionSync'
+import { getPlanUsageService } from './planUsage/planUsageService'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {
@@ -64,9 +65,24 @@ export class DashboardPanel {
   /** The port the MCP server actually bound (set by extension.ts) — it can differ from the
    *  configured traceRoost.mcpPort when that port was busy and listenWithFallback moved on. */
   public static boundMcpPort: number | undefined
+  /** Set by extension.ts when this window's own OTLP collector lost the port to the TraceRoost
+   *  background service or an unrelated app — never for another VS Code window running this same
+   *  extension, which shares one database by design and isn't a conflict. Read on every 'update'
+   *  postMessage below so the webview shows a persistent warning banner for as long as this
+   *  window isn't actually receiving OTel, rather than a one-time toast that's easy to miss or
+   *  dismiss and forget about. */
+  public static collectorConflict: { owner: 'standalone' | 'foreign'; port: number } | undefined
+  /** Progress of extension.ts's batched log load (startBatchedLoad); null when none is running.
+   *  Inlined into a panel opened mid-load and posted to an open one as it advances, so the
+   *  webview shows a progress banner rather than an empty dashboard. */
+  private static logIngestProgress: { done: number; total: number } | null = null
+  private static lastLogIngestPostAt = 0
+  private static refreshTimer: ReturnType<typeof setTimeout> | undefined
   private readonly panel: vscode.WebviewPanel
   private disposables: vscode.Disposable[] = []
   private pendingUpdate: ReturnType<typeof setTimeout> | undefined
+  private pendingGitOutcomeResults = new Map<string, ReconcileResult>()
+  private pendingGitOutcomeFlush: ReturnType<typeof setTimeout> | undefined
   // On-demand — see gitOutcome.ts for why this isn't computed eagerly for every loaded session.
   // Host-independent, and deliberately *injected* rather than constructed here: extension.ts owns
   // one instance for the whole extension-host lifetime and hands it to both this panel and the
@@ -183,10 +199,13 @@ export class DashboardPanel {
           Array.isArray(msg.filesChanged) ? msg.filesChanged as string[] : [],
           (msg.endTime as string) || '',
         ).catch(err => console.error('[TraceRoost] sendGitOutcome failed:', err))
+      } else if (msg.type === 'getGitOutcomes' && Array.isArray(msg.sessionIds)) {
+        const sessionIds = msg.sessionIds.filter((id: unknown): id is string => typeof id === 'string')
+        void this.sendGitOutcomes(sessionIds)
       } else if (msg.type === 'getRepoHash' && msg.workspace) {
         void this.sendRepoHash(msg.workspace as string)
       } else if (msg.type === 'alert' && msg.label) {
-        handleAlertNotification(msg as { label: string; detail?: string; severity: string }, context, repo, sidebarProvider, rawDb)
+        handleAlertNotification(msg as { label: string; detail?: string; severity: string; sessionId?: string }, context, repo, sidebarProvider, rawDb)
       } else if (msg.type === 'automation' && msg.prompt) {
         handleAutomation(msg as { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; prompt: string })
       } else if (msg.type === 'openFile' && typeof msg.filePath === 'string' && msg.filePath) {
@@ -340,18 +359,26 @@ export class DashboardPanel {
     this.disposables.push({ dispose: unsubscribeActionLog })
   }
 
-  /** Posts a reconciliation result to the webview in the same shape sendGitOutcome's
-   *  request/response path already uses — App.tsx's handler for `gitOutcome` messages doesn't
-   *  care whether it was solicited. */
+  /** Coalesces reconciliation pushes so a large pass indexes the session list once per flush. */
   private pushGitOutcomeResult(r: ReconcileResult): void {
-    const card = this.repo.listSessions().find(s => s.sessionId === r.sessionId) ?? null
-    if (!card) return // session no longer retained locally — nothing to update in the UI
-    const riskSignals = detectSessionRiskSignals(card, card.workspace, r.outcome)
-    const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], r.outcome)
-    this.panel.webview.postMessage({
-      type: 'gitOutcome', sessionId: r.sessionId, outcome: r.outcome, riskSignals, temperedLoopSignals,
-      revision: r.revision,
-    })
+    this.pendingGitOutcomeResults.set(r.sessionId, r)
+    if (this.pendingGitOutcomeFlush) return
+    this.pendingGitOutcomeFlush = setTimeout(() => {
+      this.pendingGitOutcomeFlush = undefined
+      const pending = this.pendingGitOutcomeResults
+      this.pendingGitOutcomeResults = new Map()
+      const cards = new Map(this.repo.listSessions({ limit: Infinity }).map(card => [card.sessionId, card]))
+      for (const result of pending.values()) {
+        const card = cards.get(result.sessionId)
+        if (!card) continue
+        const riskSignals = detectSessionRiskSignals(card, card.workspace, result.outcome)
+        const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], result.outcome)
+        this.panel.webview.postMessage({
+          type: 'gitOutcome', sessionId: result.sessionId, outcome: result.outcome, riskSignals, temperedLoopSignals,
+          revision: result.revision,
+        })
+      }
+    }, 50)
   }
 
   /** Builds an instruction-telemetry rollup for `workspace` and queues it — a hard no-op unless
@@ -382,6 +409,30 @@ export class DashboardPanel {
       this.pendingUpdate = undefined
       this.update()
     }, 300)
+  }
+
+  /** Records the batched log load's progress and forwards it to the open panel, if any —
+   *  throttled, since the load advances every few milliseconds. The final null always goes out. */
+  static setLogIngestProgress(progress: { done: number; total: number } | null): void {
+    DashboardPanel.logIngestProgress = progress
+    const current = DashboardPanel.currentPanel
+    if (!current) return
+    const now = Date.now()
+    if (progress && now - DashboardPanel.lastLogIngestPostAt < 150) return
+    DashboardPanel.lastLogIngestPostAt = now
+    current.panel.webview.postMessage({ type: 'logIngest', logIngest: progress })
+  }
+
+  /** Coalesced refresh of the open panel, for writes that don't go through the span store's
+   *  onUpdate — log-ingested sessions go straight to the database. */
+  static refreshSoon(): void {
+    if (DashboardPanel.refreshTimer) return
+    // Longer than scheduleUpdate's 300 ms: each update() re-reads every session from the
+    // database, and a first-run load on a large history lands a batch every few milliseconds.
+    DashboardPanel.refreshTimer = setTimeout(() => {
+      DashboardPanel.refreshTimer = undefined
+      DashboardPanel.currentPanel?.update()
+    }, 1000)
   }
 
   update() {
@@ -418,12 +469,28 @@ export class DashboardPanel {
       enableOtelIngestion: cfg.get<boolean>('enableOtelIngestion', true),
       enableLogIngestion: cfg.get<boolean>('enableLogIngestion', true),
       otlpPort: cfg.get<number>('otlpPort', 4318),
+      collectorConflict: DashboardPanel.collectorConflict ?? null,
       // The one real folder Apply/getInstructionFiles below actually act on
       // (vscode.workspace.workspaceFolders[0], same source those handlers already use) — the
       // webview has no other way to know it, and it is not the same thing as the Repo toolbar's
       // freeform search box (workspaceFilter), which can match any historical repo's sessions.
       currentWorkspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
     })
+    this.postPlanUsage(sessions)
+  }
+
+  /** Subscription plan limits (src/planUsage/) — its own message, sent only when it changed. */
+  private lastPlanUsageJson: string | null = null
+  private postPlanUsage(sessions: SessionSummaryCard[]): void {
+    const svc = getPlanUsageService()
+    if (!svc) return
+    try {
+      const snapshot = svc.snapshot(sessions)
+      const json = JSON.stringify({ ...snapshot, generatedAt: 0 })
+      if (json === this.lastPlanUsageJson) return
+      this.lastPlanUsageJson = json
+      this.panel.webview.postMessage({ type: 'planUsage', snapshot })
+    } catch { /* plan limits stay hidden; the rest of the dashboard is unaffected */ }
   }
 
   private async importSessions(rawSessions: Record<string, unknown>[]): Promise<void> {
@@ -464,6 +531,11 @@ export class DashboardPanel {
   private async sendGitOutcome(sessionId: string, workspace: string, filesChanged: string[], endTime: string): Promise<void> {
     let outcome: GitOutcome | null
     let revision: number | null = null
+    const cachedOutcome = this.reconciliation?.getCachedOutcome(sessionId)
+    if (cachedOutcome) {
+      // Paint the durable value while the normal path checks whether git has changed since it was stored.
+      this.panel.webview.postMessage({ type: 'gitOutcomeCache', sessionId, outcome: cachedOutcome })
+    }
     try {
       if (this.reconciliation) {
         const result = await this.reconciliation.reconcile({ sessionId, workspace, filesChanged, endTime })
@@ -505,13 +577,54 @@ export class DashboardPanel {
     this.panel.webview.postMessage({ type: 'gitOutcome', sessionId, outcome, riskSignals, temperedLoopSignals, revision })
   }
 
+  private async sendGitOutcomes(sessionIds: string[]): Promise<void> {
+    const requested = new Set(sessionIds.slice(0, 20_000))
+    if (requested.size === 0) return
+    const cards = this.repo.listSessions({ limit: Infinity }).filter(card => requested.has(card.sessionId))
+    const foundIds = new Set(cards.map(card => card.sessionId))
+    for (const id of requested) {
+      if (!foundIds.has(id)) this.panel.webview.postMessage({ type: 'gitOutcome', sessionId: id, outcome: null })
+    }
+    const inputs: ReconcileInput[] = cards.map(card => ({
+      sessionId: card.sessionId,
+      workspace: card.workspace,
+      filesChanged: card.filesChanged,
+      endTime: card.startTime && card.durationMs
+        ? new Date(Date.parse(card.startTime) + card.durationMs).toISOString()
+        : card.startTime,
+    }))
+
+    if (this.reconciliation) {
+      const cachedOutcomes = this.reconciliation.getCachedOutcomes(inputs.map(input => input.sessionId))
+      if (Object.keys(cachedOutcomes).length > 0) {
+        this.panel.webview.postMessage({ type: 'gitOutcomeCacheBatch', outcomes: cachedOutcomes })
+      }
+      try {
+        const results = await this.reconciliation.reconcileMany(inputs)
+        for (const result of results) {
+          if (result.deferred) this.panel.webview.postMessage({ type: 'gitOutcomeDeferred', sessionId: result.sessionId })
+        }
+      } catch (err) {
+        console.error('[TraceRoost] batched git-outcome reconciliation failed:', err)
+        await Promise.all(inputs.map(input => this.sendGitOutcome(
+          input.sessionId, input.workspace, input.filesChanged, input.endTime,
+        )))
+      }
+      return
+    }
+
+    await Promise.all(inputs.map(input => this.sendGitOutcome(
+      input.sessionId, input.workspace, input.filesChanged, input.endTime,
+    )))
+  }
+
   // `hash` is the same one traceroost-cloud shows in its own Repo column (repoKey.ts's repoHash,
   // HMAC-derived from the repo's root commit and the linked org id) — so a local repo can be
   // matched up with its row in the cloud dashboard on sight. Unlinked installs get the same
   // 'unlinked-preview' salt buildPayloadForCard's own preview path already uses, so the value is
   // still stable and distinguishes repos from each other locally, it just won't match cloud until
-  // the org links. The core edition has no cloud to match and sends `hash: null` (name only) —
-  // see cloudBridge.ts's describeRepo.
+  // the org links. The core edition always uses that unlinked salt — see cloudBridge.ts's
+  // describeRepo.
   //
   // `name` is the git-resolved repo root's own basename (`rk.ctx.root`), prefixed with its parent
   // folder's name where one exists (e.g. "traceroost/core") — not the workspace path itself:
@@ -628,6 +741,8 @@ export class DashboardPanel {
   private dispose() {
     DashboardPanel.currentPanel = undefined
     if (this.pendingUpdate) { clearTimeout(this.pendingUpdate); this.pendingUpdate = undefined }
+    if (this.pendingGitOutcomeFlush) { clearTimeout(this.pendingGitOutcomeFlush); this.pendingGitOutcomeFlush = undefined }
+    this.pendingGitOutcomeResults.clear()
     this.panel.dispose()
     // Unsubscribes this panel's pushGitOutcomeResult listener (registered in the constructor) via
     // the disposable pushed there — the ReconciliationService instance itself is owned and
@@ -661,6 +776,7 @@ export class DashboardPanel {
         window.__INITIAL_TOOL_CALLS__ = ${safeJsonForScript(summary.toolCalls)};
         window.__INITIAL_SESSION_SUMMARY__ = ${safeJsonForScript(sessionSummary)};
         window.__INITIAL_SESSION_REV__ = ${sessionRev};
+        window.__INITIAL_LOG_INGEST__ = ${safeJsonForScript(DashboardPanel.logIngestProgress)};
         window.__VERSION__ = ${safeJsonForScript(this.context.extension.packageJSON.version)};
         window.__MCP_ENABLED__ = ${mcpEnabled};
         window.__MCP_PORT__ = ${mcpPort};
@@ -745,7 +861,7 @@ function buildEfficiency(sessions: SessionSummaryCard[]) {
 // ── Alert / automation helpers (unchanged) ────────────────────────────────────
 
 async function handleAlertNotification(
-  msg: { label: string; detail?: string; severity: string },
+  msg: { label: string; detail?: string; severity: string; sessionId?: string },
   context: vscode.ExtensionContext,
   repo: SessionRepository,
   sidebarProvider?: SidebarPanel,
@@ -759,18 +875,30 @@ async function handleAlertNotification(
     ...(msg.detail ? [`Detail: ${msg.detail}`] : []),
   ].join('\n')
 
+  // Most alerts point at one offending trace (evaluateAlert's `worst` session) — jump straight to
+  // it in the Sessions tab instead of the generic Alerts tab. Aggregate alerts (e.g. daily_cost)
+  // have no single trace responsible, so those still fall back to the Alerts tab.
+  const viewLabel = msg.sessionId ? 'View Trace' : 'View Alerts'
+
   let promise: Thenable<string | undefined>
   if (msg.severity === 'error') {
-    promise = vscode.window.showErrorMessage(text, 'View Alerts', 'Copy Prompt')
+    promise = vscode.window.showErrorMessage(text, viewLabel, 'Copy Prompt')
   } else if (msg.severity === 'info') {
-    promise = vscode.window.showInformationMessage(text, 'View Alerts', 'Copy Prompt')
+    promise = vscode.window.showInformationMessage(text, viewLabel, 'Copy Prompt')
   } else {
-    promise = vscode.window.showWarningMessage(text, 'View Alerts', 'Copy Prompt')
+    promise = vscode.window.showWarningMessage(text, viewLabel, 'Copy Prompt')
   }
   promise.then(action => {
-    if (action === 'View Alerts') {
+    if (action === viewLabel) {
       DashboardPanel.show(context, repo, sidebarProvider, undefined, rawDb)
-      DashboardPanel.switchToTab('alerts')
+      setTimeout(() => {
+        if (msg.sessionId) {
+          DashboardPanel.switchToTab('sessions')
+          DashboardPanel.sendFilter(undefined, undefined, undefined, msg.sessionId)
+        } else {
+          DashboardPanel.switchToTab('alerts')
+        }
+      }, 250)
     } else if (action === 'Copy Prompt') {
       vscode.env.clipboard.writeText(clipboardPrompt).then(() => {
         vscode.window.showInformationMessage('TraceRoost: Alert prompt copied — paste into your AI chat.')

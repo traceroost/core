@@ -119,6 +119,34 @@ suite('DatabaseReader', () => {
     db.close()
   })
 
+  // sessionRepository.ts's `limit: Infinity` convention ("bypass the cap", used by org reconcile
+  // to see every retained session) must not reach the raw SQL string as `LIMIT Infinity` — SQLite
+  // parses that as an unresolved column reference and throws "no such column: Infinity".
+  test('listSessions with limit: Infinity returns every row, not just none', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'a', startTime: '2024-01-01T00:00:00.000Z' }),
+      makeCard({ sessionId: 'b', startTime: '2024-02-01T00:00:00.000Z' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const results = reader.listSessions({ limit: Infinity })
+    assert.strictEqual(results.length, 2)
+    db.close()
+  })
+
+  test('listSessions with a finite limit still caps the row count', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'a', startTime: '2024-01-01T00:00:00.000Z' }),
+      makeCard({ sessionId: 'b', startTime: '2024-02-01T00:00:00.000Z' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const results = reader.listSessions({ limit: 1 })
+    assert.strictEqual(results.length, 1)
+    assert.strictEqual(results[0].sessionId, 'b')
+    db.close()
+  })
+
   test('loadSessionTimeline returns entries in position order', async () => {
     const db = await openDb()
     await seedDb(db, [makeCard()])

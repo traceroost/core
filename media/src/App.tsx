@@ -2,7 +2,7 @@ import { signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   sessionSummary, toolCalls,
-  selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
+  selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
   sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
@@ -13,9 +13,10 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
+  collectorConflict, type CollectorConflict, logIngestProgress,
   getSessionsPagination, applySessionDelta, type SessionDelta,
 } from './state'
-import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry } from './types'
+import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS } from './utils'
 
@@ -32,6 +33,10 @@ import { Automation, checkAutomations } from './tabs/Automation'
 import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
+import { planUsage, type PlanUsageSnapshot } from './planUsage'
+
+/** The REPO filter's empty state, shown as its placeholder and first list entry. */
+const REPO_ALL = 'All'
 
 
 // Standalone opens with the left activity sidebar collapsed by default, since it
@@ -298,6 +303,15 @@ function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
                     <span style={`font-size:12px;font-weight:600;color:${color}`}>{a.label}</span>
                   </div>
                   {a.detail && <div style="font-size:11px;color:var(--muted);line-height:1.4">{a.detail}</div>}
+                  {a.sessionId && (
+                    <span
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false }}
+                      onKeyDown={e => { if (e.key === 'Enter') { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false } }}
+                      style="display:inline-block;margin-top:4px;font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline"
+                    >View trace →</span>
+                  )}
                 </div>
               )
             })}
@@ -537,18 +551,22 @@ export function App() {
     // GIT_OUTCOME_FLUSH_MS window instead; any other message flushes them first, so ordering
     // against gitOutcomeDeferred/update is unchanged.
     let pendingOutcomes: Record<string, GitOutcome | null> | null = null
+    const settledOutcomeIds = new Set<string>()
     const flushOutcomes = () => {
       const pending = pendingOutcomes
       if (!pending) return
       pendingOutcomes = null
       gitOutcomes.value = { ...gitOutcomes.value, ...pending }
-      for (const id in pending) {
+      for (const id of settledOutcomeIds) {
         gitOutcomeRequestSettled(id)
         if (deferredGitOutcomeSessionIds.has(id)) deferredGitOutcomeSessionIds.delete(id)
       }
+      settledOutcomeIds.clear()
     }
     const handler = (e: MessageEvent) => {
-      if (pendingOutcomes && (e.data as { type?: unknown } | null)?.type !== 'gitOutcome') flushOutcomes()
+      const incomingType = (e.data as { type?: unknown } | null)?.type
+      if (pendingOutcomes && incomingType !== 'gitOutcome' && incomingType !== 'gitOutcomeCache'
+        && incomingType !== 'gitOutcomeCacheBatch') flushOutcomes()
       const msg = e.data as {
         type: string
         summary?: { toolCalls?: Record<string, number> }
@@ -564,6 +582,7 @@ export function App() {
         sessionId?: string
         timeline?: TimelineEntry[]
         outcome?: GitOutcome | null
+        outcomes?: Record<string, GitOutcome>
         workspace?: string
         name?: string | null
         hash?: string | null
@@ -579,17 +598,24 @@ export function App() {
         enableOtelIngestion?: boolean
         enableLogIngestion?: boolean
         otlpPort?: number
+        collectorConflict?: CollectorConflict
+        logIngest?: LogIngestProgress
         currentWorkspace?: string | null
         results?: OtelReconfigureResult
         commands?: string[]
         entries?: ActionLogEntry[]
+        snapshot?: PlanUsageSnapshot
       }
       // Org panel (TraceRoost Cloud) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
+      // Its own message type rather than a field on 'update': it's sent many times a second during
+      // a startup log load, and every 'update' also re-runs alert and automation checks.
+      if (msg.type === 'logIngest') { logIngestProgress.value = msg.logIngest ?? null; return }
       if (msg.type === 'update') {
         if (msg.enableOtelIngestion !== undefined) enableOtelIngestion.value = msg.enableOtelIngestion
         if (msg.enableLogIngestion !== undefined) enableLogIngestion.value = msg.enableLogIngestion
         if (msg.otlpPort !== undefined) otlpPort.value = msg.otlpPort
+        if (msg.collectorConflict !== undefined) collectorConflict.value = msg.collectorConflict
         if (msg.currentWorkspace !== undefined) currentWorkspace.value = msg.currentWorkspace
         if (msg.summary?.toolCalls) toolCalls.value = msg.summary.toolCalls
         if (msg.sessionSummary !== undefined) {
@@ -642,29 +668,57 @@ export function App() {
             }
             const alertNotifications = checkAlerts()
             for (const a of alertNotifications) {
-              vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity })
+              vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
             }
           }, 0)
         }
       } else if (msg.type === 'sessionDetail' && msg.sessionId) {
         sessionTimelines.value = { ...sessionTimelines.value, [msg.sessionId]: msg.timeline ?? [] }
+      } else if (msg.type === 'gitOutcomeCache' && msg.sessionId) {
+        if (!pendingOutcomes) {
+          pendingOutcomes = {}
+          setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
+        }
+        pendingOutcomes[msg.sessionId] = msg.outcome ?? null
+      } else if (msg.type === 'gitOutcomeCacheBatch' && msg.outcomes) {
+        if (!pendingOutcomes) {
+          pendingOutcomes = {}
+          setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
+        }
+        const current = gitOutcomes.peek()
+        for (const [id, outcome] of Object.entries(msg.outcomes)) {
+          if (current[id] === undefined && pendingOutcomes[id] === undefined) pendingOutcomes[id] = outcome
+        }
       } else if (msg.type === 'gitOutcome' && msg.sessionId) {
         if (!pendingOutcomes) {
           pendingOutcomes = {}
           setTimeout(flushOutcomes, GIT_OUTCOME_FLUSH_MS)
         }
         pendingOutcomes[msg.sessionId] = msg.outcome ?? null
+        settledOutcomeIds.add(msg.sessionId)
       } else if (msg.type === 'gitOutcomeDeferred' && msg.sessionId) {
         // Session is still inside its active-session grace window — no git classification ran or
         // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
-        // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). It stays absent from
-        // gitOutcomes, so no outcome badge renders for it either.
+        // outcomes" spinner (see deferredGitOutcomeSessionIds in state.ts). A provisional stored
+        // value, if present, stays visible until the grace revisit supplies the fresh result.
         gitOutcomeRequestSettled(msg.sessionId)
         deferredGitOutcomeSessionIds.add(msg.sessionId)
       } else if (msg.type === 'runningGitCommands' && Array.isArray(msg.commands)) {
         runningGitCommands.value = msg.commands
       } else if (msg.type === 'actionLog' && Array.isArray(msg.entries)) {
         actionLog.value = msg.entries
+      } else if (msg.type === 'planUsage' && msg.snapshot) {
+        const first = planUsage.peek() === null
+        planUsage.value = msg.snapshot
+        // Plan-limit alerts read this snapshot, which arrives on its own message. The first one
+        // only primes checkAlerts' fired set, the same as the initial update does.
+        setTimeout(() => {
+          const alertNotifications = checkAlerts()
+          if (first) return
+          for (const a of alertNotifications) {
+            vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
+          }
+        }, 0)
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
         const entry = msg.name ? { name: msg.name, hash: msg.hash ?? null, githubUrl: msg.githubUrl ?? null } : null
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
@@ -745,7 +799,7 @@ export function App() {
   return (
     <>
       <div class="tabs">
-        <span class="tr-wordmark" title="TraceRoost">
+        <span class="tr-wordmark">
           <Wordmark size={15} />
         </span>
         <button
@@ -775,6 +829,8 @@ export function App() {
         </div>
       </div>
 
+      <CollectorConflictBanner />
+      <LogIngestBanner />
       {showFilterBars && <TimeRangePicker />}
       {showFilterBars && <SearchFilterBar />}
       {showFilterBars && <OutcomeFilterBar />}
@@ -807,6 +863,77 @@ export function App() {
 // the version/paging row — rather than drifting down to the panel's full flex-filled height
 // whenever content is shorter than the viewport. Sticky still keeps it pinned to the visible
 // bottom edge while scrolling through long content.
+// Shown on both hosts this ships as — the VS Code extension (owner 'standalone'/'foreign') and
+// the background/npx service (owner 'plugin'/'foreign', which fell back to boundPort instead of
+// failing to start; see standalone/server.ts's startOtlpServer). Dismissible per conflict identity
+// (see dismissedKey below) — it reappears if a *different* conflict shows up (e.g. the other host
+// stops and something else grabs the port), rather than staying dismissed forever once read.
+function CollectorConflictBanner() {
+  const conflict = collectorConflict.value
+  const [dismissedKey, setDismissedKey] = useState<string | null>(null)
+  if (!conflict) return null
+  const { owner, port, boundPort } = conflict
+  const key = `${owner}:${port}:${boundPort ?? ''}`
+  if (dismissedKey === key) return null
+  return (
+    <div class="collector-conflict-banner" role="alert">
+      <span class="collector-conflict-banner-icon">⚠</span>
+      <div style="flex:1">
+        {owner === 'standalone' ? (
+          <>
+            <strong>Not receiving OTel</strong> — the background service already holds port <code>{port}</code>.
+            <ul style="margin:2px 0 0;padding-left:16px">
+              <li>New sessions here come from log files only (no prompt/tool content).</li>
+              <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command).</li>
+              <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension traceroost.traceroost</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
+            </ul>
+          </>
+        ) : owner === 'plugin' ? (
+          <>
+            <strong>Two TraceRoost hosts are running</strong> — the VS Code extension already holds port <code>{port}</code>; this service moved to port <code>{boundPort}</code> instead.
+            <ul style="margin:2px 0 0;padding-left:16px">
+              <li>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.</li>
+              <li>Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (<code>code --uninstall-extension traceroost.traceroost</code>), then reload.</li>
+              <li>Prefer VS Code instead? Stop this service with <code>traceroost service stop</code>.</li>
+            </ul>
+          </>
+        ) : boundPort !== undefined ? (
+          <>
+            <strong>Not receiving OTel on the default port</strong> — port <code>{port}</code> is in use by another (non-TraceRoost) application, so this service moved to port <code>{boundPort}</code> instead. Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed.
+          </>
+        ) : (
+          <>
+            <strong>Not receiving OTel.</strong> Port <code>{port}</code> is in use by another application, not
+            TraceRoost. Change the <em>traceRoost.otlpPort</em> setting to a free port and reload this window.
+          </>
+        )}
+      </div>
+      <button
+        aria-label="Dismiss"
+        onClick={() => setDismissedKey(key)}
+        style="background:none;border:none;color:inherit;opacity:0.7;cursor:pointer;font-size:13px;line-height:1;padding:1px 2px;flex-shrink:0"
+      >✕</button>
+    </div>
+  )
+}
+
+// Shown while the host's startup pass is still parsing local log history — sessions fill in
+// underneath as it goes. See ingestHistoricalLogs in standalone/server.ts and startBatchedLoad in
+// extension.ts (via DashboardPanel.setLogIngestProgress).
+function LogIngestBanner() {
+  const progress = logIngestProgress.value
+  if (!progress || progress.total === 0) return null
+  const pct = Math.min(100, Math.round((progress.done / progress.total) * 100))
+  return (
+    <div class="log-ingest-banner" role="status" aria-live="polite">
+      <span>Loading traces from local logs… <strong>{progress.done.toLocaleString()}</strong> of {progress.total.toLocaleString()} files</span>
+      <div class="log-ingest-banner-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+        <div class="log-ingest-banner-fill" style={`width:${pct}%`} />
+      </div>
+    </div>
+  )
+}
+
 function GitCommandStatusBar() {
   const commands = runningGitCommands.value
   if (commands.length === 0) return null
@@ -1377,13 +1504,18 @@ function OutcomeFilterBar() {
             type="text"
             list="tr-repo-options"
             class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
-            placeholder="Name or ID"
+            placeholder="All"
             value={workspaceFilter.value}
-            onInput={e => { workspaceFilter.value = (e.target as HTMLInputElement).value }}
-            title="Matches a repo's name or its hash. Pick one from the list, or type to narrow further."
+            onInput={e => {
+              // "All" from the list (or typed) means no repo filter, not a repo named "All".
+              const v = (e.target as HTMLInputElement).value
+              workspaceFilter.value = v.trim().toLowerCase() === REPO_ALL.toLowerCase() ? '' : v
+            }}
+            title="All repos by default. Pick one from the list, or type a repo's name or hash to narrow."
             style="flex:none;width:110px"
           />
           <datalist id="tr-repo-options">
+            <option value={REPO_ALL} />
             {repoOptions.map(name => <option key={name} value={name} />)}
           </datalist>
         </span>
