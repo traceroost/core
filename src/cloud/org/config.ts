@@ -89,7 +89,7 @@ function stripTrailingSlash(u: string): string {
   return u.endsWith('/') ? u.slice(0, -1) : u
 }
 
-/** OAuth endpoints on the Pro service, per SA 03 (the PKCE authorization server). */
+/** OAuth endpoints on the Cloud service, per SA 03 (the PKCE authorization server). */
 export function authorizeUrl(endpoint = orgEndpoint()): string {
   return `${endpoint}/oauth/authorize`
 }

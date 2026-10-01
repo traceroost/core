@@ -55,7 +55,7 @@ what the core edition does (`node esbuild.js --edition=core`; see
 CONTRIBUTING.md → Editions). The directory is the
 unit the core build leaves out, and the unit covered by the different license
 below. The free/paid rule itself is unchanged — see
-CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Pro, and
+CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Cloud, and
 `attribution/` and `turnover/` are free forever.
 
 ## The license split

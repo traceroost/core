@@ -165,7 +165,7 @@ export class DatabaseWriter {
   }
 
   /** Records that `count` hashed traces were just successfully sent to the cloud (one row per
-   *  forwarding drain batch — see the Pro upload sender's `recordSent`, reached via
+   *  forwarding drain batch — see the Cloud upload sender's `recordSent`, reached via
    *  cloudBridge.ts). Backs the Team panel's transport transparency stats
    *  (`DatabaseReader.queryTraceSendStats`). */
   recordTraceSent(count: number, at: number): void {

@@ -263,7 +263,7 @@ CREATE TABLE IF NOT EXISTS instruction_dismissed (
 
 CREATE INDEX IF NOT EXISTS idx_instruction_dismissed_workspace ON instruction_dismissed (workspace);
 
--- One row per successful forwarding drain (the Pro upload sender's recordSent), not per trace —
+-- One row per successful forwarding drain (the Cloud upload sender's recordSent), not per trace —
 -- a drain can send up to batchLimit (200) items in one round trip, so this stores the batch's
 -- count rather than inserting once per item. Backs the Team panel's "hashed traces sent" transport
 -- stats (last 5 min / last hour / all time): summing count where sent_at is within a window gives

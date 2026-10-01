@@ -183,7 +183,7 @@ jobs:
         run: vsce package --no-dependencies
 
       # Belt and braces: `package:core` already ran this during `vsce package`; re-run it on what
-      # actually got packed (and, for `full`, confirm the Pro code really is there).
+      # actually got packed (and, for `full`, confirm the Cloud code really is there).
       - name: Check the ${{ env.EDITION }} edition bundles
         run: node scripts/check-edition.mjs "$EDITION"
 

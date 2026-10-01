@@ -3,7 +3,7 @@
 //
 //   node scripts/check-edition.mjs core [--package <package.json>] [--skip-manifest]
 //     Fails if any shipped bundle contains a TraceRoost Cloud (org link + upload) marker — a cloud
-//     module path, a Pro endpoint or hostname, a forwarding-queue/link identifier — or if the
+//     module path, a Cloud endpoint or hostname, a forwarding-queue/link identifier — or if the
 //     package manifest (default: ./package.json; pass the core-prepared one from
 //     scripts/prepare-edition.mjs) still contributes an Org command or ships a cloud file.
 //     `--skip-manifest` checks the bundles only (a local `pnpm run build:core`, where
@@ -47,13 +47,13 @@ const MARKERS = [
   'cloud/forward',      //   and in import-path strings)
   'standalone/cloud',
   'panels/OrgPanel',
-  '/api/ingest',        // Pro service endpoints (src/cloud/org/config.ts)
+  '/api/ingest',        // Cloud service endpoints (src/cloud/org/config.ts)
   '/api/org',           // the standalone server's Org-panel route
   '/api/roster',
   '/api/rates/effective',
   '/api/clusters',
   '/oauth/',
-  'traceroost.com',     // Pro hostnames (ORG_ENDPOINTS)
+  'traceroost.com',     // Cloud hostnames (ORG_ENDPOINTS)
   'ForwardQueue',       // forwarding-queue class
   'forward-queue.jsonl',
   'team.json',          // the link credential file
@@ -79,7 +79,7 @@ function manifestProblems(pkg) {
     if (/(^|\/)cloud(\/|$)/.test(f)) problems.push(`files ships ${f}`)
   }
   const walkthroughs = JSON.stringify(pkg.contributes?.walkthroughs ?? [])
-  if (/traceRoost\.org|TraceRoost Cloud/.test(walkthroughs)) problems.push('contributes.walkthroughs mentions the Org/Pro feature')
+  if (/traceRoost\.org|TraceRoost Cloud/.test(walkthroughs)) problems.push('contributes.walkthroughs mentions the Org/Cloud feature')
   if (pkg.traceroostEdition !== undefined && pkg.traceroostEdition !== 'core') problems.push(`traceroostEdition is ${pkg.traceroostEdition}`)
   return problems
 }
@@ -109,12 +109,12 @@ for (const rel of BUNDLES) {
 }
 
 if (edition === 'full') {
-  // The extension and the dashboard are where the Pro surface lives; the sidebar never had any.
+  // The extension and the dashboard are where the Cloud surface lives; the sidebar never had any.
   for (const rel of ['dist/extension.js', 'standalone/server.js', 'standalone/cli.js', 'media/dashboard.js']) {
     const r = report.find(x => x.rel === rel)
     if (r && r.hits.length === 0) {
       failed = true
-      console.error(`✘ ${rel} has no Pro markers at all in a full build — the marker list in scripts/check-edition.mjs has gone stale`)
+      console.error(`✘ ${rel} has no Cloud markers at all in a full build — the marker list in scripts/check-edition.mjs has gone stale`)
     }
   }
 }
@@ -130,7 +130,7 @@ if (edition === 'core' && !skipManifest) {
 }
 
 for (const r of report) {
-  console.log(`  ${r.rel.padEnd(22)} ${String(r.bytes).padStart(9)} bytes   Pro markers: ${r.hits.reduce((n, [, c]) => n + c, 0)}`)
+  console.log(`  ${r.rel.padEnd(22)} ${String(r.bytes).padStart(9)} bytes   Cloud markers: ${r.hits.reduce((n, [, c]) => n + c, 0)}`)
 }
 if (failed) {
   console.error(`\ncheck-edition: ${edition} edition check FAILED`)

@@ -68,11 +68,11 @@ TraceRoost Cloud (org link + upload) code. The split is made at build time, not 
   directory in `src/` or `media/src/` outside the seams.
 - `node esbuild.js --edition=core` resolves each seam to its stub, defines
   `process.env.TRACEROOST_EDITION`, and fails the build if any module under a `cloud/` directory
-  would still be bundled. Pro-only code outside the seams (a VS Code command registration, a
+  would still be bundled. Cloud-only code outside the seams (a VS Code command registration, a
   standalone route, Help-tab sections) is wrapped in a literal
   `process.env.TRACEROOST_EDITION !== 'core'` check so the core build drops it entirely.
-- `node scripts/check-edition.mjs core` then greps the five shipped bundles for Pro markers
-  (cloud module paths, Pro endpoints and hostnames, queue/link identifiers) and checks the
+- `node scripts/check-edition.mjs core` then greps the five shipped bundles for Cloud markers
+  (cloud module paths, Cloud endpoints and hostnames, queue/link identifiers) and checks the
   packaged manifest; `check-edition.mjs full` checks the markers are still present in a full build.
 
 ```bash

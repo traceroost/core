@@ -49,7 +49,7 @@ jobs:
       - name: Build production bundle
         run: pnpm run package
 
-      # The full build must still carry every Pro marker the core check looks for — otherwise a
+      # The full build must still carry every Cloud marker the core check looks for — otherwise a
       # stale marker list would let the core-edition job below pass on anything.
       - name: Check edition markers (full)
         run: node scripts/check-edition.mjs full
@@ -95,7 +95,7 @@ jobs:
       - name: Build core edition (production)
         run: node esbuild.js --production --edition=core
 
-      - name: Check core bundles and core manifest carry no Pro code
+      - name: Check core bundles and core manifest carry no Cloud code
         run: |
           node scripts/prepare-edition.mjs core --out "$RUNNER_TEMP/package.core.json"
           node scripts/check-edition.mjs core --package "$RUNNER_TEMP/package.core.json"

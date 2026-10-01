@@ -1004,7 +1004,7 @@ touches `~/.traceroost`'s data or config, matching the same separation the exten
 Five independent esbuild targets produce five output bundles.
 
 **Editions.** `node esbuild.js --edition=full|core` (default `full`) picks which of two products
-the five bundles are. `core` resolves the three Pro seams — `src/cloudBridge.ts` →
+the five bundles are. `core` resolves the three Cloud seams — `src/cloudBridge.ts` →
 `src/cloudBridge.core.ts`, `media/src/orgPanel.ts` → `media/src/orgPanel.core.tsx`,
 `standalone/cliCloud.ts` → `standalone/cliCloud.core.ts` — to inert stubs, defines
 `process.env.TRACEROOST_EDITION` (both editions, all bundles) so literal edition checks fold away,
@@ -1088,7 +1088,7 @@ lead see cross-developer aggregates. The rest of the codebase reaches it only th
    there is nothing for source code to travel in.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my machine, my
    commits, my repositories* is free and ungimped. Paid is *everyone's* — aggregation a local
-   install genuinely cannot do. Nothing local is gated behind Pro.
+   install genuinely cannot do. Nothing local is gated behind Cloud.
 
 ### Module map
 
@@ -1112,7 +1112,7 @@ lead see cross-developer aggregates. The rest of the codebase reaches it only th
 | `src/cloud/org/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
 | `src/cloud/org/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
 
-**The split that makes AL 08 genuinely Pro:** the cloud finds the pattern (some file is read in
+**The split that makes AL 08 genuinely a Cloud feature:** the cloud finds the pattern (some file is read in
 62% of sessions by four of six developers), the machine writes the text (which file, and the
 sentence). `getHotFileSuggestions` already fires at 40% over *one* person's sessions; pooling
 raises it to "four of you do, and none of your instruction files mention it," which no local
@@ -1154,7 +1154,7 @@ is **not** in the payload — the service derives identity from the bearer token
 ### The free/paid boundary (AL 09)
 
 **Free is my machine. Paid is everyone's** — structural, not administrative. A local install
-cannot see other machines, so there is no flag to patch out and no fork that recovers Pro. The
+cannot see other machines, so there is no flag to patch out and no fork that recovers Cloud features. The
 full statement, and the four things the free tier will never do (no feature removed to force an
 upgrade, no quotas, no trial, no free self-hostable team server), lives with the pricing-page
 copy.
@@ -1363,7 +1363,7 @@ traceroost/
 │   │   ├── adviseCli.ts          # `advise --list|--apply`
 │   │   └── repoResolve.ts        # `--repo <name|hash>`; hash resolution is injected from cloud/
 │   ├── cliCloud.ts               # CLI seam to cloud/ (core stub: cliCloud.core.ts)
-│   ├── cloud/                    # Pro (org link + upload) CLI surfaces (BSL, see NOTICE.md)
+│   ├── cloud/                    # Cloud (org link + upload) CLI surfaces (BSL, see NOTICE.md)
 │   │   ├── cliBridge.ts          # Full edition's CliCloud
 │   │   ├── org-cli.ts            # `org link|status|leave|verify`
 │   │   ├── explainPayload.ts     # `--explain-payload`

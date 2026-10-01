@@ -194,7 +194,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
       writer.deleteSynthSession(card.traceId)
       writer.enqueue(card, workspace)
-      // Pro: build a rollup for this session and append it to the forwarding queue. A hard
+      // Cloud: build a rollup for this session and append it to the forwarding queue. A hard
       // no-op unless an org is linked. The actual network send happens later, on a timer.
       //
       // Once reconciliation is available, the content-hash gate (staged feature 10) replaces
@@ -511,7 +511,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 const dk = files[i].agentKey === 'copilot_vscode_json' ? 'copilot_vscode' : files[i].agentKey
                 countByKey.set(dk, (countByKey.get(dk) ?? 0) + 1)
                 written++
-                // Pro: enqueue this session for forwarding. Hard no-op unless an org is
+                // Cloud: enqueue this session for forwarding. Hard no-op unless an org is
                 // linked. Has to happen in this one-time historical load, not only wherever
                 // a live session close triggers it — lr.parseFile() above records this
                 // file's mtime/size into the same LogReader's fileState that a later
@@ -816,7 +816,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // ── Pro: forwarding scheduler ───────────────────────────────────────────────
+  // ── Cloud: forwarding scheduler ───────────────────────────────────────────────
   // No timer runs unless an org is linked; `syncToLinkState` starts/stops it after link/leave.
   forwardScheduler = cloud.startForwardScheduler({
     notify: (message, kind) => {
@@ -833,7 +833,7 @@ export async function activate(context: vscode.ExtensionContext) {
   })
   context.subscriptions.push({ dispose: () => forwardScheduler?.dispose() })
 
-  // ── Pro: pricing sync ────────────────────────────────────────────────────────
+  // ── Cloud: pricing sync ────────────────────────────────────────────────────────
   // Same "no timer unless linked" invariant as the forwarding scheduler above, on its own
   // (longer) interval — see pricingSync.ts for why it isn't just piggybacked on the drain cadence.
   const pricingSync = cloud.startPricingSync({ onSync: () => DashboardPanel.pushOrgStatus() })

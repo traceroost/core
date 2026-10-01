@@ -89,7 +89,7 @@ export function setCredentialStore(store: CredentialStore | undefined): void {
 }
 
 /** Returns the linked-machine credential, or `null` if this machine is not linked. The single
- *  entry point every other module uses to answer "are we Pro?". */
+ *  entry point every other module uses to answer "is this machine linked to Cloud?". */
 export function loadCredentials(): OrgCredentials | null {
   return credentialStore().load()
 }

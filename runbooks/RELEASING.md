@@ -59,7 +59,7 @@ What the `core` release does differently:
    `pnpm run package:core`.
 2. `vsce package` / `npm publish` therefore run `package:core` — type check, lint,
    `node esbuild.js --production --edition=core`, and `scripts/check-edition.mjs core`, which fails
-   the release if any Pro marker is in a bundle or the manifest still lists an Org command.
+   the release if any Cloud marker is in a bundle or the manifest still lists an Org command.
 3. The Docker image is built with `--build-arg EDITION=core` (the Dockerfile's default) and runs the
    same bundle check inside the build.
 
