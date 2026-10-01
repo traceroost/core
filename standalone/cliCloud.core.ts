@@ -1,5 +1,5 @@
 /**
- * The core edition's `CliCloud` (standalone/cliCloud.ts): no TraceRoost Pro code is built in, so
+ * The core edition's `CliCloud` (standalone/cliCloud.ts): no TraceRoost Cloud code is built in, so
  * every cloud subcommand says so and exits 1. Local commands still run in full — they just get no
  * cloud step (a 64-hex cloud repo_hash resolves to nothing; a repo name works as always). Must not
  * import runtime code from any `cloud/` directory.

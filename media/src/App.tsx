@@ -606,7 +606,7 @@ export function App() {
         entries?: ActionLogEntry[]
         snapshot?: PlanUsageSnapshot
       }
-      // Org panel (TraceRoost Pro) messages — see orgPanel.ts; the core edition's stub handles none.
+      // Org panel (TraceRoost Cloud) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
       // Its own message type rather than a field on 'update': it's sent many times a second during
       // a startup log load, and every 'update' also re-runs alert and automation checks.

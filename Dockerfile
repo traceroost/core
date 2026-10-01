@@ -18,7 +18,7 @@ COPY media/mascot.png ./media/
 # path — esbuild needs it on disk even though it's not in any COPYed package.json's dependencies.
 COPY packages/styles/ ./packages/styles/
 
-# core (the default until TraceRoost Pro launches) builds with no org-link/upload code at all, and
+# core (the default until TraceRoost Cloud launches) builds with no org-link/upload code at all, and
 # fails the image build if any reached a bundle; full includes it. See runbooks/RELEASING.md →
 # "Editions". docker.yml passes the release's edition: `--build-arg EDITION=full`.
 ARG EDITION=core

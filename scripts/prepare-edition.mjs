@@ -6,7 +6,7 @@
 //   node scripts/prepare-edition.mjs restore   put the checked-in package.json back
 //   node scripts/prepare-edition.mjs core --out <file>   write the core manifest elsewhere instead
 //
-// The core manifest drops everything that only makes sense with TraceRoost Pro built in:
+// The core manifest drops everything that only makes sense with TraceRoost Cloud built in:
 //   - the Org commands (`traceRoost.org*`) from contributes.commands / menus / activationEvents
 //   - the BSL LICENSE files of the cloud directories from `files` (nothing from them is bundled),
 //     and every cloud directory from the VSIX via an appended .vscodeignore block
@@ -28,7 +28,7 @@ const vscodeignorePath = path.join(root, '.vscodeignore')
 const vscodeignoreBackupPath = path.join(root, '.vscodeignore.edition-backup')
 const CORE_VSCODEIGNORE = `
 # ── Core edition (added by scripts/prepare-edition.mjs core; undone by \`restore\`) ──
-# No TraceRoost Pro code is bundled in this edition, so none of the cloud directories' files ship.
+# No TraceRoost Cloud code is bundled in this edition, so none of the cloud directories' files ship.
 **/cloud/**
 `
 
@@ -51,7 +51,7 @@ export function coreManifest(pkg) {
   }
   if (Array.isArray(c.walkthroughs)) {
     for (const w of c.walkthroughs) {
-      w.steps = (w.steps ?? []).filter(s => !/traceRoost\.org|TraceRoost Cloud|TraceRoost Pro/.test(JSON.stringify(s)))
+      w.steps = (w.steps ?? []).filter(s => !/traceRoost\.org|TraceRoost Cloud/.test(JSON.stringify(s)))
     }
   }
   if (Array.isArray(out.activationEvents)) out.activationEvents = out.activationEvents.filter(e => !/traceRoost\.org/i.test(e))

@@ -34,7 +34,7 @@ import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
-// TraceRoost Pro (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
+// TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud } from '../src/cloudBridge'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
@@ -419,7 +419,7 @@ function runLogScan() {
     card.oneShotStats = computeOneShotStats(card)
     setLogSession(card)
     changed = true
-    // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
+    // Cloud: enqueue this session for forwarding. Hard no-op unless an org is linked.
     //
     // scan() already only returns sessions whose underlying log file actually changed since the
     // last check (see LogReader's fileState), and this whole function is itself only reached on a
@@ -521,7 +521,7 @@ async function startLogIngestion() {
     // change or appear during the pass are still caught — parseFile() records the state it read,
     // so scan() sees anything newer on its first run.
     setInterval(runLogScan, 5_000)
-    // Pro: catch sessions that never got a matching transcript file at all — see the doc
+    // Cloud: catch sessions that never got a matching transcript file at all — see the doc
     // comment on checkStaleOtelSessions for why this needs its own idle-based check rather
     // than firing from the same per-file-change trigger runLogScan uses.
     setInterval(checkStaleOtelSessions, 5_000)
@@ -567,7 +567,7 @@ async function ingestHistoricalLogs(): Promise<void> {
     card.oneShotStats = computeOneShotStats(card)
     setLogSession(card)
     countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + 1)
-    // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked. Needed
+    // Cloud: enqueue this session for forwarding. Hard no-op unless an org is linked. Needed
     // here, not just in runLogScan() — this loop's own file reads update the same LogReader's
     // fileState that scan() checks, so a historical file read here first is invisible to
     // scan() as "new" forever after (see the note above the main loop below).
@@ -602,7 +602,7 @@ async function ingestHistoricalLogs(): Promise<void> {
         result.card.oneShotStats = computeOneShotStats(result.card)
         setLogSession(result.card)
         countByKey.set(file.agentKey, (countByKey.get(file.agentKey) ?? 0) + 1)
-        // Pro: enqueue this session for forwarding. Hard no-op unless an org is linked.
+        // Cloud: enqueue this session for forwarding. Hard no-op unless an org is linked.
         //
         // This has to happen here, not only in runLogScan(): this loop calls
         // logReader.parseFile() directly on every discovered file to build the dashboard's
@@ -2410,7 +2410,7 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
-  // ── Org (TraceRoost Pro) — AL 01 ──────────────────────────────────────────
+  // ── Org (TraceRoost Cloud) — AL 01 ──────────────────────────────────────────
   // GET returns the local status (no network). POST runs an action (link/leave/explain).
   // Both reply with an array of webview messages the polyfill re-dispatches.
   // Not served at all in the core edition (literal edition check, so esbuild drops the handler).
@@ -2805,10 +2805,10 @@ async function startUiServer(): Promise<void> {
   // Start log ingestion after the server is ready
   startLogIngestion()
 
-  // Pro: forwarding scheduler. No timer runs unless an org is linked.
+  // Cloud: forwarding scheduler. No timer runs unless an org is linked.
   cloud.startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients })
 
-  // Pro: pricing sync — own (longer) interval, see pricingSync.ts.
+  // Cloud: pricing sync — own (longer) interval, see pricingSync.ts.
   cloud.startPricingSync({ onSync: pushOrgStatusToClients })
 }
 

@@ -3,7 +3,7 @@
 // (use the @latest tag — a bare `npx traceroost` re-runs npx's cached copy without checking npm for a newer release)
 // `traceroost service <install|uninstall|start|stop|restart|status|logs>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
-// `traceroost org <link|status|leave> [--device]` links this machine to an org (Pro, AL 01) —
+// `traceroost org <link|status|leave> [--device]` links this machine to an org (Cloud, AL 01) —
 // full edition only; the core edition prints "not available" and exits 1 (see cliCloud.ts).
 // `traceroost find <repo hash | trace/session id>` resolves a cloud dashboard hash-handoff
 // locally (traces-table.tsx's HashHandoff) and prints what it finds, ending with a `vscode://`
@@ -13,26 +13,26 @@
 // silently starting the server. `--help`/`-h` prints the usage. No arguments (or other flags
 // only) starts the server.
 
-// TraceRoost Pro (org link + upload) subcommands and the cloud step of local ones come only
+// TraceRoost Cloud (org link + upload) subcommands and the cloud step of local ones come only
 // through this seam — see cliCloud.ts. The core edition's build swaps in inert stubs. Loaded
 // lazily, like every subcommand, so plain `traceroost` doesn't initialize the cloud CLI modules.
 const loadCloud = async () => (await import('./cliCloud.js')).cliCloud
 
 // A literal `process.env.TRACEROOST_EDITION` check (esbuild.js defines it), so the core build's
 // usage text doesn't advertise commands it can't run.
-const PRO = process.env.TRACEROOST_EDITION !== 'core'
+const CLOUD = process.env.TRACEROOST_EDITION !== 'core'
 
 const USAGE = [
   'Usage:',
   '  traceroost                                   start the server (UI, OTLP receiver, MCP)',
-  PRO && '  traceroost --explain-payload [--last|--all|--session <id>|--since <date>] [--dry-run]',
+  CLOUD && '  traceroost --explain-payload [--last|--all|--session <id>|--since <date>] [--dry-run]',
   '  traceroost service <install|uninstall|start|stop|restart|status|logs|update>',
-  PRO && '  traceroost org <link|status|leave> [--device]',
+  CLOUD && '  traceroost org <link|status|leave> [--device]',
   '  traceroost find <repo hash | trace/session id> [--reporter <email>]',
   '  traceroost trace --id <sessionId>',
   '  traceroost patterns --repo <hash|name>',
   '  traceroost advise <--list|--apply <id>> [--repo <path>]',
-  PRO && '  traceroost cluster --repo <hash> --id <id>',
+  CLOUD && '  traceroost cluster --repo <hash> --id <id>',
   '  traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]',
 ].filter(Boolean).join('\n')
 

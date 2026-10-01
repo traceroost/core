@@ -1,7 +1,7 @@
 /**
  * Bridges local instruction-advisor state to the AL 08 wire records and the forwarding queue.
  *
- * The split that makes this Pro: the cloud finds the pattern (some file is read in 62% of
+ * The split that makes this a Cloud feature: the cloud finds the pattern (some file is read in 62% of
  * sessions by four of six developers), the machine writes the text (which file, and the
  * sentence). Neither half can do the other's job. `suggestedText`, `evidence` and `title` never
  * leave this machine — only `suggestion_id` (hashed), the enums, and the numeric baseline.

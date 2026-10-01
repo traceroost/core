@@ -1,5 +1,5 @@
 /**
- * The core edition's `CloudBridge` (src/cloudBridge.ts): TraceRoost with no Pro code built in.
+ * The core edition's `CloudBridge` (src/cloudBridge.ts): TraceRoost with no Cloud code built in.
  *
  * `node esbuild.js --edition=core` resolves `src/cloud/bridge.ts` to this file, so nothing under
  * `src/cloud/` is bundled. Everything here is inert — never linked, nothing queued, nothing sent,

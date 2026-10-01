@@ -13,7 +13,7 @@ automated — there's no cron job or CI check that triggers them.
 | --- | --- | --- |
 | Refresh model pricing | A vendor changes rates, adds/retires a model, or you notice cost estimates look off | [`PRICING_SOURCES.md`](../PRICING_SOURCES.md) |
 | Cut a release | Someone asks for a release (e.g. "release these changes as X.Y.Z") | [`RELEASING.md`](RELEASING.md) |
-| Switch releases from the core to the full edition | TraceRoost Pro launches (releases are core — no org-link/upload code — until then) | [`RELEASING.md` → Editions](RELEASING.md#editions) |
+| Switch releases from the core to the full edition | TraceRoost Cloud launches (releases are core — no org-link/upload code — until then) | [`RELEASING.md` → Editions](RELEASING.md#editions) |
 | Calibrate loop/malfunction signals | The session corpus has grown since the last pass, or a signal's fire rate looks suspicious (fires on nearly everything, or never fires) | [`SIGNAL_CALIBRATION.md`](SIGNAL_CALIBRATION.md) |
 | Validate Windows manually | Before a release, or after touching path handling, git subprocess calls, or local storage — CI's `windows-latest` leg catches build/test breakage but never actually opens VS Code | [`WINDOWS_VALIDATION.md`](WINDOWS_VALIDATION.md) |
 

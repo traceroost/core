@@ -8,7 +8,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
 
 | Doc | Covers |
 | --- | --- |
-| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-pro--org-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
+| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-cloud--org-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
 | [`src/cloud/README.md`](src/cloud/README.md) | Why this code lives in one directory, and under a different license |
 | [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
 | [`schema/rollup.v1.json`](schema/rollup.v1.json) | The exact wire contract |
@@ -20,7 +20,7 @@ already exist rather than repeating them, and adds the diagrams none of them hav
    code to travel in even if a bug tried to send it.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my* machine, *my*
    commits, *my* repositories is free and complete. Paid is cross-developer aggregation — the one
-   thing a local install genuinely cannot do itself. Nothing local is gated behind Pro.
+   thing a local install genuinely cannot do itself. Nothing local is gated behind Cloud.
 
 ## The client owns the contract
 
@@ -43,7 +43,7 @@ graph TB
         LOCAL[("Local SQLite<br/>sessions, spans, attribution, turnover")]
     end
 
-    subgraph Service["TraceRoost Pro service (hosted)"]
+    subgraph Service["TraceRoost Cloud service (hosted)"]
         OAUTH["OAuth / PKCE authorization server"]
         INGEST["POST /api/ingest (+ /batch)<br/>validates against schema/rollup.v1.json"]
         STORE[("Rollup storage")]
@@ -103,14 +103,14 @@ the denominator rather than guessed at.
 
 ## What ships where
 
-The Pro rows below ship in the **full** edition only. The **core** edition (`node esbuild.js
---edition=core` — what releases are until Pro launches; see runbooks/RELEASING.md → Editions)
+The Cloud rows below ship in the **full** edition only. The **core** edition (`node esbuild.js
+--edition=core` — what releases are until Cloud launches; see runbooks/RELEASING.md → Editions)
 contains none of it: the rest of the codebase reaches this feature set only through three seams —
 `src/cloudBridge.ts`, `media/src/orgPanel.ts`, `standalone/cliCloud.ts` — whose core stubs are
 inert (never linked, nothing queued or sent, Org panel renders nothing, `org` /
 `--explain-payload` / `cluster` print "not available in the TraceRoost core edition" and exit 1).
 The core build refuses to bundle any module under a `cloud/` directory, and
-`scripts/check-edition.mjs` greps the shipped bundles for Pro markers afterwards. The free rows
+`scripts/check-edition.mjs` greps the shipped bundles for Cloud markers afterwards. The free rows
 (marked *free*) work identically in both editions, except that a cloud `repo_hash` only resolves in
 full.
 
@@ -122,7 +122,7 @@ full.
 | CLI | `traceroost org <link\|status\|leave> [--device]` | `standalone/cloud/org-cli.ts`, dispatched through `standalone/cliCloud.ts` → `standalone/cloud/cliBridge.ts` |
 | CLI | `traceroost --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` (same seam) |
 | CLI (free) | `traceroost advise <--list\|--apply <id>>` | `standalone/local/adviseCli.ts` — regenerates instruction text with real paths and appends it. The cloud step (suggestion ledger + a `SuggestionEvent` when linked) is `standalone/cloud/adviseTelemetry.ts`, passed in by `cli.ts` through `standalone/cliCloud.ts` (absent in core) |
-| CLI (Pro) | `traceroost cluster --repo <hash> --id <id>` | `standalone/cloud/clusterCli.ts` — resolves a Repeat work cluster via `GET /api/clusters/resolve`, matched against local sessions |
+| CLI (Cloud) | `traceroost cluster --repo <hash> --id <id>` | `standalone/cloud/clusterCli.ts` — resolves a Repeat work cluster via `GET /api/clusters/resolve`, matched against local sessions |
 | CLI (free) | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/local/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo. A 64-hex `repo_hash` resolves through `src/cloud/org/resolveRepoHash.ts`, injected by `cli.ts` through `standalone/cliCloud.ts` (`standalone/local/repoResolve.ts`; absent in core); a repo name needs nothing from `cloud/` |
 | CLI (free) | `traceroost find <hash>` | `standalone/local/findCli.ts` — classifies a hash as a session/trace or a repo and dispatches to `traceCli.ts` (`--id`) or `patternsCli.ts` accordingly; both share `sessionLoader.ts`, all under `standalone/local/`. Repo-hash resolution is injected the same way as `cohort` |
 | Standalone HTTP | `GET/POST /api/org` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview (via `src/cloudBridge.ts`; the route doesn't exist in core) |

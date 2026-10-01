@@ -1,5 +1,5 @@
 /**
- * The CLI's one seam to TraceRoost Pro (org link + upload) — the `standalone/cli.ts` counterpart
+ * The CLI's one seam to TraceRoost Cloud (org link + upload) — the `standalone/cli.ts` counterpart
  * of src/cloudBridge.ts. cli.ts dispatches cloud subcommands, and passes the cloud step of a local
  * command, only through `cliCloud` here; `standalone/local/**` never imports a cloud module.
  *

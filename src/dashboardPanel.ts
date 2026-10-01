@@ -13,7 +13,7 @@ import { ReconciliationService, type ReconcileInput, type ReconcileResult } from
 import { detectSessionRiskSignals } from './sessionRiskSignals'
 import { temperLoopSignalSeverity } from './loopDetector'
 import { resolveGithubUrl } from './repoRemote'
-// TraceRoost Pro (org panel, upload) — only ever through this seam; see cloudBridge.ts.
+// TraceRoost Cloud (org panel, upload) — only ever through this seam; see cloudBridge.ts.
 import { cloud, type OrgPanelDeps, type SuggestionLedger } from './cloudBridge'
 import { getNonce, safeJsonForScript } from './webviewHtml'
 import { WebviewSessionSync } from './webviewSessionSync'

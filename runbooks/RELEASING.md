@@ -38,10 +38,10 @@ Until npm's trusted publisher and the Docker Hub repo exist, do the `main` commi
 
 ## Editions
 
-Every release ships one edition — **core** (no TraceRoost Pro / org-link / upload code at all) or
+Every release ships one edition — **core** (no TraceRoost Cloud / org-link / upload code at all) or
 **full** (with it). See CONTRIBUTING.md → Editions for how the split works in the source.
 
-**Currently: `core`.** Until TraceRoost Pro launches, the VSIX, the npm package and the Docker
+**Currently: `core`.** Until TraceRoost Cloud launches, the VSIX, the npm package and the Docker
 image are all built with `--edition=core`.
 
 How a release picks its edition (`release.yml` and `docker.yml`, identical rule):
@@ -59,7 +59,7 @@ What the `core` release does differently:
    `pnpm run package:core`.
 2. `vsce package` / `npm publish` therefore run `package:core` — type check, lint,
    `node esbuild.js --production --edition=core`, and `scripts/check-edition.mjs core`, which fails
-   the release if any Pro marker is in a bundle or the manifest still lists an Org command.
+   the release if any Cloud marker is in a bundle or the manifest still lists an Org command.
 3. The Docker image is built with `--build-arg EDITION=core` (the Dockerfile's default) and runs the
    same bundle check inside the build.
 

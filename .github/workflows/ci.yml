@@ -49,7 +49,7 @@ jobs:
       - name: Build production bundle
         run: pnpm run package
 
-      # The full build must still carry every Pro marker the core check looks for — otherwise a
+      # The full build must still carry every Cloud marker the core check looks for — otherwise a
       # stale marker list would let the core-edition job below pass on anything.
       - name: Check edition markers (full)
         run: node scripts/check-edition.mjs full
@@ -67,7 +67,7 @@ jobs:
           path: test-results/ux/
           retention-days: 14
 
-  # The core edition (no TraceRoost Pro — org link + upload — code at all) is built from the same
+  # The core edition (no TraceRoost Cloud — org link + upload — code at all) is built from the same
   # sources with `--edition=core`; see runbooks/RELEASING.md → "Editions". This job proves no cloud
   # code reaches the core bundles or the core-prepared package, and that the core CLI still runs.
   # Unit tests run against the TypeScript sources (both editions share them), so the tests for the
@@ -95,7 +95,7 @@ jobs:
       - name: Build core edition (production)
         run: node esbuild.js --production --edition=core
 
-      - name: Check core bundles and core manifest carry no Pro code
+      - name: Check core bundles and core manifest carry no Cloud code
         run: |
           node scripts/prepare-edition.mjs core --out "$RUNNER_TEMP/package.core.json"
           node scripts/check-edition.mjs core --package "$RUNNER_TEMP/package.core.json"

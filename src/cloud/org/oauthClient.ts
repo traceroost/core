@@ -1,5 +1,5 @@
 /**
- * HTTP client for the TraceRoost Pro OAuth + roster endpoints (AL 01).
+ * HTTP client for the TraceRoost Cloud OAuth + roster endpoints (AL 01).
  *
  * Every function here is only ever reached from an explicit user action (`org link`, a token
  * refresh inside AL 04's sender, `org leave`) or from the linked Org panel refreshing itself.

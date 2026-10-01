@@ -570,9 +570,9 @@ TraceRoost is built in two editions from the same source:
 
 - **core** — everything in this README: the dashboard, log/OTEL ingestion, the MCP server, the
   Advisor, and the local CLI analysis (`find`, `trace`, `patterns`, `cohort`, `advise`). It
-  contains **no** TraceRoost Pro (org link + upload) code at all — not disabled, not built in.
-  Released builds (VSIX, npm, Docker) are core until TraceRoost Pro launches.
-- **full** — core plus TraceRoost Pro: the Org panel, `traceroost org` / `--explain-payload` /
+  contains **no** TraceRoost Cloud (org link + upload) code at all — not disabled, not built in.
+  Released builds (VSIX, npm, Docker) are core until TraceRoost Cloud launches.
+- **full** — core plus TraceRoost Cloud: the Org panel, `traceroost org` / `--explain-payload` /
   `cluster`, and forwarding hashed rollups to a linked org (see
   [CLOUD_ARCHITECTURE.md](CLOUD_ARCHITECTURE.md)). A from-source `pnpm run local` or `F5` builds
   this edition.

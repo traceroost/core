@@ -1,5 +1,5 @@
 /**
- * `traceroost cluster --repo <hash> --id <id>` (AL 08) — Pro only: asks the linked org's service
+ * `traceroost cluster --repo <hash> --id <id>` (AL 08) — Cloud only: asks the linked org's service
  * which sessions make up a Repeat work cluster, then matches them against this machine's
  * recorded sessions.
  */

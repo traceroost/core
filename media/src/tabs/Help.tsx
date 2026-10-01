@@ -62,7 +62,7 @@ const HELP_SECTIONS = {
   glossary:   { href: '#help-glossary',   heading: 'Glossary' },
 } as const
 
-// The core edition (no TraceRoost Pro built in — see media/src/orgPanel.ts) leaves out the Cloud and
+// The core edition (no TraceRoost Cloud built in — see media/src/orgPanel.ts) leaves out the Cloud and
 // Privacy sections, which only describe linking and what a linked machine sends. A literal
 // `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) so the core bundle drops them.
 const TOC_SECTIONS = Object.values(HELP_SECTIONS).filter(s =>
