@@ -4,7 +4,7 @@
  * traceroost.db and the standalone server's outcomes-cache.db can back it.
  */
 
-import type { LimitHit, LimitProvider, LimitReading, LimitReadingSource, LimitWindowKind } from './limitReadings'
+import type { LimitHit, LimitProvider, LimitReading, LimitReadingSource, LimitWindowKind, PlanStatus } from './limitReadings'
 
 interface WriteableDb {
   exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>
@@ -58,6 +58,48 @@ export class LimitRepository {
         [h.provider, h.sessionId, h.windowKind, h.hitAt, h.resetsAt ?? null],
       )
     }
+  }
+
+  /** Keeps the newest status per provider: an older observation (a re-parsed old rollout) never
+   *  replaces a newer one. */
+  upsertPlanStatus(st: PlanStatus): void {
+    const bool = (b: boolean | undefined) => (b === undefined ? null : b ? 1 : 0)
+    this.db.run(
+      `INSERT INTO limit_plan_status
+         (provider, plan_type, observed_at, no_windows, has_credits, unlimited_credits, credit_balance, limit_reached, session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (provider) DO UPDATE SET
+         plan_type = excluded.plan_type, observed_at = excluded.observed_at, no_windows = excluded.no_windows,
+         has_credits = excluded.has_credits, unlimited_credits = excluded.unlimited_credits,
+         credit_balance = excluded.credit_balance, limit_reached = excluded.limit_reached, session_id = excluded.session_id
+       WHERE excluded.observed_at >= limit_plan_status.observed_at`,
+      [st.provider, st.planType ?? null, st.observedAt, st.noWindows ? 1 : 0, bool(st.hasCredits), bool(st.unlimitedCredits),
+        st.creditBalance ?? null, st.limitReached ? 1 : 0, st.sessionId ?? null],
+    )
+  }
+
+  /** Statuses observed at or after `sinceMs`. */
+  planStatuses(sinceMs: number): PlanStatus[] {
+    const rows = this.db.exec(
+      `SELECT provider, plan_type, observed_at, no_windows, has_credits, unlimited_credits, credit_balance, limit_reached, session_id
+       FROM limit_plan_status WHERE observed_at >= ${Math.floor(sinceMs)} ORDER BY provider ASC`,
+    )
+    const optBool = (v: unknown) => (v === null || v === undefined ? undefined : Number(v) === 1)
+    return (rows[0]?.values ?? []).map(v => {
+      const hasCredits = optBool(v[4])
+      const unlimitedCredits = optBool(v[5])
+      return {
+        provider: v[0] as LimitProvider,
+        ...(typeof v[1] === 'string' ? { planType: v[1] } : {}),
+        observedAt: Number(v[2]),
+        noWindows: Number(v[3]) === 1,
+        ...(hasCredits !== undefined ? { hasCredits } : {}),
+        ...(unlimitedCredits !== undefined ? { unlimitedCredits } : {}),
+        ...(typeof v[6] === 'string' ? { creditBalance: v[6] } : {}),
+        limitReached: Number(v[7]) === 1,
+        ...(typeof v[8] === 'string' ? { sessionId: v[8] } : {}),
+      }
+    })
   }
 
   /** Readings observed at or after `sinceMs`, oldest first. */
@@ -132,6 +174,7 @@ export class LimitRepository {
     const rollupCutoff = now - Math.max(retentionDays, ROLLUP_RETENTION_DAYS) * 86_400_000
     this.db.run('DELETE FROM limit_readings WHERE observed_at < ?', [cutoff])
     this.db.run('DELETE FROM limit_hits WHERE hit_at < ?', [cutoff])
+    this.db.run('DELETE FROM limit_plan_status WHERE observed_at < ?', [cutoff])
     this.db.run('DELETE FROM limit_window_rollups WHERE window_end < ?', [rollupCutoff])
   }
 }

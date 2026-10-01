@@ -117,6 +117,52 @@ suite('CodexLimitCollector', () => {
     c.add(tokenCountPayload(rateLimits(40, 100, { rate_limit_reached_type: 'something_new' })), '2026-09-18T10:00:00Z')
     assert.deepStrictEqual(c.hitsOut().map(h => h.windowKind), ['weekly'])
   })
+
+  // The real shape from a ChatGPT Business account (Codex 0.155.0-alpha, 2026-10-01): no windows,
+  // metered in credits.
+  const business = (extra: Record<string, unknown> = {}) => ({
+    limit_id: 'codex', limit_name: null, primary: null, secondary: null,
+    credits: { has_credits: true, unlimited: false, balance: null },
+    individual_limit: null, spend_control_reached: null, plan_type: 'business', rate_limit_reached_type: null,
+    ...extra,
+  })
+
+  test('a plan with no windows yields no readings, but a status saying so', () => {
+    const c = new CodexLimitCollector('s1')
+    c.add(tokenCountPayload(business()), '2026-10-01T13:30:00Z')
+    c.add(tokenCountPayload(business()), '2026-10-01T13:35:00Z')
+    assert.deepStrictEqual(c.readingsOut(), [])
+    assert.deepStrictEqual(c.hitsOut(), [])
+    assert.deepStrictEqual(c.statusOut(), {
+      provider: 'codex', planType: 'business', observedAt: Date.parse('2026-10-01T13:35:00Z'), sessionId: 's1',
+      noWindows: true, hasCredits: true, unlimitedCredits: false, limitReached: false,
+    })
+  })
+
+  test('a spend cap, or a limit with no window, marks the status as reached', () => {
+    const capped = new CodexLimitCollector('s1')
+    capped.add(tokenCountPayload(business({ spend_control_reached: true })), '2026-10-01T13:30:00Z')
+    assert.strictEqual(capped.statusOut()?.limitReached, true)
+    const reached = new CodexLimitCollector('s1')
+    reached.add(tokenCountPayload(business({ rate_limit_reached_type: 'credits' })), '2026-10-01T13:30:00Z')
+    assert.strictEqual(reached.statusOut()?.limitReached, true)
+    assert.deepStrictEqual(reached.hitsOut(), [])
+  })
+
+  test('a credit balance is kept only when it is a plain number', () => {
+    const c = new CodexLimitCollector('s1')
+    c.add(tokenCountPayload(business({ credits: { has_credits: true, unlimited: false, balance: '12.50' } })), '2026-10-01T13:30:00Z')
+    assert.strictEqual(c.statusOut()?.creditBalance, '12.50')
+    c.add(tokenCountPayload(business({ credits: { has_credits: true, unlimited: false, balance: 'see admin' } })), '2026-10-01T13:31:00Z')
+    assert.strictEqual(c.statusOut()?.creditBalance, undefined)
+  })
+
+  test('a plan with windows still reports a status, with noWindows false', () => {
+    const c = new CodexLimitCollector('s1')
+    c.add(tokenCountPayload(rateLimits(10, 20)), '2026-09-18T10:00:00Z')
+    assert.strictEqual(c.statusOut()?.noWindows, false)
+    assert.strictEqual(c.statusOut()?.creditBalance, '0')
+  })
 })
 
 suite('LogReader — Codex plan-limit readings', () => {

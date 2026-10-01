@@ -11,8 +11,8 @@ import { appliedSuggestions } from './Instructions'
 import {
   planUsage, limitUsedLabel,
   PROVIDER_LABEL, PROVIDER_SOURCE, WINDOW_LABEL, chart1Views, chart2Rollups, defaultChart1View, fiveHourHits,
-  fiveHourLines, fmtPct, isPrimaryWindow, planLabel,
-  type Chart1View, type LimitHit, type LimitProvider, type LimitSeries, type PlanMeter, type PlanUsageSnapshot,
+  fiveHourLines, fmtPct, isPrimaryWindow, planLabel, windowlessPlans,
+  type Chart1View, type LimitHit, type LimitProvider, type LimitSeries, type PlanMeter, type PlanStatus, type PlanUsageSnapshot,
   type SeriesPoint, type WindowRollup,
 } from '../planUsage'
 
@@ -115,6 +115,33 @@ function MeterCard({ meter, now }: { meter: PlanMeter; now: number }) {
             : 'Updates on your next Codex turn.'}
         </div>
       )}
+    </div>
+  )
+}
+
+/** A plan that reports no 5-hour or weekly window (e.g. ChatGPT Business, metered in credits):
+ *  says so, rather than leaving the section looking broken. Red when a spend cap was reached. */
+function PlanStatusCard({ status, now }: { status: PlanStatus; now: number }) {
+  const credit = status.unlimitedCredits ? 'Unlimited credits'
+    : status.creditBalance !== undefined ? `Credit balance: ${status.creditBalance}`
+    : status.hasCredits ? 'Usage is billed in credits' : undefined
+  return (
+    <div class="card" style={`flex:1;min-width:240px;padding:10px 12px;${status.limitReached ? `border-color:${CRITICAL}` : ''}`}>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px">
+        <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${colorOf(status.provider)}`} />
+        <strong>{PROVIDER_LABEL[status.provider]}</strong>
+        {status.planType && <span style="color:var(--muted)">{planLabel(status.planType)}</span>}
+        <span style="flex:1" />
+        <span style="font-size:10px;color:var(--muted)" title="From the latest Codex turn">as of {fmtAge(status.observedAt, now)}</span>
+      </div>
+      {status.limitReached && (
+        <div style={`font-size:11px;font-weight:600;color:${CRITICAL};margin-bottom:4px`}>Spend limit reached</div>
+      )}
+      <div style="font-size:11px;color:var(--muted);line-height:1.5">
+        {PROVIDER_LABEL[status.provider]} reports no 5-hour or weekly window for this plan, so there's no meter to show.
+        {' '}Its usage still appears as cost and tokens across the dashboard.
+      </div>
+      {credit && <div style="font-size:11px;margin-top:4px">{credit}</div>}
     </div>
   )
 }
@@ -421,6 +448,7 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
   const [pref, setPref] = useState<Chart1View | null>(readViewPref)
   const view = pref && views.includes(pref) ? pref : defaultChart1View(snapshot)
   const rollups = chart2Rollups(snapshot)
+  const windowless = windowlessPlans(snapshot)
   const choose = (v: Chart1View) => {
     setPref(v)
     try { localStorage.setItem(VIEW_KEY, v) } catch { /* per-viewer convenience only */ }
@@ -431,9 +459,10 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
 
   return (
     <>
-      {snapshot.meters.length > 0 && (
+      {(snapshot.meters.length > 0 || windowless.length > 0) && (
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
           {snapshot.meters.map(m => <MeterCard key={m.provider} meter={m} now={now} />)}
+          {windowless.map(st => <PlanStatusCard key={st.provider} status={st} now={now} />)}
         </div>
       )}
 

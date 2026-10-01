@@ -140,6 +140,21 @@ CREATE TABLE IF NOT EXISTS limit_hits (
   PRIMARY KEY (provider, session_id, window_kind, hit_at)
 );
 
+-- The latest plan status per provider (plan type, credit state, spend cap), for plans that report
+-- no 5-hour or weekly window -- e.g. a ChatGPT Business Codex account, metered in credits. One row
+-- per provider, replaced by newer observations. Follows trace retention.
+CREATE TABLE IF NOT EXISTS limit_plan_status (
+  provider          TEXT    PRIMARY KEY,
+  plan_type         TEXT,
+  observed_at       INTEGER NOT NULL,
+  no_windows        INTEGER NOT NULL,
+  has_credits       INTEGER,
+  unlimited_credits INTEGER,
+  credit_balance    TEXT,
+  limit_reached     INTEGER NOT NULL DEFAULT 0,
+  session_id        TEXT
+);
+
 -- One row per completed plan window, written when its reset is detected: the peak it reached and
 -- whether a limit was hit. Kept 12 months regardless of trace retention -- it's what the
 -- week-over-week chart reads once the raw readings have aged out.
