@@ -21,6 +21,8 @@ TraceRoost also loaded trace history from local log files each agent writes auto
 | **Claude Code** | `~/.claude/projects/` — conversation history, token counts, tool calls |
 | **Copilot CLI** | `~/.copilot/session-state/` — sessions, token counts, prompts |
 | **Codex CLI** | `~/.codex/sessions/` — sessions and token counts |
+| **Copilot Chat** | each VS Code-family IDE's `workspaceStorage/…/chatSessions/` — prompts, model, output tokens |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` — sessions, token counts, tool calls, file paths, user prompts. No OTEL config needed. |
+| **Cursor CLI** | `~/.cursor/projects/…/agent-transcripts/` — prompts and tool calls (Cursor records no token counts). No OTEL config needed. |
 
-Traces from log files show a **Log** badge. When OTEL data arrives for the same trace, the badge automatically upgrades to **OTEL** and the richer data replaces the log entry.
+Traces from log files show a **Log** badge. When TraceRoost can match a log trace to OTEL data for the same trace (always for Claude Code), the OTEL entry wins and replaces it.

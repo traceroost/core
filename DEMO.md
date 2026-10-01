@@ -33,10 +33,10 @@ pnpm run demo -- --scenario story                # 10-trace petstore build-out (
 
 **Scenarios** (each runs once per requested agent, except `compaction`):
 
-- `normal` — clean multi-turn task. Populates the Tokens, Files, Timeline, and Efficiency tabs.
+- `normal` — clean multi-turn task. Populates a trace's Overview, Waterfall, Flow, Tools and Files sub-tabs, plus Analytics.
 - `loop` — the same failing command repeated several times. Triggers the Loop Breaker automation and the "Tool Call Deadlock" / "Hallucination Amplification Loop" signals.
-- `errors` — a type error followed by a fix. Populates the Errors and Recommendations tabs.
-- `compaction` — input tokens grow ~4x per turn (Claude only). Triggers the Context Compaction signal.
+- `errors` — a type error followed by a fix. Populates the error counts and Insights in a trace's Overview sub-tab.
+- `compaction` — input tokens grow ~4x per turn (Claude only). Triggers the Context Compaction automation.
 - `all` — every scenario above, in sequence.
 - `story` — a fixed 10-chapter narrative building out the same petstore app from scratch: scaffold → data model → inventory service → checkout discount → image upload → search + caching → e2e tests → a Docker build stuck in a loop → a type error and its fix → a TODO sweep that triggers context compaction. Every chapter has a claude/codex/copilot variant and touches a distinct, realistic set of files (not just `cart.ts`/`discounts.ts`), so the Files tab reads like one real app taking shape. Runs **10 traces per requested agent** — unfiltered (default, all three agents) that's 30 traces; `--agents codex` narrows it to the 10 Codex-told chapters, not fewer.
 
@@ -80,7 +80,7 @@ pnpm run demo:gif -- --no-outcomes      # skip the scratch git repo (no Outcome 
 
 To stay within the size budget, the encoder drops near-duplicate frames (the tour spends most of its time paused on a view). The remaining frames are held longer, so the timing doesn't change. If the result is over budget, it retries with a looser duplicate threshold, and it fails without uploading if the last step is still too large.
 
-By default the replay also seeds a scratch git repo (`demo/replay.ts --demo-repo`) — some story files merged into `main`, some only committed on a feature branch, some left uncommitted — and backdates the sessions past the dashboard's 2-minute active-session grace window, so the Traces table's Out column and Analytics' Outcome vs. Tokens chart show real merged / committed / uncommitted verdicts for the Claude and Codex sessions. (Copilot's OTEL spans carry no workspace, so its rows stay unclassified.)
+By default the replay also seeds a scratch git repo (`demo/replay.ts --demo-repo`) — some story files merged into `main`, some only committed on a feature branch, some left uncommitted — and backdates the sessions past the dashboard's 2-minute active-session grace window, so the Traces table's Out column and Analytics' Outcome & Token Spend chart show real merged / committed / uncommitted verdicts for the Claude and Codex sessions. (Copilot's OTEL spans carry no workspace, so its rows stay unclassified.)
 
 Requires `npx playwright install chromium` (once) and `ffmpeg` on `PATH` (`brew install ffmpeg` / `apt install ffmpeg`) — the conversion from the recorded video to an optimized, palette-based GIF shells out to it in two passes. See `demo/capture-gif.ts`'s header comment for why it's built this way (two independent layers keep it from ever touching the real machine's agent config, not just one).
 
@@ -111,9 +111,9 @@ node scripts/redact-spans.js
 pnpm run demo -- --file /path/to/export_redacted_claude_main_20260522_152343.json
 ```
 
-Replays a trace summary export (see the dashboard's **Export** tab). Only works with **redacted JSON** exports — full-fidelity or CSV/Markdown exports aren't supported as replay input.
+Accepts three kinds of JSON file: a trace summary export from the dashboard's **Export** tab (full or redacted), a raw span file from the `TraceRoost: Export OTEL Data` command (like the example above), or a capture fixture. CSV and Markdown exports aren't supported as replay input. Without `--speed`, a file is sent all at once rather than paced.
 
-> Trace summary exports (redacted or not) can't currently reconstruct full per-turn timelines for replay — they carry the trace's aggregate/summary fields, not raw OTEL span data, which TraceRoost doesn't persist to disk. This is tracked as a planned enhancement.
+> A trace summary export can't reconstruct the original per-turn timeline — it carries the trace's aggregate fields, not raw OTEL spans — so each trace is replayed as approximate synthetic spans. Use a raw span export or a capture fixture when the timeline matters.
 
 ## Generating and validating fixtures for tests
 

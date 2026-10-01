@@ -231,8 +231,8 @@ function OverviewSection() {
       </div>
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
-        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, with no data leaving your machine. Docker is the least capable option: it receives OTEL only — no local log files, no agent auto-configuration, no git outcomes — so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
-        <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects sixteen signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt — see <a href="#help-signals">Signals</a> below for the full catalog.</p>
+        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, with no data leaving your machine. Docker is the least capable option: it receives OTEL only — no local log files, no agent auto-configuration, no git outcomes — so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database and Cursor CLI's transcript files — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
+        <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects seventeen signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt — see <a href="#help-signals">Signals</a> below for the full catalog.</p>
       </div>
     </div>
   )
@@ -407,7 +407,7 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
         it's doing) and then continues. On macOS this registers a <code style={codeStyle}>launchd</code> LaunchAgent,
         on Linux a <code style={codeStyle}>systemd --user</code> unit, and on Windows a Scheduled Task —
         all per-user, no admin/root privileges needed. Once installed, it starts automatically at login
-        (and immediately on install) and restarts itself if it crashes.
+        (and immediately on install); on macOS and Linux it also restarts itself if it crashes.
       </p>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
         <code style={codeStyle}>traceroost service status</code> checks whether it's running,{' '}
@@ -459,7 +459,7 @@ function AgentOtelSection() {
             </div>
           ))}
         </div>
-        <p style="margin-top:14px;font-size:12px;color:var(--muted)">The practical effect: Traces and Timeline stay closest to the raw OTEL structure, while Efficiency, Insights, Alerts, Automation, Agents, and Flow all use the normalized trace model so the three agents can be compared side by side.</p>
+        <p style="margin-top:14px;font-size:12px;color:var(--muted)">The practical effect: a trace's Waterfall sub-tab stays closest to the raw OTEL structure, while Insights, Signals, Flow, Analytics, the Advisor, Alerts, and Automation all use the normalized trace model so the agents can be compared side by side.</p>
         <h4 style={subHeadStyle}>Log-only agents (no OTEL)</h4>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:6px">
@@ -467,7 +467,15 @@ function AgentOtelSection() {
             <dd class="glossary-def" style="display:block">
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>Local SQLite database at <code style={codeStyle}>~/.local/share/opencode/opencode.db</code> (Linux/Mac) or <code style={codeStyle}>%APPDATA%\opencode\opencode.db</code> (Windows). No OTEL support. TraceRoost reads the database directly using WASM SQLite, merging the WAL file at read time. Override the path with the <code style={codeStyle}>OPENCODE_DATA_DIR</code> environment variable.</p>
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Session ID, workspace directory, model name, timestamps, all token counts (input, output, cache read/write), user request (last user message in the trace), tool call names and inputs/outputs, file paths accessed by tools, and a full per-turn timeline of LLM calls and tool calls.</p>
-              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>OTEL traces, time-to-first-token, per-tool execution timing, streaming speed, and loop detection signals. Traces show a <strong>Log</strong> badge and a blue info banner in the Overview tab noting these limitations.</p>
+              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>OTEL traces, time-to-first-token, per-tool execution timing, and streaming speed. Because the database records per-tool error status, most <a href="#help-signals">signals</a> still fire from it — the note under each signal says which don't. Traces show a <strong>Log</strong> badge and a blue info banner in the Overview sub-tab noting these limitations.</p>
+            </dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:6px">
+            <dt class="glossary-term">Cursor CLI</dt>
+            <dd class="glossary-def" style="display:block">
+              <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>The standalone terminal agent (<code style={codeStyle}>cursor-agent</code>) — not Cursor the IDE, whose built-in Copilot Chat is read like any other VS Code-family IDE's. One transcript per session at <code style={codeStyle}>~/.cursor/projects/&lt;workspace&gt;/agent-transcripts/&lt;id&gt;/&lt;id&gt;.jsonl</code>. No OTEL support.</p>
+              <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Prompt, tool calls (names, arguments, file paths touched), and session-level success or failure. Start and end times come from the transcript file's own timestamps.</p>
+              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Token counts, model name, workspace path, per-turn timestamps, and per-tool error detail — none of these are stored anywhere by Cursor CLI, so its traces show no cost rather than a guessed one.</p>
             </dd>
           </div>
         </div>
@@ -481,7 +489,7 @@ function SessionsSection() {
     <div class="help-section" id="help-traces">
       <h3 class="help-heading">{HELP_SECTIONS.traces.heading}</h3>
       <div class="help-overview-body">
-        <p>The Traces tab shows every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — as a sortable table: timestamp, prompt, model, tokens, duration, and estimated cost per row. Use the filter bar to search by text or repo, filter by agent, git outcome (see <a href="#help-outcome">Git Outcome</a> below), data source (OTEL / Log), or initiator (User / Agent / API), set a time range, or cap the number of rows shown. The Clear Filters button clears all active filters back to defaults.</p>
+        <p>The Traces tab shows every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — as a sortable table: timestamp, prompt, model, tokens, duration, and estimated cost per row. Use the filter bar to search by text or repo, filter by agent, git outcome (see <a href="#help-outcome">Git Outcome</a> below), data source (OTEL / Log), or initiator (User / Agent — Agent also covers non-interactive <code>claude -p</code> runs), set a time range, or cap the number of rows shown. The Clear Filters button clears all active filters back to defaults.</p>
         <p>Claude Code, Codex, and Copilot Chat (VS Code) each write one log file per working period on disk — but a single file can span multiple genuinely separate <a href="#gl-conversation">conversations</a> if a long idle gap (30+ minutes) separates them, so TraceRoost splits it into one trace per conversation rather than showing one entry with a misleading multi-hour (or multi-day) duration. A colored bar on the left edge of a row marks traces that came from the same original conversation — same color means same conversation, split apart by time. Hover the bar for its position (e.g. "Part 2 of 5"), or click it to isolate just that conversation's traces — a banner appears above the filter bar naming the conversation's first prompt, with a <strong>Show all traces</strong> button to clear it (or click the same bar again — the active bar renders slightly wider). Only traces still visible under the active filters are colored; if a filter hides a sibling, the remaining row isn't colored — nothing implies a hidden sibling exists.</p>
         <p>Click any row to expand it in-place. Five sub-tabs appear beneath the row:</p>
 
@@ -494,7 +502,7 @@ function SessionsSection() {
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
-            <dt class="glossary-term">Trace</dt>
+            <dt class="glossary-term">Waterfall</dt>
             <dd class="glossary-def" style="display:block">
               Full waterfall of every <a href="#gl-llm-call">LLM call</a> and <a href="#gl-tool-call">tool call</a> in the trace, displayed as horizontal timing bars with nesting depth. Expand any span row to see arguments, results, token counts, and estimated cost per call. The badge on the tab label shows the total span count.
             </dd>
@@ -502,7 +510,7 @@ function SessionsSection() {
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Flow</dt>
             <dd class="glossary-def" style="display:block">
-              A turn-to-tool semantic graph showing how the agent moved through the trace — which LLM turns triggered which tools, and in what order. Useful for spotting repeated tool calls or unusual branching. The badge shows the total node count.
+              A turn-to-tool semantic graph showing how the agent moved through the trace — which LLM turns triggered which tools, and in what order. Useful for spotting repeated tool calls or unusual branching. The badge shows the trace's LLM call count.
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
@@ -552,7 +560,7 @@ function SessionsSection() {
           />
           <InsightBlock id="help-high-turns" title="High Turn Count"
             why={`High turn counts happen when the agent discovers information iteratively. The prompt describes the <em>goal</em> but not the <em>location</em>; the task has implicit sub-tasks; or success criteria were not specified.`}
-            steps={`<li>Add explicit file paths and line numbers.</li><li>Define explicit stopping conditions.</li><li>Break multi-step tasks into separate prompts.</li><li>Review the Timeline tab: if &gt;50% of turns are reads, add more upfront context.</li>`}
+            steps={`<li>Add explicit file paths and line numbers.</li><li>Define explicit stopping conditions.</li><li>Break multi-step tasks into separate prompts.</li><li>Review the Waterfall sub-tab: if &gt;50% of turns are reads, add more upfront context.</li>`}
             impact="Going from 12 turns to 5 reduces cost by 40–60% and cuts wall-clock time proportionally."
           />
           <InsightBlock id="help-large-context" title="Large Starting Context"
@@ -743,8 +751,17 @@ function SignalsSection() {
             steps={`<li>Route read/search-heavy turns to a smaller, cheaper model.</li><li>Reserve the premium model for turns that actually produce edits.</li>`}
             impact="Switching a read-only stretch from a premium to a mid-tier model can cut that portion's cost 5–10× with no quality loss."
           />
+          <LoopBlock id="help-skipped-checks" title="Unverified Ship" signalType="skipped_checks"
+            why={formulaHtml(SIGNAL_FORMULAS.skipped_checks.bullets)}
+            caveat={SIGNAL_FORMULAS.skipped_checks.caveat}
+            dataSource={SIGNAL_FORMULAS.skipped_checks.dataSource}
+            dataSourceNote={SIGNAL_FORMULAS.skipped_checks.dataSourceNote}
+            example="A trace edited three files that are now on main, but never ran the test suite or a build along the way."
+            steps={`<li>Run the project's checks yourself before relying on the change.</li><li>Add a line to your instruction file telling the agent to run the tests before it finishes.</li>`}
+            impact="Catches work that reached the shared branch without anything having verified it — the cheapest point to find a regression."
+          />
         </div>
-      <p style="margin-top:16px;font-size:12px;color:var(--muted)">Signals appear in the Insights panel inside the <strong>Overview</strong> sub-tab of each trace, sorted by severity. Use the <strong>Loops</strong> filter pill in Traces to view only these signals. Use <strong>Ignore</strong> to dismiss a signal if it was intentional behavior.</p>
+      <p style="margin-top:16px;font-size:12px;color:var(--muted)">Signals appear in the Insights panel inside the <strong>Overview</strong> sub-tab of each trace, sorted by severity. The Traces table's <strong>Sig</strong> column shows which traces have them — click its header to sort by it. Use <strong>Ignore</strong> to dismiss a signal if it was intentional behavior.</p>
     </div>
   )
 }
@@ -759,6 +776,14 @@ function AnalyticsSection() {
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agent Breakdown</dt>
             <dd class="glossary-def" style="display:block">One card per agent showing total input tokens, output tokens, cache hit rate, estimated cost, One-shot rate, and top tools used — all scoped to the active time range and source filter. One-shot rate is the file-level percentage of edited files that got it right on the first pass, aggregated across all of the agent's traces; hidden when fewer than 2 files were edited (not enough data for a meaningful rate).</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:4px">
+            <dt class="glossary-term">Plan Limits</dt>
+            <dd class="glossary-def" style="display:block">How full your Claude Pro/Max and ChatGPT plan's 5-hour and weekly windows are, and when they reset. Shown only once Claude Code or Codex has recorded a reading — see <a href="#help-plan-limits">Plan limits</a>.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:4px">
+            <dt class="glossary-term">Outcome &amp; Token Spend Over Time</dt>
+            <dd class="glossary-def" style="display:block">Tokens and traces per day (or week), stacked by each trace's <a href="#help-outcome">git outcome</a> — merged, committed, or still uncommitted — with the share of tokens that went to work that landed. Traces with no changed files, or outside a git repo, aren't counted.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Estimated Cost</dt>
@@ -784,6 +809,9 @@ function PatternsSection() {
       <h3 class="help-heading">{HELP_SECTIONS.patterns.heading}</h3>
       <div class="help-overview-body">
         <p>The Advisor tab analyzes your trace history to surface actionable improvements for your agent instruction file. All panels respect the shared filter bar — select a specific project from the workspace filter for suggestions tailored to that project's files and behavior. With no project selected, only patterns universal across all workspaces surface.</p>
+
+        <h4 style={subHeadStyle}>How to Spend Less</h4>
+        <p style={mutedP}>When there's something to act on, the Advisor opens with one ranked list of the biggest savings — loop signals, hot files, and cache problems combined — ranked by priority, with an estimated dollar (or weekly plan-limit) saving where one can be priced, so you can start at the top.</p>
 
         <h4 style={subHeadStyle}>Instructions File</h4>
         <p style={mutedP}>TraceRoost scans trace patterns and generates specific, ready-to-copy suggestions for improving your instruction file (CLAUDE.md, AGENTS.md, .github/copilot-instructions.md, or similar). Suggestions are grouped by type:</p>
@@ -886,8 +914,8 @@ function CostSection() {
         </table>
         <p style={mutedP}>1 AI Credit = $0.01. Some models are <strong>included</strong> (zero credits — they show as $0.00 in TraceRoost). Premium models consume credits from your monthly allowance; usage above the allowance is charged at the overage rate. Code completions and Next Edit Suggestions are free and not tracked by TraceRoost. The TraceRoost cost for a Copilot trace divided by $0.01 gives the credit count consumed. Copilot switched from a request-multiplier model to token-based AI Credits in June 2026; TraceRoost auto-detects which billing model applies based on the trace date.</p>
 
-        <h4 style={subHeadStyle}>Codex CLI — API billing only</h4>
-        <p style={mutedP}>Codex CLI is billed entirely through the OpenAI API at metered token rates. <strong>ChatGPT Plus and ChatGPT Pro are separate products</strong> covering the web app only — they do not reduce or offset Codex CLI API costs. The TraceRoost cost shown for Codex traces is exactly what OpenAI charges, making it the most directly actionable of the three: there is no subscription discount to account for.</p>
+        <h4 style={subHeadStyle}>Codex CLI — API key or ChatGPT plan</h4>
+        <p style={mutedP}>With an OpenAI API key, Codex CLI is billed at metered token rates, and the TraceRoost cost shown for Codex traces is what OpenAI charges. Signed in with a ChatGPT plan instead, Codex usage counts against the plan's 5-hour and weekly windows rather than a per-token bill — TraceRoost's cost is then the API-equivalent value, and <a href="#help-plan-limits">Plan limits</a> above shows how much of each window you've used.</p>
         <table style={tblStyle}>
           <thead><tr>
             <th style={thStyle}>Model</th>
@@ -911,16 +939,16 @@ function SettingsSection() {
     <div class="help-section" id="help-settings">
       <h3 class="help-heading">{HELP_SECTIONS.settings.heading}</h3>
       <div class="help-overview-body">
-        <p>Two icons in the top-right of the tab bar give you access to alert status and configuration without cluttering the main navigation.</p>
+        <p>The icons at the right of the tab bar hold everything that isn't a tab: the bell (alert status), the action log (every command TraceRoost has run on your machine, such as <code style={codeStyle}>git</code>), the gear (settings), the <strong>$</strong> icon (the pricing tables behind every cost estimate), and the Help icon (this page). The standalone dashboard also shows an update button when a newer version is on npm.</p>
 
         <h4 style={subHeadStyle}>Bell icon — active alert status</h4>
         <p>The bell icon shows a numbered badge when one or more alert thresholds are currently triggered. Click it to open a status card listing every active alert — severity, name, and detail about which trace tripped it. The card also has a <strong>Configure alerts →</strong> link that jumps straight to the settings panel. When no alerts are firing the bell has no badge.</p>
 
         <h4 style={subHeadStyle}>Gear icon — settings panel</h4>
-        <p>The gear icon opens a slide-in settings panel containing two collapsible sections: <strong>Alerts</strong> and <strong>Automation</strong>. Close it with the × button or by pressing Escape.</p>
+        <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTEL and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Configure OTEL</strong> button, the MCP server toggle, and two collapsible sections, <strong>Alerts</strong> and <strong>Automation</strong>. Close it with the × button or by pressing Escape.</p>
 
         <h4 id="help-alerts" style={subHeadStyle}>Alerts</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for seven signals. When a live trace crosses a threshold the bell badge increments and the alert appears in the status card. Five alerts use per-agent profiles so you can tune Claude Code, Copilot, and Codex independently; the daily cost threshold is a single global dollar figure across all agents.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts. When a live trace crosses a threshold the bell badge increments and the alert appears in the status card. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
@@ -932,49 +960,57 @@ function SettingsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Too Many Turns Per Trace <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
-            <dd class="glossary-def" style="display:block">Fires when the LLM turn count reaches the per-agent threshold. High turn counts often indicate scope creep or a task that should be split. Default: 200 turns (adjustable per agent).</dd>
+            <dd class="glossary-def" style="display:block">Fires when the LLM turn count reaches the per-agent threshold. High turn counts often indicate scope creep or a task that should be split. Defaults: 150 / 275 / 450 turns.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Error Spike <span style="font-size:10px;font-weight:400;color:var(--muted)">(error)</span></dt>
-            <dd class="glossary-def" style="display:block">Fires when the error count in a trace reaches the per-agent threshold. A spike usually means the agent is stuck in a failure loop. Default: 5 errors (adjustable per agent).</dd>
+            <dd class="glossary-def" style="display:block">Fires when the error count in a trace reaches the per-agent threshold. A spike usually means the agent is stuck in a failure loop. Defaults: 4 / 5 / 6 errors.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Long Active Trace <span style="font-size:10px;font-weight:400;color:var(--muted)">(info)</span></dt>
-            <dd class="glossary-def" style="display:block">Fires when active LLM/tool compute time exceeds the per-agent threshold. Idle time (waiting for you to respond) does not count. Default: 60 minutes (adjustable per agent).</dd>
+            <dd class="glossary-def" style="display:block">Fires when active LLM/tool compute time exceeds the per-agent threshold. Idle time (waiting for you to respond) does not count. Defaults: 30 / 45 / 60 minutes.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Zero Cache Utilization <span style="font-size:10px;font-weight:400;color:var(--muted)">(info)</span></dt>
-            <dd class="glossary-def" style="display:block">Fires when a trace above the token gate has 0% cache hit rate. A large uncached trace is paying full price for every token. The gate prevents noise from small traces. Default gate: 30K tokens (shared, adjustable).</dd>
+            <dd class="glossary-def" style="display:block">Fires when a trace above the token gate has 0% cache hit rate. A large uncached trace is paying full price for every token. The gate prevents noise from small traces. Default gate: 30K input tokens for every agent (adjustable per agent).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Identical Tool Repeat <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
-            <dd class="glossary-def" style="display:block">Fires when the same tool with identical arguments repeats beyond the per-agent threshold without a file change between repeats — a strong deadlock signal. Default: 5 repeats (adjustable per agent).</dd>
+            <dd class="glossary-def" style="display:block">Fires when the same tool with identical arguments repeats beyond the per-agent threshold without a file change between repeats — a strong deadlock signal. Defaults: 4 / 5 / 6 repeats.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term">Weekly Plan Limit Filling Up <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dd class="glossary-def" style="display:block">Fires when a Claude or ChatGPT plan's weekly window reaches the configured share, once per window. Only appears once Claude Code or Codex has recorded a <a href="#help-plan-limits">plan-limit</a> reading. Default: 80%.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term">5-Hour Plan Limit Filling Up <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dd class="glossary-def" style="display:block">The same for the 5-hour window. Default: 90%.</dd>
           </div>
         </div>
 
         <h4 id="help-automation" style={subHeadStyle}>Automation</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Automations watch live traces and fire a correction prompt when a trace crosses a threshold — but TraceRoost never sends that prompt to the agent process itself; nothing pushes it in without something on the agent's side asking for it. There are three ways it reaches you, per automation, controlled by its <strong>Write prompts file</strong> toggle in Settings, plus an always-on MCP path: by default, a notification appears (VS Code warning notification, or an in-page notification in standalone/npx mode) with a <strong>Copy Prompt</strong> button — you copy it and paste it into the agent yourself. With <strong>Write prompts file</strong> enabled instead, TraceRoost appends the prompt to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> in the workspace root rather than showing a notification; nothing reads that file back to the agent automatically — it only helps if you (or an instruction you've added to CLAUDE.md/AGENTS.md) has the agent check it. Third, the MCP tool <code style={codeStyle}>check_automation_triggers</code> (see <a href="#help-mcp">MCP</a>) lets an agent poll for its own triggers directly — but it always evaluates against TraceRoost's default thresholds, not any per-agent customization made here in Settings, since that customization lives only in the dashboard's browser storage. Each automation shown below can still be enabled per-agent with independent thresholds for Claude Code, Copilot, and Codex for the notification/file delivery paths.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Automations watch live traces and fire a correction prompt when a trace crosses a threshold — but TraceRoost never sends that prompt to the agent process itself; nothing pushes it in without something on the agent's side asking for it. There are three ways it reaches you, per automation, controlled by its <strong>Write prompts file</strong> toggle in Settings, plus an always-on MCP path: by default, a notification appears (VS Code warning notification, or an in-page notification in standalone/npx mode) with a <strong>Copy Prompt</strong> button — you copy it and paste it into the agent yourself. With <strong>Write prompts file</strong> enabled instead, TraceRoost appends the prompt to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> in the workspace root rather than showing a notification; nothing reads that file back to the agent automatically — it only helps if you (or an instruction you've added to CLAUDE.md/AGENTS.md) has the agent check it. Third, the MCP tool <code style={codeStyle}>check_automation_triggers</code> (see <a href="#help-mcp">MCP</a>) lets an agent poll for its own triggers directly — but it always evaluates against TraceRoost's default thresholds, not any per-agent customization made here in Settings, since that customization lives only in the dashboard's browser storage. Each automation shown below can still be enabled per-agent with independent thresholds (Claude Code, Copilot, Codex, OpenCode, Cursor CLI) for the notification/file delivery paths. All four are off by default. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Context Compaction</dt>
-            <dd class="glossary-def" style="display:block">Fires when a trace's peak input tokens reaches the configured threshold. Sends a prompt asking the agent to summarize its context and compact before continuing. Helps avoid context-window overflows and keeps token cost in check. Default: 140K tokens.</dd>
+            <dd class="glossary-def" style="display:block">Fires when a trace's peak input tokens reaches the configured threshold. Sends a prompt asking the agent to summarize its context and compact before continuing. Helps avoid context-window overflows and keeps token cost in check. Defaults: 140K / 89.6K / 280K tokens.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Loop Breaker</dt>
-            <dd class="glossary-def" style="display:block">Fires when the same tool with identical arguments repeats beyond the threshold without a file change between repeats. Sends a prompt instructing the agent to stop and choose a different approach. A hard-stop backstop fires at 8 repeats regardless of configuration. Default: 3 repeats.</dd>
+            <dd class="glossary-def" style="display:block">Fires when the same tool with identical arguments repeats beyond the threshold without a file change between repeats. Sends a prompt instructing the agent to stop and choose a different approach. A hard-stop backstop fires at 8 repeats regardless of configuration. Defaults: 3 / 3 / 4 repeats.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Error Cascade Stop</dt>
-            <dd class="glossary-def" style="display:block">Fires when a trace hits its agent-specific consecutive-error streak. Sends a prompt instructing the agent to stop, diagnose the root cause, and change strategy before trying again. A hard-stop backstop fires at 8 consecutive errors regardless of configuration. Default: 3 consecutive errors.</dd>
+            <dd class="glossary-def" style="display:block">Fires when a trace hits its agent-specific consecutive-error streak. Sends a prompt instructing the agent to stop, diagnose the root cause, and change strategy before trying again. A hard-stop backstop fires at 8 consecutive errors regardless of configuration. Defaults: 3 / 3 / 4 consecutive errors.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Turn Limit Wrap-up</dt>
-            <dd class="glossary-def" style="display:block">Fires when a trace reaches the agent-specific turn threshold. Sends a prompt asking the agent to summarize progress, merge check-in details, and work toward a clean stopping point before hitting the model's hard turn limit. Default: 120 turns.</dd>
+            <dd class="glossary-def" style="display:block">Fires when a trace reaches the agent-specific turn threshold. Sends a prompt asking the agent to summarize progress, merge check-in details, and work toward a clean stopping point before hitting the model's hard turn limit. Defaults: 80 / 150 / 250 turns.</dd>
           </div>
         </div>
 
         <h4 id="help-clear-all" style={subHeadStyle}>Clear All Data</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">This button only deletes what TraceRoost itself has stored — its local database/cache of parsed traces. It does <strong>not</strong> touch the source files it read those traces from: OTEL-captured traces are removed permanently, but log-sourced traces (Claude Code, Codex, Copilot JSONL logs, OpenCode's SQLite database) are re-read from those local log files and will reappear on the next scan. TraceRoost currently has no feature to delete the underlying log files themselves — if you want those gone too, remove or rotate them yourself outside TraceRoost (e.g. in <code style={codeStyle}>~/.claude/</code>, <code style={codeStyle}>~/.codex/</code>, <code style={codeStyle}>~/.copilot/</code>).</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">This button only deletes what TraceRoost itself has stored — its local database/cache of parsed traces. It does <strong>not</strong> touch the source files it read those traces from: OTEL-captured traces are removed permanently, but log-sourced traces (Claude Code, Codex, Copilot and Cursor CLI JSONL logs, OpenCode's SQLite database) are re-read from those local log files and will reappear on the next scan. TraceRoost currently has no feature to delete the underlying log files themselves — if you want those gone too, remove or rotate them yourself outside TraceRoost (e.g. in <code style={codeStyle}>~/.claude/</code>, <code style={codeStyle}>~/.codex/</code>, <code style={codeStyle}>~/.copilot/</code>).</p>
       </div>
     </div>
   )
@@ -983,7 +1019,8 @@ function SettingsSection() {
 function McpSection() {
   const standalone = window.__STANDALONE__ === true
   const mcpUrl = 'http://localhost:4316/mcp'
-  const settingsJson = JSON.stringify({ mcpServers: { traceroost: { url: mcpUrl } } }, null, 2)
+  const addCommand = `claude mcp add --transport http --scope user traceroost ${mcpUrl}`
+  const mcpJson = JSON.stringify({ mcpServers: { traceroost: { type: 'http', url: mcpUrl } } }, null, 2)
   const claudeMd = `# TraceRoost MCP
 Before any task: call get_recent_sessions (recent work + cost) and get_workspace_patterns (hot files, recurring issues).`
 
@@ -1003,9 +1040,11 @@ Before any task: call get_recent_sessions (recent work + cost) and get_workspace
         <p style={mutedP}>Verify it's up by opening <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a> in a browser — you should see <code style={codeStyle}>{`{"status":"ok","server":"traceroost-mcp",...}`}</code>. If the page doesn't load, the server isn't running.</p>
 
         <h4 style={subHeadStyle}>Step 2 — Configure Claude Code</h4>
-        <p style={mutedP}>Add the following to <code style={codeStyle}>~/.claude/settings.json</code> (create the file if it doesn't exist):</p>
-        <pre style={preStyle}>{settingsJson}</pre>
-        <p style={mutedP}>If you use the VS Code extension, the <code style={codeStyle}>contributes.mcpServers</code> entry in TraceRoost's manifest may configure this automatically — check your Claude Code MCP settings to confirm.</p>
+        <p style={mutedP}>Register the server with Claude Code once — <code style={codeStyle}>--scope user</code> makes it available in every project:</p>
+        <pre style={preStyle}>{addCommand}</pre>
+        <p style={mutedP}>Or, to share it with everyone working in one repository, commit a <code style={codeStyle}>.mcp.json</code> at the project root:</p>
+        <pre style={preStyle}>{mcpJson}</pre>
+        <p style={mutedP}>Run <code style={codeStyle}>claude mcp list</code> to confirm it's connected. If you changed the port, use that port in the URL. When TraceRoost is bound beyond localhost (<code style={codeStyle}>BIND_HOST=0.0.0.0</code>, or Docker), the MCP endpoint also needs the access token: add <code style={codeStyle}>--header "Authorization: Bearer &lt;token&gt;"</code> to the command above.</p>
 
         <h4 style={subHeadStyle}>Step 3 — Add to CLAUDE.md (optional but recommended)</h4>
         <p style={mutedP}>Add a block like this to your project's <code style={codeStyle}>CLAUDE.md</code> so Claude automatically uses TraceRoost at the start of each trace. The block is intentionally brief — every line in CLAUDE.md is loaded into the context window on every call, so keeping it short avoids unnecessary token spend.</p>
@@ -1015,11 +1054,11 @@ Before any task: call get_recent_sessions (recent work + cost) and get_workspace
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_recent_sessions</code></dt>
-            <dd class="glossary-def" style="display:block">Returns recent trace summaries sorted newest-first: cost, turn count, model, prompt excerpt, top tools used, and any loop signals triggered. Optional filters: <code style={codeStyle}>limit</code> (default 10), <code style={codeStyle}>agent</code> (copilot | claude_code | codex).</dd>
+            <dd class="glossary-def" style="display:block">Returns recent trace summaries sorted newest-first: cost, turn count, model, prompt excerpt, top tools used, and any loop signals triggered. Optional filters: <code style={codeStyle}>limit</code> (default 10, max 50), <code style={codeStyle}>agent</code> (copilot | claude_code | codex | opencode | cursor), <code style={codeStyle}>workspace</code> (path prefix).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_workspace_patterns</code></dt>
-            <dd class="glossary-def" style="display:block">Aggregate patterns across all traces: the files accessed most often (ranked by % of traces), average cost and turn count, top tools, and recurring loop signal types. Optional filter: <code style={codeStyle}>days</code> to limit to recent traces.</dd>
+            <dd class="glossary-def" style="display:block">Aggregate patterns across all traces: the files accessed most often (ranked by % of traces), average cost and turn count, top tools, and recurring loop signal types. Optional filters: <code style={codeStyle}>days</code> to limit to recent traces, <code style={codeStyle}>workspace</code> (path prefix).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term"><code style={codeStyle}>get_session_detail</code></dt>
@@ -1073,10 +1112,10 @@ function CloudSection() {
         <p>TraceRoost Cloud links your machine to your org so a lead can see aggregate figures — cost, turnover, activity — across everyone's repositories, without seeing any individual's work. It's opt-in, off by default, and never required for the local dashboard to work. See <a href="#help-privacy">Privacy</a> below for exactly what that means and what gets sent.</p>
 
         <h4 style={subHeadStyle}>Linking and leaving</h4>
-        <p style={mutedP}>Linking opens your browser once, for account setup — nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; there's no server-side step and nothing to wait for.</p>
+        <p style={mutedP}>Linking opens your browser once, for account setup — nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; revoking the token on the server is attempted afterwards, best-effort, so nothing waits on it.</p>
 
         <h4 style={subHeadStyle}>Going offline</h4>
-        <p style={mutedP}>Your local dashboard — everything in Sessions, Estimated cost, Patterns, Analytics — has no dependency on internet connectivity at all, linked or not. Trace capture is either OTEL received on your own machine or read directly from each agent's own on-disk log file (every currently supported source keeps one); neither needs a network connection, only TraceRoost itself running.</p>
+        <p style={mutedP}>Your local dashboard — everything in Traces, Analytics, and the Advisor — has no dependency on internet connectivity at all, linked or not. Trace capture is either OTEL received on your own machine or read directly from each agent's own on-disk log file (every currently supported source keeps one); neither needs a network connection, only TraceRoost itself running.</p>
         <p style={mutedP}>That log-file reading is also what makes the data complete rather than just live: because TraceRoost reads the agent's own persisted transcript rather than only capturing a live stream, a session recorded before you linked, before TraceRoost was running, or during any gap still shows up in full once TraceRoost next reads that file. Nothing about being offline erases what the agent itself already wrote to disk.</p>
         <p style={mutedP}>The one thing connectivity affects is sending rollups to your org, if linked. Offline, or if the service is briefly unreachable, sessions queue locally instead of being lost, and send automatically once you're back — no action needed. The queue is capped (oldest first) so an install that never reconnects doesn't grow it without bound; use <strong>Check for unsent traces</strong> in this panel any time you want to confirm nothing's stuck.</p>
       </div>
@@ -1120,11 +1159,11 @@ function ExportSection() {
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Full export</dt>
-            <dd class="glossary-def" style="display:block">Includes all trace data — prompt text, tool arguments, tool results, and file diff content. Use this for personal analysis or sharing with yourself across machines.</dd>
+            <dd class="glossary-def" style="display:block">One record per trace: prompt text, agent and model, timing, token and cache counts, tool-call counts, files read and changed, and loop signals. Use this for personal analysis or moving your history to another machine.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Redacted export</dt>
-            <dd class="glossary-def" style="display:block">Prompt text is removed; all other fields (tokens, cost, timing, tool names, file paths, span structure) are retained. Use this when sharing data for debugging or support without exposing conversation content.</dd>
+            <dd class="glossary-def" style="display:block">Prompt text and file paths are replaced with <code style={codeStyle}>[redacted]</code>; everything else (tokens, timing, tool counts, models, loop signals) is kept. Use this when sharing data for debugging or support without exposing conversation content or your project layout.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Format: JSON</dt>
@@ -1139,7 +1178,7 @@ function ExportSection() {
             <dd class="glossary-def" style="display:block">One readable section per trace — for sharing a report rather than raw data.</dd>
           </div>
         </div>
-        <p style="font-size:12px;color:var(--muted);margin-top:12px">Raw OTEL span export for trace replay is planned but not yet available.</p>
+        <p style="font-size:12px;color:var(--muted);margin-top:12px">These are per-trace summaries. In the VS Code extension, the <em>TraceRoost: Export OTEL Data</em> command writes the raw OTEL spans still held in memory instead.</p>
       </div>
     </div>
   )
@@ -1158,7 +1197,7 @@ function ImportSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Validation</dt>
-            <dd class="glossary-def" style="display:block">The file must parse as a non-empty JSON array where every item has a string <code style={codeStyle}>sessionId</code> and a recognized <code style={codeStyle}>source</code> (Copilot, Claude Code, Codex, or OpenCode) — anything else is rejected before you see a preview, with a specific error message. Other fields are read permissively: a technically-valid file with missing or malformed data elsewhere still imports, just with those fields defaulted rather than erroring.</dd>
+            <dd class="glossary-def" style="display:block">The file must parse as a non-empty JSON array where every item has a string <code style={codeStyle}>sessionId</code> and a recognized <code style={codeStyle}>source</code> (Copilot, Claude Code, Codex, OpenCode, or Cursor CLI) — anything else is rejected before you see a preview, with a specific error message. Other fields are read permissively: a technically-valid file with missing or malformed data elsewhere still imports, just with those fields defaulted rather than erroring.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Preview</dt>
@@ -1197,7 +1236,7 @@ function BadgesSection() {
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:#90a4ae;border-color:#90a4ae`}>Log</span>
           </dt>
-          <dd class="glossary-def">Parsed from local log files and databases — <code>~/.claude/projects</code>, <code>~/.codex/sessions</code>, <code>~/.copilot/session-state</code>, and OpenCode's SQLite database at <code>~/.local/share/opencode/</code>. Tokens, tool calls, file paths, and user prompts are available. Timing and TTFT are not available from log sources. No agent configuration needed.</dd>
+          <dd class="glossary-def">Parsed from local log files and databases — <code>~/.claude/projects</code>, <code>~/.codex/sessions</code>, <code>~/.copilot/session-state</code>, Copilot Chat's <code>chatSessions</code> in each VS Code-family IDE, OpenCode's SQLite database at <code>~/.local/share/opencode/</code>, and Cursor CLI's transcripts under <code>~/.cursor/projects</code>. Tokens, tool calls, file paths, and user prompts are available where the agent records them. Timing and TTFT are not available from log sources. No agent configuration needed.</dd>
         </div>
       </div>
 
@@ -1222,7 +1261,7 @@ function BadgesSection() {
           <dd class="glossary-def">Started non-interactively via <code>claude -p</code> (pipeline mode). Comes from a script, CI job, or shell automation — human-authored but not a live conversation. Identified by the <code>&lt;local-command-caveat&gt;</code> prefix Claude Code prepends to the prompt.</dd>
         </div>
       </div>
-      <p style="font-size:11px;color:var(--muted);margin:0">Use the <strong>From</strong> filter pills in the Traces tab to show only user, agent, or api traces.</p>
+      <p style="font-size:11px;color:var(--muted);margin:0">Use the <strong>From</strong> filter pills in the Traces tab to show only User or Agent traces — the Agent pill includes API traces.</p>
     </div>
   )
 }

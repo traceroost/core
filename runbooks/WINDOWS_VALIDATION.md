@@ -50,15 +50,15 @@ install the VSIX artifact from the latest `Windows E2E` or `Release` run.
 3. **Org / Cloud linking (full edition).** Link to an org (`traceRoost.orgLink`) and confirm the
    browser sign-in opens the system browser (`vscode.env.openExternal`), the forwarding queue
    drains, and the Org panel's transport stats update.
-4. **Webview look and feel.** Cycle every dashboard tab (Sessions, Analytics, Advisor, Export,
-   Org), toggle light/dark theme, resize, and try each copy-to-clipboard button (Windows clipboard
+4. **Webview look and feel.** Cycle every dashboard tab (Traces, Analytics, Advisor, Export,
+   Import) plus the Help and Pricing pages and the Settings and Org panels, toggle light/dark theme, resize, and try each copy-to-clipboard button (Windows clipboard
    permissions through a webview have been quirkier than macOS). CI only proves the panel opens
    without errors.
 5. **A real logon.** CI starts the Task Scheduler task with `schtasks /run`; confirm once that it
    also starts on its own at the next Windows sign-in.
 6. **Git outcomes in a real repo.** In a local git repo with actual commits, confirm the outcome
-   badges (merged / committed / uncommitted) resolve on the Sessions tab, and that the Analytics
-   "Outcome vs. tokens" chart populates. Both go through `execFile('git', args, { cwd, timeout })`
+   badges (merged / committed / uncommitted) resolve on the Traces tab, and that the Analytics
+   "Outcome & token spend over time" chart populates. Both go through `execFile('git', args, { cwd, timeout })`
    in `gitOutcome.ts`, `repoRemote.ts`, and `repoKey.ts` — `execFile` (not `exec`) means no shell
    is involved, so this should resolve `git`/`git.exe` via PATH cleanly, but confirm it doesn't
    hang: process startup is generally slower on Windows, and `GIT_TIMEOUT_MS` was only ever tuned

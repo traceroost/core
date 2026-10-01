@@ -20,6 +20,6 @@ converts to Apache License 2.0.
 
 This split exists because `src/cloud/` is the part of the codebase that could
 plausibly be commercialized as a standalone hosted product; everything else —
-the local dashboard, the free local Outcomes/attribution engine's *product
-surface*, the standalone server, the VS Code extension shell — has no such
+the local dashboard, the free local attribution/turnover engine (`src/attribution/`,
+`src/turnover/`), the standalone server, the VS Code extension shell — has no such
 plan and stays MIT, matching the rest of the project.

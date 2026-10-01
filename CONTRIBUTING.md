@@ -21,7 +21,7 @@ not MIT, so if you're unsure which license your change would land under, open an
 
 Open an issue at <https://github.com/traceroost/core/issues> and use the bug report template. Include:
 
-- The agent you were using (Copilot, Claude Code, Codex)
+- The agent you were using (Copilot, Claude Code, Codex, OpenCode, Cursor CLI)
 - Whether you're using the VS Code extension or standalone mode
 - The TraceRoost version (visible in the Traces tab footer)
 - Relevant output from the **TraceRoost** output channel (*View → Output → TraceRoost*)
