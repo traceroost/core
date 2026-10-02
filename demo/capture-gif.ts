@@ -14,7 +14,7 @@
  * Usage:
  *   pnpm run demo:gif                       # writes media/demo.gif, uploads it, updates README.md (refuses to overwrite)
  *   pnpm run demo:gif -- --no-upload        # local file only; README.md untouched
- *   pnpm run demo:gif -- --max-mb 5         # size budget (default 7) — drops more near-duplicate frames to fit
+ *   pnpm run demo:gif -- --max-mb 4         # size budget (default 4.9, GitHub's limit is 5) — drops more near-duplicate frames to fit
  *   pnpm run demo:gif -- --out /tmp/x.gif   # write elsewhere instead, for review first
  *   pnpm run demo:gif -- --force            # overwrite media/demo.gif without asking
  *   pnpm run demo:gif -- --dry-run          # run the tour, skip recording — for tuning pauses
@@ -73,7 +73,13 @@ if (EDITION !== 'core' && EDITION !== 'full') {
 const OUTCOMES = !hasFlag('no-outcomes')
 const OUT      = path.resolve(flag('out', path.join(__dirname, '..', 'media', 'demo.gif')))
 const UPLOAD   = !DRY_RUN && !hasFlag('no-upload')
-const MAX_BYTES = (parseFloat(flag('max-mb', '7')) || 7) * 1024 * 1024
+// GitHub serves README images through its camo proxy, which refuses anything over 5 MB
+// ("Content length exceeded") — the GIF then just doesn't show on github.com, though the URL works.
+const GITHUB_IMAGE_LIMIT_BYTES = 5 * 1024 * 1024
+const MAX_BYTES = (parseFloat(flag('max-mb', '4.9')) || 4.9) * 1024 * 1024
+if (MAX_BYTES > GITHUB_IMAGE_LIMIT_BYTES) {
+  err(`--max-mb is over GitHub's 5 MB image limit — the README GIF won't display on github.com`)
+}
 
 // Distinct from the default 3000/4318 on purpose — a real `pnpm run local` instance can
 // stay running on the defaults the whole time this script runs, with no port fight.
@@ -144,6 +150,15 @@ function encodeGif(videoPath: string, scratchRoot: string, decimate: string): st
     gifPath,
   ], { stdio: 'inherit' })
   if (pass2.status !== 0) throw new Error('ffmpeg GIF conversion failed')
+
+  // gifsicle's lossy LZW roughly halves a dashboard GIF with no visible change (2026-10: 5.7 MB →
+  // 2.9 MB). Fetched with npx, so there's nothing to install; if it isn't available, ffmpeg's
+  // file is used as is.
+  const lossyPath = path.join(scratchRoot, 'demo.lossy.gif')
+  const lossy = spawnSync('npx', ['--yes', 'gifsicle@7', '-O3', '--lossy=20', '-o', lossyPath, gifPath],
+    { stdio: 'ignore', shell: process.platform === 'win32' })
+  if (lossy.status === 0 && fs.existsSync(lossyPath) && fs.statSync(lossyPath).size < fs.statSync(gifPath).size) return lossyPath
+  log('gifsicle unavailable — keeping the ffmpeg GIF uncompressed')
   return gifPath
 }
 
