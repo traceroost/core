@@ -23,18 +23,17 @@ function claudeTrace(traceId: string, collectorPath?: string): Span[] {
 
 suite('exportData — writing export files', () => {
   const writes: Array<{ path: string; spans: Span[] }> = []
-  const fsApi = vscode.workspace.fs as unknown as { writeFile: (uri: { path: string }, data: Uint8Array) => Promise<void> }
-  const realWrite = fsApi.writeFile
+  // Captured through the writeFile option rather than by stubbing vscode.workspace.fs, which is
+  // read-only in a real extension host (`pnpm test`).
+  const writeFile = async (uri: vscode.Uri, data: Uint8Array) => {
+    writes.push({ path: uri.path, spans: JSON.parse(Buffer.from(data).toString('utf8')) as Span[] })
+  }
   const base = vscode.Uri.file('/exports')
 
-  setup(() => {
-    writes.length = 0
-    fsApi.writeFile = async (uri, data) => { writes.push({ path: uri.path, spans: JSON.parse(Buffer.from(data).toString('utf8')) as Span[] }) }
-  })
-  teardown(() => { fsApi.writeFile = realWrite })
+  setup(() => { writes.length = 0 })
 
   test('groups spans by collector endpoint and agent, one file each', async () => {
-    const files = await exportSpans([...claudeTrace('t1'), ...claudeTrace('t2', '/v1/traces/../../etc')], base)
+    const files = await exportSpans([...claudeTrace('t1'), ...claudeTrace('t2', '/v1/traces/../../etc')], base, { writeFile })
     assert.strictEqual(files.length, 2)
     assert.ok(files.every(f => /^export_claude_[A-Za-z0-9.-]+_\d{8}_\d{6}\.json$/.test(f)), files.join(', '))
     assert.ok(files.some(f => f.startsWith('export_claude_main_')), 'untagged spans go to the main endpoint')
@@ -45,13 +44,13 @@ suite('exportData — writing export files', () => {
 
   test('spans whose trace produced no session are left out', async () => {
     const orphan = span('nope', 'x', 'some.unrelated.span', {})
-    const files = await exportSpans([orphan], base)
+    const files = await exportSpans([orphan], base, { writeFile })
     assert.deepStrictEqual(files, [])
     assert.deepStrictEqual(writes, [])
   })
 
   test('the redacted export replaces prompt and identity attributes but keeps metadata', async () => {
-    const files = await exportSpansRedacted(claudeTrace('t1'), base)
+    const files = await exportSpansRedacted(claudeTrace('t1'), base, { writeFile })
     assert.strictEqual(files.length, 1)
     assert.ok(files[0].startsWith('export_redacted_claude_main_'))
     const attrs = writes[0].spans.flatMap(s => s.attributes)

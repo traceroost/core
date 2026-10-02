@@ -70,7 +70,10 @@ suite('actionLog', () => {
       const before = getActionLogHistory().length
       await recordAction('/repo', 'Doing a thing', 'do-thing --flag', async () => 'ok')
       assert.ok(snapshots.length > 0)
-      assert.strictEqual(snapshots[snapshots.length - 1], before + 1)
+      // Capped at 200 (MAX_HISTORY): inside a real extension host the running extension's own
+      // actions can already have filled the log, so a new action replaces the oldest one.
+      assert.strictEqual(snapshots[snapshots.length - 1], Math.min(before + 1, 200))
+      assert.strictEqual(getActionLogHistory().at(-1)?.raw, 'do-thing --flag')
     } finally {
       unsubscribe()
     }
