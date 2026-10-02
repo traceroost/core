@@ -139,7 +139,7 @@ export class PlanUsageService {
       this.refreshRollups()
       return true
     } catch (err) {
-      this.opts.log?.(`[TraceRoost] plan usage: Claude cache read skipped (${(err as Error).message})`)
+      this.opts.log?.(`[TraceRoost] Plan usage: Claude cache read skipped (${(err as Error).message})`)
       return false
     }
   }

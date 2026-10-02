@@ -1875,7 +1875,7 @@ function getHtml(): string {
                   data: { type: 'sessionDetail', sessionId: msg.sessionId, timeline: data.timeline || [] }
                 }));
               })
-              .catch(function(e) { console.warn('[TraceRoost] timeline fetch failed', e); });
+              .catch(function(e) { console.warn('[TraceRoost] Timeline fetch failed', e); });
           } else if (msg.type === 'getGitOutcome' && msg.sessionId) {
             fetch('/api/git-outcome', {
               method: 'POST',
@@ -1906,7 +1906,7 @@ function getHtml(): string {
                 }));
               })
               .catch(function(e) {
-                console.warn('[TraceRoost] git outcome fetch failed', e);
+                console.warn('[TraceRoost] Git outcome fetch failed', e);
                 // Still dispatch a reply (as "not applicable") — the Outcome filter's pending
                 // count only ever counts down on a 'gitOutcome' message, so a request that only
                 // logs and never replies leaves that session's spinner stuck forever.
@@ -1927,7 +1927,7 @@ function getHtml(): string {
                 }));
               })
               .catch(function(e) {
-                console.warn('[TraceRoost] batched git outcome fetch failed', e);
+                console.warn('[TraceRoost] Batched git outcome fetch failed', e);
                 (msg.sessionIds || []).forEach(function(sessionId) {
                   window.dispatchEvent(new MessageEvent('message', {
                     data: { type: 'gitOutcome', sessionId: sessionId, outcome: null, riskSignals: [], temperedLoopSignals: null }
@@ -1946,7 +1946,7 @@ function getHtml(): string {
                   data: { type: 'repoHash', workspace: data.workspace, name: data.name, hash: data.hash, githubUrl: data.githubUrl }
                 }));
               })
-              .catch(function(e) { console.warn('[TraceRoost] repo hash fetch failed', e); });
+              .catch(function(e) { console.warn('[TraceRoost] Repo hash fetch failed', e); });
           } else if (msg.type === 'reconfigureOtel') {
             fetch('/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'reconfigureOtel' }) })
               .then(function(r) { return r.json(); })
@@ -1995,7 +1995,7 @@ function getHtml(): string {
           .then(function(summary) {
             _deliver({ type: 'update', sessionSummary: summary });
           })
-          .catch(function(e) { console.warn('[TraceRoost] poll failed', e); });
+          .catch(function(e) { console.warn('[TraceRoost] Poll failed', e); });
       }, 2000);
     }
     // Names this tab's stream so a full update can be requested down it (/api/sse-resync). The
@@ -2628,7 +2628,7 @@ const uiServer = http.createServer((req, res) => {
           // go unreported — the browser's Outcome-filter spinner counts down only on receiving a
           // reply. Nothing here is durably cached on a throw either way (see
           // reconciliationService.ts's in-flight-only discipline), so there's nothing to evict.
-          console.warn(`[TraceRoost] git-outcome classification failed for session ${sessionId}:`, err)
+          console.warn(`[TraceRoost] Git-outcome classification failed for session ${sessionId}:`, err)
           outcome = null
         }
         if (deferred) {
@@ -2689,7 +2689,7 @@ const uiServer = http.createServer((req, res) => {
                   if (result.deferred) broadcastSse({ type: 'gitOutcomeDeferred', sessionId: result.sessionId })
                 }
               } catch (err) {
-                console.warn('[TraceRoost] batched git-outcome reconciliation failed:', err)
+                console.warn('[TraceRoost] Batched git-outcome reconciliation failed:', err)
                 await Promise.all(inputs.map(async input => {
                   try {
                     const result = await reconciliationService!.reconcile(input)
@@ -2820,12 +2820,11 @@ const otlpServer = http.createServer((req, res) => {
         const { count, agent } = processTraces(payload, req.url ?? '/v1/traces')
         if (count > 0) console.log(`[TraceRoost] Ingested ${count} span${count !== 1 ? 's' : ''} (${agent})`)
       } else if (req.url === '/v1/logs' || kind === 'logs') {
-        const n = processLogs(payload, req.url ?? '/v1/logs')
-        if (n > 0) console.log(`[TraceRoost] ${n} log event${n !== 1 ? 's' : ''} ingested`)
+        processLogs(payload, req.url ?? '/v1/logs')
       } else if (kind === 'metrics' || req.url === '/v1/metrics') {
         // Metrics are accepted so OTLP exporters do not retry, but TraceRoost does not display them.
       } else {
-        console.warn(`[TraceRoost] ignored POST ${req.url ?? '/'}: unrecognized OTLP JSON payload`)
+        console.warn(`[TraceRoost] Ignored POST ${req.url ?? '/'}: unrecognized OTLP JSON payload`)
       }
       schedulePushUpdate()
       scheduleSave()

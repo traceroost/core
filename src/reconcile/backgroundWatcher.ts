@@ -105,7 +105,7 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
     }
     passRunning = true
     reconcileRoots(roots, recentOnly)
-      .catch(err => deps.log?.(`[TraceRoost] background reconciliation pass failed: ${(err as Error).message}`))
+      .catch(err => deps.log?.(`[TraceRoost] Background reconciliation pass failed: ${(err as Error).message}`))
       .finally(() => {
         passRunning = false
         const next = queuedPass
@@ -142,7 +142,7 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
         try {
           await deps.service.reconcileMany(group.map(toReconcileInput))
         } catch (err) {
-          deps.log?.(`[TraceRoost] background reconciliation failed for a repo: ${(err as Error).message}`)
+          deps.log?.(`[TraceRoost] Background reconciliation failed for a repo: ${(err as Error).message}`)
         }
       }
     }

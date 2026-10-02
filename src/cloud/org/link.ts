@@ -61,7 +61,7 @@ export async function refreshOrgNameIfStale(log?: (m: string) => void): Promise<
   const creds = (await freshCredentials()) ?? stale
   const self = await fetchRosterSelf(creds.accessToken, creds.endpoint)
   if (!self?.orgName) {
-    log?.('[TraceRoost] could not refresh org name (roster fetch failed or returned none) — will retry')
+    log?.('[TraceRoost] Could not refresh org name (roster fetch failed or returned none) — will retry')
     return false
   }
   roleCheckedThisProcess = true

@@ -303,7 +303,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
   switch (subcommand) {
     case 'install': {
       const version = readRunningVersion()
-      console.log(`[TraceRoost] service install${version ? ` — v${version}` : ''}`)
+      console.log(`[TraceRoost] Service install${version ? ` — v${version}` : ''}`)
       const config = parseServiceInstallFlags(rest)
       // Carry the existing access token across a reinstall so bookmarked dashboard URLs keep working
       // — parseServiceInstallFlags starts from a blank token and the server would otherwise mint a
@@ -365,7 +365,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
       platformService.restart()
       return 0
     case 'update': {
-      console.log(`[TraceRoost] service update${readRunningVersion() ? ` — currently v${readRunningVersion()}` : ''}`)
+      console.log(`[TraceRoost] Service update${readRunningVersion() ? ` — currently v${readRunningVersion()}` : ''}`)
       const outcome = ensureLatestGlobalInstall()
       if (!outcome || !outcome.downloaded) {
         // ensureLatestGlobalInstall already printed why; the service keeps running its current
