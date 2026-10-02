@@ -509,7 +509,7 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
 
 // ── Traces table + trace detail ───────────────────────────────────────────────
 
-/** The Traces table's "Limit used" cell — blank (not 0%, not —) when the session has no value. */
+/** The Traces table's "Plan limit used" cell — blank (not 0%, not —) when the session has no value. */
 export function LimitUsedCell({ sessionId }: { sessionId: string }) {
   const u = planUsage.value?.sessions[sessionId]
   const label = limitUsedLabel(u)

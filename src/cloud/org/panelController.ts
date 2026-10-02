@@ -131,7 +131,7 @@ async function reconcileLocalSessions(deps: OrgPanelDeps, reportProgress = false
     reportProgress ? (done, total) => deps.post({ type: 'orgReconcileProgress', done, total }) : undefined,
   )
   if (queued > 0) {
-    deps.log?.(`[TraceRoost] reconcile: queued ${queued} local session(s) not yet confirmed delivered`)
+    deps.log?.(`[TraceRoost] Reconcile: queued ${queued} local session(s) not yet confirmed delivered`)
   }
   // Always nudge the scheduler, not just when new sessions were found — the on-demand button's
   // whole point is "try to get things moving right now," and a backlog stuck retrying on its own

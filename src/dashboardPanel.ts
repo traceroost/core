@@ -179,7 +179,7 @@ export class DashboardPanel {
           // Belt-and-suspenders: individual org* cases reply on both success and failure, but if
           // one doesn't, this is what stops the webview's busy/loading state from hanging forever
           // with no error shown (see App.tsx's `orgError` handler).
-          console.error('[TraceRoost] org message handler failed:', err)
+          console.error('[TraceRoost] Org message handler failed:', err)
           this.panel.webview.postMessage({ type: 'orgError', error: (err as Error).message })
         }
         return
@@ -566,7 +566,7 @@ export class DashboardPanel {
       // ever posts a `gitOutcome` reply, that would permanently strand the Outcome filter's
       // "resolving N outcomes" spinner above zero. Reply now (as "not applicable") so the spinner
       // can count this one down; it will be retried on the next request for this session.
-      console.error(`[TraceRoost] git-outcome classification failed for session ${sessionId}:`, err)
+      console.error(`[TraceRoost] Git-outcome classification failed for session ${sessionId}:`, err)
       outcome = null
     }
     // Post-hoc risk signals (hallucinated import, submitted-despite-a-failing-check) and
@@ -607,7 +607,7 @@ export class DashboardPanel {
           if (result.deferred) this.panel.webview.postMessage({ type: 'gitOutcomeDeferred', sessionId: result.sessionId })
         }
       } catch (err) {
-        console.error('[TraceRoost] batched git-outcome reconciliation failed:', err)
+        console.error('[TraceRoost] Batched git-outcome reconciliation failed:', err)
         await Promise.all(inputs.map(input => this.sendGitOutcome(
           input.sessionId, input.workspace, input.filesChanged, input.endTime,
         )))

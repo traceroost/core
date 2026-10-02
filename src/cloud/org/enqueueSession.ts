@@ -61,7 +61,7 @@ export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: st
     const added = new ForwardQueue(undefined, undefined, log).enqueue(built.payload)
     return added ? { enqueued: true } : { enqueued: false, reason: 'duplicate' }
   } catch (err) {
-    log?.(`[TraceRoost] could not enqueue session for forwarding: ${(err as Error).message}`)
+    log?.(`[TraceRoost] Could not enqueue session for forwarding: ${(err as Error).message}`)
     return { enqueued: false, reason: 'error' }
   }
 }

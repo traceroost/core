@@ -405,7 +405,7 @@ export async function activate(context: vscode.ExtensionContext) {
         files = lr.collectFileMeta().filter(f => f.agentKey !== 'opencode')
         results = lr.scanOpenCode()
       } catch (err) {
-        outputChannel!.appendLine(`[TraceRoost] log ingestion collect error: ${err}`)
+        outputChannel!.appendLine(`[TraceRoost] Log ingestion collect error: ${err}`)
         return
       }
       logScanInFlight = true
@@ -436,7 +436,7 @@ export async function activate(context: vscode.ExtensionContext) {
           if (saved) writeLastWriteSignal(context.globalStorageUri)
           persistFileState()
         })
-      }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
+      }).catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
     }
 
     // Initial load: collect file metadata sorted newest-first, then process in two
@@ -454,7 +454,7 @@ export async function activate(context: vscode.ExtensionContext) {
       try {
         allFiles = lr.collectFileMeta()
       } catch (err) {
-        outputChannel!.appendLine(`[TraceRoost] log ingestion collect error: ${err}`)
+        outputChannel!.appendLine(`[TraceRoost] Log ingestion collect error: ${err}`)
         onAllDone?.()
         return
       }
@@ -515,7 +515,7 @@ export async function activate(context: vscode.ExtensionContext) {
               traceRoostDb?.saveSoon()
               provider.refresh()
               DashboardPanel.refreshSoon()
-            }).catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
+            }).catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
           }
           DashboardPanel.setLogIngestProgress(progress)
           const next = idx + batchSize
@@ -555,7 +555,7 @@ export async function activate(context: vscode.ExtensionContext) {
       // wait for the save that actually covers everything enqueued so far.
       const afterSaved = (after: (saved: boolean) => void) => {
         void writer!.drain().then(() => traceRoostDb!.saveSoon(after))
-          .catch(err => outputChannel!.appendLine(`[TraceRoost] log ingestion drain error: ${err}`))
+          .catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
       }
 
       processGroup(fastFiles, 10, 0, () => {

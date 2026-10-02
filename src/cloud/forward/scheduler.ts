@@ -82,7 +82,7 @@ export function startForwardScheduler(opts: {
     try {
       let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
       if (res.sent > 0 || res.droppedInvalid > 0) {
-        opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
+        opts.log?.(`[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
       }
       // A single drain caps itself at `batchLimit` (200) items so one tick never blocks the timer
       // — but left alone, a backlog bigger than that (right after "Check for unsent traces" on a
@@ -98,15 +98,15 @@ export function startForwardScheduler(opts: {
         res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
         iterations++
         if (res.sent > 0 || res.droppedInvalid > 0) {
-          opts.log?.(`[TraceRoost] forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
+          opts.log?.(`[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
         }
       }
       if (res.remaining > 0 && iterations >= MAX_DRAIN_ITERATIONS_PER_RUN) {
-        opts.log?.(`[TraceRoost] forwarding: paused after ${iterations} batches this run with ${res.remaining} still queued — resuming on the next tick`)
+        opts.log?.(`[TraceRoost] Forwarding: paused after ${iterations} batches this run with ${res.remaining} still queued — resuming on the next tick`)
       }
       if (res.stopped === 'membership-revoked') stop()
     } catch (err) {
-      opts.log?.(`[TraceRoost] forwarding drain error: ${(err as Error).message}`)
+      opts.log?.(`[TraceRoost] Forwarding drain error: ${(err as Error).message}`)
     } finally {
       draining = false
       opts.onDrainComplete?.()

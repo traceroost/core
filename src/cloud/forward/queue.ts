@@ -218,7 +218,7 @@ export class ForwardQueue {
     // Oldest-first eviction past the cap.
     if (next.length > this.maxItems) {
       const evicted = next.length - this.maxItems
-      this.log?.(`[TraceRoost] forward queue at capacity (${this.maxItems}) — evicting ${evicted} oldest unsent item(s) to make room; they will not be sent`)
+      this.log?.(`[TraceRoost] Forward queue at capacity (${this.maxItems}) — evicting ${evicted} oldest unsent item(s) to make room; they will not be sent`)
       this.writeAll(next.slice(evicted))
     } else {
       this.writeAll(next)

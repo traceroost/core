@@ -860,7 +860,7 @@ function CostSection() {
       <div class="help-overview-body">
 
         <h4 style={subHeadStyle} id="help-plan-limits">Plan limits: your 5-hour and weekly windows</h4>
-        <p>On a Claude Pro/Max or ChatGPT plan you don't pay per token. What runs out is your plan's <strong>5-hour</strong> and <strong>weekly</strong> usage windows. When Claude Code or Codex has recorded them, TraceRoost shows how full each window is (Analytics → Plan limits, and the sidebar), how much of it each trace used (the Traces table's <em>Limit used</em> column), when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save.</p>
+        <p>On a Claude Pro/Max or ChatGPT plan you don't pay per token. What runs out is your plan's <strong>5-hour</strong> and <strong>weekly</strong> usage windows. When Claude Code or Codex has recorded them, TraceRoost shows how full each window is (Analytics → Plan limits, and the sidebar), how much of it each trace used (the Traces table's <em>Plan limit used</em> column), when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save.</p>
         <p>It reads only files those tools already write on your machine:</p>
         <ul style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.8">
           <li><strong style="color:var(--fg)">Codex</strong>: the <code style={codeStyle}>rate_limits</code> on each turn in <code style={codeStyle}>~/.codex/sessions/…/rollout-*.jsonl</code>. Exact, per turn.</li>

@@ -43,7 +43,7 @@ export async function maybeForwardOnContentChange(
     const added = new ForwardQueue(undefined, undefined, log).enqueue(built.payload)
     return added ? { enqueued: true } : { enqueued: false, reason: 'duplicate' }
   } catch (err) {
-    log?.(`[TraceRoost] could not forward session on content change: ${(err as Error).message}`)
+    log?.(`[TraceRoost] Could not forward session on content change: ${(err as Error).message}`)
     return { enqueued: false, reason: 'error' }
   }
 }
