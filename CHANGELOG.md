@@ -2,6 +2,27 @@
 
 All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
+## [0.18.1] — 2026-10-01
+
+### Added
+
+- **Codex plans with no 5-hour or weekly window now show in Plan limits** — a ChatGPT Business account reports no windows (it's billed in credits), so Plan limits used to stay hidden and looked broken. It now shows a Codex card with the plan and its credit state, and turns red with "Spend limit reached" when Codex reports one (#268)
+
+### Fixed
+
+- **Plan limits could stay hidden in the npx/service dashboard** — the page received its first server messages, including the plan-limit snapshot, before the dashboard had finished loading, and dropped them. Sessions still appeared, but Plan limits didn't until the readings next changed, so it showed on some loads and not others. Those first messages are now held until the dashboard is ready (#268)
+- **The browser tab kept the old AgentLens icon** at `localhost:3000` after upgrading, because browsers cache a favicon by URL and AgentLens used the same one. The icon URL now changes with each version (#267)
+- **Traces table spacing** — the narrow number columns were spread apart with wide gaps on a wide panel, and the Agent / Start column could cut off its time. The Prompt column now takes the spare width (#270)
+
+### Changed
+
+- **"Limit used" is now "Plan limit used"** in the Traces table, and the Sig column is blank when a trace has no signals, like Outcome (#270)
+- **Quieter, consistent logs** — `[TraceRoost]` log messages are consistently capitalized, and the per-request "N log events ingested" line is gone (#270)
+- **Help and disclaimer** — Help's plan-limits section covers credit-billed plans and why Plan limits might not show; the disclaimer says TraceRoost also reads the agents' local log files and databases, and that vendors can change those formats without notice (#271, #272)
+- **Test fixes** — the unit suite now also passes inside a real VS Code, two outdated demo fixtures are corrected, and CI runs the fixture check. No user-facing product change (#269)
+
+---
+
 ## [0.18.0] — 2026-10-01
 
 ### Added
