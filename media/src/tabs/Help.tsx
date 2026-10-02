@@ -1306,7 +1306,10 @@ export function Help() {
         <BadgesSection />
         <GlossarySection />
         <p style="font-size:11px;color:var(--muted);margin-top:24px;padding-top:12px;border-top:1px solid var(--border);line-height:1.6">
-          <strong>Disclaimer:</strong> TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); or OpenAI, LLC (Codex / Codex CLI). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products solely through their publicly documented OpenTelemetry telemetry interfaces.
+          <strong>Disclaimer:</strong> TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); or OpenAI, LLC (Codex / Codex CLI). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products only through their telemetry interfaces and the log files and databases they write locally on your machine.
+        </p>
+        <p style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6">
+          <strong>Third-party changes:</strong> TraceRoost depends on log formats, telemetry, pricing, and plan-limit information controlled by third-party vendors, including Anthropic, OpenAI, GitHub/Microsoft, Cursor, and OpenCode. These vendors may change, deprecate, or remove their products, APIs, log formats, telemetry, pricing, or usage limits at any time, without notice. Such upstream changes are outside the control of TraceRoost and its maintainers, and may cause TraceRoost to show incomplete, inaccurate, or missing data, or to stop working in whole or in part. TraceRoost and its maintainers are not responsible or liable for any impact of those changes, including on costs, charges, rate limits, quotas, or decisions made based on data TraceRoost reports. TraceRoost is provided &ldquo;as is&rdquo;, without warranty of any kind, as stated in its license.
         </p>
       </div>
     </div>
