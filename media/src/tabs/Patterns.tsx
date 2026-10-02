@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'preact/hooks'
 import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode, availableWorkspaces, workspaceFilter } from '../state'
-import { Instructions, instructionFiles } from './Instructions'
+import { Instructions, instructionFiles, instructionsAcrossWorkspaces } from './Instructions'
 import { getAgentSourceLabel, formatSessionTime } from '../utils'
 import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
@@ -352,9 +352,10 @@ function actionTipFor(a: CostSavingAction): string | null {
  *  See .staged-issues/value-prop-and-cost-savings.md, Step 1. */
 /** Suggests narrowing to one repo via the header's REPO filter: instruction-file suggestions are
  *  only as specific as the traces behind them. Gone once a repo is chosen, when there's only one
- *  repo (the filter isn't shown), or when this window's open folder already scopes them. */
+ *  repo (the filter isn't shown), when this window's open folder already scopes them, or in the
+ *  standalone dashboard, where they're already grouped per repo and each group applies to its own. */
 function RepoFilterHint() {
-  if (workspaceFilter.value.trim() !== '' || availableWorkspaces.value.length < 2 || currentWorkspace.value !== null) return null
+  if (workspaceFilter.value.trim() !== '' || availableWorkspaces.value.length < 2 || currentWorkspace.value !== null || instructionsAcrossWorkspaces()) return null
   const focusRepo = () => {
     const el = document.getElementById('tr-filter-repo') as HTMLInputElement | null
     if (!el) return

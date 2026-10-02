@@ -1233,7 +1233,7 @@ traceroost/
 │   ├── loopDetector.ts           # Loop signal detection; shares getFileEditCounts with oneShotRate.ts
 │   ├── instructionAdvisor.ts     # Advisor tab analysis — hot files, loop patterns, high turn counts
 │   ├── instructionEffectiveness.ts # Before/after baseline metrics for applied instruction suggestions
-│   ├── instructionFiles.ts       # Detects/reads/writes CLAUDE.md, copilot-instructions.md, AGENTS.md
+│   ├── instructionFiles.ts       # Detects/reads/writes CLAUDE.md, copilot-instructions.md, AGENTS.md, .cursor/rules/traceroost.mdc
 │   ├── serviceConfig.ts          # Background-service config file + launchd/systemd/Windows-task generators (pure, tested)
 │   ├── httpSecurity.ts           # Shared hardening for the 3 standalone servers (UI/OTLP/MCP): Host-header validation (anti-DNS-rebinding) + bearer-token auth
 │   ├── portResolver.ts           # Requested-vs-actually-bound port tracking so no consumer (auto-configure, dashboard URL, MCP endpoint) points at a dead port

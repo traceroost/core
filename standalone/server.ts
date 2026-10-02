@@ -144,11 +144,6 @@ const DATA_DIR  = process.env.DATA_DIR ?? fileConfig.dataDir
 const DATA_FILE = path.join(DATA_DIR, 'spans.json')
 // Applied/dismissed instruction suggestions — the extension's instruction_applied/_dismissed tables.
 const INSTRUCTIONS_FILE = path.join(DATA_DIR, 'instruction-suggestions.json')
-// This server's counterpart of the extension's open folder (workspaceFolders[0]), which the
-// Instructions tab scopes to and applies into: the repo `npx traceroost` was started in. Not the
-// background service's working directory, which is wherever the service manager put it.
-const CURRENT_WORKSPACE: string | null = process.env.TRACEROOST_SERVICE !== '1' && fs.existsSync(path.join(process.cwd(), '.git'))
-  ? process.cwd() : null
 
 // Running as the background service: record this process so `traceroost service stop/uninstall`
 // can end it on Windows, where ending the Scheduled Task only kills the wrapper cmd.exe and not
@@ -1496,7 +1491,6 @@ function getHtml(): string {
     window.__INITIAL_SESSION_REV__ = ${sessionRev};
     window.__INITIAL_COLLECTOR_CONFLICT__ = ${JSON.stringify(collectorConflict)};
     window.__INITIAL_LOG_INGEST__ = ${JSON.stringify(logIngestProgress)};
-    window.__INITIAL_CURRENT_WORKSPACE__ = ${safeJsonText(JSON.stringify(CURRENT_WORKSPACE))};
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(PACKAGE_VERSION)};
 
@@ -2250,8 +2244,9 @@ const INSTRUCTION_POST_ROUTES = new Map([
   ['/api/instructions/remove', 'removeInstructionSuggestion'],
 ])
 
+// No "current workspace": every message names its own, which instructionActions.ts accepts only if
+// a recorded session ran there — so the Instructions tab covers every repo on this machine.
 const instructionHost: InstructionHost = {
-  root: CURRENT_WORKSPACE,
   sessions: () => buildSessionSummary()?.sessions ?? [],
   load: () => loadInstructionState(INSTRUCTIONS_FILE),
   save: (state) => saveInstructionState(INSTRUCTIONS_FILE, state),
@@ -2295,7 +2290,7 @@ function emitInstructionTelemetry(workspace: string): void {
     dismissed: state.dismissed.filter(d => d.workspace === workspace).map(d => ({ id: d.id, atIso: d.dismissedAt })),
     reverted: [],
   }
-  void cloud.enqueueInstructionTelemetry(CURRENT_WORKSPACE ?? workspace, buildSessionSummary()?.sessions ?? [], ledger)
+  void cloud.enqueueInstructionTelemetry(workspace, buildSessionSummary()?.sessions ?? [], ledger)
     .then(enqueued => { if (enqueued) cloud.drainUploadsSoon() })
     .catch(() => { /* telemetry is best-effort */ })
 }

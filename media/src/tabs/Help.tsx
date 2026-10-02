@@ -808,13 +808,13 @@ function PatternsSection() {
     <div class="help-section" id="help-advisor">
       <h3 class="help-heading">{HELP_SECTIONS.patterns.heading}</h3>
       <div class="help-overview-body">
-        <p>The Advisor tab analyzes your trace history to surface actionable improvements for your agent instruction file. All panels respect the shared filter bar — select a specific project from the workspace filter for suggestions tailored to that project's files and behavior. With no project selected, only patterns universal across all workspaces surface.</p>
+        <p>The Advisor tab analyzes your trace history to surface actionable improvements for your agent instruction file. All panels respect the shared filter bar. Instruction-file suggestions are always worked out per repo, from that repo's traces only: in VS Code they cover the folder the window has open; in standalone/npx mode they cover every repo in your traces, one group per repo (repo name and path), and the Repo filter narrows which groups show.</p>
 
         <h4 style={subHeadStyle}>How to Spend Less</h4>
         <p style={mutedP}>When there's something to act on, the Advisor opens with one ranked list of the biggest savings — loop signals, hot files, and cache problems combined — ranked by priority, with an estimated dollar (or weekly plan-limit) saving where one can be priced, so you can start at the top.</p>
 
         <h4 style={subHeadStyle}>Instructions File</h4>
-        <p style={mutedP}>TraceRoost scans trace patterns and generates specific, ready-to-copy suggestions for improving your instruction file (CLAUDE.md, AGENTS.md, .github/copilot-instructions.md, or similar). Suggestions are grouped by type:</p>
+        <p style={mutedP}>TraceRoost scans trace patterns and generates specific, ready-to-copy suggestions for improving your instruction file — <code>CLAUDE.md</code> (Claude Code), <code>.github/copilot-instructions.md</code> (Copilot), <code>AGENTS.md</code> (read by Codex, OpenCode and the Cursor CLI) or <code>.cursor/rules/traceroost.mdc</code> (a Cursor project rule, created with <code>alwaysApply: true</code> frontmatter). Each card lists the agents it applies to. Suggestions are grouped by type:</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Hot file context</dt>
@@ -837,7 +837,7 @@ function PatternsSection() {
             <dd class="glossary-def" style="display:block">Triggered when a significant share of traces exceed 1.5× the average turn count, indicating missing upfront context. Works for all agent types including Copilot.</dd>
           </div>
         </div>
-        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost only writes to your instruction file when you click Apply</strong> — it appends the suggestion as a block wrapped in <code>&lt;!-- TraceRoost suggestion … --&gt;</code> markers, and Remove deletes exactly that block, never text you wrote around it. Copy-and-paste works too, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it).</p>
+        <p style={mutedP}>Each suggestion card shows a <strong>Recommended addition</strong> — text ready to paste into your instruction file — and an <strong>Ask your agent</strong> prompt you can copy and send directly to your agent to get its own recommendation. Both have Copy buttons. <strong>TraceRoost only writes to your instruction file when you click Apply</strong> — it appends the suggestion as a block wrapped in <code>&lt;!-- TraceRoost suggestion … --&gt;</code> markers, and Remove deletes exactly that block, never text you wrote around it. Copy-and-paste works too, applied by you (or by the agent, if you paste the "Ask your agent" prompt into it). Apply writes into the repo the suggestion came from (in VS Code, the open folder) — pick the file from the card's picker; "(create)" marks one that doesn't exist yet. In standalone mode a repo whose folder has since been moved or deleted keeps its suggestions but not the Apply button.</p>
 
         <h4 style={subHeadStyle}>Efficiency Map</h4>
         <p style={mutedP}>A scatter plot where each dot is one trace. Right = more expensive. Up = more LLM calls. Color = cache hit rate (green ≥60%, orange 20–60%, red &lt;20%). Click a dot to navigate to that trace. The table below shows the top 10 traces sorted by the active column — click any column header to re-sort.</p>

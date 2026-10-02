@@ -269,13 +269,15 @@ export class DashboardPanel {
         const wsFolders = vscode.workspace.workspaceFolders
         const wsRoot = (wsFolders?.[0]?.uri.fsPath) ?? (msg.workspace as string)
         const files = detectInstructionFiles(wsRoot)
-        this.panel.webview.postMessage({ type: 'instructionFiles', files })
+        // Replies name the workspace they answer for, so the webview can key its state by it
+        // (the standalone server's replies do the same for every repo it serves).
+        this.panel.webview.postMessage({ type: 'instructionFiles', workspace: msg.workspace, files })
       } else if (msg.type === 'getAppliedSuggestions' && msg.workspace && this.instructionRepo) {
         const records = this.instructionRepo.getApplied(msg.workspace as string)
-        this.panel.webview.postMessage({ type: 'appliedSuggestions', records })
+        this.panel.webview.postMessage({ type: 'appliedSuggestions', workspace: msg.workspace, records })
       } else if (msg.type === 'getDismissedSuggestions' && msg.workspace && this.instructionRepo) {
         const ids = this.instructionRepo.getDismissedIds(msg.workspace as string)
-        this.panel.webview.postMessage({ type: 'dismissedSuggestions', ids })
+        this.panel.webview.postMessage({ type: 'dismissedSuggestions', workspace: msg.workspace, ids })
       } else if (msg.type === 'applyInstructionSuggestion' && msg.id && msg.workspace && this.instructionRepo) {
         const { id, workspace, targetFile, appliedText, category, title, suggestedText } = msg as {
           id: string; workspace: string; targetFile: string; appliedText: string
@@ -304,7 +306,7 @@ export class DashboardPanel {
             baselineInsufficient: baseline.insufficient,
           })
           const records = this.instructionRepo.getApplied(workspace)
-          this.panel.webview.postMessage({ type: 'appliedSuggestions', records })
+          this.panel.webview.postMessage({ type: 'appliedSuggestions', workspace, records })
           this.panel.webview.postMessage({ type: 'instructionApplied', id })
           this.emitInstructionTelemetry(workspace)
         } catch (err) {
@@ -323,7 +325,7 @@ export class DashboardPanel {
           removeSuggestion(absPath, id, applied.appliedText)
           this.instructionRepo.removeApplied(id)
           const records = this.instructionRepo.getApplied(workspace)
-          this.panel.webview.postMessage({ type: 'appliedSuggestions', records })
+          this.panel.webview.postMessage({ type: 'appliedSuggestions', workspace, records })
           this.emitInstructionTelemetry(workspace)
         }
       }

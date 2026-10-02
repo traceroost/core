@@ -7,8 +7,14 @@
  * acquireVsCodeApi polyfill re-dispatches the returned `messages` exactly as the extension host
  * would have posted them.
  *
+ * Unlike the extension, which acts only on the folder its window has open, this server serves every
+ * repo on the machine: each message names its workspace, and the workspace must be one the
+ * recorded sessions actually ran in (knownWorkspace) — never an arbitrary path from the page.
+ *
  * Applied/dismissed records live in one JSON file (the extension keeps them in its SQLite
- * instruction_applied / instruction_dismissed tables; everything else this server persists is JSON).
+ * instruction_applied / instruction_dismissed tables; everything else this server persists is JSON),
+ * keyed by (workspace, id): the same suggestion id (e.g. behavior:high_turns) can be applied in
+ * several repos independently.
  */
 import * as fs from 'fs'
 import * as path from 'path'
@@ -43,10 +49,8 @@ export interface InstructionResult {
 }
 
 export interface InstructionHost {
-  /** The folder this server treats as open — the counterpart of the extension's
-   *  vscode.workspace.workspaceFolders[0]. Files are resolved against it when set, and against the
-   *  message's own `workspace` otherwise, exactly as dashboardPanel.ts falls back. */
-  root: string | null
+  /** Every recorded session; their `workspace` values are the only folders this server reads
+   *  instruction files from or writes them into. */
   sessions(): SessionSummaryCard[]
   load(): InstructionState
   save(state: InstructionState): void
@@ -74,6 +78,21 @@ export function saveInstructionState(file: string, state: InstructionState): voi
   fs.renameSync(tmp, file)
 }
 
+/** `workspace` is the exact folder of at least one recorded session. That, not anything the page
+ *  sends, is what makes it a place this server may read or write instruction files in. */
+export function knownWorkspace(workspace: string, sessions: SessionSummaryCard[]): boolean {
+  return workspace !== '' && path.isAbsolute(workspace) && sessions.some(s => s.workspace === workspace)
+}
+
+function folderExists(dir: string): boolean {
+  try { return fs.statSync(dir).isDirectory() } catch { return false }
+}
+
+const unknownWorkspace = (workspace: string): InstructionResult =>
+  fail(400, `TraceRoost: ${workspace} is not a workspace in the recorded sessions.`)
+const missingFolder = (workspace: string): InstructionResult =>
+  fail(409, `TraceRoost: ${workspace} no longer exists on this machine.`)
+
 /** Newest first, like InstructionRepository.getApplied. */
 function appliedFor(state: InstructionState, workspace: string): AppliedSuggestion[] {
   return state.applied
@@ -90,42 +109,48 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
   const type = str(m.type)
   const workspace = str(m.workspace)
   const id = str(m.id)
-  const wsRoot = host.root ?? workspace
 
   if (type === 'getInstructionFiles') {
-    if (!wsRoot) return fail(400, 'workspace is required')
-    return ok([{ type: 'instructionFiles', files: detectInstructionFiles(wsRoot) }])
+    if (!workspace) return fail(400, 'workspace is required')
+    if (!knownWorkspace(workspace, host.sessions())) return unknownWorkspace(workspace)
+    // A repo that has since been moved or deleted: nothing to list, and the page hides Apply.
+    if (!folderExists(workspace)) return ok([{ type: 'instructionFiles', workspace, files: [], missing: true }])
+    return ok([{ type: 'instructionFiles', workspace, files: detectInstructionFiles(workspace) }])
   }
   if (type === 'getAppliedSuggestions') {
     if (!workspace) return fail(400, 'workspace is required')
-    return ok([{ type: 'appliedSuggestions', records: appliedFor(host.load(), workspace) }])
+    return ok([{ type: 'appliedSuggestions', workspace, records: appliedFor(host.load(), workspace) }])
   }
   if (type === 'getDismissedSuggestions') {
     if (!workspace) return fail(400, 'workspace is required')
     const ids = host.load().dismissed.filter(d => d.workspace === workspace).map(d => d.id)
-    return ok([{ type: 'dismissedSuggestions', ids }])
+    return ok([{ type: 'dismissedSuggestions', workspace, ids }])
   }
 
   if (!id || !workspace) return fail(400, 'id and workspace are required')
+  if (!knownWorkspace(workspace, host.sessions())) return unknownWorkspace(workspace)
 
   if (type === 'applyInstructionSuggestion') {
     const targetFile = m.targetFile
     const appliedText = str(m.appliedText)
     // targetFile names an instruction file in the workspace (CLAUDE.md, AGENTS.md, …);
     // `../../.bashrc` or an absolute path elsewhere must not become a write target.
-    if (!targetFile || typeof targetFile !== 'string' || !isStrictlyInside(wsRoot, targetFile)) {
+    if (!targetFile || typeof targetFile !== 'string' || !isStrictlyInside(workspace, targetFile)) {
       return fail(400, `TraceRoost: Refusing to apply suggestion — ${String(targetFile)} is outside the workspace.`)
     }
     if (!appliedText) return fail(400, 'appliedText is required')
+    // Don't recreate a deleted repo's folder just to hold one instruction file.
+    if (!folderExists(workspace)) return missingFolder(workspace)
     try {
-      appendSuggestion(path.resolve(wsRoot, targetFile), appliedText, id)
+      appendSuggestion(path.resolve(workspace, targetFile), appliedText, id)
       const nowMs = host.now?.() ?? Date.now()
       const sessions = host.sessions().filter(s => (s.workspace ?? '') === workspace)
       const baseline = computeBaseline(sessions, nowMs)
       const appliedAt = new Date(nowMs).toISOString()
       const state = host.load()
-      // INSERT OR REPLACE on id, as InstructionRepository.recordApplied does.
-      state.applied = state.applied.filter(a => a.id !== id)
+      // INSERT OR REPLACE, as InstructionRepository.recordApplied does — but on (workspace, id), so
+      // applying a suggestion in one repo leaves another repo's record of the same id alone.
+      state.applied = state.applied.filter(a => !(a.id === id && a.workspace === workspace))
       state.applied.push({
         id, workspace,
         category: str(m.category), title: str(m.title), suggestedText: str(m.suggestedText),
@@ -138,7 +163,7 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
       })
       host.save(state)
       return ok([
-        { type: 'appliedSuggestions', records: appliedFor(state, workspace) },
+        { type: 'appliedSuggestions', workspace, records: appliedFor(state, workspace) },
         { type: 'instructionApplied', id },
       ], workspace)
     } catch (err) {
@@ -162,17 +187,20 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
     // Nothing recorded: the extension does nothing either.
     if (!applied) return ok([])
     // appliedTo was checked on the way in; check again rather than trust a hand-edited state file.
-    if (!isStrictlyInside(wsRoot, applied.appliedTo)) {
+    if (!isStrictlyInside(workspace, applied.appliedTo)) {
       return fail(400, `TraceRoost: Refusing to remove suggestion — ${applied.appliedTo} is outside the workspace.`)
     }
+    // The block can't be taken out of a file that isn't there (an unmounted drive, a moved repo);
+    // keep the record rather than forget text that may still be in it.
+    if (!folderExists(workspace)) return missingFolder(workspace)
     try {
-      removeSuggestion(path.resolve(wsRoot, applied.appliedTo), id, applied.appliedText)
+      removeSuggestion(path.resolve(workspace, applied.appliedTo), id, applied.appliedText)
     } catch (err) {
       return fail(500, `TraceRoost: Failed to remove suggestion — ${err}`)
     }
-    state.applied = state.applied.filter(a => a.id !== id)
+    state.applied = state.applied.filter(a => a !== applied)
     host.save(state)
-    return ok([{ type: 'appliedSuggestions', records: appliedFor(state, workspace) }], workspace)
+    return ok([{ type: 'appliedSuggestions', workspace, records: appliedFor(state, workspace) }], workspace)
   }
 
   return fail(400, `unknown message type: ${type}`)
