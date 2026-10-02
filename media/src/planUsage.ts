@@ -140,7 +140,7 @@ export function limitUsedLabel(u: SessionPlanUsage | undefined): string | null {
   return (u.approximate ? '≈ ' : '') + bits.join(' · ')
 }
 
-/** The Traces table shows its "Limit used" column only when some session in view has a value or
+/** The Traces table shows its "Plan limit used" column only when some session in view has a value or
  *  a hit. */
 export function showLimitColumn(sessions: Pick<SessionSummaryCard, 'sessionId'>[], s: PlanUsageSnapshot | null): boolean {
   if (!s) return false

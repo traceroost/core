@@ -88,7 +88,8 @@ const MAX_SIGNAL_ICONS = 3
 // then a "+N" overflow pill) rather than a bare tally — matches cloud's own Signals column so the
 // same struggle pattern reads the same way in both products.
 function SignalsCell({ signals }: { signals: LoopSignal[] }) {
-  if (!signals || signals.length === 0) return <span style="color:var(--muted)">—</span>
+  // Blank, not a dash, when there are none: the same as the Outcome and Plan limit used cells.
+  if (!signals || signals.length === 0) return null
   const byType = new Map<string, { severity: 'warning' | 'critical'; count: number; patterns: Map<string, number>; signalTypes: Set<LoopSignalType> }>()
   for (const s of signals) {
     const iconType = LOOP_SIGNAL_ICON_TYPE[s.type] ?? s.type
@@ -765,10 +766,13 @@ export function Sessions() {
   return (
     <div id="sessions-content" style="padding-top:8px">
       <div role="region" aria-label="Traces table" tabIndex={0}>
-      <table class="trace-table" style="width:100%;border-collapse:collapse;font-size:11px">
+      {/* Every column but Prompt has a fixed width, so a wide panel's spare space all goes to
+          Prompt instead of being spread across the narrow number columns as gaps. min-width
+          keeps Prompt at least 160px when every optional column is showing. */}
+      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${550 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 96 : 0) + 160}px`}>
         <colgroup>
-          <col style="width:8px" /><col style="width:18px" /><col style="width:132px" /><col style="width:92px" />
-          <col style="width:122px" />
+          <col style="width:8px" /><col style="width:18px" /><col style="width:196px" /><col style="width:92px" />
+          <col />
           {showWorkspace && <col style="width:110px" />}
           {showOutcome && <col style="width:36px" />}
           <col style="width:42px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
@@ -805,7 +809,7 @@ export function Sessions() {
             {sortHeader('total_tokens', 'Tokens', 'left', '<b>Tokens</b>\nAccumulated input and output tokens across all turns')}
             {sortHeader('cost', 'Est Cost')}
             {showLimit && (
-              <th scope="col" style={thSort + ';text-align:left'} title={`<b>Limit used</b>\nShare of your Claude or ChatGPT plan's 5-hour (5h) and weekly (wk) window this trace used. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Limit used</th>
+              <th scope="col" style={thSort + ';text-align:left'} title={`<b>Plan limit used</b>\nShare of your Claude or ChatGPT plan's 5-hour (5h) and weekly (wk) window this trace used. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Plan limit used</th>
             )}
           </tr>
         </thead>
