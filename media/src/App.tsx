@@ -30,7 +30,7 @@ import { Help } from './tabs/Help'
 import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
-import { instructionFiles, appliedSuggestions, dismissedIds } from './tabs/Instructions'
+import { receiveInstructionMessage } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
@@ -759,12 +759,9 @@ export function App() {
         if (msg.textFilter !== undefined) {
           sessionTextFilter.value = msg.textFilter
         }
-      } else if (msg.type === 'instructionFiles' && Array.isArray((msg as unknown as {files?: unknown}).files)) {
-        instructionFiles.value = (msg as unknown as {files: typeof instructionFiles.value}).files
-      } else if (msg.type === 'appliedSuggestions' && Array.isArray((msg as unknown as {records?: unknown}).records)) {
-        appliedSuggestions.value = (msg as unknown as {records: typeof appliedSuggestions.value}).records
-      } else if (msg.type === 'dismissedSuggestions' && Array.isArray((msg as unknown as {ids?: unknown}).ids)) {
-        dismissedIds.value = new Set((msg as unknown as {ids: string[]}).ids)
+      } else if (msg.type === 'instructionFiles' || msg.type === 'appliedSuggestions' || msg.type === 'dismissedSuggestions') {
+        // Each reply names the workspace it answers for; stored per workspace (see Instructions.tsx).
+        receiveInstructionMessage(msg as unknown as Record<string, unknown>)
       } else if (msg.type === 'reconfigureOtelResult' && msg.results) {
         otelReconfigureResult.value = msg.results
       } else if (msg.type === 'instructionApplied') {

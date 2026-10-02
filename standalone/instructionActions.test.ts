@@ -2,7 +2,8 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { handleInstructionMessage, loadInstructionState, saveInstructionState, type InstructionHost, type InstructionState } from './instructionActions'
+import { handleInstructionMessage, knownWorkspace, loadInstructionState, saveInstructionState, type InstructionHost, type InstructionState } from './instructionActions'
+import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 
 suite('standalone instruction actions', () => {
   let dir: string
@@ -17,10 +18,10 @@ suite('standalone instruction actions', () => {
   })
   teardown(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
-  function host(root: string | null = ws): InstructionHost {
+  /** A host whose recorded sessions ran in `workspaces` (just `ws` by default). */
+  function host(workspaces: string[] = [ws]): InstructionHost {
     return {
-      root,
-      sessions: () => [],
+      sessions: () => workspaces.map((w, i) => ({ sessionId: `s${i}`, workspace: w } as SessionSummaryCard)),
       load: () => loadInstructionState(stateFile),
       save: (s: InstructionState) => saveInstructionState(stateFile, s),
       now: () => Date.parse('2026-10-01T12:00:00Z'),
@@ -69,12 +70,75 @@ suite('standalone instruction actions', () => {
     assert.deepStrictEqual(loadInstructionState(stateFile).applied, [])
   })
 
-  test('the server root wins over the message workspace, as workspaceFolders[0] does', () => {
+  test('the workspace must be one the recorded sessions ran in', () => {
     const other = path.join(dir, 'other')
     fs.mkdirSync(other)
-    handleInstructionMessage(apply({ workspace: other }), host(ws))
-    assert.ok(fs.existsSync(path.join(ws, 'CLAUDE.md')))
+    for (const msg of [
+      apply({ workspace: other }),
+      { type: 'removeInstructionSuggestion', id: 'hot_file:a', workspace: other },
+      { type: 'dismissInstructionSuggestion', id: 'hot_file:a', workspace: other },
+      { type: 'getInstructionFiles', workspace: other },
+    ]) {
+      const r = handleInstructionMessage(msg, host([ws]))
+      assert.strictEqual(r.status, 400, String(msg.type))
+      assert.match(r.error ?? '', /not a workspace in the recorded sessions/)
+    }
     assert.strictEqual(fs.existsSync(path.join(other, 'CLAUDE.md')), false)
+    assert.strictEqual(fs.existsSync(stateFile), false)
+  })
+
+  test('knownWorkspace: exact, absolute session workspaces only', () => {
+    const sessions = [{ workspace: ws }, { workspace: '' }, { workspace: 'relative/repo' }, {}] as SessionSummaryCard[]
+    assert.strictEqual(knownWorkspace(ws, sessions), true)
+    assert.strictEqual(knownWorkspace(path.join(ws, 'sub'), sessions), false)
+    assert.strictEqual(knownWorkspace(path.dirname(ws), sessions), false)
+    assert.strictEqual(knownWorkspace(ws + path.sep, sessions), false)
+    assert.strictEqual(knownWorkspace('relative/repo', sessions), false)
+    assert.strictEqual(knownWorkspace('', sessions), false)
+  })
+
+  test('each recorded workspace applies into its own folder, with its own records', () => {
+    const other = path.join(dir, 'other')
+    fs.mkdirSync(other)
+    const h = host([ws, other])
+    handleInstructionMessage(apply(), h)
+    const r = handleInstructionMessage(apply({ workspace: other, targetFile: 'AGENTS.md', appliedText: 'Other.' }), h)
+    assert.strictEqual(r.status, 200)
+    assert.strictEqual(r.changed, other)
+    assert.strictEqual(r.messages[0].workspace, other)
+    assert.ok(fs.readFileSync(path.join(ws, 'CLAUDE.md'), 'utf8').includes('Always read a.ts first.'))
+    assert.ok(fs.readFileSync(path.join(other, 'AGENTS.md'), 'utf8').includes('Other.'))
+    assert.strictEqual(fs.existsSync(path.join(other, 'CLAUDE.md')), false)
+
+    // Same id in both repos: two records, and removing one leaves the other.
+    assert.deepStrictEqual(loadInstructionState(stateFile).applied.map(a => [a.workspace, a.id]).sort(),
+      [[ws, 'hot_file:a'], [other, 'hot_file:a']].sort())
+    const removed = handleInstructionMessage({ type: 'removeInstructionSuggestion', id: 'hot_file:a', workspace: other }, h)
+    assert.deepStrictEqual(removed.messages, [{ type: 'appliedSuggestions', workspace: other, records: [] }])
+    assert.strictEqual(fs.readFileSync(path.join(other, 'AGENTS.md'), 'utf8'), '')
+    const left = handleInstructionMessage({ type: 'getAppliedSuggestions', workspace: ws }, h)
+    assert.deepStrictEqual((left.messages[0].records as Array<{ id: string }>).map(a => a.id), ['hot_file:a'])
+
+    // Dismissals are per workspace too.
+    handleInstructionMessage({ type: 'dismissInstructionSuggestion', id: 'loop:x', workspace: other }, h)
+    assert.deepStrictEqual(handleInstructionMessage({ type: 'getDismissedSuggestions', workspace: ws }, h).messages,
+      [{ type: 'dismissedSuggestions', workspace: ws, ids: [] }])
+    assert.deepStrictEqual(handleInstructionMessage({ type: 'getDismissedSuggestions', workspace: other }, h).messages,
+      [{ type: 'dismissedSuggestions', workspace: other, ids: ['loop:x'] }])
+  })
+
+  test('a recorded workspace whose folder is gone lists no files and refuses apply/remove', () => {
+    handleInstructionMessage(apply(), host())
+    fs.rmSync(ws, { recursive: true, force: true })
+    const files = handleInstructionMessage({ type: 'getInstructionFiles', workspace: ws }, host())
+    assert.deepStrictEqual(files.messages, [{ type: 'instructionFiles', workspace: ws, files: [], missing: true }])
+    const r = handleInstructionMessage(apply({ id: 'loop:y' }), host())
+    assert.strictEqual(r.status, 409)
+    assert.match(r.error ?? '', /no longer exists/)
+    assert.strictEqual(fs.existsSync(ws), false, 'apply must not recreate the folder')
+    const rm = handleInstructionMessage({ type: 'removeInstructionSuggestion', id: 'hot_file:a', workspace: ws }, host())
+    assert.strictEqual(rm.status, 409)
+    assert.strictEqual(loadInstructionState(stateFile).applied.length, 1, 'the record is kept')
   })
 
   test('remove takes the block back out and replies with the remaining records', () => {
@@ -82,7 +146,7 @@ suite('standalone instruction actions', () => {
     handleInstructionMessage(apply(), host())
     const r = handleInstructionMessage({ type: 'removeInstructionSuggestion', id: 'hot_file:a', workspace: ws }, host())
     assert.strictEqual(r.status, 200)
-    assert.deepStrictEqual(r.messages, [{ type: 'appliedSuggestions', records: [] }])
+    assert.deepStrictEqual(r.messages, [{ type: 'appliedSuggestions', workspace: ws, records: [] }])
     assert.strictEqual(fs.readFileSync(path.join(ws, 'CLAUDE.md'), 'utf8'), '# Rules\n')
     // Unknown id: nothing to do, nothing posted — same as the extension.
     const none = handleInstructionMessage({ type: 'removeInstructionSuggestion', id: 'nope', workspace: ws }, host())
@@ -108,9 +172,9 @@ suite('standalone instruction actions', () => {
     }
     assert.strictEqual(loadInstructionState(stateFile).dismissed.length, 1)
     const r = handleInstructionMessage({ type: 'getDismissedSuggestions', workspace: ws }, host())
-    assert.deepStrictEqual(r.messages, [{ type: 'dismissedSuggestions', ids: ['loop:x'] }])
+    assert.deepStrictEqual(r.messages, [{ type: 'dismissedSuggestions', workspace: ws, ids: ['loop:x'] }])
     const other = handleInstructionMessage({ type: 'getDismissedSuggestions', workspace: '/elsewhere' }, host())
-    assert.deepStrictEqual(other.messages, [{ type: 'dismissedSuggestions', ids: [] }])
+    assert.deepStrictEqual(other.messages, [{ type: 'dismissedSuggestions', workspace: '/elsewhere', ids: [] }])
   })
 
   test('getInstructionFiles answers with an instructionFiles message', () => {
@@ -125,7 +189,7 @@ suite('standalone instruction actions', () => {
     assert.strictEqual(handleInstructionMessage(null, host()).status, 400)
     assert.strictEqual(handleInstructionMessage({ type: 'dismissInstructionSuggestion', workspace: ws }, host()).status, 400)
     assert.strictEqual(handleInstructionMessage({ type: 'getAppliedSuggestions' }, host()).status, 400)
-    assert.strictEqual(handleInstructionMessage({ type: 'getInstructionFiles' }, host(null)).status, 400)
+    assert.strictEqual(handleInstructionMessage({ type: 'getInstructionFiles' }, host()).status, 400)
     assert.strictEqual(handleInstructionMessage({ type: 'bogus', id: 'a', workspace: ws }, host()).status, 400)
     assert.strictEqual(handleInstructionMessage(apply({ appliedText: '' }), host()).status, 400)
     assert.strictEqual(fs.existsSync(stateFile), false)

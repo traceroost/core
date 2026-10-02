@@ -1,13 +1,16 @@
 /**
  * Instruction file detection and I/O for the Instruction Advisor feature.
- * Reads and writes CLAUDE.md, .github/copilot-instructions.md, and AGENTS.md.
+ * Reads and writes CLAUDE.md, .github/copilot-instructions.md, AGENTS.md and a Cursor project rule.
  */
 
 import * as fs from 'fs'
 import * as path from 'path'
 
 export interface InstructionFileStatus {
-  agent: 'claude_code' | 'copilot' | 'codex'
+  /** The agent this file is listed under (its primary reader). */
+  agent: 'claude_code' | 'copilot' | 'codex' | 'cursor'
+  /** Every agent that reads the file — AGENTS.md is shared by Codex, OpenCode and the Cursor CLI. */
+  agents: Array<'claude_code' | 'copilot' | 'codex' | 'opencode' | 'cursor'>
   label: string
   filePath: string        // absolute path
   relativePath: string    // relative to workspace root
@@ -15,15 +18,27 @@ export interface InstructionFileStatus {
   content: string         // empty string if file doesn't exist
 }
 
+/** Cursor's project rule TraceRoost writes into. Cursor reads `.cursor/rules/*.mdc` (and the Cursor
+ *  CLI also AGENTS.md); an .mdc rule only loads into every chat with `alwaysApply: true` in its
+ *  frontmatter, so TraceRoost keeps its own always-applied rule rather than appending to a user's
+ *  rule that may be scoped to some globs. */
+export const CURSOR_RULE_FILE = '.cursor/rules/traceroost.mdc'
+
+const CURSOR_RULE_FRONTMATTER =
+  '---\ndescription: Project guidance added from TraceRoost instruction suggestions\nalwaysApply: true\n---\n'
+
 const INSTRUCTION_FILE_DEFS: Array<{
   agent: InstructionFileStatus['agent']
+  agents: InstructionFileStatus['agents']
   label: string
   relative: string
   alternates?: string[]
 }> = [
-  { agent: 'claude_code', label: 'Claude Code',    relative: 'CLAUDE.md',                            alternates: ['.claude/CLAUDE.md'] },
-  { agent: 'copilot',     label: 'GitHub Copilot', relative: '.github/copilot-instructions.md' },
-  { agent: 'codex',       label: 'Codex',          relative: 'AGENTS.md' },
+  { agent: 'claude_code', agents: ['claude_code'], label: 'Claude Code', relative: 'CLAUDE.md', alternates: ['.claude/CLAUDE.md'] },
+  { agent: 'copilot', agents: ['copilot'], label: 'GitHub Copilot', relative: '.github/copilot-instructions.md' },
+  // One file, three readers: listed once so the picker doesn't offer AGENTS.md twice.
+  { agent: 'codex', agents: ['codex', 'opencode', 'cursor'], label: 'Codex · OpenCode', relative: 'AGENTS.md' },
+  { agent: 'cursor', agents: ['cursor'], label: 'Cursor', relative: CURSOR_RULE_FILE },
 ]
 
 export function detectInstructionFiles(workspaceRoot: string): InstructionFileStatus[] {
@@ -37,6 +52,7 @@ export function detectInstructionFiles(workspaceRoot: string): InstructionFileSt
         try { content = fs.readFileSync(abs, 'utf8') } catch { /* ignore */ }
         return {
           agent: def.agent,
+          agents: def.agents,
           label: def.label,
           filePath: abs,
           relativePath: rel,
@@ -48,6 +64,7 @@ export function detectInstructionFiles(workspaceRoot: string): InstructionFileSt
     // Primary path doesn't exist — return status for the primary (for create affordance)
     return {
       agent: def.agent,
+      agents: def.agents,
       label: def.label,
       filePath: path.join(workspaceRoot, def.relative),
       relativePath: def.relative,
@@ -65,8 +82,8 @@ function endMarkerFor(label: string): string {
   return `<!-- /TraceRoost suggestion id:${label} -->`
 }
 
-/** Append a suggestion block to an instruction file. Creates the file (and directory) if it doesn't exist.
- *  The block is bracketed by a start marker and an explicit end marker, so removeSuggestion can take
+/** Append a suggestion block to an instruction file. Creates the file (and directory) if it doesn't exist
+ *  — a new Cursor `.mdc` rule starting with the frontmatter that makes Cursor always apply it. The block is bracketed by a start marker and an explicit end marker, so removeSuggestion can take
  *  out exactly this block and never anything the user wrote after it. */
 export function appendSuggestion(filePath: string, text: string, label: string): void {
   const dir = path.dirname(filePath)
@@ -75,7 +92,8 @@ export function appendSuggestion(filePath: string, text: string, label: string):
   }
   const marker = `<!-- TraceRoost suggestion applied ${new Date().toISOString().slice(0, 10)} id:${label} -->`
   const block = `\n\n${marker}\n${text}\n${endMarkerFor(label)}\n`
-  fs.appendFileSync(filePath, block, 'utf8')
+  const header = filePath.endsWith('.mdc') && !fs.existsSync(filePath) ? CURSOR_RULE_FRONTMATTER : ''
+  fs.appendFileSync(filePath, header + block, 'utf8')
 }
 
 /**
