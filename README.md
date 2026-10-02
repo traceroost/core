@@ -8,7 +8,7 @@
 [![Windows E2E](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
 
-![TraceRoost dashboard showing OTEL traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.0bf8a13d8bf3.gif)
+![TraceRoost dashboard showing OTEL traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.a83a52c7ce2b.gif)
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. Nothing leaves your machine.
 
