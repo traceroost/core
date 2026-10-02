@@ -60,13 +60,15 @@ jobs:
       # Informational only: the target is 80% lines and branches, but nothing here can fail the
       # job (continue-on-error, no c8 thresholds). Reuses the test build the step above compiled;
       # `pnpm run test:coverage` is the local equivalent (it cleans and recompiles first).
+      # Runs on both legs: Windows-only branches (path handling, lock retries, service code) only
+      # show up in the Windows numbers. bash so the same script works on the Windows runner.
       - name: Unit test coverage (informational)
-        if: matrix.os == 'ubuntu-latest'
         continue-on-error: true
+        shell: bash
         run: |
           pnpm exec c8 mocha --reporter dot
           {
-            echo '### Unit test coverage'
+            echo "### Unit test coverage (${{ matrix.os }})"
             echo 'Target: 80% lines and branches (informational; does not fail CI).'
             echo '```'
             pnpm exec c8 report --reporter=text-summary
@@ -74,10 +76,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always() && matrix.os == 'ubuntu-latest'
+        if: always()
         continue-on-error: true
         with:
-          name: core-coverage-lcov
+          name: core-coverage-lcov-${{ matrix.os }}
           path: coverage/lcov.info
           if-no-files-found: ignore
           retention-days: 14
