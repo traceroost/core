@@ -293,6 +293,21 @@ function codexDisposeAudit() {
         attr('model', 'gpt-5.5'),
       ],
     }),
+    // Real Codex emits one response.completed per model turn — this one for the turn that chose
+    // the tool, the one below for the final answer. The summarizer counts these, and ignores
+    // tool_decision whenever a session has them, so a turn is never counted twice.
+    span({
+      traceId: sessionId, spanId: id(name + ':tool-turn-complete', 8), parentSpanId: promptId, name: 'codex.sse_event', at: 25_080, durationMs: 1,
+      attributes: [
+        ...baseAttrs,
+        attr('event.name', 'codex.sse_event'),
+        attr('event.kind', 'response.completed'),
+        attr('input_token_count', 34197),
+        attr('output_token_count', 432),
+        attr('cached_token_count', 7600),
+        attr('model', 'gpt-5.5'),
+      ],
+    }),
     span({
       traceId: sessionId, spanId: id(name + ':tool-result', 8), parentSpanId: promptId, name: 'codex.tool_result', at: 25_300, durationMs: 264,
       attributes: [
@@ -350,21 +365,24 @@ function claudeLoopRegression() {
   const rootId = id(name + ':root', 8)
   const spans = [
     span({
-      traceId, spanId: rootId, name: 'claude_code.interaction', at: 32_000, durationMs: 16000,
+      traceId, spanId: rootId, name: 'claude_code.interaction', at: 32_000, durationMs: 70_000,
       attributes: [
         attr('user_prompt', 'Build and push the Docker container'),
-        attr('interaction.duration_ms', 16000),
+        attr('interaction.duration_ms', 70_000),
       ],
     }),
   ]
 
-  for (let i = 0; i < 6; i++) {
+  // exact_tool_repeat fires at 30+ identical calls with no edit in between (src/loopDetector.ts,
+  // calibrated against real sessions in 2026-09), so the loop has to run at least that long.
+  const REPEATS = 30
+  for (let i = 0; i < REPEATS; i++) {
     const llmId = id(`${name}:llm:${i}`, 8)
     spans.push(span({
       traceId, spanId: llmId, parentSpanId: rootId, name: 'claude_code.llm_request', at: 32_400 + i * 2300, durationMs: 900,
       attributes: [
         attr('input_tokens', 6000 + i * 3200),
-        attr('output_tokens', 240 - i * 12),
+        attr('output_tokens', Math.max(40, 240 - i * 12)),
         attr('cache_read_tokens', i === 0 ? 0 : 6000 + (i - 1) * 3200),
         attr('gen_ai.request.model', 'claude-sonnet-4-6'),
         attr('stop_reason', 'tool_use'),

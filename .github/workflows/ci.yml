@@ -50,6 +50,13 @@ jobs:
       - name: Unit tests
         run: pnpm run test:unit
 
+      # Generates the demo span fixtures and checks each summarizes to what it expects (sessions,
+      # LLM and tool calls, loop signals). Nothing else ran it, so it failed unnoticed after the
+      # 2026-09 loop-signal recalibration.
+      - name: Fixture check
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm run fixtures:check
+
       # Informational only: the target is 80% lines and branches, but nothing here can fail the
       # job (continue-on-error, no c8 thresholds). Reuses the test build the step above compiled;
       # `pnpm run test:coverage` is the local equivalent (it cleans and recompiles first).
