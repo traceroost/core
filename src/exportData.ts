@@ -15,7 +15,18 @@ export function safeFilenamePart(raw: string, fallback: string): string {
   return cleaned || fallback
 }
 
-export async function exportSpans(spans: Span[], baseUri: vscode.Uri, prefix = 'export'): Promise<string[]> {
+/** Writes one export file. Defaults to VS Code's file system; tests pass their own, since a real
+ *  extension host's `vscode.workspace.fs` is read-only and can't be stubbed. */
+export type ExportFileWriter = (uri: vscode.Uri, data: Uint8Array) => Thenable<void>
+
+export interface ExportOptions {
+  prefix?: string
+  writeFile?: ExportFileWriter
+}
+
+export async function exportSpans(spans: Span[], baseUri: vscode.Uri, opts: ExportOptions = {}): Promise<string[]> {
+  const prefix = opts.prefix ?? 'export'
+  const writeFile = opts.writeFile ?? ((uri: vscode.Uri, data: Uint8Array) => vscode.workspace.fs.writeFile(uri, data))
   const sessions = summarizeSpans(spans).sessions
   const traceAgent: Record<string, string> = {}
   for (const session of sessions) {
@@ -46,7 +57,7 @@ export async function exportSpans(spans: Span[], baseUri: vscode.Uri, prefix = '
     const agent = parts[1] || 'unknown'
     const filename = `${prefix}_${agent}_${endpoint}_${timestamp}.json`
     const uri = vscode.Uri.joinPath(baseUri, filename)
-    await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(groupSpans, null, 2)))
+    await writeFile(uri, Buffer.from(JSON.stringify(groupSpans, null, 2)))
     writtenFiles.push(filename)
   }
 
@@ -95,6 +106,6 @@ function redactSpan(span: Span): Span {
   }
 }
 
-export async function exportSpansRedacted(spans: Span[], baseUri: vscode.Uri): Promise<string[]> {
-  return exportSpans(spans.map(redactSpan), baseUri, 'export_redacted')
+export async function exportSpansRedacted(spans: Span[], baseUri: vscode.Uri, opts: Pick<ExportOptions, 'writeFile'> = {}): Promise<string[]> {
+  return exportSpans(spans.map(redactSpan), baseUri, { ...opts, prefix: 'export_redacted' })
 }
