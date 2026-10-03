@@ -21,7 +21,7 @@ export const ORG_ENDPOINTS: Record<OrgEnvironment, string> = {
   test: 'https://test.traceroost.com',
 }
 
-const DEFAULT_ORG_ENVIRONMENT: OrgEnvironment = 'test'
+const DEFAULT_ORG_ENVIRONMENT: OrgEnvironment = 'stage'
 
 export function isOrgEnvironment(v: string): v is OrgEnvironment {
   return v === 'production' || v === 'stage' || v === 'test'
@@ -46,8 +46,8 @@ export interface ResolvedEnvironment {
  * localhost, or any other one-off target), then a named environment
  * (`TRACEROOST_ORG_ENV=test|stage|production`, settable via `.env` for `pnpm run local`), then a
  * selection persisted from the Org panel (`environmentSelection.ts`), then
- * `DEFAULT_ORG_ENVIRONMENT` (`test`). A non-release (development) build therefore talks to the
- * test stack unless told otherwise; only a release build is pinned to production.
+ * `DEFAULT_ORG_ENVIRONMENT` (`stage`). A non-release (development) build therefore talks to the
+ * stage stack unless told otherwise; only a release build is pinned to production.
  *
  * Only ever consulted pre-link (every call site for a linked machine passes `creds.endpoint`
  * explicitly instead) — so this, and the picker behind step four, only ever affects an unlinked
