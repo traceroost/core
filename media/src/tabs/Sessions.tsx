@@ -27,7 +27,7 @@ import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../si
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { languageLabel } from '../language'
 import { planUsage, showLimitColumn } from '../planUsage'
-import { LimitUsedCell, LimitHitBanner } from './PlanLimits'
+import { LimitUsedCell, LimitHitBanner, PlanLimitDetail } from './PlanLimits'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
@@ -89,7 +89,7 @@ const MAX_SIGNAL_ICONS = 3
 // then a "+N" overflow pill) rather than a bare tally — matches cloud's own Signals column so the
 // same struggle pattern reads the same way in both products.
 function SignalsCell({ signals }: { signals: LoopSignal[] }) {
-  // Blank, not a dash, when there are none: the same as the Outcome and Plan limit used cells.
+  // Blank, not a dash, when there are none: the same as the Outcome and Plan limit cells.
   if (!signals || signals.length === 0) return null
   const byType = new Map<string, { severity: 'warning' | 'critical'; count: number; patterns: Map<string, number>; signalTypes: Set<LoopSignalType> }>()
   for (const s of signals) {
@@ -303,6 +303,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   return (
     <div style="border-top:1px solid var(--border)" onClick={e => e.stopPropagation()}>
       <LimitHitBanner sessionId={sess.sessionId} />
+      <PlanLimitDetail sessionId={sess.sessionId} />
       {/* Identity line (Trace ID, Repo) on top, section tabs on their own line beneath it. */}
       <div style="display:flex;align-items:center;gap:0;padding:2px 8px 0;background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         <span
@@ -802,7 +803,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
           }
         </td>
 
-        {/* Plan limit used — Claude Code / Codex subscription windows; blank when there's no value. */}
+        {/* Plan limit — one Claude Code / Codex subscription window (5h, else weekly); blank when there's no value. */}
         {showLimit && (
           <td style="padding:4px 6px 4px 2px;text-align:left;font-size:10px;color:var(--muted)">
             <LimitUsedCell sessionId={sess.sessionId} />
@@ -916,7 +917,7 @@ export function Sessions() {
             {sortHeader('total_tokens', 'Tokens', 'left', '<b>Tokens</b>\nAccumulated input and output tokens across all turns')}
             {sortHeader('cost', 'Est Cost')}
             {showLimit && (
-              <th scope="col" style={thSort + ';text-align:left'} title={`<b>Plan limit used</b>\nShare of your Claude or ChatGPT plan's 5-hour (5h) and weekly (wk) window this trace used. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Plan limit used</th>
+              <th scope="col" style={thSort + ';text-align:left'} title={`<b>Plan limit</b>\nShare of your Claude or ChatGPT plan's 5-hour window this trace used (weekly when there's no 5-hour reading). Expand a trace for every window and any limit hits. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Plan limit</th>
             )}
           </tr>
         </thead>

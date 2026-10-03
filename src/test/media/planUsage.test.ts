@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import './domShim'
 import { makeCard } from './fixtures'
 import {
-  chart1Views, chart2Rollups, defaultChart1View, fiveHourLines, forAgentFilter, hasPlanData, limitUsedLabel,
+  chart1Views, chart2Rollups, defaultChart1View, fiveHourLines, forAgentFilter, hasPlanData, limitUsedLabel, planLimitWindows,
   showLimitColumn, weeklyPointsFor, windowlessPlans, type PlanUsageSnapshot, type LimitHit, type WindowRollup,
 } from '../../../media/src/planUsage'
 import { getCostSavingActions } from '../../../media/src/costSavingActions'
@@ -51,9 +51,14 @@ suite('planUsage — no data, no UI', () => {
   test('the Limit used label is blank without a value, ≈ when approximate, <1% for tiny shares', () => {
     assert.strictEqual(limitUsedLabel(undefined), null)
     assert.strictEqual(limitUsedLabel({ approximate: false }), null)
-    assert.strictEqual(limitUsedLabel({ fiveHourPct: 12.4, weeklyPct: 0.4, approximate: false }), '5h 12% · wk <1%')
+    assert.strictEqual(limitUsedLabel({ fiveHourPct: 12.4, weeklyPct: 0.4, approximate: false }), '5h 12%')
     assert.strictEqual(limitUsedLabel({ weeklyPct: 3, approximate: true }), '≈ wk 3%')
     assert.strictEqual(limitUsedLabel({ weeklyPct: 0, approximate: true }), '≈ wk 0%')
+    // The cell shows one window; the detail lists both.
+    assert.deepStrictEqual(planLimitWindows({ fiveHourPct: 12.4, weeklyPct: 0.4, approximate: false }), [
+      { label: '5-hour', pct: '12%' }, { label: 'Weekly', pct: '<1%' },
+    ])
+    assert.deepStrictEqual(planLimitWindows(undefined), [])
   })
 
   test('the column shows only when a session in view has a value or a hit', () => {

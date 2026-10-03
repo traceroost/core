@@ -9,7 +9,7 @@ import { activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPro
 import { getAgentColor } from '../utils'
 import { appliedSuggestions } from './Instructions'
 import {
-  planUsage, limitUsedLabel,
+  planUsage, limitUsedLabel, planLimitWindows,
   PROVIDER_LABEL, PROVIDER_SOURCE, WINDOW_LABEL, chart1Views, chart2Rollups, defaultChart1View, fiveHourHits,
   fiveHourLines, fmtPct, isPrimaryWindow, planLabel, windowlessPlans,
   type Chart1View, type LimitHit, type LimitProvider, type LimitSeries, type PlanMeter, type PlanStatus, type PlanUsageSnapshot,
@@ -509,21 +509,53 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
 
 // ── Traces table + trace detail ───────────────────────────────────────────────
 
-/** The Traces table's "Plan limit used" cell — blank (not 0%, not —) when the session has no value. */
+/** The Traces table's "Plan limit" cell — one window (limitUsedLabel), blank (not 0%, not —) when
+ *  the session has no value. The tooltip lists every window; the expanded trace shows them too. */
 export function LimitUsedCell({ sessionId }: { sessionId: string }) {
   const u = planUsage.value?.sessions[sessionId]
   const label = limitUsedLabel(u)
   const hits = u?.hits ?? []
   if (!label && hits.length === 0) return null
+  const windows = planLimitWindows(u)
   const tip = [
-    label ? `Share of your plan window this trace used${u?.approximate ? ' (approximate: estimated from occasional readings, or shared with traces running at the same time)' : ''}` : '',
+    windows.length > 0 ? `Share of your plan window this trace used${u?.approximate ? ' (approximate: estimated from occasional readings, or shared with traces running at the same time)' : ''}` : '',
+    ...windows.map(w => `${w.label}: ${u?.approximate ? '≈ ' : ''}${w.pct}`),
     ...hits.map(h => `${WINDOW_LABEL[h.windowKind]} limit hit ${fmtWhen(h.hitAt)}`),
+    'Expand the trace for details.',
   ].filter(Boolean).join('\n')
   return (
     <span title={tip} style="white-space:nowrap">
       {hits.length > 0 && <span style={`color:${CRITICAL};margin-right:4px`} aria-label="Limit hit">⛔</span>}
       {label}
     </span>
+  )
+}
+
+/** The expanded trace's plan-limit summary: every window this trace used, whether it's an
+ *  estimate, and each limit it hit with its reset — the detail the one-window table cell leaves
+ *  out. Renders nothing when the trace has no plan-limit data. */
+export function PlanLimitDetail({ sessionId }: { sessionId: string }) {
+  const u = planUsage.value?.sessions[sessionId]
+  const windows = planLimitWindows(u)
+  const hits = u?.hits ?? []
+  if (windows.length === 0 && hits.length === 0) return null
+  const clock = (ms: number) => new Date(ms).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+  return (
+    <div data-testid="plan-limit-detail" style="margin:8px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:11px;line-height:1.6">
+      <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-right:8px">Plan limit</span>
+      {windows.map(w => (
+        <span key={w.label} style="margin-right:12px;white-space:nowrap">
+          {w.label} <strong>{u?.approximate ? '≈ ' : ''}{w.pct}</strong>
+        </span>
+      ))}
+      {u?.approximate && <span style="color:var(--muted)">estimated from occasional readings</span>}
+      {hits.map((h, i) => (
+        <div key={i} style={`color:${CRITICAL}`}>
+          ⛔ {PROVIDER_LABEL[h.provider]} {WINDOW_LABEL[h.windowKind].toLowerCase()} limit hit {clock(h.hitAt)}
+          {h.resetsAt ? ` · reset ${clock(h.resetsAt)}` : ''}
+        </div>
+      ))}
+    </div>
   )
 }
 
