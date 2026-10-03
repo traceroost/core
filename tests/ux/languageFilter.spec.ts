@@ -3,7 +3,8 @@ import { sessions } from './fixtures'
 
 /**
  * The filter bar's Language select narrows the Traces table to traces whose primary or secondary
- * language matches; the Lang and Changes columns show the stored values ("—" when unrecorded);
+ * language matches; the Lang column shows the abbreviation (full name on hover), Lang and Changes
+ * show "—" when unrecorded;
  * Analytics gets a Language breakdown.
  */
 const LANGS = ['python', 'typescript', 'go', undefined] as const
@@ -33,12 +34,27 @@ test('Language filter narrows traces; Lang/Changes columns and the breakdown ren
   const rows = page.locator('#sessions-content tbody tr')
   await rows.first().waitFor()
   await expect(rows).toHaveCount(8)
-  await expect(page.locator('#sessions-content td.trace-language').filter({ hasText: 'Python' }).first()).toBeVisible()
+  // Compact cells show the short form (LANGUAGE_ABBREVIATIONS); the full name is in the title and
+  // aria-label, and the "+1" badge's title names both full languages.
+  const langCells = page.locator('#sessions-content td.trace-language')
+  const py = langCells.filter({ hasText: /^Py$/ }).first()
+  await expect(py).toBeVisible()
+  await expect(py).toHaveAttribute('title', 'Language: Python')
+  await expect(py).toHaveAttribute('aria-label', 'Language: Python')
+  const ts = langCells.filter({ hasText: /^TS\+1$/ }).first()
+  await expect(ts).toBeVisible()
+  await expect(ts).toHaveAttribute('title', 'Primary: TypeScript · Secondary: Python')
+  await expect(ts).toHaveAttribute('aria-label', 'Language: TypeScript + Python')
+  await expect(ts.locator('.trace-language-secondary')).toHaveAttribute('title', 'Primary: TypeScript · Secondary: Python')
+  await expect(langCells.filter({ hasText: /^Go$/ })).toHaveCount(2)
+  await expect(langCells.filter({ hasText: /TypeScript|Python/ })).toHaveCount(0)
   await expect(page.locator('#sessions-content td.trace-changes').filter({ hasText: '2f +12 −3' }).first()).toBeVisible()
-  await expect(page.locator('#sessions-content td.trace-language').filter({ hasText: '—' })).toHaveCount(2)
+  const unrecorded = langCells.filter({ hasText: /^—$/ })
+  await expect(unrecorded).toHaveCount(2)
+  await expect(unrecorded.first()).toHaveAttribute('aria-label', 'Language: not recorded')
 
   const select = page.locator('#tr-filter-language')
-  // Only languages some trace has are offered, in allowlist order.
+  // Only languages some trace has are offered, in allowlist order — full names, not abbreviations.
   await expect(select.locator('option')).toHaveText(['All', 'TypeScript', 'Python', 'Go'])
   // Python matches the 2 Python-primary traces and the 2 TypeScript traces with Python secondary.
   await select.selectOption('python')

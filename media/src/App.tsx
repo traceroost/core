@@ -2,13 +2,13 @@ import { signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   sessionSummary, toolCalls,
-  selectedAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
+  selectedAgentFilter, availableAgents, showAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
   sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
   dailyStats, lifetimeStats, burnRateData, searchResults, rangedSearchResults, exportSearchResults,
   timeRange, makeTimeRange, makeCustomTimeRange, TIME_PRESETS, CHART_MAX, type TimePreset, type TimeRange,
-  vscode, displaySessions, rangedSessions,
+  vscode, displaySessions,
   sessionTextFilter, filteredSessions, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
   sessionSortKey, sessionSortDir,
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
@@ -1252,12 +1252,11 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
     availableWorkspaces.value.forEach(ws => requestRepoHash(ws))
   }, [availableWorkspaces.value])
 
-  const isActive = range.preset !== 'all'
-  // For "All" time: use full unfiltered in-memory list (no limit, no agent filter)
-  // so pills reflect every agent that has ever recorded a session in memory.
-  // For bounded presets: use rangedSessions which merges DB history with in-memory.
-  const baseSessions = isActive ? rangedSessions.value : (sessionSummary.value?.sessions ?? [])
-  const presentSources = new Set(baseSessions.map(s => s.source))
+  // Agent pills: "All" plus only the agents loaded traces have (state.ts availableAgents, which
+  // also keeps a selected agent listed), in AGENT_FILTER_OPTIONS order. The row is hidden when
+  // there is nothing to choose between — see showAgentFilter.
+  const agentsWithPills = new Set<AgentFilter>(['all', ...availableAgents.value])
+  const agentOptions = AGENT_FILTER_OPTIONS.filter(o => agentsWithPills.has(o.value))
 
   return (
     <div class="time-range-bar" role="group" aria-label="Time and agent filters" style="display:flex;align-items:center;gap:0;padding:0 8px 6px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
@@ -1274,11 +1273,12 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         }}
       />
 
-      {/* Agent filter — hidden on tabs that don't need it */}
-      {!hideAgentFilter && (
-        <div style="display:flex;gap:3px;align-items:center;margin-left:20px">
+      {/* Agent filter — hidden on tabs that don't need it, and when at most one agent has data
+          and no agent is selected (showAgentFilter). */}
+      {!hideAgentFilter && showAgentFilter.value && (
+        <div class="tr-agent-filter" style="display:flex;gap:3px;align-items:center;margin-left:20px">
           <span style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
-          {AGENT_FILTER_OPTIONS.map(o => (
+          {agentOptions.map(o => (
             <button
               key={o.value}
               class="tr-pill"
