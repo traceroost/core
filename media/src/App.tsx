@@ -10,7 +10,7 @@ import {
   timeRange, makeTimeRange, makeCustomTimeRange, TIME_PRESETS, CHART_MAX, type TimePreset, type TimeRange,
   vscode, displaySessions,
   sessionTextFilter, filteredSessions, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
-  sessionSortKey, sessionSortDir,
+  sessionSortKey, sessionSortDir, sessionsPage,
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   collectorConflict, type CollectorConflict, logIngestProgress,
@@ -1390,6 +1390,7 @@ function FilterActionsBar() {
     timeRange.value = { preset: 'all' }
     sessionSortKey.value = 'start_time'
     sessionSortDir.value = 'desc'
+    sessionsPage.value = 0
   }
 
   if (!showReset && !showPaging) return null

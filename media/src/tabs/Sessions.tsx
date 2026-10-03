@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 import {
   filteredSessions, sessionSummary, sessionTimelines, gitOutcomes, burnRateData,
   focusedSessionId, vscode, ignoredInsightKeys,
-  sessionSortKey, sessionSortDir, type SortKey,
+  sessionSortKey, sessionSortDir, type SortKey, sessionsPage,
   goToHelp,
   getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
@@ -857,6 +857,8 @@ export function Sessions() {
       sessionSortKey.value = key
       sessionSortDir.value = 'desc'
     }
+    // A new order makes page 3's rows an arbitrary slice — start again from the top.
+    sessionsPage.value = 0
   }
 
   const thBase = 'padding:3px 2px;font-size:10px;font-weight:600;white-space:nowrap;user-select:none'
