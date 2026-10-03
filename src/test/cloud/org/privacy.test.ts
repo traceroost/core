@@ -30,7 +30,7 @@ suite('org/privacy', () => {
   test('whoSeesWhat is the consent screen\'s wording (cloud src/lib/privacy.ts), verbatim', () => {
     assert.strictEqual(
       whoSeesWhat(true, 'Acme'),
-      'Acme has per-developer numbers turned on — an admin, or a developer individually granted org visibility, sees your individual figures. You will see a marker saying so.',
+      "Acme has per-developer numbers turned on — an admin sees your individual figures. Other members, including a developer individually granted org visibility, see only what Acme's teammate-visibility settings allow. You will see a marker saying so.",
     )
     assert.strictEqual(
       whoSeesWhat(false, 'Acme'),
