@@ -133,14 +133,27 @@ export function hasPlanData(s: PlanUsageSnapshot | null): s is PlanUsageSnapshot
  *  value to show (the cell stays blank). */
 export function limitUsedLabel(u: SessionPlanUsage | undefined): string | null {
   if (!u) return null
-  const bits: string[] = []
-  if (u.fiveHourPct !== undefined) bits.push(`${WINDOW_SHORT.five_hour} ${fmtPct(u.fiveHourPct)}`)
-  if (u.weeklyPct !== undefined) bits.push(`${WINDOW_SHORT.weekly} ${fmtPct(u.weeklyPct)}`)
-  if (bits.length === 0) return null
-  return (u.approximate ? '≈ ' : '') + bits.join(' · ')
+  // One window, not both: the 5-hour window is the one a single trace moves and the one that
+  // blocks you mid-task, for Claude Code and Codex alike, so it leads; weekly only when there's
+  // no 5-hour reading. The trace's expanded detail shows every window (planLimitWindows).
+  const pick = u.fiveHourPct !== undefined
+    ? `${WINDOW_SHORT.five_hour} ${fmtPct(u.fiveHourPct)}`
+    : u.weeklyPct !== undefined ? `${WINDOW_SHORT.weekly} ${fmtPct(u.weeklyPct)}` : null
+  if (pick === null) return null
+  return (u.approximate ? '≈ ' : '') + pick
 }
 
-/** The Traces table shows its "Plan limit used" column only when some session in view has a value or
+/** Every window this trace has a reading for, in display order — the expanded trace detail and
+ *  the cell's tooltip list these, where the cell itself shows one (limitUsedLabel). */
+export function planLimitWindows(u: SessionPlanUsage | undefined): { label: string; pct: string }[] {
+  if (!u) return []
+  const rows: { label: string; pct: string }[] = []
+  if (u.fiveHourPct !== undefined) rows.push({ label: WINDOW_LABEL.five_hour, pct: fmtPct(u.fiveHourPct) })
+  if (u.weeklyPct !== undefined) rows.push({ label: WINDOW_LABEL.weekly, pct: fmtPct(u.weeklyPct) })
+  return rows
+}
+
+/** The Traces table shows its "Plan limit" column only when some session in view has a value or
  *  a hit. */
 export function showLimitColumn(sessions: Pick<SessionSummaryCard, 'sessionId'>[], s: PlanUsageSnapshot | null): boolean {
   if (!s) return false
