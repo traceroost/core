@@ -43,6 +43,24 @@ export type WireDataSource = 'otel' | 'log'
 /** Who or what started the session. Mirrors `SessionSummaryCard.initiator`. */
 export type WireInitiator = 'user' | 'agent' | 'api'
 
+/** The session's primary programming language — src/language.ts's LANGUAGE_IDS, verbatim (no
+ *  hyphenation; the ids are already wire-safe). A fixed-choice label like `agent`, never free
+ *  text: derived from file extensions on the machine, only the id leaves it. */
+export type WireLanguage =
+  | 'typescript' | 'javascript' | 'python' | 'go' | 'rust' | 'java' | 'csharp' | 'cpp'
+  | 'ruby' | 'php' | 'swift' | 'kotlin' | 'other' | 'none'
+
+export const WIRE_LANGUAGES: readonly WireLanguage[] = [
+  'typescript', 'javascript', 'python', 'go', 'rust', 'java', 'csharp', 'cpp',
+  'ruby', 'php', 'swift', 'kotlin', 'other', 'none',
+]
+
+/** Maps a local language id to the wire enum; anything unrecognised becomes undefined (the field
+ *  is then omitted), never passed through. */
+export function toWireLanguage(lang: string | null | undefined): WireLanguage | undefined {
+  return (WIRE_LANGUAGES as readonly string[]).includes(lang ?? '') ? lang as WireLanguage : undefined
+}
+
 export type WireLoopSignal =
   | 'context-flooding'
   | 'repeated-edit'
@@ -193,6 +211,18 @@ export interface SessionRollup {
    *  opaque, high-entropy token (a uuid or an OTEL trace id), not a guessable path, so it needs no
    *  org-scoped salt to stay uncorrelatable. */
   conversation_hash?: Sha256
+  /** Primary language (most common code language among the distinct files the session read or
+   *  changed) — see src/language.ts. Absent for a session built before language tracking. */
+  language?: WireLanguage
+  /** Second most common distinct language — never 'none'. Omitted (the schema also accepts null)
+   *  when only one language was touched. */
+  language_secondary?: Exclude<WireLanguage, 'none'> | null
+  /** Change size from the agent's own edit/write tool calls (src/editStats.ts) — counts only,
+   *  never paths or content, and not git stats. files_changed is the distinct file count; the
+   *  line counts are omitted when the source records no edit contents. */
+  files_changed?: number
+  lines_added?: number
+  lines_removed?: number
   /** Durable, monotonically increasing local revision number for this session's canonical trace
    *  snapshot (staged feature 10) -- see database/traceRevisionRepository.ts. Absent on a send
    *  built without a known revision (no reconciliation service available, or the session's

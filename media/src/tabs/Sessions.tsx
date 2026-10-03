@@ -25,6 +25,7 @@ import { LogIngestionNote } from './IngestionNote'
 import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
+import { languageLabel } from '../language'
 import { planUsage, showLimitColumn } from '../planUsage'
 import { LimitUsedCell, LimitHitBanner } from './PlanLimits'
 
@@ -204,6 +205,38 @@ function CopyIconButton({ value, label }: { value: string; label: string }) {
   )
 }
 
+/** "TypeScript", "TypeScript + Python", or "—" for a trace stored before language tracking. */
+function sessionLanguageText(sess: SessionSummaryCard): string {
+  const primary = languageLabel(sess.language)
+  return sess.languageSecondary ? `${primary} + ${languageLabel(sess.languageSecondary)}` : primary
+}
+
+function sessionLanguageTitle(sess: SessionSummaryCard): string {
+  if (!sess.language) return 'Language not recorded — this trace was stored before language tracking'
+  if (sess.language === 'none') return 'No code files read or changed (docs, config and lockfiles are not counted)'
+  return sess.languageSecondary
+    ? `Primary: ${languageLabel(sess.language)} · Secondary: ${languageLabel(sess.languageSecondary)}`
+    : `Language: ${languageLabel(sess.language)}`
+}
+
+/** "3f +120 −40" — files changed and agent-authored lines; "3f ?" when lines are unknown. */
+function sessionChangesText(sess: SessionSummaryCard): string {
+  if (sess.filesChangedCount === undefined) return '—'
+  if (sess.filesChangedCount === 0 && !sess.linesAdded && !sess.linesRemoved) return '0'
+  const lines = sess.linesAdded !== undefined && sess.linesRemoved !== undefined
+    ? ` +${formatCompact(sess.linesAdded)} −${formatCompact(sess.linesRemoved)}`
+    : ' ?'
+  return `${sess.filesChangedCount}f${lines}`
+}
+
+function sessionChangesTitle(sess: SessionSummaryCard): string {
+  if (sess.filesChangedCount === undefined) return 'Not recorded — this trace was stored before change-size tracking'
+  const files = `${sess.filesChangedCount} file${sess.filesChangedCount === 1 ? '' : 's'} changed`
+  return sess.linesAdded !== undefined && sess.linesRemoved !== undefined
+    ? `${files} · ${sess.linesAdded} lines added, ${sess.linesRemoved} removed by the agent's own edits`
+    : `${files} · line counts unavailable (this agent's data records no edit contents)`
+}
+
 function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   const [section, setSection] = useState<Section>('overview')
   const traceIdHash = formatTraceIdHash(sess.traceId || sess.sessionId)
@@ -350,6 +383,9 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;margin-bottom:10px">
               {[
                 { k: 'LLM calls',  v: String(sess.totalLlmCalls) },
+                { k: 'Language',   v: sessionLanguageText(sess) },
+                ...(sess.filesChangedCount !== undefined ? [{ k: 'Files changed', v: String(sess.filesChangedCount) }] : []),
+                ...(sess.linesAdded !== undefined && sess.linesRemoved !== undefined ? [{ k: 'Lines +/−', v: `+${formatCompact(sess.linesAdded)} / −${formatCompact(sess.linesRemoved)}` }] : []),
                 ...((sess.models?.length ?? 0) > 1 ? [{ k: 'Models', v: sess.models!.join(', ') }] : []),
                 { k: 'Tool calls', v: String(sess.totalToolCalls) },
                 { k: 'Input tokens', v: formatCompact(sess.inputTokens) },
@@ -631,6 +667,19 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
           )}
         </td>
 
+        {/* Language — primary, with the secondary (if any) in the hover title */}
+        <td class="trace-language" style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis" title={sessionLanguageTitle(sess)}>
+          {languageLabel(sess.language)}
+          {sess.languageSecondary && (
+            <span style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:9px;vertical-align:middle">+1</span>
+          )}
+        </td>
+
+        {/* Changes — agent-authored change size (src/editStats.ts), not git stats */}
+        <td class="trace-changes" style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums" title={sessionChangesTitle(sess)}>
+          {sessionChangesText(sess)}
+        </td>
+
         {/* Prompt (Trace ID) */}
         <td style="padding:4px 2px;overflow:hidden;max-width:140px">
           {prompt
@@ -707,7 +756,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
 
       {expanded && (
         <tr style="border-bottom:1px solid var(--vscode-panel-border)">
-          <td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)} style="padding:0">
+          <td colspan={12 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)} style="padding:0">
             <SessionDetail sess={sess} />
           </td>
         </tr>
@@ -769,9 +818,9 @@ export function Sessions() {
       {/* Every column but Prompt has a fixed width, so a wide panel's spare space all goes to
           Prompt instead of being spread across the narrow number columns as gaps. min-width
           keeps Prompt at least 160px when every optional column is showing. */}
-      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${550 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 96 : 0) + 160}px`}>
+      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${694 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 96 : 0) + 160}px`}>
         <colgroup>
-          <col style="width:8px" /><col style="width:18px" /><col style="width:196px" /><col style="width:92px" />
+          <col style="width:8px" /><col style="width:18px" /><col style="width:196px" /><col style="width:92px" /><col style="width:64px" /><col style="width:80px" />
           <col />
           {showWorkspace && <col style="width:110px" />}
           {showOutcome && <col style="width:36px" />}
@@ -790,6 +839,8 @@ export function Sessions() {
             <th scope="col" aria-sort={sortKey === 'model' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
               <button class="sort-button" onClick={() => onSortClick('model')}>Model{sortArrow('model')}</button>
             </th>
+            {sortHeader('language', 'Lang', 'left', '<b>Language</b>\nMost common code language among the files the agent read or changed (README/config/lockfiles excluded). "+1" means a second language was touched too — hover a cell. "—" means a trace stored before language tracking.')}
+            {sortHeader('lines', 'Changes', 'left', '<b>Changes</b>\nFiles the agent edited or wrote, and lines its own edit/write tool calls added (+) and removed (−). Agent-authored edits, not git commit stats. Lines show "?" when the agent\'s data records no edit contents.')}
             {sortHeader('prompt', 'Prompt (ID)')}
             {showWorkspace && (
               <th scope="col" aria-sort={sortKey === 'workspace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>

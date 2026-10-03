@@ -689,6 +689,11 @@ export class DashboardPanel {
         filesRead:        s.filesRead,
         filesChanged:     s.filesChanged,
         loopSignals:      s.loopSignals,
+        language:         s.language ?? null,
+        languageSecondary: s.languageSecondary ?? null,
+        filesChangedCount: s.filesChangedCount ?? null,
+        linesAdded:       s.linesAdded ?? null,
+        linesRemoved:     s.linesRemoved ?? null,
       }
       if (redact) return {
         ...base,
@@ -806,6 +811,8 @@ export class DashboardPanel {
 // ── Import helper ─────────────────────────────────────────────────────────────
 
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
+import { languageFromRecord } from './language'
+import { editStatsFromRecord } from './editStats'
 
 function buildImportCard(raw: Record<string, unknown>): SessionSummaryCard {
   const num = (v: unknown, def = 0): number => (typeof v === 'number' ? v : def)
@@ -839,6 +846,8 @@ function buildImportCard(raw: Record<string, unknown>): SessionSummaryCard {
     timeline:        [],
     backgroundSpans: [],
     loopSignals:     Array.isArray(raw['loopSignals']) ? raw['loopSignals'] as SessionSummaryCard['loopSignals'] : [],
+    ...languageFromRecord(raw, { filesRead: arr(raw['filesRead']), filesChanged: arr(raw['filesChanged']) }),
+    ...editStatsFromRecord(raw, arr(raw['filesChanged'])),
   }
 }
 

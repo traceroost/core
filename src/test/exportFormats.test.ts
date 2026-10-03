@@ -39,6 +39,20 @@ suite('exportFormats', () => {
   })
 
   suite('toCsv', () => {
+    test('includes language and change-size columns (blank when unrecorded)', () => {
+      const csv = toCsv([
+        makeSession({ language: 'python', languageSecondary: 'typescript', filesChangedCount: 2, linesAdded: 10, linesRemoved: 4 }),
+        makeSession({ sessionId: 'old' }),
+      ])
+      const [header, row, old] = csv.trim().split('\r\n')
+      assert.ok(header.includes('"Language","Secondary Language","Files Changed (count)","Lines Added","Lines Removed"'))
+      assert.ok(row.includes('"python","typescript","2","10","4"'))
+      assert.ok(old.includes('"","","","",""'))
+      const md = toMarkdown([makeSession({ language: 'go', filesChangedCount: 1, linesAdded: 3, linesRemoved: 0 })])
+      assert.ok(md.includes('- **Language:** go'))
+      assert.ok(md.includes('- **Change size:** 1 file changed, +3 / −0 lines'))
+    })
+
     test('emits a header row followed by one row per session', () => {
       const csv = toCsv([makeSession(), makeSession({ sessionId: 's2' })])
       const lines = csv.trim().split('\r\n')

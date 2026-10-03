@@ -181,8 +181,8 @@ suite('Copilot summarizer — file extraction', () => {
     assert.deepStrictEqual(s.filesChanged.sort(), ['/w/src/one.ts', '/w/src/two.ts'])
     const details = s.timeline.flatMap(e => e.editDetails ?? [])
     assert.deepStrictEqual(details, [
-      { filePath: '/w/src/one.ts', oldString: '  return 1', newString: '  return 2' },
-      { filePath: '/w/src/two.ts', oldString: undefined, newString: 'export const two = 2' },
+      { filePath: '/w/src/one.ts', toolName: 'apply_patch', oldString: '  return 1', newString: '  return 2' },
+      { filePath: '/w/src/two.ts', toolName: 'apply_patch', oldString: undefined, newString: 'export const two = 2' },
     ])
   })
 

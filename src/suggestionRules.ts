@@ -34,6 +34,22 @@ export interface SuggestionSession {
   loopSignals?: Array<{ type: string }>
   toolCounts?: Record<string, number>
   totalLlmCalls: number
+  /** Primary language id (src/language.ts) — only used to add context to evidence text. */
+  language?: string
+}
+
+/** " Most (7 of 9) are `python` traces." when ≥60% of at least 3 sessions share one real primary
+ *  language (not `none`/`other`/unrecorded) — context for the evidence line, never a trigger. */
+export function dominantLanguageNote(sessions: SuggestionSession[]): string {
+  if (sessions.length < 3) return ''
+  const counts = new Map<string, number>()
+  for (const s of sessions) {
+    if (!s.language || s.language === 'none' || s.language === 'other') continue
+    counts.set(s.language, (counts.get(s.language) ?? 0) + 1)
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]
+  if (!top || top[1] / sessions.length < 0.6) return ''
+  return ` Most (${top[1]} of ${sessions.length}) are \`${top[0]}\` traces — naming that stack's build and test commands upfront helps.`
 }
 
 function makeId(prefix: string, key: string): string {
@@ -241,7 +257,7 @@ export function getHighTurnSuggestions(sessions: SuggestionSession[], existingTe
     id: 'behavior:high_turns',
     category: 'behavior',
     title: 'Reduce back-and-forth with clearer upfront context',
-    evidence: `${high.length} of ${withTurns.length} traces (${pct(high.length, withTurns.length)}%) exceed 1.5× avg turn count (avg: ${avg.toFixed(0)} turns). High turn counts often indicate missing context or ambiguous scope.`,
+    evidence: `${high.length} of ${withTurns.length} traces (${pct(high.length, withTurns.length)}%) exceed 1.5× avg turn count (avg: ${avg.toFixed(0)} turns). High turn counts often indicate missing context or ambiguous scope.${dominantLanguageNote(high)}`,
     suggestedText: [
       'Before starting a task:',
       '- State what you want done, what files are involved, and what "done" looks like.',

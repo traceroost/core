@@ -20,6 +20,8 @@ import { logCardsNotCoveredByOtel } from '../src/claudeConversation'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
 import { computeOneShotStats } from '../src/oneShotRate'
+import { languageFromRecord } from '../src/language'
+import { editStatsFromRecord } from '../src/editStats'
 import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from '../src/gitOutcome'
 import { onActionLogChanged, getActionLogHistory } from '../src/actionLog'
 import { ReconciliationService, type ReconcileResult } from '../src/reconcile/reconciliationService'
@@ -338,6 +340,8 @@ function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummary
     timeline:          [],
     backgroundSpans:   [],
     loopSignals:       Array.isArray(raw['loopSignals']) ? raw['loopSignals'] as SessionSummaryCard['loopSignals'] : [],
+    ...languageFromRecord(raw, { filesRead: arrStr(raw['filesRead']), filesChanged: arrStr(raw['filesChanged']) }),
+    ...editStatsFromRecord(raw, arrStr(raw['filesChanged'])),
   }
 }
 
@@ -1796,6 +1800,11 @@ function getHtml(): string {
                 filesRead:    redact ? (s.filesRead    || []).map(function() { return '[redacted]'; }) : s.filesRead,
                 filesChanged: redact ? (s.filesChanged || []).map(function() { return '[redacted]'; }) : s.filesChanged,
                 loopSignals:  s.loopSignals,
+                language:     s.language || null,
+                languageSecondary: s.languageSecondary || null,
+                filesChangedCount: s.filesChangedCount == null ? null : s.filesChangedCount,
+                linesAdded:   s.linesAdded == null ? null : s.linesAdded,
+                linesRemoved: s.linesRemoved == null ? null : s.linesRemoved,
                 userRequest:  redact ? '[redacted]' : (s.userRequest || null),
               };
             });

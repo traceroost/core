@@ -3,6 +3,7 @@ import {
   filteredSessions, vscode, timeRange, rangedSearchResults, exportSearchResults,
   agentFilteredSessions, selectedAgentFilter, workspaceFilter, dataSourceFilter,
   sessionTextFilter, initiatorFilter, evidenceSessionIds, repoInfo, matchesRepoQuery,
+  languageFilter, matchesLanguageFilter,
 } from '../state'
 import type { SessionSummaryCard } from '../types'
 
@@ -44,12 +45,14 @@ function requestFullExportSessions() {
   }
 }
 
-// dataSourceFilter/workspaceFilter/initiatorFilter/evidenceSessionIds aren't part of the DB
+// dataSourceFilter/languageFilter/workspaceFilter/initiatorFilter/evidenceSessionIds aren't part of the DB
 // query above, so they're applied here against the uncapped result set.
 function applyRemainingFilters(sessions: SessionSummaryCard[]): SessionSummaryCard[] {
   let result = sessions
   const dsFilter = dataSourceFilter.value
   if (dsFilter !== 'all') result = result.filter(s => (s.dataSource ?? 'otel') === dsFilter)
+  const lang = languageFilter.value
+  if (lang !== 'all') result = result.filter(s => matchesLanguageFilter(s, lang))
   // workspaceFilter is the toolbar's freeform repo search (empty = no filter, matching a
   // workspace's git-derived name/hash or its raw path — state.ts's matchesRepoQuery), not the
   // old 'all'-sentinel dropdown this used to check against.

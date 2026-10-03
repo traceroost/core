@@ -152,7 +152,25 @@ What goes over `/api/ingest` today: session rollups, and per-repo instruction te
 (`instructionTelemetry.ts`: instruction-file presence/line counts, which the service stores, plus
 file footprints and suggestion events, which it accepts and does not yet store). The schema also
 has commit and turnover records (`buildCommitRecords.ts`), but nothing builds and sends them yet —
-which is why the consent list (`privacy.ts`, identical in both repos) doesn't promise line counts.
+which is why the consent list (`privacy.ts`, identical in both repos) doesn't promise git commit
+line counts. It does list the session's own change size (below), which is a different thing.
+
+Session rollup fields (`SessionRollup`, `schema/rollup.v1.json` `$defs/session`) beyond ids, times,
+token/turn/tool/error counts, models, hashes, outcome and loop signals:
+
+| Field | Shape | Meaning |
+| --- | --- | --- |
+| `data_source` | `otel` \| `log` | Where the session was read from. |
+| `initiator` | `user` \| `agent` \| `api` | Who started it. |
+| `conversation_hash` | sha256 | Groups gap-split segments of one conversation. |
+| `revision` | integer ≥ 1 | Replace-ordering for re-sent snapshots. |
+| `language` | one of `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `other` `none` | Primary programming language, derived locally from file extensions (`src/language.ts`). Only the id leaves the machine. Absent for sessions built before language tracking. |
+| `language_secondary` | the same ids minus `none`, or `null` | Runner-up language. Core omits it when only one language was touched. |
+| `files_changed` | count | Distinct files the agent edited or wrote (any file type). |
+| `lines_added` / `lines_removed` | count | Lines the agent's own edit/write tool calls added/removed (`src/editStats.ts`). Agent-authored edits, not git stats. Omitted when the agent's data records no edit contents. |
+
+All of these are enums or counts. No path, file name or content travels with them, and
+`--explain-payload` prints a line saying so.
 
 ## One session, end to end (linked machine)
 

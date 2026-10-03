@@ -12,6 +12,8 @@ import { Span } from './types'
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
 import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
+import { deriveSessionLanguage } from './language'
+import { computeEditStats } from './editStats'
 import { buildCopilotSessions } from './summarizers/copilot'
 import { buildClaudeSessions } from './summarizers/claude'
 import { buildCodexSessions } from './summarizers/codex'
@@ -169,6 +171,7 @@ export function summarizeSpans(spans: Span[]) {
 
   sessions.forEach(s => { s.loopSignals = detectLoopSignals(s) })
   sessions.forEach(s => { s.oneShotStats = computeOneShotStats(s) })
+  sessions.forEach(s => { Object.assign(s, deriveSessionLanguage(s), computeEditStats(s)) })
 
   // Background/orphan spans — associate with sessions by traceId
   const bgByTraceId: Record<string, Array<{ name: string; model: string; purpose: string; inputTokens: number; outputTokens: number }>> = {}

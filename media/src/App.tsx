@@ -2,7 +2,7 @@ import { signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   sessionSummary, toolCalls,
-  selectedAgentFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
+  selectedAgentFilter, languageFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
   sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
@@ -16,9 +16,10 @@ import {
   collectorConflict, type CollectorConflict, logIngestProgress,
   getSessionsPagination, applySessionDelta, type SessionDelta,
 } from './state'
-import type { TimelineEntry, AgentFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
+import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS } from './utils'
+import { LANGUAGE_IDS, LANGUAGE_LABELS } from './language'
 
 // Tab components
 import { Sessions } from './tabs/Sessions'
@@ -1289,6 +1290,25 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         </div>
       )}
 
+      {/* Language filter — a fixed list (media/src/language.ts), so a <select> rather than 14 pills.
+          Matches a trace whose primary or secondary language is the one picked. */}
+      {!hideAgentFilter && (
+        <div style="display:flex;align-items:center;margin-left:20px">
+          <label for="tr-filter-language" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Language</label>
+          <select
+            id="tr-filter-language"
+            class={'tr-header-input' + (languageFilter.value !== 'all' ? ' active' : '')}
+            value={languageFilter.value}
+            onChange={e => { languageFilter.value = (e.target as HTMLSelectElement).value as LanguageFilter }}
+            title="Traces whose primary or secondary language is this one — derived from the code files the agent read or changed"
+            style="flex:none;width:auto"
+          >
+            <option value="all">All</option>
+            {LANGUAGE_IDS.map(id => <option key={id} value={id}>{LANGUAGE_LABELS[id]}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Prompt filter — substring match against the trace's captured prompt text. */}
       {!hideAgentFilter && (
         <div style="display:flex;align-items:center;margin-left:20px">
@@ -1345,6 +1365,7 @@ function FilterActionsBar() {
   const isFiltered = sessionTextFilter.value !== '' ||
     evidenceSessionIds.value !== null ||
     selectedAgentFilter.value !== 'all' ||
+    languageFilter.value !== 'all' ||
     initiatorFilter.value !== 'all' ||
     dataSourceFilter.value !== 'all' ||
     workspaceFilter.value !== '' ||
@@ -1359,6 +1380,7 @@ function FilterActionsBar() {
     evidenceSessionIds.value = null
     evidenceSessionPrompt.value = null
     selectedAgentFilter.value = 'all'
+    languageFilter.value = 'all'
     initiatorFilter.value = 'all'
     dataSourceFilter.value = 'all'
     workspaceFilter.value = ''

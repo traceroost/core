@@ -1,11 +1,11 @@
 import * as path from 'path'
 import { Span } from '../types'
-import { BackgroundSpanSummary, SessionSummaryCard, TimelineEntry } from './summarizerTypes'
+import { BackgroundSpanSummary, SessionSummaryCard, TimelineEntry, EditDetail } from './summarizerTypes'
 import {
   getAttrInt, nanoToMs, getFirstAttr,
   isCodexPromptSpanName, isCodexToolExecSpan, isCodexLlmSpanName,
   isCodexToolDecisionSpan, isCodexToolCallSpan, isCodexToolResultSpan,
-  summarizeToolResult, normalizeUserRequest, rankModelsByWeight,
+  summarizeToolResult, normalizeUserRequest, rankModelsByWeight, parseApplyPatchEditDetails,
 } from './helpers'
 
 // A shell command mentioning a file path doesn't mean the file was changed — `cat foo.ts`,
@@ -172,6 +172,7 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
 
         let foundFilePath = false
         let cmdFromArgs: string | undefined
+        let editDetails: EditDetail[] | undefined
         if (argsStr) {
           try {
             const args = JSON.parse(argsStr) as Record<string, unknown>
@@ -180,6 +181,10 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
             // own parse: pull the file path out of each "*** Update/Add/Delete File: <path>" header.
             if (toolName === 'apply_patch') {
               const patchContent = String(args.input || args.patch || args.command || args.cmd || '')
+              // Its hunks are the edit's content — the same parse Copilot's apply_patch uses, so
+              // one-shot stats and src/editStats.ts's line counts see Codex edits too.
+              const patchDetails = parseApplyPatchEditDetails(patchContent)
+              if (patchDetails.length > 0) editDetails = patchDetails
               for (const line of patchContent.split('\n')) {
                 const m = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
                 if (m) {
@@ -240,6 +245,7 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
           resultSummary: resultText ? summarizeToolResult(toolName, resultText) : undefined,
           fullResult: resultText || undefined,
           timestamp: ts,
+          ...(editDetails ? { editDetails } : {}),
         })
       } else if (isCodexTimelineLlmSpan(child, inTok, outTok)) {
         totalLlmCalls++
