@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { appendSuggestion, removeSuggestion } from '../instructionFiles'
+import { appendSuggestion, removeSuggestion, detectInstructionFiles, CURSOR_RULE_FILE } from '../instructionFiles'
 
 suite('instructionFiles — apply/remove suggestion blocks', () => {
   let dir: string
@@ -58,5 +58,28 @@ suite('instructionFiles — apply/remove suggestion blocks', () => {
     assert.strictEqual(removeSuggestion(file, 'file:src/aXts (hot)'), false)
     assert.ok(removeSuggestion(file, 'file:src/a.ts (hot)'))
     assert.strictEqual(fs.readFileSync(file, 'utf8'), '# P')
+  })
+
+  test('a new Cursor .mdc rule starts with always-apply frontmatter, and remove leaves it', () => {
+    const mdc = path.join(dir, CURSOR_RULE_FILE)
+    appendSuggestion(mdc, 'Always run the tests.', 'sug-1')
+    const created = fs.readFileSync(mdc, 'utf8')
+    assert.match(created, /^---\ndescription: .+\nalwaysApply: true\n---\n/)
+    assert.ok(created.includes('Always run the tests.'))
+    // A second block is appended under the same frontmatter, not another one.
+    appendSuggestion(mdc, 'Second.', 'sug-2')
+    assert.strictEqual(fs.readFileSync(mdc, 'utf8').match(/alwaysApply/g)?.length, 1)
+    assert.ok(removeSuggestion(mdc, 'sug-1'))
+    assert.ok(removeSuggestion(mdc, 'sug-2'))
+    assert.match(fs.readFileSync(mdc, 'utf8'), /^---\n[\s\S]*alwaysApply: true\n---\n$/)
+  })
+
+  test('detectInstructionFiles lists AGENTS.md once, for Codex, OpenCode and Cursor, plus the Cursor rule', () => {
+    const files = detectInstructionFiles(dir)
+    assert.deepStrictEqual(files.map(f => f.relativePath),
+      ['CLAUDE.md', '.github/copilot-instructions.md', 'AGENTS.md', CURSOR_RULE_FILE])
+    assert.deepStrictEqual(files.find(f => f.relativePath === 'AGENTS.md')?.agents, ['codex', 'opencode', 'cursor'])
+    assert.deepStrictEqual(files.find(f => f.relativePath === CURSOR_RULE_FILE)?.agents, ['cursor'])
+    assert.ok(files.every(f => !f.exists))
   })
 })

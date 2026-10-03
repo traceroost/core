@@ -1,5 +1,6 @@
 import { LoopSignal } from '../types'
 import type { OneShotStats } from '../oneShotRate'
+import type { SessionLanguage, CodeLanguage } from '../language'
 
 export interface SessionSummaryCard {
   sessionId: string
@@ -44,6 +45,19 @@ export interface SessionSummaryCard {
    *  summarization (see spanSummarizer.ts), same lifecycle as loopSignals — absent on
    *  synthetic/in-progress cards built before that pass runs. */
   oneShotStats?: OneShotStats
+  /** Most common code language among the distinct files this session read/changed — see
+   *  src/language.ts's deriveSessionLanguage. Set when the card is built (logReader's _buildCard,
+   *  spanSummarizer's summarizeSpans); absent on a row stored before this existed (shown "—"). */
+  language?: SessionLanguage
+  /** Second most common distinct language, or null when only one was touched. Never `none`. */
+  languageSecondary?: CodeLanguage | null
+  /** Distinct files the agent edited or wrote (filesChanged, counted — code or not). See
+   *  src/editStats.ts. Absent on a row stored before change-size tracking. */
+  filesChangedCount?: number
+  /** Lines the agent's own edit/write tool calls added / removed (src/editStats.ts) — not git
+   *  stats. Undefined when the source records no edit contents (unknown, not 0). */
+  linesAdded?: number
+  linesRemoved?: number
 }
 
 export interface TimelineEntry {

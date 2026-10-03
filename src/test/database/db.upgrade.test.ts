@@ -16,7 +16,10 @@ async function loadSqlJs(): Promise<SqlJsStatic> {
   return initSqlJs({ locateFile: (f: string) => path.join(sqlJsDir, f) })
 }
 
-const MIGRATED_SESSION_COLS = ['cost_usd', 'data_source', 'files_written', 'models', 'one_shot_stats', 'initiator', 'conversation_id']
+const MIGRATED_SESSION_COLS = [
+  'cost_usd', 'data_source', 'files_written', 'models', 'one_shot_stats', 'initiator', 'conversation_id',
+  'language', 'language_secondary', 'files_changed_count', 'lines_added', 'lines_removed',
+]
 
 function columns(raw: { exec(sql: string): Array<{ values: unknown[][] }> }, table: string): string[] {
   return raw.exec(`PRAGMA table_info(${table})`)[0]?.values.map(r => r[1] as string) ?? []
@@ -60,6 +63,9 @@ suite('TraceRoostDb — upgrading a database from an older release', () => {
       assert.deepStrictEqual(columns(tdb.raw, 'instruction_dismissed').sort(), ['dismissed_at', 'id', 'workspace'])
       const row = tdb.raw.exec(`SELECT session_id, cost_usd, data_source, files_written, models, one_shot_stats, initiator FROM sessions`)[0].values
       assert.deepStrictEqual(row, [['legacy-1', 0, 'otel', '[]', '[]', '{}', null]], 'pre-existing rows get the column defaults')
+      // Language and change size: older rows stay NULL (shown "—"), no backfill.
+      const lang = tdb.raw.exec(`SELECT language, language_secondary, files_changed_count, lines_added, lines_removed FROM sessions`)[0].values
+      assert.deepStrictEqual(lang, [[null, null, null, null, null]])
       tdb.save()
     } finally {
       tdb.dispose()

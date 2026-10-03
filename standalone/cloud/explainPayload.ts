@@ -49,6 +49,11 @@ function currentBranch(workspace: string): string {
   }
 }
 
+/** One line naming the per-session fields that are easiest to misread as content. */
+export const SESSION_FIELD_NOTE =
+  'language / language_secondary are fixed ids from a 14-value list (derived locally from file extensions); ' +
+  'files_changed / lines_added / lines_removed are counts only — no paths, no file content, and not git stats.'
+
 function toInput(card: SessionSummaryCard): SessionRollupInput {
   return {
     sessionId: card.sessionId,
@@ -71,6 +76,11 @@ function toInput(card: SessionSummaryCard): SessionRollupInput {
     llmModels: (card.timeline ?? []).filter(t => t.type === 'llm' && t.model).map(t => t.model as string),
     dataSource: card.dataSource,
     initiator: card.initiator,
+    language: card.language,
+    languageSecondary: card.languageSecondary,
+    filesChangedCount: card.filesChangedCount,
+    linesAdded: card.linesAdded,
+    linesRemoved: card.linesRemoved,
   }
 }
 
@@ -116,6 +126,7 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
   console.log('#')
   console.log('# Sent:       ' + SENT.join('; '))
   console.log('# Never sent: ' + NEVER_SENT.join('; '))
+  console.log('# ' + SESSION_FIELD_NOTE)
   console.log('')
 
   for (const card of selected) {

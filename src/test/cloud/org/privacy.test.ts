@@ -11,8 +11,8 @@ import { SENT, NEVER_SENT, whoSeesWhat } from '../../../cloud/org/privacy'
 suite('org/privacy', () => {
   test('SENT is the agreed list, verbatim', () => {
     assert.deepStrictEqual([...SENT], [
-      'Usage counts — traces, turns, tool calls, tokens',
-      'Model and agent names, with timestamps',
+      'Usage counts — traces, turns, tool calls, tokens, files changed, lines added and removed',
+      'Model, agent and programming-language names, with timestamps',
       'Hashed repository, branch and file ids — one-way, from your own clone',
       'Instruction-file line counts and how often sessions read each file',
       'Loop and error categories (never a message)',

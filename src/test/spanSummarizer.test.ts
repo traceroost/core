@@ -170,7 +170,7 @@ suite('SpanSummarizer', () => {
       assert.deepStrictEqual(session.filesRead, ['README.md'])
       const entries = session.timeline.filter(e => e.type === 'tool')
       assert.deepStrictEqual(entries.flatMap(e => e.editDetails ?? []),
-        [{ filePath: 'C:\\work\\app\\src\\a.ts', oldString: 'old', newString: 'new' }])
+        [{ filePath: 'C:\\work\\app\\src\\a.ts', toolName: 'apply_patch', oldString: 'old', newString: 'new' }])
       assert.deepStrictEqual(entries.map(e => e.label), ['apply_patch a.ts', 'read_file README.md L1-5'])
     })
 

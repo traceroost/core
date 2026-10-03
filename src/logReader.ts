@@ -59,6 +59,8 @@ import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
 import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
 import { stripDateSuffix } from './pricing'
 import { CodexLimitCollector, claudeLimitHit, dedupeHits, CLAUDE_SYNTHETIC_MODEL, type LimitReading, type LimitHit, type PlanStatus } from './planUsage/limitReadings'
+import { deriveSessionLanguage } from './language'
+import { computeEditStats } from './editStats'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
 
@@ -2158,6 +2160,8 @@ function _buildCard(
     backgroundSpans: [],
     loopSignals: [],
     peakContextPerTurn: acc.turns > 1 ? acc.peakContextPerTurn : undefined,
+    ...deriveSessionLanguage({ filesRead: [...acc.filesRead], filesChanged: [...acc.filesChanged], filesWritten: [...acc.filesWritten] }),
+    ...computeEditStats({ filesChanged: [...acc.filesChanged], timeline: acc.timeline }),
   }
 }
 

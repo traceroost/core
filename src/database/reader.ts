@@ -5,6 +5,25 @@ import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarize
 import type { OneShotStats } from '../oneShotRate'
 import { lookupRates, calcAggregateTokenCostUsd } from '../pricing'
 import { sessionsVersion } from './sessionsVersion'
+import { isSessionLanguage, isCodeLanguage, type SessionLanguage, type CodeLanguage } from '../language'
+
+/** Stored change-size counts — only non-negative integers come back; NULL (an older row, or a
+ *  source with no edit contents) stays absent. */
+function readEditStats(files: unknown, added: unknown, removed: unknown): { filesChangedCount?: number; linesAdded?: number; linesRemoved?: number } {
+  const n = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : undefined
+  const out: { filesChangedCount?: number; linesAdded?: number; linesRemoved?: number } = {}
+  if (n(files) !== undefined) out.filesChangedCount = n(files)
+  if (n(added) !== undefined) out.linesAdded = n(added)
+  if (n(removed) !== undefined) out.linesRemoved = n(removed)
+  return out
+}
+
+/** The stored language pair, validated against the allowlist — an absent (pre-language row) or
+ *  unrecognised value reads as unknown (undefined), never as a free-text label. */
+function readLanguage(primary: unknown, secondary: unknown): { language?: SessionLanguage; languageSecondary?: CodeLanguage | null } {
+  if (!isSessionLanguage(primary)) return {}
+  return { language: primary, languageSecondary: isCodeLanguage(secondary) ? secondary : null }
+}
 
 export interface DailyStatRow {
   day: string              // 'YYYY-MM-DD'
@@ -136,6 +155,8 @@ export class DatabaseReader {
         loopSignals:      this._parseJson(col(row, 'loop_signals') as string, []),
         oneShotStats:     this._parseJson<OneShotStats | undefined>(col(row, 'one_shot_stats') as string, undefined),
         initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
+        ...readLanguage(col(row, 'language'), col(row, 'language_secondary')),
+        ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
         timeline:         [],
         backgroundSpans:  [],
       } satisfies SessionSummaryCard
@@ -406,6 +427,8 @@ export class DatabaseReader {
         loopSignals:      this._parseJson(col(row, 'loop_signals') as string, []),
         oneShotStats:     this._parseJson<OneShotStats | undefined>(col(row, 'one_shot_stats') as string, undefined),
         initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
+        ...readLanguage(col(row, 'language'), col(row, 'language_secondary')),
+        ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
         timeline:         [],
         backgroundSpans:  [],
       } satisfies SessionSummaryCard

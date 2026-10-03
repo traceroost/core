@@ -96,12 +96,12 @@ suite('org/instructionTelemetry', () => {
     assert.ok(payload.repo_key_fp)
 
     const files = payload.instruction_files ?? []
-    assert.strictEqual(files.length, 3, 'one entry per known instruction file, present or not')
+    assert.strictEqual(files.length, 4, 'one entry per known instruction file, present or not')
     const claude = files.find(f => f.kind === 'claude_md')
     assert.strictEqual(claude?.present, true)
     assert.strictEqual(claude?.line_count, 3)
     assert.ok(claude?.last_modified)
-    assert.deepStrictEqual(files.filter(f => !f.present).map(f => f.kind).sort(), ['agents_md', 'copilot_instructions'])
+    assert.deepStrictEqual(files.filter(f => !f.present).map(f => f.kind).sort(), ['agents_md', 'copilot_instructions', 'other'] /* the Cursor rule has no wire kind of its own */)
 
     const footprints = payload.file_footprints ?? []
     assert.strictEqual(footprints.length, 2, 'the hot file and the deleted one; the 3-char basename is skipped')

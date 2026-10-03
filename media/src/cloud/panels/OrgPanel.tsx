@@ -7,8 +7,8 @@ import { vscode, goToHelp } from '../../state'
 // side (src/test/cloud/org/privacy.test.ts) pins the source-of-truth copy and checks this file
 // carries the same lines (SENT, NEVER_SENT, and whoSeesWhat below).
 const SENT = [
-  'Usage counts — traces, turns, tool calls, tokens',
-  'Model and agent names, with timestamps',
+  'Usage counts — traces, turns, tool calls, tokens, files changed, lines added and removed',
+  'Model, agent and programming-language names, with timestamps',
   'Hashed repository, branch and file ids — one-way, from your own clone',
   'Instruction-file line counts and how often sessions read each file',
   'Loop and error categories (never a message)',

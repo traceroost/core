@@ -209,6 +209,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   models              TEXT    NOT NULL DEFAULT '[]',
   one_shot_stats      TEXT    NOT NULL DEFAULT '{}',
   conversation_id     TEXT,
+  language            TEXT,
+  language_secondary  TEXT,
+  files_changed_count INTEGER,
+  lines_added         INTEGER,
+  lines_removed       INTEGER,
   created_at          INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
 );
 

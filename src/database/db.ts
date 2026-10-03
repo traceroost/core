@@ -316,6 +316,19 @@ function applyMigrations(db: SqlDatabase): void {
     db.run('ALTER TABLE sessions ADD COLUMN conversation_id TEXT')
   }
   db.run('CREATE INDEX IF NOT EXISTS idx_sessions_conversation ON sessions (conversation_id)')
+  // Per-session programming language (src/language.ts) — a fixed-choice id, never free text.
+  // Older rows stay NULL (shown "—") until the session is re-summarized from its log; no backfill.
+  if (!colNames.includes('language')) {
+    db.run('ALTER TABLE sessions ADD COLUMN language TEXT')
+  }
+  if (!colNames.includes('language_secondary')) {
+    db.run('ALTER TABLE sessions ADD COLUMN language_secondary TEXT')
+  }
+  // Per-session change size from the agent's own edits (src/editStats.ts) — counts only, never
+  // paths or content. NULL on older rows and when the source records no edit contents.
+  for (const c of ['files_changed_count', 'lines_added', 'lines_removed']) {
+    if (!colNames.includes(c)) db.run(`ALTER TABLE sessions ADD COLUMN ${c} INTEGER`)
+  }
 
   // timeline_entries cache token columns
   const teCols = db.exec('PRAGMA table_info(timeline_entries)')

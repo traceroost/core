@@ -8,7 +8,9 @@
 // themselves identical) so both sides score sessions the same way.
 
 export type SuggestionCategory = 'context' | 'behavior' | 'prompting'
-export type TargetAgent = 'claude_code' | 'copilot' | 'codex'
+// Session source ids (the same ones the per-agent prompts file is named after). OpenCode reads
+// AGENTS.md; the Cursor CLI reads .cursor/rules/*.mdc and AGENTS.md.
+export type TargetAgent = 'claude_code' | 'copilot' | 'codex' | 'opencode' | 'cursor'
 
 export interface SuggestionCard {
   id: string
@@ -32,6 +34,22 @@ export interface SuggestionSession {
   loopSignals?: Array<{ type: string }>
   toolCounts?: Record<string, number>
   totalLlmCalls: number
+  /** Primary language id (src/language.ts) — only used to add context to evidence text. */
+  language?: string
+}
+
+/** " Most (7 of 9) are `python` traces." when ≥60% of at least 3 sessions share one real primary
+ *  language (not `none`/`other`/unrecorded) — context for the evidence line, never a trigger. */
+export function dominantLanguageNote(sessions: SuggestionSession[]): string {
+  if (sessions.length < 3) return ''
+  const counts = new Map<string, number>()
+  for (const s of sessions) {
+    if (!s.language || s.language === 'none' || s.language === 'other') continue
+    counts.set(s.language, (counts.get(s.language) ?? 0) + 1)
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]
+  if (!top || top[1] / sessions.length < 0.6) return ''
+  return ` Most (${top[1]} of ${sessions.length}) are \`${top[0]}\` traces — naming that stack's build and test commands upfront helps.`
 }
 
 function makeId(prefix: string, key: string): string {
@@ -75,7 +93,7 @@ export function getHotFileSuggestions(sessions: SuggestionSession[], existingTex
       evidence: `Touched in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%). Each agent discovery adds ~2–3 turns.`,
       suggestedText: `Always read \`${file}\` before editing ${subsystem} — it is frequently needed context.`,
       inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` appears in ${pct(ids.length, sessions.length)}% of my agent traces, but the agent discovers it from scratch each time rather than reading it proactively. What would you recommend I add to my instruction file to ensure it's loaded at the start of relevant tasks?`,
-      targetAgents: ['claude_code', 'codex'],
+      targetAgents: ['claude_code', 'codex', 'opencode', 'cursor'],
       priority: ids.length / sessions.length >= 0.4 ? 'high' : 'medium',
       evidenceSessions: ids,
     })
@@ -113,7 +131,7 @@ export function getFrontLoadedDiscoverySuggestions(sessions: SuggestionSession[]
       evidence: `Read without modification in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%). Mentioning it upfront eliminates agent discovery turns.`,
       suggestedText: `Before starting any task, read \`${file}\` — it is consistently needed as reference and is never modified directly.`,
       inquiryText: INQUIRY_PREAMBLE + `I've noticed that \`${basename}\` is read in ${pct(ids.length, sessions.length)}% of traces as reference material and is never directly modified — the agent rediscovers it from scratch each time. What would you recommend I add to my instruction file to ensure it's loaded before starting any task?`,
-      targetAgents: ['claude_code', 'codex'],
+      targetAgents: ['claude_code', 'codex', 'opencode', 'cursor'],
       priority: 'high',
       evidenceSessions: ids,
     })
@@ -171,7 +189,7 @@ export function getLoopSuggestions(sessions: SuggestionSession[], existingText: 
       evidence: `Signal "${type}" detected in ${ids.length} of ${sessions.length} traces (${pct(ids.length, sessions.length)}%).`,
       suggestedText: text,
       inquiryText: INQUIRY_PREAMBLE + (LOOP_INQUIRY[type]?.(ids.length, sessions.length) ?? `I've noticed "${type.replace(/_/g, ' ')}" signals in ${ids.length} of ${sessions.length} traces. What instruction would you recommend I add to my instruction file to prevent this pattern?`),
-      targetAgents: ['claude_code', 'codex'],
+      targetAgents: ['claude_code', 'codex', 'opencode', 'cursor'],
       priority: ids.length / sessions.length >= 0.4 ? 'high' : 'medium',
       evidenceSessions: ids,
     })
@@ -220,7 +238,7 @@ export function getScopeSuggestions<S extends SuggestionSession>(sessions: S[], 
       '- One task at a time. Multi-part prompts ("fix X, then also do Y") should be split into separate traces.',
     ].join('\n'),
     inquiryText: INQUIRY_PREAMBLE + `I've noticed that prompts using open-ended language like "refactor" or "fix the bug" run at ${ratio}× the average ${unit} compared to more scoped prompts — across ${matching.length} of ${sessions.length} traces. What guidance would you recommend I add to my instruction file to encourage more targeted, scoped prompts from users?`,
-    targetAgents: ['claude_code', 'copilot', 'codex'],
+    targetAgents: ['claude_code', 'copilot', 'codex', 'opencode', 'cursor'],
     priority: 'medium',
     evidenceSessions: matching.map(s => s.sessionId),
   }]
@@ -239,7 +257,7 @@ export function getHighTurnSuggestions(sessions: SuggestionSession[], existingTe
     id: 'behavior:high_turns',
     category: 'behavior',
     title: 'Reduce back-and-forth with clearer upfront context',
-    evidence: `${high.length} of ${withTurns.length} traces (${pct(high.length, withTurns.length)}%) exceed 1.5× avg turn count (avg: ${avg.toFixed(0)} turns). High turn counts often indicate missing context or ambiguous scope.`,
+    evidence: `${high.length} of ${withTurns.length} traces (${pct(high.length, withTurns.length)}%) exceed 1.5× avg turn count (avg: ${avg.toFixed(0)} turns). High turn counts often indicate missing context or ambiguous scope.${dominantLanguageNote(high)}`,
     suggestedText: [
       'Before starting a task:',
       '- State what you want done, what files are involved, and what "done" looks like.',
@@ -247,7 +265,7 @@ export function getHighTurnSuggestions(sessions: SuggestionSession[], existingTe
       '- Paste relevant error messages or code snippets rather than describing them.',
     ].join('\n'),
     inquiryText: INQUIRY_PREAMBLE + `I've noticed that ${high.length} of ${withTurns.length} traces have turn counts more than 1.5× the average of ${avg.toFixed(0)} turns. This often signals that context or scope wasn't established clearly at the start. What would you recommend I add to my instruction file to prompt users to provide clearer upfront information before starting a task?`,
-    targetAgents: ['claude_code', 'copilot', 'codex'],
+    targetAgents: ['claude_code', 'copilot', 'codex', 'opencode', 'cursor'],
     priority: 'medium',
     evidenceSessions: high.map(s => s.sessionId),
   }]
@@ -274,7 +292,7 @@ export function getToolDisciplineSuggestions(sessions: SuggestionSession[], exis
     evidence: `Terminal calls exceed file-read 3× in ${heavy.length} of ${sessions.length} traces (${pct(heavy.length, sessions.length)}%).`,
     suggestedText: 'Prefer the dedicated file-read tool over running shell commands to inspect files. Use the terminal only for operations that cannot be done with a dedicated tool. Do not use cat, head, or tail to read file contents.',
     inquiryText: INQUIRY_PREAMBLE + `I've noticed that in ${heavy.length} of ${sessions.length} traces, Bash/terminal commands are used more than 3× as often as the file-reading tool to inspect file contents — cat, head, and similar shell commands instead of reading files directly. What instruction would you recommend I add to my instruction file to prevent this?`,
-    targetAgents: ['claude_code', 'copilot', 'codex'],
+    targetAgents: ['claude_code', 'copilot', 'codex', 'opencode', 'cursor'],
     priority: 'low',
     evidenceSessions: heavy.map(s => s.sessionId),
   }]

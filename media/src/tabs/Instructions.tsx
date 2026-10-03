@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'preact/hooks'
-import { signal } from '@preact/signals'
+import { useState, useEffect, useRef } from 'preact/hooks'
+import { signal, computed } from '@preact/signals'
 import {
   currentWorkspace, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
   repoInfo, repoDisplayName, repoTooltipName,
@@ -38,10 +38,44 @@ interface AppliedRecord {
 }
 
 // ── Signals for instruction state ─────────────────────────────────────────────
+// All keyed by workspace: the standalone dashboard shows every repo's suggestions at once, and the
+// same suggestion id (behavior:high_turns, …) can be applied in one repo and pending in another.
 
-export const instructionFiles = signal<InstructionFile[]>([])
+interface WorkspaceFiles { files: InstructionFile[]; missing: boolean }
+export const instructionFilesByWorkspace = signal<Record<string, WorkspaceFiles>>({})
+/** The open folder's instruction files (extension) — what the Advisor's cost-saving list reads. */
+export const instructionFiles = computed<InstructionFile[]>(() =>
+  currentWorkspace.value === null ? [] : instructionFilesByWorkspace.value[currentWorkspace.value]?.files ?? [])
+/** Applied records for every workspace the host has answered for, each tagged with its workspace. */
 export const appliedSuggestions = signal<AppliedRecord[]>([])
-export const dismissedIds = signal<Set<string>>(new Set())
+export const dismissedByWorkspace = signal<Record<string, Set<string>>>({})
+
+/** Stores an instructionFiles / appliedSuggestions / dismissedSuggestions reply under the workspace
+ *  it names (both hosts include it; an older reply without one is taken as the open folder's). */
+export function receiveInstructionMessage(msg: Record<string, unknown>): void {
+  const ws = typeof msg.workspace === 'string' ? msg.workspace : currentWorkspace.peek()
+  if (msg.type === 'instructionFiles' && Array.isArray(msg.files)) {
+    if (ws === null) return
+    instructionFilesByWorkspace.value = {
+      ...instructionFilesByWorkspace.value,
+      [ws]: { files: msg.files as InstructionFile[], missing: msg.missing === true },
+    }
+  } else if (msg.type === 'appliedSuggestions' && Array.isArray(msg.records)) {
+    const records = msg.records as AppliedRecord[]
+    appliedSuggestions.value = ws === null ? records
+      : [...appliedSuggestions.value.filter(a => a.workspace !== ws), ...records]
+  } else if (msg.type === 'dismissedSuggestions' && Array.isArray(msg.ids)) {
+    if (ws === null) return
+    dismissedByWorkspace.value = { ...dismissedByWorkspace.value, [ws]: new Set(msg.ids as string[]) }
+  }
+}
+
+/** True in the standalone dashboard: no open folder, so the Instructions tab groups suggestions by
+ *  repo and each group applies into its own repo (the server checks it's one the sessions ran in).
+ *  The extension keeps to its window's open folder. */
+export function instructionsAcrossWorkspaces(): boolean {
+  return currentWorkspace.value === null && window.__STANDALONE__ === true
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -55,6 +89,8 @@ const AGENT_LABEL: Record<string, string> = {
   claude_code: 'Claude',
   copilot:     'Copilot',
   codex:       'Codex',
+  opencode:    'OpenCode',
+  cursor:      'Cursor',
 }
 
 function sessionCostUsd(s: SessionSummaryCard): number {
@@ -67,9 +103,8 @@ function generateSuggestions(sessions: SessionSummaryCard[], existingText: strin
 
 function pct(n: number, total: number): number { return Math.round((n / total) * 100) }
 
-// The distinct workspace(s) behind a suggestion's evidence traces — usually one, since suggestions
-// are generated from a single workspace's sessions once a repo is selected, but "all repos"
-// suggestions can draw evidence from more than one.
+// Sessions per workspace, biggest group first — suggestions are generated per group, never across
+// repos (src/instructionAdvisor.ts: "all inputs are workspace-pre-filtered").
 function groupByWorkspace(sessions: SessionSummaryCard[]): Map<string, SessionSummaryCard[]> {
   const byRepo = new Map<string, SessionSummaryCard[]>()
   for (const s of sessions) {
@@ -78,17 +113,7 @@ function groupByWorkspace(sessions: SessionSummaryCard[]): Map<string, SessionSu
     if (group) group.push(s)
     else byRepo.set(key, [s])
   }
-  return byRepo
-}
-
-function evidenceWorkspaces(ids: string[], sessions: SessionSummaryCard[]): string[] {
-  const byId = new Map(sessions.map(s => [s.sessionId, s.workspace]))
-  const set = new Set<string>()
-  for (const id of ids) {
-    const ws = byId.get(id)
-    if (ws) set.add(ws)
-  }
-  return [...set]
+  return new Map([...byRepo].sort((a, b) => b[1].length - a[1].length))
 }
 
 // ── Suggestion generation (pure frontend) ────────────────────────────────────
@@ -175,7 +200,7 @@ function InsufficientDataState({ workspace, count }: { workspace: string | null;
     <div style="padding:32px 24px;max-width:480px;margin:0 auto;text-align:center">
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
         Not enough history yet — TraceRoost needs at least 3 sessions
-        {workspace !== null && <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></>}
+        {workspace !== null ? <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></> : ' in one repo'}
         {' '}to detect patterns.<br />
         Current: {count} trace{count !== 1 ? "s" : ""}.
       </div>
@@ -223,18 +248,18 @@ function TextBlock({ label, text }: { label: string; text: string }) {
 }
 
 function SuggestionCardView({
-  card, dismissed, applied, files, repoWorkspaces, onApply, onDismiss,
+  card, files, repoWorkspace, onApply, onDismiss,
 }: {
   card: SuggestionCard
-  dismissed: boolean
-  applied: boolean
+  /** Empty when this card can't be applied (no folder to write into): the picker is hidden. */
   files: InstructionFile[]
-  repoWorkspaces: string[]
-  onApply: (id: string, targetFile: string, text: string) => void
+  /** Shown as a pill when the card isn't already under its repo's group header. */
+  repoWorkspace: string | null
+  onApply: (card: SuggestionCard, targetFile: string) => void
   onDismiss: (id: string) => void
 }) {
   // Target picker: the detected instruction files (getInstructionFiles), an existing one first.
-  // The host resolves the choice against the open folder; a missing file is created on apply.
+  // The host resolves the choice against this card's workspace; a missing file is created on apply.
   const defaultFile = files.find(f => f.exists)?.relativePath ?? files[0]?.relativePath ?? ''
   const [targetFile, setTargetFile] = useState('')
   const [applying, setApplying] = useState(false)
@@ -248,15 +273,10 @@ function SuggestionCardView({
     return () => clearTimeout(t)
   }, [applying])
 
-  if (dismissed || applied) return null
-
   const catColor = CAT_COLOR[card.category]
   const info = repoInfo.value
-  const repoLabel = repoWorkspaces.length === 0 ? null
-    : repoWorkspaces.length === 1 ? repoDisplayName(repoWorkspaces[0], info)
-    : `${repoWorkspaces.length} repos`
-  const repoTitle = repoWorkspaces.length === 1 ? repoTooltipName(repoWorkspaces[0], info)
-    : repoWorkspaces.join(', ') || undefined
+  const repoLabel = repoWorkspace ? repoDisplayName(repoWorkspace, info) : null
+  const repoTitle = repoWorkspace ? repoTooltipName(repoWorkspace, info) : undefined
 
   return (
     <div data-suggestion-id={card.id} style="border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden">
@@ -318,7 +338,7 @@ function SuggestionCardView({
                 ))}
               </select>
               <button
-                onClick={() => { setApplying(true); onApply(card.id, chosen, card.suggestedText) }}
+                onClick={() => { setApplying(true); onApply(card, chosen) }}
                 disabled={applying || !chosen}
                 aria-busy={applying}
                 style={`padding:2px 8px;font-size:10px;border-radius:3px;cursor:${applying ? 'default' : 'pointer'};border:1px solid var(--border);background:transparent;color:var(--fg);white-space:nowrap;opacity:${applying ? 0.6 : 1}`}
@@ -453,78 +473,117 @@ function AppliedCard({
   )
 }
 
-// ── Prompt Analyzer panel ─────────────────────────────────────────────────────
+// ── One workspace's suggestions ──────────────────────────────────────────────
 
-// ── Main tab component ────────────────────────────────────────────────────────
+interface WorkspaceView {
+  /** '' for traces with no recorded folder. */
+  workspace: string
+  sessions: SessionSummaryCard[]
+  files: InstructionFile[]
+  /** The host reports this folder no longer exists on disk. */
+  missing: boolean
+  pending: SuggestionCard[]
+  applied: AppliedRecord[]
+}
 
-export function Instructions() {
-  // The real folder this VS Code window has open (dashboardPanel.ts's 'update' message) — not
-  // workspaceFilter, which is the Traces/Sessions toolbar's freeform repo *search* box and can
-  // match any historical repo's sessions, not just the one Apply actually writes to (the
-  // extension host resolves targetFile against vscode.workspace.workspaceFolders[0] regardless
-  // of what string the webview sends it). A suggestion built from a different repo's sessions
-  // isn't just mislabeled, it's not actionable: Apply would write it into the wrong repo's
-  // instruction file.
-  const workspace = currentWorkspace.value
-  const sessions = filteredSessions.value
-
-  // Scoped to the one repo Apply can act on. No open folder (rare — e.g. inspecting historical
-  // data with nothing open) falls back to every session, same as before; a suggestion generated
-  // that way just can't be applied (the effect below only requests files/applied/dismissed state
-  // when workspace is non-null, and the file-status bar stays empty).
-  const wsSessions = workspace === null
-    ? sessions
-    : sessions.filter(s => (s.workspace ?? '') === workspace)
-
-  // Instruction files come from extension via message
-  const files = instructionFiles.value
+function workspaceView(workspace: string, sessions: SessionSummaryCard[]): WorkspaceView {
+  const entry = instructionFilesByWorkspace.value[workspace]
+  const files = entry?.files ?? []
   const applied = appliedSuggestions.value.filter(a => a.workspace === workspace)
-  const dismissed = dismissedIds.value
-
-  // Generate suggestions from session data + existing instruction file content.
-  // generateSuggestions' file/turn/cost thresholds are only meaningful within a single repo's
-  // traces (src/instructionAdvisor.ts documents this: "all inputs are workspace-pre-filtered").
-  // With a repo folder open, wsSessions is already scoped to it. With none open, wsSessions spans
-  // every repo — group by repo and run generation separately per group so no suggestion's
-  // evidence (or the stats behind it) ever mixes traces from more than one repo.
-  const existingText = files.map(f => f.content).join('\n')
   const appliedIds = new Set(applied.map(a => a.id))
-  const suggestions = (
-    workspace !== null
-      ? generateSuggestions(wsSessions, existingText)
-      : [...groupByWorkspace(wsSessions).values()]
-        .flatMap(repoSessions => generateSuggestions(repoSessions, existingText))
-  ).filter(s => !appliedIds.has(s.id))
+  const dismissed = dismissedByWorkspace.value[workspace]
+  // Existing instruction text suppresses suggestions it already covers.
+  const existingText = files.map(f => f.content).join('\n')
+  const pending = generateSuggestions(sessions, existingText)
+    .filter(s => !appliedIds.has(s.id) && !dismissed?.has(s.id))
+  return { workspace, sessions, files, missing: entry?.missing === true, pending, applied }
+}
 
-  // Request instruction files from extension when workspace changes
-  useEffect(() => {
-    if (workspace !== null && vscode) {
-      vscode.postMessage({ type: 'getInstructionFiles', workspace })
-      vscode.postMessage({ type: 'getAppliedSuggestions', workspace })
-      vscode.postMessage({ type: 'getDismissedSuggestions', workspace })
-    }
-  }, [workspace])
+const viewTraces = (ids: Set<string>) => {
+  evidenceSessionIds.value = ids
+  evidenceSessionLabel.value = 'from instruction suggestion'
+  evidenceSessionPrompt.value = null
+  activeTab.value = 'sessions'
+}
 
-  function handleApply(id: string, targetFile: string, text: string) {
-    const card = suggestions.find(s => s.id === id)
-    if (!card) return
+function sectionLabel(text: string, count: number) {
+  return (
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+      {text}
+      <span style="font-size:10px;background:var(--card-bg);border-radius:8px;padding:1px 6px;border:1px solid var(--border)">{count}</span>
+    </div>
+  )
+}
+
+function ImpactSummary({ applied, sessions }: { applied: AppliedRecord[]; sessions: SessionSummaryCard[] }) {
+  const measured = applied.filter(rec => {
+    const after = sessions.filter(s => s.startTime && Date.parse(s.startTime) >= rec.appliedAtMs)
+    return after.length >= 3 && !rec.baselineInsufficient
+  })
+  if (measured.length < 2) return null
+  const avgChange = (fn: (rec: AppliedRecord) => { before: number | null; after: number | null }) => {
+    const pairs = measured.map(fn).filter(p => p.before !== null && p.after !== null) as {before:number;after:number}[]
+    if (pairs.length === 0) return null
+    return pairs.reduce((a, p) => a + (p.after - p.before) / p.before, 0) / pairs.length * 100
+  }
+  const avgOf = (arr: SessionSummaryCard[], fn: (s: SessionSummaryCard) => number) =>
+    arr.length === 0 ? null : arr.reduce((a, s) => a + fn(s), 0) / arr.length
+  const split = (rec: AppliedRecord) => ({
+    before: sessions.filter(s => s.startTime && Date.parse(s.startTime) < rec.appliedAtMs).slice(0, 20),
+    after: sessions.filter(s => s.startTime && Date.parse(s.startTime) >= rec.appliedAtMs),
+  })
+  const costChange = avgChange(rec => {
+    const { before, after } = split(rec)
+    return { before: avgOf(before, sessionCostUsd), after: avgOf(after, sessionCostUsd) }
+  })
+  const turnsChange = avgChange(rec => {
+    const { before, after } = split(rec)
+    return { before: avgOf(before, s => s.totalLlmCalls), after: avgOf(after, s => s.totalLlmCalls) }
+  })
+  const improved = measured.filter(rec => {
+    const { before, after } = split(rec)
+    const b = avgOf(before, sessionCostUsd); const a = avgOf(after, sessionCostUsd)
+    if (!b || !a) return false
+    return (a - b) / b < -0.1
+  }).length
+  return (
+    <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;background:var(--card-bg)">
+      <div style="font-size:11px;font-weight:600;color:var(--fg);margin-bottom:6px">
+        Impact summary — {applied.length} applied · {measured.length} with data
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px">
+        {costChange !== null && (
+          <span>Avg cost <span style={`font-weight:600;color:${changePctColor(costChange)}`}>{changePctLabel(costChange)}</span></span>
+        )}
+        {turnsChange !== null && (
+          <span>Avg turns <span style={`font-weight:600;color:${changePctColor(turnsChange)}`}>{changePctLabel(turnsChange)}</span></span>
+        )}
+        <span style="color:var(--muted)">{improved} improving · {measured.length - improved} flat/worse</span>
+      </div>
+    </div>
+  )
+}
+
+/** Pending and applied suggestions for one workspace. `canApply` false hides the target picker and
+ *  Apply (nowhere to write); `repoPill` labels each card with its repo when no group header does. */
+function WorkspaceSuggestions({ view, canApply, repoPill }: { view: WorkspaceView; canApply: boolean; repoPill: boolean }) {
+  const { workspace, pending, applied, sessions } = view
+
+  function handleApply(card: SuggestionCard, targetFile: string) {
     if (vscode) {
       vscode.postMessage({
         type: 'applyInstructionSuggestion',
-        id, workspace, targetFile, appliedText: text,
+        id: card.id, workspace, targetFile, appliedText: card.suggestedText,
         category: card.category, title: card.title, suggestedText: card.suggestedText,
       })
     } else {
-      // Standalone: optimistically add to applied list. workspace is only null with no folder
-      // open (or no real host in this preview mode) — AppliedRecord's key needs *some* string,
-      // and there's nothing truer to fall back to here.
-      const nowMs = Date.now()
+      // No host at all (a bare preview): optimistically add to the applied list.
       appliedSuggestions.value = [
         ...appliedSuggestions.value,
         {
-          id, workspace: workspace ?? '', category: card.category, title: card.title,
+          id: card.id, workspace, category: card.category, title: card.title,
           suggestedText: card.suggestedText, appliedTo: targetFile,
-          appliedText: text, appliedAt: new Date().toISOString(), appliedAtMs: nowMs,
+          appliedText: card.suggestedText, appliedAt: new Date().toISOString(), appliedAtMs: Date.now(),
           baselineCostAvg: 0, baselineTurnsAvg: 0, baselineInsufficient: true,
         },
       ]
@@ -532,162 +591,194 @@ export function Instructions() {
   }
 
   function handleDismiss(id: string) {
-    dismissedIds.value = new Set([...dismissedIds.value, id])
-    if (vscode) vscode.postMessage({ type: 'dismissInstructionSuggestion', id, workspace })
+    const prev = dismissedByWorkspace.value
+    dismissedByWorkspace.value = { ...prev, [workspace]: new Set([...(prev[workspace] ?? []), id]) }
+    if (vscode && workspace) vscode.postMessage({ type: 'dismissInstructionSuggestion', id, workspace })
   }
 
   function handleRemove(id: string) {
-    appliedSuggestions.value = appliedSuggestions.value.filter(a => a.id !== id)
+    appliedSuggestions.value = appliedSuggestions.value.filter(a => !(a.id === id && a.workspace === workspace))
     if (vscode) vscode.postMessage({ type: 'removeInstructionSuggestion', id, workspace })
   }
 
-  if (wsSessions.length < 3) {
-    return <InsufficientDataState workspace={workspace} count={wsSessions.length} />
+  return (
+    <>
+      {pending.length > 0 && (
+        <>
+          {sectionLabel('Pending', pending.length)}
+          {pending.map(card => (
+            <SuggestionCardView
+              key={card.id}
+              card={card}
+              files={canApply ? view.files : []}
+              repoWorkspace={repoPill && workspace ? workspace : null}
+              onApply={handleApply}
+              onDismiss={handleDismiss}
+            />
+          ))}
+        </>
+      )}
+
+      {applied.length > 0 && (
+        <div style="margin-top:16px">
+          {sectionLabel('Applied', applied.length)}
+          <ImpactSummary applied={applied} sessions={sessions} />
+          {applied.map(rec => (
+            <AppliedCard
+              key={rec.id}
+              record={rec}
+              sessions={sessions}
+              onRemove={handleRemove}
+              onViewBefore={viewTraces}
+              onViewAfter={viewTraces}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+function DiagnosticsPanel({ sessions }: { sessions: SessionSummaryCard[] }) {
+  const diag = getDiagnostics(sessions)
+  return (
+    <div style="padding:16px 0">
+      <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:12px">
+        No patterns detected yet in <strong style="color:var(--fg)">{sessions.length} traces</strong>.
+      </div>
+      <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:11px;color:var(--muted)">
+        <div style="font-weight:600;color:var(--fg);margin-bottom:6px">Data available</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">
+          <span>Sources</span>
+          <span style="color:var(--fg)">{Object.entries(diag.sources).map(([k,v]) => `${k}: ${v}`).join(', ') || 'none'}</span>
+          <span>Traces with file data</span>
+          <span style={`color:${diag.withFiles > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withFiles} / {diag.sessionCount}</span>
+          <span>Traces with cost data</span>
+          <span style={`color:${diag.withCost > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withCost} / {diag.sessionCount}</span>
+          <span>Traces with tool counts</span>
+          <span style={`color:${diag.withToolCounts > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withToolCounts} / {diag.sessionCount}</span>
+          <span>Most-touched file</span>
+          <span style="color:var(--fg)">{diag.topFile ? `${diag.topFile.name} (${diag.topFile.count} traces, ${pct(diag.topFile.count, diag.sessionCount)}%)` : 'none'}</span>
+          <span>Loop signal types</span>
+          <span style="color:var(--fg)">{diag.loopSignalTypes}</span>
+          <span>Bash-heavy traces</span>
+          <span style="color:var(--fg)">{diag.bashHeavy}</span>
+          <span>Avg turns per trace</span>
+          <span style="color:var(--fg)">{diag.avgTurns > 0 ? diag.avgTurns.toFixed(1) : 'no data'}</span>
+          <span>High-turn traces</span>
+          <span style="color:var(--fg)">{diag.highTurnCount} / {diag.sessionCount}{diag.avgTurns > 0 ? ` (need ≥15% and avg ≥8)` : ''}</span>
+          <span>Open-ended prompts</span>
+          <span style="color:var(--fg)">{diag.scopeMatches}{diag.scopeRatio !== null ? ` (${diag.scopeRatio.toFixed(2)}× avg ${diag.scopeRatioUnit}, need ≥1.4×)` : diag.scopeMatches > 0 ? ' (no cost or turn data)' : ''}</span>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+          Thresholds: hot file ≥20% · loop signal ≥20% · terminal-heavy ≥3 sessions · high turns ≥15% at avg≥8 · open-ended prompts ≥2 at 1.4× avg turns
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const noteStyle = 'margin-bottom:12px;padding:8px 12px;font-size:11px;color:var(--muted);line-height:1.5;background:var(--card-bg);border:1px solid var(--border);border-radius:4px'
+
+function WorkspaceGroup({ view, canApply }: { view: WorkspaceView; canApply: boolean }) {
+  const { workspace, missing } = view
+  const info = repoInfo.value
+  const note = !workspace
+    ? 'These traces recorded no repo folder, so their suggestions are for reference only.'
+    : missing ? 'This folder no longer exists on this machine, so suggestions can\'t be applied here.'
+    : null
+  return (
+    <section data-instructions-workspace={workspace} style="margin-bottom:20px">
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px;min-width:0">
+        <span style="font-size:13px;font-weight:600;color:var(--fg)" title={workspace ? repoTooltipName(workspace, info) : undefined}>
+          {workspace ? repoDisplayName(workspace, info) : 'No repo recorded'}
+        </span>
+        {workspace && (
+          <span style="font-size:10px;font-family:monospace;color:var(--muted);overflow-wrap:anywhere;min-width:0">{workspace}</span>
+        )}
+      </div>
+      {canApply && !missing && <FileStatusBar files={view.files} />}
+      {note && <div style={noteStyle}>{note}</div>}
+      <WorkspaceSuggestions view={view} canApply={canApply && !!workspace && !missing} repoPill={false} />
+    </section>
+  )
+}
+
+// ── Main tab component ────────────────────────────────────────────────────────
+
+export function Instructions() {
+  // The real folder this VS Code window has open (dashboardPanel.ts's 'update' message) — not
+  // workspaceFilter, which is the header's freeform repo *search* box and can match any historical
+  // repo's sessions, not just the one Apply actually writes to (the extension host resolves
+  // targetFile against vscode.workspace.workspaceFolders[0] regardless of what string the webview
+  // sends it). A suggestion built from a different repo's sessions isn't just mislabeled, it's not
+  // actionable there: Apply would write it into the wrong repo's instruction file.
+  //
+  // With no open folder the tab groups suggestions by repo instead. In the standalone dashboard
+  // (instructionsAcrossWorkspaces) every group can be applied into its own repo; in an extension
+  // window with nothing open they're for reference only. Either way the header's Repo filter
+  // narrows which groups show.
+  const workspace = currentWorkspace.value
+  const sessions = filteredSessions.value
+  const across = instructionsAcrossWorkspaces()
+
+  const groups = workspace === null
+    ? [...groupByWorkspace(sessions)].filter(([, g]) => g.length >= 3).map(([ws]) => ws)
+    : []
+  const groupKey = groups.join('\0')
+
+  // Request instruction files and applied/dismissed state — for the open folder, or (standalone)
+  // for each repo with enough traces to have suggestions, once per repo while the tab is open.
+  const requested = useRef(new Set<string>())
+  useEffect(() => {
+    if (!vscode) return
+    const wanted = workspace !== null ? [workspace] : across ? groups.filter(ws => ws !== '') : []
+    for (const ws of wanted) {
+      if (requested.current.has(ws)) continue
+      requested.current.add(ws)
+      vscode.postMessage({ type: 'getInstructionFiles', workspace: ws })
+      vscode.postMessage({ type: 'getAppliedSuggestions', workspace: ws })
+      vscode.postMessage({ type: 'getDismissedSuggestions', workspace: ws })
+    }
+  }, [workspace, across, groupKey])
+
+  if (workspace !== null) {
+    const wsSessions = sessions.filter(s => (s.workspace ?? '') === workspace)
+    if (wsSessions.length < 3) {
+      return <InsufficientDataState workspace={workspace} count={wsSessions.length} />
+    }
+    const view = workspaceView(workspace, wsSessions)
+    return (
+      <div>
+        <FileStatusBar files={view.files} />
+        <div style="padding:12px 16px">
+          <WorkspaceSuggestions view={view} canApply={true} repoPill={true} />
+          {view.pending.length === 0 && view.applied.length === 0 && <DiagnosticsPanel sessions={wsSessions} />}
+        </div>
+      </div>
+    )
   }
 
-  const pendingSuggestions = suggestions.filter(s => !dismissed.has(s.id))
-  const diag = pendingSuggestions.length === 0 && applied.length === 0 ? getDiagnostics(wsSessions) : null
+  if (groups.length === 0) {
+    return <InsufficientDataState workspace={null} count={sessions.length} />
+  }
+
+  const byWs = groupByWorkspace(sessions)
+  const views = groups.map(ws => workspaceView(ws, byWs.get(ws) ?? []))
+  const shown = views.filter(v => v.pending.length > 0 || v.applied.length > 0)
 
   return (
-    <div>
-      <FileStatusBar files={files} />
-
-      <div style="padding:12px 16px">
-        {workspace === null && (
-          <div style="margin-bottom:12px;padding:8px 12px;font-size:11px;color:var(--muted);line-height:1.5;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-            No repo folder is open in this window, so TraceRoost has nowhere to write instruction
-            file changes — suggestions below (each labeled with its source repo) are shown for
-            reference only and can't be applied. Open a repo folder to get tailored, applicable
-            suggestions for it.
-          </div>
-        )}
-        {/* Pending suggestions */}
-        {pendingSuggestions.length > 0 && (
-          <>
-            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-              Pending
-              <span style="font-size:10px;background:var(--card-bg);border-radius:8px;padding:1px 6px;border:1px solid var(--border)">{pendingSuggestions.length}</span>
-            </div>
-            {pendingSuggestions.map(card => (
-              <SuggestionCardView
-                key={card.id}
-                card={card}
-                dismissed={dismissed.has(card.id)}
-                applied={appliedIds.has(card.id)}
-                files={workspace === null ? [] : files /* no open folder: nothing to apply into */}
-                repoWorkspaces={evidenceWorkspaces(card.evidenceSessions, wsSessions)}
-                onApply={handleApply}
-                onDismiss={handleDismiss}
-              />
-            ))}
-          </>
-        )}
-
-        {pendingSuggestions.length === 0 && applied.length === 0 && diag && (
-          <div style="padding:16px 0">
-            <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:12px">
-              No patterns detected yet in <strong style="color:var(--fg)">{wsSessions.length} traces</strong>.
-            </div>
-            <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:11px;color:var(--muted)">
-              <div style="font-weight:600;color:var(--fg);margin-bottom:6px">Data available</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">
-                <span>Sources</span>
-                <span style="color:var(--fg)">{Object.entries(diag.sources).map(([k,v]) => `${k}: ${v}`).join(', ') || 'none'}</span>
-                <span>Traces with file data</span>
-                <span style={`color:${diag.withFiles > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withFiles} / {diag.sessionCount}</span>
-                <span>Traces with cost data</span>
-                <span style={`color:${diag.withCost > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withCost} / {diag.sessionCount}</span>
-                <span>Traces with tool counts</span>
-                <span style={`color:${diag.withToolCounts > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withToolCounts} / {diag.sessionCount}</span>
-                <span>Most-touched file</span>
-                <span style="color:var(--fg)">{diag.topFile ? `${diag.topFile.name} (${diag.topFile.count} traces, ${pct(diag.topFile.count, diag.sessionCount)}%)` : 'none'}</span>
-                <span>Loop signal types</span>
-                <span style="color:var(--fg)">{diag.loopSignalTypes}</span>
-                <span>Bash-heavy traces</span>
-                <span style="color:var(--fg)">{diag.bashHeavy}</span>
-                <span>Avg turns per trace</span>
-                <span style="color:var(--fg)">{diag.avgTurns > 0 ? diag.avgTurns.toFixed(1) : 'no data'}</span>
-                <span>High-turn traces</span>
-                <span style="color:var(--fg)">{diag.highTurnCount} / {diag.sessionCount}{diag.avgTurns > 0 ? ` (need ≥15% and avg ≥8)` : ''}</span>
-                <span>Open-ended prompts</span>
-                <span style="color:var(--fg)">{diag.scopeMatches}{diag.scopeRatio !== null ? ` (${diag.scopeRatio.toFixed(2)}× avg ${diag.scopeRatioUnit}, need ≥1.4×)` : diag.scopeMatches > 0 ? ' (no cost or turn data)' : ''}</span>
-              </div>
-              <div style="margin-top:8px;font-size:10px;color:var(--muted)">
-                Thresholds: hot file ≥20% · loop signal ≥20% · terminal-heavy ≥3 sessions · high turns ≥15% at avg≥8 · open-ended prompts ≥2 at 1.4× avg turns
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Applied suggestions */}
-        {applied.length > 0 && (
-          <div style="margin-top:16px">
-            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-              Applied
-              <span style="font-size:10px;background:var(--card-bg);border-radius:8px;padding:1px 6px;border:1px solid var(--border)">{applied.length}</span>
-            </div>
-            {(() => {
-              // Aggregate impact summary
-              const measured = applied.filter(rec => {
-                const after = wsSessions.filter(s => s.startTime && Date.parse(s.startTime) >= rec.appliedAtMs)
-                return after.length >= 3 && !rec.baselineInsufficient
-              })
-              if (measured.length < 2) return null
-              const avgChange = (fn: (rec: AppliedRecord) => { before: number | null; after: number | null }) => {
-                const pairs = measured.map(fn).filter(p => p.before !== null && p.after !== null) as {before:number;after:number}[]
-                if (pairs.length === 0) return null
-                return pairs.reduce((a, p) => a + (p.after - p.before) / p.before, 0) / pairs.length * 100
-              }
-              const avgOf = (arr: SessionSummaryCard[], fn: (s: SessionSummaryCard) => number) =>
-                arr.length === 0 ? null : arr.reduce((a, s) => a + fn(s), 0) / arr.length
-              const costChange = avgChange(rec => {
-                const before = wsSessions.filter(s => s.startTime && Date.parse(s.startTime) < rec.appliedAtMs).slice(0, 20)
-                const after = wsSessions.filter(s => s.startTime && Date.parse(s.startTime) >= rec.appliedAtMs)
-                return { before: avgOf(before, sessionCostUsd), after: avgOf(after, sessionCostUsd) }
-              })
-              const turnsChange = avgChange(rec => {
-                const before = wsSessions.filter(s => s.startTime && Date.parse(s.startTime) < rec.appliedAtMs).slice(0, 20)
-                const after = wsSessions.filter(s => s.startTime && Date.parse(s.startTime) >= rec.appliedAtMs)
-                return { before: avgOf(before, s => s.totalLlmCalls), after: avgOf(after, s => s.totalLlmCalls) }
-              })
-              const improved = measured.filter(rec => {
-                const before = wsSessions.filter(s => s.startTime && Date.parse(s.startTime) < rec.appliedAtMs).slice(0, 20)
-                const after = wsSessions.filter(s => s.startTime && Date.parse(s.startTime) >= rec.appliedAtMs)
-                const b = avgOf(before, sessionCostUsd); const a = avgOf(after, sessionCostUsd)
-                if (!b || !a) return false
-                return (a - b) / b < -0.1
-              }).length
-              return (
-                <div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px;background:var(--card-bg)">
-                  <div style="font-size:11px;font-weight:600;color:var(--fg);margin-bottom:6px">
-                    Impact summary — {applied.length} applied · {measured.length} with data
-                  </div>
-                  <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px">
-                    {costChange !== null && (
-                      <span>Avg cost <span style={`font-weight:600;color:${changePctColor(costChange)}`}>{changePctLabel(costChange)}</span></span>
-                    )}
-                    {turnsChange !== null && (
-                      <span>Avg turns <span style={`font-weight:600;color:${changePctColor(turnsChange)}`}>{changePctLabel(turnsChange)}</span></span>
-                    )}
-                    <span style="color:var(--muted)">{improved} improving · {measured.length - improved} flat/worse</span>
-                  </div>
-                </div>
-              )
-            })()}
-            {applied.map(rec => (
-              <AppliedCard
-                key={rec.id}
-                record={rec}
-                sessions={wsSessions}
-                onRemove={handleRemove}
-                onViewBefore={ids => { evidenceSessionIds.value = ids; evidenceSessionLabel.value = 'from instruction suggestion'; evidenceSessionPrompt.value = null; activeTab.value = 'sessions' }}
-                onViewAfter={ids => { evidenceSessionIds.value = ids; evidenceSessionLabel.value = 'from instruction suggestion'; evidenceSessionPrompt.value = null; activeTab.value = 'sessions' }}
-              />
-            ))}
-          </div>
-        )}
-
-      </div>
+    <div style="padding:12px 16px">
+      {!across && (
+        <div style={noteStyle}>
+          No repo folder is open in this window, so TraceRoost has nowhere to write instruction
+          file changes — suggestions below (grouped by the repo they came from) are shown for
+          reference only and can't be applied. Open a repo folder to get tailored, applicable
+          suggestions for it.
+        </div>
+      )}
+      {shown.map(v => <WorkspaceGroup key={v.workspace} view={v} canApply={across} />)}
+      {shown.length === 0 && <DiagnosticsPanel sessions={sessions} />}
     </div>
   )
 }

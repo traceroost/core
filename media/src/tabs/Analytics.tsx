@@ -19,6 +19,8 @@ import { OUTCOME_META } from './Sessions'
 import { gitOutcomes, selectedAgentFilter } from '../state'
 import { planUsage, hasPlanData, forAgentFilter, PROVIDER_LABEL } from '../planUsage'
 import { PlanLimitsSection } from './PlanLimits'
+import { buildLanguageBreakdown } from './languageBreakdown'
+import { languageLabel } from '../language'
 
 // ── Section heading helper ────────────────────────────────────────────────────
 
@@ -58,6 +60,11 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
   // Cursor CLI records no token counts at all — show that as missing rather than as 0 / 0%.
   const hasTokens = s.totalInput > 0 || s.totalOutput > 0 || s.totalCache > 0
   const topTools = Object.entries(s.toolCounts).sort((a, b) => b[1] - a[1]).slice(0, 4)
+  // Agent-authored change size (src/editStats.ts) — summed over traces that recorded line counts.
+  const withLines = sessions.filter(x => x.linesAdded !== undefined && x.linesRemoved !== undefined)
+  const linesKnown = withLines.length > 0
+  const linesAdded = withLines.reduce((n, x) => n + (x.linesAdded ?? 0), 0)
+  const linesRemoved = withLines.reduce((n, x) => n + (x.linesRemoved ?? 0), 0)
   return (
     <div data-agent-card={source} style={`background:var(--card-bg);border:1px solid var(--border);border-left:3px solid ${color};border-radius:6px;padding:12px 14px;flex:1;min-width:180px`}>
       <div style={`display:flex;align-items:center;gap:6px;margin-bottom:10px`}>
@@ -72,6 +79,7 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
         <div><span style="color:var(--muted)">Output tokens</span> <strong>{hasTokens ? formatCompact(s.totalOutput) : '—'}</strong></div>
         <div><span style="color:var(--muted)">Cache hit</span> <strong>{hasTokens ? `${(s.cacheHitRate * 100).toFixed(0)}%` : '—'}</strong></div>
         <div><span style="color:var(--muted)">Avg dur</span> <strong>{formatMs(s.avgDuration)}</strong></div>
+        {linesKnown && <div data-tip="Lines the agent's own edit/write tool calls added and removed — not git stats"><span style="color:var(--muted)">Lines +/−</span> <strong>+{formatCompact(linesAdded)} / −{formatCompact(linesRemoved)}</strong></div>}
         {s.avgTtft > 0 && <div><span style="color:var(--muted)">Avg TTFT</span> <strong>{formatMs(s.avgTtft)}</strong></div>}
         {s.oneShotRate !== null && (
           <div data-tip="Files edited exactly once vs. files that needed a retry, across all traces in this view. Edit-pass count, not a signal the code actually worked.">
@@ -184,6 +192,10 @@ export function Analytics() {
   }
 
   const hasAgentBreakdown = breakdown.length > 0
+  // By-language cut — only once some trace in view actually carries a language (older stored
+  // rows don't), otherwise it would be one "—" row.
+  const languageRows = buildLanguageBreakdown(sessions)
+  const hasLanguageBreakdown = languageRows.some(r => r.language !== 'unrecorded')
 
   // Outcome & token spend over time — same binning `requestGitOutcomesFor` above keeps filling in,
   // so this grows as outcomes resolve rather than waiting for all of them up front.
@@ -198,6 +210,7 @@ export function Analytics() {
 
   const navSections: NavSection[] = [
     ...(hasAgentBreakdown ? [{ id: 'analytics-agent-breakdown', label: 'Agent breakdown' }] : []),
+    ...(hasLanguageBreakdown ? [{ id: 'analytics-language-breakdown', label: 'Language breakdown' }] : []),
     ...(hasPlan ? [{ id: 'analytics-plan-limits', label: 'Plan limits' }] : []),
     ...(trend.bins.length > 0 ? [{ id: 'analytics-outcome-tokens', label: 'Outcome & token spend' }] : []),
     ...(pricedSess.length > 0 ? [{ id: 'analytics-cost', label: 'Estimated cost' }] : []),
@@ -219,10 +232,46 @@ export function Analytics() {
         </>
       )}
 
+      {/* Language breakdown — traces grouped by primary language (media/src/language.ts). */}
+      {hasLanguageBreakdown && (
+        <>
+          <SectionHead id="analytics-language-breakdown" title="LANGUAGE BREAKDOWN" first={!hasAgentBreakdown} helpAnchor="help-language"
+            tip="Traces grouped by primary language — the most common code language among the files the agent read or changed. Docs, config and lockfiles don't count; 'No code' means none was touched." />
+          <div class="h-scroll-hint">
+            <table data-testid="language-breakdown" style="font-size:11px;width:100%;border-collapse:collapse">
+              <thead>
+                <tr style="color:var(--muted);border-bottom:1px solid var(--vscode-panel-border)">
+                  <th style="text-align:left;font-weight:400;padding:3px 8px 3px 0">Language</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Traces</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Tokens</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px">Est. cost</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px" title="Distinct files the agent edited or wrote, summed across traces (all files, code or not)">Files changed</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 8px" title="Lines the agent's own edit/write tool calls added and removed — not git stats">Lines +/−</th>
+                  <th style="text-align:right;font-weight:400;padding:3px 0 3px 8px">With signals</th>
+                </tr>
+              </thead>
+              <tbody>
+                {languageRows.map(r => (
+                  <tr key={r.language} style="border-top:1px solid var(--vscode-panel-border)">
+                    <td style="padding:3px 8px 3px 0">{r.language === 'unrecorded' ? '— (not recorded)' : languageLabel(r.language)}</td>
+                    <td style="padding:3px 8px;text-align:right">{r.sessions.toLocaleString()}</td>
+                    <td style="padding:3px 8px;text-align:right">{formatCompact(r.tokens)}</td>
+                    <td style="padding:3px 8px;text-align:right">{fmtUsd(r.costUsd)}</td>
+                    <td style="padding:3px 8px;text-align:right">{r.filesChanged.toLocaleString()}</td>
+                    <td style="padding:3px 8px;text-align:right">+{formatCompact(r.linesAdded)} / −{formatCompact(r.linesRemoved)}</td>
+                    <td style="padding:3px 0 3px 8px;text-align:right;color:var(--muted)">{r.withSignals > 0 ? `${r.withSignals} (${Math.round(r.withSignals / r.sessions * 100)}%)` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       {/* Subscription plan limits — Claude Code and Codex only, and only when they've written any. */}
       {hasPlan && (
         <>
-          <SectionHead id="analytics-plan-limits" title="PLAN LIMITS" first={!hasAgentBreakdown} helpAnchor="help-plan-limits"
+          <SectionHead id="analytics-plan-limits" title="PLAN LIMITS" first={!hasAgentBreakdown && !hasLanguageBreakdown} helpAnchor="help-plan-limits"
             tip="How much of your Claude or ChatGPT plan's 5-hour and weekly windows you've used, read from files Claude Code and Codex write themselves. No credentials are read and nothing is sent anywhere." />
           <PlanLimitsSection snapshot={plan} />
         </>
@@ -233,7 +282,7 @@ export function Analytics() {
           (buildOutcomeTokenBuckets still feeds this section's median column). */}
       {trend.bins.length > 0 && (
         <>
-          <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasPlan && !hasAgentBreakdown}
+          <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasPlan && !hasAgentBreakdown && !hasLanguageBreakdown}
             tip="Tokens and traces per day (or week), stacked by what happened to the work locally per git — merged, committed, or still uncommitted. Traces with no changed files, or outside a git repo, aren't counted." />
           <p style="font-size:12px;margin:0 0 4px">
             <strong>{formatCompact(trendSummary.total.tokens)}</strong> tokens across{' '}
@@ -294,7 +343,7 @@ export function Analytics() {
       {/* Estimated cost */}
       {pricedSess.length > 0 && (
         <>
-          <SectionHead id="analytics-cost" title="ESTIMATED COST" first={!hasPlan && !hasAgentBreakdown && trend.bins.length === 0} helpAnchor="help-costs" />
+          <SectionHead id="analytics-cost" title="ESTIMATED COST" first={!hasPlan && !hasAgentBreakdown && !hasLanguageBreakdown && trend.bins.length === 0} helpAnchor="help-costs" />
           {disclaimer}
 
           {copilotSess.length > 0 && (

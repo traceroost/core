@@ -77,6 +77,29 @@ async function seedDb(db: SqlDb, cards: SessionSummaryCard[]) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 suite('DatabaseReader', () => {
+  test('language and change size round-trip; rows without them read as unknown', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'with', language: 'python', languageSecondary: 'typescript', filesChangedCount: 2, linesAdded: 10, linesRemoved: 3 }),
+      makeCard({ sessionId: 'without' }),
+      makeCard({ sessionId: 'unknown-lines', language: 'go', languageSecondary: null, filesChangedCount: 1 }),
+    ])
+    // A tampered/unknown value is not passed through as free text.
+    db.run(`UPDATE sessions SET language_secondary = 'Brainfuck' WHERE session_id = 'with'`)
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const byId = new Map(reader.listSessions().map(s => [s.sessionId, s]))
+    const w = byId.get('with')!
+    assert.deepStrictEqual([w.language, w.languageSecondary, w.filesChangedCount, w.linesAdded, w.linesRemoved], ['python', null, 2, 10, 3])
+    const wo = byId.get('without')!
+    assert.deepStrictEqual([wo.language, wo.languageSecondary, wo.filesChangedCount, wo.linesAdded], [undefined, undefined, undefined, undefined])
+    const u = byId.get('unknown-lines')!
+    assert.deepStrictEqual([u.language, u.languageSecondary, u.filesChangedCount, u.linesAdded, u.linesRemoved], ['go', null, 1, undefined, undefined])
+    const searched = reader.searchSessions({ limit: 10 }).sessions.find(s => s.sessionId === 'with')!
+    assert.strictEqual(searched.language, 'python')
+    assert.strictEqual(searched.linesAdded, 10)
+    db.close()
+  })
+
   test('listSessions returns rows in start_time DESC order', async () => {
     const db = await openDb()
     await seedDb(db, [

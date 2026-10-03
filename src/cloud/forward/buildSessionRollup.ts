@@ -19,6 +19,7 @@ import * as crypto from 'crypto'
 import {
   SCHEMA_VERSION,
   toWireAgent,
+  toWireLanguage,
   toWireLoopSignal,
   toWireModel,
   toWireOutcome,
@@ -66,6 +67,13 @@ export interface SessionRollupInput {
    *  `SessionSummaryCard.conversationId` (logReader.ts). Absent for an ordinary one-file-one-
    *  session card, same as core's own color-coding (getConversationColor) leaves it uncolored. */
   conversationId?: string
+  /** Allowlisted language ids (src/language.ts) — fixed-choice labels, never free text. */
+  language?: string
+  languageSecondary?: string | null
+  /** Agent-authored change size (src/editStats.ts) — counts only. */
+  filesChangedCount?: number
+  linesAdded?: number
+  linesRemoved?: number
 }
 
 export interface BuildContext {
@@ -189,6 +197,17 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
   }
   if (input.initiator) rollup.initiator = input.initiator
   if (input.conversationId) rollup.conversation_hash = sha256Hex(input.conversationId)
+  const language = toWireLanguage(input.language)
+  if (language) {
+    rollup.language = language
+    const secondary = toWireLanguage(input.languageSecondary)
+    if (secondary && secondary !== 'none' && secondary !== language) rollup.language_secondary = secondary
+  }
+  // Change size: counts only. files_changed falls back to the distinct filesChanged count.
+  const filesChangedCount = input.filesChangedCount ?? new Set(input.filesChanged ?? []).size
+  rollup.files_changed = nonNegInt(filesChangedCount)
+  if (typeof input.linesAdded === 'number') rollup.lines_added = nonNegInt(input.linesAdded)
+  if (typeof input.linesRemoved === 'number') rollup.lines_removed = nonNegInt(input.linesRemoved)
   if (ctx.revision && ctx.revision > 0) rollup.revision = Math.round(ctx.revision)
 
   if (rk) {

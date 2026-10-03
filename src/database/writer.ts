@@ -33,8 +33,9 @@ const INSERT_SESSION_SQL = `INSERT OR REPLACE INTO sessions (
         total_tool_calls, total_llm_calls, errors, outcome,
         is_sidechain, speed, user_request, tool_counts, loop_signals,
         files_read, files_changed, files_written, files_searched, files_changed_note, cost_usd,
-        data_source, models, one_shot_stats, initiator, conversation_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        data_source, models, one_shot_stats, initiator, conversation_id,
+        language, language_secondary, files_changed_count, lines_added, lines_removed
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 
 // sessions.created_at's column default (schema.ts) — what every INSERT OR REPLACE of a row sets.
 const CREATED_AT_NOW_SQL = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
@@ -387,6 +388,11 @@ export class DatabaseWriter {
       JSON.stringify(card.oneShotStats ?? {}),
       card.initiator ?? null,
       claudeConversationKey(card),
+      card.language ?? null,
+      card.languageSecondary ?? null,
+      card.filesChangedCount ?? null,
+      card.linesAdded ?? null,
+      card.linesRemoved ?? null,
     ]
   }
 

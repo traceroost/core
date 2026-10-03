@@ -3,7 +3,7 @@ import { calcSessionCost } from './sessionMetrics'
 import { formatTraceIdHash } from './hash'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
-  AgentFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
+  AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
   DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry, CollectorConflict, LogIngestProgress,
 } from './types'
 export type { CollectorConflict } from './types'
@@ -79,7 +79,7 @@ export const searchResults = signal<SearchResultData | null>(null)
 
 // ── Global session text filter + sort ─────────────────────────────────────────
 
-export type SortKey = 'start_time' | 'total_tokens' | 'duration_ms' | 'errors' | 'prompt' | 'model' | 'source' | 'cost' | 'workspace' | 'turns' | 'outcome' | 'signals'
+export type SortKey = 'start_time' | 'total_tokens' | 'duration_ms' | 'errors' | 'prompt' | 'model' | 'source' | 'cost' | 'workspace' | 'turns' | 'outcome' | 'signals' | 'language' | 'lines'
 export const sessionTextFilter = signal('')
 export const sessionSortKey = signal<SortKey>('start_time')
 export const sessionSortDir = signal<'asc' | 'desc'>('desc')
@@ -283,6 +283,16 @@ export const focusedSessionId = signal<string | null>(null)
 // rows render at once and never excludes a session from any other tab's analysis.
 export const sessionLimit = signal(25)
 export const selectedAgentFilter = signal<AgentFilter>('all')
+// Language filter (filter bar, next to Agent). Applied wherever the agent filter is.
+export const languageFilter = signal<LanguageFilter>('all')
+
+/** A session matches a language filter when that language is its primary or its secondary — so
+ *  "Python" finds every session that worked in Python, not only those where it came out on top.
+ *  A row stored before language tracking existed (no `language`) matches only 'all'. */
+export function matchesLanguageFilter(s: Pick<SessionSummaryCard, 'language' | 'languageSecondary'>, filter: LanguageFilter): boolean {
+  if (filter === 'all') return true
+  return s.language === filter || (s.languageSecondary ?? null) === filter
+}
 export const initiatorFilter = signal<InitiatorFilter>('all')
 export const dataSourceFilter = signal<DataSourceFilter>('all')
 export const insightFilter = signal<InsightFilter>('all')
@@ -292,8 +302,9 @@ export const workspaceFilter = signal<WorkspaceFilter>('')
 // is open. Distinct from workspaceFilter above (a freeform search box that can match any
 // historical repo's sessions): this is what Apply/getInstructionFiles actually write to, so
 // Instructions.tsx scopes its evidence and applied/dismissed state to this, not the search box.
-// The standalone server inlines its own counterpart (the repo it was started in, if any).
-export const currentWorkspace = signal<string | null>(window.__INITIAL_CURRENT_WORKSPACE__ ?? null)
+// Always null in the standalone dashboard, which has no "open folder": its Instructions tab covers
+// every repo in the recorded sessions instead, one group per repo (see Instructions.tsx).
+export const currentWorkspace = signal<string | null>(null)
 export const outcomeFilter = signal<OutcomeFilter>('all')
 export const activeTab = signal('sessions')
 
@@ -497,6 +508,8 @@ export const agentFilteredSessions = computed<SessionSummaryCard[]>(() => {
   let all = sessionSummary.value?.sessions ?? []
   const filter = selectedAgentFilter.value
   if (filter !== 'all') all = all.filter(s => s.source === filter)
+  const lang = languageFilter.value
+  if (lang !== 'all') all = all.filter(s => matchesLanguageFilter(s, lang))
   const dsFilter = dataSourceFilter.value
   if (dsFilter !== 'all') all = all.filter(s => (s.dataSource ?? 'otel') === dsFilter)
   const wsFilter = workspaceFilter.value.trim()
@@ -554,8 +567,10 @@ export const rangedSessions = computed<SessionSummaryCard[]>(() => {
     return merged.filter(s => matchesRepoQuery(s.workspace ?? '', wsFilter, info))
   })()
 
-  if (agent === 'all') return scoped
-  return scoped.filter(s => s.source === agent)
+  const lang = languageFilter.value
+  const langScoped = lang === 'all' ? scoped : scoped.filter(s => matchesLanguageFilter(s, lang))
+  if (agent === 'all') return langScoped
+  return langScoped.filter(s => s.source === agent)
 })
 
 // Text- + initiator-filtered view of rangedSessions, ahead of the Outcome filter — this is the
@@ -618,6 +633,8 @@ export const filteredSessions = computed<SessionSummaryCard[]>(() => {
       case 'turns':        cmp = b.turns - a.turns; break
       case 'prompt':       cmp = (a.userRequest ?? '').localeCompare(b.userRequest ?? ''); break
       case 'model':        cmp = (a.model ?? '').localeCompare(b.model ?? ''); break
+      case 'language':     cmp = (a.language ? 0 : 1) - (b.language ? 0 : 1) || (a.language ?? '').localeCompare(b.language ?? ''); break
+      case 'lines':        cmp = ((b.linesAdded ?? 0) + (b.linesRemoved ?? 0)) - ((a.linesAdded ?? 0) + (a.linesRemoved ?? 0)); break
       case 'source':       cmp = (a.source ?? '').localeCompare(b.source ?? ''); break
       case 'workspace':    cmp = a.workspace.localeCompare(b.workspace); break
       case 'outcome':      cmp = outcomeRank(gitOutcomes.value[b.sessionId]?.overall ?? null) - outcomeRank(gitOutcomes.value[a.sessionId]?.overall ?? null); break

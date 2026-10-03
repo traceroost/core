@@ -300,6 +300,14 @@ flowchart TD
 
 Sessions produced by `LogReader` carry `dataSource: 'log'` on `SessionSummaryCard`; OTLP sessions carry `dataSource: 'otel'`. The UI shows an OTEL/Log source badge on each session row.
 
+### Per-session language and change size
+
+Every card gets `language` / `languageSecondary` and `filesChangedCount` / `linesAdded` / `linesRemoved` at the moment it is built — `_buildCard` in `logReader.ts` for log sessions, the end of `summarizeSpans()` for OTEL — so the database, the standalone server's in-memory store, export and cloud forwarding all read the same values without their own pass.
+
+- **Language** (`src/language.ts`, byte-identical copy at `media/src/language.ts`, parity-tested in `src/test/language.test.ts`): a fixed allowlist — `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `other` `none` — derived from the extensions of the session's distinct `filesRead` + `filesChanged` paths. Each distinct file counts once; non-code files (docs, JSON/YAML/TOML, lockfiles, config, dotfiles, images, text, CSV) and unknown extensions are excluded; a small explicit `OTHER_CODE_EXTENSIONS` set counts as `other`. Primary is the most common, secondary the runner-up (never `none`, may be `other`); ties break by count, then changed-over-read, then allowlist order.
+- **Change size** (`src/editStats.ts`): `filesChangedCount` is the distinct `filesChanged` count (every file, code or not); lines come from the timeline's `editDetails` — old→new strings are line-diffed (common prefix/suffix trimmed, LCS on the middle), `apply_patch` hunks (parsed once in `summarizers/helpers.ts`'s `parseApplyPatchEditDetails`, for Copilot and Codex) count their `-`/`+` lines, a content-only write counts every line as added. Agent-authored edits, not git stats (`src/attribution/` is the git side). Undefined lines mean the source records no edit contents (OpenCode, Cursor, Codex/Copilot logs).
+- Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`, added by `applyMigrations`); rows from before stay NULL and display "—" until re-summarized from their log — no backfill. Language and change-size cells read from Codex and Copilot Chat logs, which record no file paths, are `none` / unknown.
+
 ### Bypasses SessionStore / SpanSummarizer
 
 `LogReader` produces `SessionSummaryCard` objects directly (via `_buildCard`) and writes them straight to `DatabaseWriter`. The OTLP path's `SessionStore` and `SpanSummarizer` are not involved.
@@ -462,6 +470,13 @@ erDiagram
         TEXT data_source
         TEXT models
         TEXT one_shot_stats
+        TEXT initiator
+        TEXT conversation_id
+        TEXT language
+        TEXT language_secondary
+        INTEGER files_changed_count
+        INTEGER lines_added
+        INTEGER lines_removed
         INTEGER created_at
     }
     timeline_entries {
@@ -658,6 +673,11 @@ classDiagram
         +backgroundSpans: BackgroundSpanSummary[]
         +loopSignals: LoopSignal[]
         +oneShotStats?: OneShotStats
+        +language?: SessionLanguage
+        +languageSecondary?: CodeLanguage | null
+        +filesChangedCount?: number
+        +linesAdded?: number
+        +linesRemoved?: number
     }
 
     class OneShotStats {
@@ -1233,7 +1253,7 @@ traceroost/
 │   ├── loopDetector.ts           # Loop signal detection; shares getFileEditCounts with oneShotRate.ts
 │   ├── instructionAdvisor.ts     # Advisor tab analysis — hot files, loop patterns, high turn counts
 │   ├── instructionEffectiveness.ts # Before/after baseline metrics for applied instruction suggestions
-│   ├── instructionFiles.ts       # Detects/reads/writes CLAUDE.md, copilot-instructions.md, AGENTS.md
+│   ├── instructionFiles.ts       # Detects/reads/writes CLAUDE.md, copilot-instructions.md, AGENTS.md, .cursor/rules/traceroost.mdc
 │   ├── serviceConfig.ts          # Background-service config file + launchd/systemd/Windows-task generators (pure, tested)
 │   ├── httpSecurity.ts           # Shared hardening for the 3 standalone servers (UI/OTLP/MCP): Host-header validation (anti-DNS-rebinding) + bearer-token auth
 │   ├── portResolver.ts           # Requested-vs-actually-bound port tracking so no consumer (auto-configure, dashboard URL, MCP endpoint) points at a dead port

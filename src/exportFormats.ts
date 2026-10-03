@@ -36,6 +36,14 @@ export interface ExportableSession {
   filesChanged: string[]
   loopSignals: Pick<LoopSignal, 'type' | 'severity'>[]
   userRequest: string
+  /** Allowlisted language ids (src/language.ts); null/absent for a row stored before language
+   *  tracking existed. */
+  language?: string | null
+  languageSecondary?: string | null
+  /** Agent-authored change size (src/editStats.ts) — counts only; lines null when unknown. */
+  filesChangedCount?: number | null
+  linesAdded?: number | null
+  linesRemoved?: number | null
 }
 
 export function exportFileExtension(format: ExportFormat): string {
@@ -64,11 +72,16 @@ function joinLoopSignals(signals: Pick<LoopSignal, 'type' | 'severity'>[]): stri
   return signals.map(s => `${s.type}(${s.severity})`).join('; ')
 }
 
+function numCell(n: number | null | undefined): string {
+  return typeof n === 'number' ? String(n) : ''
+}
+
 const CSV_HEADERS = [
   'Session ID', 'Trace ID', 'Source', 'Data Source', 'Model', 'Models', 'Start Time', 'Duration (ms)', 'Turns',
   'Tool Calls', 'Input Tokens', 'Output Tokens', 'Cache Read Tokens', 'Cache Create Tokens',
   'Cache Hit Rate', 'Errors', 'Outcome', 'Tool Counts', 'Files Read', 'Files Changed',
-  'Loop Signals', 'User Request',
+  'Loop Signals', 'Language', 'Secondary Language',
+  'Files Changed (count)', 'Lines Added', 'Lines Removed', 'User Request',
 ]
 
 export function toCsv(sessions: ExportableSession[]): string {
@@ -94,6 +107,11 @@ export function toCsv(sessions: ExportableSession[]): string {
     joinList(s.filesRead),
     joinList(s.filesChanged),
     joinLoopSignals(s.loopSignals),
+    s.language ?? '',
+    s.languageSecondary ?? '',
+    numCell(s.filesChangedCount),
+    numCell(s.linesAdded),
+    numCell(s.linesRemoved),
     s.userRequest,
   ])
   return [CSV_HEADERS, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n'
@@ -123,6 +141,13 @@ export function toMarkdown(sessions: ExportableSession[]): string {
       + `(cache read ${s.cacheReadTokens.toLocaleString()}, cache write ${s.cacheCreateTokens.toLocaleString()}, `
       + `${(s.cacheHitRate * 100).toFixed(1)}% hit rate)`)
     parts.push(`- **Outcome:** ${s.outcome}`)
+    if (typeof s.filesChangedCount === 'number') {
+      const lines = typeof s.linesAdded === 'number' && typeof s.linesRemoved === 'number' ? `, +${s.linesAdded} / −${s.linesRemoved} lines` : ''
+      parts.push(`- **Change size:** ${s.filesChangedCount} file${s.filesChangedCount === 1 ? '' : 's'} changed${lines}`)
+    }
+    if (s.language) {
+      parts.push(`- **Language:** ${s.language}${s.languageSecondary ? ` (secondary: ${s.languageSecondary})` : ''}`)
+    }
     if (Object.keys(s.toolCounts).length > 0) {
       parts.push(`- **Tool counts:** ${joinToolCounts(s.toolCounts)}`)
     }

@@ -66,6 +66,10 @@
     "count": { "type": "integer", "minimum": 0, "maximum": 100000000 },
     "data_source": { "type": "string", "enum": ["otel", "log"] },
     "initiator": { "type": "string", "enum": ["user", "agent", "api"] },
+    "language": {
+      "type": "string",
+      "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "other", "none"]
+    },
     "session": {
       "type": "object",
       "additionalProperties": false,
@@ -132,6 +136,14 @@
         "data_source": { "$ref": "#/$defs/data_source" },
         "initiator": { "$ref": "#/$defs/initiator" },
         "conversation_hash": { "$ref": "#/$defs/hash" },
+        "language": { "$ref": "#/$defs/language" },
+        "language_secondary": {
+          "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "other", null],
+          "description": "Second most common distinct language in the session -- any language id except none. Omitted (or null) when only one language was touched."
+        },
+        "files_changed": { "$ref": "#/$defs/count" },
+        "lines_added": { "$ref": "#/$defs/count" },
+        "lines_removed": { "$ref": "#/$defs/count" },
         "revision": {
           "type": "integer",
           "minimum": 1,

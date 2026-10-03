@@ -3,7 +3,7 @@ import { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizerTypes
 import {
   getAttrStr, getAttrInt, nanoToMs, extractUserRequest,
   summarizeToolArgs, summarizeToolResult, extractResponseText, detectOutputAction,
-  extractTokenCounts, getGenAiModel, rankModelsByWeight,
+  extractTokenCounts, getGenAiModel, rankModelsByWeight, parseApplyPatchEditDetails,
 } from './helpers'
 
 export function buildCopilotSessions(
@@ -281,40 +281,7 @@ function extractCopilotEditDetails(toolName: string, argsStr: string): EditDetai
       }
     } else if (toolName === 'apply_patch') {
       const args = JSON.parse(argsStr)
-      const patchContent = args.command || args.patch || args.input || ''
-      const details: EditDetail[] = []
-      let currentFile = ''
-      let oldLines: string[] = []
-      let newLines: string[] = []
-      for (const line of patchContent.split('\n')) {
-        const fileMatch = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
-        if (fileMatch) {
-          const candidate = fileMatch[1].trim()
-          if (!/[\\/]/.test(candidate)) continue  // skip *** Begin Patch, *** End Patch, etc. (a path has either separator)
-          if (currentFile) {
-            details.push({
-              filePath: currentFile,
-              oldString: oldLines.length > 0 ? oldLines.join('\n') : undefined,
-              newString: newLines.length > 0 ? newLines.join('\n') : undefined,
-            })
-          }
-          currentFile = candidate
-          oldLines = []; newLines = []
-          continue
-        }
-        // Unified diff format: @@ context @@ lines are separators, skip them
-        if (line.startsWith('@@')) continue
-        // Lines starting with - are removed, + are added, space is context (skip)
-        if (line.startsWith('-')) { oldLines.push(line.slice(1)) }
-        else if (line.startsWith('+')) { newLines.push(line.slice(1)) }
-      }
-      if (currentFile) {
-        details.push({
-          filePath: currentFile,
-          oldString: oldLines.length > 0 ? oldLines.join('\n') : undefined,
-          newString: newLines.length > 0 ? newLines.join('\n') : undefined,
-        })
-      }
+      const details = parseApplyPatchEditDetails(String(args.command || args.patch || args.input || ''))
       if (details.length > 0) { return details }
     }
   } catch { /* skip */ }

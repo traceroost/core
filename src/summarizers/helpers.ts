@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { Span } from '../types'
+import type { EditDetail } from './summarizerTypes'
 
 export const CLAUDE_WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 export const FULL_WRITE_TOOLS   = new Set(['Write', 'create_file'])  // whole-file replacement
@@ -416,4 +417,50 @@ export function detectOutputAction(outputMessages: string): string {
     return 'tool_calls'
   }
   return 'text response'
+}
+
+/**
+ * Per-file edit details from an apply_patch body ("*** Begin Patch / *** Update|Add|Delete File:
+ * <path> / @@ / -old / +new / *** End Patch") — Copilot's and Codex's file-editing tool. Each
+ * detail carries the hunk's removed (`-`) lines as oldString and added (`+`) lines as newString,
+ * context lines dropped, tagged toolName 'apply_patch' so src/editStats.ts counts them as stated
+ * rather than re-diffing them.
+ */
+export function parseApplyPatchEditDetails(patchContent: string): EditDetail[] {
+  const details: EditDetail[] = []
+  let currentFile = ''
+  let oldLines: string[] = []
+  let newLines: string[] = []
+  for (const line of patchContent.split('\n')) {
+    const fileMatch = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
+    if (fileMatch) {
+      const candidate = fileMatch[1].trim()
+      if (!/[\\/]/.test(candidate)) continue  // skip *** Begin Patch, *** End Patch, etc. (a path has either separator)
+      if (currentFile) {
+        details.push({
+          filePath: currentFile,
+          toolName: 'apply_patch',
+          oldString: oldLines.length > 0 ? oldLines.join('\n') : undefined,
+          newString: newLines.length > 0 ? newLines.join('\n') : undefined,
+        })
+      }
+      currentFile = candidate
+      oldLines = []; newLines = []
+      continue
+    }
+    // Unified diff format: @@ context @@ lines are separators, skip them
+    if (line.startsWith('@@')) continue
+    // Lines starting with - are removed, + are added, space is context (skip)
+    if (line.startsWith('-')) { oldLines.push(line.slice(1)) }
+    else if (line.startsWith('+')) { newLines.push(line.slice(1)) }
+  }
+  if (currentFile) {
+    details.push({
+      filePath: currentFile,
+      toolName: 'apply_patch',
+      oldString: oldLines.length > 0 ? oldLines.join('\n') : undefined,
+      newString: newLines.length > 0 ? newLines.join('\n') : undefined,
+    })
+  }
+  return details
 }

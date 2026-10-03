@@ -1,6 +1,8 @@
 // Browser-side type definitions for TraceRoost dashboard
 // These mirror the backend types from src/types.ts and src/summarizers/summarizerTypes.ts
 
+import type { SessionLanguage, CodeLanguage } from './language'
+
 export interface Span {
   traceId: string
   spanId: string
@@ -120,6 +122,15 @@ export interface SessionSummaryCard {
   filesWritten: string[]
   /** Mirrors src/oneShotRate.ts's OneShotStats. Absent on cards computed before this field existed. */
   oneShotStats?: OneShotStats
+  /** Mirrors src/summarizers/summarizerTypes.ts — see media/src/language.ts. Absent on rows stored
+   *  before language tracking existed (shown "—"). */
+  language?: SessionLanguage
+  languageSecondary?: CodeLanguage | null
+  /** Mirrors src/summarizers/summarizerTypes.ts — see src/editStats.ts. Agent-authored edits, not
+   *  git stats; lines are undefined when the source records no edit contents. */
+  filesChangedCount?: number
+  linesAdded?: number
+  linesRemoved?: number
 }
 
 export interface OneShotStats {
@@ -233,6 +244,9 @@ export interface SearchQuery {
 }
 
 export type AgentFilter = 'all' | 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
+// One of media/src/language.ts's LANGUAGE_IDS, or 'all'. Matches a session whose primary OR
+// secondary language is that id (see matchesLanguageFilter in state.ts).
+export type LanguageFilter = 'all' | SessionLanguage
 // 'agent' covers both agent-spawned sub-tasks and non-interactive API calls (sess.initiator
 // 'agent' | 'api') — the two were a single visually-indistinguishable gray pill even before this
 // type merged them, so the filter now matches what a user could actually tell apart.
@@ -302,7 +316,6 @@ declare global {
     __INITIAL_SESSION_REV__?: number
     __INITIAL_COLLECTOR_CONFLICT__?: CollectorConflict
     __INITIAL_LOG_INGEST__?: LogIngestProgress
-    __INITIAL_CURRENT_WORKSPACE__?: string | null
     __STANDALONE__?: boolean
     __VERSION__?: string
   }

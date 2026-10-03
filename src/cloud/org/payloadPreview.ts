@@ -43,6 +43,11 @@ function cardToInput(card: SessionSummaryCard): SessionRollupInput {
     llmModels: (card.timeline ?? []).filter(t => t.type === 'llm' && t.model).map(t => t.model as string),
     dataSource: card.dataSource,
     initiator: card.initiator,
+    language: card.language,
+    languageSecondary: card.languageSecondary,
+    filesChangedCount: card.filesChangedCount,
+    linesAdded: card.linesAdded,
+    linesRemoved: card.linesRemoved,
     conversationId: card.conversationId,
   }
 }

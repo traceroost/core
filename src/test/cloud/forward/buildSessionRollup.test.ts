@@ -182,4 +182,44 @@ suite('forward/buildSessionRollup', () => {
     assert.match(folded, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
     assert.strictEqual(toUuid('claude-session-42'), folded) // stable
   })
+
+  test('language and change size: allowlisted ids and counts only, schema-valid', () => {
+    const r = buildSessionRollup({ ...BASE, language: 'python', languageSecondary: 'typescript', filesChangedCount: 3, linesAdded: 120, linesRemoved: 40 }, BUILD)
+    assert.strictEqual(r.language, 'python')
+    assert.strictEqual(r.language_secondary, 'typescript')
+    assert.deepStrictEqual([r.files_changed, r.lines_added, r.lines_removed], [3, 120, 40])
+    assert.deepStrictEqual(validateRollupPayload(sessionRollupPayload({ ...BASE, language: 'python', languageSecondary: 'typescript', linesAdded: 1, linesRemoved: 0 }, BUILD)), [])
+  })
+
+  test('language: single language omits the secondary; unknown ids are never sent', () => {
+    const single = buildSessionRollup({ ...BASE, language: 'go', languageSecondary: null }, BUILD)
+    assert.strictEqual(single.language, 'go')
+    assert.ok(!('language_secondary' in single))
+    const none = buildSessionRollup({ ...BASE, language: 'none', languageSecondary: 'none' }, BUILD)
+    assert.strictEqual(none.language, 'none')
+    assert.ok(!('language_secondary' in none))
+    const bogus = buildSessionRollup({ ...BASE, language: 'my secret project', languageSecondary: 'rust' }, BUILD)
+    assert.ok(!('language' in bogus) && !('language_secondary' in bogus))
+    const legacy = buildSessionRollup(BASE, BUILD)
+    assert.ok(!('language' in legacy))
+  })
+
+  test('change size: files_changed falls back to the distinct filesChanged count; unknown lines are omitted', () => {
+    const r = buildSessionRollup({ ...BASE, filesChanged: ['a.ts', 'a.ts', 'b.md'] }, BUILD)
+    assert.strictEqual(r.files_changed, 2)
+    assert.ok(!('lines_added' in r) && !('lines_removed' in r))
+    assert.strictEqual(buildSessionRollup({ ...BASE, linesAdded: -5, linesRemoved: 2.6 }, BUILD).lines_added, 0)
+    assert.strictEqual(buildSessionRollup({ ...BASE, linesAdded: -5, linesRemoved: 2.6 }, BUILD).lines_removed, 3)
+  })
+
+  test('the schema accepts a null language_secondary and rejects an unknown one', () => {
+    const payload = sessionRollupPayload({ ...BASE, language: 'rust' }, BUILD) as unknown as { session: Record<string, unknown> }
+    payload.session.language_secondary = null
+    assert.deepStrictEqual(validateRollupPayload(payload), [])
+    payload.session.language_secondary = 'none'
+    assert.notDeepStrictEqual(validateRollupPayload(payload), [])
+    payload.session.language_secondary = 'rust'
+    payload.session.language = 'Rust'
+    assert.notDeepStrictEqual(validateRollupPayload(payload), [])
+  })
 })
