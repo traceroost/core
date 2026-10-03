@@ -1,6 +1,7 @@
 import { signal, computed } from '@preact/signals'
 import { calcSessionCost } from './sessionMetrics'
 import { formatTraceIdHash } from './hash'
+import { LANGUAGE_IDS, type SessionLanguage } from './language'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
@@ -503,6 +504,21 @@ export const availableWorkspaces = computed<string[]>(() => {
 // classify against git. Unlike the Repo column (availableWorkspaces.length > 1, since with a
 // single repo there's nothing to tell apart), a single repo is exactly where outcomes matter.
 export const hasAnyWorkspace = computed<boolean>(() => availableWorkspaces.value.some(ws => ws !== ''))
+
+// Languages the Language dropdown offers: only those at least one loaded trace has (primary or
+// secondary), in allowlist order. Read from every loaded trace, not the filtered set, so picking
+// a language never hides the others from the dropdown. A selected language stays listed even if
+// no trace carries it any more, so the control never shows a value it has no option for.
+export const availableLanguages = computed<SessionLanguage[]>(() => {
+  const seen = new Set<string>()
+  for (const s of sessionSummary.value?.sessions ?? []) {
+    if (s.language) seen.add(s.language)
+    if (s.languageSecondary) seen.add(s.languageSecondary)
+  }
+  const selected = languageFilter.value
+  if (selected !== 'all') seen.add(selected)
+  return LANGUAGE_IDS.filter(id => seen.has(id))
+})
 
 export const agentFilteredSessions = computed<SessionSummaryCard[]>(() => {
   let all = sessionSummary.value?.sessions ?? []

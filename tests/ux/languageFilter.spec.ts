@@ -38,13 +38,14 @@ test('Language filter narrows traces; Lang/Changes columns and the breakdown ren
   await expect(page.locator('#sessions-content td.trace-language').filter({ hasText: '—' })).toHaveCount(2)
 
   const select = page.locator('#tr-filter-language')
+  // Only languages some trace has are offered, in allowlist order.
+  await expect(select.locator('option')).toHaveText(['All', 'TypeScript', 'Python', 'Go'])
   // Python matches the 2 Python-primary traces and the 2 TypeScript traces with Python secondary.
   await select.selectOption('python')
   await expect(rows).toHaveCount(4)
   await select.selectOption('go')
   await expect(rows).toHaveCount(2)
-  await select.selectOption('rust')
-  await expect(page.locator('#sessions-content .empty-state')).toBeVisible()
+  await expect(select.locator('option[value=rust]')).toHaveCount(0)
 
   // Clear Filters resets it.
   await page.getByRole('button', { name: 'Clear Filters' }).click()

@@ -2,7 +2,7 @@ import { signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   sessionSummary, toolCalls,
-  selectedAgentFilter, languageFilter, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
+  selectedAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
   sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
@@ -19,7 +19,7 @@ import {
 import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS } from './utils'
-import { LANGUAGE_IDS, LANGUAGE_LABELS } from './language'
+import { LANGUAGE_LABELS } from './language'
 
 // Tab components
 import { Sessions } from './tabs/Sessions'
@@ -1290,7 +1290,8 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         </div>
       )}
 
-      {/* Language filter — a fixed list (media/src/language.ts), so a <select> rather than 14 pills.
+      {/* Language filter — only the languages loaded traces actually have (availableLanguages), so a
+          <select> rather than pills.
           Matches a trace whose primary or secondary language is the one picked. */}
       {!hideAgentFilter && (
         <div style="display:flex;align-items:center;margin-left:20px">
@@ -1304,7 +1305,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
             style="flex:none;width:auto"
           >
             <option value="all">All</option>
-            {LANGUAGE_IDS.map(id => <option key={id} value={id}>{LANGUAGE_LABELS[id]}</option>)}
+            {availableLanguages.value.map(id => <option key={id} value={id}>{LANGUAGE_LABELS[id]}</option>)}
           </select>
         </div>
       )}
