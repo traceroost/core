@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'preact/hooks'
+import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 import {
   filteredSessions, sessionSummary, sessionTimelines, gitOutcomes, burnRateData,
   focusedSessionId, vscode, ignoredInsightKeys,
@@ -240,6 +240,7 @@ function sessionChangesTitle(sess: SessionSummaryCard): string {
 function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   const [section, setSection] = useState<Section>('overview')
   const traceIdHash = formatTraceIdHash(sess.traceId || sess.sessionId)
+  const repo = sess.workspace ? repoInfo.value[sess.workspace] : null
   const timelines = sessionTimelines.value
   const timeline = timelines[sess.sessionId] ?? sess.timeline ?? []
   const cost = calcSessionCost(sess)
@@ -302,7 +303,8 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   return (
     <div style="border-top:1px solid var(--border)" onClick={e => e.stopPropagation()}>
       <LimitHitBanner sessionId={sess.sessionId} />
-      <div style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
+      {/* Identity line (Trace ID, Repo) on top, section tabs on their own line beneath it. */}
+      <div style="display:flex;align-items:center;gap:0;padding:2px 8px 0;background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         <span
           style="display:flex;align-items:center;gap:5px;padding:3px 4px;margin-right:4px;font-size:10px;color:var(--muted);white-space:nowrap"
         >
@@ -310,6 +312,27 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
           <span style="font-family:monospace;color:var(--fg)">{traceIdHash}</span>
           <CopyIconButton value={traceIdHash} label="Copy trace ID" />
         </span>
+        {sess.workspace && (
+          <span
+            style="display:flex;align-items:center;gap:5px;padding:3px 4px;margin-right:4px;font-size:10px;color:var(--muted);white-space:nowrap"
+            title={`${repoTooltipName(sess.workspace, repoInfo.value)}\nLocal: ${sess.workspace}`}
+          >
+            <span style="text-transform:uppercase;letter-spacing:.3px">Repo (ID)</span>
+            {/* With a hash, the copy button sits inside its parentheses and copies the full hash;
+                with none (core edition, or not a keyable repo), it follows the name and copies that. */}
+            {repo?.hash
+              ? <span style="display:inline-flex;align-items:center;font-family:monospace;color:var(--fg)">
+                  {repo.name}&nbsp;({repo.hash.slice(0, 4)}…<CopyIconButton value={repo.hash} label="Copy repo hash" />)
+                </span>
+              : <>
+                  <span style="font-family:monospace;color:var(--fg)">{repoDisplayName(sess.workspace, repoInfo.value)}</span>
+                  <CopyIconButton value={repoDisplayName(sess.workspace, repoInfo.value)} label="Copy repo name" />
+                </>
+            }
+          </span>
+        )}
+      </div>
+      <div style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         {navBtn('overview', 'Overview')}
         {navBtn('waterfall', `Waterfall${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
         {navBtn('flow', `Flow${sess.totalLlmCalls > 0 ? ' (' + sess.totalLlmCalls + ')' : ''}`)}
@@ -588,27 +611,60 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
   const prompt = sess.userRequest ?? ''
   const isIsolatedToThisGroup = conversation ? isSameIdSet(evidenceSessionIds.value, conversation.memberIds) : false
 
+  const detailRef = useRef<HTMLTableRowElement>(null)
+
+  // Scrolls the table's scroll region (the active .panel) so `target`'s top sits flush under the
+  // table's sticky thead — never hidden beneath it, which plain scrollIntoView would do.
+  function scrollUnderHeader(target: HTMLElement, offset: number, smooth: boolean) {
+    const scroller = target.closest('.panel')
+    const thead = target.closest('table')?.tHead
+    if (!scroller || !thead) return
+    const delta = target.getBoundingClientRect().top - thead.getBoundingClientRect().bottom - offset
+    if (Math.abs(delta) > 1) scroller.scrollBy({ top: delta, behavior: smooth ? 'smooth' : 'auto' })
+  }
+
+  // An expanded row pins itself just under the table's own sticky thead, so its collapse chevron
+  // stays reachable while scrolling a long detail. The offset is measured rather than hardcoded
+  // since the header's height follows the webview's font size.
+  const [stickyTop, setStickyTop] = useState(0)
+  useLayoutEffect(() => {
+    if (!expanded) return
+    setStickyTop(rowRef.current?.closest('table')?.tHead?.offsetHeight ?? 0)
+    // On expand, bring the row to the top with the very top of its detail right below it. Measured
+    // off the detail row, not the row itself: a row that's already pinned reports its pinned
+    // position, not where it really sits in the table.
+    if (detailRef.current) scrollUnderHeader(detailRef.current, rowRef.current?.offsetHeight ?? 0, true)
+  }, [expanded])
+
   useEffect(() => {
-    if (focusedSessionId.value === sess.sessionId) {
-      setExpanded(true)
-      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
+    if (focusedSessionId.value !== sess.sessionId) return
+    // Focused from elsewhere (another tab, the context bar): expanding scrolls it into place via
+    // the layout effect above; an already-open row just needs the scroll.
+    if (expanded && detailRef.current) scrollUnderHeader(detailRef.current, rowRef.current?.offsetHeight ?? 0, true)
+    else setExpanded(true)
   }, [focusedSessionId.value])
 
   function toggle() {
     const next = !expanded
+    // Collapsing a pinned row (scrolled down into its detail) would otherwise leave the view
+    // somewhere below it once the detail disappears — bring the row back into view instead.
+    const row = rowRef.current
+    const pinned = !next && row !== null && row.getBoundingClientRect().top <= (row.closest('table')?.tHead?.getBoundingClientRect().bottom ?? 0) + 1
     setExpanded(next)
     focusedSessionId.value = next ? sess.sessionId : null
+    if (pinned) requestAnimationFrame(() => scrollUnderHeader(row!, 0, false))
   }
 
-  const rowBg = isFocused ? 'var(--hover)' : 'transparent'
+  // Opaque when pinned, so detail content scrolling underneath doesn't show through.
+  const rowBg = isFocused ? 'linear-gradient(var(--hover),var(--hover)),var(--bg)' : expanded ? 'var(--bg)' : 'transparent'
+  const stickyStyle = expanded ? `;position:sticky;top:${stickyTop}px;z-index:1` : ''
 
   return (
     <>
       <tr
         ref={rowRef}
         onClick={toggle}
-        style={`cursor:pointer;background:${rowBg};border-bottom:1px solid var(--vscode-panel-border)`}
+        style={`cursor:pointer;background:${rowBg};border-bottom:1px solid var(--vscode-panel-border)${stickyStyle}`}
       >
         {/* Conversation-group marker — colored bar for sessions that are really one conversation
             split into multiple cards by a long gap (see buildConversationInfo above). An empty
@@ -755,7 +811,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
       </tr>
 
       {expanded && (
-        <tr style="border-bottom:1px solid var(--vscode-panel-border)">
+        <tr ref={detailRef} style="border-bottom:1px solid var(--vscode-panel-border)">
           <td colspan={12 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)} style="padding:0">
             <SessionDetail sess={sess} />
           </td>
