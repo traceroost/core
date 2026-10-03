@@ -36,7 +36,7 @@ export const NEVER_SENT: readonly string[] = [
  *  consent screen's "Who sees what" line (`cloud` `src/lib/privacy.ts` `whoSeesWhat`). */
 export function whoSeesWhat(perDeveloperVisibility: boolean, orgName: string): string {
   return perDeveloperVisibility
-    ? `${orgName} has per-developer numbers turned on — an admin, or a developer individually granted org visibility, sees your individual figures. You will see a marker saying so.`
+    ? `${orgName} has per-developer numbers turned on — an admin sees your individual figures. Other members, including a developer individually granted org visibility, see only what ${orgName}'s teammate-visibility settings allow. You will see a marker saying so.`
     : `Admins of ${orgName} see org totals only. Your individual numbers stay yours unless the whole org turns that on.`
 }
 
