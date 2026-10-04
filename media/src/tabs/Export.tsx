@@ -5,6 +5,7 @@ import {
   sessionTextFilter, initiatorFilter, evidenceSessionIds, repoInfo, matchesRepoQuery,
   languageFilter, matchesLanguageFilter,
 } from '../state'
+import { CloudNote } from './CloudNote'
 import type { SessionSummaryCard } from '../types'
 
 type ExportFormat = 'json' | 'csv' | 'markdown'
@@ -100,7 +101,9 @@ export function Export() {
   const sessions = filteredSessions.value
   const empty = sessions.length === 0
   const trueTotal = isAllTime ? sessions.length : (rangedSearchResults.value?.totalCount ?? sessions.length)
-  const scopeLabel = `${trueTotal} trace${trueTotal === 1 ? '' : 's'} matching your current filters`
+  const scopeLabel = trueTotal === 1
+    ? '1 trace matches your current filters and will be exported'
+    : `${trueTotal} traces match your current filters and will be exported`
 
   useEffect(() => {
     if (!pending) return
@@ -156,6 +159,10 @@ export function Export() {
   return (
     <div id="export-content" style="padding-top:8px">
 
+      <div class={'export-scope-box' + (empty ? ' export-scope-box-empty' : '')}>
+        {empty ? 'No traces match your current filters — nothing to export' : scopeLabel}
+      </div>
+
       <div class="export-cards">
 
         <div class="export-card">
@@ -175,7 +182,6 @@ export function Export() {
             <li>Duration, errors, outcome, loop signals</li>
           </ul>
           <div class="export-card-warning">Keep private — includes prompt text.</div>
-          <div class="export-card-scope">{empty ? 'No traces match your current filters' : scopeLabel}</div>
           <div class="export-card-actions">
             <FormatSelect value={rawFormat} onChange={setRawFormat} />
             <button
@@ -205,7 +211,6 @@ export function Export() {
             <li>✓ Duration, errors, outcome, loop signals</li>
           </ul>
           <div class="export-card-safe">Safer to share — no prompt text or file paths.</div>
-          <div class="export-card-scope">{empty ? 'No traces match your current filters' : scopeLabel}</div>
           <div class="export-card-actions">
             <FormatSelect value={redactedFormat} onChange={setRedactedFormat} />
             <button
@@ -221,12 +226,13 @@ export function Export() {
       </div>
 
       <div class="export-replay-box">
-        <div class="export-replay-title">About trace data exports</div>
+        <div class="export-replay-title">About exports</div>
         <p class="export-replay-desc">
-          These exports contain aggregated trace summaries — token counts, tool usage,
-          cost estimates, file changes, and efficiency signals. They are useful for
-          cost analysis, sharing with teammates, and offline review. Use the <strong>Import</strong> tab to bring exported files back into TraceRoost on any machine.
+          Exports summarize your traces: tokens, tools, cost, file changes, and efficiency
+          signals. Use them to share specifics with a teammate, who can open them with
+          the <strong>Import</strong> tab.
         </p>
+        <CloudNote tab="export" />
       </div>
     </div>
   )

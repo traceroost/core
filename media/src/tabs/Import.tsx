@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { vscode } from '../state'
 import { getAgentColor, getAgentSourceLabel } from '../utils'
+import { CloudNote } from './CloudNote'
 
 type Phase = 'idle' | 'preview' | 'importing' | 'done'
 
@@ -180,6 +181,7 @@ export function Import() {
           <input ref={fileInputRef} type="file" accept=".json" style="display:none" onChange={onFileInput} />
         </div>
         {error && <p class="import-error">{error}</p>}
+        <CloudNote tab="import" />
       </div>
     )
   }

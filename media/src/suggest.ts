@@ -6,10 +6,16 @@
  * dashboard opens it in a new browser tab).
  *
  * Deliberately not under `cloud/` and not the Org panel's resolved endpoint: this ships in the core
- * edition too, which bundles no Cloud code, so it is one fixed public URL. scripts/check-edition.mjs
- * allows exactly this URL and still fails on any other Cloud hostname or endpoint.
+ * edition too, which bundles no Cloud code, so it is a fixed public URL chosen at build time. It
+ * follows the same default as src/cloud/org/config.ts's resolveOrgEnvironment(): a release build
+ * (esbuild.js bakes in `TRACEROOST_RELEASE_BUILD`) opens production, any other build opens stage
+ * (`DEFAULT_ORG_ENVIRONMENT`) — keep the two in step. The minified release bundle folds the
+ * ternary, so it carries only the production URL. scripts/check-edition.mjs allows exactly these
+ * URLs and still fails on any other Cloud hostname or endpoint.
  */
-export const SUGGEST_URL = 'https://traceroost.com/suggest'
+export const SUGGEST_URL = process.env.TRACEROOST_RELEASE_BUILD
+  ? 'https://traceroost.com/suggest'
+  : 'https://stage.traceroost.com/suggest'
 
 /**
  * `context` is only the app version and the tab name (e.g. `core 1.2.3 · Traces`) — never a

@@ -62,10 +62,11 @@ const MARKERS = [
   'linkViaDevice',
 ]
 
-/** The one Cloud URL a core build may carry: the header's "Make a suggestion" link
- *  (media/src/suggest.ts) — a public web page the user's browser opens, not Cloud code. Removed
- *  verbatim before the marker scan, so any other traceroost.com URL or endpoint still fails. */
-const PUBLIC_LINK = 'https://traceroost.com/suggest'
+/** The only Cloud URLs a core build may carry: the header's "Make a suggestion" link
+ *  (media/src/suggest.ts) — a public web page the user's browser opens, not Cloud code. Production
+ *  in a release build, stage otherwise. Removed verbatim before the marker scan, so any other
+ *  traceroost.com URL or endpoint still fails. */
+const PUBLIC_LINKS = ['https://stage.traceroost.com/suggest', 'https://traceroost.com/suggest']
 
 /** Manifest entries that must not appear in a core package.json. */
 function manifestProblems(pkg) {
@@ -99,7 +100,7 @@ for (const rel of BUNDLES) {
     failed = true
     continue
   }
-  const text = fs.readFileSync(file, 'utf8').split(PUBLIC_LINK).join('')
+  const text = PUBLIC_LINKS.reduce((t, link) => t.split(link).join(''), fs.readFileSync(file, 'utf8'))
   const hits = MARKERS.map(m => [m, text.split(m).length - 1]).filter(([, n]) => n > 0)
   report.push({ rel, bytes: text.length, hits })
   if (edition === 'core' && hits.length > 0) {
