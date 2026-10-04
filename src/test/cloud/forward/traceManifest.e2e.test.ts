@@ -1,8 +1,9 @@
 // End to end against a fake TraceRoost Cloud on a real local HTTP server: the forwarding
-// scheduler probes the published schema, drains ranked rollups, then sends the trace manifest —
+// scheduler drains ranked rollups, then sends the trace manifest —
 // and a row this install delivered but no longer holds is retired, while a re-send retires nothing
 // more. The fake mirrors cloud's rules (src/lib/ingest/manifest.ts, retire_absent_rollups): this
-// install's rows only, the [from, to) window, the missing_keys and empty_unconfirmed gates.
+// install's rows only, the [from, to) window, the missing_keys and empty_unconfirmed gates, and
+// schema version "1" with a required source_rank.
 
 import * as assert from 'assert'
 import * as fs from 'fs'
@@ -12,7 +13,6 @@ import * as path from 'path'
 import type { AddressInfo } from 'net'
 import { startForwardScheduler } from '../../../cloud/forward/scheduler'
 import { ForwardQueue } from '../../../cloud/forward/queue'
-import { resetCapabilityProbeState } from '../../../cloud/forward/cloudCapabilities'
 import { manifestDays, manifestStatePath, senderLeasePath } from '../../../cloud/forward/traceManifest'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
@@ -21,12 +21,12 @@ import type { TraceManifestSource } from '../../../cloudBridge'
 import { toUuid } from '../../../traceIdentity'
 
 interface FakeCloudState {
-  rows: Map<string, { startedAt: number; rank?: number; version: string }>
+  rows: Map<string, { startedAt: number; rank: number }>
   retired: Set<string>
   manifestBodies: TraceManifestChunk[]
   responses: Array<{ retired: number; missing: number; gated?: string }>
-  /** Pretend to predate stable trace identity: no rank in the schema, no manifest route. */
-  old: boolean
+  /** Every request line, in order. */
+  requests: string[]
 }
 
 function startFakeCloud(state: FakeCloudState): Promise<http.Server> {
@@ -38,24 +38,23 @@ function startFakeCloud(state: FakeCloudState): Promise<http.Server> {
         res.writeHead(status, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(body))
       }
-      if (req.method === 'GET' && req.url === '/api/ingest/schema') {
-        return send(200, { $defs: state.old ? { session: { properties: {} } } : { session: { properties: { source_rank: {} } }, trace_manifest: {} } })
-      }
+      state.requests.push(`${req.method} ${req.url}`)
       if (req.headers.authorization !== 'Bearer access-1') return send(401, { error: 'bad token' })
       if (req.method === 'POST' && req.url === '/api/ingest/batch') {
         const { items } = JSON.parse(raw) as { items: RollupPayload[] }
         const results = items.map(p => {
-          // additionalProperties: false — an old cloud 400s a field it doesn't know.
-          if (state.old && (p.session?.source_rank !== undefined || p.schema_version !== '1')) return { status: 400, error: 'schema' }
-          const s = p.session!
-          state.rows.set(s.session_id, { startedAt: Date.parse(s.started_at), rank: s.source_rank, version: p.schema_version })
+          // The cloud's schema: version "1" only, source_rank required.
+          if (p.schema_version !== '1' || p.session?.source_rank === undefined) return { status: 400, error: 'schema' }
+          const s = p.session
+          state.rows.set(s.session_id, { startedAt: Date.parse(s.started_at), rank: s.source_rank })
           state.retired.delete(s.session_id)
           return { status: 202 }
         })
         return send(200, { results })
       }
-      if (req.method === 'POST' && req.url === '/api/ingest/manifest' && !state.old) {
+      if (req.method === 'POST' && req.url === '/api/ingest/manifest') {
         const m = JSON.parse(raw) as TraceManifestChunk
+        if (m.schema_version !== '1') return send(400, { error: 'schema' })
         state.manifestBodies.push(m)
         const from = Date.parse(m.window.from), to = Date.parse(m.window.to)
         const keys = new Set(m.keys)
@@ -104,7 +103,7 @@ suite('forward/traceManifest — end to end against a fake cloud', () => {
 
   setup(async () => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-manifest-e2e-'))
-    state = { rows: new Map(), retired: new Set(), manifestBodies: [], responses: [], old: false }
+    state = { rows: new Map(), retired: new Set(), manifestBodies: [], responses: [], requests: [] }
     server = await startFakeCloud(state)
     const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     creds = {
@@ -113,7 +112,6 @@ suite('forward/traceManifest — end to end against a fake cloud', () => {
       accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
     }
     setCredentialStore(memStore(creds))
-    resetCapabilityProbeState()
     process.env.TRACEROOST_ORG_URL = endpoint // the ingest routes resolve through orgEndpoint()
   })
   teardown(async () => {
@@ -125,7 +123,7 @@ suite('forward/traceManifest — end to end against a fake cloud', () => {
 
   const hourAgo = (h: number) => Date.now() - h * 3600_000
   const rollup = (id: string, startedAt: number): RollupPayload => ({
-    schema_version: '2', repo_key_fp: 'a'.repeat(64),
+    schema_version: '1', repo_key_fp: 'a'.repeat(64),
     session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: new Date(startedAt).toISOString(), duration_ms: 1, revision: 1, source_rank: 2 },
   })
 
@@ -156,8 +154,9 @@ suite('forward/traceManifest — end to end against a fake cloud', () => {
       scheduler.dispose()
     }
 
-    assert.strictEqual(state.rows.get(a)?.rank, 2, 'the cloud accepts source_rank, so it was sent')
-    assert.strictEqual(state.rows.get(a)?.version, '2')
+    assert.strictEqual(state.rows.get(a)?.rank, 2, 'source_rank was sent')
+    assert.ok(state.requests.every(r => r === 'POST /api/ingest/batch' || r === 'POST /api/ingest/manifest'), 'no probe, nothing else asked')
+    assert.ok(state.requests.indexOf('POST /api/ingest/manifest') > state.requests.lastIndexOf('POST /api/ingest/batch'), 'the manifest waits for the drain')
     assert.deepStrictEqual([...state.rows.keys()].sort(), [a, b].sort())
     assert.deepStrictEqual([...state.retired], [stale])
     assert.strictEqual(state.responses.reduce((n, r) => n + r.retired, 0), 1)
@@ -179,21 +178,5 @@ suite('forward/traceManifest — end to end against a fake cloud', () => {
     }
     assert.deepStrictEqual(state.responses.slice(-days).map(r => r.retired), new Array(days).fill(0))
     assert.deepStrictEqual([...state.retired], [stale])
-  })
-
-  test('an older cloud: no rank on the wire (nothing dropped as a 400), and no manifest', async () => {
-    state.old = true
-    const a = toUuid('turn-a')
-    new ForwardQueue(home).enqueue(rollup(a, hourAgo(3)))
-    const scheduler = startForwardScheduler({ baseHome: home, intervalMs: 3600_000, traceManifest: source([{ id: a, ms: hourAgo(3) }]) })
-    try {
-      await waitFor(() => state.rows.has(a))
-      await new Promise(r => setTimeout(r, 200))
-    } finally {
-      scheduler.dispose()
-    }
-    assert.strictEqual(state.rows.get(a)?.rank, undefined)
-    assert.strictEqual(state.rows.get(a)?.version, '1')
-    assert.strictEqual(state.manifestBodies.length, 0)
   })
 })

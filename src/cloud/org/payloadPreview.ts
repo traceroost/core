@@ -19,7 +19,6 @@ import type { RollupPayload } from '../forward/schema'
 import { loadCredentials } from './credentials'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 import { sourceRankOf } from '../../traceIdentity'
-import { cloudAcceptsSourceRank } from '../forward/cloudCapabilities'
 
 const execFileAsync = promisify(execFile)
 
@@ -154,7 +153,6 @@ export async function buildPayloadForCard(card: SessionSummaryCard, cache?: Payl
     branch: rk.ok ? await (cache ? cache.branch(rk.ctx.root) : currentBranch(rk.ctx.root)) : undefined,
     outcome: inGrace ? 'in_progress' : outcome?.overall,
     revision,
-    sourceRankAccepted: cloudAcceptsSourceRank(creds),
   })
   assertValidRollupPayload(payload)
   return rk.ok ? { payload } : { payload, ungroupedReason: rk.reason }

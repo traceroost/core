@@ -1197,7 +1197,6 @@ link — routed through VS Code's own URI scheme, not a custom-registered `agent
 | `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
 | `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
 | `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
-| `src/cloud/forward/cloudCapabilities.ts` | Whether the linked cloud's published schema accepts `source_rank` / the trace manifest — probed at most daily per link, cached in `~/.traceroost/cloud-capabilities.json`; nothing version-2 is sent until it does |
 | `src/cloud/forward/traceManifest.ts` | The trace-key manifest — per-day chunks of the keys this install holds, sent after a drain by the store's single writer (one host per machine); full sweep on startup/(re-)link, changed days otherwise |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 

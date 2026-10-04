@@ -20,7 +20,6 @@ import { assertValidRollupPayload } from '../../src/cloud/forward/validate'
 import { stableStringify } from '../../src/cloud/forward/preview'
 import { ForwardQueue } from '../../src/cloud/forward/queue'
 import { SENT, NEVER_SENT } from '../../src/cloud/org/privacy'
-import { cloudAcceptsSourceRank, readCapabilities } from '../../src/cloud/forward/cloudCapabilities'
 import { previewManifestChunk } from '../../src/cloud/forward/traceManifest'
 import { sourceRankOf, traceKeysInWindow, localHorizonOf, countTracesInWindow } from '../../src/traceIdentity'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
@@ -146,7 +145,6 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
       repoKey: rk.ctx,
       branch: currentBranch(rk.ctx.root),
       outcome: outcome?.overall,
-      sourceRankAccepted: cloudAcceptsSourceRank(creds),
     })
     assertValidRollupPayload(payload)
     console.log(stableStringify(payload))
@@ -160,12 +158,11 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
     countTraces: (fromMs, toMs) => countTracesInWindow(all, fromMs, toMs),
   })
   if (chunk) {
-    const accepted = creds ? readCapabilities(creds)?.traceManifest === true : false
     console.log('# Trace manifest (POST /api/ingest/manifest) — the newest day\'s chunk as it would be sent now.')
     console.log('# One chunk per UTC day of the settled window: the trace keys this machine still holds (the same')
     console.log('# session_id values above), so the cloud can retire traces it holds from this machine that no')
     console.log('# longer exist here. Only window bounds and opaque UUIDs — nothing else.')
-    console.log(accepted ? '# Sent by the forwarding timer.' : '# Not sent: ' + (creds ? 'the linked cloud has not been seen to accept it yet.' : 'this machine is not linked.'))
+    console.log(creds ? '# Sent by the forwarding timer.' : '# Not sent: this machine is not linked.')
     console.log(stableStringify(chunk))
     console.log('')
   }

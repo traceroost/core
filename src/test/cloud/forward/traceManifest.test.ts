@@ -7,7 +7,6 @@ import {
   claimSenderLease, senderLeasePath, manifestStatePath,
   DAY_MS, MANIFEST_SETTLE_MS, MANIFEST_MAX_AGE_MS, MANIFEST_MAX_KEYS, MANIFEST_HOURLY_BUDGET,
 } from '../../../cloud/forward/traceManifest'
-import { capabilitiesPath, cloudAcceptsSourceRank, resetCapabilityProbeState } from '../../../cloud/forward/cloudCapabilities'
 import { ForwardQueue } from '../../../cloud/forward/queue'
 import { drainQueue } from '../../../cloud/forward/sender'
 import { SchemaValidator } from '../../../cloud/forward/jsonSchemaValidate'
@@ -49,7 +48,6 @@ function memSource(held: Held[], flags = { writer: true, ready: true }): TraceMa
 
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'schema', 'rollup.v1.json'), 'utf-8'))
 const manifestValidator = new SchemaValidator({ $defs: SCHEMA.$defs, ...SCHEMA.$defs.trace_manifest })
-const SUPPORTED_SCHEMA = { $defs: { session: { properties: { source_rank: {} } }, trace_manifest: {} } }
 
 // A fixed "now": 2026-10-04 12:00 UTC.
 const NOW = Date.UTC(2026, 9, 4, 12, 0, 0)
@@ -59,23 +57,20 @@ const realFetch = globalThis.fetch
 
 interface FakeCloud {
   manifests: TraceManifestChunk[]
-  schemaRequests: number
+  /** Every URL requested — the manifest needs nothing but its own route. */
+  requests: string[]
   /** Status (and optional body / headers) the manifest route answers with. */
   manifestReply: (chunk: TraceManifestChunk) => { status: number; body?: unknown; headers?: Record<string, string> }
-  schemaStatus: number
 }
 
 function installFakeCloud(): FakeCloud {
   const cloud: FakeCloud = {
-    manifests: [], schemaRequests: 0, schemaStatus: 200,
+    manifests: [], requests: [],
     manifestReply: () => ({ status: 200, body: { retired: 0, missing: 0, window: {} } }),
   }
   globalThis.fetch = (async (u: unknown, init?: RequestInit) => {
     const url = String(u)
-    if (url.endsWith('/api/ingest/schema')) {
-      cloud.schemaRequests++
-      return cloud.schemaStatus === 200 ? new Response(JSON.stringify(SUPPORTED_SCHEMA), { status: 200 }) : new Response('', { status: cloud.schemaStatus })
-    }
+    cloud.requests.push(url)
     if (url.endsWith('/api/ingest/manifest')) {
       const chunk = JSON.parse(String(init?.body)) as TraceManifestChunk
       cloud.manifests.push(chunk)
@@ -161,7 +156,7 @@ suite('forward/traceManifest — planning a day', () => {
     const chunk = buildManifestChunk(day.fromMs, day.toMs, [toUuid('x'), toUuid('y')])
     assert.deepStrictEqual(Object.keys(chunk).sort(), ['keys', 'schema_version', 'window'])
     assert.deepStrictEqual(Object.keys(chunk.window).sort(), ['from', 'to'])
-    assert.strictEqual(chunk.schema_version, '2')
+    assert.strictEqual(chunk.schema_version, '1')
     assert.deepStrictEqual(manifestValidator.validate(chunk), [])
     assert.deepStrictEqual(manifestValidator.validate(buildManifestChunk(day.fromMs, day.toMs, [], true)), [])
     // The validator really checks: a key that isn't a uuid, or an extra field, fails.
@@ -183,7 +178,6 @@ suite('forward/traceManifest — sending', () => {
   setup(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-manifest-'))
     setCredentialStore(memStore(CREDS))
-    resetCapabilityProbeState()
     clock = NOW
   })
   teardown(() => {
@@ -197,12 +191,12 @@ suite('forward/traceManifest — sending', () => {
 
   const threeDays = () => memSource([{ id: 'a', ms: at(2) }, { id: 'b', ms: at(1) }, { id: 'c', ms: at(1, 10) }, { id: 'd', ms: at(0, 8) }])
 
-  test('unlinked → nothing is sent, nothing probed', async () => {
+  test('unlinked → nothing is sent', async () => {
     setCredentialStore(memStore(null))
     const cloud = installFakeCloud()
     const res = await sync(threeDays(), { fullSweep: true })
     assert.strictEqual(res.skipped, 'not-linked')
-    assert.strictEqual(cloud.schemaRequests + cloud.manifests.length, 0)
+    assert.strictEqual(cloud.requests.length, 0)
   })
 
   test('not the store\'s single writer (data-dir lock / database owner) → nothing is sent', async () => {
@@ -221,49 +215,18 @@ suite('forward/traceManifest — sending', () => {
     assert.strictEqual(cloud.manifests.length, 0)
   })
 
-  test('a cloud that predates the manifest (schema 404) → no manifest, and no source_rank either', async () => {
-    const cloud = installFakeCloud()
-    cloud.schemaStatus = 404
-    const res = await sync(threeDays(), { fullSweep: true })
-    assert.strictEqual(res.skipped, 'unsupported')
-    assert.strictEqual(cloud.manifests.length, 0)
-    assert.strictEqual(cloudAcceptsSourceRank(CREDS, home), false)
-  })
-
-  test('a manifest route that 404s (a rolled-back deploy) → both version-2 parts stop until re-probed', async () => {
-    const cloud = installFakeCloud()
-    cloud.manifestReply = () => ({ status: 404 })
-    assert.strictEqual((await sync(threeDays(), { fullSweep: true })).stopped, 'unsupported')
-    assert.strictEqual(cloudAcceptsSourceRank(CREDS, home), false)
-    assert.strictEqual((await sync(threeDays(), { fullSweep: true })).skipped, 'unsupported')
-    assert.strictEqual(cloud.manifests.length, 1)
-  })
-
-  test('a supporting cloud → one chunk per day of the window, and source_rank is accepted', async () => {
+  test('linked → one chunk per day of the window, and nothing but the manifest route is asked', async () => {
     const cloud = installFakeCloud()
     const res = await sync(threeDays(), { fullSweep: true })
     assert.strictEqual(res.stopped, undefined)
     assert.strictEqual(res.chunks, 3)
     assert.deepStrictEqual(cloud.manifests.map(m => m.keys.length), [1, 2, 1])
-    assert.strictEqual(cloudAcceptsSourceRank(CREDS, home), true)
+    assert.ok(cloud.requests.every(u => u.endsWith('/api/ingest/manifest')))
     for (const m of cloud.manifests) {
       assert.deepStrictEqual(manifestValidator.validate(m), [])
       // Window bounds are the only timestamps; nothing but uuids otherwise.
       assert.deepStrictEqual(Object.keys(m).sort(), ['keys', 'schema_version', 'window'])
     }
-  })
-
-  test('the capability answer is cached per link and re-checked daily, and at once after a re-link', async () => {
-    const cloud = installFakeCloud()
-    await sync(threeDays(), { fullSweep: true })
-    await sync(threeDays())
-    assert.strictEqual(cloud.schemaRequests, 1)
-    clock += DAY_MS + 1
-    await sync(threeDays())
-    assert.strictEqual(cloud.schemaRequests, 2)
-    setCredentialStore(memStore({ ...CREDS, installId: 'install-2' }))
-    await sync(threeDays())
-    assert.strictEqual(cloud.schemaRequests, 3)
   })
 
   test('regular syncs send only the days whose key set changed', async () => {
@@ -323,6 +286,14 @@ suite('forward/traceManifest — sending', () => {
   test('5xx → backs off instead of retrying on the next tick', async () => {
     const cloud = installFakeCloud()
     cloud.manifestReply = () => ({ status: 503 })
+    assert.strictEqual((await sync(threeDays(), { fullSweep: true })).stopped, 'failed')
+    assert.strictEqual((await sync(threeDays(), { fullSweep: true })).skipped, 'paused')
+    assert.strictEqual(cloud.manifests.length, 1)
+  })
+
+  test('a 404 from the manifest route backs off like any other failure', async () => {
+    const cloud = installFakeCloud()
+    cloud.manifestReply = () => ({ status: 404 })
     assert.strictEqual((await sync(threeDays(), { fullSweep: true })).stopped, 'failed')
     assert.strictEqual((await sync(threeDays(), { fullSweep: true })).skipped, 'paused')
     assert.strictEqual(cloud.manifests.length, 1)
@@ -412,23 +383,21 @@ suite('forward/traceManifest — sending', () => {
     await sync(threeDays(), { fullSweep: true })
     const raw = fs.readFileSync(manifestStatePath(home), 'utf-8')
     for (const id of ['a', 'b', 'c', 'd']) assert.ok(!raw.includes(toUuid(id)))
-    assert.ok(fs.existsSync(capabilitiesPath(home)))
   })
 })
 
-function payload(id: string, rank?: 1 | 2 | 3): RollupPayload {
+function payload(id: string, rank: 1 | 2 | 3 = 2): RollupPayload {
   return {
-    schema_version: rank ? '2' : '1', repo_key_fp: 'a'.repeat(64),
-    session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: '2026-10-01T00:00:00.000Z', duration_ms: 1, ...(rank ? { source_rank: rank } : {}) },
+    schema_version: '1', repo_key_fp: 'a'.repeat(64),
+    session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: '2026-10-01T00:00:00.000Z', duration_ms: 1, source_rank: rank },
   }
 }
 
-suite('forward/traceManifest — source_rank on the wire follows the cloud', () => {
+suite('forward/traceManifest — source_rank on the wire', () => {
   let home: string
   setup(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-rank-'))
     setCredentialStore(memStore(CREDS))
-    resetCapabilityProbeState()
   })
   teardown(() => {
     globalThis.fetch = realFetch
@@ -436,32 +405,17 @@ suite('forward/traceManifest — source_rank on the wire follows the cloud', () 
     fs.rmSync(home, { recursive: true, force: true })
   })
 
-  const sentBodies = () => {
+  test('a queued rollup goes out exactly as queued: version 1, with its source_rank', async () => {
+    new ForwardQueue(home).enqueue(payload(toUuid('a'), 3))
     const bodies: RollupPayload[] = []
     globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
       const items = (JSON.parse(String(init?.body)) as { items: RollupPayload[] }).items
       bodies.push(...items)
       return new Response(JSON.stringify({ results: items.map(() => ({ status: 202 })) }), { status: 200 })
     }) as typeof fetch
-    return bodies
-  }
-
-  test('a ranked rollup still queued goes out as version 1 without the field to a cloud not known to accept it', async () => {
-    new ForwardQueue(home).enqueue(payload(toUuid('a'), 3))
-    const bodies = sentBodies()
     await drainQueue({ baseHome: home })
     assert.strictEqual(bodies.length, 1)
     assert.strictEqual(bodies[0].schema_version, '1')
-    assert.strictEqual('source_rank' in bodies[0].session!, false)
-  })
-
-  test('…and with it, as version 2, once the cloud is seen to accept it', async () => {
-    fs.mkdirSync(path.dirname(capabilitiesPath(home)), { recursive: true })
-    fs.writeFileSync(capabilitiesPath(home), JSON.stringify({ endpoint: CREDS.endpoint, installId: CREDS.installId, checkedAt: Date.now(), sourceRank: true, traceManifest: true }))
-    new ForwardQueue(home).enqueue(payload(toUuid('a'), 3))
-    const bodies = sentBodies()
-    await drainQueue({ baseHome: home })
-    assert.strictEqual(bodies[0].schema_version, '2')
     assert.strictEqual(bodies[0].session!.source_rank, 3)
   })
 })

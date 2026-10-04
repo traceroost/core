@@ -55,8 +55,6 @@ import { TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
 import { ingestUrl, batchIngestUrl } from '../org/config'
 import { clientVersion } from '../org/oauthClient'
-import { wireRollup, type RollupPayload } from './schema'
-import { cloudAcceptsSourceRank } from './cloudCapabilities'
 
 export interface DrainResult {
   attempted: number
@@ -133,11 +131,6 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   // through it. May still be undefined if the self-heal above couldn't reach the server —
   // `finish()` degrades to "sent but not locally recorded as delivered" in that case (see there).
   const installId = creds.installId
-  // Whether this cloud has been seen to accept `source_rank` (cloudCapabilities.ts). A rollup
-  // queued with the field goes out without it (as version "1") to one that hasn't — a 400 there
-  // would drop the session for good.
-  const rankAccepted = cloudAcceptsSourceRank(creds, deps.baseHome)
-  const wire = (payload: RollupPayload) => wireRollup(payload, rankAccepted)
 
   const state = readForwardState(deps.baseHome)
   if (state.paused && state.pausedUntil !== null && state.pausedUntil > now()) {
@@ -261,7 +254,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   async function sendChunkBatched(chunk: QueueItem[]): Promise<'continue' | 'fallback' | { stop: DrainResult }> {
     let res: Response
     try {
-      res = await postBatch(creds!.accessToken, chunk, wire)
+      res = await postBatch(creds!.accessToken, chunk)
     } catch {
       // A network-level failure tells us nothing about the *next* chunk — it may hit a warm
       // connection and succeed. Back this chunk off and keep going.
@@ -275,7 +268,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       const stop = await refreshOnce()
       if (stop) return { stop }
       // Retry this same chunk immediately with the fresh token.
-      res = await postBatch(creds!.accessToken, chunk, wire).catch(() => res)
+      res = await postBatch(creds!.accessToken, chunk).catch(() => res)
     }
 
     if (res.status === 403) return { stop: membershipRevoked() }
@@ -350,7 +343,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   async function sendItemSequentially(item: QueueItem): Promise<{ stop: DrainResult } | undefined> {
     let res: Response
     try {
-      res = await postPayload(creds!.accessToken, item, wire)
+      res = await postPayload(creds!.accessToken, item)
     } catch {
       queue.recordFailure(item.key, 'service unreachable')
       writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: 'service unreachable' }, deps.baseHome)
@@ -367,7 +360,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     if (res.status === 401 && !refreshedThisDrain) {
       const stop = await refreshOnce()
       if (stop) return { stop }
-      res = await postPayload(creds!.accessToken, item, wire).catch(() => res)
+      res = await postPayload(creds!.accessToken, item).catch(() => res)
       if (res.status === 202 || res.status === 200) { recordSuccess(item.key); sent++; return }
     }
 
@@ -429,7 +422,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   return finish(sawTransientFailure ? 'offline' : null)
 }
 
-async function postBatch(accessToken: string, items: QueueItem[], wire: (p: RollupPayload) => RollupPayload): Promise<Response> {
+async function postBatch(accessToken: string, items: QueueItem[]): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20_000)
   try {
@@ -440,7 +433,7 @@ async function postBatch(accessToken: string, items: QueueItem[], wire: (p: Roll
         Authorization: `Bearer ${accessToken}`,
         'User-Agent': `traceroost-client/${clientVersion()}`,
       },
-      body: JSON.stringify({ items: items.map(it => wire(it.payload)) }),
+      body: JSON.stringify({ items: items.map(it => it.payload) }),
       signal: controller.signal,
     })
   } finally {
@@ -448,7 +441,7 @@ async function postBatch(accessToken: string, items: QueueItem[], wire: (p: Roll
   }
 }
 
-async function postPayload(accessToken: string, item: QueueItem, wire: (p: RollupPayload) => RollupPayload): Promise<Response> {
+async function postPayload(accessToken: string, item: QueueItem): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20_000)
   try {
@@ -459,7 +452,7 @@ async function postPayload(accessToken: string, item: QueueItem, wire: (p: Rollu
         Authorization: `Bearer ${accessToken}`,
         'User-Agent': `traceroost-client/${clientVersion()}`,
       },
-      body: JSON.stringify(wire(item.payload)),
+      body: JSON.stringify(item.payload),
       signal: controller.signal,
     })
   } finally {

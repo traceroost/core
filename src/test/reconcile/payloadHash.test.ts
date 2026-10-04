@@ -13,6 +13,7 @@ function baseRollup(overrides: Partial<SessionRollup> = {}): SessionRollup {
     tokens_out: 20,
     outcome: 'committed',
     data_source: 'log',
+    source_rank: 2,
     ...overrides,
   }
 }

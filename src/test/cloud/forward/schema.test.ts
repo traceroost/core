@@ -3,7 +3,6 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {
   SCHEMA_VERSION,
-  SCHEMA_VERSION_RANKED,
   schemaViolations,
   toWireAgent,
   toWireLoopSignal,
@@ -18,13 +17,14 @@ import {
 const SCHEMA_PATH = path.join(process.cwd(), 'schema', 'rollup.v1.json')
 
 suite('forward/schema', () => {
-  test('the committed schema/rollup.v1.json parses and accepts versions 1 and 2', () => {
+  test('the committed schema/rollup.v1.json parses and is version 1 — rollups and manifest chunks alike', () => {
     const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf-8'))
     assert.strictEqual(schema.$defs !== undefined, true)
-    assert.deepStrictEqual(schema.properties.schema_version.enum, [SCHEMA_VERSION, SCHEMA_VERSION_RANKED])
-    // Version 2 (stable trace identity): session.source_rank and the trace manifest chunk.
-    assert.ok(schema.$defs.session.properties.source_rank)
-    assert.deepStrictEqual(schema.$defs.trace_manifest.properties.schema_version, { type: 'string', const: SCHEMA_VERSION_RANKED })
+    assert.deepStrictEqual(schema.properties.schema_version, { const: SCHEMA_VERSION })
+    // Stable trace identity: session.source_rank is required, and the trace manifest chunk.
+    assert.ok(schema.$defs.session.required.includes('source_rank'))
+    assert.deepStrictEqual(schema.$defs.session.properties.source_rank, { type: 'integer', minimum: 1, maximum: 3, description: schema.$defs.session.properties.source_rank.description })
+    assert.deepStrictEqual(schema.$defs.trace_manifest.properties.schema_version, { const: SCHEMA_VERSION })
   })
 
   // The mechanical guard that keeps the privacy invariant true as the schema grows: no string
@@ -55,14 +55,13 @@ suite('forward/schema', () => {
     assert.strictEqual(toWireAgent('claude_code'), 'claude-code')
     assert.strictEqual(toWireAgent('copilot'), 'copilot')
     assert.strictEqual(toWireAgent('codex'), 'codex')
-    // OpenCode deliberately never got its own wire identity — collapses to 'other'.
-    assert.strictEqual(toWireAgent('opencode'), 'other')
+    assert.strictEqual(toWireAgent('opencode'), 'opencode')
     assert.strictEqual(toWireAgent('something-new'), 'other')
   })
 
   // Cursor CLI ingestion (support-cursor-cli.md phase 1) makes this case live/reachable for the
   // first time — the wire schema drafted 'cursor' as a forward-looking stub before any real
-  // ingestion existed (see toWireAgent's own doc comment). Unlike OpenCode, Cursor gets its own
+  // ingestion existed (see toWireAgent's own doc comment). Like OpenCode, Cursor gets its own
   // wire identity, not 'other'.
   test('toWireAgent gives Cursor CLI sessions their own wire identity, not other', () => {
     assert.strictEqual(toWireAgent('cursor'), 'cursor')

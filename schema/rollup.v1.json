@@ -7,11 +7,7 @@
   "additionalProperties": false,
   "required": ["schema_version"],
   "properties": {
-    "schema_version": {
-      "type": "string",
-      "enum": ["1", "2"],
-      "description": "'2' (staged feature 11) adds session.source_rank and the trace manifest; a '1' payload is still accepted unchanged (N and N-1 during a rollout)."
-    },
+    "schema_version": { "const": "1" },
     "repo_key_fp": { "$ref": "#/$defs/hash" },
     "member_author_hash": { "$ref": "#/$defs/hash" },
     "session": { "$ref": "#/$defs/session" },
@@ -47,7 +43,7 @@
       "type": "string",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$"
     },
-    "agent": { "type": "string", "enum": ["claude-code", "copilot", "codex", "cursor", "other"] },
+    "agent": { "type": "string", "enum": ["claude-code", "copilot", "codex", "cursor", "opencode", "other"] },
     "attribution": { "type": "string", "enum": ["certain", "probable", "unknown"] },
     "outcome": {
       "type": "string",
@@ -77,7 +73,7 @@
     "session": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["session_id", "agent", "started_at", "duration_ms"],
+      "required": ["session_id", "agent", "started_at", "duration_ms", "source_rank"],
       "properties": {
         "session_id": { "type": "string", "format": "uuid" },
         "agent": { "$ref": "#/$defs/agent" },
@@ -157,7 +153,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 3,
-          "description": "How much evidence this snapshot of the trace carries (stable trace identity): 3 OTEL with usage, 2 full transcript, 1 partial transcript or OTEL without usage. A turn's log and OTEL snapshots share one session_id; a lower rank never replaces a higher one, and within a rank the newer revision wins. Optional -- absent on clients that predate it."
+          "description": "How much evidence this snapshot of the trace carries (stable trace identity): 3 OTEL with usage, 2 full transcript, 1 partial transcript or OTEL without usage. A turn's log and OTEL snapshots share one session_id; a lower rank never replaces a higher one, and within a rank the newer revision wins."
         }
       }
     },
@@ -250,7 +246,7 @@
       "required": ["schema_version", "window", "keys"],
       "description": "One chunk of an install's trace manifest (staged feature 11): every session_id the install holds whose trace started in [window.from, window.to). The server retires (soft-deletes) this install's rows started in that window whose session_id is not listed. Opaque UUIDs only -- the same values that already travel as session.session_id.",
       "properties": {
-        "schema_version": { "type": "string", "const": "2" },
+        "schema_version": { "const": "1" },
         "window": {
           "type": "object",
           "additionalProperties": false,

@@ -62,8 +62,7 @@ export interface ForwardSchedulerOptions {
   onDrainStart?: () => void
   onDrainComplete?: () => void
   recordSent?: (count: number, at: number) => void
-  /** The local store the trace manifest is built from. Without it, no manifest is sent and the
-   *  cloud's capabilities are never probed (so `source_rank` is never sent either). */
+  /** The local store the trace manifest is built from. Without it, no manifest is sent. */
   traceManifest?: TraceManifestSource
 }
 

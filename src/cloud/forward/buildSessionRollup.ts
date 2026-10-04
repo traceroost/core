@@ -18,8 +18,6 @@
 import * as crypto from 'crypto'
 import {
   SCHEMA_VERSION,
-  SCHEMA_VERSION_RANKED,
-  SEND_SOURCE_RANK,
   toWireAgent,
   toWireLanguage,
   toWireLoopSignal,
@@ -77,8 +75,9 @@ export interface SessionRollupInput {
   filesChangedCount?: number
   linesAdded?: number
   linesRemoved?: number
-  /** Source rank of this snapshot (src/traceIdentity.ts) — an integer 1–3, nothing else. */
-  sourceRank?: number
+  /** Source rank of this snapshot (src/traceIdentity.ts's `sourceRankOf`) — an integer 1–3,
+   *  nothing else; anything outside that range is clamped into it. */
+  sourceRank: number
 }
 
 export interface BuildContext {
@@ -99,10 +98,6 @@ export interface BuildContext {
   /** This session's current durable revision number, if known (staged feature 10) -- see
    *  `SessionRollup.revision`'s doc comment. */
   revision?: number
-  /** Whether the linked cloud accepts `session.source_rank` (forward/cloudCapabilities.ts's
-   *  `cloudAcceptsSourceRank`). Absent/false → the field is left out and the payload stays
-   *  schema version "1", exactly as before it existed. */
-  sourceRankAccepted?: boolean
 }
 
 /** Re-exported from the local trace-identity module (the canonical keys are minted with it) — see
@@ -193,6 +188,7 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
     errors: nonNegInt(input.errors),
     outcome: ctx.outcome ? toWireOutcome(ctx.outcome) : 'unknown',
     data_source: input.dataSource,
+    source_rank: wireSourceRank(input.sourceRank),
   }
   if (input.initiator) rollup.initiator = input.initiator
   if (input.conversationId) rollup.conversation_hash = sha256Hex(input.conversationId)
@@ -208,10 +204,6 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
   if (typeof input.linesAdded === 'number') rollup.lines_added = nonNegInt(input.linesAdded)
   if (typeof input.linesRemoved === 'number') rollup.lines_removed = nonNegInt(input.linesRemoved)
   if (ctx.revision && ctx.revision > 0) rollup.revision = Math.round(ctx.revision)
-  if (SEND_SOURCE_RANK && ctx.sourceRankAccepted && input.sourceRank !== undefined) {
-    const rank = Math.round(input.sourceRank)
-    if (rank === 1 || rank === 2 || rank === 3) rollup.source_rank = rank
-  }
 
   if (rk) {
     rollup.repo_hash = repoHash(rk)
@@ -242,14 +234,19 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
 
 /** Wraps one session rollup as a complete `RollupPayload`. */
 export function sessionRollupPayload(input: SessionRollupInput, ctx: BuildContext): RollupPayload {
-  const session = buildSessionRollup(input, ctx)
   return {
-    // "2" only when the rollup carries a version-2 field (source_rank); otherwise unchanged "1".
-    schema_version: session.source_rank !== undefined ? SCHEMA_VERSION_RANKED : SCHEMA_VERSION,
+    schema_version: SCHEMA_VERSION,
     ...(ctx.repoKey ? { repo_key_fp: repoKeyFingerprint(ctx.repoKey) } : {}),
     ...(ctx.repoKey && ctx.authorEmail ? { member_author_hash: authorHash(ctx.repoKey, ctx.authorEmail) } : {}),
-    session,
+    session: buildSessionRollup(input, ctx),
   }
+}
+
+/** The schema allows only 1–3; a non-finite rank reads as the lowest (it can never outrank a
+ *  real snapshot). */
+function wireSourceRank(rank: number): 1 | 2 | 3 {
+  if (!Number.isFinite(rank)) return 1
+  return Math.min(3, Math.max(1, Math.round(rank))) as 1 | 2 | 3
 }
 
 // Mirrors #/$defs/count's `maximum` in schema/rollup.v1.json. A session that legitimately

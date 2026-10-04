@@ -22,15 +22,10 @@
 
 export const SCHEMA_VERSION = '1' as const
 
-/** Version "2" (stable trace identity) adds `session.source_rank` and the trace manifest; nothing
- *  was removed, and the cloud accepts both "1" and "2" (N and N−1). A rollup goes out as "2" only
- *  when it carries `source_rank` — see `wireRollup`; a trace-manifest chunk is always "2". */
-export const SCHEMA_VERSION_RANKED = '2' as const
-
 // ── Enums (closed sets — a value outside the set maps to the catch-all, never passes through) ──
 
 /** Wire agent identifier. Hyphenated, unlike the internal `SessionSummaryCard.source`. */
-export type WireAgent = 'claude-code' | 'copilot' | 'codex' | 'cursor' | 'other'
+export type WireAgent = 'claude-code' | 'copilot' | 'codex' | 'cursor' | 'opencode' | 'other'
 
 export type WireAttribution = 'certain' | 'probable' | 'unknown'
 
@@ -88,7 +83,7 @@ export function toWireAgent(source: string): WireAgent {
     case 'claude_code': return 'claude-code'
     case 'copilot':     return 'copilot'
     case 'codex':       return 'codex'
-    case 'opencode':    return 'other'
+    case 'opencode':    return 'opencode'
     case 'cursor':      return 'cursor'
     default:            return 'other'
   }
@@ -238,29 +233,18 @@ export interface SessionRollup {
   /** How much evidence this snapshot carries (staged feature 11, src/traceIdentity.ts): 3 OTEL
    *  with usage, 2 full transcript, 1 partial. A turn's log and OTEL snapshots share one
    *  `session_id`; a lower rank must never replace a higher one, and within a rank the newer
-   *  `revision` wins. Opaque small integer — no new information about the session. Only sent
-   *  while SEND_SOURCE_RANK is on (see there). */
-  source_rank?: 1 | 2 | 3
+   *  `revision` wins. Opaque small integer — no new information about the session. Always sent;
+   *  core also never sends a lower-rank snapshot over a higher one itself
+   *  (contentChangeForward.ts) — the field lets the cloud enforce the same rule across installs. */
+  source_rank: 1 | 2 | 3
 }
-
-/** Kill switch for `source_rank` on the wire. Even when on, a rollup carries the field only once
- *  the linked cloud has been seen to accept it (forward/cloudCapabilities.ts): cloud validates
- *  every payload with `additionalProperties: false` and drops a 400'd record for good, so sending
- *  it to a cloud that predates the field would lose the session. Core never sends a lower-rank
- *  snapshot over a higher one regardless (contentChangeForward.ts); the field lets the cloud
- *  enforce the same rule across installs. */
-export const SEND_SOURCE_RANK = true
-
-/** Kill switch for the trace manifest (forward/traceManifest.ts) — likewise only ever sent to a
- *  cloud that has been seen to accept it. */
-export const SEND_TRACE_MANIFEST = true
 
 /** One chunk of the trace manifest (stable trace identity), POSTed to `/api/ingest/manifest`:
  *  every trace key this install holds whose trace started in [window.from, window.to). The keys
  *  are the same opaque UUIDs that already travel as `session.session_id`; the window bounds are
  *  the only timestamps. `$defs/trace_manifest` in schema/rollup.v1.json. */
 export interface TraceManifestChunk {
-  schema_version: typeof SCHEMA_VERSION_RANKED
+  schema_version: typeof SCHEMA_VERSION
   window: { from: Iso8601; to: Iso8601 }
   keys: Uuid[]
   /** Only with an empty `keys`, and only when the local store positively holds no trace for the
@@ -356,7 +340,7 @@ export function toWireTargetAgent(agent: string): WireAgent {
  * claim to be someone else.
  */
 export interface RollupPayload {
-  schema_version: typeof SCHEMA_VERSION | typeof SCHEMA_VERSION_RANKED
+  schema_version: typeof SCHEMA_VERSION
   /** Absent under the same conditions as `SessionRollup.repo_hash` — an unkeyable repo means
    *  there's no fingerprint to send either, not that nothing is sent. */
   repo_key_fp?: Sha256
@@ -372,22 +356,6 @@ export interface RollupPayload {
   instruction_files?: InstructionFileState[]
   file_footprints?: FileFootprint[]
   suggestion_events?: SuggestionEvent[]
-}
-
-/** The bytes of `payload` as they go out to a cloud that does (`rankAccepted`) or doesn't accept
- *  `source_rank`: with the field, schema_version "2"; without it, the field is dropped and the
- *  payload is version "1" — exactly what a client that predates the field sends. Applied at send
- *  time too (sender.ts), so a rollup queued while the cloud accepted the field can't be dropped by
- *  one that doesn't (a re-link to an older deploy). Never mutates `payload`. */
-export function wireRollup(payload: RollupPayload, rankAccepted: boolean): RollupPayload {
-  const rank = payload.session?.source_rank
-  if (rank !== undefined && rankAccepted && SEND_SOURCE_RANK) {
-    return payload.schema_version === SCHEMA_VERSION_RANKED ? payload : { ...payload, schema_version: SCHEMA_VERSION_RANKED }
-  }
-  if (rank === undefined && payload.schema_version === SCHEMA_VERSION) return payload
-  const session = payload.session ? { ...payload.session } : undefined
-  if (session) delete session.source_rank
-  return { ...payload, schema_version: SCHEMA_VERSION, ...(session ? { session } : {}) }
 }
 
 // ── Schema-drift guard (shared by the test and any build step) ───────────────

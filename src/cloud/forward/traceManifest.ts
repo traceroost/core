@@ -11,7 +11,6 @@
  *
  * Because a manifest *removes* rows, everything here leans towards not sending:
  *
- * - only to a cloud seen to accept it (cloudCapabilities.ts) — an older one behaves as before;
  * - only by the process that owns writes to the local store (`TraceManifestSource.isWriter`), and
  *   only once that store has finished its startup load (`isReady`) — a half-loaded store would
  *   list too few keys;
@@ -48,8 +47,7 @@ import { clientVersion, TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
 import { ForwardQueue } from './queue'
 import { withFileLock } from './fileLock'
-import { refreshCapabilities, markUnsupported } from './cloudCapabilities'
-import { SCHEMA_VERSION_RANKED, SEND_TRACE_MANIFEST, type TraceManifestChunk } from './schema'
+import { SCHEMA_VERSION, type TraceManifestChunk } from './schema'
 
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
@@ -104,7 +102,7 @@ export function manifestDays(horizonMs: number | null, nowMs: number): ManifestD
 /** The exact request body for one window. Keys sorted (stable bytes for a stable set). */
 export function buildManifestChunk(fromMs: number, toMs: number, keys: readonly string[], confirmEmpty = false): TraceManifestChunk {
   return {
-    schema_version: SCHEMA_VERSION_RANKED,
+    schema_version: SCHEMA_VERSION,
     window: { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() },
     keys: [...keys].sort(),
     ...(confirmEmpty && keys.length === 0 ? { confirm_empty: true as const } : {}),
@@ -263,9 +261,9 @@ export function claimSenderLease(holder: string, nowMs: number, baseHome?: strin
 
 export interface ManifestSyncResult {
   /** Why nothing was attempted, when nothing was. */
-  skipped?: 'disabled' | 'not-linked' | 'not-writer' | 'not-ready' | 'queue-not-drained' | 'paused' | 'unsupported' | 'other-host' | 'contended' | 'nothing-held'
+  skipped?: 'not-linked' | 'not-writer' | 'not-ready' | 'queue-not-drained' | 'paused' | 'other-host' | 'contended' | 'nothing-held'
   /** Why the run ended early, when it did. */
-  stopped?: 'rate-limited' | 'budget' | 'failed' | 'auth' | 'revoked' | 'unsupported' | 'interrupted'
+  stopped?: 'rate-limited' | 'budget' | 'failed' | 'auth' | 'revoked' | 'interrupted'
   chunks: number
   retired: number
   gated: number
@@ -297,7 +295,6 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
     deps.loggedOnce?.add(key)
     deps.log?.(msg)
   }
-  if (!SEND_TRACE_MANIFEST) return { ...result, skipped: 'disabled' }
   let creds = loadCredentials()
   if (!creds || !creds.installId) return { ...result, skipped: 'not-linked' }
   const link = { endpoint: creds.endpoint, installId: creds.installId }
@@ -309,9 +306,6 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   if ((state.pausedUntil !== null && state.pausedUntil > now()) || (state.nextAttemptAt !== null && state.nextAttemptAt > now())) {
     return { ...result, skipped: 'paused' }
   }
-
-  const caps = await refreshCapabilities(link, { now, baseHome: deps.baseHome })
-  if (!caps?.traceManifest) return { ...result, skipped: 'unsupported' }
 
   const lease = claimSenderLease(deps.holderId, now(), deps.baseHome)
   if (lease === 'other') {
@@ -393,10 +387,6 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
       }
       if (res.status === 401) return finish('auth')
       if (res.status === 403) return finish('revoked') // the drain clears the credential
-      if (res.status === 404) {
-        markUnsupported(link, now(), deps.baseHome)
-        return finish('unsupported')
-      }
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get('retry-after')) || 3600
         state.pausedUntil = now() + retryAfter * 1000

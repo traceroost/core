@@ -15,6 +15,7 @@ function payload(sessionId: string, revision?: number): RollupPayload {
       repo_hash: 'b'.repeat(64),
       started_at: '2026-03-01T00:00:00.000Z',
       duration_ms: 1,
+      source_rank: 2,
       ...(revision !== undefined ? { revision } : {}),
     },
   }

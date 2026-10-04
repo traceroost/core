@@ -14,7 +14,6 @@ import { drainQueue, type DrainDeps } from './sender'
 import { DEFAULT_MAX_ITEMS } from './queue'
 import { loadCredentials } from '../org/credentials'
 import { TraceManifestSender } from './traceManifest'
-import { refreshCapabilities } from './cloudCapabilities'
 import type { TraceManifestSource } from '../../cloudBridge'
 
 // The most batches a single drain run could ever need to fully empty a queue at the hard item
@@ -72,7 +71,7 @@ export function startForwardScheduler(opts: {
    *  override this. */
   batchLimit?: number
   /** The host's local store, for the trace manifest (traceManifest.ts) — sent after each drain,
-   *  once the queue is empty. Absent: no manifest, and no capability probe (so no source_rank). */
+   *  once the queue is empty. Absent: no manifest. */
   traceManifest?: TraceManifestSource
 } = {}): ForwardScheduler {
   const intervalMs = opts.intervalMs ?? 5 * 60_000
@@ -83,14 +82,10 @@ export function startForwardScheduler(opts: {
 
   const run = async (runOpts: { force?: boolean } = {}) => {
     if (draining) return
-    const creds = loadCredentials()
-    if (!creds) { stop(); return }
+    if (!loadCredentials()) { stop(); return }
     draining = true
     opts.onDrainStart?.()
     try {
-      // Learn (at most daily — cached) whether this cloud accepts source_rank and the manifest
-      // before sending, so the first drain after startup or a link already sends what it accepts.
-      if (manifest) await refreshCapabilities(creds, { baseHome: opts.baseHome }).catch(() => null)
       let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
       if (res.sent > 0 || res.droppedInvalid > 0) {
         opts.log?.(`[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)

@@ -26,7 +26,7 @@ function memStore(initial: OrgCredentials | null): CredentialStore {
 function payload(id: string): RollupPayload {
   return {
     schema_version: '1', repo_key_fp: 'a'.repeat(64),
-    session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: '2026-03-01T00:00:00.000Z', duration_ms: 1 },
+    session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: '2026-03-01T00:00:00.000Z', duration_ms: 1, source_rank: 2 },
   }
 }
 const ID1 = '11111111-1111-4111-8111-111111111111'
