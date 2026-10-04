@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'preact/hooks'
 import { signal, computed } from '@preact/signals'
 import {
   currentWorkspace, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
-  repoInfo, repoDisplayName, repoTooltipName,
+  repoInfo, repoDisplayName, repoTooltipName, sessionSummary,
 } from '../state'
 import { calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
@@ -195,14 +195,32 @@ function changePctColor(pct: number | null): string {
 // ── Components ────────────────────────────────────────────────────────────────
 
 
-function InsufficientDataState({ workspace, count }: { workspace: string | null; count: number }) {
+function InsufficientDataState({ workspace, count, filtered }: {
+  workspace: string | null
+  count: number
+  /** The unfiltered traces have enough history: it's the active filters (time range, agent,
+   *  outcome, search, …) that left too few, so widening them — not waiting — is the fix. */
+  filtered: boolean
+}) {
+  const where = workspace !== null
+    ? <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></>
+    : ' in one repo'
   return (
     <div style="padding:32px 24px;max-width:480px;margin:0 auto;text-align:center">
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
-        Not enough history yet — TraceRoost needs at least 3 sessions
-        {workspace !== null ? <><span> in </span><strong style="color:var(--fg)">{workspace}</strong></> : ' in one repo'}
-        {' '}to detect patterns.<br />
-        Current: {count} trace{count !== 1 ? "s" : ""}.
+        {filtered ? (
+          <>
+            Too few traces match the current filters — TraceRoost needs at least 3 sessions
+            {where} to detect patterns.<br />
+            Showing: {count} trace{count !== 1 ? 's' : ''}. Widen the time range or clear filters to see suggestions.
+          </>
+        ) : (
+          <>
+            Not enough history yet — TraceRoost needs at least 3 sessions
+            {where}{' '}to detect patterns.<br />
+            Current: {count} trace{count !== 1 ? 's' : ''}.
+          </>
+        )}
       </div>
     </div>
   )
@@ -745,7 +763,8 @@ export function Instructions() {
   if (workspace !== null) {
     const wsSessions = sessions.filter(s => (s.workspace ?? '') === workspace)
     if (wsSessions.length < 3) {
-      return <InsufficientDataState workspace={workspace} count={wsSessions.length} />
+      const unfiltered = (sessionSummary.value?.sessions ?? []).filter(s => (s.workspace ?? '') === workspace)
+      return <InsufficientDataState workspace={workspace} count={wsSessions.length} filtered={unfiltered.length >= 3} />
     }
     const view = workspaceView(workspace, wsSessions)
     return (
@@ -760,7 +779,9 @@ export function Instructions() {
   }
 
   if (groups.length === 0) {
-    return <InsufficientDataState workspace={null} count={sessions.length} />
+    const unfiltered = groupByWorkspace(sessionSummary.value?.sessions ?? [])
+    const filtered = [...unfiltered.values()].some(g => g.length >= 3)
+    return <InsufficientDataState workspace={null} count={sessions.length} filtered={filtered} />
   }
 
   const byWs = groupByWorkspace(sessions)
