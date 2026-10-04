@@ -2,22 +2,24 @@
  * The trace manifest (stable trace identity, feature 11 step 5): the reconciliation safety net
  * for traces whose key changed, or that were merged away, after they were sent.
  *
- * Every so often a linked install tells the cloud which trace keys it still holds for a settled
- * window — `POST /api/ingest/manifest`, one chunk per UTC day — and the cloud retires the rows
- * *this install* sent in that window whose key isn't listed (cloud: src/lib/ingest/manifest.ts).
- * A chunk carries only the window bounds and opaque UUIDs that already travelled as
- * `session.session_id` (`TraceManifestChunk`, `$defs/trace_manifest`); it gives the cloud no way
- * to ask for anything.
+ * Every so often each host of a linked install tells the cloud which trace keys it still holds for
+ * a settled window — `POST /api/ingest/manifest`, one chunk per UTC day — and the cloud retires
+ * the rows *this install last received from this host* in that window whose key isn't listed
+ * (cloud: src/lib/ingest/manifest.ts). A chunk carries only the host's id (`host_id`, the random
+ * UUID its rollups carry too — `../org/hostIdentity.ts`), the window bounds and opaque UUIDs that
+ * already travelled as `session.session_id` (`TraceManifestChunk`, `$defs/trace_manifest`); it
+ * gives the cloud no way to ask for anything.
  *
  * Because a manifest *removes* rows, everything here leans towards not sending:
  *
  * - only by the process that owns writes to the local store (`TraceManifestSource.isWriter`), and
  *   only once that store has finished its startup load (`isReady`) — a half-loaded store would
  *   list too few keys;
- * - only by one TraceRoost host per machine: the extension and the standalone server share one
- *   credential (one install) but not one store, so each would retire the other's traces. A small
- *   lease in `~/.traceroost` picks the sender, and while a second host is seen asking for it,
- *   neither sends;
+ * - only about its own host's rows: the extension and the standalone server share one credential
+ *   (one install) but not one store — an OTEL-only trace lives only in the host whose collector
+ *   received it — so each host sends its own manifest under its own `host_id`, and the cloud
+ *   retires only rows whose last sender was that host. A row both hosts sent belongs to whichever
+ *   sent it last;
  * - only once the forwarding queue holds no session rollups — a key not delivered yet would gate
  *   the chunk (`missing_keys`) and spend rate budget for nothing;
  * - the window is [max(localHorizon, now − 60 d), now − 10 min]: nothing older than the oldest
@@ -29,8 +31,9 @@
  *
  * Cadence: a full sweep of every day in the window on startup and on (re-)link, then on each
  * forwarding tick only the days whose key set changed since their last successful chunk (a small
- * per-link record, `~/.traceroost/trace-manifest.json`: day → hash of its sorted keys + result).
- * At most `MANIFEST_HOURLY_BUDGET` chunks an hour (the cloud allows 300); a 429 pauses for its
+ * per-link, per-host record, `~/.traceroost/trace-manifest-<host_id>.json`: day → hash of its
+ * sorted keys + result). At most `MANIFEST_HOURLY_BUDGET` chunks an hour per host (the cloud
+ * allows 300 per install, so both hosts together stay under it); a 429 pauses for its
  * Retry-After, a 5xx or network failure backs off, a `missing_keys` gate re-sends that day only
  * once the queue has drained again, with growing backoff. One log line per run that sent
  * anything — counts only, never a key.
@@ -42,11 +45,11 @@ import * as os from 'os'
 import * as path from 'path'
 import type { TraceManifestSource } from '../../cloudBridge'
 import { loadCredentials } from '../org/credentials'
+import { currentHostId } from '../org/hostIdentity'
 import { manifestUrl, type OrgCredentials } from '../org/config'
 import { clientVersion, TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
 import { ForwardQueue } from './queue'
-import { withFileLock } from './fileLock'
 import { SCHEMA_VERSION, type TraceManifestChunk } from './schema'
 
 const MINUTE_MS = 60_000
@@ -57,8 +60,8 @@ export const DAY_MS = 24 * HOUR_MS
 export const MANIFEST_SETTLE_MS = 10 * MINUTE_MS
 export const MANIFEST_MAX_AGE_MS = 60 * DAY_MS
 export const MANIFEST_MAX_KEYS = 5000
-/** Chunks per hour per install — well under the cloud's 300, so a full sweep (≤ 61) plus a
- *  restart or two in the same hour never meets a 429. */
+/** Chunks per hour per host — two hosts together stay under the cloud's 300 per install, so a
+ *  full sweep (≤ 61) plus a restart or two in the same hour never meets a 429. */
 export const MANIFEST_HOURLY_BUDGET = 120
 /** A full sweep skips a day confirmed with the same key set this recently (restarts in a row). */
 const SWEEP_SKIP_CONFIRMED_WITHIN_MS = HOUR_MS
@@ -66,9 +69,6 @@ const GATED_RETRY_BASE_MS = 5 * MINUTE_MS
 const GATED_RETRY_MAX_MS = 6 * HOUR_MS
 const FAILURE_BACKOFF_BASE_MS = 5 * MINUTE_MS
 const FAILURE_BACKOFF_MAX_MS = HOUR_MS
-/** A sender lease (or a second host's claim on it) not renewed for this long has lapsed. The
- *  forwarding timer ticks every 5 minutes. */
-export const LEASE_TTL_MS = 30 * MINUTE_MS
 /** How many times a day's window may be halved to fit `MANIFEST_MAX_KEYS`. */
 const MAX_SPLIT_DEPTH = 8
 
@@ -100,9 +100,10 @@ export function manifestDays(horizonMs: number | null, nowMs: number): ManifestD
 }
 
 /** The exact request body for one window. Keys sorted (stable bytes for a stable set). */
-export function buildManifestChunk(fromMs: number, toMs: number, keys: readonly string[], confirmEmpty = false): TraceManifestChunk {
+export function buildManifestChunk(hostId: string, fromMs: number, toMs: number, keys: readonly string[], confirmEmpty = false): TraceManifestChunk {
   return {
     schema_version: SCHEMA_VERSION,
+    host_id: hostId,
     window: { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() },
     keys: [...keys].sort(),
     ...(confirmEmpty && keys.length === 0 ? { confirm_empty: true as const } : {}),
@@ -115,20 +116,20 @@ export interface DayPlan {
   chunks: TraceManifestChunk[]
 }
 
-/** What to send for `day`, or null when nothing should be (an empty day that isn't positively
- *  empty inside the horizon). Window bounds handed to the source are inclusive, so [from, to)
- *  asks for [from, to − 1]. */
-export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys' | 'countTraces'>, day: ManifestDay, horizonMs: number): DayPlan | null {
+/** What `hostId` should send for `day`, or null when nothing should be (an empty day that isn't
+ *  positively empty inside the horizon). Window bounds handed to the source are inclusive, so
+ *  [from, to) asks for [from, to − 1]. */
+export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys' | 'countTraces'>, day: ManifestDay, horizonMs: number, hostId: string): DayPlan | null {
   const chunks: TraceManifestChunk[] = []
   const allKeys: string[] = []
   const plan = (fromMs: number, toMs: number, depth: number): void => {
     const keys = source.listTraceKeys(fromMs, toMs - 1)
     if (keys.length === 0) {
-      if (fromMs >= horizonMs && source.countTraces(fromMs, toMs - 1) === 0) chunks.push(buildManifestChunk(fromMs, toMs, [], true))
+      if (fromMs >= horizonMs && source.countTraces(fromMs, toMs - 1) === 0) chunks.push(buildManifestChunk(hostId, fromMs, toMs, [], true))
       return
     }
     if (keys.length <= MANIFEST_MAX_KEYS) {
-      chunks.push(buildManifestChunk(fromMs, toMs, keys))
+      chunks.push(buildManifestChunk(hostId, fromMs, toMs, keys))
       allKeys.push(...keys)
       return
     }
@@ -145,7 +146,7 @@ export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys
   return { hash, chunks }
 }
 
-// ── Per-link record ──────────────────────────────────────────────────────────
+// ── Per-link, per-host record ────────────────────────────────────────────────
 
 interface DayRecord {
   hash: string
@@ -168,14 +169,16 @@ interface ManifestState {
   nextAttemptAt: number | null
 }
 
-export function manifestStatePath(baseHome: string = os.homedir()): string {
-  return path.join(baseHome, '.traceroost', 'trace-manifest.json')
+/** One file per host: both hosts of a machine may send, each for its own rows, and neither's
+ *  record says anything about what the other has sent. */
+export function manifestStatePath(hostId: string, baseHome: string = os.homedir()): string {
+  return path.join(baseHome, '.traceroost', `trace-manifest-${hostId}.json`)
 }
 
-function readState(creds: { endpoint: string; installId: string }, baseHome?: string): ManifestState {
+function readState(creds: { endpoint: string; installId: string }, hostId: string, baseHome?: string): ManifestState {
   const fresh: ManifestState = { endpoint: creds.endpoint, installId: creds.installId, days: {}, sends: [], pausedUntil: null, failures: 0, nextAttemptAt: null }
   try {
-    const s = JSON.parse(fs.readFileSync(manifestStatePath(baseHome), 'utf-8')) as Partial<ManifestState>
+    const s = JSON.parse(fs.readFileSync(manifestStatePath(hostId, baseHome), 'utf-8')) as Partial<ManifestState>
     // A different link (a re-link mints a new install) starts over: a full sweep for it.
     if (s.endpoint !== creds.endpoint || s.installId !== creds.installId) return fresh
     return { ...fresh, ...s, days: s.days ?? {}, sends: Array.isArray(s.sends) ? s.sends : [] }
@@ -184,12 +187,12 @@ function readState(creds: { endpoint: string; installId: string }, baseHome?: st
   }
 }
 
-function writeState(state: ManifestState, nowMs: number, baseHome?: string): void {
+function writeState(state: ManifestState, hostId: string, nowMs: number, baseHome?: string): void {
   // Days that left the window can't be sent again — drop them.
   const oldest = new Date(nowMs - MANIFEST_MAX_AGE_MS - DAY_MS).toISOString().slice(0, 10)
   for (const day of Object.keys(state.days)) if (day < oldest) delete state.days[day]
   state.sends = state.sends.filter(t => nowMs - t < HOUR_MS)
-  const file = manifestStatePath(baseHome)
+  const file = manifestStatePath(hostId, baseHome)
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     const tmp = `${file}.${process.pid}.tmp`
@@ -200,68 +203,11 @@ function writeState(state: ManifestState, nowMs: number, baseHome?: string): voi
   }
 }
 
-// ── One sender per machine ───────────────────────────────────────────────────
-
-interface SenderLease {
-  holder: string
-  pid: number
-  hostname: string
-  at: number
-  /** The last time another host asked for the lease while this one held it. */
-  contendedAt?: number
-}
-
-export function senderLeasePath(baseHome: string = os.homedir()): string {
-  return path.join(baseHome, '.traceroost', 'trace-manifest-sender.json')
-}
-
-function pidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
-/**
- * 'ours' — this host is the machine's manifest sender; 'other' — another live host is;
- * 'contended' — this host holds the lease but another one asked for it recently, so the two
- * stores disagree on what this install holds and neither may send.
- */
-export function claimSenderLease(holder: string, nowMs: number, baseHome?: string): 'ours' | 'other' | 'contended' {
-  const file = senderLeasePath(baseHome)
-  return withFileLock(file, () => {
-    let lease: SenderLease | null = null
-    try { lease = JSON.parse(fs.readFileSync(file, 'utf-8')) as SenderLease } catch { /* none yet */ }
-    const lapsed = !lease || nowMs - lease.at >= LEASE_TTL_MS ||
-      (lease.hostname === os.hostname() && lease.pid !== process.pid && !pidAlive(lease.pid))
-    let result: 'ours' | 'other' | 'contended'
-    let next: SenderLease
-    if (lease && !lapsed && lease.holder !== holder) {
-      next = { ...lease, contendedAt: nowMs }
-      result = 'other'
-    } else {
-      const contendedAt = lease && lease.holder === holder ? lease.contendedAt : undefined
-      next = { holder, pid: process.pid, hostname: os.hostname(), at: nowMs, ...(contendedAt !== undefined ? { contendedAt } : {}) }
-      result = contendedAt !== undefined && nowMs - contendedAt < LEASE_TTL_MS ? 'contended' : 'ours'
-    }
-    try {
-      fs.mkdirSync(path.dirname(file), { recursive: true })
-      fs.writeFileSync(file, JSON.stringify(next) + '\n', { mode: 0o600 })
-    } catch {
-      return 'other' // can't record the lease — don't send on a guess
-    }
-    return result
-  })
-}
-
 // ── Sending ──────────────────────────────────────────────────────────────────
 
 export interface ManifestSyncResult {
   /** Why nothing was attempted, when nothing was. */
-  skipped?: 'not-linked' | 'not-writer' | 'not-ready' | 'queue-not-drained' | 'paused' | 'other-host' | 'contended' | 'nothing-held'
+  skipped?: 'not-linked' | 'not-writer' | 'not-ready' | 'queue-not-drained' | 'paused' | 'nothing-held'
   /** Why the run ended early, when it did. */
   stopped?: 'rate-limited' | 'budget' | 'failed' | 'auth' | 'revoked' | 'interrupted'
   chunks: number
@@ -275,8 +221,8 @@ export interface ManifestSyncDeps {
   log?: (msg: string) => void
   /** Re-send every day in the window, not only the changed ones (startup, (re-)link). */
   fullSweep?: boolean
-  /** Identifies this host's claim on the per-machine sender lease. */
-  holderId: string
+  /** This host's id (`../org/hostIdentity.ts`); defaults to the process's own. */
+  hostId?: string
   /** One-time log lines already printed by this host. */
   loggedOnce?: Set<string>
 }
@@ -302,19 +248,10 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   if (!source.isReady()) return { ...result, skipped: 'not-ready' }
   if (new ForwardQueue(deps.baseHome).list().some(it => it.key.startsWith('session:'))) return { ...result, skipped: 'queue-not-drained' }
 
-  const state = readState(link, deps.baseHome)
+  const hostId = deps.hostId ?? currentHostId()
+  const state = readState(link, hostId, deps.baseHome)
   if ((state.pausedUntil !== null && state.pausedUntil > now()) || (state.nextAttemptAt !== null && state.nextAttemptAt > now())) {
     return { ...result, skipped: 'paused' }
-  }
-
-  const lease = claimSenderLease(deps.holderId, now(), deps.baseHome)
-  if (lease === 'other') {
-    once('other-host', '[TraceRoost] Trace manifest: another TraceRoost host on this machine sends it for this link — this one doesn\'t.')
-    return { ...result, skipped: 'other-host' }
-  }
-  if (lease === 'contended') {
-    once('contended', '[TraceRoost] Trace manifest paused: two TraceRoost hosts (the editor extension and the background service) share this machine\'s link but not their trace history. Run one of them to resume.')
-    return { ...result, skipped: 'contended' }
   }
 
   const horizon = source.localHorizonMs()
@@ -329,7 +266,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   }
 
   const finish = (stopped?: ManifestSyncResult['stopped']): ManifestSyncResult => {
-    writeState(state, now(), deps.baseHome)
+    writeState(state, hostId, now(), deps.baseHome)
     if (result.chunks > 0) {
       deps.log?.(`[TraceRoost] Trace manifest${deps.fullSweep ? ' (full sweep)' : ''}: sent ${result.chunks} chunk(s), retired ${result.retired} trace(s), ${result.gated} gated${stopped ? ` — stopped (${stopped})` : ''}`)
     }
@@ -340,7 +277,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
     // Re-checked per day: the requests below yield, and the store may be cleared (and re-read)
     // or change hands in the meantime.
     if (!source.isWriter() || !source.isReady()) return finish('interrupted')
-    const plan = planManifestDay(source, day, horizon)
+    const plan = planManifestDay(source, day, horizon, hostId)
     if (!plan) continue
     const rec = state.days[day.day]
     const nowMs = now()
@@ -437,10 +374,9 @@ async function postManifest(creds: OrgCredentials, chunk: TraceManifestChunk): P
 export class TraceManifestSender {
   private sweptInstall: string | undefined
   private running = false
-  private readonly holderId = crypto.randomBytes(8).toString('hex')
   private readonly loggedOnce = new Set<string>()
 
-  constructor(private readonly source: TraceManifestSource, private readonly opts: { log?: (msg: string) => void; baseHome?: string; now?: () => number } = {}) {}
+  constructor(private readonly source: TraceManifestSource, private readonly opts: { log?: (msg: string) => void; baseHome?: string; now?: () => number; hostId?: string } = {}) {}
 
   async run(): Promise<ManifestSyncResult | null> {
     if (this.running) return null
@@ -449,7 +385,7 @@ export class TraceManifestSender {
       const installId = loadCredentials()?.installId
       const fullSweep = installId !== undefined && installId !== this.sweptInstall
       const res = await syncTraceManifest(this.source, {
-        ...this.opts, fullSweep, holderId: this.holderId, loggedOnce: this.loggedOnce,
+        ...this.opts, fullSweep, loggedOnce: this.loggedOnce,
       })
       // Swept once every due day was handled; a run stopped early (budget, 429, failure) or
       // skipped outright stays a full sweep next time.
@@ -465,14 +401,14 @@ export class TraceManifestSender {
   }
 }
 
-/** The newest non-empty chunk as it would be sent now (else the newest empty one, or null) — for
- *  `--explain-payload`, built by the same code as the real send. */
-export function previewManifestChunk(source: Pick<TraceManifestSource, 'localHorizonMs' | 'listTraceKeys' | 'countTraces'>, nowMs: number = Date.now()): TraceManifestChunk | null {
+/** The newest non-empty chunk as `hostId` would send it now (else the newest empty one, or null) —
+ *  for `--explain-payload`, built by the same code as the real send. */
+export function previewManifestChunk(source: Pick<TraceManifestSource, 'localHorizonMs' | 'listTraceKeys' | 'countTraces'>, hostId: string, nowMs: number = Date.now()): TraceManifestChunk | null {
   const horizon = source.localHorizonMs()
   if (horizon === null) return null
   let fallback: TraceManifestChunk | null = null
   for (const day of manifestDays(horizon, nowMs)) {
-    const plan = planManifestDay(source, day, horizon)
+    const plan = planManifestDay(source, day, horizon, hostId)
     const withKeys = plan?.chunks.find(c => c.keys.length > 0)
     if (withKeys) return withKeys
     fallback ??= plan?.chunks[0] ?? null

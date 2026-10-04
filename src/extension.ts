@@ -90,6 +90,10 @@ export async function activate(context: vscode.ExtensionContext) {
   // to remove the duplicate.
   if (await handleDuplicateInstall(context)) { return }
 
+  // This host's trace store — its cloud host id lives beside the database, so the extension and
+  // the standalone server (one shared link) each reconcile only their own traces.
+  cloud.setHostStore(context.globalStorageUri.fsPath)
+
   // ── Database ────────────────────────────────────────────────────────────────
   try {
     traceRoostDb = await openDatabase(

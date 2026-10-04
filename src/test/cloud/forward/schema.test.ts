@@ -25,6 +25,12 @@ suite('forward/schema', () => {
     assert.ok(schema.$defs.session.required.includes('source_rank'))
     assert.deepStrictEqual(schema.$defs.session.properties.source_rank, { type: 'integer', minimum: 1, maximum: 3, description: schema.$defs.session.properties.source_rank.description })
     assert.deepStrictEqual(schema.$defs.trace_manifest.properties.schema_version, { const: SCHEMA_VERSION })
+    // The host tag: an opaque uuid on every rollup and every manifest chunk, required on both.
+    for (const def of [schema.$defs.session, schema.$defs.trace_manifest]) {
+      assert.ok(def.required.includes('host_id'))
+      assert.strictEqual(def.properties.host_id.type, 'string')
+      assert.strictEqual(def.properties.host_id.format, 'uuid')
+    }
   })
 
   // The mechanical guard that keeps the privacy invariant true as the schema grows: no string

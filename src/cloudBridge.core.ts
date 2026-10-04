@@ -28,6 +28,7 @@ export const cloudBridge: CloudBridge = {
   leave: async () => ({ serverRevoked: false }),
   orgViewUrl: () => '',
 
+  setHostStore: () => {},
   enqueueSession: async () => ({ enqueued: false, reason: 'not-linked' }),
   forwardOnContentChange: async () => ({ enqueued: false, reason: 'not-linked' }),
   enqueueInstructionTelemetry: async () => false,

@@ -73,7 +73,7 @@
     "session": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["session_id", "agent", "started_at", "duration_ms", "source_rank"],
+      "required": ["session_id", "agent", "started_at", "duration_ms", "source_rank", "host_id"],
       "properties": {
         "session_id": { "type": "string", "format": "uuid" },
         "agent": { "$ref": "#/$defs/agent" },
@@ -154,6 +154,11 @@
           "minimum": 1,
           "maximum": 3,
           "description": "How much evidence this snapshot of the trace carries (stable trace identity): 3 OTEL with usage, 2 full transcript, 1 partial transcript or OTEL without usage. A turn's log and OTEL snapshots share one session_id; a lower rank never replaces a higher one, and within a rank the newer revision wins."
+        },
+        "host_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Which TraceRoost host on the linked machine sent this snapshot -- the editor extension and the standalone server share one install but each keeps its own trace store. A random UUID generated once per host store, never derived from a hostname, path or anything else identifying. A trace manifest only retires rows whose last sender was the manifest's own host_id."
         }
       }
     },
@@ -243,10 +248,15 @@
     "trace_manifest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "window", "keys"],
-      "description": "One chunk of an install's trace manifest (staged feature 11): every session_id the install holds whose trace started in [window.from, window.to). The server retires (soft-deletes) this install's rows started in that window whose session_id is not listed. Opaque UUIDs only -- the same values that already travel as session.session_id.",
+      "required": ["schema_version", "host_id", "window", "keys"],
+      "description": "One chunk of an install's trace manifest (staged feature 11), sent by one of its hosts: every session_id that host holds whose trace started in [window.from, window.to). The server retires (soft-deletes) the rows this install last received from that host (session.host_id = host_id) started in that window whose session_id is not listed. Opaque UUIDs only -- host_id and the same values that already travel as session.session_id.",
       "properties": {
         "schema_version": { "const": "1" },
+        "host_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The sending host's id -- the same value its rollups carry as session.host_id. Only rows this install last received from this host are retired."
+        },
         "window": {
           "type": "object",
           "additionalProperties": false,

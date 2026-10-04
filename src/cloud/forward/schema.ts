@@ -237,14 +237,23 @@ export interface SessionRollup {
    *  core also never sends a lower-rank snapshot over a higher one itself
    *  (contentChangeForward.ts) — the field lets the cloud enforce the same rule across installs. */
   source_rank: 1 | 2 | 3
+  /** Which TraceRoost host sent this snapshot (`src/cloud/org/hostIdentity.ts`): the editor
+   *  extension and the standalone server share one install (one credential) but each keeps its
+   *  own trace store, so each has its own id — a random UUID generated once per host store, never
+   *  derived from a hostname, path or anything else identifying. A trace manifest retires only
+   *  rows whose last sender was its own host. Always sent. */
+  host_id: Uuid
 }
 
 /** One chunk of the trace manifest (stable trace identity), POSTed to `/api/ingest/manifest`:
- *  every trace key this install holds whose trace started in [window.from, window.to). The keys
+ *  every trace key this host holds whose trace started in [window.from, window.to). The keys
  *  are the same opaque UUIDs that already travel as `session.session_id`; the window bounds are
  *  the only timestamps. `$defs/trace_manifest` in schema/rollup.v1.json. */
 export interface TraceManifestChunk {
   schema_version: typeof SCHEMA_VERSION
+  /** The sending host — the same id its rollups carry as `session.host_id`. The cloud retires
+   *  only rows this install last received from this host. */
+  host_id: Uuid
   window: { from: Iso8601; to: Iso8601 }
   keys: Uuid[]
   /** Only with an empty `keys`, and only when the local store positively holds no trace for the

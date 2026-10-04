@@ -81,6 +81,9 @@ export interface SessionRollupInput {
 }
 
 export interface BuildContext {
+  /** The sending host's id (`src/cloud/org/hostIdentity.ts`) — a random UUID, sent as
+   *  `session.host_id` so a trace manifest only ever retires this host's own rows. */
+  hostId: string
   /** Absent when the workspace's repository can't be keyed (not a git repo, a shallow clone, or
    *  no discoverable root commit) — the rollup is still built, just without repo grouping. */
   repoKey?: RepoKeyContext
@@ -189,6 +192,7 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
     outcome: ctx.outcome ? toWireOutcome(ctx.outcome) : 'unknown',
     data_source: input.dataSource,
     source_rank: wireSourceRank(input.sourceRank),
+    host_id: ctx.hostId,
   }
   if (input.initiator) rollup.initiator = input.initiator
   if (input.conversationId) rollup.conversation_hash = sha256Hex(input.conversationId)

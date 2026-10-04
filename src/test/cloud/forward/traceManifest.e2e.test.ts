@@ -2,8 +2,9 @@
 // scheduler drains ranked rollups, then sends the trace manifest —
 // and a row this install delivered but no longer holds is retired, while a re-send retires nothing
 // more. The fake mirrors cloud's rules (src/lib/ingest/manifest.ts, retire_absent_rollups): this
-// install's rows only, the [from, to) window, the missing_keys and empty_unconfirmed gates, and
-// schema version "1" with a required source_rank.
+// install's rows only, and of those only the ones this host sent last (host_id), the [from, to)
+// window, the missing_keys and empty_unconfirmed gates, and schema version "1" with a required
+// source_rank and host_id.
 
 import * as assert from 'assert'
 import * as fs from 'fs'
@@ -13,15 +14,16 @@ import * as path from 'path'
 import type { AddressInfo } from 'net'
 import { startForwardScheduler } from '../../../cloud/forward/scheduler'
 import { ForwardQueue } from '../../../cloud/forward/queue'
-import { manifestDays, manifestStatePath, senderLeasePath } from '../../../cloud/forward/traceManifest'
+import { manifestDays, manifestStatePath } from '../../../cloud/forward/traceManifest'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
+import { currentHostId, setHostStore } from '../../../cloud/org/hostIdentity'
 import type { OrgCredentials } from '../../../cloud/org/config'
 import type { RollupPayload, TraceManifestChunk } from '../../../cloud/forward/schema'
 import type { TraceManifestSource } from '../../../cloudBridge'
 import { toUuid } from '../../../traceIdentity'
 
 interface FakeCloudState {
-  rows: Map<string, { startedAt: number; rank: number }>
+  rows: Map<string, { startedAt: number; rank: number; host: string }>
   retired: Set<string>
   manifestBodies: TraceManifestChunk[]
   responses: Array<{ retired: number; missing: number; gated?: string }>
@@ -43,10 +45,10 @@ function startFakeCloud(state: FakeCloudState): Promise<http.Server> {
       if (req.method === 'POST' && req.url === '/api/ingest/batch') {
         const { items } = JSON.parse(raw) as { items: RollupPayload[] }
         const results = items.map(p => {
-          // The cloud's schema: version "1" only, source_rank required.
-          if (p.schema_version !== '1' || p.session?.source_rank === undefined) return { status: 400, error: 'schema' }
+          // The cloud's schema: version "1" only, source_rank and host_id required.
+          if (p.schema_version !== '1' || p.session?.source_rank === undefined || !p.session.host_id) return { status: 400, error: 'schema' }
           const s = p.session
-          state.rows.set(s.session_id, { startedAt: Date.parse(s.started_at), rank: s.source_rank })
+          state.rows.set(s.session_id, { startedAt: Date.parse(s.started_at), rank: s.source_rank, host: s.host_id })
           state.retired.delete(s.session_id)
           return { status: 202 }
         })
@@ -54,7 +56,7 @@ function startFakeCloud(state: FakeCloudState): Promise<http.Server> {
       }
       if (req.method === 'POST' && req.url === '/api/ingest/manifest') {
         const m = JSON.parse(raw) as TraceManifestChunk
-        if (m.schema_version !== '1') return send(400, { error: 'schema' })
+        if (m.schema_version !== '1' || !m.host_id) return send(400, { error: 'schema' })
         state.manifestBodies.push(m)
         const from = Date.parse(m.window.from), to = Date.parse(m.window.to)
         const keys = new Set(m.keys)
@@ -65,7 +67,7 @@ function startFakeCloud(state: FakeCloudState): Promise<http.Server> {
         else {
           let retired = 0
           for (const [id, row] of state.rows) {
-            if (row.startedAt >= from && row.startedAt < to && !keys.has(id)) {
+            if (row.host === m.host_id && row.startedAt >= from && row.startedAt < to && !keys.has(id)) {
               state.rows.delete(id)
               state.retired.add(id)
               retired++
@@ -112,19 +114,21 @@ suite('forward/traceManifest — end to end against a fake cloud', () => {
       accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
     }
     setCredentialStore(memStore(creds))
+    setHostStore(path.join(home, 'extension-storage')) // this host's own store
     process.env.TRACEROOST_ORG_URL = endpoint // the ingest routes resolve through orgEndpoint()
   })
   teardown(async () => {
     delete process.env.TRACEROOST_ORG_URL
     setCredentialStore(undefined)
+    setHostStore(undefined)
     await new Promise(r => server.close(r))
     fs.rmSync(home, { recursive: true, force: true })
   })
 
   const hourAgo = (h: number) => Date.now() - h * 3600_000
-  const rollup = (id: string, startedAt: number): RollupPayload => ({
+  const rollup = (id: string, startedAt: number, hostId = currentHostId()): RollupPayload => ({
     schema_version: '1', repo_key_fp: 'a'.repeat(64),
-    session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: new Date(startedAt).toISOString(), duration_ms: 1, revision: 1, source_rank: 2 },
+    session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: new Date(startedAt).toISOString(), duration_ms: 1, revision: 1, source_rank: 2, host_id: hostId },
   })
 
   function source(held: Array<{ id: string; ms: number }>): TraceManifestSource {
@@ -167,8 +171,7 @@ suite('forward/traceManifest — end to end against a fake cloud', () => {
 
     // Re-sending the same manifest (its per-day record forgotten, so every day goes again) retires
     // nothing more.
-    fs.rmSync(manifestStatePath(home), { force: true })
-    fs.rmSync(senderLeasePath(home), { force: true }) // the first "process" is gone
+    fs.rmSync(manifestStatePath(currentHostId(), home), { force: true })
     const before = state.manifestBodies.length
     const again = startForwardScheduler({ baseHome: home, intervalMs: 3600_000, traceManifest: source(held) })
     try {
@@ -178,5 +181,27 @@ suite('forward/traceManifest — end to end against a fake cloud', () => {
     }
     assert.deepStrictEqual(state.responses.slice(-days).map(r => r.retired), new Array(days).fill(0))
     assert.deepStrictEqual([...state.retired], [stale])
+  })
+
+  test('the other host\'s rows on the same link are never retired — only what this host sent', async () => {
+    // The standalone server (another host, same install) delivered an OTEL-only turn this host
+    // never saw, in a day this host's manifest covers.
+    const OTHER_HOST = '0b0b0b0b-2222-4222-8222-bbbbbbbbbbbb'
+    const mine = toUuid('turn-mine'), mineStale = toUuid('turn-mine-merged'), theirs = toUuid('turn-otel-only')
+    const t = hourAgo(3)
+    const q = new ForwardQueue(home)
+    q.enqueue(rollup(mine, t)); q.enqueue(rollup(mineStale, t + 1000)); q.enqueue(rollup(theirs, t + 2000, OTHER_HOST))
+    const held = [{ id: mine, ms: t }]
+
+    const days = manifestDays(t, Date.now()).length
+    const scheduler = startForwardScheduler({ baseHome: home, intervalMs: 3600_000, traceManifest: source(held) })
+    try {
+      await waitFor(() => state.manifestBodies.length >= days)
+    } finally {
+      scheduler.dispose()
+    }
+    assert.ok(state.manifestBodies.every(m => m.host_id === currentHostId()))
+    assert.deepStrictEqual([...state.retired], [mineStale], 'this host\'s own stale row goes')
+    assert.strictEqual(state.rows.get(theirs)?.host, OTHER_HOST, 'the other host\'s row stays')
   })
 })

@@ -191,6 +191,9 @@ dataDirLock.startHeartbeat(holder => {
   console.error(`[TraceRoost] Lost the data directory lock on ${DATA_DIR}${holder ? ` to pid ${holder.pid} on ${holder.hostname}` : ''} — exiting without saving so the two servers don't overwrite each other.`)
   process.exit(1)
 })
+// This host's trace store — its cloud host id lives in the data dir, so this server and the
+// editor extension (one shared link) each reconcile only their own traces.
+cloud.setHostStore(DATA_DIR)
 
 // ── Span store with file persistence ─────────────────────────────────────────
 //

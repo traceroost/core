@@ -16,6 +16,7 @@ const VALID = {
     started_at: '2026-03-01T12:00:00.000Z',
     duration_ms: 1000,
     source_rank: 2,
+    host_id: '0a0a0a0a-1111-4111-8111-aaaaaaaaaaaa',
     tool_calls: { bash: 3 },
     loop_signals: [{ signal: 'retry-loop', severity: 2 }],
     outcome: 'merged',

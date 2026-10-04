@@ -4,7 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import {
   manifestDays, planManifestDay, buildManifestChunk, syncTraceManifest, TraceManifestSender, previewManifestChunk,
-  claimSenderLease, senderLeasePath, manifestStatePath,
+  manifestStatePath,
   DAY_MS, MANIFEST_SETTLE_MS, MANIFEST_MAX_AGE_MS, MANIFEST_MAX_KEYS, MANIFEST_HOURLY_BUDGET,
 } from '../../../cloud/forward/traceManifest'
 import { ForwardQueue } from '../../../cloud/forward/queue'
@@ -45,6 +45,10 @@ function memSource(held: Held[], flags = { writer: true, ready: true }): TraceMa
     countTraces: (from, to) => held.filter(h => h.ms >= from && h.ms <= to).length,
   }
 }
+
+// Two hosts of one linked machine: the editor extension and the standalone server.
+const HOST_A = '0a0a0a0a-1111-4111-8111-aaaaaaaaaaaa'
+const HOST_B = '0b0b0b0b-2222-4222-8222-bbbbbbbbbbbb'
 
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'schema', 'rollup.v1.json'), 'utf-8'))
 const manifestValidator = new SchemaValidator({ $defs: SCHEMA.$defs, ...SCHEMA.$defs.trace_manifest })
@@ -119,7 +123,7 @@ suite('forward/traceManifest — planning a day', () => {
 
   test('lists the day\'s keys — [from, to): a trace starting exactly at `to` belongs to the next day', () => {
     const src = memSource([{ id: 'a', ms: at(1) }, { id: 'b', ms: day.toMs }, { id: 'c', ms: day.fromMs }])
-    const plan = planManifestDay(src, day, day.fromMs)!
+    const plan = planManifestDay(src, day, day.fromMs, HOST_A)!
     assert.strictEqual(plan.chunks.length, 1)
     assert.deepStrictEqual(plan.chunks[0].keys, [toUuid('a'), toUuid('c')].sort())
     assert.strictEqual(plan.chunks[0].confirm_empty, undefined)
@@ -127,22 +131,22 @@ suite('forward/traceManifest — planning a day', () => {
 
   test('confirm_empty only when the store positively holds no trace there, inside the horizon', () => {
     const empty = memSource([{ id: 'later', ms: at(0) }])
-    const plan = planManifestDay(empty, day, day.fromMs - DAY_MS)!
-    assert.deepStrictEqual(plan.chunks, [buildManifestChunk(day.fromMs, day.toMs, [], true)])
+    const plan = planManifestDay(empty, day, day.fromMs - DAY_MS, HOST_A)!
+    assert.deepStrictEqual(plan.chunks, [buildManifestChunk(HOST_A, day.fromMs, day.toMs, [], true)])
     assert.strictEqual(plan.chunks[0].confirm_empty, true)
 
     // Only a legacy row there: not positively empty → the day is skipped, not sent empty.
     const legacyOnly = memSource([{ id: 'old', ms: at(1), legacy: true }, { id: 'later', ms: at(0) }])
-    assert.strictEqual(planManifestDay(legacyOnly, day, day.fromMs - DAY_MS), null)
+    assert.strictEqual(planManifestDay(legacyOnly, day, day.fromMs - DAY_MS, HOST_A), null)
 
     // Outside the horizon (before the oldest trace held): never confirmed empty.
-    assert.strictEqual(planManifestDay(empty, day, day.fromMs + 1), null)
+    assert.strictEqual(planManifestDay(empty, day, day.fromMs + 1, HOST_A), null)
   })
 
   test('a day over the key cap is split into shorter windows, never truncated', () => {
     const n = MANIFEST_MAX_KEYS + 10
     const held = Array.from({ length: n }, (_, i) => ({ id: `t${i}`, ms: day.fromMs + Math.floor((i * DAY_MS) / n) }))
-    const plan = planManifestDay(memSource(held), day, day.fromMs)!
+    const plan = planManifestDay(memSource(held), day, day.fromMs, HOST_A)!
     assert.ok(plan.chunks.length >= 2)
     const all = plan.chunks.flatMap(c => c.keys)
     assert.strictEqual(new Set(all).size, n, 'every key is in exactly one chunk')
@@ -152,22 +156,28 @@ suite('forward/traceManifest — planning a day', () => {
     }
   })
 
-  test('a chunk is exactly schema_version + window + uuid keys — valid against $defs/trace_manifest', () => {
-    const chunk = buildManifestChunk(day.fromMs, day.toMs, [toUuid('x'), toUuid('y')])
-    assert.deepStrictEqual(Object.keys(chunk).sort(), ['keys', 'schema_version', 'window'])
+  test('a chunk is exactly schema_version + host_id + window + uuid keys — valid against $defs/trace_manifest', () => {
+    const chunk = buildManifestChunk(HOST_A, day.fromMs, day.toMs, [toUuid('x'), toUuid('y')])
+    assert.deepStrictEqual(Object.keys(chunk).sort(), ['host_id', 'keys', 'schema_version', 'window'])
+    assert.strictEqual(chunk.host_id, HOST_A)
     assert.deepStrictEqual(Object.keys(chunk.window).sort(), ['from', 'to'])
     assert.strictEqual(chunk.schema_version, '1')
     assert.deepStrictEqual(manifestValidator.validate(chunk), [])
-    assert.deepStrictEqual(manifestValidator.validate(buildManifestChunk(day.fromMs, day.toMs, [], true)), [])
+    assert.deepStrictEqual(manifestValidator.validate(buildManifestChunk(HOST_A, day.fromMs, day.toMs, [], true)), [])
     // The validator really checks: a key that isn't a uuid, or an extra field, fails.
     assert.notDeepStrictEqual(manifestValidator.validate({ ...chunk, keys: ['prompt text'] }), [])
     assert.notDeepStrictEqual(manifestValidator.validate({ ...chunk, path: '/home/me' }), [])
+    // host_id is required, and only ever a uuid — never a hostname.
+    const { host_id: _host, ...hostless } = chunk
+    assert.notDeepStrictEqual(manifestValidator.validate(hostless), [])
+    assert.notDeepStrictEqual(manifestValidator.validate({ ...chunk, host_id: 'my-laptop' }), [])
   })
 
   test('previewManifestChunk is the newest non-empty chunk, built by the same code', () => {
     const src = memSource([{ id: 'a', ms: at(3) }, { id: 'b', ms: at(1) }])
-    const chunk = previewManifestChunk(src, NOW)!
+    const chunk = previewManifestChunk(src, HOST_A, NOW)!
     assert.deepStrictEqual(chunk.keys, [toUuid('b')])
+    assert.strictEqual(chunk.host_id, HOST_A)
   })
 })
 
@@ -186,8 +196,8 @@ suite('forward/traceManifest — sending', () => {
     fs.rmSync(home, { recursive: true, force: true })
   })
 
-  const sync = (src: TraceManifestSource, extra: { fullSweep?: boolean; holderId?: string; log?: (m: string) => void } = {}) =>
-    syncTraceManifest(src, { now, baseHome: home, holderId: extra.holderId ?? 'host-a', fullSweep: extra.fullSweep, log: extra.log })
+  const sync = (src: TraceManifestSource, extra: { fullSweep?: boolean; hostId?: string; log?: (m: string) => void } = {}) =>
+    syncTraceManifest(src, { now, baseHome: home, hostId: extra.hostId ?? HOST_A, fullSweep: extra.fullSweep, log: extra.log })
 
   const threeDays = () => memSource([{ id: 'a', ms: at(2) }, { id: 'b', ms: at(1) }, { id: 'c', ms: at(1, 10) }, { id: 'd', ms: at(0, 8) }])
 
@@ -225,7 +235,7 @@ suite('forward/traceManifest — sending', () => {
     for (const m of cloud.manifests) {
       assert.deepStrictEqual(manifestValidator.validate(m), [])
       // Window bounds are the only timestamps; nothing but uuids otherwise.
-      assert.deepStrictEqual(Object.keys(m).sort(), ['keys', 'schema_version', 'window'])
+      assert.deepStrictEqual(Object.keys(m).sort(), ['host_id', 'keys', 'schema_version', 'window'])
     }
   })
 
@@ -359,29 +369,30 @@ suite('forward/traceManifest — sending', () => {
     for (const id of ['a', 'b', 'c', 'd']) assert.ok(!logs[0].includes(toUuid(id)))
   })
 
-  test('one sender per machine: a second host defers, and while both run neither sends', async () => {
+  test('both hosts of one machine send, each tagged with its own host_id and keeping its own record', async () => {
     const cloud = installFakeCloud()
-    assert.strictEqual((await sync(threeDays(), { fullSweep: true, holderId: 'host-a' })).chunks, 3)
-    const second = await sync(threeDays(), { fullSweep: true, holderId: 'host-b' })
-    assert.strictEqual(second.skipped, 'other-host')
-    const first = await sync(threeDays(), { fullSweep: true, holderId: 'host-a' })
-    assert.strictEqual(first.skipped, 'contended', 'the two hosts\' stores differ — neither speaks for the install')
-    assert.strictEqual(cloud.manifests.length, 3)
-    // The second host stops asking: once its claim lapses, the holder resumes.
-    clock += 31 * 60_000
-    assert.strictEqual((await sync(threeDays(), { holderId: 'host-a' })).skipped, undefined)
-  })
-
-  test('a lapsed lease is taken over', () => {
-    fs.mkdirSync(path.dirname(senderLeasePath(home)), { recursive: true })
-    fs.writeFileSync(senderLeasePath(home), JSON.stringify({ holder: 'gone', pid: process.pid, hostname: os.hostname(), at: NOW - 31 * 60_000 }))
-    assert.strictEqual(claimSenderLease('host-a', NOW, home), 'ours')
+    // The two stores differ: only host B saw trace "e" (an OTEL-only turn its collector received).
+    const storeA = threeDays()
+    const storeB = memSource([...threeDays().held, { id: 'e', ms: at(1, 11) }])
+    assert.strictEqual((await sync(storeA, { fullSweep: true, hostId: HOST_A })).chunks, 3)
+    assert.strictEqual((await sync(storeB, { fullSweep: true, hostId: HOST_B })).chunks, 3)
+    assert.deepStrictEqual(cloud.manifests.slice(0, 3).map(c => c.host_id), [HOST_A, HOST_A, HOST_A])
+    assert.deepStrictEqual(cloud.manifests.slice(3).map(c => c.host_id), [HOST_B, HOST_B, HOST_B])
+    // Each lists only what it holds itself — the cloud retires per host, so A's day without "e"
+    // can't retire B's row.
+    assert.ok(!cloud.manifests.slice(0, 3).some(c => c.keys.includes(toUuid('e'))))
+    assert.ok(cloud.manifests.slice(3).some(c => c.keys.includes(toUuid('e'))))
+    // Neither host's record was clobbered by the other's: unchanged days stay unsent for both.
+    assert.strictEqual((await sync(storeA, { hostId: HOST_A })).chunks, 0)
+    assert.strictEqual((await sync(storeB, { hostId: HOST_B })).chunks, 0)
+    assert.notStrictEqual(manifestStatePath(HOST_A, home), manifestStatePath(HOST_B, home))
+    assert.ok(fs.existsSync(manifestStatePath(HOST_A, home)) && fs.existsSync(manifestStatePath(HOST_B, home)))
   })
 
   test('the per-link record keeps hashes and results, never keys', async () => {
     installFakeCloud()
     await sync(threeDays(), { fullSweep: true })
-    const raw = fs.readFileSync(manifestStatePath(home), 'utf-8')
+    const raw = fs.readFileSync(manifestStatePath(HOST_A, home), 'utf-8')
     for (const id of ['a', 'b', 'c', 'd']) assert.ok(!raw.includes(toUuid(id)))
   })
 })
@@ -389,7 +400,7 @@ suite('forward/traceManifest — sending', () => {
 function payload(id: string, rank: 1 | 2 | 3 = 2): RollupPayload {
   return {
     schema_version: '1', repo_key_fp: 'a'.repeat(64),
-    session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: '2026-10-01T00:00:00.000Z', duration_ms: 1, source_rank: rank },
+    session: { session_id: id, agent: 'claude-code', repo_hash: 'b'.repeat(64), started_at: '2026-10-01T00:00:00.000Z', duration_ms: 1, source_rank: rank, host_id: HOST_A },
   }
 }
 
@@ -405,7 +416,7 @@ suite('forward/traceManifest — source_rank on the wire', () => {
     fs.rmSync(home, { recursive: true, force: true })
   })
 
-  test('a queued rollup goes out exactly as queued: version 1, with its source_rank', async () => {
+  test('a queued rollup goes out exactly as queued: version 1, with its source_rank and host_id', async () => {
     new ForwardQueue(home).enqueue(payload(toUuid('a'), 3))
     const bodies: RollupPayload[] = []
     globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
@@ -417,5 +428,6 @@ suite('forward/traceManifest — source_rank on the wire', () => {
     assert.strictEqual(bodies.length, 1)
     assert.strictEqual(bodies[0].schema_version, '1')
     assert.strictEqual(bodies[0].session!.source_rank, 3)
+    assert.strictEqual(bodies[0].session!.host_id, HOST_A)
   })
 })

@@ -7,7 +7,8 @@ import { authorHash, type RepoKeyContext } from '../../../repoKey'
 import { traceKey } from '../../../traceIdentity'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('test-key').digest() }
-const BUILD = { repoKey: CTX, branch: 'main', outcome: 'merged' }
+const HOST = '6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
+const BUILD = { repoKey: CTX, branch: 'main', outcome: 'merged', hostId: HOST }
 
 const BASE: SessionRollupInput = {
   sessionId: 'sess-abc',
@@ -243,6 +244,19 @@ suite('forward/buildSessionRollup', () => {
     }
     for (const bad of [0, 4, 2.5, '3']) {
       payload.session.source_rank = bad
+      assert.notDeepStrictEqual(validateRollupPayload(payload), [], String(bad))
+    }
+  })
+
+  test('host_id: always sent as the build context gives it; the schema requires a uuid', () => {
+    const sent = sessionRollupPayload(BASE, BUILD)
+    assert.strictEqual(sent.session!.host_id, HOST)
+    assert.deepStrictEqual(validateRollupPayload(sent), [])
+    const payload = sessionRollupPayload(BASE, BUILD) as unknown as { session: Record<string, unknown> }
+    delete payload.session.host_id
+    assert.notDeepStrictEqual(validateRollupPayload(payload), [], 'a rollup without host_id is rejected')
+    for (const bad of ['my-laptop', '', 42]) {
+      payload.session.host_id = bad
       assert.notDeepStrictEqual(validateRollupPayload(payload), [], String(bad))
     }
   })

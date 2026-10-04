@@ -1194,10 +1194,11 @@ link — routed through VS Code's own URI scheme, not a custom-registered `agent
 `src/extension.ts`'s "Deep links" comment.
 | `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
 | `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
+| `src/cloud/org/hostIdentity.ts` | This host's `host_id` — a random UUID kept in its own trace store (`cloud-host-id`), created on first linked use; the extension and the standalone server each have one |
 | `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
 | `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
 | `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
-| `src/cloud/forward/traceManifest.ts` | The trace-key manifest — per-day chunks of the keys this install holds, sent after a drain by the store's single writer (one host per machine); full sweep on startup/(re-)link, changed days otherwise |
+| `src/cloud/forward/traceManifest.ts` | The trace-key manifest — per-day chunks of the keys this host holds, tagged with its `host_id`, sent after a drain by the store's single writer (each host for its own rows); full sweep on startup/(re-)link, changed days otherwise |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
 `traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`

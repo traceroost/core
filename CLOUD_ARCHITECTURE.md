@@ -170,13 +170,14 @@ token/turn/tool/error counts, models, hashes, outcome and loop signals:
 | `conversation_hash` | sha256 | Groups the traces (turns) of one conversation. |
 | `revision` | integer ≥ 1 | Replace-ordering for re-sent snapshots. Optional: absent on a first send from the rediscovery path (no revision recorded yet), which the cloud orders lowest. |
 | `source_rank` | 1–3 | How much evidence the snapshot carries (3 OTEL with usage, 2 full transcript, 1 partial); a lower rank never replaces a higher one, and within a rank the newer `revision` wins. Always sent — the schema requires it. |
+| `host_id` | uuid | Which TraceRoost host sent it (`src/cloud/org/hostIdentity.ts`): the extension and the standalone server share one install but each keeps its own trace store, so each has its own id — a random UUID generated once per store (`<store>/cloud-host-id`; the extension's global storage, the server's data dir), never derived from a hostname, path or anything else identifying. Lets a trace manifest retire only its own host's rows. Always sent; an unlinked preview shows a placeholder and writes no file. |
 | `language` | one of `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none` | Primary programming language, derived locally from file extensions (`src/language.ts`). Only the id leaves the machine. Absent for sessions built before language tracking. Cloud reads an id it doesn't know yet (a newer client) as `other` rather than rejecting the session. |
 | `language_secondary` | the same ids minus `none`, or `null` | Runner-up language. Core omits it when only one language was touched. |
 | `files_changed` | count | Distinct files the agent edited or wrote (any file type). |
 | `lines_added` / `lines_removed` | count | Lines the agent's own edit/write tool calls added/removed (`src/editStats.ts`). Agent-authored edits, not git stats. Omitted when the agent's data records no edit contents. |
 
-All of these are enums or counts. No path, file name or content travels with them, and
-`--explain-payload` prints a line saying so.
+All of these are enums, counts or (`host_id`) a random id. No path, file name or content travels
+with them, and `--explain-payload` prints a line saying so.
 
 ## One session, end to end (linked machine)
 
@@ -213,20 +214,23 @@ the server-side token revoke is even attempted, so leaving while offline still w
 A trace's key can change as local evidence settles, and a client merges some traces into others
 (stable trace identity), so a row already sent can stop existing locally. `traceManifest.ts` lets
 the cloud retire those: one `POST /api/ingest/manifest` chunk per UTC day of the settled window
-`[max(local horizon, now − 60 d), now − 10 min]`, carrying the window bounds and the trace keys this
-install still holds there — the same UUIDs that already travel as `session_id`, nothing else
-(`$defs/trace_manifest`). The cloud retires only *this install's* rows started in that window whose
-key isn't listed, and a retired key that is sent again later comes back.
+`[max(local horizon, now − 60 d), now − 10 min]`, carrying the sending host's `host_id`, the window
+bounds and the trace keys that host still holds there — the same UUIDs that already travel as
+`session_id`, nothing else (`$defs/trace_manifest`). The cloud retires only rows of *this install*
+whose last sender was *this host* (`session.host_id`) started in that window whose key isn't listed,
+and a retired key that is sent again later comes back.
 
 - **Who sends:** only a linked install, only the process that owns writes to its store (the standalone server's
   data-dir lock, the extension window that owns the database) once that store has finished its
-  startup load, and only one TraceRoost host per machine — the extension and the background
-  service share a credential but not their history, so while both ask for the sender lease
-  (`~/.traceroost/trace-manifest-sender.json`) neither sends.
+  startup load. Each host sends its own: the extension and the background service share a
+  credential but not their history (an OTEL-only trace lives only in the host whose collector got
+  it), so each manifest names its `host_id` and can retire only rows that host sent. A row both
+  hosts sent belongs to whichever sent it last.
 - **When:** after a forwarding drain that leaves no session rollup queued. A full sweep on startup
   and on (re-)link; otherwise only days whose key set changed since their last successful chunk
-  (`~/.traceroost/trace-manifest.json` keeps a hash per day — never the keys). At most 120 chunks an
-  hour (the cloud allows 300); a 429 waits out `Retry-After`, a 5xx backs off.
+  (`~/.traceroost/trace-manifest-<host_id>.json`, one per host, keeps a hash per day — never the
+  keys). At most 120 chunks an hour per host (the cloud allows 300 per install); a 429 waits out
+  `Retry-After`, a 5xx backs off.
 - **Empty days:** sent with `confirm_empty` only when the store positively holds no trace there
   (legacy rows included) inside the horizon; otherwise skipped. A day over 5,000 keys is split into
   shorter windows, never truncated.

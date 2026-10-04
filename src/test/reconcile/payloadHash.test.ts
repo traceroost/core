@@ -14,6 +14,7 @@ function baseRollup(overrides: Partial<SessionRollup> = {}): SessionRollup {
     outcome: 'committed',
     data_source: 'log',
     source_rank: 2,
+    host_id: '0a0a0a0a-1111-4111-8111-aaaaaaaaaaaa',
     ...overrides,
   }
 }
@@ -21,6 +22,13 @@ function baseRollup(overrides: Partial<SessionRollup> = {}): SessionRollup {
 suite('hashSessionRollup', () => {
   test('identical rollups hash identically', () => {
     assert.strictEqual(hashSessionRollup(baseRollup()), hashSessionRollup(baseRollup()))
+  })
+
+  test('host_id is not content: a different sending host (or the unlinked placeholder) hashes the same', () => {
+    assert.strictEqual(
+      hashSessionRollup(baseRollup()),
+      hashSessionRollup(baseRollup({ host_id: '00000000-0000-4000-8000-000000000000' })),
+    )
   })
 
   test('a changed scalar field (duration) changes the hash', () => {

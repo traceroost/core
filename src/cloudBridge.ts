@@ -91,6 +91,10 @@ export interface CloudBridge {
   orgViewUrl(): string
 
   // ── Upload ────────────────────────────────────────────────────────────────
+  /** Names this host's own trace store (the extension's global storage, the standalone server's
+   *  data dir) — its cloud host id lives there (src/cloud/org/hostIdentity.ts). Call once at
+   *  startup, before anything is enqueued. Writes nothing; a no-op in the core edition. */
+  setHostStore(storeDir: string): void
   /** Session close → forwarding queue. A no-op unless linked. */
   enqueueSession(card: SessionSummaryCard, log?: (m: string) => void, revision?: number): Promise<EnqueueResult>
   /** Re-forward a live session whenever its rollup content changes (staged feature 10). */

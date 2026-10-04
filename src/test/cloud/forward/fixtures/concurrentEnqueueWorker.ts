@@ -24,6 +24,7 @@ new ForwardQueue().enqueue({
     started_at: '2026-01-01T00:00:00.000Z',
     duration_ms: 1000,
     source_rank: 2,
+    host_id: '0a0a0a0a-1111-4111-8111-aaaaaaaaaaaa',
     data_source: 'log',
   },
 })
