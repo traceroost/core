@@ -10,7 +10,8 @@ import { buildDailyCostMap } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 import { PRICING_LAST_UPDATED } from '../pricing'
 
-import { ContextGrowthChart, SessionTokenChart, OutcomeTrendChart, buildOutcomeTokenBuckets } from './SessionCharts'
+import { ContextGrowthChart, SessionTokenChart, OutcomeTrendChart, CodeChangesChart, CHANGE_COLOR, buildOutcomeTokenBuckets } from './SessionCharts'
+import { buildCodeChangeBins } from './codeChanges'
 import { CostBarChart, fmtUsd } from './Cost'
 import { computeStats } from './Agents'
 import { SectionNav, type NavSection } from '../SectionNav'
@@ -204,6 +205,8 @@ export function Analytics() {
   const outcomeBuckets = buildOutcomeTokenBuckets(sessions, gitOutcomes.value)
   const medianByOutcome = new Map(outcomeBuckets.map(b => [b.outcome, b.medianTokens]))
   const pct = (n: number) => `${Math.round(n * 100)}%`
+  // Code changes over time — agent-authored lines/files (src/editStats.ts), same filtered set.
+  const changes = buildCodeChangeBins(sessions)
 
   const plan = forAgentFilter(planUsage.value, selectedAgentFilter.value)
   const hasPlan = hasPlanData(plan)
@@ -213,6 +216,7 @@ export function Analytics() {
     ...(hasLanguageBreakdown ? [{ id: 'analytics-language-breakdown', label: 'Language breakdown' }] : []),
     ...(hasPlan ? [{ id: 'analytics-plan-limits', label: 'Plan limits' }] : []),
     ...(trend.bins.length > 0 ? [{ id: 'analytics-outcome-tokens', label: 'Outcome & token spend' }] : []),
+    { id: 'analytics-code-changes', label: 'Code changes' },
     ...(pricedSess.length > 0 ? [{ id: 'analytics-cost', label: 'Estimated cost' }] : []),
     { id: 'analytics-token-usage', label: 'Token usage' },
     { id: 'analytics-context-growth', label: 'Context growth' },
@@ -340,10 +344,40 @@ export function Analytics() {
         </>
       )}
 
+      {/* Code changes over time — always shown (with its own empty state) so the reason it's
+          empty is visible; see codeChanges.ts for what is and isn't counted. */}
+      <SectionHead id="analytics-code-changes" title="CODE CHANGES OVER TIME" first={!hasPlan && !hasAgentBreakdown && !hasLanguageBreakdown && trend.bins.length === 0} helpAnchor="help-code-changes"
+        tip="Lines the agent's own edit/write tool calls added and removed, and files it changed, per day (or week). Agent-authored edits, not git commit stats." />
+      {changes.total.traces > 0 && (
+        <>
+          <p style="font-size:12px;margin:0 0 4px">
+            <strong style={`color:${CHANGE_COLOR.added}`}>+{formatCompact(changes.total.added)}</strong> /{' '}
+            <strong style={`color:${CHANGE_COLOR.removed}`}>−{formatCompact(changes.total.removed)}</strong> lines across{' '}
+            <strong>{changes.total.files.toLocaleString()}</strong> file{changes.total.files === 1 ? '' : 's'} changed in{' '}
+            <strong>{changes.total.traces.toLocaleString()}</strong> trace{changes.total.traces === 1 ? '' : 's'}.
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:8px">
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${CHANGE_COLOR.added}`} />Lines added</span>
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${CHANGE_COLOR.removed}`} />Lines removed</span>
+            <span style="display:inline-flex;align-items:center;gap:4px">
+              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true"><line x1="0" y1="4" x2="16" y2="4" stroke={CHANGE_COLOR.files} stroke-width="1.5" stroke-dasharray="4 2" /></svg>
+              Files changed (right axis)
+            </span>
+          </div>
+        </>
+      )}
+      <CodeChangesChart trend={changes} />
+      {(changes.excluded > 0 || changes.unit === 'week') && (
+        <p data-testid="code-changes-note" style="font-size:11px;color:var(--muted);margin:6px 0 0">
+          {changes.excluded > 0 && `${changes.excluded.toLocaleString()} trace${changes.excluded === 1 ? '' : 's'} without change data not counted (stored before change tracking, or the agent doesn't record edit contents).`}
+          {changes.unit === 'week' ? `${changes.excluded > 0 ? ' ' : ''}Grouped by week (Monday start, UTC).` : ''}
+        </p>
+      )}
+
       {/* Estimated cost */}
       {pricedSess.length > 0 && (
         <>
-          <SectionHead id="analytics-cost" title="ESTIMATED COST" first={!hasPlan && !hasAgentBreakdown && !hasLanguageBreakdown && trend.bins.length === 0} helpAnchor="help-costs" />
+          <SectionHead id="analytics-cost" title="ESTIMATED COST" helpAnchor="help-costs" />
           {disclaimer}
 
           {copilotSess.length > 0 && (

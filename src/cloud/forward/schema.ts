@@ -48,11 +48,11 @@ export type WireInitiator = 'user' | 'agent' | 'api'
  *  text: derived from file extensions on the machine, only the id leaves it. */
 export type WireLanguage =
   | 'typescript' | 'javascript' | 'python' | 'go' | 'rust' | 'java' | 'csharp' | 'cpp'
-  | 'ruby' | 'php' | 'swift' | 'kotlin' | 'other' | 'none'
+  | 'ruby' | 'php' | 'swift' | 'kotlin' | 'dart' | 'shell' | 'sql' | 'html' | 'css' | 'other' | 'none'
 
 export const WIRE_LANGUAGES: readonly WireLanguage[] = [
   'typescript', 'javascript', 'python', 'go', 'rust', 'java', 'csharp', 'cpp',
-  'ruby', 'php', 'swift', 'kotlin', 'other', 'none',
+  'ruby', 'php', 'swift', 'kotlin', 'dart', 'shell', 'sql', 'html', 'css', 'other', 'none',
 ]
 
 /** Maps a local language id to the wire enum; anything unrecognised becomes undefined (the field

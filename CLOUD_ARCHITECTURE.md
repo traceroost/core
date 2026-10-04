@@ -164,7 +164,7 @@ token/turn/tool/error counts, models, hashes, outcome and loop signals:
 | `initiator` | `user` \| `agent` \| `api` | Who started it. |
 | `conversation_hash` | sha256 | Groups gap-split segments of one conversation. |
 | `revision` | integer ≥ 1 | Replace-ordering for re-sent snapshots. |
-| `language` | one of `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `other` `none` | Primary programming language, derived locally from file extensions (`src/language.ts`). Only the id leaves the machine. Absent for sessions built before language tracking. |
+| `language` | one of `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none` | Primary programming language, derived locally from file extensions (`src/language.ts`). Only the id leaves the machine. Absent for sessions built before language tracking. Cloud reads an id it doesn't know yet (a newer client) as `other` rather than rejecting the session. |
 | `language_secondary` | the same ids minus `none`, or `null` | Runner-up language. Core omits it when only one language was touched. |
 | `files_changed` | count | Distinct files the agent edited or wrote (any file type). |
 | `lines_added` / `lines_removed` | count | Lines the agent's own edit/write tool calls added/removed (`src/editStats.ts`). Agent-authored edits, not git stats. Omitted when the agent's data records no edit contents. |
