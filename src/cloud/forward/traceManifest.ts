@@ -36,7 +36,7 @@
  * allows 300 per install, so both hosts together stay under it); a 429 pauses for its
  * Retry-After, a 5xx or network failure backs off, a `missing_keys` gate re-sends that day only
  * once the queue has drained again, with growing backoff. One log line per run that sent
- * anything — counts only, never a key.
+ * anything, at debug level (`TRACEROOST_LOG_LEVEL=debug`) — counts only, never a key.
  */
 
 import * as crypto from 'crypto'
@@ -50,6 +50,7 @@ import { manifestUrl, type OrgCredentials } from '../org/config'
 import { clientVersion, TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
 import { ForwardQueue } from './queue'
+import { logDebug } from '../../logLevel'
 import { SCHEMA_VERSION, type TraceManifestChunk } from './schema'
 
 const MINUTE_MS = 60_000
@@ -268,7 +269,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   const finish = (stopped?: ManifestSyncResult['stopped']): ManifestSyncResult => {
     writeState(state, hostId, now(), deps.baseHome)
     if (result.chunks > 0) {
-      deps.log?.(`[TraceRoost] Trace manifest${deps.fullSweep ? ' (full sweep)' : ''}: sent ${result.chunks} chunk(s), retired ${result.retired} trace(s), ${result.gated} gated${stopped ? ` — stopped (${stopped})` : ''}`)
+      logDebug(deps.log, `[TraceRoost] Trace manifest${deps.fullSweep ? ' (full sweep)' : ''}: sent ${result.chunks} chunk(s), retired ${result.retired} trace(s), ${result.gated} gated${stopped ? ` — stopped (${stopped})` : ''}`)
     }
     return stopped ? { ...result, stopped } : result
   }

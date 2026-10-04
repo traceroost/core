@@ -14,6 +14,7 @@ import { drainQueue, type DrainDeps } from './sender'
 import { DEFAULT_MAX_ITEMS } from './queue'
 import { loadCredentials } from '../org/credentials'
 import { TraceManifestSender } from './traceManifest'
+import { logDebug } from '../../logLevel'
 import type { TraceManifestSource } from '../../cloudBridge'
 
 // The most batches a single drain run could ever need to fully empty a queue at the hard item
@@ -88,7 +89,7 @@ export function startForwardScheduler(opts: {
     try {
       let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
       if (res.sent > 0 || res.droppedInvalid > 0) {
-        opts.log?.(`[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
+        logDebug(opts.log, `[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
       }
       // A single drain caps itself at `batchLimit` (200) items so one tick never blocks the timer
       // — but left alone, a backlog bigger than that (right after "Check for unsent traces" on a
@@ -104,7 +105,7 @@ export function startForwardScheduler(opts: {
         res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
         iterations++
         if (res.sent > 0 || res.droppedInvalid > 0) {
-          opts.log?.(`[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
+          logDebug(opts.log, `[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
         }
       }
       if (res.remaining > 0 && iterations >= MAX_DRAIN_ITERATIONS_PER_RUN) {

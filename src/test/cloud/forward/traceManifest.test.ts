@@ -360,14 +360,36 @@ suite('forward/traceManifest — sending', () => {
     assert.strictEqual(logs.filter(l => l.includes('unconfirmed')).length, 1)
   })
 
-  test('one summary line per run — counts only, never a key', async () => {
+  test('one summary line per run at debug level — counts only, never a key', async () => {
     const cloud = installFakeCloud()
     cloud.manifestReply = () => ({ status: 200, body: { retired: 2, missing: 0 } })
-    const logs: string[] = []
-    await sync(threeDays(), { fullSweep: true, log: m => logs.push(m) })
-    assert.strictEqual(logs.length, 1)
-    assert.match(logs[0], /sent 3 chunk\(s\), retired 6 trace\(s\), 0 gated/)
-    for (const id of ['a', 'b', 'c', 'd']) assert.ok(!logs[0].includes(toUuid(id)))
+    const saved = process.env.TRACEROOST_LOG_LEVEL
+    try {
+      process.env.TRACEROOST_LOG_LEVEL = 'debug'
+      const logs: string[] = []
+      await sync(threeDays(), { fullSweep: true, log: m => logs.push(m) })
+      assert.strictEqual(logs.length, 1)
+      assert.match(logs[0], /sent 3 chunk\(s\), retired 6 trace\(s\), 0 gated/)
+      for (const id of ['a', 'b', 'c', 'd']) assert.ok(!logs[0].includes(toUuid(id)))
+    } finally {
+      if (saved === undefined) delete process.env.TRACEROOST_LOG_LEVEL
+      else process.env.TRACEROOST_LOG_LEVEL = saved
+    }
+  })
+
+  test('the summary line is silent at the default info level', async () => {
+    const cloud = installFakeCloud()
+    cloud.manifestReply = () => ({ status: 200, body: { retired: 2, missing: 0 } })
+    const saved = process.env.TRACEROOST_LOG_LEVEL
+    try {
+      delete process.env.TRACEROOST_LOG_LEVEL
+      const logs: string[] = []
+      const res = await sync(threeDays(), { fullSweep: true, log: m => logs.push(m) })
+      assert.strictEqual(res.chunks, 3)
+      assert.deepStrictEqual(logs, [])
+    } finally {
+      if (saved !== undefined) process.env.TRACEROOST_LOG_LEVEL = saved
+    }
   })
 
   test('both hosts of one machine send, each tagged with its own host_id and keeping its own record', async () => {
