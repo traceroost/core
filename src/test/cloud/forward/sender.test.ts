@@ -358,6 +358,50 @@ suite('forward/sender', () => {
     assert.ok(new ForwardQueue(home).list().every(it => it.attempts === 1))
   })
 
+  test('a newer revision enqueued while the older one is in flight survives its confirmation, and goes out next drain', async () => {
+    const rev = (r: number): RollupPayload => {
+      const p = payload(ID1)
+      p.session!.revision = r
+      return p
+    }
+    new ForwardQueue(home).enqueue(rev(5))
+    const sentRevisions: number[] = []
+    stubFetch((url, init) => {
+      if (!url.endsWith('/api/ingest/batch')) return new Response('', { status: 404 })
+      const items = batchItems(init)
+      sentRevisions.push(...items.map(i => i.session!.revision!))
+      // While rev 5's request is "on the wire", the trace changes and rev 6 replaces it in place.
+      if (sentRevisions.length === 1) new ForwardQueue(home).enqueue(rev(6))
+      return batchOk(items, () => ({ status: 202 }))
+    })
+    const first = await drainQueue({ baseHome: home })
+    assert.strictEqual(first.sent, 1)
+    const left = new ForwardQueue(home).list()
+    assert.deepStrictEqual(left.map(i => i.payload.session?.revision), [6], 'rev 6 is still queued')
+
+    await drainQueue({ baseHome: home, now: () => Date.now() + 3600_000 })
+    assert.deepStrictEqual(sentRevisions, [5, 6])
+    assert.strictEqual(new ForwardQueue(home).depth(), 0)
+  })
+
+  test('a 400 for an older revision does not drop a newer one queued meanwhile', async () => {
+    const rev = (r: number): RollupPayload => {
+      const p = payload(ID1)
+      p.session!.revision = r
+      return p
+    }
+    new ForwardQueue(home).enqueue(rev(5))
+    let calls = 0
+    stubFetch((url, init) => {
+      if (!url.endsWith('/api/ingest/batch')) return new Response('', { status: 404 })
+      const items = batchItems(init)
+      if (++calls === 1) new ForwardQueue(home).enqueue(rev(6))
+      return batchOk(items, () => ({ status: 400, error: 'bad' }))
+    })
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(new ForwardQueue(home).list().map(i => i.payload.session?.revision), [6])
+  })
+
   test('a duplicate delivery is a no-op on the client (idempotent enqueue)', async () => {
     const q = new ForwardQueue(home)
     q.enqueue(payload(ID1))

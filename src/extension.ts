@@ -28,6 +28,7 @@ import { cloud, type ForwardSchedulerHandle } from './cloudBridge'
 import { ReconciliationService } from './reconcile/reconciliationService'
 import { startBackgroundReconciliation, type BackgroundWatcher } from './reconcile/backgroundWatcher'
 import { KeyedDebouncer } from './reconcile/keyedDebouncer'
+import { createSessionForwarder } from './sessionForwarder'
 import { matchesTraceId } from './traceIdentity'
 
 let collector: OtlpCollector | undefined
@@ -47,6 +48,15 @@ const REVISION_FORWARD_BATCH_MS = 1_000
 let logReaderTimer: ReturnType<typeof setInterval> | undefined
 let runLogScanFn: (() => void) | undefined
 let forwardScheduler: ForwardSchedulerHandle | undefined
+// Forwards a session whose content changed — a live OTLP update or a log-scan result — to the
+// cloud; see sessionForwarder.ts. A hard no-op unless an org is linked.
+const forwardChangedSession = createSessionForwarder({
+  cloud,
+  reconciliation: () => reconciliationService,
+  debouncer: contentChangeDebouncer,
+  drainSoon: () => forwardScheduler?.drainSoon(),
+  log: m => outputChannel?.appendLine(m),
+})
 // The trace manifest (stable trace identity) lists what the database holds, so it must not go
 // out while the database is still filling: false until the startup log load has been written,
 // and again while "clear all data" re-ingests.
@@ -200,27 +210,9 @@ export async function activate(context: vscode.ExtensionContext) {
       const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
       writer.deleteSynthSession(card.traceId)
       writer.enqueue(card, workspace)
-      // Cloud: build a rollup for this session and append it to the forwarding queue. A hard
-      // no-op unless an org is linked. The actual network send happens later, on a timer.
-      //
-      // Once reconciliation is available, the content-hash gate (staged feature 10) replaces
-      // the plain ledger-gated enqueue here: it re-forwards a session under a fresh revision
-      // whenever its rollup content actually changes (duration, tokens, tool calls, model
-      // mix, outcome, ...), not just on its first send -- see contentChangeForward.ts.
-      // Debounced per session so a burst of tool-call ticks coalesces into one check instead
-      // of one `git`-subprocess-driven rebuild per tick. Without reconciliation (no sqlite db)
-      // this falls back to the old first-send-only behavior, same as before this feature.
-      const fullCard = { ...card, workspace: card.workspace || workspace }
-      if (reconciliationService) {
-        const svc = reconciliationService
-        contentChangeDebouncer.schedule(fullCard.sessionId, () => {
-          void cloud.forwardOnContentChange(svc, fullCard, m => outputChannel?.appendLine(m))
-            .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
-        })
-      } else {
-        void cloud.enqueueSession(fullCard, m => outputChannel?.appendLine(m))
-          .then(r => { if (r.enqueued) forwardScheduler?.drainSoon() })
-      }
+      // Cloud: re-forward the session when its rollup content changed (sessionForwarder.ts). A
+      // hard no-op unless an org is linked; the network send happens later, on a timer.
+      forwardChangedSession({ ...card, workspace: card.workspace || workspace })
       // isLinked() first: enqueueInstructionTelemetry is a no-op without an org, but its
       // listSessions() argument (every stored session, plus a re-summarize of the live window —
       // hundreds of ms on a large history) was built for it on every live OTLP payload anyway.
@@ -459,6 +451,12 @@ export async function activate(context: vscode.ExtensionContext) {
         card.loopSignals = detectLoopSignals(card)
         card.oneShotStats = computeOneShotStats(card)
         writer!.enqueue(card, workspace || ws)
+        // Cloud: scan() returns only sessions whose log file changed, so forward each (the content
+        // gate skips one whose rollup didn't actually change). Without this, a log-only session —
+        // a Q&A turn, a non-git directory — and every later change to one already delivered
+        // reached the cloud only on the next activation's load, and meanwhile held its day's trace
+        // manifest at missing_keys. The standalone server's runLogScan does the same.
+        forwardChangedSession({ ...card, workspace: workspace || ws })
       }
       void writer!.drain().then(() => {
         provider.refresh()

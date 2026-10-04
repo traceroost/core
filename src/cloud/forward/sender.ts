@@ -156,18 +156,21 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   // `onItemDone` above for why. Order (remove, then record) doesn't matter for correctness: a
   // crash between the two just means a redundant, harmless resend later (idempotent both locally
   // and server-side), never a lost one.
-  function recordSuccess(key: string): void {
-    recordSuccesses([key])
+  function recordSuccess(item: QueueItem): void {
+    recordSuccesses([item])
   }
 
   // Several confirmed sends at once (one batch response's worth). Each still leaves the queue on
   // its own, right before its own `onItemDone` (see there), but they're recorded delivered with
   // one ledger write for the lot rather than a full rewrite of the ledger per item. Still
   // remove-then-record, so the crash window is the same harmless-resend one as above.
-  function recordSuccesses(keys: string[]): void {
-    if (keys.length === 0) return
-    for (const key of keys) {
-      queue.remove([key])
+  // Removal goes through `removeSent`, never by key alone: an item replaced in place by a newer
+  // revision while this one was in flight stays queued for the next drain (see there).
+  function recordSuccesses(items: QueueItem[]): void {
+    if (items.length === 0) return
+    const keys = items.map(item => item.key)
+    for (const item of items) {
+      queue.removeSent([item])
       deps.onItemDone?.()
     }
     if (installId) {
@@ -176,14 +179,15 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
   }
 
-  function dropInvalid(key: string, detail: string): void {
-    dropPermanently(key, `schema rejected: ${detail.slice(0, 200)}`)
+  function dropInvalid(item: QueueItem, detail: string): void {
+    dropPermanently(item, `schema rejected: ${detail.slice(0, 200)}`)
   }
 
   // A record the server will never accept (schema-rejected, or too large on its own) — removed,
   // counted, and logged locally with the reason, never retried.
-  function dropPermanently(key: string, reason: string): void {
-    queue.remove([key])
+  function dropPermanently(item: QueueItem, reason: string): void {
+    // Only the rejected payload: a newer revision queued since is a different record.
+    queue.removeSent([item])
     droppedInvalid++
     writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: reason }, deps.baseHome)
     deps.onItemDone?.()
@@ -278,7 +282,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       // cap server-side). Split and resend; one record alone that's still too large can never be
       // accepted, so it's dropped and logged rather than retried forever.
       if (chunk.length === 1) {
-        dropPermanently(chunk[0].key, 'payload too large (HTTP 413)')
+        dropPermanently(chunk[0], 'payload too large (HTTP 413)')
         return 'continue'
       }
       const mid = Math.ceil(chunk.length / 2)
@@ -321,14 +325,14 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       return 'continue'
     }
 
-    const succeeded: string[] = []
+    const succeeded: QueueItem[] = []
     chunk.forEach((item, idx) => {
       const r = results![idx]
       if (r.status === 202 || r.status === 200) {
-        succeeded.push(item.key)
+        succeeded.push(item)
         sent++
       } else if (r.status === 400) {
-        dropInvalid(item.key, r.error ?? '')
+        dropInvalid(item, r.error ?? '')
       } else {
         queue.recordFailure(item.key, r.error ? `HTTP ${r.status}: ${r.error}` : `HTTP ${r.status}`)
         sawTransientFailure = true
@@ -352,7 +356,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
 
     if (res.status === 202 || res.status === 200) {
-      recordSuccess(item.key)
+      recordSuccess(item)
       sent++
       return
     }
@@ -361,19 +365,19 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       const stop = await refreshOnce()
       if (stop) return { stop }
       res = await postPayload(creds!.accessToken, item).catch(() => res)
-      if (res.status === 202 || res.status === 200) { recordSuccess(item.key); sent++; return }
+      if (res.status === 202 || res.status === 200) { recordSuccess(item); sent++; return }
     }
 
     if (res.status === 403) return { stop: membershipRevoked() }
 
     if (res.status === 413) {
-      dropPermanently(item.key, 'payload too large (HTTP 413)')
+      dropPermanently(item, 'payload too large (HTTP 413)')
       return
     }
 
     if (res.status === 400) {
       const detail = await safeText(res)
-      dropInvalid(item.key, detail)
+      dropInvalid(item, detail)
       return
     }
 
