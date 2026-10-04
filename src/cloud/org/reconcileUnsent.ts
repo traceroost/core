@@ -8,6 +8,7 @@
 
 import { maybeEnqueueSession } from './enqueueSession'
 import { createPayloadBuildCache } from './payloadPreview'
+import { drainForwardQueueWhenIdle, beginCatchUp } from '../forward/scheduler'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 // How many sessions' `maybeEnqueueSession` calls run at once. Matches the shape of
@@ -55,7 +56,10 @@ async function runReconcilePool(
 
 /** Queues every one of `sessions` not yet confirmed delivered to the currently linked install, and
  *  returns how many were queued. Shared by the panel (link, "Check for unsent traces") and
- *  linkWatcher.ts (a link made outside this process). Does not nudge the scheduler. */
+ *  linkWatcher.ts (a link made outside this process). Sending starts as soon as the first session
+ *  is queued, not after the whole pass: right after a link the developer is often already looking
+ *  at the cloud, and a large history can take minutes to prepare. `sessions` comes newest-first,
+ *  so the newest traces arrive first. */
 export async function queueUnsentSessions(
   sessions: SessionSummaryCard[],
   log?: (m: string) => void,
@@ -67,7 +71,17 @@ export async function queueUnsentSessions(
   // per distinct repo a developer's sessions cluster in. See payloadPreview.ts's
   // createPayloadBuildCache and .staged-issues/reconcile-gap-and-latency.md.
   const cache = createPayloadBuildCache()
-  const queued = await runReconcilePool(sessions, (session) => maybeEnqueueSession(session, log, cache), onProgress)
+  const endCatchUp = beginCatchUp()
+  let queued: number
+  try {
+    queued = await runReconcilePool(sessions, async (session) => {
+      const res = await maybeEnqueueSession(session, log, cache)
+      if (res.enqueued) drainForwardQueueWhenIdle()
+      return res
+    }, onProgress)
+  } finally {
+    endCatchUp()
+  }
   if (queued > 0) {
     log?.(`[TraceRoost] Reconcile: queued ${queued} local session(s) not yet confirmed delivered`)
   }
