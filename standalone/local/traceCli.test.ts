@@ -5,6 +5,7 @@ import * as path from 'path'
 import { findSessionById, runTraceCli } from './traceCli'
 import { loadAllSessions, loadSessionsMatchingId } from './sessionLoader'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
+import { toUuid } from '../../src/traceIdentity'
 
 function makeCard(overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCard {
   return {
@@ -95,7 +96,8 @@ suite('loadSessionsMatchingId', () => {
     const projects = path.join(root, 'claude', 'projects')
     const t0 = Date.parse('2026-03-01T00:00:00Z')
     for (let i = 0; i < 5; i++) transcript(path.join(projects, '-repo-a'), `tr-sess-${i}`, [t0 + i * 60_000])
-    // Split into two sessions (`tr-split`, `tr-split#1`) by a day-long gap.
+    // Two turns a day apart — before stable trace identity, two stored sessions `tr-split` and
+    // `tr-split#1`; each id is now an alias of the turn that opened that old segment.
     transcript(path.join(projects, '-repo-a'), 'tr-split', [t0, t0 + 86_400_000])
     // The same file name under a second project, newer — the full load picks this one first.
     transcript(path.join(projects, '-repo-b'), 'tr-sess-2', [t0 + 3_600_000], '/repo-b')
@@ -117,10 +119,19 @@ suite('loadSessionsMatchingId', () => {
       const narrowed = loadSessionsMatchingId(id)
       assert.deepStrictEqual(findSessionById(narrowed, id), findSessionById(all, id), id)
       const base = id.replace(/#\d+$/, '')
-      assert.ok(narrowed.filter(s => s.sessionId.startsWith('tr-')).every(s => s.sessionId.replace(/#\d+$/, '') === base), id)
+      assert.ok(narrowed.filter(s => s.conversationId?.startsWith('tr-')).every(s => s.conversationId === base), id)
     }
     assert.strictEqual(findSessionById(loadSessionsMatchingId('tr-sess-2'), 'tr-sess-2')?.workspace, '/repo-b')
-    assert.strictEqual(findSessionById(loadSessionsMatchingId('tr-split#1'), 'tr-split#1')?.sessionId, 'tr-split#1')
-    assert.strictEqual(loadSessionsMatchingId('tr-sess-2').filter(s => s.sessionId === 'tr-sess-2').length, 2)
+    const second = findSessionById(loadSessionsMatchingId('tr-split#1'), 'tr-split#1')
+    assert.strictEqual(second?.userRequest, 'prompt 1 for tr-split', 'an old segment id lands on the turn that opened it')
+    assert.strictEqual(loadSessionsMatchingId('tr-sess-2').filter(s => s.conversationId === 'tr-sess-2').length, 2)
+  })
+
+  test('a per-turn key, and the wire uuid of an old id, are found too', () => {
+    const all = loadAllSessions()
+    const second = findSessionById(all, 'tr-split#1')
+    assert.ok(second)
+    assert.strictEqual(findSessionById(all, second.sessionId), second)
+    assert.strictEqual(findSessionById(all, toUuid('tr-split#1')), second, 'the cloud\'s session_id for the old row')
   })
 })

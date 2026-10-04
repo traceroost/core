@@ -126,8 +126,10 @@ suite('logFileState — one-time Codex reasoning-token correction', () => {
     // ── First activation after the fix (a new process: new reader and writer) ──
     const writer1 = new DatabaseWriter(db, storageUri, () => {})
     const lr1 = new LogReader()
-    assert.strictEqual(restoreLogFileState(lr1, storageDir, 90), 1, 'only the Codex file is forgotten')
-    assert.ok(lr1.exportFileState()['/elsewhere/claude.jsonl'], 'non-Codex file state is kept')
+    // Version 3 (one trace per turn) re-reads every file within retention once — which includes
+    // version 2's Codex re-read.
+    assert.strictEqual(restoreLogFileState(lr1, storageDir, 90), 2, 'every file within retention is forgotten')
+    assert.ok(!lr1.exportFileState()['/elsewhere/claude.jsonl'], 'a Claude transcript is re-read too')
     for (const r of lr1.parseFile(codexFile, 'codex')) writer1.enqueue(r.card, '/w')
     await writer1.drain()
     writeLogFileState(storageDir, lr1.exportFileState())

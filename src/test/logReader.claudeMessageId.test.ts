@@ -50,7 +50,7 @@ suite('LogReader — Claude multi-block message usage', () => {
 
     const reader = new LogReader()
     const results = reader.parseFile(filePath, 'claude')
-    assert.strictEqual(results.length, 1, 'expected one parsed session')
+    assert.strictEqual(results.length, 2, 'one trace per prompt: "fix the bug" and "thanks"')
     const card = results[0].card
 
     // One API message = one usage record: 3 lines must not triple it.

@@ -22,7 +22,7 @@ suite('LogReader — Claude Code task-notification prompts', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  test('skips a leading task-notification turn and uses the next real prompt', () => {
+  test('a task-notification turn and the next real prompt are separate traces — agent- and user-initiated', () => {
     const filePath = path.join(tmpDir, 'sess-1.jsonl')
     writeJsonl(filePath, [
       { type: 'user', cwd: '/workspace', timestamp: '2026-01-01T00:00:00.000Z', message: { content: NOTIFICATION } },
@@ -35,10 +35,11 @@ suite('LogReader — Claude Code task-notification prompts', () => {
 
     const reader = new LogReader()
     const results = reader.parseFile(filePath, 'claude')
-    assert.strictEqual(results.length, 1)
-    const card = results[0].card
-    assert.strictEqual(card.userRequest, 'fix the flaky test')
-    assert.strictEqual(card.initiator, 'user')
+    assert.strictEqual(results.length, 2, 'one trace per turn')
+    assert.strictEqual(results[0].card.userRequest, '[background task] Background lint run found 2 warnings.')
+    assert.strictEqual(results[0].card.initiator, 'agent')
+    assert.strictEqual(results[1].card.userRequest, 'fix the flaky test')
+    assert.strictEqual(results[1].card.initiator, 'user')
   })
 
   test('falls back to the notification summary when the whole session is background-only', () => {

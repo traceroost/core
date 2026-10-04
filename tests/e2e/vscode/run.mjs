@@ -108,7 +108,7 @@ async function main() {
   const captureDir = path.join(REPO_ROOT, 'test-results', 'e2e', `capture-${label}`)
   const config = {
     extensionId, edition, userDataDir, home: t.home, repo, otlpPort, mcpPort, captureDir,
-    fixture: { sessionId: fixture.sessionId, rootSpanId: fixture.rootSpanId, file: fixture.file, otlp: fixture.otlp, model: FIXTURE_MODEL },
+    fixture: { sessionId: fixture.sessionId, rootSpanId: fixture.rootSpanId, turnKey: fixture.turnKey, file: fixture.file, otlp: fixture.otlp, model: FIXTURE_MODEL },
     agents: agentsConfig ? JSON.parse(fs.readFileSync(agentsConfig, 'utf8')) : undefined,
   }
   const configPath = path.join(t.home, 'it-config.json')

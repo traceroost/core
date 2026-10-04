@@ -121,22 +121,23 @@ async function serverRoundTrip(inst, edition) {
     await waitFor('auto-config to write ~/.codex/config.toml', () =>
       fs.readFileSync(path.join(home.home, '.codex', 'config.toml'), 'utf8').includes(`endpoint = "http://localhost:${otlp}"`), { timeoutMs: 20_000 })
 
-    // The transcript first: it was on disk before the server started, so the startup log scan lists it.
-    const isTranscriptCard = x => x.dataSource === 'log' && (x.claudeSessionId === fx.sessionId || x.sessionId === fx.sessionId)
+    // The transcript first: it was on disk before the server started, so the startup log scan lists
+    // its one turn under the turn's canonical key (stable trace identity).
+    const isTranscriptCard = x => x.dataSource === 'log' && x.sessionId === fx.turnKey
     const logCard = await waitFor('the transcript session in /api/summary', async () =>
       ((await getJson(`${base}/api/summary`))?.sessions ?? []).find(isTranscriptCard), { timeoutMs: 60_000 })
 
-    // Then the same conversation over OTLP. OTEL wins: the transcript card must drop out, leaving
-    // one session for the conversation (claudeConversation.ts — the rule the extension's writer uses).
+    // Then the same turn over OTLP. Joined to its transcript turn, it is the same key, and the
+    // higher source rank (OTEL with usage) wins — one session, never two (claudeConversation.ts).
     const res = await request('POST', `http://127.0.0.1:${otlp}/v1/traces`, { body: fx.otlp })
     assertEqual(res.status, 200, 'OTLP /v1/traces accepted the fixture')
     const sessions = await waitFor('the OTEL session to replace the transcript one in /api/summary', async () => {
       const s = (await getJson(`${base}/api/summary`))?.sessions ?? []
-      const otel = s.find(x => x.sessionId === fx.rootSpanId)
+      const otel = s.find(x => x.sessionId === fx.turnKey && x.dataSource === 'otel')
       return otel && !s.some(isTranscriptCard) ? { all: s, otel } : null
     }, { timeoutMs: 60_000 })
-    const forConversation = sessions.all.filter(x => x.claudeSessionId === fx.sessionId || x.sessionId === fx.sessionId || x.sessionId === fx.rootSpanId)
-    assertEqual(forConversation.length, 1, 'one session for the conversation (OTEL + transcript deduped)')
+    const forConversation = sessions.all.filter(x => x.claudeSessionId === fx.sessionId || x.sessionId === fx.turnKey || x.sessionId === fx.rootSpanId)
+    assertEqual(forConversation.length, 1, 'one session for the turn (OTEL + transcript on one key)')
     assertEqual(sessions.otel.claudeSessionId, fx.sessionId, 'the OTEL card carries the Claude session id from the resource attributes')
     for (const [kind, card] of [['OTEL', sessions.otel], ['transcript', logCard]]) {
       assertEqual(card.source, 'claude_code', `${kind} card source`)
@@ -147,12 +148,12 @@ async function serverRoundTrip(inst, edition) {
     }
     // Cost, as the MCP server (and the dashboard) compute it.
     const recent = await mcpCall(`http://127.0.0.1:${mcp}/mcp`, 'get_recent_sessions', { limit: 50 })
-    const otelCost = recent.find(r => r.sessionId === fx.rootSpanId)?.cost_usd
+    const otelCost = recent.find(r => r.sessionId === fx.turnKey)?.cost_usd
     assert(otelCost > 0, `MCP get_recent_sessions reports a cost for the OTEL session (got ${otelCost})`)
 
     // Git outcome, via the same route the dashboard's Outcome badge uses.
     const out = await postJson(`${base}/api/git-outcome`, {
-      sessionId: fx.rootSpanId, workspace: sessions.otel.workspace, filesChanged: sessions.otel.filesChanged,
+      sessionId: fx.turnKey, workspace: sessions.otel.workspace, filesChanged: sessions.otel.filesChanged,
       endTime: new Date(Date.parse(sessions.otel.startTime) + sessions.otel.durationMs).toISOString(),
     })
     assert(out && !out.deferred && out.outcome, `/api/git-outcome classified the session (got ${JSON.stringify(out)})`)
@@ -160,7 +161,7 @@ async function serverRoundTrip(inst, edition) {
 
     // Spans persisted under the data dir.
     await waitFor('spans.json to be saved', () => fs.existsSync(path.join(dataDir, 'spans.json')), { timeoutMs: 20_000 })
-    log(`transcript ${transcript} ingested; OTEL session ${fx.rootSpanId} cost $${otelCost}, outcome ${out.outcome.overall}`)
+    log(`transcript ${transcript} ingested; OTEL session ${fx.turnKey} cost $${otelCost}, outcome ${out.outcome.overall}`)
   } finally {
     const exit = await srv.stop()
     log(`server stopped (${JSON.stringify(exit)})`)
@@ -231,7 +232,9 @@ async function serviceRoundTrip(inst, edition) {
     const fx = claudeFixture({ repo: dataDir })
     assertEqual((await request('POST', `http://127.0.0.1:${otlp}/v1/traces`, { body: fx.otlp })).status, 200, 'service OTLP port accepted a trace')
     await waitFor('the service to list the ingested session', async () =>
-      ((await getJson(`http://127.0.0.1:${ui}/api/summary`))?.sessions ?? []).some(s => s.sessionId === fx.rootSpanId), { timeoutMs: 30_000 })
+      // No transcript on disk for this one: its id is the span id while the join is on hold, a
+      // derived interaction key after — the card is the same either way.
+      ((await getJson(`http://127.0.0.1:${ui}/api/summary`))?.sessions ?? []).some(s => s.dataSource === 'otel' && s.claudeSessionId === fx.sessionId), { timeoutMs: 30_000 })
     // `service update` with the registry unreachable: a clean "couldn't download", exit 1, and
     // never "npm was not found on your PATH" (what a bare execFileSync('npm') gave on Windows).
     const upd = traceroost(inst, ['service', 'update'], env)

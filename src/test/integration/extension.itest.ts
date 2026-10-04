@@ -66,14 +66,14 @@ suite('TraceRoost extension (end to end)', () => {
     assert.strictEqual(res.status, 200, `collector accepted the fixture trace: ${res.text}`)
 
     // The transcript was on disk before VS Code started, so the activation-time log scan has already
-    // picked it up (or is about to). Once the OTEL card lands, the writer keeps exactly one row per
-    // Claude conversation (database/writer.ts claudeConversationKey) — the OTEL one.
+    // picked it up (or is about to). The OTEL card joins its transcript turn, so both are one row
+    // under the turn's key, and the higher source rank keeps it OTEL (stable trace identity).
     const rows = await waitFor('the fixture session in the sql.js database on disk', async () => {
       const r = await queryDb(ext.extensionPath, dbPath,
         `SELECT session_id, source, data_source, workspace, model, input_tokens, output_tokens, cost_usd, conversation_id, files_changed
            FROM sessions WHERE source = 'claude_code' AND (conversation_id = ? OR session_id = ? OR session_id LIKE ?)`,
         [cfg.fixture.sessionId, cfg.fixture.sessionId, `${cfg.fixture.sessionId}#%`])
-      return r.some(x => x.session_id === cfg.fixture.rootSpanId) && r.length === 1 ? r : undefined
+      return r.some(x => x.session_id === cfg.fixture.turnKey && x.data_source === 'otel') && r.length === 1 ? r : undefined
     }, 90_000).catch(async e => {
       const all = await queryDb(ext.extensionPath, dbPath, 'SELECT session_id, source, data_source, workspace, conversation_id FROM sessions')
       throw new Error(`${e.message}\nsessions table: ${JSON.stringify(all, null, 1)}\n--- output ---\n${outputChannelText(cfg).slice(-3000)}`)
@@ -88,7 +88,7 @@ suite('TraceRoost extension (end to end)', () => {
     assert.ok(changed.some(f => samePath(f, cfg.fixture.file)), `files_changed has ${cfg.fixture.file}: ${row.files_changed}`)
 
     const recent = await mcpCall(cfg.mcpPort, 'get_recent_sessions', { limit: 50 }) as Array<{ sessionId: string; cost_usd: number; model: string }>
-    const viaMcp = recent.find(r => r.sessionId === cfg.fixture.rootSpanId)
+    const viaMcp = recent.find(r => r.sessionId === cfg.fixture.turnKey)
     assert.ok(viaMcp, 'the MCP server lists the session')
     assert.ok(viaMcp.cost_usd > 0, `MCP reports a cost (got ${viaMcp.cost_usd})`)
     assert.ok(!recent.some(r => r.sessionId === cfg.fixture.sessionId), 'the transcript card is not listed separately')
@@ -104,7 +104,7 @@ suite('TraceRoost extension (end to end)', () => {
     const outcome = await waitFor('a git_outcome row for the session', async () => {
       await httpRequest('POST', `http://127.0.0.1:${cfg.otlpPort}/v1/traces`, freshTrace(cfg.fixture.otlp))
       await sleep(2500)
-      const r = await queryDb(ext.extensionPath, dbPath, 'SELECT overall, reason, repo_root FROM git_outcome WHERE session_id = ?', [cfg.fixture.rootSpanId])
+      const r = await queryDb(ext.extensionPath, dbPath, 'SELECT overall, reason, repo_root FROM git_outcome WHERE session_id = ?', [cfg.fixture.turnKey])
       return r[0]
     }, 180_000, 5_000).catch(async e => {
       const outcomes = await queryDb(ext.extensionPath, dbPath, 'SELECT session_id, overall, reason, repo_root FROM git_outcome')

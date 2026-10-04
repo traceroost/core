@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {
   SCHEMA_VERSION,
+  SCHEMA_VERSION_RANKED,
   schemaViolations,
   toWireAgent,
   toWireLoopSignal,
@@ -17,10 +18,13 @@ import {
 const SCHEMA_PATH = path.join(process.cwd(), 'schema', 'rollup.v1.json')
 
 suite('forward/schema', () => {
-  test('the committed schema/rollup.v1.json parses and is version 1', () => {
+  test('the committed schema/rollup.v1.json parses and accepts versions 1 and 2', () => {
     const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf-8'))
     assert.strictEqual(schema.$defs !== undefined, true)
-    assert.deepStrictEqual(schema.properties.schema_version, { const: SCHEMA_VERSION })
+    assert.deepStrictEqual(schema.properties.schema_version.enum, [SCHEMA_VERSION, SCHEMA_VERSION_RANKED])
+    // Version 2 (stable trace identity): session.source_rank and the trace manifest chunk.
+    assert.ok(schema.$defs.session.properties.source_rank)
+    assert.deepStrictEqual(schema.$defs.trace_manifest.properties.schema_version, { type: 'string', const: SCHEMA_VERSION_RANKED })
   })
 
   // The mechanical guard that keeps the privacy invariant true as the schema grows: no string

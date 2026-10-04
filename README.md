@@ -137,7 +137,7 @@ The general picture above is the same for every agent — OTEL is richer, logs a
 
 **Log files** (automatic, no setup) — `~/.claude/projects/<project>/<session-uuid>.jsonl`
 
-Each file is one trace. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks.
+Each file is one conversation, and each prompt in it is one trace, keyed by the prompt's own `promptId` — so the OTEL copy of the same turn lands on the same row instead of a second one, and a resumed session updates the turns it copied rather than duplicating them. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks. Subagent transcripts (`<session-uuid>/subagents/agent-*.jsonl`) are counted in the prompt that started them, not as traces of their own.
 
 Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written. Several signals can fire from this log alone (repeated tool calls, edit/revert cycles, runaway steps, hallucinated imports, degraded runaway-cost detection).
 Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, context flooding, failed check submission) — those need OTEL. See the in-app Help tab's Signals section for the per-signal breakdown.
@@ -150,7 +150,7 @@ With the recommended configuration (all three `OTEL_LOG_*` vars): prompt text, t
 
 **Log files** (automatic, no setup) — `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
 
-`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format.
+`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format. Each turn is one trace, keyed by Codex's own `turn_id` — the same key its OTEL turn gets.
 
 Available from logs: model, timestamps, token counts (input, output, cache read).
 Not in logs: prompt text, tool names, TTFT, latency.
@@ -163,7 +163,7 @@ Two surfaces, two formats: the **CLI** writes its own logs; **Copilot Chat** (th
 
 **CLI log files** (automatic, no setup) — `~/.copilot/session-state/<session-uuid>/events.jsonl`
 
-`session.start` carries the model and workspace. `user.message` carries the user prompt. `assistant.message` carries per-turn output token counts. `session.shutdown` carries total context size.
+`session.start` carries the model and workspace. `user.message` carries the user prompt — each one starts a trace. `assistant.message` carries per-turn output token counts. `session.shutdown` carries total context size.
 
 Available from logs: prompt, model, workspace, timestamps, output tokens, total context size, tool names.
 Not in logs: input tokens per turn (estimated from shutdown totals), TTFT, cache token breakdown.
@@ -176,7 +176,7 @@ Not in logs: input tokens per turn (estimated from shutdown totals), TTFT, cache
 
 OpenCode stores all trace data in a local SQLite database. TraceRoost reads this directly — no agent configuration or OTEL setup is required. The database uses WAL (Write-Ahead Log) mode; TraceRoost merges the WAL at read time so traces are visible immediately after each run.
 
-Available from the database: trace ID, user prompt (last user message), model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names, inputs/outputs, and per-tool error status. Unlike every other log source, that per-tool error status means most signals can actually fire from OpenCode's database alone — it's the one log-only exception noted throughout the in-app Help tab's Signals section.
+Each user message and the replies to it are one trace. Available from the database: trace ID, user prompt, model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names, inputs/outputs, and per-tool error status. Unlike every other log source, that per-tool error status means most signals can actually fire from OpenCode's database alone — it's the one log-only exception noted throughout the in-app Help tab's Signals section.
 
 Not available: time-to-first-token, per-tool execution timing, or streaming speed (no span timing data, since OpenCode has no OTEL path at all). Two signals still don't fire here — edit/revert cycles and hallucinated imports need before/after edit content only Claude Code (its own log, or OTEL) and Copilot (OTEL) capture; OpenCode's parser never records it. Traces show a **Log** badge and a blue info banner in the Overview tab noting the timing limitations.
 
@@ -188,7 +188,7 @@ Override the default database location with the `OPENCODE_DATA_DIR` environment 
 
 This is Cursor's standalone terminal agent (`cursor-agent`, installed via `curl https://cursor.com/install -fsS | bash`), not Cursor the IDE's built-in composer/chat agent — those are separate products with separate storage; see the note in the log-location table above.
 
-Available from logs: prompt, tool calls (names, arguments, file paths touched), session-level success/failure. Session start/end times fall back to the transcript file's own filesystem timestamps, since the format has no per-turn timestamps.
+Each `user` line starts a trace. Available from logs: prompt, tool calls (names, arguments, file paths touched), the last turn's success/failure. Start/end times fall back to the transcript file's own filesystem timestamps, since the format has no per-turn timestamps.
 
 Not available, confirmed by direct inspection rather than assumed: **token/usage counts, model name, workspace path, and per-tool error detail** — none of these exist anywhere in Cursor CLI's local storage today. These show as an honest unpriced/unknown gap (matching every other unrecognized-model session) rather than a guessed number. No OTEL path exists for this agent, so there is no richer alternative source to fall back to — Cursor CLI traces always carry a **Log** badge.
 
@@ -489,6 +489,16 @@ printed with the dashboard URL at startup. Browsers: open `http://<host>:3000/?t
 or `scripts/configure-agents.sh --host <host> --token <token>`. MCP clients: send the same
 `Authorization: Bearer <token>` header.
 
+**One server per data directory.** Only one TraceRoost server may use a data directory at a time
+— two would overwrite each other's `spans.json`. A second `npx traceroost` / `pnpm run local` on
+the same `DATA_DIR` (say, while the background service is running) refuses to start and names the
+running one: its pid, its dashboard URL, and how to stop it. To run a second instance on purpose,
+give it its own data directory and ports, e.g.
+`DATA_DIR=~/traceroost-2 UI_PORT=3001 OTLP_PORT=4319 MCP_PORT=4317 npx traceroost@latest`. The lock
+(`<data dir>/server.lock`) is removed when the server exits; one left by a crash is taken over
+automatically on the next start. The background service, if blocked this way, waits and starts as
+soon as the other server stops. The VS Code extension keeps its own data and isn't affected.
+
 The local server uses the same port as the VS Code extension — only one can run at a time. To run both simultaneously, use different ports:
 
 ```bash
@@ -572,6 +582,14 @@ docker run --pull=always -p 127.0.0.1:3001:3000 -p 127.0.0.1:4319:4318 \
 ```
 
 Then point your agents at `http://localhost:4319` and open <http://localhost:3001>.
+
+Mounting `~/.traceroost` shares that data directory with any native TraceRoost server on the host,
+and [only one server may use a data directory](#native-process-recommended-for-local-use) — the
+container refuses to start while the host's background service or `npx traceroost` holds it (and
+vice versa). Stop that one first, or mount a different directory. A container that was killed
+rather than stopped (`docker rm -f`, a crash) leaves its lock behind; since a new container has a
+new hostname, that lock is taken over 90 seconds after its last heartbeat — `docker stop` releases
+it at once.
 
 ### Node.js (from source)
 

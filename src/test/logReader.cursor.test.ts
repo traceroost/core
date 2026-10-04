@@ -3,6 +3,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { LogReader } from '../logReader'
+import { derivedTraceKey } from '../traceIdentity'
 
 function writeJsonl(filePath: string, lines: Record<string, unknown>[]) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -41,7 +42,11 @@ suite('LogReader — Cursor CLI (cursor-agent)', () => {
     assert.strictEqual(results.length, 1)
     const card = results[0].card
 
-    assert.strictEqual(card.sessionId, sessionId)
+    // No turn id, record id or timestamp exists in this format: the key is derived from the
+    // session id plus the turn's position among the file's prompts.
+    assert.strictEqual(card.sessionId, derivedTraceKey('cursor', sessionId, '#0'))
+    assert.strictEqual(card.conversationId, sessionId)
+    assert.strictEqual(card.derived, true)
     assert.strictEqual(card.source, 'cursor')
     assert.strictEqual(card.userRequest, 'say hello, nothing else')
     assert.strictEqual(card.outcome, 'text_response')
@@ -120,8 +125,23 @@ suite('LogReader — Cursor CLI (cursor-agent)', () => {
     ])
 
     const reader = new LogReader()
-    const card = reader.parseFile(filePath, 'cursor')[0].card
-    assert.strictEqual(card.turns, 2, 'two real turns, even though only one turn_ended line exists')
+    const cards = reader.parseFile(filePath, 'cursor').map(r => r.card)
+    assert.strictEqual(cards.length, 2, 'two real turns → two traces, even though only one turn_ended line exists')
+    assert.deepStrictEqual(cards.map(c => c.userRequest), ['first', 'second'])
+    assert.deepStrictEqual(cards.map(c => c.sessionId), [derivedTraceKey('cursor', sessionId, '#0'), derivedTraceKey('cursor', sessionId, '#1')])
+  })
+
+  test('the surviving turn_ended status is the last turn\'s, not an earlier one\'s', () => {
+    const sessionId = 'f5555555-5555-4555-8555-555555555555'
+    const filePath = path.join(tmpDir, `${sessionId}.jsonl`)
+    writeJsonl(filePath, [
+      { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nfirst\n</user_query>' }] } },
+      { role: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } },
+      { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nsecond\n</user_query>' }] } },
+      { type: 'turn_ended', status: 'error' },
+    ])
+    const cards = new LogReader().parseFile(filePath, 'cursor').map(r => r.card)
+    assert.deepStrictEqual(cards.map(c => c.errors), [0, 1])
   })
 
   test('a Write tool_use block is tracked as both changed and written', () => {

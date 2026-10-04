@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS git_outcome_key (
 -- at the time the outcome dimension was last recorded. payload_hash is a canonical sha256 of the
 -- last-hashed SessionRollup (excluding its own revision field). Either write preserves the other
 -- dimension's stored value -- see traceRevisionRepository.ts. Lifecycle is reserved for future
--- active/idle/completed tracking; this pass only ever writes 'active'.
+-- active/idle/completed tracking; this pass only ever writes 'active'. source_rank (staged feature
+-- 11) is the rank of the last content-hashed snapshot: a lower-rank snapshot of the same key is
+-- never forwarded over it (traceIdentity.ts).
 CREATE TABLE IF NOT EXISTS trace_revision (
   session_id         TEXT PRIMARY KEY,
   revision           INTEGER NOT NULL,
@@ -98,7 +100,8 @@ CREATE TABLE IF NOT EXISTS trace_revision (
   outcome_overall     TEXT,
   payload_hash        TEXT,
   checked_at          INTEGER NOT NULL,
-  changed_at          INTEGER NOT NULL
+  changed_at          INTEGER NOT NULL,
+  source_rank         INTEGER
 );
 
 -- Single global monotonic counter backing trace_revision.revision. One process (the editor's
@@ -214,6 +217,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   files_changed_count INTEGER,
   lines_added         INTEGER,
   lines_removed       INTEGER,
+  derived             INTEGER NOT NULL DEFAULT 0,
+  legacy              INTEGER NOT NULL DEFAULT 0,
+  source_rank         INTEGER,
+  subagent_count      INTEGER,
   created_at          INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
 );
 
@@ -295,6 +302,23 @@ CREATE TABLE IF NOT EXISTS trace_sends (
 );
 
 CREATE INDEX IF NOT EXISTS idx_trace_sends_sent_at ON trace_sends (sent_at);
+
+-- Stable trace identity (staged feature 11): an id a trace was stored or sent under before it got
+-- its canonical key (a whole-file or 30-minute-gap log row, an OTEL span id, and each one's wire
+-- uuid) -> that key. Deep links and lookups by an old id resolve through it. Opaque ids only.
+CREATE TABLE IF NOT EXISTS trace_aliases (
+  old_id      TEXT PRIMARY KEY,
+  new_id      TEXT NOT NULL,
+  created_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+);
+CREATE INDEX IF NOT EXISTS idx_trace_aliases_new ON trace_aliases (new_id);
+
+-- One row once the one-time local re-key (database/traceKeyMigration.ts) has run.
+CREATE TABLE IF NOT EXISTS trace_key_migration (
+  id       INTEGER PRIMARY KEY CHECK (id = 1),
+  version  INTEGER NOT NULL,
+  done_at  INTEGER NOT NULL
+);
 
 ${OUTCOMES_SCHEMA_SQL}
 `

@@ -13,6 +13,9 @@
 import { drainQueue, type DrainDeps } from './sender'
 import { DEFAULT_MAX_ITEMS } from './queue'
 import { loadCredentials } from '../org/credentials'
+import { TraceManifestSender } from './traceManifest'
+import { refreshCapabilities } from './cloudCapabilities'
+import type { TraceManifestSource } from '../../cloudBridge'
 
 // The most batches a single drain run could ever need to fully empty a queue at the hard item
 // cap, at the default per-batch limit (`drainQueue`'s own `batchLimit ?? 200`) — a sanity
@@ -68,18 +71,26 @@ export function startForwardScheduler(opts: {
    *  real backlog past `drainQueue`'s default 200-item `batchLimit`. No real caller needs to
    *  override this. */
   batchLimit?: number
+  /** The host's local store, for the trace manifest (traceManifest.ts) — sent after each drain,
+   *  once the queue is empty. Absent: no manifest, and no capability probe (so no source_rank). */
+  traceManifest?: TraceManifestSource
 } = {}): ForwardScheduler {
   const intervalMs = opts.intervalMs ?? 5 * 60_000
   let timer: ReturnType<typeof setInterval> | undefined
   let draining = false
   let soonTimer: ReturnType<typeof setTimeout> | undefined
+  const manifest = opts.traceManifest ? new TraceManifestSender(opts.traceManifest, { log: opts.log, baseHome: opts.baseHome }) : undefined
 
   const run = async (runOpts: { force?: boolean } = {}) => {
     if (draining) return
-    if (!loadCredentials()) { stop(); return }
+    const creds = loadCredentials()
+    if (!creds) { stop(); return }
     draining = true
     opts.onDrainStart?.()
     try {
+      // Learn (at most daily — cached) whether this cloud accepts source_rank and the manifest
+      // before sending, so the first drain after startup or a link already sends what it accepts.
+      if (manifest) await refreshCapabilities(creds, { baseHome: opts.baseHome }).catch(() => null)
       let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
       if (res.sent > 0 || res.droppedInvalid > 0) {
         opts.log?.(`[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
@@ -111,6 +122,10 @@ export function startForwardScheduler(opts: {
       draining = false
       opts.onDrainComplete?.()
     }
+    // After the drain, not inside it: the manifest only goes out once the queue holds no session
+    // rollups (see traceManifest.ts), and it isn't "a trace in transit" for the Org panel's dot.
+    // Not awaited, so checkNow() still resolves when the drain does; it guards its own overlap.
+    if (manifest && loadCredentials()) void manifest.run()
   }
 
   const start = () => {

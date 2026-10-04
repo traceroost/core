@@ -14,7 +14,7 @@ import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export interface EnqueueResult {
   enqueued: boolean
-  reason?: 'not-linked' | 'duplicate' | 'already-delivered' | 'error'
+  reason?: 'not-linked' | 'duplicate' | 'already-delivered' | 'lower-rank' | 'error'
 }
 
 /** Builds the rollup for `card` and appends it to the forwarding queue, if an org is linked. A

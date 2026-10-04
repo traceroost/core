@@ -146,6 +146,8 @@ scopes, so the endpoint list below *is* what a token can do.
 | `POST /oauth/token` (`refresh_token`) | `tokenRefresh.ts` | Rotates the pair. Under the credential file's lock, re-reading it first, so two hosts on one machine never rotate the same token (the loser's `invalid_grant` would otherwise unlink the machine). Proactive when `accessTokenExpiresAt` is within a minute. |
 | `POST /oauth/revoke` | `link.ts` (`leave`) | Best-effort, after the local credential and queue are already gone; also revokes the install. |
 | `POST /api/ingest/batch`, `POST /api/ingest` (fallback on 404) | `sender.ts` | Rollup delivery. 401 = expired/unknown token (refresh and retry once); 403 = install revoked (stop, clear credential and queue); 413 = too large (split / drop). |
+| `GET /api/ingest/schema` (unauthenticated) | `cloudCapabilities.ts` (at most daily per link) | The published rollup schema. Read only to learn whether this cloud accepts `session.source_rank` and the trace manifest yet; until it says so, neither is sent. |
+| `POST /api/ingest/manifest` | `traceManifest.ts` | The trace manifest (below). 429 = wait out `Retry-After`; 404 = an older cloud (stop sending it); 400/413 = skip that day until its keys change; 401/403 as above. |
 | `GET /api/roster/me` | `oauthClient.ts` (`fetchRosterSelf`) | Org name, own role (`admin`/`developer`) and email for the Org panel. |
 | `GET /api/installs/me` | `traceroost org verify` | How many sessions the service holds for *this install* — compared against the local count. A re-link's backfill moves already-stored sessions to the new install, so the counts line up again. |
 | `GET /api/rates/effective` | `pricingSync.ts` (hourly) | The org's own rate table (central defaults + admin overrides). Only models with a real rate are listed; anything else keeps core's local rate. |
@@ -167,6 +169,7 @@ token/turn/tool/error counts, models, hashes, outcome and loop signals:
 | `initiator` | `user` \| `agent` \| `api` | Who started it. |
 | `conversation_hash` | sha256 | Groups gap-split segments of one conversation. |
 | `revision` | integer ≥ 1 | Replace-ordering for re-sent snapshots. |
+| `source_rank` | 1–3 | How much evidence the snapshot carries (3 OTEL with usage, 2 full transcript, 1 partial); a lower rank never replaces a higher one. Sent — with `schema_version` `"2"` — only to a cloud whose published schema lists it (`cloudCapabilities.ts`); otherwise left out at send time, so a rollup queued with it can't be 400'd and lost. Kill switch: `SEND_SOURCE_RANK` (`schema.ts`). |
 | `language` | one of `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none` | Primary programming language, derived locally from file extensions (`src/language.ts`). Only the id leaves the machine. Absent for sessions built before language tracking. Cloud reads an id it doesn't know yet (a newer client) as `other` rather than rejecting the session. |
 | `language_secondary` | the same ids minus `none`, or `null` | Runner-up language. Core omits it when only one language was touched. |
 | `files_changed` | count | Distinct files the agent edited or wrote (any file type). |
@@ -204,6 +207,35 @@ All of these are enums or counts. No path, file name or content travels with the
 
 `leave()` reverses step 2 immediately: the credential is deleted and forwarding stops **before**
 the server-side token revoke is even attempted, so leaving while offline still works.
+
+## Trace manifest (reconciliation safety net)
+
+A trace's key can change as local evidence settles, and a client merges some traces into others
+(stable trace identity), so a row already sent can stop existing locally. `traceManifest.ts` lets
+the cloud retire those: one `POST /api/ingest/manifest` chunk per UTC day of the settled window
+`[max(local horizon, now − 60 d), now − 10 min]`, carrying the window bounds and the trace keys this
+install still holds there — the same UUIDs that already travel as `session_id`, nothing else
+(`$defs/trace_manifest`). The cloud retires only *this install's* rows started in that window whose
+key isn't listed, and a retired key that is sent again later comes back.
+
+- **Who sends:** only a linked install, only when the cloud's published schema lists
+  `trace_manifest`, only the process that owns writes to its store (the standalone server's
+  data-dir lock, the extension window that owns the database) once that store has finished its
+  startup load, and only one TraceRoost host per machine — the extension and the background
+  service share a credential but not their history, so while both ask for the sender lease
+  (`~/.traceroost/trace-manifest-sender.json`) neither sends.
+- **When:** after a forwarding drain that leaves no session rollup queued. A full sweep on startup
+  and on (re-)link; otherwise only days whose key set changed since their last successful chunk
+  (`~/.traceroost/trace-manifest.json` keeps a hash per day — never the keys). At most 120 chunks an
+  hour (the cloud allows 300); a 429 waits out `Retry-After`, a 5xx backs off.
+- **Empty days:** sent with `confirm_empty` only when the store positively holds no trace there
+  (legacy rows included) inside the horizon; otherwise skipped. A day over 5,000 keys is split into
+  shorter windows, never truncated.
+- **Gates:** `missing_keys` (a listed key isn't delivered yet) → that day is re-sent after the queue
+  drains again, with growing backoff; `empty_unconfirmed` → logged once.
+- One output line per run that sent anything — chunk, retired and gated counts, never a key.
+  `--explain-payload` prints the newest chunk as it would be sent. Kill switch:
+  `SEND_TRACE_MANIFEST` (`schema.ts`).
 
 ## "Check for unsent traces" (on-demand reconcile)
 

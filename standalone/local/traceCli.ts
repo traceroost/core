@@ -7,7 +7,7 @@
  * against locally recorded sessions, not a hash reversal.
  */
 
-import { loadSessionsMatchingId } from './sessionLoader'
+import { loadAllSessions, loadSessionsMatchingId, sessionMatchesId } from './sessionLoader'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 function valueAfter(args: string[], flag: string): string | undefined {
@@ -15,10 +15,11 @@ function valueAfter(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined
 }
 
-/** Pure lookup, split out for testing: the first local session whose sessionId or traceId
- *  matches the given id exactly. */
+/** Pure lookup, split out for testing: the first local session whose key or traceId matches the
+ *  given id exactly — else one that was known by that id before stable trace identity (an old
+ *  transcript/segment id or span id, raw or as its wire uuid; see sessionMatchesId). */
 export function findSessionById(sessions: SessionSummaryCard[], id: string): SessionSummaryCard | undefined {
-  return sessions.find(s => s.sessionId === id || s.traceId === id)
+  return sessions.find(s => s.sessionId === id || s.traceId === id) ?? sessions.find(s => sessionMatchesId(s, id))
 }
 
 /** `loaded` is `loadAllSessions()`'s result when the caller (findCli.ts) already has it; otherwise
@@ -30,7 +31,9 @@ export async function runTraceCli(args: string[], loaded?: SessionSummaryCard[])
     return 1
   }
 
+  // A per-turn key names no file: when the by-file-name shortlist has no match, parse everything.
   const found = findSessionById(loaded ?? loadSessionsMatchingId(id), id)
+    ?? (loaded ? undefined : findSessionById(loadAllSessions(), id))
   if (!found) {
     console.log(`No trace matching "${id}" on this machine — try a machine that recorded this session.`)
     return 1

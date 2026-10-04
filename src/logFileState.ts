@@ -21,8 +21,12 @@ export const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
  *    stored rows keep only the inflated total (no reasoning count, no raw usage), so they can't
  *    be corrected in the database; re-parsing the Codex rollout files re-derives them, and the
  *    writer's INSERT OR REPLACE rewrites each row with the corrected tokens and cost.
+ * 3: Stable trace identity (staged feature 11): every log source is read one turn per trace,
+ *    keyed by the agent's own turn id, instead of one trace per file or 30-minute-gap segment.
+ *    Every file (within retention) is read again; each per-turn card retires the whole-file or
+ *    segment row it replaces and aliases that row's id to itself (see DatabaseWriter).
  */
-export const LOG_FILE_STATE_VERSION = 2
+export const LOG_FILE_STATE_VERSION = 3
 
 export function readLogFileState(storageDir: string): { version: number; files: Record<string, FileState> } {
   try {
@@ -56,13 +60,12 @@ export function writeLogFileState(storageDir: string, files: Record<string, File
 export function restoreLogFileState(lr: LogReader, storageDir: string, retentionDays: number): number {
   const { version, files } = readLogFileState(storageDir)
   let forgotten = 0
-  if (version < 2) {
+  // Version 3 re-reads every file within retention, which covers version 2's Codex re-read too.
+  if (version < 3) {
     const cutoffMs = Date.now() - retentionDays * 86_400_000
-    for (const f of lr.collectFileMeta()) {
-      if (f.agentKey !== 'codex') continue
-      const state = files[f.filePath]
-      if (state && state.mtimeMs >= cutoffMs) {
-        delete files[f.filePath]
+    for (const [filePath, state] of Object.entries(files)) {
+      if (state.mtimeMs >= cutoffMs) {
+        delete files[filePath]
         forgotten++
       }
     }

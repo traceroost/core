@@ -117,6 +117,19 @@ export function batchIngestUrl(endpoint = orgEndpoint()): string {
   return `${endpoint}/api/ingest/batch`
 }
 
+/** One chunk of the trace manifest (stable trace identity) — the trace keys this install still
+ *  holds for one settled window. See forward/traceManifest.ts. */
+export function manifestUrl(endpoint = orgEndpoint()): string {
+  return `${endpoint}/api/ingest/manifest`
+}
+
+/** The published wire schema the ingest routes enforce — read (unauthenticated, at most daily)
+ *  only to learn whether this cloud accepts `source_rank` and the trace manifest yet. See
+ *  forward/cloudCapabilities.ts. */
+export function ingestSchemaUrl(endpoint = orgEndpoint()): string {
+  return `${endpoint}/api/ingest/schema`
+}
+
 /** The org's own pricing table — see pricingSync.ts. */
 export function ratesUrl(endpoint = orgEndpoint()): string {
   return `${endpoint}/api/rates/effective`

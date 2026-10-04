@@ -5,6 +5,7 @@ import { DatabaseReader, type DailyStatRow, type LifetimeStats, type SearchQuery
 import { DatabaseWriter } from './database/writer'
 import { summarizeSpans } from './spanSummarizer'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
+import { sourceRankOf } from './traceIdentity'
 
 export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection, TraceSendStats }
 
@@ -58,10 +59,11 @@ export function resolveWorkspacesFromLogs(sessions: SessionSummaryCard[]): void 
 
 /**
  * Merges historical sessions from SQLite with live sessions from the in-memory
- * span window. Live sessions win on conflict (same sessionId) — they are fresher —
- * unless the stored card has recorded more calls than the live one: the live card is
- * rebuilt from whatever spans are still in memory, so a partial window must not hide
- * a fuller card already persisted. Result is sorted by startTime DESC.
+ * span window. On a conflict (same sessionId — a turn's canonical key) the higher source
+ * rank wins (traceIdentity.ts); within a rank the live card wins — it is fresher — unless the
+ * stored card has recorded more calls than the live one: the live card is rebuilt from
+ * whatever spans are still in memory, so a partial window must not hide a fuller card
+ * already persisted. Result is sorted by startTime DESC.
  */
 export function mergeSessions(
   dbSessions: SessionSummaryCard[],
@@ -71,7 +73,11 @@ export function mergeSessions(
   const dbById = new Map(dbSessions.map(s => [s.sessionId, s]))
   const liveWinners = liveSessions.filter(s => {
     const stored = dbById.get(s.sessionId)
-    return !stored || calls(stored) <= calls(s)
+    if (!stored) return true
+    // Source precedence first (stable trace identity: a stored transcript row and a live OTEL
+    // card of the same turn share one key), then the fuller card within a rank.
+    const live = sourceRankOf(s), kept = sourceRankOf(stored)
+    return live !== kept ? live > kept : calls(stored) <= calls(s)
   })
   const liveIds = new Set(liveWinners.map(s => s.sessionId))
   return [
@@ -136,6 +142,26 @@ export class SessionRepository {
       return merged.slice(0, effectiveLimit)
     }
     return merged.slice()
+  }
+
+  /** The canonical key an old trace id now lives under (stable trace identity), or null. */
+  resolveTraceAlias(id: string): string | null {
+    return this.reader.resolveTraceAlias(id)
+  }
+
+  /** Keys of the traces this install holds that started in [fromMs, toMs], and the start of the
+   *  oldest one it still has evidence for — what a trace-key manifest is built from (DatabaseReader). */
+  listTraceKeys(fromMs: number, toMs: number): string[] {
+    return this.reader.listTraceKeys(fromMs, toMs)
+  }
+
+  localHorizonMs(): number | null {
+    return this.reader.localHorizonMs()
+  }
+
+  /** Every trace held that started in [fromMs, toMs], legacy rows included (DatabaseReader). */
+  countTraces(fromMs: number, toMs: number): number {
+    return this.reader.countTraces(fromMs, toMs)
   }
 
   /** Returns full timeline entries for one session (no blob content). */

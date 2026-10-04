@@ -18,6 +18,8 @@
 import * as crypto from 'crypto'
 import {
   SCHEMA_VERSION,
+  SCHEMA_VERSION_RANKED,
+  SEND_SOURCE_RANK,
   toWireAgent,
   toWireLanguage,
   toWireLoopSignal,
@@ -38,6 +40,7 @@ import {
   authorHash,
   type RepoKeyContext,
 } from '../../repoKey'
+import { toUuid } from '../../traceIdentity'
 
 /** The only fields of a session the builder is allowed to see. Every one is a scalar, an enum,
  *  a number, or an array of paths/enums — nothing that can hold free text. */
@@ -63,9 +66,9 @@ export interface SessionRollupInput {
   llmModels?: string[]
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
-  /** Set only when this session is one segment of a log file split by a long idle gap — see
-   *  `SessionSummaryCard.conversationId` (logReader.ts). Absent for an ordinary one-file-one-
-   *  session card, same as core's own color-coding (getConversationColor) leaves it uncolored. */
+  /** The conversation this trace (one turn) belongs to — the agent's conversation/transcript id,
+   *  see `SessionSummaryCard.conversationId`. Lets the server group a conversation's turns the way
+   *  the local conversation marker does. Sent only as a hash. */
   conversationId?: string
   /** Allowlisted language ids (src/language.ts) — fixed-choice labels, never free text. */
   language?: string
@@ -74,6 +77,8 @@ export interface SessionRollupInput {
   filesChangedCount?: number
   linesAdded?: number
   linesRemoved?: number
+  /** Source rank of this snapshot (src/traceIdentity.ts) — an integer 1–3, nothing else. */
+  sourceRank?: number
 }
 
 export interface BuildContext {
@@ -94,21 +99,15 @@ export interface BuildContext {
   /** This session's current durable revision number, if known (staged feature 10) -- see
    *  `SessionRollup.revision`'s doc comment. */
   revision?: number
+  /** Whether the linked cloud accepts `session.source_rank` (forward/cloudCapabilities.ts's
+   *  `cloudAcceptsSourceRank`). Absent/false → the field is left out and the payload stays
+   *  schema version "1", exactly as before it existed. */
+  sourceRankAccepted?: boolean
 }
 
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
-
-/** Session ids from some agents are not UUIDs. The schema requires `format: uuid`, so a
- *  non-UUID id is folded to a deterministic v8-style UUID of its sha256 — stable across runs and
- *  machines, and carrying no information the raw id did not (it is already an opaque token). */
-export function toUuid(raw: string): string {
-  if (UUID_RE.test(raw)) return raw.toLowerCase()
-  const b = crypto.createHash('sha256').update(raw).digest()
-  b[6] = (b[6] & 0x0f) | 0x80 // version 8 (name-based, custom)
-  b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
-  const h = b.toString('hex')
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
-}
+/** Re-exported from the local trace-identity module (the canonical keys are minted with it) — see
+ *  src/traceIdentity.ts. */
+export { toUuid }
 
 /** Plain sha256 — deliberately not the repo_key-derived HMAC repoHash/branchHash/fileHash use.
  *  A conversationId is already an opaque, high-entropy token (a uuid, or an OTEL trace id), not a
@@ -209,6 +208,10 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
   if (typeof input.linesAdded === 'number') rollup.lines_added = nonNegInt(input.linesAdded)
   if (typeof input.linesRemoved === 'number') rollup.lines_removed = nonNegInt(input.linesRemoved)
   if (ctx.revision && ctx.revision > 0) rollup.revision = Math.round(ctx.revision)
+  if (SEND_SOURCE_RANK && ctx.sourceRankAccepted && input.sourceRank !== undefined) {
+    const rank = Math.round(input.sourceRank)
+    if (rank === 1 || rank === 2 || rank === 3) rollup.source_rank = rank
+  }
 
   if (rk) {
     rollup.repo_hash = repoHash(rk)
@@ -239,11 +242,13 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
 
 /** Wraps one session rollup as a complete `RollupPayload`. */
 export function sessionRollupPayload(input: SessionRollupInput, ctx: BuildContext): RollupPayload {
+  const session = buildSessionRollup(input, ctx)
   return {
-    schema_version: SCHEMA_VERSION,
+    // "2" only when the rollup carries a version-2 field (source_rank); otherwise unchanged "1".
+    schema_version: session.source_rank !== undefined ? SCHEMA_VERSION_RANKED : SCHEMA_VERSION,
     ...(ctx.repoKey ? { repo_key_fp: repoKeyFingerprint(ctx.repoKey) } : {}),
     ...(ctx.repoKey && ctx.authorEmail ? { member_author_hash: authorHash(ctx.repoKey, ctx.authorEmail) } : {}),
-    session: buildSessionRollup(input, ctx),
+    session,
   }
 }
 

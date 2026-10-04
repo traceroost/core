@@ -151,9 +151,11 @@ export class ReconciliationService {
    *  `reconcile()` tracks. Synchronous and cheap (no I/O beyond the same db this service already
    *  owns); building `rollup` itself is the caller's job and the expensive part (real `git`
    *  subprocesses) -- callers on a live/frequent path should debounce before calling this, not
-   *  because this call is expensive but because rebuilding `rollup` is. */
-  recordContentChange(sessionId: string, rollup: SessionRollup): { revision: number; changed: boolean } {
-    return this.revisions.recordPayloadHash(sessionId, hashSessionRollup(rollup))
+   *  because this call is expensive but because rebuilding `rollup` is. `sourceRank` (staged
+   *  feature 11): a snapshot ranked below the last recorded one is a downgrade -- no revision,
+   *  `downgrade: true`, never forwarded. */
+  recordContentChange(sessionId: string, rollup: SessionRollup, sourceRank?: number): { revision: number; changed: boolean; downgrade?: boolean } {
+    return this.revisions.recordPayloadHash(sessionId, hashSessionRollup(rollup), sourceRank)
   }
 
   /** Convenience for the background watcher (Stage 2): reconciles many sessions sharing one

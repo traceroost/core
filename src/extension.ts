@@ -16,7 +16,9 @@ import { runRetention } from './database/retention'
 import { PlanUsageService, getPlanUsageService, setPlanUsageService } from './planUsage/planUsageService'
 import { SessionRepository } from './sessionRepository'
 import { summarizeSpans, summarizeTraces } from './spanSummarizer'
-import { LogReader } from './logReader'
+import { LogReader, findClaudeTranscripts } from './logReader'
+import { ClaudeTurnJoiner, setClaudeTurnJoiner, joinHoldMsFromEnv } from './claudeTurnJoin'
+import { migrateTraceKeys } from './database/traceKeyMigration'
 import { restoreLogFileState, writeLogFileState } from './logFileState'
 import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
@@ -45,6 +47,10 @@ const REVISION_FORWARD_BATCH_MS = 1_000
 let logReaderTimer: ReturnType<typeof setInterval> | undefined
 let runLogScanFn: (() => void) | undefined
 let forwardScheduler: ForwardSchedulerHandle | undefined
+// The trace manifest (stable trace identity) lists what the database holds, so it must not go
+// out while the database is still filling: false until the startup log load has been written,
+// and again while "clear all data" re-ingests.
+let traceStoreReady = false
 
 // ── Cross-window sync ────────────────────────────────────────────────────────
 
@@ -115,6 +121,11 @@ export async function activate(context: vscode.ExtensionContext) {
     return
   }
 
+  // A Claude OTEL interaction takes its transcript turn's key through this join (stable trace
+  // identity — see claudeTurnJoin.ts); every summarizeSpans() reads it.
+  const claudeJoiner = new ClaudeTurnJoiner({ findTranscripts: findClaudeTranscripts, holdMs: joinHoldMsFromEnv() })
+  setClaudeTurnJoiner(claudeJoiner)
+
   // ── Writer + reader + repository ─────────────────────────────────────────────
   if (traceRoostDb) {
     const log = (msg: string) => outputChannel!.appendLine(msg)
@@ -127,6 +138,19 @@ export async function activate(context: vscode.ExtensionContext) {
     // owns the database file can persist it — anywhere else it would mark globalState migrated
     // while the migrated rows stay in an in-memory copy that is never saved.
     if (traceRoostDb.isOwner) await migrateGlobalStateToSqlite(context, writer, log)
+    // One-time re-key of stored traces onto their canonical keys (stable trace identity). Owner
+    // only, for the same reason as above; idempotent, and nothing is on disk until the save.
+    if (traceRoostDb.isOwner) {
+      try {
+        const migrated = migrateTraceKeys(traceRoostDb.raw, { findTranscripts: findClaudeTranscripts })
+        if (migrated) {
+          log(`TraceRoost: stable trace identity — re-keyed ${migrated.rekeyed} stored trace(s) (${migrated.derived} derived); ${migrated.legacy} log-sourced row(s) await re-reading their transcript.`)
+          traceRoostDb.saveSoon()
+        }
+      } catch (err) {
+        log(`TraceRoost: trace re-key migration failed (will retry next start): ${err}`)
+      }
+    }
 
     // Initial retention run on activation. Its session deletes run synchronously inside this call;
     // only the orphaned-blob sweep (a full timeline scan) is left to finish after activation.
@@ -163,8 +187,22 @@ export async function activate(context: vscode.ExtensionContext) {
         traceRoostDb?.saveSoon(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
       }).catch(err => console.error('[TraceRoost] writer.drain error:', err))
     }
+    // Traces whose Claude transcript join is on hold (keyPending) get one more pass once the hold
+    // runs out, even if no further span arrives for them.
+    const joinRetries = new Set<string>()
     const persistLiveCard = (card: ReturnType<typeof summarizeSpans>['sessions'][number]): boolean => {
       if (!writer || !repository || card.sessionId.startsWith('synth-')) return false
+      if (card.keyPending) {
+        if (!joinRetries.has(card.traceId)) {
+          joinRetries.add(card.traceId)
+          setTimeout(() => {
+            joinRetries.delete(card.traceId)
+            if (pendingTraceIds.size === 0) queueMicrotask(persistLiveTraces)
+            pendingTraceIds.add(card.traceId)
+          }, claudeJoiner.holdMs + 50)
+        }
+        return false
+      }
       const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
       writer.deleteSynthSession(card.traceId)
       writer.enqueue(card, workspace)
@@ -366,11 +404,11 @@ export async function activate(context: vscode.ExtensionContext) {
   let startBatchedLoad: ((onAllDone?: () => void) => void) | undefined
   if (enableLogIngestion && writer) {
     logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
-    // Also re-derives what a parser fix needs re-read (see LOG_FILE_STATE_VERSION) — e.g. Codex
-    // sessions stored with reasoning tokens counted twice.
+    // Also re-derives what a parser change needs re-read (see LOG_FILE_STATE_VERSION) — e.g.
+    // every transcript once, one trace per turn, for stable trace identity.
     const reparse = restoreLogFileState(logReader, context.globalStorageUri.fsPath,
       vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90))
-    if (reparse > 0) outputChannel.appendLine(`TraceRoost: re-reading ${reparse} Codex log file(s) to correct stored token counts and cost.`)
+    if (reparse > 0) outputChannel.appendLine(`TraceRoost: re-reading ${reparse} log file(s) once — one trace per agent turn now.`)
     const lr = logReader  // non-null alias for use inside closures
     // Only once the parsed sessions are actually on disk: a read-only window (see TraceRoostDb)
     // recording files as processed would make the owning window skip them on its next activation.
@@ -582,11 +620,16 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // Defer off the activation stack so activation itself completes instantly.
-    setImmediate(() => { startBatchedLoad!(); pollClaudePlanUsage() })
+    setImmediate(() => {
+      startBatchedLoad!(() => { void writer!.drain().then(() => { traceStoreReady = true }) })
+      pollClaudePlanUsage()
+    })
     logReaderTimer = setInterval(runLogScan, 30_000)
     context.subscriptions.push({ dispose: () => clearInterval(logReaderTimer) })
     outputChannel.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')
   }
+
+  if (!logReader) traceStoreReady = true // nothing to load from logs
 
   if (collectorFailed || (traceRoostDb && !traceRoostDb.isOwner)) {
     // Non-collector (or read-only database) window: poll the last-write signal; refresh from a
@@ -737,6 +780,7 @@ export async function activate(context: vscode.ExtensionContext) {
       provider.refresh()
       if (repository) DashboardPanel.setRepository(repository)
       if (logReader && startBatchedLoad) {
+        traceStoreReady = false
         logReader.clearFileState()
         // 5 s delay so the cleared state is visible before log sessions flow back in.
         // When all files are loaded, do a final refresh so the dashboard reflects
@@ -744,6 +788,7 @@ export async function activate(context: vscode.ExtensionContext) {
         setTimeout(() => startBatchedLoad!(() => {
           provider.refresh()
           if (repository) DashboardPanel.setRepository(repository)
+          void writer?.drain().then(() => { traceStoreReady = true })
         }), 5000)
       }
       writeLastWriteSignal(context.globalStorageUri)
@@ -812,6 +857,14 @@ export async function activate(context: vscode.ExtensionContext) {
     recordSent: (count, at) => {
       repository?.recordTraceSent(count, at)
       traceRoostDb?.saveSoon()
+    },
+    // Only the window that owns the database sends it (see TraceRoostDb), once it is loaded.
+    traceManifest: {
+      isWriter: () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoostDb.loadError,
+      isReady: () => traceStoreReady && !!repository,
+      localHorizonMs: () => repository?.localHorizonMs() ?? null,
+      listTraceKeys: (fromMs, toMs) => repository?.listTraceKeys(fromMs, toMs) ?? [],
+      countTraces: (fromMs, toMs) => repository?.countTraces(fromMs, toMs) ?? 1,
     },
   })
   context.subscriptions.push({ dispose: () => forwardScheduler?.dispose() })
@@ -1030,12 +1083,16 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
             ? ` It may be on ${reporter}'s linked machine instead of this one.`
             : ' It may be on a different linked machine.'
           void (async () => {
-            const session = repo.listSessions().find(s => s.sessionId === hash || s.traceId === hash)
+            // An id from before stable trace identity (a cloud row's old session_id, an old
+            // transcript or span id) resolves through the alias table to the trace's key now.
+            const alias = repo.resolveTraceAlias(hash)
+            const wanted = new Set([hash, ...(alias ? [alias] : [])])
+            const session = repo.listSessions().find(s => wanted.has(s.sessionId) || s.traceId === hash)
             if (session) {
               vscode.commands.executeCommand('traceRoost.openDashboard')
               setTimeout(() => {
                 DashboardPanel.switchToTab('sessions')
-                DashboardPanel.sendFilter(undefined, undefined, undefined, hash)
+                DashboardPanel.sendFilter(undefined, undefined, undefined, session.sessionId === hash || session.traceId === hash ? hash : session.sessionId)
               }, 250)
               return
             }

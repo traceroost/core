@@ -3,14 +3,11 @@ import * as vscode from 'vscode'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarizers/summarizerTypes'
 import { calcSessionCostUsd } from '../pricing'
 import { bumpSessionsVersion } from './sessionsVersion'
-import { claudeConversationKey, CLAUDE_OVERLAP_SLACK_MS } from '../claudeConversation'
+import { conversationKey } from '../claudeConversation'
+import { sourceRankOf, toUuid } from '../traceIdentity'
 
 // Strings below this length are kept inline in the DB row rather than written to a blob file.
 const BLOB_MIN_LENGTH = 512
-
-// The Claude OTEL/log dedupe key and overlap slack are shared with the standalone server's merge
-// (see claudeConversation.ts), so both surfaces count a Claude session once.
-export { claudeConversationKey }
 
 // Minimal sql.js surface needed for write operations.
 interface WriteableDb {
@@ -34,8 +31,9 @@ const INSERT_SESSION_SQL = `INSERT OR REPLACE INTO sessions (
         is_sidechain, speed, user_request, tool_counts, loop_signals,
         files_read, files_changed, files_written, files_searched, files_changed_note, cost_usd,
         data_source, models, one_shot_stats, initiator, conversation_id,
-        language, language_secondary, files_changed_count, lines_added, lines_removed
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        language, language_secondary, files_changed_count, lines_added, lines_removed,
+        derived, legacy, source_rank, subagent_count
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 
 // sessions.created_at's column default (schema.ts) — what every INSERT OR REPLACE of a row sets.
 const CREATED_AT_NOW_SQL = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
@@ -94,8 +92,9 @@ export class DatabaseWriter {
   private readonly vscodeFs: typeof vscode.workspace.fs
   // sessionId → fingerprint of every value the last complete _writeOnce of that session put in
   // the database (session row, timeline rows, edit rows) — see _writeOnce. The 30 s log tick
-  // re-parses a growing transcript whole and hands back every gap-split segment of it, nearly all
-  // unchanged; this is what lets those be skipped instead of deleted and reinserted row by row.
+  // re-parses a growing transcript whole; the log reader already drops turns whose card didn't
+  // change, but a restart or an OTEL tick still hands back cards identical to the stored rows;
+  // this is what lets those be skipped instead of deleted and reinserted row by row.
   private readonly writtenFingerprints = new Map<string, string>()
 
   constructor(
@@ -118,22 +117,81 @@ export class DatabaseWriter {
    * open in that window — the main cause of inconsistent repo names across OTEL sessions.
    */
   enqueue(card: SessionSummaryCard, workspace: string): void {
-    // OTEL always wins: if this is a log-sourced card and an OTEL record already
-    // exists for the same session, skip it so we never downgrade richer data.
-    if (card.dataSource === 'log') {
-      try {
-        const rows = this.db.exec('SELECT data_source FROM sessions WHERE session_id = ?', [card.sessionId])
-        if (rows[0]?.values[0]?.[0] === 'otel') return
-        // Same rule for Claude, whose OTEL and log cards are keyed differently — skip a log
-        // segment when OTEL interactions of the same conversation fall inside its time range.
-        if (this._claudeOtelCovers(card)) return
-      } catch { /* non-fatal — proceed to enqueue */ }
-    }
+    // A Claude OTEL card whose transcript join is still on hold has a provisional id — it is
+    // persisted once the join settles (see claudeTurnJoin.ts), never under the provisional one.
+    if (card.keyPending) return
+    // Source precedence (stable trace identity): log and OTEL cards of a turn share one key, and a
+    // lower-rank card never replaces a higher-rank row — a transcript re-scan after the OTEL card
+    // landed keeps the OTEL row. Within a rank the newer card wins. Checked again at write time.
+    try {
+      const stored = this._storedRank(card.sessionId)
+      if (stored !== null && stored > sourceRankOf(card)) {
+        this._backfillFrom(card)
+        return
+      }
+    } catch { /* non-fatal — proceed to enqueue */ }
     const resolvedWorkspace = card.workspace || workspace
     card.workspace = resolvedWorkspace
     this.pending.set(card.sessionId, { card, workspace: resolvedWorkspace })
     if (!this.writing) {
       this.drainPromise = this._drain()
+    }
+  }
+
+  /** The stored row's source rank (inferred for a row written before ranks existed), or null. */
+  private _storedRank(sessionId: string): number | null {
+    const rows = this.db.exec(
+      'SELECT source_rank, data_source, total_llm_calls, input_tokens, output_tokens FROM sessions WHERE session_id = ?',
+      [sessionId],
+    )
+    const row = rows[0]?.values[0]
+    if (!row) return null
+    return sourceRankOf({
+      sourceRank: (row[0] as number | null) ?? undefined,
+      dataSource: row[1] === 'log' ? 'log' : 'otel',
+      totalLlmCalls: Number(row[2] ?? 0),
+      inputTokens: Number(row[3] ?? 0),
+      outputTokens: Number(row[4] ?? 0),
+    })
+  }
+
+  /** A lower-rank card that lost to the stored row still carries what only its source knows: the
+   *  conversation it belongs to, how many subagents it folded, and which old rows it replaces. */
+  private _backfillFrom(card: SessionSummaryCard): void {
+    const conversation = conversationKey(card)
+    this.db.run(
+      `UPDATE sessions SET conversation_id = COALESCE(conversation_id, ?), subagent_count = COALESCE(subagent_count, ?)
+        WHERE session_id = ?`,
+      [conversation, card.subagentCount ?? null, card.sessionId],
+    )
+    if ((card.supersedes?.length ?? 0) > 0 || (card.aliases?.length ?? 0) > 0) {
+      this.db.run('BEGIN')
+      try {
+        this._retireSuperseded(card)
+        this.db.run('COMMIT')
+      } catch {
+        try { this.db.run('ROLLBACK') } catch { /* ignore */ }
+      }
+    }
+    bumpSessionsVersion(this.db)
+  }
+
+  /** Deletes the pre-stable-identity rows this card's turn replaces (a whole-file or gap-segment
+   *  log row, a subagent transcript's own row) and records `card.aliases` → this key, with each old
+   *  id's wire uuid, so deep links to an old id still land here. Runs inside a transaction. */
+  private _retireSuperseded(card: SessionSummaryCard): void {
+    for (const old of card.supersedes ?? []) {
+      if (!old || old === card.sessionId) continue
+      this.db.run(`DELETE FROM sessions WHERE session_id = ? AND data_source = 'log' AND source = ?`, [old, card.source])
+      this.db.run('DELETE FROM git_outcome WHERE session_id = ?', [old])
+      this.db.run('DELETE FROM git_outcome_key WHERE session_id = ?', [old])
+    }
+    for (const old of card.aliases ?? []) {
+      if (!old || old === card.sessionId) continue
+      for (const id of new Set([old, toUuid(old)])) {
+        if (id === card.sessionId) continue
+        this.db.run('INSERT OR IGNORE INTO trace_aliases (old_id, new_id) VALUES (?, ?)', [id, card.sessionId])
+      }
     }
   }
 
@@ -226,42 +284,6 @@ export class DatabaseWriter {
     this.writing = false
   }
 
-  /** True when an OTEL row of the same Claude session overlaps this log card's time range. */
-  private _claudeOtelCovers(card: SessionSummaryCard): boolean {
-    const key = claudeConversationKey(card)
-    const startMs = Date.parse(card.startTime)
-    if (!key || !startMs) return false
-    const endMs = startMs + (card.durationMs || 0)
-    const rows = this.db.exec(
-      `SELECT 1 FROM sessions
-        WHERE conversation_id = ? AND source = 'claude_code' AND data_source = 'otel'
-          AND start_time <= ? AND start_time + duration_ms >= ? LIMIT 1`,
-      [key, endMs + CLAUDE_OVERLAP_SLACK_MS, startMs - CLAUDE_OVERLAP_SLACK_MS],
-    )
-    return (rows[0]?.values.length ?? 0) > 0
-  }
-
-  /**
-   * The reverse of _claudeOtelCovers, for when the log card was stored first: an OTEL Claude
-   * interaction replaces the log card(s) of its session whose time range overlaps it. Rows
-   * stored before conversation_id existed are matched by transcript id (session_id `<id>`
-   * or `<id>#<n>`).
-   */
-  private _deleteClaudeLogRowsCoveredBy(card: SessionSummaryCard): void {
-    const key = claudeConversationKey(card)
-    const startMs = Date.parse(card.startTime)
-    if (!key || !startMs || card.dataSource !== 'otel') return
-    const endMs = startMs + (card.durationMs || 0)
-    this.db.run(
-      `DELETE FROM sessions
-        WHERE source = 'claude_code' AND data_source = 'log'
-          AND (conversation_id = ? OR session_id = ? OR session_id LIKE ? ESCAPE '\\')
-          AND start_time <= ? AND start_time + duration_ms >= ?`,
-      [key, key, key.replace(/[\\%_]/g, m => '\\' + m) + '#%',
-        endMs + CLAUDE_OVERLAP_SLACK_MS, startMs - CLAUDE_OVERLAP_SLACK_MS],
-    )
-  }
-
   /**
    * An OTEL card is re-summarized from the in-memory span window on every update. If that window
    * ever lost part of a run (the store's hard memory cap), the new card would have fewer calls
@@ -282,9 +304,15 @@ export class DatabaseWriter {
       this.log(`DatabaseWriter: kept stored session ${card.sessionId} — incoming card has fewer calls`)
       return
     }
+    // Precedence again at write time: a higher-rank card may have been written since enqueue.
+    const storedRank = this._storedRank(card.sessionId)
+    if (storedRank !== null && storedRank > sourceRankOf(card)) {
+      this._backfillFrom(card)
+      return
+    }
     // Everything the rows below will hold, computed up front: if it's exactly what this writer
     // last wrote for this session, and that row is still there (nothing but this writer rewrites
-    // a session's rows; a delete — retention, an OTEL card covering a log row — removes them
+    // a session's rows; a delete — retention, a per-turn card retiring a legacy row — removes them
     // outright), rewriting would only reproduce the same rows, so skip it. Blob files are
     // write-once per span id, and a fingerprint is only recorded once they were all written.
     const sessionParams = this._sessionRowParams(card, workspace)
@@ -299,7 +327,7 @@ export class DatabaseWriter {
     const stmts = new StatementCache(this.db)
     this.db.run('BEGIN')
     try {
-      this._deleteClaudeLogRowsCoveredBy(card)
+      this._retireSuperseded(card)
       if (unchanged) {
         // The one value a rewrite would still have changed: REPLACE re-applies the column default.
         this.db.run(`UPDATE sessions SET created_at = ${CREATED_AT_NOW_SQL} WHERE session_id = ?`, [card.sessionId])
@@ -387,12 +415,16 @@ export class DatabaseWriter {
       JSON.stringify(card.models ?? (card.model ? [card.model] : [])),
       JSON.stringify(card.oneShotStats ?? {}),
       card.initiator ?? null,
-      claudeConversationKey(card),
+      conversationKey(card),
       card.language ?? null,
       card.languageSecondary ?? null,
       card.filesChangedCount ?? null,
       card.linesAdded ?? null,
       card.linesRemoved ?? null,
+      card.derived ? 1 : 0,
+      card.legacy ? 1 : 0,
+      sourceRankOf(card),
+      card.subagentCount ?? null,
     ]
   }
 

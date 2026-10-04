@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { LogReader, type OpenCodeSqlFactory } from '../logReader'
+import { derivedTraceKey } from '../traceIdentity'
 
 // Coverage for LogReader paths the per-agent suites don't reach: the Copilot CLI events.jsonl
 // parser, on-disk discovery (collectFileMeta) including the Windows %APPDATA% candidates, the
@@ -75,7 +76,11 @@ suite('LogReader — Copilot CLI (events.jsonl)', () => {
     const results = new LogReader().parseFile(eventsFile, 'copilot')
     assert.strictEqual(results.length, 1)
     const { card, workspace } = results[0]
-    assert.strictEqual(card.sessionId, sessionId, 'session id comes from the directory name')
+    // One prompt → one trace; the format has no turn id, so the key is derived from the session
+    // (directory name) plus the prompt event's timestamp.
+    assert.strictEqual(card.sessionId, derivedTraceKey('copilot', sessionId, '2026-09-01T10:00:01.000Z'))
+    assert.strictEqual(card.conversationId, sessionId)
+    assert.strictEqual(card.derived, true)
     assert.strictEqual(card.source, 'copilot')
     assert.strictEqual(card.dataSource, 'log')
     assert.strictEqual(workspace, '/work/app')
@@ -89,8 +94,10 @@ suite('LogReader — Copilot CLI (events.jsonl)', () => {
     assert.strictEqual(card.totalToolCalls, 3, 'nameless tool requests are ignored')
     assert.deepStrictEqual(card.toolCounts, { edit: 1, create: 1, view: 1 })
     assert.deepStrictEqual(card.filesChanged.sort(), ['/work/app/src/login.ts', '/work/app/src/new.ts'])
-    assert.strictEqual(card.startTime, '2026-09-01T10:00:00.000Z')
-    assert.strictEqual(card.durationMs, 5 * 60_000)
+    // The turn runs from its prompt to its last reply — not from session.start, and not to the
+    // session.shutdown that only says when the CLI was quit.
+    assert.strictEqual(card.startTime, '2026-09-01T10:00:01.000Z')
+    assert.strictEqual(card.durationMs, 9_000)
     assert.strictEqual(card.outcome, 'tool_calls')
   })
 
@@ -166,15 +173,20 @@ suite('LogReader — Copilot Chat legacy <uuid>.json snapshots', () => {
         { message: { text: 'second prompt is ignored' }, response: 'not-an-array' },
       ],
     }, 'file:///home/me/my%20project')
-    const [r] = new LogReader().parseFile(f, 'copilot_vscode_json')
-    assert.strictEqual(r.card.sessionId, 'legacy-session')
+    // One trace per request; these carry no requestId or timestamp, so keys are derived from the
+    // chat id plus the request's position, and both start at the chat's creation.
+    const [r, second] = new LogReader().parseFile(f, 'copilot_vscode_json')
+    assert.strictEqual(r.card.sessionId, derivedTraceKey('copilot', 'legacy-session', '#0'))
+    assert.strictEqual(r.card.conversationId, 'legacy-session')
     assert.strictEqual(r.card.model, 'gpt-4.1', 'copilot/ prefix is stripped')
     assert.strictEqual(r.card.userRequest, 'Rename the helper', 'parts starting with < are injected context, skipped')
-    assert.strictEqual(r.card.turns, 2)
+    assert.strictEqual(r.card.turns, 1)
     assert.strictEqual(r.card.totalToolCalls, 3)
     assert.deepStrictEqual(r.card.toolCounts, { copilot_readFile: 2, unknown: 1 })
     assert.strictEqual(r.workspace, '/home/me/my project', 'folder URI is percent-decoded')
-    assert.strictEqual(r.card.durationMs, 120_000)
+    assert.strictEqual(second.card.sessionId, derivedTraceKey('copilot', 'legacy-session', '#1'))
+    assert.strictEqual(second.card.userRequest, 'second prompt is ignored')
+    assert.strictEqual(second.card.durationMs, 120_000, 'the last request ends at lastMessageDate')
   })
 
   test('inputState.selectedModel wins over per-request modelId; snapshot sessionId wins over file name', () => {
@@ -185,7 +197,8 @@ suite('LogReader — Copilot Chat legacy <uuid>.json snapshots', () => {
       requests: [{ modelId: 'copilot/gpt-4o', message: { text: 'hi' } }],
     })
     const [r] = new LogReader().parseFile(f, 'copilot_vscode_json')
-    assert.strictEqual(r.card.sessionId, 'inner-id')
+    assert.strictEqual(r.card.conversationId, 'inner-id')
+    assert.strictEqual(r.card.sessionId, derivedTraceKey('copilot', 'inner-id', '#0'))
     assert.strictEqual(r.card.model, 'claude-sonnet-4')
     assert.strictEqual(r.workspace, '', 'no workspace.json → empty workspace')
     assert.strictEqual(r.card.durationMs, 0, 'missing lastMessageDate falls back to creationDate')
@@ -333,7 +346,8 @@ suite('LogReader — log discovery (collectFileMeta / getWatchDirs)', () => {
       const reader = new LogReader()
       return { first: reader.scan(), second: reader.scan() }
     })
-    assert.deepStrictEqual(first.map(r => r.card.sessionId).sort(), ['cp-scan', 'old-snap'])
+    // One trace per turn, grouped under the session/chat it came from.
+    assert.deepStrictEqual(first.map(r => r.card.conversationId).sort(), ['cp-scan', 'old-snap'])
     assert.deepStrictEqual(second, [])
   })
 })
@@ -450,7 +464,7 @@ suite('LogReader — OpenCode WAL merge and parts', () => {
     const [main, walState] = twoGenerations()
     fs.writeFileSync(path.join(dataDir, 'opencode.db'), main)
     fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'), buildWal([{ db: walState, commit: true }]))
-    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.sessionId).sort()
+    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.conversationId).sort()
     assert.deepStrictEqual(ids, ['new', 'old'])
   })
 
@@ -458,7 +472,7 @@ suite('LogReader — OpenCode WAL merge and parts', () => {
     const [main, walState] = twoGenerations()
     fs.writeFileSync(path.join(dataDir, 'opencode.db'), main)
     fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'), buildWal([{ db: walState, commit: true, salt: [1, 2] }]))
-    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.sessionId)
+    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.conversationId)
     assert.deepStrictEqual(ids, ['old'])
   })
 
@@ -475,14 +489,14 @@ suite('LogReader — OpenCode WAL merge and parts', () => {
     fs.writeFileSync(path.join(dataDir, 'opencode.db'), main)
     fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'),
       buildWal([{ db: committed, commit: true }, { db: inFlight, commit: false }]))
-    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.sessionId).sort()
+    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.conversationId).sort()
     assert.deepStrictEqual(ids, ['committed', 'old'])
   })
 
   test('a WAL with no commit frame, or a bad frame checksum, leaves the main DB as is', () => {
     const [main, walState] = twoGenerations()
     fs.writeFileSync(path.join(dataDir, 'opencode.db'), main)
-    const read = () => new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.sessionId)
+    const read = () => new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.conversationId)
     fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'), buildWal([{ db: walState, commit: false }]))
     assert.deepStrictEqual(read(), ['old'])
     fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'), buildWal([{ db: walState, commit: true, badChecksum: true }]))
@@ -494,7 +508,7 @@ suite('LogReader — OpenCode WAL merge and parts', () => {
     fs.writeFileSync(path.join(dataDir, 'opencode.db'), main)
     const bogus = Buffer.alloc(64, 0xab)
     fs.writeFileSync(path.join(dataDir, 'opencode.db-wal'), bogus)
-    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.sessionId)
+    const ids = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card.conversationId)
     assert.deepStrictEqual(ids, ['old'])
   })
 
@@ -504,12 +518,13 @@ suite('LogReader — OpenCode WAL merge and parts', () => {
     fs.writeFileSync(dbPath, main)
     fs.utimesSync(dbPath, 1_000, 1_000)
     const reader = new LogReader({ sqlFactory: factory })
-    assert.deepStrictEqual(reader.scanOpenCode().map(r => r.card.sessionId), ['old'])
+    assert.deepStrictEqual(reader.scanOpenCode().map(r => r.card.conversationId), ['old'])
     assert.deepStrictEqual(reader.scanOpenCode(), [], 'unchanged DB → skipped')
     const walPath = dbPath + '-wal'
     fs.writeFileSync(walPath, buildWal([{ db: walState, commit: true }]))
     fs.utimesSync(walPath, 2_000, 2_000)
-    assert.deepStrictEqual(reader.scanOpenCode().map(r => r.card.sessionId).sort(), ['new', 'old'])
+    // Only turns whose card changed come back: the session already returned is not repeated.
+    assert.deepStrictEqual(reader.scanOpenCode().map(r => r.card.conversationId).sort(), ['new'])
   })
 
   test('part rows feed prompt, tool counts, read/written files and tool error entries', () => {

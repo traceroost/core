@@ -4,6 +4,8 @@ import { buildSessionRollup, sessionRollupPayload, toUuid, type SessionRollupInp
 import { validateRollupPayload } from '../../../cloud/forward/validate'
 import { stableStringify } from '../../../cloud/forward/preview'
 import { authorHash, type RepoKeyContext } from '../../../repoKey'
+import { SEND_SOURCE_RANK } from '../../../cloud/forward/schema'
+import { traceKey } from '../../../traceIdentity'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('test-key').digest() }
 const BUILD = { repoKey: CTX, branch: 'main', outcome: 'merged' }
@@ -221,5 +223,29 @@ suite('forward/buildSessionRollup', () => {
     payload.session.language_secondary = 'rust'
     payload.session.language = 'Rust'
     assert.notDeepStrictEqual(validateRollupPayload(payload), [])
+  })
+
+  test('source_rank: held back until cloud accepts it; the schema allows only 1–3', () => {
+    const held = sessionRollupPayload({ ...BASE, sourceRank: 3 }, BUILD)
+    assert.strictEqual('source_rank' in held.session!, false, 'not sent before the cloud is seen to accept it')
+    assert.strictEqual(held.schema_version, '1')
+    const sent = sessionRollupPayload({ ...BASE, sourceRank: 3 }, { ...BUILD, sourceRankAccepted: true })
+    assert.strictEqual(sent.session!.source_rank === 3, SEND_SOURCE_RANK, 'sent once accepted, unless the kill switch is off')
+    assert.strictEqual(sent.schema_version, SEND_SOURCE_RANK ? '2' : '1', 'a ranked rollup is schema version 2')
+    assert.deepStrictEqual(validateRollupPayload(sent), [])
+    const payload = sessionRollupPayload(BASE, BUILD) as unknown as { session: Record<string, unknown> }
+    for (const rank of [1, 2, 3]) {
+      payload.session.source_rank = rank
+      assert.deepStrictEqual(validateRollupPayload(payload), [], String(rank))
+    }
+    for (const bad of [0, 4, 2.5, '3']) {
+      payload.session.source_rank = bad
+      assert.notDeepStrictEqual(validateRollupPayload(payload), [], String(bad))
+    }
+  })
+
+  test('a canonical trace key is the wire session_id unchanged', () => {
+    const key = traceKey('claude', 'prompt-1')
+    assert.strictEqual(buildSessionRollup({ ...BASE, sessionId: key }, BUILD).session_id, key)
   })
 })

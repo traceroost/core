@@ -16,7 +16,7 @@ const TERMS: [string, string][] = [
   ['Context',                'The content sent to the model on a given LLM call: system instructions, conversation history, tool definitions, and the current prompt. Must fit within the context window. Every token costs money — agents that read large files or accumulate long conversation histories use more context per call, driving up cost.'],
   ['Context Bloat',          'An efficiency insight triggered when input tokens grow significantly across turns within a trace.'],
   ['Context Window',         'The maximum number of tokens an LLM can process in a single request, counting both input and output tokens combined. For example, Claude Sonnet has a 200K token context window. This is a hard per-call limit set by the model architecture — not the same as context, which is what actually fills that window on a given call.'],
-  ['Conversation',           'One continuous back-and-forth with an agent. A single Claude Code, Codex, or Copilot Chat (VS Code) log file can hold several conversations separated by a long idle gap (30+ minutes); TraceRoost splits them into separate traces and marks them with a matching colored bar in the Traces tab (see Traces). Copilot CLI and imported legacy traces are always one trace.'],
+  ['Conversation',           'One continuous back-and-forth with an agent — a Claude Code or Codex session, a Copilot chat, an OpenCode or Cursor CLI session. Each of its prompts is its own trace; the Traces tab marks a conversation\'s traces with a matching colored bar (see Traces). A resumed session continues the same conversation.'],
   ['Files Changed',          'The distinct files the agent edited or wrote in a trace, code or not. Shown with lines added and removed in the Traces table\'s Changes column — see Change size in the Traces section.'],
   ['Git Outcome',            'What happened to a trace\'s changed files afterward, according to local git: Merged (reached the trunk branch), Committed (not on trunk yet), or Uncommitted (not committed yet). A trace takes the worst of its files\' outcomes, and shows nothing when git can\'t tell. Shown as the Traces table\'s Out column, the Outcome filter, and the Files sub-tab banner. Not available in Docker. See Git Outcome in the Traces section.'],
   ['Input Tokens',           'The number of tokens sent to the language model in a request, including system instructions, conversation history, tool definitions, and the user prompt. The Traces table\'s Tokens column adds input and output across all turns; because each turn re-sends the conversation so far, it grows with trace length. Peak ctx/turn in the expanded trace shows the actual context size per call.'],
@@ -36,7 +36,7 @@ const TERMS: [string, string][] = [
   ['Tokens',                 'The fundamental unit language models use to process text. Roughly 1 token ≈ 4 characters or ¾ of a word.'],
   ['Tool Call',              'A single invocation of a tool by the agent — e.g., reading a file, running a search, or executing a terminal command.'],
   ['Tool Definition Overhead', 'An efficiency insight triggered when a large fraction of input tokens is consumed by tool definition schemas rather than actual content.'],
-  ['Trace',                  'One prompt-to-response cycle — the unit shown as a row in the Traces tab. Starts when you send a prompt and ends when the agent delivers its final response, and includes every LLM call, tool call, and file change in between. In OpenTelemetry terms a trace is the spans sharing one Trace ID; TraceRoost normalizes the different Copilot, Claude, and Codex OTEL shapes (and log-only sources, which have no real trace) into this one model. One on-disk log file can produce more than one trace if a long idle gap separates two real conversations within it — see Conversation.'],
+  ['Trace',                  'One prompt-to-response cycle — one agent turn, the unit shown as a row in the Traces tab. Starts when you send a prompt and ends when the agent delivers its final response, and includes every LLM call, tool call, subagent, and file change in between. In OpenTelemetry terms a trace is the spans sharing one Trace ID; TraceRoost normalizes the different Copilot, Claude, and Codex OTEL shapes (and log-only sources, which have no real trace) into this one model. Each trace has one stable ID taken from the agent\'s own turn ID (Claude\'s prompt ID, Codex\'s turn ID, Copilot Chat\'s request ID), so the OTEL copy and the log copy of the same turn are one row, and the row keeps its ID as more evidence arrives — OTEL detail replaces log detail, never the other way round. Agents with no turn ID of their own (OpenCode, Cursor CLI, Copilot CLI) get an ID derived from the conversation and the prompt. Messages you type while the agent is still working belong to the running trace; they don\'t start a new one.'],
   ['Trace ID',               'The OpenTelemetry identifier that links all spans belonging to one trace. Present on OTEL-sourced traces; log-only traces are reconstructed without one.'],
   ['Turn',                   'One LLM call within a trace. A multi-turn trace involves the agent calling the LLM, executing tools, then calling the LLM again.'],
   ['TTFT',                   'Time to First Token — the latency between sending a prompt and receiving the first token of the response.'],
@@ -418,6 +418,12 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
         <a href="https://github.com/traceroost/core#background-service-macos--windows--linux" target="_blank" rel="noreferrer">the README</a> for
         the full command reference and custom port/data-dir options.
       </p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
+        Only one TraceRoost server can use a data directory at a time. A second{' '}
+        <code style={codeStyle}>npx traceroost</code> on the same one (say, while the service runs) refuses
+        to start and says which server holds it and how to stop it; to run two on purpose, give the second
+        its own <code style={codeStyle}>DATA_DIR</code> and ports.
+      </p>
       <p style="font-size:12px;color:var(--muted);margin:0;background:var(--panel-bg);border-radius:3px;padding:8px 10px">
         <strong style="color:var(--fg)">The background service does not auto-update.</strong> It keeps
         running whatever version was installed until you run{' '}
@@ -490,8 +496,8 @@ function SessionsSection() {
       <h3 class="help-heading">{HELP_SECTIONS.traces.heading}</h3>
       <div class="help-overview-body">
         <p>The Traces tab lists every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — in a sortable table. Each row shows the agent, start time, data source and initiator, then <strong>Model</strong>, <strong>Lang</strong> (<a href="#help-language">language</a>), <strong>Changes</strong> (<a href="#help-changes">change size</a>), <strong>Prompt</strong>, <strong>Repo</strong>, <strong>Out</strong> (<a href="#help-outcome">git outcome</a>), <strong>Sig</strong> (<a href="#help-signals">signals</a>), <strong>Turns</strong>, <strong>Duration</strong>, <strong>Tokens</strong>, <strong>Est Cost</strong> and, on a Claude or ChatGPT plan, <strong>Plan limit</strong> (see <a href="#help-plan-limits">Plan limits</a>). Repo, Out and Plan limit appear only when they have something to show. Click a column header to sort; changing the sort returns to page 1.</p>
-        <p>The filter bar narrows the table by time range, <strong>Agent</strong>, <strong>Language</strong>, <strong>Prompt</strong> text, <strong>Repo</strong>, <strong>Outcome</strong>, <strong>Source</strong> (OTEL / Log) and <strong>From</strong> (User / Agent — Agent also covers non-interactive <code>claude -p</code> runs). The Agent pills and the Language list offer only the agents and languages your loaded traces contain; the Agent pills are hidden when only one agent has traces. <strong>Clear Filters</strong> resets everything, and the menu beside the pager sets how many traces show per page.</p>
-        <p>One Claude Code, Codex, or Copilot Chat (VS Code) log file can hold several separate <a href="#gl-conversation">conversations</a> divided by a long idle gap (30+ minutes). TraceRoost splits them into one trace each, rather than one entry with a misleading multi-hour duration, and marks traces from the same file with a matching colored bar on the row's left edge. Hover the bar for its position (e.g. "Part 2 of 5"); click it to show only that conversation, with a banner naming its first prompt and a <strong>Show all traces</strong> button (or click the bar again). Only rows visible under the current filters get a bar, so a lone colored row never hints at a hidden sibling.</p>
+        <p>The filter bar narrows the table by time range, <strong>Agent</strong>, <strong>Language</strong>, <strong>Prompt</strong> text, <strong>Repo</strong>, <strong>Outcome</strong>, <strong>Source</strong> (OTEL / Log) and <strong>From</strong> (User / Agent — Agent also covers non-interactive <code>claude -p</code> runs; see <a href="#help-initiator">Initiator</a>). The Agent pills and the Language list offer only the agents and languages your loaded traces contain; the Agent pills are hidden when only one agent has traces. <strong>Clear Filters</strong> resets everything, and the menu beside the pager sets how many traces show per page.</p>
+        <p>Each row is one prompt and everything the agent did for it. Rows from the same <a href="#gl-conversation">conversation</a> get a matching colored bar on the left edge. Hover the bar for its position (e.g. "Part 2 of 5"); click it to show only that conversation, with a banner naming its first prompt and a <strong>Show all traces</strong> button (or click the bar again). Only rows visible under the current filters get a bar, so a lone colored row never hints at a hidden sibling. Work Claude delegates to subagents is part of the prompt that started it — their tokens and tool calls are in that row, not rows of their own.</p>
         <p>Click any row to expand it in-place. Five sub-tabs appear beneath the row:</p>
 
         <h4 style={subHeadStyle}>Sub-tabs</h4>
@@ -1156,6 +1162,7 @@ function PrivacySection() {
 
         <h4 style={subHeadStyle}>What gets sent</h4>
         <p style={mutedP}>Only counts, enums, hashes and timestamps — never prompts, diffs, file contents, file paths, repository or branch names, or commit messages. The exact list is shown in the Org panel and printed verbatim by <code style={codeStyle}>traceroost --explain-payload</code>.</p>
+        <p style={mutedP}>Besides each trace, a linked machine periodically sends a <em>trace manifest</em>: for each recent day, the list of trace ids it still holds (the same opaque ids its traces were sent under — no other data), so Cloud can drop a trace it was sent that no longer exists on this machine, such as one merged into another as more of its data arrived.</p>
 
         <h4 style={subHeadStyle}>How the hashing works</h4>
         <p style={mutedP}>Commit ids and file ids are never sent as-is. Each one is put through a one-way hash (HMAC-SHA256), keyed by a value derived from your repository's own root commit and your organization's id. Two things follow from that:</p>
@@ -1264,7 +1271,7 @@ function BadgesSection() {
         </div>
       </div>
 
-      <h4 style="font-size:11px;font-weight:600;color:var(--fg);margin:0 0 8px">Initiator</h4>
+      <h4 id="help-initiator" style="font-size:11px;font-weight:600;color:var(--fg);margin:0 0 8px">Initiator</h4>
       <div class="glossary" style="margin-bottom:8px">
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
@@ -1276,7 +1283,7 @@ function BadgesSection() {
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:#b0bec5;border-color:#b0bec5`}>Agent</span>
           </dt>
-          <dd class="glossary-def">Spawned by the Agent tool (<code>isSidechain: true</code> in the log). Claude delegated a sub-task to another Claude instance — common when using the Agent SDK or the FleetView multi-agent runner. The prompt was written by the model, not a human.</dd>
+          <dd class="glossary-def">Started by the agent itself, not typed by a human: a Copilot sub-agent run nested inside another, or a Claude Code turn opened by a background task finishing. Claude subagent work (the Agent/Task tool) is not a trace of its own — it is counted in the prompt that delegated it.</dd>
         </div>
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">

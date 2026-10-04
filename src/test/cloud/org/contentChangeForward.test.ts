@@ -10,6 +10,7 @@ import type { CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
 import { ForwardQueue } from '../../../cloud/forward/queue'
 import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
+import { traceKey } from '../../../traceIdentity'
 
 type SqlDb = {
   run(sql: string, params?: unknown[]): void
@@ -104,6 +105,25 @@ suite('cloud/forward/contentChangeForward', () => {
     assert.strictEqual(queued.length, 1, 'replaces the still-unsent snapshot in place rather than queuing twice')
     assert.strictEqual(queued[0].payload.session?.revision, 2)
     assert.strictEqual(queued[0].payload.session?.duration_ms, 5000)
+  })
+
+  test('a turn\'s OTEL card updates the key its transcript card already sent; a transcript re-scan never downgrades it', async () => {
+    const key = traceKey('claude', 'prompt-1')
+    const log = makeCard(key, { source: 'claude_code', dataSource: 'log', sourceRank: 2, durationMs: 1000 })
+    const otel = makeCard(key, { source: 'claude_code', dataSource: 'otel', sourceRank: 3, durationMs: 1200 })
+    assert.strictEqual((await maybeForwardOnContentChange(service, log)).enqueued, true)
+    assert.strictEqual((await maybeForwardOnContentChange(service, otel)).enqueued, true)
+    const queued = new ForwardQueue().list()
+    assert.strictEqual(queued.length, 1, 'one key, one queue item — an update, never a second session')
+    assert.strictEqual(queued[0].payload.session?.session_id, key)
+    assert.strictEqual(queued[0].payload.session?.data_source, 'otel')
+    assert.strictEqual(queued[0].payload.session?.revision, 2)
+    // The transcript grows or is re-read after the OTEL card went out: lower rank → not forwarded.
+    const rescan = await maybeForwardOnContentChange(service, { ...log, durationMs: 1500 })
+    assert.deepStrictEqual(rescan, { enqueued: false, reason: 'lower-rank' })
+    assert.strictEqual(new ForwardQueue().list()[0].payload.session?.data_source, 'otel')
+    // A newer OTEL snapshot (same rank) still goes out.
+    assert.strictEqual((await maybeForwardOnContentChange(service, { ...otel, durationMs: 2000 })).enqueued, true)
   })
 
   test('two different sessions are tracked independently', async () => {

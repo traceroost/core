@@ -26,7 +26,7 @@ export type { OrgMessage, OrgPanelDeps, SuggestionLedger }
 
 export interface EnqueueResult {
   enqueued: boolean
-  reason?: 'not-linked' | 'duplicate' | 'already-delivered' | 'error'
+  reason?: 'not-linked' | 'duplicate' | 'already-delivered' | 'lower-rank' | 'error'
 }
 
 export interface ForwardSchedulerHandle {
@@ -37,12 +37,34 @@ export interface ForwardSchedulerHandle {
   dispose(): void
 }
 
+/** What a host's local store answers for the trace manifest (stable trace identity, feature 11 —
+ *  see src/cloud/forward/traceManifest.ts). Times are epoch ms; key/count windows are inclusive
+ *  [fromMs, toMs], like DatabaseReader.listTraceKeys. */
+export interface TraceManifestSource {
+  /** True only for the process that owns writes to the store (the standalone server's data-dir
+   *  lock, the extension window that owns the database) — only it may send a manifest. */
+  isWriter(): boolean
+  /** False until the store is complete — the startup history load has finished. A manifest built
+   *  from a half-loaded store would retire every trace not read yet. */
+  isReady(): boolean
+  /** Start of the oldest trace still held (localHorizon), or null with none. */
+  localHorizonMs(): number | null
+  /** The wire keys (session_id) of the non-legacy traces that started in the window. */
+  listTraceKeys(fromMs: number, toMs: number): string[]
+  /** Every trace held that started in the window — legacy and not-yet-keyed ones included — so 0
+   *  means the store positively holds none there. */
+  countTraces(fromMs: number, toMs: number): number
+}
+
 export interface ForwardSchedulerOptions {
   notify?: (message: string, kind: 'info' | 'warning') => void
   log?: (msg: string) => void
   onDrainStart?: () => void
   onDrainComplete?: () => void
   recordSent?: (count: number, at: number) => void
+  /** The local store the trace manifest is built from. Without it, no manifest is sent and the
+   *  cloud's capabilities are never probed (so `source_rank` is never sent either). */
+  traceManifest?: TraceManifestSource
 }
 
 /** The few fields the VS Code "Org Link Status" command shows. */

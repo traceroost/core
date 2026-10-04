@@ -17,7 +17,7 @@ export interface ItConfig {
   repo: string
   otlpPort: number
   mcpPort: number
-  fixture: { sessionId: string; rootSpanId: string; file: string; otlp: unknown; model: string }
+  fixture: { sessionId: string; rootSpanId: string; turnKey: string; file: string; otlp: unknown; model: string }
   /** realAgents suite only. */
   agents?: Record<string, { bin: string; args: string[]; env?: Record<string, string>; login?: boolean } | undefined>
   captureDir?: string

@@ -329,6 +329,13 @@ function applyMigrations(db: SqlDatabase): void {
   for (const c of ['files_changed_count', 'lines_added', 'lines_removed']) {
     if (!colNames.includes(c)) db.run(`ALTER TABLE sessions ADD COLUMN ${c} INTEGER`)
   }
+  // Stable trace identity (staged feature 11) — see traceIdentity.ts and traceKeyMigration.ts.
+  for (const c of ['derived', 'legacy']) {
+    if (!colNames.includes(c)) db.run(`ALTER TABLE sessions ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
+  }
+  for (const c of ['source_rank', 'subagent_count']) {
+    if (!colNames.includes(c)) db.run(`ALTER TABLE sessions ADD COLUMN ${c} INTEGER`)
+  }
 
   // timeline_entries cache token columns
   const teCols = db.exec('PRAGMA table_info(timeline_entries)')
@@ -347,6 +354,9 @@ function applyMigrations(db: SqlDatabase): void {
     const trColNames = trCols[0].values.map(row => row[1] as string)
     if (!trColNames.includes('payload_hash')) {
       db.run('ALTER TABLE trace_revision ADD COLUMN payload_hash TEXT')
+    }
+    if (!trColNames.includes('source_rank')) {
+      db.run('ALTER TABLE trace_revision ADD COLUMN source_rank INTEGER')
     }
   }
 

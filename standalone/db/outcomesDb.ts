@@ -72,4 +72,8 @@ function applyOutcomesMigrations(db: SqlDatabase): void {
   if (!colNames.includes('payload_hash')) {
     db.run('ALTER TABLE trace_revision ADD COLUMN payload_hash TEXT')
   }
+  // trace_revision.source_rank (staged feature 11) -- same reason.
+  if (!colNames.includes('source_rank')) {
+    db.run('ALTER TABLE trace_revision ADD COLUMN source_rank INTEGER')
+  }
 }
