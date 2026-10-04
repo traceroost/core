@@ -816,6 +816,7 @@ graph TD
 
 - `agentFilteredSessions` — all in-memory sessions filtered by agent pill, data source, and workspace dropdown. No limit applied. This is the root filter — all downstream computeds derive from it, so the workspace filter automatically scopes every tab.
 - `availableWorkspaces` — sorted list of unique workspace paths from all loaded sessions. Drives the workspace dropdown options.
+- `availableLanguages` / `availableAgents` — the Language dropdown's options and the Agent pills: only languages (primary or secondary) and agents (`source`) that at least one loaded session has, in allowlist / `AGENT_FILTER_ORDER` order, read from every loaded session rather than the filtered set; a selected value stays listed even with no data. `showAgentFilter` hides the pill row when only one agent has data and nothing is selected.
 - `displaySessions` — `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Traces table.
 - `rangedSessions` — for bounded presets (7d/30d/…): merges `rangedSearchResults` (DB) with in-memory sessions that fall in the window. For "All": returns `agentFilteredSessions` directly.
 - `filteredSessions` — `rangedSessions` with text filter and sort applied. Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (ESTIMATED COST, TOKEN USAGE PER TRACE, CONTEXT GROWTH) source from `rangedSessions` directly.
@@ -837,9 +838,9 @@ graph LR
     T1 --> D4[Tools sub-tab<br/>donut chart + call table]
     T1 --> D5[Files sub-tab<br/>files changed · open in editor<br/>one-shot/retry-rate summary<br/>git outcome banner + per-file badges]
 
-    T2[Analytics<br/>ESTIMATED COST · AGENT BREAKDOWN<br/>TOKEN USAGE PER TRACE · CONTEXT GROWTH]
+    T2[Analytics<br/>AGENT BREAKDOWN · LANGUAGE BREAKDOWN · PLAN LIMITS<br/>OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST<br/>TOKEN USAGE PER TRACE · CONTEXT GROWTH]
     T2 --> A1[CostBarChart — per-session bars<br/>daily total overlay · pricing mode toggle<br/>CSV export download button]
-    T2 --> A2[AgentCard ×3 — per-agent stat tiles<br/>incl. One-shot rate tile]
+    T2 --> A2[AgentCard per agent with data — stat tiles<br/>incl. One-shot rate and Lines +/− tiles]
     T2 --> A3[SessionTokenChart — input/output bars<br/>day boundary highlights]
     T2 --> A4[ContextGrowthChart — animated<br/>per-session spotlight · play/pause/speed]
     T2 --> A5[CodeChangesChart — lines +/− per day or week<br/>files-changed line · agent-authored edits]
@@ -1346,9 +1347,11 @@ traceroost/
 │   │   │   └── export.css        # Export tab card layout
 │   │   └── tabs/
 │   │       ├── Sessions.tsx      # Sortable session table, expand-in-place detail panel
+│   │       │                     #   columns incl. Lang (abbreviation + "+1"), Changes, Out, Sig, Plan limit;
+│   │       │                     #   changing the sort returns to page 1
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
-│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
+│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · LANGUAGE BREAKDOWN · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
 │   │       ├── outcomeTrend.ts   # Day/week binning (dayBins) for OUTCOME & TOKEN SPEND OVER TIME
 │   │       ├── codeChanges.ts    # CODE CHANGES OVER TIME bins — agent-authored lines/files, traces without line data excluded
