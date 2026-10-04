@@ -6,6 +6,7 @@
 
 import type { CloudBridge } from '../cloudBridge'
 import { linkInteractive, leave } from './org/link'
+import { startLinkWatcher } from './org/linkWatcher'
 import { getOrgStatus } from './org/status'
 import { SENT, NEVER_SENT } from './org/privacy'
 import { getQueueStats } from './forward/currentQueueStats'
@@ -53,6 +54,7 @@ export const cloudBridge: CloudBridge = {
   startForwardScheduler: (opts) => startForwardScheduler(opts),
   drainUploadsSoon: drainForwardQueueSoon,
   startPricingSync: (opts) => startPricingSync(opts),
+  startLinkWatcher: (opts) => startLinkWatcher(opts),
 
   handleOrgMessage,
   buildPayloadPreview: (sessions) => buildPayloadPreviewTexts(sessions),
