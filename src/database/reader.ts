@@ -5,6 +5,7 @@ import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarize
 import type { OneShotStats } from '../oneShotRate'
 import { lookupRates, calcAggregateTokenCostUsd } from '../pricing'
 import { sessionsVersion } from './sessionsVersion'
+import { toUuid } from '../traceIdentity'
 import { isSessionLanguage, isCodeLanguage, type SessionLanguage, type CodeLanguage } from '../language'
 
 /** Stored change-size counts — only non-negative integers come back; NULL (an older row, or a
@@ -20,6 +21,19 @@ function readEditStats(files: unknown, added: unknown, removed: unknown): { file
 
 /** The stored language pair, validated against the allowlist — an absent (pre-language row) or
  *  unrecognised value reads as unknown (undefined), never as a free-text label. */
+function readConversation(v: unknown): { conversationId?: string } {
+  return typeof v === 'string' && v ? { conversationId: v } : {}
+}
+
+/** The stable-trace-identity columns (staged feature 11) — absent ones stay off the card. */
+function readIdentity(derived: unknown, rank: unknown, subagents: unknown): Pick<SessionSummaryCard, 'derived' | 'sourceRank' | 'subagentCount'> {
+  const out: Pick<SessionSummaryCard, 'derived' | 'sourceRank' | 'subagentCount'> = {}
+  if (derived === 1) out.derived = true
+  if (typeof rank === 'number' && rank > 0) out.sourceRank = rank
+  if (typeof subagents === 'number' && subagents > 0) out.subagentCount = subagents
+  return out
+}
+
 function readLanguage(primary: unknown, secondary: unknown): { language?: SessionLanguage; languageSecondary?: CodeLanguage | null } {
   if (!isSessionLanguage(primary)) return {}
   return { language: primary, languageSecondary: isCodeLanguage(secondary) ? secondary : null }
@@ -91,6 +105,41 @@ export class DatabaseReader {
     return sessionsVersion(this.db)
   }
 
+  // ── Stable trace identity (staged feature 11) ────────────────────────────────
+
+  /** The wire keys (`session_id` as sent — toUuid of the local id, an identity for every minted
+   *  key) of the traces this install holds that started in [fromMs, toMs], synthesized in-progress
+   *  roots left out. The hook a trace-key
+   *  manifest (feature 11 step 5) builds on — see traceIdentity.ts's traceKeysInWindow for the
+   *  same over in-memory cards (the standalone server). */
+  listTraceKeys(fromMs: number, toMs: number): string[] {
+    const rows = this.db.exec(
+      `SELECT session_id FROM sessions
+        WHERE start_time >= ${Math.floor(fromMs)} AND start_time <= ${Math.floor(toMs)}
+          AND session_id NOT LIKE 'synth-%'
+        ORDER BY start_time ASC`,
+    )
+    return [...new Set((rows[0]?.values ?? []).map(r => toUuid(String(r[0]))))]
+  }
+
+  /** How many traces this install holds that started in [fromMs, toMs] — synthesized rows
+   *  included — so 0 means it positively holds none there (the trace manifest's `confirm_empty`). */
+  countTraces(fromMs: number, toMs: number): number {
+    const rows = this.db.exec(
+      `SELECT COUNT(*) FROM sessions
+        WHERE start_time >= ${Math.floor(fromMs)} AND start_time <= ${Math.floor(toMs)}`,
+    )
+    return Number(rows[0]?.values[0]?.[0] ?? 0)
+  }
+
+  /** Start time of the oldest trace this install still holds evidence for (epoch ms), or null
+   *  with none — the manifest window's lower bound (feature 11's localHorizon). */
+  localHorizonMs(): number | null {
+    const rows = this.db.exec(`SELECT MIN(start_time) FROM sessions WHERE start_time > 0 AND session_id NOT LIKE 'synth-%'`)
+    const v = rows[0]?.values[0]?.[0]
+    return typeof v === 'number' ? v : null
+  }
+
   listSessions(filter?: {
     source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
     since?: number
@@ -157,6 +206,8 @@ export class DatabaseReader {
         initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
         ...readLanguage(col(row, 'language'), col(row, 'language_secondary')),
         ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
+        ...readIdentity(col(row, 'derived'), col(row, 'source_rank'), col(row, 'subagent_count')),
+        ...readConversation(col(row, 'conversation_id')),
         timeline:         [],
         backgroundSpans:  [],
       } satisfies SessionSummaryCard
@@ -429,6 +480,8 @@ export class DatabaseReader {
         initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
         ...readLanguage(col(row, 'language'), col(row, 'language_secondary')),
         ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
+        ...readIdentity(col(row, 'derived'), col(row, 'source_rank'), col(row, 'subagent_count')),
+        ...readConversation(col(row, 'conversation_id')),
         timeline:         [],
         backgroundSpans:  [],
       } satisfies SessionSummaryCard

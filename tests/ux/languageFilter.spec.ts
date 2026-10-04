@@ -5,7 +5,7 @@ import { sessions } from './fixtures'
  * The filter bar's Language select narrows the Traces table to traces whose primary or secondary
  * language matches; the Lang column shows the abbreviation (full name on hover), Lang and Changes
  * show "—" when unrecorded;
- * Analytics gets a Language breakdown.
+ * Analytics gets a By language section (cloud's format: intro, lines-changed summary, table).
  */
 const LANGS = ['python', 'typescript', 'go', undefined] as const
 
@@ -72,7 +72,19 @@ test('Language filter narrows traces; Lang/Changes columns and the breakdown ren
   const breakdown = page.locator('[data-testid=language-breakdown]')
   await expect(breakdown).toBeVisible()
   await expect(breakdown).toContainText('Python')
-  await expect(breakdown).toContainText('— (not recorded)')
+  await expect(breakdown).toContainText('Not reported')
+  await expect(page.locator('#analytics-language-breakdown')).toContainText('BY LANGUAGE')
+  // Two traces each: ties follow the language list (TypeScript first); the two traces with no
+  // language sort last and show "—" for lines.
+  await expect(breakdown.locator('tbody tr').first()).toContainText('TypeScript')
+  await expect(breakdown.locator('tbody tr').last()).toContainText('Not reported')
+  await expect(breakdown.locator('tbody tr').last()).toContainText('—')
+  // Summary: 6 traces with change data × (2 files, +12, −3); the 2 unlanguaged ones have none.
+  const summary = page.locator('[data-testid=language-code-changes]')
+  await expect(summary).toContainText('12files changed')
+  await expect(summary).toContainText('+72lines added')
+  await expect(summary).toContainText('−18lines removed')
+  await expect(summary).toContainText('from 6 of 8 traces')
   expect(errors, 'browser errors').toEqual([])
 })
 

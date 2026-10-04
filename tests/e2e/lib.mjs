@@ -217,8 +217,22 @@ export function claudeProjectDirName(cwd) {
   return cwd.replace(/[^A-Za-z0-9]/g, '-')
 }
 
+/** src/traceIdentity.ts's toUuid — a v8 uuid of sha256(raw), for a non-uuid id. */
+export function toUuid(raw) {
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) return raw.toLowerCase()
+  const b = crypto.createHash('sha256').update(raw).digest()
+  b[6] = (b[6] & 0x0f) | 0x80
+  b[8] = (b[8] & 0x3f) | 0x80
+  const h = b.toString('hex')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
+}
+
+/** A one-turn Claude Code session seen both ways: its OTLP trace and its transcript. The prompt
+ *  line carries the turn's `promptId` and is written 17 ms after the interaction span starts (OTEL
+ *  leads), so both cards get the same canonical key — `turnKey` (stable trace identity). */
 export function claudeFixture({ repo, startMs = Date.now() - 10 * 60_000, prompt = 'Create hello.txt containing hello' }) {
   const sessionId = crypto.randomUUID()
+  const promptId = crypto.randomUUID()
   const traceId = hex(16)
   const rootId = hex(8)
   const llm1 = hex(8)
@@ -261,13 +275,13 @@ export function claudeFixture({ repo, startMs = Date.now() - 10 * 60_000, prompt
   const u1 = crypto.randomUUID(); const a1 = crypto.randomUUID(); const u2 = crypto.randomUUID(); const a2 = crypto.randomUUID()
   const toolUseId = `toolu_${hex(12)}`
   const transcript = [
-    { ...base, type: 'user', uuid: u1, parentUuid: null, timestamp: iso(0), message: { role: 'user', content: prompt } },
+    { ...base, type: 'user', uuid: u1, parentUuid: null, promptId, timestamp: iso(17), message: { role: 'user', content: prompt } },
     { ...base, type: 'assistant', uuid: a1, parentUuid: u1, timestamp: iso(1600), requestId: `req_${hex(8)}`, message: {
       id: `msg_${hex(8)}`, role: 'assistant', model: FIXTURE_MODEL, stop_reason: 'tool_use',
       usage: { input_tokens: 1200, output_tokens: 80, cache_creation_input_tokens: 900, cache_read_input_tokens: 0 },
       content: [{ type: 'tool_use', id: toolUseId, name: 'Write', input: { file_path: file, content: 'hello\n' } }],
     } },
-    { ...base, type: 'user', uuid: u2, parentUuid: a1, timestamp: iso(1760), message: { role: 'user', content: [
+    { ...base, type: 'user', uuid: u2, parentUuid: a1, promptId, timestamp: iso(1760), message: { role: 'user', content: [
       { type: 'tool_result', tool_use_id: toolUseId, content: `File created successfully at: ${file}` },
     ] } },
     { ...base, type: 'assistant', uuid: a2, parentUuid: u2, timestamp: iso(2800), requestId: `req_${hex(8)}`, message: {
@@ -276,7 +290,7 @@ export function claudeFixture({ repo, startMs = Date.now() - 10 * 60_000, prompt
       content: [{ type: 'text', text: 'Created hello.txt.' }],
     } },
   ]
-  return { sessionId, traceId, rootSpanId: rootId, file, otlp, transcript }
+  return { sessionId, traceId, rootSpanId: rootId, turnKey: toUuid(`claude:turn:${promptId}`), file, otlp, transcript }
 }
 
 /** Writes the fixture's transcript where Claude Code would, under `home`. Returns the file path. */

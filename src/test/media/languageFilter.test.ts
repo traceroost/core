@@ -81,16 +81,39 @@ suite('media — Language filter and breakdown', () => {
   })
 
   test('buildLanguageBreakdown groups by primary language with counts and change size', () => {
-    const rows = buildLanguageBreakdown([
+    const { rows, totals } = buildLanguageBreakdown([
       makeCard({ sessionId: '1', language: 'python', inputTokens: 10, outputTokens: 5, filesChangedCount: 2, linesAdded: 7, linesRemoved: 1 }),
-      makeCard({ sessionId: '2', language: 'python', languageSecondary: 'go', inputTokens: 1, outputTokens: 1, loopSignals: [{ type: 'file_reread', severity: 'warning', description: '', evidence: [] } as never] }),
-      makeCard({ sessionId: '3', language: 'go' }),
+      makeCard({ sessionId: '2', language: 'python', languageSecondary: 'go', inputTokens: 1, outputTokens: 1 }),
+      makeCard({ sessionId: '3', language: 'go', filesChangedCount: 1, linesAdded: 0, linesRemoved: 4 }),
       makeCard({ sessionId: '4' }),
     ])
-    assert.deepStrictEqual(rows.map(r => [r.language, r.sessions]), [['python', 2], ['go', 1], ['unrecorded', 1]])
+    assert.deepStrictEqual(rows.map(r => [r.language, r.sessions]), [['python', 2], ['go', 1], [null, 1]])
     const py = rows[0]
     assert.strictEqual(py.tokens, 17)
-    assert.strictEqual(py.withSignals, 1)
-    assert.deepStrictEqual([py.filesChanged, py.linesAdded, py.linesRemoved], [2, 7, 1])
+    assert.deepStrictEqual([py.filesChanged, py.linesAdded, py.linesRemoved, py.sessionsReported], [2, 7, 1, 1])
+    assert.strictEqual(rows[2].sessionsReported, 0)
+    assert.deepStrictEqual(totals, { filesChanged: 3, linesAdded: 7, linesRemoved: 5, sessionsReported: 2, sessions: 4 })
+  })
+
+  test('buildLanguageBreakdown counts change size only from traces that recorded lines', () => {
+    // Files without line counts (an agent that records no edit contents) is not "reported" —
+    // same rule as Code changes over time (codeChanges.ts hasLineData).
+    const { rows, totals } = buildLanguageBreakdown([
+      makeCard({ sessionId: '1', language: 'rust', filesChangedCount: 5 }),
+      makeCard({ sessionId: '2', language: 'rust', filesChangedCount: 1, linesAdded: 3, linesRemoved: 0 }),
+    ])
+    assert.deepStrictEqual([rows[0].filesChanged, rows[0].sessionsReported, rows[0].sessions], [1, 1, 2])
+    assert.deepStrictEqual(totals, { filesChanged: 1, linesAdded: 3, linesRemoved: 0, sessionsReported: 1, sessions: 2 })
+  })
+
+  test('buildLanguageBreakdown orders ties by language list, not reported last; empty input is empty', () => {
+    const { rows } = buildLanguageBreakdown([
+      makeCard({ sessionId: '1' }),
+      makeCard({ sessionId: '2', language: 'none' }),
+      makeCard({ sessionId: '3', language: 'go' }),
+      makeCard({ sessionId: '4', language: 'typescript' }),
+    ])
+    assert.deepStrictEqual(rows.map(r => r.language), ['typescript', 'go', 'none', null])
+    assert.deepStrictEqual(buildLanguageBreakdown([]), { rows: [], totals: { filesChanged: 0, linesAdded: 0, linesRemoved: 0, sessionsReported: 0, sessions: 0 } })
   })
 })

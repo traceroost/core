@@ -18,6 +18,7 @@ import { buildCopilotSessions } from './summarizers/copilot'
 import { buildClaudeSessions } from './summarizers/claude'
 import { buildCodexSessions } from './summarizers/codex'
 import { getAttrStr, getAttrInt, isCodexLlmSpanName, timestampToMs } from './summarizers/helpers'
+import { assignOtelTraceKeys } from './otelTraceKeys'
 
 // Re-export all types so callers don't need to update their imports
 export type {
@@ -168,6 +169,13 @@ export function summarizeSpans(spans: Span[]) {
   ].sort((a, b) => timestampToMs(a.startTime) - timestampToMs(b.startTime))
 
   const sessions = allSorted
+  // Canonical trace keys (staged feature 11): the same key the turn's log card gets.
+  const promptLengths = new Map<string, number>()
+  for (const s of claudeInteractionSpans) {
+    const len = getAttrInt(s, 'user_prompt_length')
+    if (len > 0) promptLengths.set(s.spanId, len)
+  }
+  assignOtelTraceKeys(sessions, { promptLengths })
 
   sessions.forEach(s => { s.loopSignals = detectLoopSignals(s) })
   sessions.forEach(s => { s.oneShotStats = computeOneShotStats(s) })

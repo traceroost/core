@@ -51,6 +51,7 @@ import { claudeUsageRows } from './claudeUsageLines'
  *   Not available in any log: TTFT, per-tool timing, streaming speed, loop signals
  */
 
+import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -61,6 +62,8 @@ import { stripDateSuffix } from './pricing'
 import { CodexLimitCollector, claudeLimitHit, dedupeHits, CLAUDE_SYNTHETIC_MODEL, type LimitReading, type LimitHit, type PlanStatus } from './planUsage/limitReadings'
 import { deriveSessionLanguage } from './language'
 import { computeEditStats } from './editStats'
+import { segmentClaudeTurns, type ClaudeTurnSpan } from './claudeTurns'
+import { traceKey, derivedTraceKey, SOURCE_RANK_FULL_TRANSCRIPT, SOURCE_RANK_PARTIAL } from './traceIdentity'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
 
@@ -163,6 +166,22 @@ function collectCursorTranscriptFiles(): string[] {
   return files
 }
 
+/** Claude Code transcripts named by a session id: <projects>/<project>/<sessionId>.jsonl in every
+ *  claudeProjectsDirs() root — how an OTEL interaction finds its transcript (claudeTurnJoin.ts). */
+export function findClaudeTranscripts(claudeSessionId: string): string[] {
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(claudeSessionId)) return []
+  const files: string[] = []
+  for (const projectsDir of claudeProjectsDirs()) {
+    let projects: string[]
+    try { projects = fs.readdirSync(projectsDir) } catch { continue }
+    for (const project of projects) {
+      const f = path.join(projectsDir, project, `${claudeSessionId}.jsonl`)
+      try { if (fs.statSync(f).isFile()) files.push(f) } catch { /* not this project */ }
+    }
+  }
+  return files
+}
+
 function copilotSessionStateDir(): string | null {
   // Copilot CLI writes session logs to ~/.copilot/session-state/<uuid>/events.jsonl
   // automatically, with no env setup required.
@@ -248,15 +267,19 @@ export interface LogSessionResult {
   planStatus?: PlanStatus
 }
 
+/** A subagent transcript folded into its parent turn (see LogReader._claudeSubagentsByTurn). */
+interface ClaudeSubagent {
+  parsed: unknown[]
+}
+
+/** Claude Code subagent transcripts: subagents/agent-*.jsonl (or agent-*.jsonl in older layouts). */
+function isClaudeSubagentFile(filePath: string): boolean {
+  return path.basename(filePath).startsWith('agent-')
+}
+
 /** SQL NULL (and an absent column) → null; anything else → its string form. */
 function strOrNull(v: unknown): string | null {
   return v === null || v === undefined ? null : String(v)
-}
-
-/** Wraps a single-or-null result as an array, for parsers that only ever produce one session
- *  per file (everything except Claude Code — see splitClaudeLinesOnPromptGaps). */
-function _single(result: LogSessionResult | null): LogSessionResult[] {
-  return result ? [result] : []
 }
 
 export class LogReader {
@@ -267,6 +290,10 @@ export class LogReader {
   // bytes — see _readNewLines. LRU (Map insertion order), bounded by LINE_CACHE_MAX_BYTES.
   private readonly lineCache = new Map<string, { offset: number; lines: string[]; probe: Buffer }>()
   private lineCacheBytes = 0
+  // Root-level agent-*.jsonl → the parent session its lines name (see _claudeAgentFileSessionId).
+  private readonly agentFileSessionIds = new Map<string, { mtimeMs: number; size: number; sessionId: string }>()
+  // filePath → turn key → fingerprint of the last card emitted for it — see _onlyChanged.
+  private readonly emittedTurns = new Map<string, Map<string, string>>()
 
   constructor(options: LogReaderOptions = {}) {
     this.log = options.log ?? (() => { /* silent */ })
@@ -278,6 +305,7 @@ export class LogReader {
     this.fileState.clear()
     this.lineCache.clear()
     this.lineCacheBytes = 0
+    this.emittedTurns.clear()
   }
 
   /** Plain-object snapshot of the per-file mtime/size cache, for a caller to persist to disk
@@ -309,6 +337,8 @@ export class LogReader {
     // Claude
     for (const projectsDir of claudeProjectsDirs()) {
       for (const filePath of this._collectJsonlFiles(projectsDir)) {
+        // A subagent transcript is folded into its parent's turn, never parsed on its own.
+        if (isClaudeSubagentFile(filePath)) continue
         try { entries.push({ filePath, mtimeMs: fs.statSync(filePath).mtimeMs, agentKey: 'claude' }) } catch { /* skip */ }
       }
     }
@@ -370,10 +400,9 @@ export class LogReader {
   }
 
   /**
-   * Parses a single file identified by collectFileMeta() and returns any results if the file is
-   * new or has grown since the last scan (usually one; Claude Code transcripts can yield more
-   * than one when a large gap between prompts splits the file into multiple sessions — see
-   * splitClaudeLinesOnPromptGaps). Returns [] if unchanged.
+   * Parses a single file identified by collectFileMeta() and returns one result per turn whose
+   * card changed since the last scan (one turn = one trace — see claudeTurns.ts,
+   * codexTurnRanges). Returns [] if the file is unchanged.
    */
   parseFile(filePath: string, agentKey: string): LogSessionResult[] {
     const sessionId = agentKey === 'copilot'
@@ -383,13 +412,16 @@ export class LogReader {
         : path.basename(filePath, '.jsonl')
 
     switch (agentKey) {
-      case 'claude':              return this._processFileMulti(filePath, () => this._parseClaudeFile(filePath))
+      case 'claude':
+        if (isClaudeSubagentFile(filePath)) return []
+        this._invalidateIfClaudeSubagentsChanged(filePath)
+        return this._processFileMulti(filePath, () => this._parseClaudeFile(filePath))
       case 'codex':               return this._processFileMulti(filePath, () => this._parseCodexFile(filePath))
-      case 'copilot':             return _single(this._processFile(filePath, () => this._parseCopilotFile(filePath, sessionId)))
+      case 'copilot':             return this._processFileMulti(filePath, () => this._parseCopilotFile(filePath, sessionId))
       case 'copilot_vscode':      return this._processFileMulti(filePath, () => this._parseCopilotVSCodeFile(filePath))
-      case 'copilot_vscode_json': return _single(this._processFile(filePath, () => this._parseCopilotVSCodeJsonFile(filePath, sessionId)))
+      case 'copilot_vscode_json': return this._processFileMulti(filePath, () => this._parseCopilotVSCodeJsonFile(filePath, sessionId))
       case 'opencode':            return []  // OpenCode DB returns multiple sessions; use _scanOpenCode
-      case 'cursor':              return _single(this._processFile(filePath, () => this._parseCursorFile(filePath)))
+      case 'cursor':              return this._processFileMulti(filePath, () => this._parseCursorFile(filePath))
       default:                    return []
     }
   }
@@ -427,46 +459,63 @@ export class LogReader {
     const results: LogSessionResult[] = []
     for (const projectsDir of claudeProjectsDirs()) {
       this._collectJsonlFiles(projectsDir).forEach(filePath => {
+        if (isClaudeSubagentFile(filePath)) return
+        this._invalidateIfClaudeSubagentsChanged(filePath)
         results.push(...this._processFileMulti(filePath, () => this._parseClaudeFile(filePath)))
       })
     }
     return results
   }
 
-  /** Reads a Claude Code transcript and splits it into one or more session results — see
-   *  splitClaudeLinesOnPromptGaps for why a single file can yield more than one session, and
-   *  dedupeByUuid for why duplicate lines are dropped before any of that runs. */
+  /** Reads a Claude Code transcript and returns one result per turn — see claudeTurns.ts for
+   *  where a turn starts, and dedupeByUuid for why duplicate lines are dropped first. Each turn is
+   *  keyed by its `promptId` (traceKey('claude', promptId)); a transcript from before Claude Code
+   *  stamped promptIds gets derived keys. The turn's subagent transcripts (subagents/agent-*.jsonl)
+   *  are folded into it — usage, tool calls and files — and never get a key of their own. */
   private _parseClaudeFile(filePath: string): LogSessionResult[] {
     const rawLines = this._readNewLines(filePath)
     if (!rawLines) return []
     // Every line is JSON.parse'd once here and the parsed rows are shared by the dedupe, the
-    // split and the segment parser — each used to parse every line again (5x in all), which was
-    // most of the cost of reading a transcript.
+    // turn segmentation and the per-turn parser.
     const { lines, parsed } = dedupeParsedByUuid(rawLines, rawLines.map(parseLogLine))
 
     const baseSessionId = path.basename(filePath, '.jsonl')
-    const boundaries = promptGapBoundaries(parsed, isClaudePromptBoundary)
+    const turns = segmentClaudeTurns(parsed)
+    if (turns.length === 0) return []
+    const subagentsByTurn = this._claudeSubagentsByTurn(filePath, baseSessionId, turns)
+
     const results: LogSessionResult[] = []
-    boundaries.forEach(([start, end], segmentIndex) => {
-      const result = this._parseClaudeSegment(lines.slice(start, end), parsed.slice(start, end), claudeSegmentSessionId(baseSessionId, segmentIndex))
-      if (result) results.push(result)
-    })
-    // Tag every segment with the file they came from, but only when the file actually split into
-    // more than one — a lone segment's conversationId equal to its own sessionId is meaningless.
-    // The frontend uses this to group and color-code rows that are really one conversation split
-    // across multiple session cards.
-    if (results.length > 1) {
-      for (const r of results) r.card.conversationId = baseSessionId
+    for (let t = 0; t < turns.length; t++) {
+      const turn = turns[t]
+      const key = turn.exact ? traceKey('claude', turn.turnId) : derivedTraceKey('claude', baseSessionId, turn.turnId)
+      const subagents = subagentsByTurn.get(t) ?? []
+      const result = this._parseClaudeTurn(
+        turn.indices.map(i => lines[i]), turn.indices.map(i => parsed[i]), key,
+        (parsed[turn.opening] as Record<string, unknown>)['timestamp'] as string | undefined, subagents,
+      )
+      if (!result) continue
+      const card = result.card
+      // Every turn of a file is one conversation — the conversation marker groups by it.
+      card.conversationId = baseSessionId
+      if (!turn.exact) card.derived = true
+      if (subagents.length > 0) card.subagentCount = subagents.length
+      results.push(result)
     }
     return results
   }
 
   /** `parsed[i]` is `lines[i]` already JSON.parse'd (undefined when it doesn't parse). */
-  private _parseClaudeSegment(lines: string[], parsed: unknown[], sessionId: string): LogSessionResult | null {
+  private _parseClaudeTurn(
+    lines: string[],
+    parsed: unknown[],
+    sessionId: string,
+    openingTimestamp: string | undefined,
+    subagents: ClaudeSubagent[] = [],
+  ): LogSessionResult | null {
     let workspace = ''
     let claudeSessionId = ''
     let model = ''
-    let firstTimestamp = ''
+    let firstTimestamp = openingTimestamp ?? ''
     let lastTimestamp = ''
     let userRequest = ''
     let taskNotificationFallback = ''
@@ -485,9 +534,108 @@ export class LogReader {
     const timeline: TimelineEntry[] = []
     let idx = 0
     let initiator: 'user' | 'agent' | 'api' = 'user'
-    const usageLines = claudeUsageRows(parsed)
     const limitHits: LimitHit[] = []
+    // Span ids name blob files (database/writer.ts), so they must be unique across traces: the
+    // line's own uuid when it has one, else this trace's key plus a position.
+    const spanIdFor = (kind: 'u' | 'a', entry: Record<string, unknown>) =>
+      typeof entry['uuid'] === 'string' && entry['uuid'] ? `log-${kind}-${entry['uuid']}` : `log-${kind}-${sessionId.slice(0, 8)}-${idx}`
 
+    const addAssistant = (entry: Record<string, unknown>, ts: string | undefined, billable: boolean, subagent: boolean) => {
+      const msg = entry['message'] as Record<string, unknown> | undefined
+      // Limit refusals and API errors Claude Code writes itself carry model '<synthetic>' and
+      // zero usage: not an LLM call, so they don't set the model or count as a turn.
+      const synthetic = msg?.['model'] === CLAUDE_SYNTHETIC_MODEL
+      if (synthetic) {
+        const hit = claudeLimitHit(entry, sessionId)
+        if (hit) limitHits.push(hit)
+      }
+      let lineModel = model
+      if (msg?.['model'] && !synthetic) {
+        lineModel = msg['model'] as string
+        if (!subagent) model = lineModel
+      }
+      const rawUsage = msg?.['usage'] as Record<string, unknown> | undefined
+      if (rawUsage?.['speed'] === 'fast' && !subagent) hasFastMode = true
+      const usage = rawUsage as Record<string, number> | undefined
+      let msgTotalInput = 0, msgCacheRead = 0, msgCacheCreate = 0, msgOutput = 0
+      if (usage && billable && !synthetic) {
+        const inp  = usage['input_tokens']                ?? 0
+        const cr   = usage['cache_read_input_tokens']     ?? 0
+        const cc   = usage['cache_creation_input_tokens'] ?? 0
+        msgTotalInput = inp + cr + cc
+        msgCacheRead = cr
+        msgCacheCreate = cc
+        msgOutput = usage['output_tokens'] ?? 0
+        totalInput       += inp
+        totalOutput      += msgOutput
+        totalCacheRead   += cr
+        totalCacheCreate += cc
+        const turnContext = inp + cr + cc
+        if (turnContext > peakContextPerTurn) peakContextPerTurn = turnContext
+        turns++
+        if (lineModel) {
+          modelTokens.set(lineModel, (modelTokens.get(lineModel) ?? 0) + msgTotalInput + msgOutput)
+        }
+      }
+      const content = (msg?.['content'] as Array<Record<string, unknown>>) ?? []
+      let hasToolCall = false
+      const msgEditDetails: EditDetail[] = []
+      for (const block of content) {
+        if (block['type'] === 'tool_use' && block['name']) {
+          hasToolCall = true; totalToolCalls++
+          const name = block['name'] as string
+          toolCounts[name] = (toolCounts[name] ?? 0) + 1
+          const inp = (block['input'] ?? {}) as Record<string, unknown>
+          const fp  = String(inp['file_path'] ?? inp['filePath'] ?? inp['path'] ?? '')
+          if (fp) {
+            if (name === 'Read' || name === 'read_file') filesRead.add(fp)
+            else if (['Edit','MultiEdit','replace_string_in_file','NotebookEdit'].includes(name)) filesChanged.add(fp)
+            else if (name === 'Write' || name === 'create_file') { filesChanged.add(fp); filesWritten.add(fp) }
+          }
+          if (name === 'MultiEdit' && Array.isArray(inp['edits'])) {
+            for (const e of inp['edits'] as Array<Record<string, unknown>>) {
+              const efp = e['file_path'] ?? e['filePath'] ?? fp
+              if (efp) {
+                msgEditDetails.push({
+                  filePath: String(efp),
+                  toolName: 'Edit',
+                  oldString: _strOrUndef(e['old_string'] ?? e['oldString']),
+                  newString: _strOrUndef(e['new_string'] ?? e['newString']),
+                })
+              }
+            }
+          } else if (fp && ['Edit','replace_string_in_file','NotebookEdit','Write','create_file'].includes(name)) {
+            msgEditDetails.push({
+              filePath: fp,
+              toolName: name,
+              oldString: _strOrUndef(inp['old_string'] ?? inp['oldString']),
+              newString: _strOrUndef(inp['new_string'] ?? inp['newString']),
+              content: _strOrUndef(inp['content']),
+            })
+          }
+        }
+      }
+      const responseText = (content.find(b => b['type'] === 'text') as Record<string,string> | undefined)?.['text']
+      const label = hasToolCall ? 'Tool calls' : 'Response'
+      timeline.push({
+        type: hasToolCall ? 'tool' : 'llm',
+        spanId: spanIdFor('a', entry),
+        label: subagent ? `Subagent: ${label}` : label,
+        model: lineModel || undefined,
+        inputTokens: msgTotalInput || undefined,
+        outputTokens: msgOutput || undefined,
+        cacheReadTokens: msgCacheRead || undefined,
+        cacheCreateTokens: msgCacheCreate || undefined,
+        durationMs: 0,
+        isError: false,
+        timestamp: ts ?? '',
+        responseText,
+        editDetails: msgEditDetails.length > 0 ? msgEditDetails : undefined,
+      })
+      idx++
+    }
+
+    const usageLines = claudeUsageRows(parsed)
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       if (parsed[lineIndex] === undefined) continue
       const entry = parsed[lineIndex] as Record<string, unknown>
@@ -498,14 +646,11 @@ export class LogReader {
       if (typeof entry['sessionId'] === 'string' && entry['sessionId']) claudeSessionId = entry['sessionId'] as string
 
       if (entry['type'] === 'user') {
-        // isSidechain: true → session was spawned by the Agent tool, not typed by a human.
-        // <local-command-caveat> prefix → session started via `claude -p` (non-interactive API).
-        if (!userRequest) {
-          if (entry['isSidechain'] === true) initiator = 'agent'
-        }
         const content = (entry['message'] as Record<string, unknown>)?.['content']
         const text = _extractTextContent(content)
-        if (!userRequest && text) {
+        // A sidechain line (an older transcript's inline subagent) is never the turn's prompt.
+        if (!userRequest && text && entry['isSidechain'] !== true) {
+          // <local-command-caveat> prefix → session started via `claude -p` (non-interactive API).
           if (initiator === 'user' && text.startsWith('<local-command-caveat>')) {
             initiator = 'api'
             const afterCaveat = text.replace(/^<local-command-caveat>[\s\S]*?<\/local-command-caveat>\s*/i, '').trim()
@@ -518,98 +663,31 @@ export class LogReader {
             userRequest = text
           }
         }
-        timeline.push({ type: 'user_input', spanId: `log-u-${idx}`, label: 'User', durationMs: 0, isError: false, timestamp: ts ?? '', responseText: text })
+        timeline.push({ type: 'user_input', spanId: spanIdFor('u', entry), label: 'User', durationMs: 0, isError: false, timestamp: ts ?? '', responseText: text })
         idx++
       }
 
-      if (entry['type'] === 'assistant') {
-        const msg = entry['message'] as Record<string, unknown> | undefined
-        // Limit refusals and API errors Claude Code writes itself carry model '<synthetic>' and
-        // zero usage: not an LLM call, so they don't set the model or count as a turn.
-        const synthetic = msg?.['model'] === CLAUDE_SYNTHETIC_MODEL
-        if (synthetic) {
-          const hit = claudeLimitHit(entry, sessionId)
-          if (hit) limitHits.push(hit)
-        }
-        if (msg?.['model'] && !synthetic) model = msg['model'] as string
-        const rawUsage = msg?.['usage'] as Record<string, unknown> | undefined
-        if (rawUsage?.['speed'] === 'fast') hasFastMode = true
-        const usage = rawUsage as Record<string, number> | undefined
-        let msgTotalInput = 0, msgCacheRead = 0, msgCacheCreate = 0, msgOutput = 0
-        if (usage && usageLines.has(lineIndex) && !synthetic) {
-          const inp  = usage['input_tokens']                ?? 0
-          const cr   = usage['cache_read_input_tokens']     ?? 0
-          const cc   = usage['cache_creation_input_tokens'] ?? 0
-          msgTotalInput = inp + cr + cc
-          msgCacheRead = cr
-          msgCacheCreate = cc
-          msgOutput = usage['output_tokens'] ?? 0
-          totalInput       += inp
-          totalOutput      += msgOutput
-          totalCacheRead   += cr
-          totalCacheCreate += cc
-          const turnContext = inp + cr + cc
-          if (turnContext > peakContextPerTurn) peakContextPerTurn = turnContext
-          turns++
-          if (model) {
-            modelTokens.set(model, (modelTokens.get(model) ?? 0) + msgTotalInput + msgOutput)
-          }
-        }
-        const content = (msg?.['content'] as Array<Record<string, unknown>>) ?? []
-        let hasToolCall = false
-        const msgEditDetails: EditDetail[] = []
-        for (const block of content) {
-          if (block['type'] === 'tool_use' && block['name']) {
-            hasToolCall = true; totalToolCalls++
-            const name = block['name'] as string
-            toolCounts[name] = (toolCounts[name] ?? 0) + 1
-            const inp = (block['input'] ?? {}) as Record<string, unknown>
-            const fp  = String(inp['file_path'] ?? inp['filePath'] ?? inp['path'] ?? '')
-            if (fp) {
-              if (name === 'Read' || name === 'read_file') filesRead.add(fp)
-              else if (['Edit','MultiEdit','replace_string_in_file','NotebookEdit'].includes(name)) filesChanged.add(fp)
-              else if (name === 'Write' || name === 'create_file') { filesChanged.add(fp); filesWritten.add(fp) }
-            }
-            if (name === 'MultiEdit' && Array.isArray(inp['edits'])) {
-              for (const e of inp['edits'] as Array<Record<string, unknown>>) {
-                const efp = e['file_path'] ?? e['filePath'] ?? fp
-                if (efp) {
-                  msgEditDetails.push({
-                    filePath: String(efp),
-                    toolName: 'Edit',
-                    oldString: _strOrUndef(e['old_string'] ?? e['oldString']),
-                    newString: _strOrUndef(e['new_string'] ?? e['newString']),
-                  })
-                }
-              }
-            } else if (fp && ['Edit','replace_string_in_file','NotebookEdit','Write','create_file'].includes(name)) {
-              msgEditDetails.push({
-                filePath: fp,
-                toolName: name,
-                oldString: _strOrUndef(inp['old_string'] ?? inp['oldString']),
-                newString: _strOrUndef(inp['new_string'] ?? inp['newString']),
-                content: _strOrUndef(inp['content']),
-              })
-            }
-          }
-        }
-        const responseText = (content.find(b => b['type'] === 'text') as Record<string,string> | undefined)?.['text']
-        timeline.push({
-          type: hasToolCall ? 'tool' : 'llm',
-          spanId: `log-a-${idx}`,
-          label: hasToolCall ? 'Tool calls' : 'Response',
-          model: model || undefined,
-          inputTokens: msgTotalInput || undefined,
-          outputTokens: msgOutput || undefined,
-          cacheReadTokens: msgCacheRead || undefined,
-          cacheCreateTokens: msgCacheCreate || undefined,
-          durationMs: 0,
-          isError: false,
-          timestamp: ts ?? '',
-          responseText,
-          editDetails: msgEditDetails.length > 0 ? msgEditDetails : undefined,
+      if (entry['type'] === 'assistant') addAssistant(entry, ts, usageLines.has(lineIndex), false)
+    }
+
+    // Folded subagent transcripts: their LLM calls are this turn's (OTEL counts them under the
+    // same interaction), so they add usage, tool calls, files and timeline entries — in time order.
+    if (subagents.length > 0) {
+      const own = timeline.length
+      for (const sub of subagents) {
+        const subUsage = claudeUsageRows(sub.parsed)
+        sub.parsed.forEach((e, i) => {
+          if (e === undefined) return
+          const entry = e as Record<string, unknown>
+          if (entry['type'] !== 'assistant') return
+          const ts = entry['timestamp'] as string | undefined
+          if (ts && ts > lastTimestamp) lastTimestamp = ts
+          addAssistant(entry, ts, subUsage.has(i), true)
         })
-        idx++
+      }
+      if (timeline.length > own) {
+        const ms = (t: TimelineEntry) => Date.parse(t.timestamp) || 0
+        timeline.splice(0, timeline.length, ...timeline.map((t, i) => ({ t, i })).sort((a, b) => (ms(a.t) - ms(b.t)) || (a.i - b.i)).map(x => x.t))
       }
     }
 
@@ -633,11 +711,107 @@ export class LogReader {
       ? [effectiveModel || 'claude', ...rankedModels.slice(1)]
       : (effectiveModel ? [effectiveModel] : [])
     const card = _buildCard(sessionId, 'claude_code', effectiveModel || 'claude', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate, peakContextPerTurn, turns, totalToolCalls, toolCounts, filesRead, filesChanged, filesWritten, filesSearched: new Set(), userRequest, timeline, initiator }, workspace, models)
-    // Claude Code's own session id — equal to the file name for a main transcript, the parent's id
-    // for a subagent transcript (subagents/agent-*.jsonl). Shared with its OTEL spans' session.id.
+    // Claude Code's own session id — equal to the file name for a main transcript. Shared with
+    // its OTEL spans' session.id, which is how claudeTurnJoin.ts finds this transcript.
     if (claudeSessionId) card.claudeSessionId = claudeSessionId
+    card.sourceRank = turns > 0 ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
     const hits = dedupeHits(limitHits)
     return { workspace, card, ...(hits.length > 0 ? { limitHits: hits } : {}) }
+  }
+
+  /** The subagent transcripts of `parentPath` (Claude Code's subagents/agent-*.jsonl beside it, or
+   *  an older install's agent-*.jsonl next to it whose lines name this session), each assigned to
+   *  the turn that spawned it: the turn whose promptId its lines carry, else the last turn that
+   *  started at or before its first line. Records each file's state so a later change to it
+   *  re-parses the parent (see _invalidateIfClaudeSubagentsChanged). */
+  private _claudeSubagentsByTurn(parentPath: string, baseSessionId: string, turns: ClaudeTurnSpan[]): Map<number, ClaudeSubagent[]> {
+    const byTurn = new Map<number, ClaudeSubagent[]>()
+    const turnByPromptId = new Map(turns.flatMap((t, i) => t.exact ? [[t.turnId, i] as const] : []))
+    for (const file of this._claudeSubagentFiles(parentPath, baseSessionId)) {
+      let raw: string
+      let stat: fs.Stats
+      try { stat = fs.statSync(file); raw = fs.readFileSync(file, 'utf-8') } catch { continue }
+      this.fileState.set(file, { bytesRead: stat.size, mtimeMs: stat.mtimeMs })
+      const rawLines = raw.split('\n').filter(l => l.trim())
+      const { parsed } = dedupeParsedByUuid(rawLines, rawLines.map(parseLogLine))
+      let firstMs = 0
+      let turnIndex: number | undefined
+      for (const e of parsed) {
+        if (e === undefined) continue
+        const entry = e as Record<string, unknown>
+        const pid = typeof entry['promptId'] === 'string' ? entry['promptId'] : ''
+        if (turnIndex === undefined && pid && turnByPromptId.has(pid)) turnIndex = turnByPromptId.get(pid)
+        const ms = typeof entry['timestamp'] === 'string' ? Date.parse(entry['timestamp']) : NaN
+        if (!firstMs && Number.isFinite(ms)) firstMs = ms
+      }
+      if (turnIndex === undefined) {
+        turnIndex = 0
+        for (let i = 0; i < turns.length; i++) if (turns[i].startMs > 0 && turns[i].startMs <= firstMs) turnIndex = i
+      }
+      const list = byTurn.get(turnIndex) ?? []
+      list.push({ parsed })
+      byTurn.set(turnIndex, list)
+    }
+    return byTurn
+  }
+
+  private _claudeSubagentFiles(parentPath: string, baseSessionId: string): string[] {
+    const files: string[] = []
+    const dir = path.dirname(parentPath)
+    const subDir = path.join(dir, baseSessionId, 'subagents')
+    try {
+      for (const name of fs.readdirSync(subDir)) {
+        if (name.startsWith('agent-') && name.endsWith('.jsonl')) files.push(path.join(subDir, name))
+      }
+    } catch { /* no subagents directory */ }
+    // An older layout kept agent-*.jsonl beside the parent; its lines carry the parent's sessionId.
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.startsWith('agent-') || !name.endsWith('.jsonl')) continue
+        const file = path.join(dir, name)
+        if (this._claudeAgentFileSessionId(file) === baseSessionId) files.push(file)
+      }
+    } catch { /* directory gone */ }
+    return files
+  }
+
+  /** The `sessionId` the first lines of a root-level agent-*.jsonl name — cached per file state. */
+  private _claudeAgentFileSessionId(file: string): string {
+    let stat: fs.Stats
+    try { stat = fs.statSync(file) } catch { return '' }
+    const cached = this.agentFileSessionIds.get(file)
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.sessionId
+    let sessionId = ''
+    try {
+      const fd = fs.openSync(file, 'r')
+      try {
+        const buf = Buffer.alloc(Math.min(stat.size, 64 * 1024))
+        fs.readSync(fd, buf, 0, buf.length, 0)
+        for (const line of buf.toString('utf-8').split('\n')) {
+          const e = parseLogLine(line) as Record<string, unknown> | undefined
+          if (e && typeof e['sessionId'] === 'string' && e['sessionId']) { sessionId = e['sessionId']; break }
+        }
+      } finally { fs.closeSync(fd) }
+    } catch { /* unreadable */ }
+    this.agentFileSessionIds.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, sessionId })
+    return sessionId
+  }
+
+  /** A subagent transcript can grow while its parent's file doesn't; forget the parent's state
+   *  when any of its subagent files changed so the next pass re-parses (cheaply — lineCache). */
+  private _invalidateIfClaudeSubagentsChanged(parentPath: string): void {
+    if (!this.fileState.has(parentPath)) return
+    const base = path.basename(parentPath, '.jsonl')
+    for (const file of this._claudeSubagentFiles(parentPath, base)) {
+      const prev = this.fileState.get(file)
+      try {
+        const stat = fs.statSync(file)
+        if (!prev || prev.mtimeMs !== stat.mtimeMs || prev.bytesRead !== stat.size) {
+          this.fileState.delete(parentPath)
+          return
+        }
+      } catch { /* vanished */ }
+    }
   }
 
   // ── Codex ───────────────────────────────────────────────────────────────────
@@ -652,39 +826,39 @@ export class LogReader {
     return results
   }
 
-  /** Reads a Codex CLI transcript and splits it into one or more session results — same
-   *  one-file-can-span-real-days problem as Claude Code (confirmed on real data: files spanning
-   *  two real weeks with multi-day gaps between prompts), same fix. See
-   *  splitCodexLinesOnPromptGaps for what counts as a new prompt in this format. No duplicate-uuid
-   *  issue found in Codex's format during validation (unlike Claude Code's — see dedupeByUuid),
-   *  so no dedup step here; revisit if real data ever shows otherwise.
+  /** Reads a Codex CLI rollout and returns one result per turn. A turn opens at a `user_message`
+   *  (walked back over the near-simultaneous bookkeeping lines logged just before it — see
+   *  WALKBACK_EPSILON_MS) and is keyed by Codex's own `turn_id` (task_started / turn_context):
+   *  traceKey('codex', turn_id), the same key the Codex OTEL card gets from its spans' turn id. A
+   *  user_message that lands inside a running turn (same turn_id) opens nothing. A rollout from
+   *  before Codex logged turn ids gets derived keys (conversation id + the prompt's timestamp).
+   *  Verify at scale: turn_id equality between rollouts and OTEL spans rests on one sample.
    *
-   *  One thing splitting alone doesn't handle: Codex's token_count events report a
-   *  total_token_usage that's cumulative for the *entire file*, not per-turn — confirmed on real
-   *  data (input_tokens climbing 16k → 33k → ... → 489k monotonically across an 8-day span with
-   *  no resets). Slicing lines into segments without accounting for this would give every segment
-   *  after the first the *entire session's* running total, not its own — segment 3 would report
-   *  segments 0+1+2+3's combined tokens as if they were its own. _parseCodexSegment takes the
-   *  previous segment's ending cumulative usage as a baseline and subtracts it, so each segment
-   *  reports only its own delta; running_totalTokenUsage carries that baseline forward across
-   *  segments (including ones with no token_count events of their own, which must inherit the
-   *  prior segment's cumulative value unchanged, not reset to zero). */
+   *  Codex's token_count events report a total_token_usage that's cumulative for the *entire
+   *  file*, not per-turn (confirmed on real data: input_tokens climbing monotonically across an
+   *  8-day span), so _parseCodexSegment takes the previous turn's ending cumulative usage as a
+   *  baseline and subtracts it; the baseline carries forward across turns with no token_count
+   *  events of their own. */
   private _parseCodexFile(filePath: string): LogSessionResult[] {
     const lines = this._readNewLines(filePath)
     if (!lines) return []
 
     const baseSessionId = path.basename(filePath, '.jsonl')
-    const segments = splitCodexLinesOnPromptGaps(lines)
+    const parsed = lines.map(parseLogLine)
+    const { id: rolloutId, cwd: fileWorkspace } = codexSessionMeta(parsed)
+    const conversationId = rolloutId || baseSessionId
     const results: LogSessionResult[] = []
     let runningTotalTokenUsage: Record<string, number> | undefined
-    segments.forEach((segmentLines, segmentIndex) => {
-      const parsed = this._parseCodexSegment(segmentLines, claudeSegmentSessionId(baseSessionId, segmentIndex), runningTotalTokenUsage)
-      if (parsed.result) results.push(parsed.result)
-      if (parsed.cumulativeUsage) runningTotalTokenUsage = parsed.cumulativeUsage
-    })
-    // See the matching comment in _parseClaudeFile — same conversationId tagging, same reason.
-    if (results.length > 1) {
-      for (const r of results) r.card.conversationId = baseSessionId
+    for (const turn of codexTurnRanges(parsed)) {
+      const key = turn.turnId ? traceKey('codex', turn.turnId) : derivedTraceKey('codex', conversationId, turn.openingTs)
+      const segment = this._parseCodexSegment(lines.slice(turn.start, turn.end), key, runningTotalTokenUsage, fileWorkspace)
+      if (segment.cumulativeUsage) runningTotalTokenUsage = segment.cumulativeUsage
+      if (!segment.result) continue
+      const card = segment.result.card
+      // The rollout's own id — Codex's thread id, the conversation id its OTEL card carries too.
+      card.conversationId = conversationId
+      if (!turn.turnId) card.derived = true
+      results.push(segment.result)
     }
     return results
   }
@@ -693,6 +867,7 @@ export class LogReader {
     lines: string[],
     sessionId: string,
     baselineUsage: Record<string, number> | undefined,
+    fileWorkspace = '',
   ): { result: LogSessionResult | null; cumulativeUsage: Record<string, number> | undefined } {
     let workspace = ''
 
@@ -715,7 +890,10 @@ export class LogReader {
       try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
 
       const ts = entry['timestamp'] as string | undefined
-      if (ts) {
+      // turn_aborted is logged when the user comes back, not when the turn stopped — it would
+      // stretch whichever turn's range it lands in.
+      const aborted = (entry['payload'] as Record<string, unknown> | undefined)?.['type'] === 'turn_aborted'
+      if (ts && !aborted) {
         if (!firstTimestamp) firstTimestamp = ts
         if (entry['type'] === 'event_msg') lastTimestamp = ts
       }
@@ -726,10 +904,11 @@ export class LogReader {
         if (payload?.['cwd']) workspace = String(payload['cwd'])
       }
 
-      // turn_context carries the model name
+      // turn_context carries the model name (and, in newer rollouts, the turn's cwd)
       if (entry['type'] === 'turn_context') {
         const payload = entry['payload'] as Record<string, unknown> | undefined
         if (payload?.['model']) model = String(payload['model'])
+        if (payload?.['cwd'] && !workspace) workspace = String(payload['cwd'])
       }
 
       if (entry['type'] === 'event_msg') {
@@ -750,7 +929,8 @@ export class LogReader {
       }
     }
 
-    if (!firstTimestamp) return { result: null, cumulativeUsage: undefined }
+    if (!firstTimestamp) return { result: null, cumulativeUsage: lastTotalUsage }
+    workspace = workspace || fileWorkspace
 
     // total_token_usage is cumulative for the whole file — this segment's own contribution is
     // the delta from the previous segment's ending cumulative value (0 for segment 0). A segment
@@ -783,7 +963,10 @@ export class LogReader {
         ...(limitReadings.length > 0 ? { limitReadings } : {}),
         ...(limitHits.length > 0 ? { limitHits } : {}),
         ...(planStatus ? { planStatus } : {}),
-        card: _buildCard(sessionId, 'codex', model || 'codex', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate: 0, peakContextPerTurn: 0, turns, totalToolCalls: 0, toolCounts: {}, filesRead: new Set(), filesChanged: new Set(), filesWritten: new Set(), filesSearched: new Set(), userRequest: userRequest.slice(0, 500), timeline: [], initiator: 'user' }, workspace),
+        card: {
+          ..._buildCard(sessionId, 'codex', model || 'codex', firstTimestamp, lastTimestamp, { totalInput, totalOutput, totalCacheRead, totalCacheCreate: 0, peakContextPerTurn: 0, turns, totalToolCalls: 0, toolCounts: {}, filesRead: new Set(), filesChanged: new Set(), filesWritten: new Set(), filesSearched: new Set(), userRequest: userRequest.slice(0, 500), timeline: [], initiator: 'user' }, workspace),
+          sourceRank: lastTotalUsage ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL,
+        },
       },
       cumulativeUsage: lastTotalUsage,
     }
@@ -811,75 +994,87 @@ export class LogReader {
 
     for (const sessionDirName of sessionDirs) {
       const eventsFile = path.join(stateDir, sessionDirName, 'events.jsonl')
-      const result = this._processFile(eventsFile, () => this._parseCopilotFile(eventsFile, sessionDirName))
-      if (result) results.push(result)
+      results.push(...this._processFileMulti(eventsFile, () => this._parseCopilotFile(eventsFile, sessionDirName)))
     }
 
     return results
   }
 
-  private _parseCopilotFile(filePath: string, sessionId: string): LogSessionResult | null {
+  /** One result per turn: a turn opens at each `user.message` (session.start and anything else
+   *  before the first prompt belong to the first turn). The format has no per-turn id of its own
+   *  that's been verified, so keys are derived from the session id plus the prompt event's own
+   *  `id` (or its timestamp). `session.shutdown` reports input and cache tokens for the whole
+   *  session only — they land on the last turn so the session's totals stay right; per-turn input
+   *  for Copilot CLI is unknown. */
+  private _parseCopilotFile(filePath: string, sessionId: string): LogSessionResult[] {
     const lines = this._readNewLines(filePath)
-    if (!lines) return null
+    if (!lines) return []
 
     let workspace = ''
-    let model = ''
-    let firstTimestamp = ''
-    let lastTimestamp = ''
-    let userRequest = ''
-    let totalOutput = 0
+    let sessionModel = ''
+    let sessionStart = ''
     let totalInputFromShutdown = 0
     let totalCacheRead = 0
     let totalCacheCreate = 0
-    let turns = 0, totalToolCalls = 0
-    const toolCounts: Record<string, number> = {}
-    const filesChanged = new Set<string>()
+    let sawShutdown = false
+    interface Turn {
+      opening: string; first: string; last: string; model: string; userRequest: string
+      totalOutput: number; turns: number; totalToolCalls: number
+      toolCounts: Record<string, number>; filesChanged: Set<string>
+    }
+    const turns: Turn[] = []
+    const newTurn = (opening: string): Turn => ({ opening, first: '', last: '', model: '', userRequest: '', totalOutput: 0, turns: 0, totalToolCalls: 0, toolCounts: {}, filesChanged: new Set() })
+    let leading: Turn | undefined
 
     for (const line of lines) {
       let event: Record<string, unknown>
       try { event = JSON.parse(line) as Record<string, unknown> } catch { continue }
 
-      const ts = event['timestamp'] as string | undefined
-      if (ts) {
-        if (!firstTimestamp) firstTimestamp = ts
-        const type = event['type'] as string | undefined
-        if (type === 'user.message' || type === 'assistant.message' || type === 'session.shutdown') lastTimestamp = ts
-      }
-
       const type = event['type'] as string | undefined
       const data = event['data'] as Record<string, unknown> | undefined
+      const ts = event['timestamp'] as string | undefined
+      if (type === 'user.message' && data) {
+        const opening = typeof event['id'] === 'string' && event['id'] ? event['id'] : (ts ?? String(turns.length))
+        turns.push(newTurn(opening))
+      }
+      const cur = turns[turns.length - 1] ?? (leading ??= newTurn(''))
+      if (ts) {
+        if (!cur.first) cur.first = ts
+        // Not session.shutdown: that is when the CLI was quit, not when the turn ended.
+        if (type === 'user.message' || type === 'assistant.message') cur.last = ts
+      }
       if (!type || !data) continue
 
       if (type === 'session.start') {
-        if (data['selectedModel']) model = String(data['selectedModel'])
+        if (data['selectedModel']) sessionModel = String(data['selectedModel'])
         const ctx = data['context'] as Record<string, unknown> | undefined
         if (ctx?.['cwd']) workspace = String(ctx['cwd'])
-        if (data['startTime'] && !firstTimestamp) firstTimestamp = String(data['startTime'])
+        if (data['startTime']) sessionStart = String(data['startTime'])
       }
 
-      if (type === 'user.message' && !userRequest) {
-        userRequest = _extractCopilotUserText(String(data['transformedContent'] ?? ''))
+      if (type === 'user.message' && !cur.userRequest) {
+        cur.userRequest = _extractCopilotUserText(String(data['transformedContent'] ?? ''))
       }
 
       if (type === 'assistant.message') {
         const outTok = data['outputTokens'] as number | undefined
-        if (outTok) { totalOutput += outTok; turns++ }
+        if (outTok) { cur.totalOutput += outTok; cur.turns++ }
         const toolReqs = data['toolRequests'] as Array<Record<string, unknown>> | undefined
         if (toolReqs) {
           for (const req of toolReqs) {
             const name = String(req['name'] ?? '')
             if (!name) continue
-            totalToolCalls++
-            toolCounts[name] = (toolCounts[name] ?? 0) + 1
+            cur.totalToolCalls++
+            cur.toolCounts[name] = (cur.toolCounts[name] ?? 0) + 1
             // Track file paths from write/edit tools
             const args = req['arguments'] as Record<string, unknown> | undefined
             const fp = String(args?.['path'] ?? args?.['file_path'] ?? '')
             if (fp && (name === 'edit' || name === 'write' || name === 'create')) {
-              filesChanged.add(fp)
+              cur.filesChanged.add(fp)
             }
           }
         }
-        if (data['model']) model = String(data['model'])
+        if (data['model']) cur.model = String(data['model'])
       }
 
       if (type === 'session.shutdown') {
@@ -887,6 +1082,7 @@ export class LogReader {
         // data['currentTokens'] is only the context window size at shutdown — do not use it.
         const metrics = data['modelMetrics'] as Record<string, Record<string, unknown>> | undefined
         if (metrics) {
+          sawShutdown = true
           for (const entry of Object.values(metrics)) {
             const usage = (entry as Record<string, unknown>)?.['usage'] as Record<string, number> | undefined
             if (!usage) continue
@@ -898,28 +1094,39 @@ export class LogReader {
       }
     }
 
-    if (!firstTimestamp) return null
-
-    return {
-      workspace,
-      card: _buildCard(sessionId, 'copilot', model || 'copilot', firstTimestamp, lastTimestamp, {
-        totalInput: totalInputFromShutdown,
-        totalOutput,
-        totalCacheRead,
-        totalCacheCreate,
+    // No prompt at all: the session's one (prompt-less) turn, as before.
+    if (turns.length === 0 && leading) turns.push(leading)
+    const results: LogSessionResult[] = []
+    let model = sessionModel
+    turns.forEach((turn, i) => {
+      const first = turn.first || (i === 0 ? sessionStart : '')
+      if (!first) return
+      if (turn.model) model = turn.model
+      const isLast = i === turns.length - 1
+      const key = derivedTraceKey('copilot', sessionId, turn.opening || first)
+      const card = _buildCard(key, 'copilot', model || 'copilot', first, turn.last || first, {
+        totalInput: isLast ? totalInputFromShutdown : 0,
+        totalOutput: turn.totalOutput,
+        totalCacheRead: isLast ? totalCacheRead : 0,
+        totalCacheCreate: isLast ? totalCacheCreate : 0,
         peakContextPerTurn: 0,
-        turns,
-        totalToolCalls,
-        toolCounts,
+        turns: turn.turns,
+        totalToolCalls: turn.totalToolCalls,
+        toolCounts: turn.toolCounts,
         filesRead: new Set(),
-        filesChanged,
+        filesChanged: turn.filesChanged,
         filesWritten: new Set(),
         filesSearched: new Set(),
-        userRequest: userRequest.slice(0, 500),
+        userRequest: turn.userRequest.slice(0, 500),
         timeline: [],
         initiator: 'user',
-      }, workspace),
-    }
+      }, workspace)
+      card.conversationId = sessionId
+      card.derived = true
+      card.sourceRank = turn.totalOutput > 0 || (isLast && sawShutdown) ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
+      results.push({ workspace, card })
+    })
+    return results
   }
 
   // ── Copilot Chat (VS Code sidebar) ───────────────────────────────────────────
@@ -951,8 +1158,7 @@ export class LogReader {
             } else if (name.endsWith('.json') && !jsonlIds.has(name.slice(0, -5))) {
               const filePath = path.join(chatDir, name)
               const sessionId = path.basename(filePath, '.json')
-              const result = this._processFile(filePath, () => this._parseCopilotVSCodeJsonFile(filePath, sessionId))
-              if (result) results.push(result)
+              results.push(...this._processFileMulti(filePath, () => this._parseCopilotVSCodeJsonFile(filePath, sessionId)))
             }
           }
         }
@@ -961,88 +1167,33 @@ export class LogReader {
     return results
   }
 
-  /** Reads a Copilot Chat (VS Code) transcript and splits it into one or more session results —
-   *  same one-file-can-span-real-days problem as Claude Code and Codex (confirmed on real data:
-   *  files spanning up to 121.7 real hours, one gap alone 61.5 hours). See
-   *  splitCopilotVSCodeLinesOnPromptGaps for what counts as a new prompt in this format. No
-   *  cumulative-counter issue like Codex's (this format's token counts are already keyed per-turn
-   *  index, not a running total) and no duplicate-uuid issue like Claude Code's found in this
-   *  format during validation — but a different wrinkle unique to this format: a `kind: 1` update
+  /** Reads a Copilot Chat (VS Code) delta log and returns one result per request — a request is
+   *  this format's turn, keyed by its own `requestId` (traceKey('copilot', requestId)); a request
+   *  with none gets a derived key from the chat id plus its timestamp. A `kind: 1` update
    *  (e.g. `k: ["requests", N, "completionTokens"]`) addresses request N by its position in the
-   *  *whole session's* requests array, not a position relative to whichever segment it happens to
-   *  fall in. Re-parsing each segment's lines starting a local turn counter at 0 would misalign
-   *  every kind=1 update after the first segment. _parseCopilotVSCodeSegment takes the number of
-   *  requests already pushed by prior segments as startingTurnIndex and continues counting from
-   *  there, so a segment's own turn-index keys line up with what kind=1 updates actually address. */
+   *  *whole session's* requests array, so requests are numbered in push order across the file.
+   *  completionTokens appears in three formats depending on VS Code / Copilot Chat version:
+   *    Format A (current):  kind=1, k=["requests", N, "completionTokens"], v=number
+   *    Format B (current):  embedded in the kind=2 push object as req.completionTokens
+   *    Format C (pre-mid-2026): kind=1, k=["requests", N, "result"], v.usage.completionTokens
+   *      (Format C also carries v.usage.promptTokens — per-turn input tokens.)
+   *  A later kind=1 value (the streaming-final one) wins over Format B. */
   private _parseCopilotVSCodeFile(filePath: string): LogSessionResult[] {
     const lines = this._readNewLines(filePath)
     if (!lines) return []
+    const workspace = _vscodeChatWorkspace(filePath)
 
-    // Workspace from sibling workspace.json two levels up (workspaceStorage/<hash>/workspace.json)
-    // — read once per file, not per segment, since it's the same for every segment in this file.
-    const workspaceJsonPath = path.join(path.dirname(filePath), '..', 'workspace.json')
-    let workspace = ''
-    try {
-      const wj = JSON.parse(fs.readFileSync(workspaceJsonPath, 'utf-8')) as Record<string, unknown>
-      const folderUri = String(wj['folder'] ?? '')
-      if (folderUri.startsWith('file:///')) {
-        let p = decodeURIComponent(folderUri.slice(7))  // strip 'file://'
-        // On Windows file:///C:/... → /C:/... → strip leading slash
-        if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(p)) p = p.slice(1)
-        workspace = p
-      }
-    } catch { /* no workspace.json — no-folder or untitled window */ }
-
-    const baseSessionId = path.basename(filePath, '.jsonl')
-    const segments = splitCopilotVSCodeLinesOnPromptGaps(lines)
-    const results: LogSessionResult[] = []
-    let startingTurnIndex = 0
-    segments.forEach((segmentLines, segmentIndex) => {
-      const parsed = this._parseCopilotVSCodeSegment(
-        segmentLines,
-        claudeSegmentSessionId(baseSessionId, segmentIndex),
-        workspace,
-        startingTurnIndex,
-      )
-      if (parsed.result) results.push(parsed.result)
-      startingTurnIndex += parsed.turnsPushed
-    })
-    // See the matching comment in _parseClaudeFile — same conversationId tagging, same reason.
-    if (results.length > 1) {
-      for (const r of results) r.card.conversationId = baseSessionId
+    interface Req {
+      requestId: string; ts?: number; text: string; rendered: string; modelId: string
+      completion?: number; prompt?: number; elapsedMs?: number
     }
-    return results
-  }
-
-  private _parseCopilotVSCodeSegment(
-    lines: string[],
-    sessionId: string,
-    workspace: string,
-    startingTurnIndex: number,
-  ): { result: LogSessionResult | null; turnsPushed: number } {
+    const reqs: Req[] = []
     let sessionCreatedMs = 0
     let model = ''
-    let userRequest = ''
-    let totalOutput = 0
-
-    // Per-turn data keyed by turn index.
-    // completionTokens appears in three formats depending on VS Code / Copilot Chat version:
-    //   Format A (current):  kind=1, k=["requests", N, "completionTokens"], v=number
-    //   Format B (current):  embedded in kind=2 push object as req.completionTokens
-    //   Format C (pre-mid-2026): kind=1, k=["requests", N, "result"], v.usage.completionTokens
-    //     Format C also carries v.usage.promptTokens (per-turn input tokens — correct for billing).
-    // kind=1 always takes precedence over Format B (arrives later, streaming-final value).
-    const turnCompletionTokens = new Map<number, number>()
-    const turnPromptTokens = new Map<number, number>()  // Format C only
-    const turnTimestamps: number[] = []
-    // Continues the whole session's turn numbering rather than starting at 0 — see this method's
-    // own doc comment on _parseCopilotVSCodeFile for why.
-    let requestPushCount = startingTurnIndex
-
-    for (const line of lines) {
-      let entry: Record<string, unknown>
-      try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
-
+    const parsed = lines.map(parseLogLine)
+    parsed.forEach(e => {
+      if (e === undefined) return
+      const entry = e as Record<string, unknown>
       const kind = entry['kind'] as number | undefined
       const k = entry['k']
       const v = entry['v']
@@ -1058,114 +1209,83 @@ export class LogReader {
         else if (typeof selModel?.['id'] === 'string') model = selModel['id']
       }
 
-      // kind=2 push to 'requests' — new turn(s); may already carry completionTokens (Format B).
-      // k must be exactly ['requests']; k=['requests', N, 'response'] are sub-array pushes for
-      // turn response entries and must not be treated as new request objects.
+      // kind=2 push to 'requests' — new request(s). k must be exactly ['requests'];
+      // k=['requests', N, 'response'] are sub-array pushes for a request's response entries.
       if (kind === 2 && Array.isArray(k) && k.length === 1 && k[0] === 'requests' && Array.isArray(v)) {
-        for (let j = 0; j < (v as unknown[]).length; j++) {
-          const req = (v as Array<Record<string, unknown>>)[j]
-          const turnIdx = requestPushCount + j
-          if (typeof req['timestamp'] === 'number') turnTimestamps[turnIdx] = req['timestamp']
-          // Format B: completionTokens already in the push object (don't overwrite kind=1 value)
-          if (typeof req['completionTokens'] === 'number' && !turnCompletionTokens.has(turnIdx)) {
-            turnCompletionTokens.set(turnIdx, req['completionTokens'])
-          }
-          // Format B: message.text is the raw user prompt — much cleaner than renderedUserMessage.
-          // Checks against this *segment's* own first turn (startingTurnIndex), not the whole
-          // session's global turn 0 — every segment after the first needs its own prompt captured
-          // from its own first turn, not just the file's very first one.
-          if (turnIdx === startingTurnIndex && !userRequest) {
-            const msg = req['message'] as Record<string, unknown> | undefined
-            if (typeof msg?.['text'] === 'string' && (msg['text'] as string).trim()) {
-              userRequest = (msg['text'] as string).trim()
-            }
-          }
-          // Format B: modelId field (e.g. "copilot/gpt-4.1")
-          if (!model && typeof req['modelId'] === 'string') {
-            model = (req['modelId'] as string).replace(/^copilot\//, '')
-          }
+        for (const r of v as Array<Record<string, unknown>>) {
+          const msg = r?.['message'] as Record<string, unknown> | undefined
+          reqs.push({
+            requestId: typeof r?.['requestId'] === 'string' ? r['requestId'] : '',
+            ts: typeof r?.['timestamp'] === 'number' ? r['timestamp'] : undefined,
+            // message.text is the raw user prompt — much cleaner than renderedUserMessage.
+            text: typeof msg?.['text'] === 'string' ? (msg['text'] as string).trim() : '',
+            rendered: '',
+            modelId: typeof r?.['modelId'] === 'string' ? (r['modelId'] as string).replace(/^copilot\//, '') : '',
+            completion: typeof r?.['completionTokens'] === 'number' ? r['completionTokens'] : undefined,
+          })
         }
-        requestPushCount += (v as unknown[]).length
       }
 
       // kind=1 sets on a specific request key (Format A/C, or late-arriving streaming final value)
       if (kind === 1 && Array.isArray(k) && k[0] === 'requests' && typeof k[1] === 'number') {
-        const idx = k[1] as number
-        // Format A: output tokens stored directly at the completionTokens key
-        if (k[2] === 'completionTokens' && typeof v === 'number') {
-          turnCompletionTokens.set(idx, v)
-        }
+        const req = reqs[k[1] as number]
+        if (!req) return
+        if (k[2] === 'completionTokens' && typeof v === 'number') req.completion = v
         if (k[2] === 'result' && v && typeof v === 'object') {
           const result = v as Record<string, unknown>
-          // Format C (pre-mid-2026): token counts nested inside result.usage
           const usage = result['usage'] as Record<string, number> | undefined
-          if (usage) {
-            if (typeof usage['completionTokens'] === 'number') {
-              turnCompletionTokens.set(idx, usage['completionTokens'])
-            }
-            if (typeof usage['promptTokens'] === 'number') {
-              turnPromptTokens.set(idx, usage['promptTokens'])
-            }
-          }
-          // User message from renderedUserMessage (any-turn fallback when message.text not available)
-          if (!userRequest) {
-            const meta = result['metadata'] as Record<string, unknown> | undefined
-            const rendered = meta?.['renderedUserMessage'] as Array<Record<string, unknown>> | undefined
-            if (rendered) {
-              for (const chunk of rendered) {
-                if (chunk['type'] === 1 && typeof chunk['text'] === 'string') {
-                  userRequest = _extractVSCodeCopilotUserText(chunk['text'])
-                  if (userRequest) break
-                }
+          if (typeof usage?.['completionTokens'] === 'number') req.completion = usage['completionTokens']
+          if (typeof usage?.['promptTokens'] === 'number') req.prompt = usage['promptTokens']
+          const timings = result['timings'] as Record<string, unknown> | undefined
+          if (typeof timings?.['totalElapsed'] === 'number') req.elapsedMs = timings['totalElapsed']
+          // renderedUserMessage: fallback when message.text isn't available
+          const meta = result['metadata'] as Record<string, unknown> | undefined
+          const rendered = meta?.['renderedUserMessage'] as Array<Record<string, unknown>> | undefined
+          if (rendered && !req.rendered) {
+            for (const chunk of rendered) {
+              if (chunk['type'] === 1 && typeof chunk['text'] === 'string') {
+                req.rendered = _extractVSCodeCopilotUserText(chunk['text'])
+                if (req.rendered) break
               }
             }
           }
         }
       }
-    }
+    })
 
-    for (const tokens of turnCompletionTokens.values()) totalOutput += tokens
-    let totalInput = 0
-    for (const tokens of turnPromptTokens.values()) totalInput += tokens
-    const turns = turnCompletionTokens.size
-    const validTs = turnTimestamps.filter((n): n is number => n !== undefined)
-    if (turns === 0) return { result: null, turnsPushed: 0 }
-
-    // Prefers the earliest real turn timestamp over sessionCreatedMs (the kind=0 snapshot, when
-    // the chat panel itself was first created) for two reasons: it's only present in whichever
-    // segment happens to contain the file's very first line, so every later segment needs a
-    // fallback anyway — and confirmed on real data, even segment 0 needs it: a chat panel can sit
-    // open for many hours before its first real message, which made sessionCreatedMs alone show a
-    // 66-73 hour "duration" for sessions whose actual turns spanned well under 90 minutes.
-    const startMs = validTs.length > 0 ? Math.min(...validTs) : sessionCreatedMs
-    if (startMs === 0) return { result: null, turnsPushed: 0 }
-    const startTs = new Date(startMs).toISOString()
-    const lastTurnMs = validTs.length > 0 ? Math.max(...validTs) : startMs
-    const endTs = new Date(lastTurnMs).toISOString()
-
-    return {
-      turnsPushed: requestPushCount - startingTurnIndex,
-      result: {
-        workspace,
-        card: _buildCard(sessionId, 'copilot', model || 'copilot', startTs, endTs, {
-        totalInput,
-        totalOutput,
+    const baseSessionId = path.basename(filePath, '.jsonl')
+    const results: LogSessionResult[] = []
+    reqs.forEach((req, i) => {
+      // The chat panel's creation time stands in only for a first request with no timestamp of
+      // its own: a panel can sit open for hours before its first message.
+      const startMs = req.ts ?? (i === 0 ? sessionCreatedMs : 0)
+      if (!startMs) return
+      const key = req.requestId ? traceKey('copilot', req.requestId) : derivedTraceKey('copilot', baseSessionId, String(startMs))
+      const startTs = new Date(startMs).toISOString()
+      const endTs = new Date(startMs + Math.max(0, req.elapsedMs ?? 0)).toISOString()
+      const card = _buildCard(key, 'copilot', req.modelId || model || 'copilot', startTs, endTs, {
+        totalInput: req.prompt ?? 0,
+        totalOutput: req.completion ?? 0,
         totalCacheRead: 0,
         totalCacheCreate: 0,
         peakContextPerTurn: 0,
-        turns,
+        turns: req.completion !== undefined ? 1 : 0,
         totalToolCalls: 0,
         toolCounts: {},
         filesRead: new Set(),
         filesChanged: new Set(),
         filesWritten: new Set(),
         filesSearched: new Set(),
-        userRequest: userRequest.slice(0, 500),
+        userRequest: (req.text || req.rendered).slice(0, 500),
         timeline: [],
         initiator: 'user',
-        }, workspace),
-      },
-    }
+      }, workspace)
+      card.conversationId = baseSessionId
+      if (!req.requestId) card.derived = true
+      card.sourceRank = req.completion !== undefined ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
+      results.push({ workspace, card })
+    })
+    return results
   }
 
   // ── Copilot Chat (VS Code sidebar) — legacy JSON snapshot format ─────────────
@@ -1178,63 +1298,53 @@ export class LogReader {
   //   tool call presence.
   // Not available: output/input/cache tokens (not stored in older format).
 
-  private _parseCopilotVSCodeJsonFile(filePath: string, sessionId: string): LogSessionResult | null {
+  /** One result per request, keyed by its `requestId` like the delta-log format (derived from the
+   *  chat id plus the request's timestamp, or position, when it has none). Requests carry their
+   *  own timestamps; the snapshot's lastMessageDate closes the last one. */
+  private _parseCopilotVSCodeJsonFile(filePath: string, sessionId: string): LogSessionResult[] {
     const data = this._readJsonFile(filePath)
-    if (!data) return null
+    if (!data) return []
 
     const creationMs = typeof data['creationDate'] === 'number' ? data['creationDate'] : 0
     const lastMs     = typeof data['lastMessageDate'] === 'number' ? data['lastMessageDate'] : 0
-    if (!creationMs) return null
+    if (!creationMs) return []
 
     const requests = data['requests']
-    if (!Array.isArray(requests) || requests.length === 0) return null
+    if (!Array.isArray(requests) || requests.length === 0) return []
 
-    // Workspace from sibling workspace.json two levels up (workspaceStorage/<hash>/workspace.json)
-    const workspaceJsonPath = path.join(path.dirname(filePath), '..', 'workspace.json')
-    let workspace = ''
-    try {
-      const wj = JSON.parse(fs.readFileSync(workspaceJsonPath, 'utf-8')) as Record<string, unknown>
-      const folderUri = String(wj['folder'] ?? '')
-      if (folderUri.startsWith('file:///')) {
-        let p = decodeURIComponent(folderUri.slice(7))
-        if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(p)) p = p.slice(1)
-        workspace = p
-      }
-    } catch { /* no workspace.json — no-folder or untitled window */ }
+    const workspace = _vscodeChatWorkspace(filePath)
 
-    // Model: prefer per-turn modelId on first request; fall back to inputState
-    let model = ''
+    // Model: inputState's selected model; a request's own modelId when there is none
+    let sessionModel = ''
     const inputState = data['inputState'] as Record<string, unknown> | undefined
     if (inputState) {
       const selModel = inputState['selectedModel'] as Record<string, unknown> | undefined
       const meta = selModel?.['metadata'] as Record<string, unknown> | undefined
-      if (typeof meta?.['family'] === 'string') model = meta['family']
-      else if (typeof selModel?.['id'] === 'string') model = selModel['id']
+      if (typeof meta?.['family'] === 'string') sessionModel = meta['family']
+      else if (typeof selModel?.['id'] === 'string') sessionModel = selModel['id']
     }
 
-    let userRequest = ''
-    let totalToolCalls = 0
-    const toolCounts: Record<string, number> = {}
-
-    for (const req of requests as Array<Record<string, unknown>>) {
-      if (!model && typeof req['modelId'] === 'string') {
-        model = (req['modelId'] as string).replace(/^copilot\//, '')
-      }
-      if (!userRequest) {
-        const msg = req['message'] as Record<string, unknown> | undefined
-        if (typeof msg?.['text'] === 'string' && (msg['text'] as string).trim()) {
-          userRequest = (msg['text'] as string).trim()
-        } else if (Array.isArray(msg?.['parts'])) {
-          // Older format: message has no top-level text, only a parts array
-          for (const part of msg['parts'] as Array<Record<string, unknown>>) {
-            if (typeof part['text'] === 'string' && (part['text'] as string).trim()
-                && !((part['text'] as string).trim().startsWith('<'))) {
-              userRequest = (part['text'] as string).trim()
-              break
-            }
+    const sid = String(data['sessionId'] ?? sessionId)
+    const reqs = requests as Array<Record<string, unknown>>
+    const results: LogSessionResult[] = []
+    let prevStartMs = creationMs
+    reqs.forEach((req, i) => {
+      let userRequest = ''
+      const msg = req['message'] as Record<string, unknown> | undefined
+      if (typeof msg?.['text'] === 'string' && (msg['text'] as string).trim()) {
+        userRequest = (msg['text'] as string).trim()
+      } else if (Array.isArray(msg?.['parts'])) {
+        // Older format: message has no top-level text, only a parts array
+        for (const part of msg['parts'] as Array<Record<string, unknown>>) {
+          if (typeof part['text'] === 'string' && (part['text'] as string).trim()
+              && !((part['text'] as string).trim().startsWith('<'))) {
+            userRequest = (part['text'] as string).trim()
+            break
           }
         }
       }
+      let totalToolCalls = 0
+      const toolCounts: Record<string, number> = {}
       const response = req['response']
       if (Array.isArray(response)) {
         for (const entry of response as Array<Record<string, unknown>>) {
@@ -1245,25 +1355,32 @@ export class LogReader {
           }
         }
       }
-    }
-
-    const sid = String(data['sessionId'] ?? sessionId)
-    const startTs = new Date(creationMs).toISOString()
-    const endTs   = new Date(lastMs || creationMs).toISOString()
-
-    return {
-      workspace,
-      card: _buildCard(sid, 'copilot', model || 'copilot', startTs, endTs, {
+      const model = sessionModel || (typeof req['modelId'] === 'string' ? (req['modelId'] as string).replace(/^copilot\//, '') : '')
+      // A request with no timestamp of its own (the oldest snapshots) starts where the one before
+      // it did — the chat's creation time for the first.
+      const ownTs = typeof req['timestamp'] === 'number' ? req['timestamp'] : 0
+      const startMs = ownTs || prevStartMs
+      prevStartMs = startMs
+      const endMs = i === reqs.length - 1 ? Math.max(startMs, lastMs) : startMs
+      const requestId = typeof req['requestId'] === 'string' ? req['requestId'] : ''
+      const key = requestId ? traceKey('copilot', requestId) : derivedTraceKey('copilot', sid, ownTs ? String(ownTs) : `#${i}`)
+      const card = _buildCard(key, 'copilot', model || 'copilot', new Date(startMs).toISOString(), new Date(endMs).toISOString(), {
         totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCacheCreate: 0,
         peakContextPerTurn: 0,
-        turns: (requests as unknown[]).length,
+        turns: 1,
         totalToolCalls,
         toolCounts,
         filesRead: new Set(), filesChanged: new Set(), filesWritten: new Set(), filesSearched: new Set(),
         userRequest: userRequest.slice(0, 500),
         timeline: [], initiator: 'user',
-      }, workspace),
-    }
+      }, workspace)
+      card.conversationId = sid
+      if (!requestId) card.derived = true
+      // This format stores no token counts at all.
+      card.sourceRank = SOURCE_RANK_PARTIAL
+      results.push({ workspace, card })
+    })
+    return results
   }
 
   // ── OpenCode ──────────────────────────────────────────────────────────────────
@@ -1348,7 +1465,12 @@ export class LogReader {
                 json_extract(data,'$.time.created')   AS t_created,
                 json_extract(data,'$.time.completed') AS t_completed,
                 json_extract(data,'$.tokens.input')   AS tok_in,
-                json_extract(data,'$.tokens.output')  AS tok_out
+                json_extract(data,'$.tokens.output')  AS tok_out,
+                json_extract(data,'$.tokens.reasoning')   AS tok_reason,
+                json_extract(data,'$.tokens.cache.read')  AS tok_cr,
+                json_extract(data,'$.tokens.cache.write') AS tok_cw,
+                json_extract(data,'$.parentID')       AS parent_id,
+                time_created                          AS row_created
          FROM message WHERE session_id IN (${inList})
          ORDER BY time_created ASC`,
       )
@@ -1358,7 +1480,7 @@ export class LogReader {
       let partRows: Array<{ columns: string[]; values: unknown[][] }> = []
       try {
         partRows = db.exec(
-          `SELECT p.session_id, p.message_id, p.time_created AS part_ts,
+          `SELECT p.session_id, p.message_id AS message_id, p.time_created AS part_ts,
                   json_extract(m.data,'$.role')                 AS msg_role,
                   json_extract(p.data,'$.type')                 AS type,
                   json_extract(p.data,'$.text')                 AS text,
@@ -1375,9 +1497,12 @@ export class LogReader {
       } catch { /* part table absent in this DB version */ }
 
       // Index by session
-      interface MsgInfo { msgId: string; tCreated: number; tCompleted: number; tokIn: number; tokOut: number }
+      interface MsgInfo {
+        msgId: string; role: string; parentId: string; tCreated: number; tCompleted: number
+        tokIn: number; tokOut: number; tokReason: number; tokCR: number; tokCW: number; hasTokens: boolean
+      }
       interface PartInfo {
-        partTs: number; msgRole: string; type: string
+        messageId: string; partTs: number; msgRole: string; type: string
         text: string | null; toolName: string | null; callId: string | null
         filePath: string | null; toolInputJson: string | null
         toolOutput: string | null; toolStatus: string | null
@@ -1387,18 +1512,22 @@ export class LogReader {
 
       if (msgRows[0]) {
         const mc = (n: string) => msgRows[0].columns.indexOf(n)
+        const num = (r: unknown[], n: string) => Number(r[mc(n)] ?? 0) || 0
         for (const r of msgRows[0].values) {
           const sid = String(r[mc('session_id')])
           if (!msgsBySess.has(sid)) msgsBySess.set(sid, [])
-          if (String(r[mc('role')]) === 'assistant') {
-            msgsBySess.get(sid)!.push({
-              msgId: String(r[mc('msg_id')]),
-              tCreated:   Number(r[mc('t_created')]   ?? 0),
-              tCompleted: Number(r[mc('t_completed')] ?? 0),
-              tokIn:  Number(r[mc('tok_in')]  ?? 0),
-              tokOut: Number(r[mc('tok_out')] ?? 0),
-            })
-          }
+          const role = String(r[mc('role')] ?? '')
+          if (role !== 'assistant' && role !== 'user') continue
+          msgsBySess.get(sid)!.push({
+            msgId: String(r[mc('msg_id')]),
+            role,
+            parentId: String(r[mc('parent_id')] ?? ''),
+            tCreated:   num(r, 't_created') || num(r, 'row_created'),
+            tCompleted: num(r, 't_completed'),
+            tokIn: num(r, 'tok_in'), tokOut: num(r, 'tok_out'), tokReason: num(r, 'tok_reason'),
+            tokCR: num(r, 'tok_cr'), tokCW: num(r, 'tok_cw'),
+            hasTokens: ['tok_in', 'tok_out', 'tok_reason', 'tok_cr', 'tok_cw'].some(n => r[mc(n)] !== null && r[mc(n)] !== undefined),
+          })
         }
       }
       if (partRows[0]) {
@@ -1407,6 +1536,7 @@ export class LogReader {
           const sid = String(r[pc('session_id')])
           if (!partsBySess.has(sid)) partsBySess.set(sid, [])
           partsBySess.get(sid)!.push({
+            messageId:    String(r[pc('message_id')]      ?? ''),
             partTs:       Number(r[pc('part_ts')]         ?? 0),
             msgRole:      String(r[pc('msg_role')]        ?? ''),
             type:         String(r[pc('type')]            ?? ''),
@@ -1421,127 +1551,160 @@ export class LogReader {
         }
       }
 
-      // ── Build cards ────────────────────────────────────────────────────────
+      // ── Build cards: one per turn ──────────────────────────────────────────
+      // A turn opens at each user message; an assistant message belongs to the user message its
+      // parentID names, else to the latest user message created before it. Keys are derived
+      // (OpenCode has no turn id of its own): the session id plus the user message's own id.
       const results: LogSessionResult[] = []
       for (const row of sessRows[0].values) {
         const sessionId = String(row[sc('id')] ?? '')
         if (!sessionId) continue
 
         const timeMs    = Number(row[sc('time_created')]      ?? 0)
-        const startTs   = timeMs > 0 ? new Date(timeMs).toISOString() : ''
         const modelId   = String(row[sc('model_id')]          ?? '')
         const workspace = String(row[sc('directory')]         ?? '')
-        const tokIn     = Number(row[sc('tokens_input')]      ?? 0)
-        const tokOut    = Number(row[sc('tokens_output')]     ?? 0)
-        const tokReason = Number(row[sc('tokens_reasoning')]  ?? 0)
-        const tokCR     = Number(row[sc('tokens_cache_read')] ?? 0)
-        const tokCW     = Number(row[sc('tokens_cache_write')]?? 0)
         const title     = String(row[sc('title')] ?? '')
+        const session = {
+          tokIn:  Number(row[sc('tokens_input')]      ?? 0),
+          tokOut: Number(row[sc('tokens_output')]     ?? 0) + Number(row[sc('tokens_reasoning')] ?? 0),
+          tokCR:  Number(row[sc('tokens_cache_read')] ?? 0),
+          tokCW:  Number(row[sc('tokens_cache_write')]?? 0),
+        }
 
         const msgs  = msgsBySess.get(sessionId)  ?? []
         const parts = partsBySess.get(sessionId) ?? []
-
-        // User request: last user-typed text (parts are ordered ASC, so last wins).
-        // OpenCode sessions are multi-turn; the most recent prompt best identifies current work.
-        // Falls back to AI-generated session title if no user text parts exist.
-        let userRequest = title.slice(0, 500)
-        for (const p of parts) {
-          if (p.msgRole === 'user' && p.type === 'text' && p.text) {
-            userRequest = p.text.slice(0, 500)
-          }
-        }
-
-        // Tools, files, and timeline events built in a single pass (parts are ASC by time).
-        // LLM entries come from messages; tool entries come from tool parts.
-        // We merge them by timestamp so the Flow tab shows real interleaved activity.
-        const toolCounts: Record<string, number> = {}
-        const filesRead    = new Set<string>()
-        const filesWritten = new Set<string>()
-        const filesChanged = new Set<string>()
-        let totalToolCalls = 0
-
-        // Keyed events: msgId → LLM entry (filled from msgs), callId → tool entry
-        type PendingLlm  = { ts: number; entry: TimelineEntry }
-        type PendingTool = { ts: number; entry: TimelineEntry }
-        const llmEvents:  PendingLlm[]  = []
-        const toolEvents: PendingTool[] = []
-
-        // LLM entries from assistant messages
-        let llmIdx = 0
-        let lastCompleted = 0
+        interface OcTurn { opening: string; startMs: number; assistants: MsgInfo[]; messageIds: Set<string> }
+        const turns: OcTurn[] = []
+        const turnOfUser = new Map<string, OcTurn>()
         for (const m of msgs) {
-          const durationMs = m.tCompleted > m.tCreated ? m.tCompleted - m.tCreated : 0
-          llmEvents.push({
-            ts: m.tCreated,
-            entry: {
-              type: 'llm', spanId: `oc-${m.msgId}`,
-              label: `Turn ${++llmIdx}`,
-              durationMs,
-              inputTokens: m.tokIn, outputTokens: m.tokOut,
-              isError: false,
-              timestamp: m.tCreated > 0 ? new Date(m.tCreated).toISOString() : startTs,
-              model: modelId || undefined,
-            },
-          })
-          if (m.tCompleted > lastCompleted) lastCompleted = m.tCompleted
-        }
-
-        // Tool entries from tool parts
-        for (const p of parts) {
-          if (p.type !== 'tool' || !p.toolName) continue
-          toolCounts[p.toolName] = (toolCounts[p.toolName] ?? 0) + 1
-          totalToolCalls++
-          if (p.filePath) {
-            const t = p.toolName.toLowerCase()
-            if (t === 'read' || t === 'glob' || t === 'grep') {
-              filesRead.add(p.filePath)
-            } else if (t === 'write' || t === 'edit' || t === 'patch') {
-              filesWritten.add(p.filePath)
-              filesChanged.add(p.filePath)
-            }
+          if (m.role === 'user') {
+            const t: OcTurn = { opening: m.msgId, startMs: m.tCreated, assistants: [], messageIds: new Set([m.msgId]) }
+            turns.push(t)
+            turnOfUser.set(m.msgId, t)
+            continue
           }
-          const isError = p.toolStatus === 'error'
-          const label = p.filePath
-            ? `${p.toolName}: ${p.filePath.split('/').pop()}`
-            : p.toolName
-          toolEvents.push({
-            ts: p.partTs,
-            entry: {
-              type: 'tool', spanId: `oc-tool-${p.callId ?? p.partTs}`,
-              label,
-              action: p.toolName,
-              toolInput: p.toolInputJson ?? undefined,
-              resultSummary: p.toolOutput ? p.toolOutput.slice(0, 200) : undefined,
-              fullResult: p.toolOutput ?? undefined,
-              durationMs: 0,
-              isError,
-              errorMessage: isError ? (p.toolOutput ?? undefined) : undefined,
-              timestamp: p.partTs > 0 ? new Date(p.partTs).toISOString() : startTs,
-            },
-          })
+          let t = turnOfUser.get(m.parentId) ?? turns[turns.length - 1]
+          if (!t) {
+            // No user message recorded (an older database): the session's one turn.
+            t = { opening: `session@${timeMs}`, startMs: timeMs, assistants: [], messageIds: new Set() }
+            turns.push(t)
+          }
+          t.assistants.push(m)
+          t.messageIds.add(m.msgId)
         }
+        if (turns.length === 0) turns.push({ opening: `session@${timeMs}`, startMs: timeMs, assistants: [], messageIds: new Set() })
+        const turnOfMessage = new Map<string, OcTurn>()
+        for (const t of turns) for (const id of t.messageIds) turnOfMessage.set(id, t)
+        // Per-message token counts when the database records them; an older one only has the
+        // session's totals — those go on the session's last turn so they're counted once.
+        const perMessageTokens = msgs.some(m => m.hasTokens)
 
-        // Merge LLM and tool events in chronological order
-        const allEvents = [...llmEvents, ...toolEvents].sort((a, b) => a.ts - b.ts)
-        const timeline: TimelineEntry[] = allEvents.map(e => e.entry)
+        turns.forEach((turn, ti) => {
+          const turnParts = parts.filter(p => (turnOfMessage.get(p.messageId) ?? (turns.length === 1 ? turn : undefined)) === turn)
+          const startMs = turn.startMs || timeMs
+          const startTs = startMs > 0 ? new Date(startMs).toISOString() : ''
 
-        const endTs = lastCompleted > 0 ? new Date(lastCompleted).toISOString() : startTs
+          // User request: the turn's own first user-typed text; the AI-generated session title
+          // stands in when there is none.
+          let userRequest = ''
+          for (const p of turnParts) {
+            if (p.msgRole === 'user' && p.type === 'text' && p.text) { userRequest = p.text.slice(0, 500); break }
+          }
+          if (!userRequest) userRequest = title.slice(0, 500)
 
-        const card = _buildCard(
-          sessionId, 'opencode', modelId || 'opencode',
-          startTs, endTs,
-          {
-            totalInput: tokIn, totalOutput: tokOut + tokReason,
-            totalCacheRead: tokCR, totalCacheCreate: tokCW, peakContextPerTurn: 0,
-            turns: msgs.length, totalToolCalls, toolCounts,
-            filesRead, filesChanged, filesWritten, filesSearched: new Set(),
-            userRequest, timeline, initiator: 'user',
-          },
-          workspace,
-        )
-        results.push({ card, workspace })
+          // Tools, files, and timeline events built in a single pass (parts are ASC by time).
+          // LLM entries come from messages; tool entries come from tool parts.
+          // We merge them by timestamp so the Flow tab shows real interleaved activity.
+          const toolCounts: Record<string, number> = {}
+          const filesRead    = new Set<string>()
+          const filesWritten = new Set<string>()
+          const filesChanged = new Set<string>()
+          let totalToolCalls = 0
+          type Pending = { ts: number; entry: TimelineEntry }
+          const llmEvents:  Pending[] = []
+          const toolEvents: Pending[] = []
+
+          let llmIdx = 0
+          let lastCompleted = 0
+          let tokIn = 0, tokOut = 0, tokCR = 0, tokCW = 0
+          for (const m of turn.assistants) {
+            const durationMs = m.tCompleted > m.tCreated ? m.tCompleted - m.tCreated : 0
+            llmEvents.push({
+              ts: m.tCreated,
+              entry: {
+                type: 'llm', spanId: `oc-${m.msgId}`,
+                label: `Turn ${++llmIdx}`,
+                durationMs,
+                inputTokens: m.tokIn, outputTokens: m.tokOut,
+                isError: false,
+                timestamp: m.tCreated > 0 ? new Date(m.tCreated).toISOString() : startTs,
+                model: modelId || undefined,
+              },
+            })
+            if (m.tCompleted > lastCompleted) lastCompleted = m.tCompleted
+            tokIn += m.tokIn; tokOut += m.tokOut + m.tokReason; tokCR += m.tokCR; tokCW += m.tokCW
+          }
+          if (!perMessageTokens && ti === turns.length - 1) {
+            tokIn = session.tokIn; tokOut = session.tokOut; tokCR = session.tokCR; tokCW = session.tokCW
+          }
+
+          for (const p of turnParts) {
+            if (p.type !== 'tool' || !p.toolName) continue
+            toolCounts[p.toolName] = (toolCounts[p.toolName] ?? 0) + 1
+            totalToolCalls++
+            if (p.filePath) {
+              const t = p.toolName.toLowerCase()
+              if (t === 'read' || t === 'glob' || t === 'grep') {
+                filesRead.add(p.filePath)
+              } else if (t === 'write' || t === 'edit' || t === 'patch') {
+                filesWritten.add(p.filePath)
+                filesChanged.add(p.filePath)
+              }
+            }
+            const isError = p.toolStatus === 'error'
+            const label = p.filePath
+              ? `${p.toolName}: ${p.filePath.split('/').pop()}`
+              : p.toolName
+            toolEvents.push({
+              ts: p.partTs,
+              entry: {
+                type: 'tool', spanId: `oc-tool-${p.callId ?? p.partTs}`,
+                label,
+                action: p.toolName,
+                toolInput: p.toolInputJson ?? undefined,
+                resultSummary: p.toolOutput ? p.toolOutput.slice(0, 200) : undefined,
+                fullResult: p.toolOutput ?? undefined,
+                durationMs: 0,
+                isError,
+                errorMessage: isError ? (p.toolOutput ?? undefined) : undefined,
+                timestamp: p.partTs > 0 ? new Date(p.partTs).toISOString() : startTs,
+              },
+            })
+          }
+
+          // Merge LLM and tool events in chronological order
+          const timeline: TimelineEntry[] = [...llmEvents, ...toolEvents].sort((a, b) => a.ts - b.ts).map(e => e.entry)
+          const endTs = lastCompleted > 0 ? new Date(lastCompleted).toISOString() : startTs
+
+          const card = _buildCard(
+            derivedTraceKey('opencode', sessionId, turn.opening), 'opencode', modelId || 'opencode',
+            startTs, endTs,
+            {
+              totalInput: tokIn, totalOutput: tokOut,
+              totalCacheRead: tokCR, totalCacheCreate: tokCW, peakContextPerTurn: 0,
+              turns: turn.assistants.length, totalToolCalls, toolCounts,
+              filesRead, filesChanged, filesWritten, filesSearched: new Set(),
+              userRequest, timeline, initiator: 'user',
+            },
+            workspace,
+          )
+          card.conversationId = sessionId
+          card.derived = true
+          card.sourceRank = tokIn + tokOut > 0 ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
+          results.push({ card, workspace })
+        })
       }
-      return results
+      return this._onlyChanged(dbPath, results)
     } finally {
       db.close()
     }
@@ -1550,7 +1713,9 @@ export class LogReader {
   private _parseOpenCodeJsonFallback(dataDir: string): LogSessionResult[] {
     // Reads ~/.local/share/opencode/storage/message/*.json as a fallback when
     // the SQLite DB is unavailable. Each file is one message; session grouping
-    // uses the session_id field. Session title and cwd are not available here.
+    // uses the session_id field. Session title and cwd are not available here, and
+    // neither is a reliable user-message order — so unlike the database reader this
+    // stays one trace per session, under a derived key (session id + 'session').
     const msgDir = path.join(dataDir, 'storage', 'message')
     let names: string[]
     try { names = fs.readdirSync(msgDir).filter(n => n.endsWith('.json')) } catch { return [] }
@@ -1588,7 +1753,7 @@ export class LogReader {
     for (const [sessionId, s] of sessions) {
       const totalOutput = s.tokOut + s.tokReasoning
       const card = _buildCard(
-        sessionId, 'opencode', s.model || 'opencode',
+        derivedTraceKey('opencode', sessionId, 'session'), 'opencode', s.model || 'opencode',
         s.sessionTime, s.sessionTime,
         {
           totalInput: s.tokIn, totalOutput, totalCacheRead: s.tokCacheRead,
@@ -1600,6 +1765,8 @@ export class LogReader {
         },
         '',
       )
+      card.conversationId = sessionId
+      card.derived = true
       results.push({ card, workspace: '' })
     }
     return results
@@ -1640,46 +1807,45 @@ export class LogReader {
   private _scanCursor(): LogSessionResult[] {
     const results: LogSessionResult[] = []
     for (const filePath of collectCursorTranscriptFiles()) {
-      const result = this._processFile(filePath, () => this._parseCursorFile(filePath))
-      if (result) results.push(result)
+      results.push(...this._processFileMulti(filePath, () => this._parseCursorFile(filePath)))
     }
     return results
   }
 
-  /** Reads a Cursor CLI transcript — see the doc comment at the top of this file and
-   *  .staged-issues/support-cursor-cli.md for exactly what this format does and doesn't contain.
-   *  Unlike every other source, there's no per-line timestamp, no token/usage data, no model
-   *  name, and no tool-call success/failure signal anywhere on disk — those are left as honest
-   *  gaps (0 / unknown), never guessed. */
-  private _parseCursorFile(filePath: string): LogSessionResult | null {
+  /** Reads a Cursor CLI transcript, one result per turn — see the doc comment at the top of this
+   *  file and .staged-issues/support-cursor-cli.md for exactly what this format does and doesn't
+   *  contain. A turn opens at each `role: 'user'` line (those persist across a `--resume`, unlike
+   *  `turn_ended`). The format has no record ids and no timestamps, so a turn's derived key is the
+   *  session id plus the turn's position among the file's prompts (stable for this append-only
+   *  file), and every turn's times fall back to the file's birthtime — only the last turn ends at
+   *  its mtime. No token/usage data, model name, or tool-call success signal exists on disk; those
+   *  stay honest gaps (0 / unknown), never guessed. */
+  private _parseCursorFile(filePath: string): LogSessionResult[] {
     const rawLines = this._readNewLines(filePath)
-    if (!rawLines) return null
+    if (!rawLines) return []
 
     const sessionId = path.basename(filePath, '.jsonl')
-    let userRequest = ''
-    let turns = 0
-    let totalToolCalls = 0
-    let errors = 0
-    const toolCounts: Record<string, number> = {}
-    const filesRead = new Set<string>()
-    const filesChanged = new Set<string>()
-    const filesWritten = new Set<string>()
-    const timeline: TimelineEntry[] = []
+    interface Turn {
+      userRequest: string; totalToolCalls: number; toolCounts: Record<string, number>
+      filesRead: Set<string>; filesChanged: Set<string>; filesWritten: Set<string>; timeline: TimelineEntry[]
+    }
+    const newTurn = (): Turn => ({ userRequest: '', totalToolCalls: 0, toolCounts: {}, filesRead: new Set(), filesChanged: new Set(), filesWritten: new Set(), timeline: [] })
+    const turns: Turn[] = []
+    let leading: Turn | undefined
+    let lastTurnFailed = false
     let idx = 0
+    const spanPrefix = `${sessionId.slice(0, 8)}`
 
     for (const line of rawLines) {
       let entry: Record<string, unknown>
       try { entry = JSON.parse(line) as Record<string, unknown> } catch { continue }
 
       if (entry['type'] === 'turn_ended') {
-        // NOT a per-turn counter — confirmed against a real `--resume`d session (2026-09-19):
+        // NOT a per-turn record — confirmed against a real `--resume`d session (2026-09-19):
         // resuming removes the *previous* turn's `turn_ended` line and appends exactly one new
-        // one at the new end of file, so a file with N real turns only ever has one `turn_ended`
-        // line on disk at any given time, reflecting the *last* one. `errors` below is therefore
-        // "was the most recently completed turn an error", not a running total across the whole
-        // session — an honest reading of what this format actually preserves, not an undercount
-        // bug to fix (the data for earlier turns' status is gone by the time this file is read).
-        if (entry['status'] !== 'success') errors++
+        // one at the new end of file, so only the most recently completed turn's status survives.
+        // It is that turn's error count; earlier turns' status is gone by the time this is read.
+        lastTurnFailed = entry['status'] !== 'success'
         continue
       }
 
@@ -1688,42 +1854,41 @@ export class LogReader {
       const content = ((entry['message'] as Record<string, unknown> | undefined)?.['content'] ?? []) as Array<Record<string, unknown>>
 
       if (role === 'user') {
-        // Real turn count: one `role: 'user'` entry per turn, and unlike `turn_ended` these
-        // persist across a `--resume`d session — confirmed against a real two-turn resumed
-        // session (2026-09-19), which left exactly one `turn_ended` line but two `user` lines.
-        turns++
+        const turn = turns.length === 0 && leading ? leading : newTurn()
+        turns.push(turn)
         const text = _extractTextContent(content)
-        if (!userRequest && text) {
+        if (!turn.userRequest && text) {
           // The first user turn wraps the actual prompt in <user_query> tags, alongside a
           // human-prose <timestamp> block that isn't machine-parseable — strip both, keep the query.
           const match = text.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/)
-          userRequest = (match ? match[1] : text).trim()
+          turn.userRequest = (match ? match[1] : text).trim()
         }
-        timeline.push({ type: 'user_input', spanId: `log-u-${idx}`, label: 'User', durationMs: 0, isError: false, timestamp: '', responseText: text })
+        turn.timeline.push({ type: 'user_input', spanId: `log-u-${spanPrefix}-${idx}`, label: 'User', durationMs: 0, isError: false, timestamp: '', responseText: text })
         idx++
         continue
       }
 
+      const turn = turns[turns.length - 1] ?? (leading ??= newTurn())
       let hasToolCall = false
       for (const block of content) {
         if (block['type'] === 'tool_use' && block['name']) {
           hasToolCall = true
-          totalToolCalls++
+          turn.totalToolCalls++
           const name = block['name'] as string
-          toolCounts[name] = (toolCounts[name] ?? 0) + 1
+          turn.toolCounts[name] = (turn.toolCounts[name] ?? 0) + 1
           const inp = (block['input'] ?? {}) as Record<string, unknown>
           const fp = String(inp['path'] ?? inp['file_path'] ?? inp['filePath'] ?? '')
           if (fp) {
-            if (name === 'Read') filesRead.add(fp)
-            else if (name === 'Write') { filesChanged.add(fp); filesWritten.add(fp) }
-            else if (name === 'Edit' || name === 'MultiEdit') filesChanged.add(fp)
+            if (name === 'Read') turn.filesRead.add(fp)
+            else if (name === 'Write') { turn.filesChanged.add(fp); turn.filesWritten.add(fp) }
+            else if (name === 'Edit' || name === 'MultiEdit') turn.filesChanged.add(fp)
           }
         }
       }
       const responseText = (content.find(b => b['type'] === 'text') as Record<string, string> | undefined)?.['text']
-      timeline.push({
+      turn.timeline.push({
         type: hasToolCall ? 'tool' : 'llm',
-        spanId: `log-a-${idx}`,
+        spanId: `log-a-${spanPrefix}-${idx}`,
         label: hasToolCall ? 'Tool calls' : 'Response',
         durationMs: 0,
         isError: false,
@@ -1733,24 +1898,31 @@ export class LogReader {
       idx++
     }
 
-    if (!userRequest && timeline.length === 0) return null
+    if (turns.length === 0 && leading && leading.timeline.length > 0) turns.push(leading)
+    if (turns.length === 0) return []
 
     let stat: fs.Stats
-    try { stat = fs.statSync(filePath) } catch { return null }
-    // No per-line timestamps exist in this format at all — session bounds fall back to file
+    try { stat = fs.statSync(filePath) } catch { return [] }
+    // No per-line timestamps exist in this format at all — bounds fall back to file
     // birthtime/mtime (birthtime can read as 0 on some filesystems, hence the fallback to mtime).
     const startMs = stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs
     const endMs = Math.max(startMs, stat.mtimeMs)
     const firstTimestamp = new Date(startMs).toISOString()
-    const lastTimestamp = new Date(endMs).toISOString()
 
-    const card = _buildCard(sessionId, 'cursor', 'cursor-agent', firstTimestamp, lastTimestamp, {
-      totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCacheCreate: 0,
-      peakContextPerTurn: 0, turns: Math.max(turns, 1), totalToolCalls, toolCounts,
-      filesRead, filesChanged, filesWritten, filesSearched: new Set(), userRequest, timeline, initiator: 'user',
+    return turns.map((turn, i) => {
+      const isLast = i === turns.length - 1
+      const card = _buildCard(derivedTraceKey('cursor', sessionId, `#${i}`), 'cursor', 'cursor-agent', firstTimestamp, isLast ? new Date(endMs).toISOString() : firstTimestamp, {
+        totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCacheCreate: 0,
+        peakContextPerTurn: 0, turns: 1, totalToolCalls: turn.totalToolCalls, toolCounts: turn.toolCounts,
+        filesRead: turn.filesRead, filesChanged: turn.filesChanged, filesWritten: turn.filesWritten,
+        filesSearched: new Set(), userRequest: turn.userRequest, timeline: turn.timeline, initiator: 'user',
+      })
+      card.errors = isLast && lastTurnFailed ? 1 : 0
+      card.conversationId = sessionId
+      card.derived = true
+      card.sourceRank = SOURCE_RANK_PARTIAL
+      return { workspace: '', card }
     })
-    card.errors = errors
-    return { workspace: '', card }
   }
 
   /** Returns all of the file's non-empty lines if it changed since the last read, else null. */
@@ -1833,24 +2005,10 @@ export class LogReader {
     }
   }
 
-  /** Checks if a file has changed since last scan; if so, delegates to parseFn. */
-  private _processFile(
-    filePath: string,
-    parseFn: () => LogSessionResult | null,
-  ): LogSessionResult | null {
-    try {
-      const stat = fs.statSync(filePath)
-      const prev = this.fileState.get(filePath)
-      if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return null
-      // parseFn reads its own bytes via _readNewLines; state update happens there.
-      return parseFn()
-    } catch {
-      return null
-    }
-  }
-
-  /** Same change-detection as _processFile, for parsers that can return multiple session results
-   *  from one file (currently only Claude Code). */
+  /** Checks whether a file changed since the last scan; if so, delegates to parseFn (which reads
+   *  its own bytes via _readNewLines — the state update happens there). For parsers that return
+   *  one result per turn. Of a
+   *  changed file only the turns whose card actually changed are returned (see _onlyChanged). */
   private _processFileMulti(
     filePath: string,
     parseFn: () => LogSessionResult[],
@@ -1859,10 +2017,27 @@ export class LogReader {
       const stat = fs.statSync(filePath)
       const prev = this.fileState.get(filePath)
       if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return []
-      return parseFn()
+      return this._onlyChanged(filePath, parseFn())
     } catch {
       return []
     }
+  }
+
+  /** A growing transcript is re-parsed whole, but only its newest turn usually changed: every
+   *  earlier turn's card comes out identical. Returning those again would make every caller
+   *  rewrite (and the cloud path rebuild a payload for) each turn of the file on every pass, so
+   *  only turns whose card differs from the one last returned for this file go out. */
+  private _onlyChanged(filePath: string, results: LogSessionResult[]): LogSessionResult[] {
+    const prev = this.emittedTurns.get(filePath)
+    const next = new Map<string, string>()
+    const changed: LogSessionResult[] = []
+    for (const r of results) {
+      const fp = crypto.createHash('sha1').update(JSON.stringify(r)).digest('base64')
+      next.set(r.card.sessionId, fp)
+      if (prev?.get(r.card.sessionId) !== fp) changed.push(r)
+    }
+    this.emittedTurns.set(filePath, next)
+    return changed
   }
 }
 
@@ -1886,16 +2061,10 @@ interface CardAccum {
   initiator: 'user' | 'agent' | 'api'
 }
 
-// ── Session splitting on prompt boundaries ──────────────────────────────────
+// ── Turn boundaries ─────────────────────────────────────────────────────────
 //
-// A Claude Code CLI transcript file is one continuous JSONL log for as long as the terminal
-// session stays open — which can span real days if the user leaves it running, comes back later,
-// and keeps typing prompts into the same window. Treating that whole file as one "session" is
-// what made session duration read as wildly inflated (see .staged-issues/
-// split-sessions-on-prompt-boundaries.md for the empirical data that proved a smaller idle-gap-
-// capping fix wasn't enough on its own). This splits the file into segments at a genuinely large
-// gap between two consecutive user prompts — never mid-turn — so each segment is a complete,
-// coherent chunk of work rather than an arbitrarily severed one.
+// Every log source is read one turn per trace (claudeTurns.ts, codexTurnRanges, one per Copilot
+// request …).
 
 /**
  * Drops any line whose `uuid` was already seen earlier in the file, keeping the first
@@ -1936,14 +2105,6 @@ function dedupeParsedByUuid(lines: string[], parsed: unknown[]): { lines: string
   return { lines: result, parsed: resultParsed }
 }
 
-// A gap between two consecutive user prompts longer than this starts a new session segment.
-// Deliberately larger than summarizers/helpers.ts's IDLE_GAP_THRESHOLD_MS (10 min) — that one
-// answers "was this pause part of active work within one sitting," this one answers "is this
-// genuinely a different sitting." 30 minutes is a first-pass guess, not a calibrated value — same
-// honesty standard as every other threshold in this project. See the staged issue for the open
-// question on whether to also force a split at real calendar-day boundaries.
-export const SESSION_SPLIT_GAP_MS = 30 * 60_000
-
 // A chain of bookkeeping events immediately preceding a real prompt (Codex: thread_settings_
 // applied, task_started, and — only discovered by checking a second real file, after task_started
 // alone turned out to have exactly the same problem as user_message — turn_aborted when the prior
@@ -1956,158 +2117,110 @@ export const SESSION_SPLIT_GAP_MS = 30 * 60_000
 // way as the ones already found rather than needing its own name added to a list.
 const WALKBACK_EPSILON_MS = 2000
 
-/**
- * Splits a log's lines into segments, one per group of consecutive prompts with no gap between
- * them exceeding SESSION_SPLIT_GAP_MS. A split point always falls before a line isPromptBoundary
- * identifies as a new prompt, walked back over any immediately-preceding near-simultaneous
- * bookkeeping lines (see WALKBACK_EPSILON_MS) — a segment's tool calls and assistant responses
- * always stay grouped with the prompt that triggered them, never split mid-turn. What counts as
- * "a new prompt," and where its timestamp lives, differs per log format (Claude Code: `type:
- * 'user'`, top-level `timestamp` string; Codex: an `event_msg` whose payload type is
- * `user_message`/`turn_aborted`, same top-level string; Copilot VS Code chat: a `kind: 2` push to
- * `requests`, numeric epoch-ms nested inside `v[0].timestamp`), so each format gets its own thin
- * wrapper below rather than sharing one predicate — this function holds only the boundary/gap
- * algorithm itself, tested once and reused by all of them. getBoundaryTimestampMs defaults to the
- * top-level-string extraction (Claude/Codex); Copilot VS Code's wrapper overrides it. The
- * walkback's own per-line timestamps always use the top-level-string form regardless — no format
- * checked so far has shown a bookkeeping-cluster-bleed issue whose fix needs anything else, and a
- * format where most lines simply lack a top-level timestamp (Copilot VS Code) makes the walkback a
- * natural no-op rather than needing its own special-casing.
- *
- * Pure and independently testable on purpose: this only needs the raw lines and produces raw
- * line groups, so it can be verified against real transcript data without touching any of the
- * token/tool/file accounting in each format's own per-segment parser.
- */
 function defaultLineTimestampMs(entry: Record<string, unknown>): number | null {
   const ts = entry['timestamp'] as string | undefined
   const tsMs = ts ? Date.parse(ts) : NaN
   return Number.isFinite(tsMs) ? tsMs : null
 }
 
-function splitLinesOnPromptGaps(
-  lines: string[],
-  isPromptBoundary: (entry: Record<string, unknown>) => boolean,
-  getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
-): string[][] {
-  return promptGapBoundaries(lines.map(parseLogLine), isPromptBoundary, getBoundaryTimestampMs)
-    .map(([start, end]) => lines.slice(start, end))
-}
-
-/** splitLinesOnPromptGaps over already-parsed lines (see parseLogLine), as [start, end) index
- *  ranges into them. */
-function promptGapBoundaries(
-  parsed: unknown[],
-  isPromptBoundary: (entry: Record<string, unknown>) => boolean,
-  getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
-): Array<[number, number]> {
-  if (parsed.length === 0) return []
-
-  const timestamps: Array<number | null> = parsed.map(entry => {
-    if (entry === undefined) return null
-    try { return defaultLineTimestampMs(entry as Record<string, unknown>) } catch { return null }
-  })
-
-  const boundaries: number[] = [0]
-  // Tracks the highest prompt timestamp seen so far, not just the most recently seen one — real
-  // transcripts can contain an isolated out-of-order timestamp (confirmed on real Claude Code
-  // data: one entry mid-file stamped a full day earlier than its neighbors, apparently from
-  // Claude Code's own resume/continuation handling). Comparing against the max rather than the
-  // last value keeps a single such anomaly from corrupting the gap baseline for every comparison
-  // after it.
-  let maxTs: number | null = null
-  for (let i = 0; i < parsed.length; i++) {
-    if (parsed[i] === undefined) continue
-    const entry = parsed[i] as Record<string, unknown>
-    if (!isPromptBoundary(entry)) continue
-
-    const tsMs = getBoundaryTimestampMs(entry)
-    if (tsMs === null) continue
-
-    if (maxTs !== null && tsMs - maxTs > SESSION_SPLIT_GAP_MS) {
-      let boundary = i
-      while (boundary > 0) {
-        const prevTs = timestamps[boundary - 1]
-        const curTs = timestamps[boundary]
-        if (prevTs === null || curTs === null) break
-        const delta = curTs - prevTs
-        if (delta < 0 || delta > WALKBACK_EPSILON_MS) break
-        boundary--
-      }
-      // Never walk back past (or onto) the previous boundary — a segment must keep at least one
-      // line, and the previous segment's own real content must stay its own.
-      const prevBoundary = boundaries[boundaries.length - 1]
-      boundaries.push(Math.max(boundary, prevBoundary + 1))
-    }
-    maxTs = Math.max(maxTs ?? tsMs, tsMs)
-  }
-
-  const segments: Array<[number, number]> = []
-  for (let b = 0; b < boundaries.length; b++) {
-    const start = boundaries[b]
-    const end = b + 1 < boundaries.length ? boundaries[b + 1] : parsed.length
-    segments.push([start, end])
-  }
-  return segments
-}
-
-function isClaudePromptBoundary(entry: Record<string, unknown>): boolean {
-  return entry['type'] === 'user'
-}
-
-export function splitClaudeLinesOnPromptGaps(lines: string[]): string[][] {
-  return splitLinesOnPromptGaps(lines, isClaudePromptBoundary)
-}
-
-// Also treats turn_aborted as a boundary trigger, not just user_message. Confirmed on real data:
-// when a turn was left incomplete and the user comes back later, Codex logs turn_aborted stamped
-// with the *resumption* time — but the delta from turn_aborted to the following turn's
-// thread_settings_applied/task_started varies too widely (0.1s to 31s across 7 real occurrences
-// in one file) for WALKBACK_EPSILON_MS to reliably absorb it into the same cluster. turn_aborted
-// needs to trigger gap detection on its own rather than relying on being swept in by a later
-// anchor — unlike thread_settings_applied/task_started, which are reliably near-simultaneous with
-// their user_message and are handled by the walkback instead.
-export function splitCodexLinesOnPromptGaps(lines: string[]): string[][] {
-  return splitLinesOnPromptGaps(lines, entry => {
-    if (entry['type'] !== 'event_msg') return false
+/** The rollout's own session id (session_meta payload.id — Codex's thread id, the conversation
+ *  id its OTEL spans carry as thread.id) and the cwd it recorded. */
+function codexSessionMeta(parsed: unknown[]): { id: string; cwd: string } {
+  for (const e of parsed) {
+    if (e === undefined) continue
+    const entry = e as Record<string, unknown>
+    if (entry['type'] !== 'session_meta') continue
     const payload = entry['payload'] as Record<string, unknown> | undefined
-    return payload?.['type'] === 'user_message' || payload?.['type'] === 'turn_aborted'
-  })
+    return { id: typeof payload?.['id'] === 'string' ? payload['id'] : '', cwd: payload?.['cwd'] ? String(payload['cwd']) : '' }
+  }
+  return { id: '', cwd: '' }
 }
 
-function isCopilotVSCodeRequestsPush(entry: Record<string, unknown>): boolean {
-  const k = entry['k']
-  return entry['kind'] === 2 && Array.isArray(k) && k.length === 1 && k[0] === 'requests'
-    && Array.isArray(entry['v']) && (entry['v'] as unknown[]).length > 0
+function codexTurnIdOf(entry: Record<string, unknown>, opening: boolean): string {
+  const payload = entry['payload'] as Record<string, unknown> | undefined
+  if (!payload) return ''
+  // A turn_aborted names the turn it ended, not the one about to start.
+  if (opening && payload['type'] === 'turn_aborted') return ''
+  const id = payload['turn_id'] ?? payload['turnId']
+  return typeof id === 'string' ? id : ''
 }
 
-// A `kind: 2` push to `requests` is how VS Code's delta-log format for the Copilot Chat panel
-// records a new turn — timestamp is numeric epoch-ms nested at v[0].timestamp, not a top-level
-// ISO string (this format's own convention, confirmed against real transcripts, unlike Claude
-// Code's/Codex's). A push can batch more than one new request at once (confirmed on real data —
-// rare, ~6% of pushes in one file, but real); since a single line can't be split, this uses the
-// batch's first request's timestamp for gap detection, which is the earliest new activity in it.
-// Token/turn accounting for this format is already keyed per-turn-index rather than a cumulative
-// running total (unlike Codex's total_token_usage), so — unlike Codex — no baseline-diffing is
-// needed between segments; each segment's own per-line accumulation over just its own lines is
-// already correct on its own.
-export function splitCopilotVSCodeLinesOnPromptGaps(lines: string[]): string[][] {
-  return splitLinesOnPromptGaps(
-    lines,
-    isCopilotVSCodeRequestsPush,
-    entry => {
-      const first = (entry['v'] as Array<Record<string, unknown>>)[0]
-      const ts = first?.['timestamp']
-      return typeof ts === 'number' ? ts : null
-    },
-  )
+export interface CodexTurnRange {
+  start: number
+  end: number
+  /** Index of the turn's user_message line. */
+  opening: number
+  /** Codex's own turn id, or '' for a rollout that logs none (derived key). */
+  turnId: string
+  /** The user_message's own timestamp string — the derived key's opening. */
+  openingTs: string
 }
 
-/** Segment 0 keeps the file's own session ID unchanged — the common case (a file that never
- *  needs splitting) gets no ID churn at all. Later segments get a stable, deterministic suffix.
- *  Shared by every log format's splitting — the naming is Claude-specific only because it shipped
- *  first; the logic itself is format-agnostic. */
-export function claudeSegmentSessionId(baseSessionId: string, segmentIndex: number): string {
-  return segmentIndex === 0 ? baseSessionId : `${baseSessionId}#${segmentIndex}`
+/** One range of rollout lines per turn — see LogReader._parseCodexFile. */
+export function codexTurnRanges(parsed: unknown[]): CodexTurnRange[] {
+  const timestamps = parsed.map(e => (e === undefined ? null : defaultLineTimestampMs(e as Record<string, unknown>)))
+  const openings: number[] = []
+  for (let i = 0; i < parsed.length; i++) {
+    const e = parsed[i] as Record<string, unknown> | undefined
+    if (!e || e['type'] !== 'event_msg') continue
+    if ((e['payload'] as Record<string, unknown> | undefined)?.['type'] === 'user_message') openings.push(i)
+  }
+  if (openings.length === 0) return []
+
+  const ranges: CodexTurnRange[] = []
+  for (let k = 0; k < openings.length; k++) {
+    const opening = openings[k]
+    let boundary = k === 0 ? 0 : opening
+    // Never walk back onto (or past) the previous turn's own user_message.
+    while (k > 0 && boundary - 1 > openings[k - 1]) {
+      const prevTs = timestamps[boundary - 1]
+      const curTs = timestamps[boundary]
+      if (prevTs === null || curTs === null) break
+      const delta = curTs - prevTs
+      if (delta < 0 || delta > WALKBACK_EPSILON_MS) break
+      boundary--
+    }
+    if (k > 0) ranges[ranges.length - 1].end = boundary
+    const entry = parsed[opening] as Record<string, unknown>
+    ranges.push({ start: boundary, end: parsed.length, opening, turnId: '', openingTs: String(entry['timestamp'] ?? opening) })
+  }
+
+  let anyTurnId = false
+  for (const r of ranges) {
+    for (let i = r.start; i < r.end && !r.turnId; i++) {
+      const e = parsed[i] as Record<string, unknown> | undefined
+      if (e) r.turnId = codexTurnIdOf(e, true)
+    }
+    if (r.turnId) anyTurnId = true
+  }
+  // A user_message inside a running turn (same turn_id — or none, in a rollout that otherwise
+  // logs turn ids) is a message to that turn, not a new one.
+  const merged: CodexTurnRange[] = []
+  for (const r of ranges) {
+    const prev = merged[merged.length - 1]
+    if (prev && ((r.turnId && r.turnId === prev.turnId) || (!r.turnId && anyTurnId))) {
+      prev.end = r.end
+      continue
+    }
+    merged.push(r)
+  }
+  return merged
+}
+
+/** Copilot Chat's workspace: the sibling workspace.json two levels up
+ *  (workspaceStorage/<hash>/workspace.json), '' for a no-folder or untitled window. */
+function _vscodeChatWorkspace(chatFilePath: string): string {
+  try {
+    const wj = JSON.parse(fs.readFileSync(path.join(path.dirname(chatFilePath), '..', 'workspace.json'), 'utf-8')) as Record<string, unknown>
+    const folderUri = String(wj['folder'] ?? '')
+    if (folderUri.startsWith('file:///')) {
+      let p = decodeURIComponent(folderUri.slice(7))  // strip 'file://'
+      // On Windows file:///C:/... → /C:/... → strip leading slash
+      if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(p)) p = p.slice(1)
+      return p
+    }
+  } catch { /* no workspace.json — no-folder or untitled window */ }
+  return ''
 }
 
 function _buildCard(

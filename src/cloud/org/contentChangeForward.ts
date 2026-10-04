@@ -22,6 +22,7 @@ import { loadCredentials } from './credentials'
 import type { EnqueueResult } from './enqueueSession'
 import type { ReconciliationService } from '../../reconcile/reconciliationService'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import { sourceRankOf } from '../../traceIdentity'
 
 export async function maybeForwardOnContentChange(
   reconciliation: ReconciliationService,
@@ -35,7 +36,10 @@ export async function maybeForwardOnContentChange(
     const built = await buildPayloadForCard(card, cache)
     if (!built.payload.session) return { enqueued: false, reason: 'error' }
 
-    const { revision, changed } = reconciliation.recordContentChange(built.payload.session.session_id, built.payload.session)
+    // Source precedence (staged feature 11): a turn's log and OTEL cards share one key, so a
+    // transcript re-scan after the OTEL card was sent must not go out as a newer revision.
+    const { revision, changed, downgrade } = reconciliation.recordContentChange(built.payload.session.session_id, built.payload.session, sourceRankOf(card))
+    if (downgrade) return { enqueued: false, reason: 'lower-rank' }
     if (!changed) return { enqueued: false, reason: 'duplicate' }
 
     built.payload.session.revision = revision

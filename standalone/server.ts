@@ -16,9 +16,10 @@ import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
 import { classifyOtlpPayload, objectItems } from '../src/otlpParser'
-import { logCardsNotCoveredByOtel } from '../src/claudeConversation'
+import { mergeCardsByKey } from '../src/claudeConversation'
 import { startMcpHttpServer } from '../src/mcpServer'
-import { LogReader, type OpenCodeSqlFactory } from '../src/logReader'
+import { LogReader, findClaudeTranscripts, type OpenCodeSqlFactory } from '../src/logReader'
+import { ClaudeTurnJoiner, setClaudeTurnJoiner, joinHoldMsFromEnv } from '../src/claudeTurnJoin'
 import { computeOneShotStats } from '../src/oneShotRate'
 import { languageFromRecord } from '../src/language'
 import { editStatsFromRecord } from '../src/editStats'
@@ -35,9 +36,12 @@ import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
+import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
-import { cloud } from '../src/cloudBridge'
+import { cloud, type TraceManifestSource } from '../src/cloudBridge'
+import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
+import { traceKeysInWindow, localHorizonOf, countTracesInWindow } from '../src/traceIdentity'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
   isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
@@ -110,6 +114,8 @@ function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, boun
       resolvedAt: new Date().toISOString(), pid: process.pid,
     }
     try { writeResolvedPorts(record) } catch (e) { console.warn('[TraceRoost] Could not persist resolved ports:', e) }
+    // So a refused second server on this data dir can name this one's dashboard.
+    dataDirLock.setPorts(record)
   }
 }
 // None of the three servers (UI, OTLP, MCP) require the token while bound to loopback — the
@@ -154,6 +160,41 @@ if (process.env.TRACEROOST_SERVICE === '1') {
   try { writeServiceProcessRecord({ pid: process.pid, image: path.basename(process.execPath) }) } catch (e) { console.warn('[TraceRoost] Could not record the service process:', e) }
   process.on('exit', () => { try { clearServiceProcessRecord(process.pid) } catch { /* best effort */ } })
 }
+
+// ── Single writer per data dir ───────────────────────────────────────────────
+//
+// Taken before anything below reads or writes DATA_DIR: a second server on the same data dir
+// would load spans.json, then overwrite the first one's saves (and race its forward queue) — see
+// dataDirLock.ts. An ad-hoc run is refused outright. The background service instead waits for
+// the dir to free up: launchd's KeepAlive would otherwise respawn a refused service every ~10 s,
+// logging the refusal each time, and waiting means it takes over as soon as the ad-hoc run stops.
+const dataDirLock: DataDirLock = (() => {
+  const isService = process.env.TRACEROOST_SERVICE === '1'
+  let first = tryAcquireDataDirLock(DATA_DIR, { service: isService })
+  if (!first.ok && isService) {
+    console.error(`${describeLockHolder(DATA_DIR, first.holder)}\n[TraceRoost] Running as the background service — waiting for the data directory to free up.`)
+    while (!first.ok) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000)
+      first = tryAcquireDataDirLock(DATA_DIR, { service: true })
+    }
+    console.log('[TraceRoost] Data directory is free — starting.')
+  }
+  if (!first.ok) {
+    console.error(describeLockHolder(DATA_DIR, first.holder))
+    process.exit(1)
+  }
+  return first.lock
+})()
+process.on('exit', () => dataDirLock.release())
+dataDirLock.startHeartbeat(holder => {
+  // Another server judged this one dead and took the dir over (only possible across hosts, or after
+  // the lock file was tampered with) — stop without saving, so its spans.json isn't overwritten.
+  console.error(`[TraceRoost] Lost the data directory lock on ${DATA_DIR}${holder ? ` to pid ${holder.pid} on ${holder.hostname}` : ''} — exiting without saving so the two servers don't overwrite each other.`)
+  process.exit(1)
+})
+// This host's trace store — its cloud host id lives in the data dir, so this server and the
+// editor extension (one shared link) each reconcile only their own traces.
+cloud.setHostStore(DATA_DIR)
 
 // ── Span store with file persistence ─────────────────────────────────────────
 //
@@ -234,6 +275,9 @@ function addSpan(span: Span) {
 // Indexed by sessionId; OTEL-derived sessions (from spans) take precedence —
 // when the same session ID appears in both, the OTEL version is used.
 let logSessions: Map<string, SessionSummaryCard> = new Map()
+/** False until the historical log pass has filled `logSessions`, and again while "clear all data"
+ *  re-reads — the trace manifest waits for it (see traceManifestSource). */
+let traceStoreReady = false
 
 /** The one way a card enters `logSessions` — bumps `dataVersion` and drops any cached serialized
  *  form of the card (see `strippedCardJson`), in case a producer ever hands back the same object
@@ -346,6 +390,10 @@ function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummary
 }
 
 let logReader = new LogReader()
+// A Claude OTEL interaction takes its transcript turn's key through this join (stable trace
+// identity — see src/claudeTurnJoin.ts); summarizeSpans() reads it.
+const claudeTurnJoiner = new ClaudeTurnJoiner({ findTranscripts: findClaudeTranscripts, holdMs: joinHoldMsFromEnv() })
+setClaudeTurnJoiner(claudeTurnJoiner)
 let outcomesDb: import('./db/outcomesDb').OutcomesDb | null = null
 
 // ── MCP server ────────────────────────────────────────────────────────────────
@@ -369,21 +417,14 @@ const mcpServerReady: Promise<number> = startMcpHttpServer({
     process.exit(1)
   })
 
-// Sessions whose repository couldn't be *matched to a written transcript file at all* — a
-// genuinely different problem from the ungrouped-repo case (0182506): the client, agent, or
-// timing meant no ~/.claude/projects/ (etc.) log ever appeared for this session, so it exists
-// only as OTEL spans (dataSource 'otel', built by summarizeSpans()) and never reaches
-// runLogScan()/logReader at all — that pipeline only ever looks at log files, by construction.
+// OTEL-built cards reach the cloud from here; runLogScan() forwards the log-built ones. With
+// stable trace identity (staged feature 11) a turn's OTEL card and its transcript card share one
+// key, so whichever is sent second is an update of the same cloud row — never a second row — and
+// a lower source rank is never sent over a higher one (contentChangeForward.ts).
 //
 // Only forward one once it's been idle a while: an OTEL session is *live* for as long as the
-// agent keeps emitting spans for it, and forwarding mid-conversation would send an incomplete,
-// wrong rollup — worse, forwarding it more than once as it grows would each time look like a
-// *different* session server-side (its payload, hence its content hash inputs, differs), so
-// there is no cheap dedup to lean on the way there is for a stable file. If its transcript file
-// *does* show up later (the common case — this is a race, not a permanent state, for anything
-// still actively writing), runLogScan() reaching it first and enqueuing under the real
-// session_id is what should happen; this function backs off the moment that's true so the same
-// underlying session is never double-counted under two different ids.
+// agent keeps emitting spans for it, and forwarding every growth step of a still-running turn
+// would rebuild its payload (git subprocesses) on every tick for nothing.
 const OTEL_IDLE_MS = 3 * 60_000
 const otelLastSeen = new Map<string, { durationMs: number; at: number }>()
 const otelAttempted = new Set<string>()
@@ -393,9 +434,11 @@ function checkStaleOtelSessions() {
   if (!summary) return
   const now = Date.now()
   for (const card of summary.sessions) {
-    if (card.dataSource !== 'otel') continue
+    // A card the merge kept as OTEL outranks any log card of its key (stable trace identity: they
+    // share it), so it is forwarded as an update of that key, not skipped for having a log
+    // counterpart. One still waiting on its transcript join has no settled key yet.
+    if (card.dataSource !== 'otel' || card.keyPending) continue
     if (otelAttempted.has(card.traceId)) continue
-    if (logSessions.has(card.sessionId)) { otelAttempted.add(card.traceId); continue } // now has a real log counterpart — that one wins
     const prev = otelLastSeen.get(card.traceId)
     if (!prev || prev.durationMs !== card.durationMs) {
       otelLastSeen.set(card.traceId, { durationMs: card.durationMs, at: now })
@@ -403,7 +446,14 @@ function checkStaleOtelSessions() {
     }
     if (now - prev.at < OTEL_IDLE_MS) continue
     otelAttempted.add(card.traceId)
-    void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
+    // With reconciliation, the content-hash gate sends it as a newer revision of a key the log
+    // card may already have delivered (and never over a higher-rank snapshot); without it, the
+    // ledger-gated first send.
+    if (reconciliationService) {
+      void cloud.forwardOnContentChange(reconciliationService, card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
+    } else {
+      void cloud.enqueueSession(card, m => console.log(m)).then(r => { if (r.enqueued) cloud.drainUploadsSoon() })
+    }
   }
 }
 
@@ -487,6 +537,12 @@ async function startLogIngestion() {
     const { openOutcomesDb } = require('./db/outcomesDb') as typeof import('./db/outcomesDb')
     outcomesDb = await openOutcomesDb(DATA_DIR)
   } catch { /* falls back to uncached git-outcome classification, same as before this existed */ }
+  // Its trace tables predated stable trace identity and were dropped (src/database/traceStore.ts);
+  // the logs are read from scratch on every start anyway, and spans.json holds raw spans, not keys.
+  if (outcomesDb?.rebuiltTraceStore) {
+    console.log(`[TraceRoost] ${TRACE_STORE_REBUILT_MESSAGE}`)
+    cloud.dropQueuedTraces()
+  }
 
   // Live trace reconciliation (staged feature 10) — runs from server lifecycle, not from any
   // particular browser tab being open, so a commit/merge made while the tab is closed is already
@@ -539,6 +595,7 @@ async function startLogIngestion() {
     // change or appear during the pass are still caught — parseFile() records the state it read,
     // so scan() sees anything newer on its first run.
     setInterval(runLogScan, 5_000)
+    traceStoreReady = true
     // Cloud: catch sessions that never got a matching transcript file at all — see the doc
     // comment on checkStaleOtelSessions for why this needs its own idle-based check rather
     // than firing from the same per-file-change trigger runLogScan uses.
@@ -1045,25 +1102,25 @@ function computeAnalyticsData(sessions: ReturnType<typeof summarizeSpans>['sessi
 // actions like opening a link) appear to hang. Keyed on dataVersion so a real change (new span,
 // updated log session, clear) still recomputes.
 let summaryCache: { version: number; summary: ReturnType<typeof summarizeSpans> | null } | null = null
+let joinRecheckTimer: ReturnType<typeof setTimeout> | null = null
 
 function buildSessionSummary(): ReturnType<typeof summarizeSpans> | null {
   if (summaryCache && summaryCache.version === dataVersion) return summaryCache.summary
 
   let summary: ReturnType<typeof summarizeSpans> | null = null
   try { summary = summarizeSpans(spans) } catch (e) { console.warn('[TraceRoost] summarizeSpans error:', e) }
+  // A Claude interaction whose transcript join is on hold settles once the hold runs out — make
+  // sure something recomputes then, even if no further span arrives.
+  if (summary?.sessions.some(c => c.keyPending) && !joinRecheckTimer) {
+    joinRecheckTimer = setTimeout(() => { joinRecheckTimer = null; dataVersion++; schedulePushUpdate() }, claudeTurnJoiner.holdMs + 50)
+  }
 
-  // Merge log-sourced sessions; OTEL wins — on an ID collision, and for a Claude transcript whose
-  // conversation an OTEL interaction already covers (same Claude session id, overlapping time; the
-  // rule the extension's database writer applies — see claudeConversation.ts), so one Claude
-  // session is listed once, not once per ingestion path. OTEL backfills conversationId from the
-  // log-sourced sibling when it has none — buildClaudeSessions (the live OTEL path) never does
-  // cross-trace/multi-segment linking, only logReader.ts's file parser does.
+  // Merge log-sourced sessions by canonical key (stable trace identity): a turn's OTEL and log
+  // cards share one key, and the higher source rank wins — the rule the extension's database
+  // writer applies too (see claudeConversation.ts's mergeCardsByKey).
   if (logSessions.size > 0) {
-    const logOnly = logCardsNotCoveredByOtel(summary?.sessions ?? [], logSessions.values())
-    if (logOnly.length > 0) {
-      const merged = sortNewestFirst([...logOnly, ...(summary?.sessions ?? [])])
-      summary = { ...(summary ?? { backgroundSpans: [], efficiency: { totalInputTokens: 0, totalOutputTokens: 0, totalLlmCalls: 0, avgInputPerCall: 0, avgTtft: 0, cacheHitRate: 0, toolDefWaste: 0, sysInstructionWaste: 0, topTokenConsumers: [] } }), sessions: merged }
-    }
+    const merged = sortNewestFirst(mergeCardsByKey(summary?.sessions ?? [], logSessions.values()))
+    summary = { ...(summary ?? { backgroundSpans: [], efficiency: { totalInputTokens: 0, totalOutputTokens: 0, totalLlmCalls: 0, avgInputPerCall: 0, avgTtft: 0, cacheHitRate: 0, toolDefWaste: 0, sysInstructionWaste: 0, topTokenConsumers: [] } }), sessions: merged }
   }
   summaryCache = { version: dataVersion, summary }
   return summary
@@ -2231,6 +2288,7 @@ const SSE_CLIENT_ID = /^[A-Za-z0-9_-]{1,64}$/
  *  Settings.tsx's no-host path) — the extension's traceRoost.clearSessions: drop OTEL spans and the
  *  log-session cache, then re-read the local log files so log-sourced traces come back. */
 function clearAllData(): void {
+  traceStoreReady = false // see traceManifestSource
   spans = []
   logSessions.clear()
   dataVersion++
@@ -2238,7 +2296,7 @@ function clearAllData(): void {
   try { fs.writeFileSync(DATA_FILE, '[]') } catch (e) { console.warn('[TraceRoost] Could not clear data file:', e) }
   pushUpdate()          // send cleared state to clients immediately
   // Re-ingest on a later turn, after the caller's response is sent, so the client sees the cleared state first.
-  setImmediate(() => runLogScan())
+  setImmediate(() => { runLogScan(); traceStoreReady = true })
 }
 
 // ── Instructions tab routes (polyfill → standalone/instructionActions.ts) ─────
@@ -2862,9 +2920,13 @@ async function startOtlpServer(): Promise<void> {
     // (and this log line) can say something more useful than "a port was busy". Best-effort: a
     // failed probe just means no banner, not a startup error, since the fallback already succeeded.
     void detectPortOwner(OTLP_PORT).then(owner => {
-      // 'standalone' means another copy of this same service — two background services fighting
-      // over a port is a user error to fix on their own terms, not something to nag about here.
-      if (owner === 'standalone') return
+      // 'standalone' means another TraceRoost server — necessarily on a different data dir, since a
+      // second one on this dir is refused at startup (dataDirLock). Running two is a deliberate
+      // choice, so one log line, no dashboard banner.
+      if (owner === 'standalone') {
+        console.log(`[TraceRoost] Port ${OTLP_PORT} is held by another TraceRoost server (with its own data directory); this one receives OTLP on ${bound}.`)
+        return
+      }
       collectorConflict = { owner, port: OTLP_PORT, boundPort: bound }
       if (owner === 'plugin') {
         console.warn(
@@ -2925,10 +2987,22 @@ async function startUiServer(): Promise<void> {
   startLogIngestion()
 
   // Cloud: forwarding scheduler. No timer runs unless an org is linked.
-  cloud.startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients })
+  cloud.startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients, traceManifest: traceManifestSource })
 
   // Cloud: pricing sync — own (longer) interval, see pricingSync.ts.
   cloud.startPricingSync({ onSync: pushOrgStatusToClients })
+}
+
+// The trace manifest (stable trace identity, src/cloud/forward/traceManifest.ts) states which trace
+// keys this install holds — so only while this process is the data dir's writer, and only once the
+// historical log pass has finished (and not while "clear all data" re-reads): a manifest built
+// from a half-loaded store would retire every trace not read yet (traceStoreReady, above).
+const traceManifestSource: TraceManifestSource = {
+  isWriter: () => dataDirLock.isOurs(),
+  isReady: () => traceStoreReady,
+  localHorizonMs: () => localHorizonOf(buildSessionSummary()?.sessions ?? []),
+  listTraceKeys: (fromMs, toMs) => traceKeysInWindow(buildSessionSummary()?.sessions ?? [], fromMs, toMs),
+  countTraces: (fromMs, toMs) => countTracesInWindow(buildSessionSummary()?.sessions ?? [], fromMs, toMs),
 }
 
 void startOtlpServer()
@@ -2938,10 +3012,14 @@ void startUiServer()
 
 function shutdown() {
   if (saveTimer) clearTimeout(saveTimer)
-  if (saveSpansNow()) {
-    console.log(`\n[TraceRoost] Saved ${spans.length} spans to ${DATA_FILE}`)
+  // Only while this is still the data dir's writer (see dataDirLock above); the lock itself is
+  // released by its 'exit' handler, after these saves.
+  if (dataDirLock.isOurs()) {
+    if (saveSpansNow()) {
+      console.log(`\n[TraceRoost] Saved ${spans.length} spans to ${DATA_FILE}`)
+    }
+    outcomesDb?.save()
   }
-  outcomesDb?.save()
   process.exit(0)
 }
 process.on('SIGINT', shutdown)

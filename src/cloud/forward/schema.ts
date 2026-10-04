@@ -25,7 +25,7 @@ export const SCHEMA_VERSION = '1' as const
 // ── Enums (closed sets — a value outside the set maps to the catch-all, never passes through) ──
 
 /** Wire agent identifier. Hyphenated, unlike the internal `SessionSummaryCard.source`. */
-export type WireAgent = 'claude-code' | 'copilot' | 'codex' | 'cursor' | 'other'
+export type WireAgent = 'claude-code' | 'copilot' | 'codex' | 'cursor' | 'opencode' | 'other'
 
 export type WireAttribution = 'certain' | 'probable' | 'unknown'
 
@@ -83,7 +83,7 @@ export function toWireAgent(source: string): WireAgent {
     case 'claude_code': return 'claude-code'
     case 'copilot':     return 'copilot'
     case 'codex':       return 'codex'
-    case 'opencode':    return 'other'
+    case 'opencode':    return 'opencode'
     case 'cursor':      return 'cursor'
     default:            return 'other'
   }
@@ -163,6 +163,8 @@ export function toWireModel(model: string): string {
 export type Sha256 = string
 /** RFC 3339 / ISO 8601 timestamp. */
 export type Iso8601 = string
+/** A lower-case RFC 4122 UUID — `session.session_id` and the trace-manifest keys. */
+export type Uuid = string
 
 export interface WireModelUse {
   model: string
@@ -203,10 +205,9 @@ export interface SessionRollup {
   outcome?: WireOutcome
   data_source?: WireDataSource
   initiator?: WireInitiator
-  /** sha256 of the local conversationId — present only when a log file was split into more than
-   *  one session by a long idle gap (see `toUuid`'s sibling `conversationHash` in
-   *  buildSessionRollup.ts). Lets the server color-code/group rows that are really one
-   *  conversation, the same way this client already does locally. Plain sha256, not the
+  /** sha256 of the local conversationId — the conversation (transcript) this trace, one turn of
+   *  it, belongs to; absent when the source names none. Lets the server color-code/group rows
+   *  that are really one conversation, the same way this client already does locally. Plain sha256, not the
    *  repo_key-derived HMAC repo_hash/branch_hash/commit_hash use — a conversationId is already an
    *  opaque, high-entropy token (a uuid or an OTEL trace id), not a guessable path, so it needs no
    *  org-scoped salt to stay uncorrelatable. */
@@ -229,6 +230,36 @@ export interface SessionRollup {
    *  outcome has never been classified) -- the server treats an absent revision as the lowest
    *  possible one for replace-ordering, never as newer than an already-acknowledged one. */
   revision?: number
+  /** How much evidence this snapshot carries (staged feature 11, src/traceIdentity.ts): 3 OTEL
+   *  with usage, 2 full transcript, 1 partial. A turn's log and OTEL snapshots share one
+   *  `session_id`; a lower rank must never replace a higher one, and within a rank the newer
+   *  `revision` wins. Opaque small integer — no new information about the session. Always sent;
+   *  core also never sends a lower-rank snapshot over a higher one itself
+   *  (contentChangeForward.ts) — the field lets the cloud enforce the same rule across installs. */
+  source_rank: 1 | 2 | 3
+  /** Which TraceRoost host sent this snapshot (`src/cloud/org/hostIdentity.ts`): the editor
+   *  extension and the standalone server share one install (one credential) but each keeps its
+   *  own trace store, so each has its own id — a random UUID generated once per host store, never
+   *  derived from a hostname, path or anything else identifying. A trace manifest retires only
+   *  rows whose last sender was its own host. Always sent. */
+  host_id: Uuid
+}
+
+/** One chunk of the trace manifest (stable trace identity), POSTed to `/api/ingest/manifest`:
+ *  every trace key this host holds whose trace started in [window.from, window.to). The keys
+ *  are the same opaque UUIDs that already travel as `session.session_id`; the window bounds are
+ *  the only timestamps. `$defs/trace_manifest` in schema/rollup.v1.json. */
+export interface TraceManifestChunk {
+  schema_version: typeof SCHEMA_VERSION
+  /** The sending host — the same id its rollups carry as `session.host_id`. The cloud retires
+   *  only rows this install last received from this host. */
+  host_id: Uuid
+  window: { from: Iso8601; to: Iso8601 }
+  keys: Uuid[]
+  /** Only with an empty `keys`, and only when the local store positively holds no trace for the
+   *  window and the window is inside its local horizon — without it, an empty chunk retires
+   *  nothing. */
+  confirm_empty?: true
 }
 
 export interface CommitRecord {

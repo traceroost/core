@@ -20,6 +20,9 @@ import { handleOrgMessage } from './org/panelController'
 import { buildPayloadPreviewTexts } from './org/payloadPreview'
 import { deriveRepoKey, repoHash } from '../repoKey'
 import { maybeForwardOnContentChange } from './org/contentChangeForward'
+import { setHostStore } from './org/hostIdentity'
+import { ForwardQueue } from './forward/queue'
+import { DeliveryLedger } from './forward/deliveryLedger'
 
 export const cloudBridge: CloudBridge = {
   edition: 'full',
@@ -37,6 +40,12 @@ export const cloudBridge: CloudBridge = {
     return creds ? `${creds.endpoint}/${creds.orgId}` : orgEndpoint()
   },
 
+  setHostStore,
+  dropQueuedTraces: () => {
+    const queue = new ForwardQueue()
+    queue.remove(queue.list().filter(item => item.key.startsWith('session:')).map(item => item.key))
+    new DeliveryLedger().forget(key => key.includes(':session:'))
+  },
   enqueueSession: (card, log, revision) => maybeEnqueueSession(card, log, undefined, revision),
   forwardOnContentChange: (reconciliation, card, log) => maybeForwardOnContentChange(reconciliation, card, log),
   enqueueInstructionTelemetry: (workspace, sessions, ledger) =>

@@ -39,6 +39,8 @@
     "standalone/instructionActions.ts",
     "standalone/instructionActions.test.ts",
     "standalone/requestBody.ts",
-    "standalone/requestBody.test.ts"
+    "standalone/requestBody.test.ts",
+    "standalone/dataDirLock.ts",
+    "standalone/dataDirLock.test.ts"
   ]
 }

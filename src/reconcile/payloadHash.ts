@@ -5,7 +5,8 @@
  * etc. -- so a growing or corrected trace gets re-forwarded without needing a per-field diff.
  *
  * Excludes `revision` (self-referential: changing this hash is what allocates a new one) and
- * deep-sorts object keys and array entries, so field order or a builder's own non-semantic array
+ * `host_id` (which host sends it, not what the trace contains — and an unlinked install's preview
+ * placeholder must not read as a change once it links), and deep-sorts object keys and array entries, so field order or a builder's own non-semantic array
  * ordering (see buildSessionRollup.ts's `perModelCalls`/`wireFileHashes`) never looks like a
  * content change on its own -- matching the staged feature's "exclude ... array ordering from
  * change detection."
@@ -15,7 +16,7 @@ import * as crypto from 'crypto'
 import type { SessionRollup } from '../cloud/forward/schema'
 
 export function hashSessionRollup(rollup: SessionRollup): string {
-  const { revision: _revision, ...rest } = rollup
+  const { revision: _revision, host_id: _hostId, ...rest } = rollup
   return crypto.createHash('sha256').update(JSON.stringify(canonicalize(rest))).digest('hex')
 }
 

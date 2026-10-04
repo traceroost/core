@@ -17,7 +17,9 @@ import { assertValidRollupPayload } from '../forward/validate'
 import { stableStringify } from '../forward/preview'
 import type { RollupPayload } from '../forward/schema'
 import { loadCredentials } from './credentials'
+import { currentHostId, PREVIEW_HOST_ID } from './hostIdentity'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import { sourceRankOf } from '../../traceIdentity'
 
 const execFileAsync = promisify(execFile)
 
@@ -49,6 +51,7 @@ function cardToInput(card: SessionSummaryCard): SessionRollupInput {
     linesAdded: card.linesAdded,
     linesRemoved: card.linesRemoved,
     conversationId: card.conversationId,
+    sourceRank: sourceRankOf(card),
   }
 }
 
@@ -151,6 +154,8 @@ export async function buildPayloadForCard(card: SessionSummaryCard, cache?: Payl
     branch: rk.ok ? await (cache ? cache.branch(rk.ctx.root) : currentBranch(rk.ctx.root)) : undefined,
     outcome: inGrace ? 'in_progress' : outcome?.overall,
     revision,
+    // Unlinked: a placeholder, like the org salt above — and no host-id file is written.
+    hostId: creds ? currentHostId() : PREVIEW_HOST_ID,
   })
   assertValidRollupPayload(payload)
   return rk.ok ? { payload } : { payload, ungroupedReason: rk.reason }

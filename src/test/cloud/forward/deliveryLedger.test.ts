@@ -37,6 +37,14 @@ suite('forward/deliveryLedger', () => {
     assert.deepStrictEqual(raw, ['session:a', 'session:b', 'session:c'])
   })
 
+  test('forget drops only the keys it matches (a rebuilt trace store forgets its trace deliveries)', () => {
+    const ledger = new DeliveryLedger(home)
+    ledger.markDeliveredMany(['i1:session:a', 'i1:commits:fp:d', 'i1:session:b'])
+    ledger.forget(key => key.includes(':session:'))
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(ledgerPath(home), 'utf-8')), ['i1:commits:fp:d'])
+    assert.strictEqual(new DeliveryLedger(home).isDelivered('i1:session:a'), false)
+  })
+
   test('the file is user-only (0600)', () => {
     new DeliveryLedger(home).markDelivered('session:a')
     const mode = fs.statSync(ledgerPath(home)).mode & 0o777

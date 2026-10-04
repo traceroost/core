@@ -3,6 +3,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { LogReader, type OpenCodeSqlFactory } from '../logReader'
+import { derivedTraceKey } from '../traceIdentity'
 
 // ── In-memory sql.js fixture ──────────────────────────────────────────────────
 
@@ -111,9 +112,12 @@ suite('LogReader — OpenCode', () => {
     try {
       const reader = new LogReader({ sqlFactory: factory })
       const results = reader.scanOpenCode()
-      const sess = results.find(r => r.card.sessionId === 'sess-1')
+      // One trace per turn (a user message and the replies to it), grouped by the session.
+      const sess = results.find(r => r.card.conversationId === 'sess-1')
       assert.ok(sess, 'session should be found')
       assert.strictEqual(sess!.card.source, 'opencode')
+      assert.strictEqual(sess!.card.sessionId, derivedTraceKey('opencode', 'sess-1', 'msg-u1'))
+      assert.strictEqual(sess!.card.derived, true)
       assert.strictEqual(sess!.card.model, 'claude-sonnet-4-6')
       assert.strictEqual(sess!.card.userRequest, 'Fix the bug')
       assert.strictEqual(sess!.workspace, '/my/project')
@@ -125,6 +129,35 @@ suite('LogReader — OpenCode', () => {
       assert.strictEqual(sess!.card.cacheReadTokens, 800)
       assert.strictEqual(sess!.card.cacheCreateTokens, 100)
       assert.strictEqual(sess!.card.startTime, '2024-01-01T00:00:00.000Z')
+    } finally {
+      if (origEnv === undefined) delete process.env['OPENCODE_DATA_DIR']
+      else process.env['OPENCODE_DATA_DIR'] = origEnv
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('one trace per turn: replies follow their parentID, with their own token counts', async () => {
+    const db = createDb()
+    db.run(OPENCODE_SCHEMA)
+    insertSession(db, 'sess-2', { title: 'Two turns', tokIn: 999, tokOut: 99 })
+    const msg = (id: string, created: number, data: Record<string, unknown>) =>
+      db.run('INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)', [id, 'sess-2', created, JSON.stringify(data)])
+    msg('u1', 1704067200000, { role: 'user', time: { created: 1704067200000 } })
+    msg('a1', 1704067201000, { role: 'assistant', parentID: 'u1', time: { created: 1704067201000, completed: 1704067203000 }, tokens: { input: 100, output: 10, reasoning: 5, cache: { read: 50, write: 0 } } })
+    msg('u2', 1704067260000, { role: 'user', time: { created: 1704067260000 } })
+    msg('a2', 1704067261000, { role: 'assistant', parentID: 'u2', time: { created: 1704067261000, completed: 1704067262000 }, tokens: { input: 200, output: 20, reasoning: 0, cache: { read: 0, write: 30 } } })
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-db-'))
+    fs.writeFileSync(path.join(dataDir, 'opencode.db'), Buffer.from(db.export()))
+    db.close()
+    const origEnv = process.env['OPENCODE_DATA_DIR']
+    process.env['OPENCODE_DATA_DIR'] = dataDir
+    try {
+      const cards = new LogReader({ sqlFactory: factory }).scanOpenCode().map(r => r.card)
+      assert.deepStrictEqual(cards.map(c => c.sessionId), [derivedTraceKey('opencode', 'sess-2', 'u1'), derivedTraceKey('opencode', 'sess-2', 'u2')])
+      assert.deepStrictEqual(cards.map(c => c.outputTokens), [15, 20])
+      assert.deepStrictEqual(cards.map(c => c.inputTokens), [150, 230])
+      assert.deepStrictEqual(cards.map(c => c.startTime), ['2024-01-01T00:00:00.000Z', '2024-01-01T00:01:00.000Z'])
+      assert.deepStrictEqual(cards.map(c => c.durationMs), [3000, 2000])
     } finally {
       if (origEnv === undefined) delete process.env['OPENCODE_DATA_DIR']
       else process.env['OPENCODE_DATA_DIR'] = origEnv
@@ -150,7 +183,7 @@ suite('LogReader — OpenCode', () => {
     try {
       const reader = new LogReader({ sqlFactory: factory })
       const results = reader.scanOpenCode()
-      const ids = results.map(r => r.card.sessionId)
+      const ids = results.map(r => r.card.conversationId)
       assert.ok(ids.includes('root-1'), 'root session should be present')
       assert.ok(!ids.includes('child-1'), 'subagent session should be excluded')
     } finally {
@@ -179,7 +212,7 @@ suite('LogReader — OpenCode', () => {
     try {
       const reader = new LogReader()  // no sqlFactory → fallback
       const results = reader.scanOpenCode()
-      const sess = results.find(r => r.card.sessionId === 'fallback-sess')
+      const sess = results.find(r => r.card.conversationId === 'fallback-sess')
       assert.ok(sess, 'fallback session should be found')
       assert.strictEqual(sess!.card.source, 'opencode')
       assert.strictEqual(sess!.card.model, 'claude-sonnet-4-6')

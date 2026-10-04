@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS git_outcome_key (
 -- at the time the outcome dimension was last recorded. payload_hash is a canonical sha256 of the
 -- last-hashed SessionRollup (excluding its own revision field). Either write preserves the other
 -- dimension's stored value -- see traceRevisionRepository.ts. Lifecycle is reserved for future
--- active/idle/completed tracking; this pass only ever writes 'active'.
+-- active/idle/completed tracking; this pass only ever writes 'active'. source_rank (staged feature
+-- 11) is the rank of the last content-hashed snapshot: a lower-rank snapshot of the same key is
+-- never forwarded over it (traceIdentity.ts).
 CREATE TABLE IF NOT EXISTS trace_revision (
   session_id         TEXT PRIMARY KEY,
   revision           INTEGER NOT NULL,
@@ -98,7 +100,8 @@ CREATE TABLE IF NOT EXISTS trace_revision (
   outcome_overall     TEXT,
   payload_hash        TEXT,
   checked_at          INTEGER NOT NULL,
-  changed_at          INTEGER NOT NULL
+  changed_at          INTEGER NOT NULL,
+  source_rank         INTEGER
 );
 
 -- Single global monotonic counter backing trace_revision.revision. One process (the editor's
@@ -214,12 +217,16 @@ CREATE TABLE IF NOT EXISTS sessions (
   files_changed_count INTEGER,
   lines_added         INTEGER,
   lines_removed       INTEGER,
+  derived             INTEGER NOT NULL DEFAULT 0,
+  source_rank         INTEGER,
+  subagent_count      INTEGER,
   created_at          INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON sessions (start_time DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_source     ON sessions (source);
 CREATE INDEX IF NOT EXISTS idx_sessions_workspace  ON sessions (workspace);
+CREATE INDEX IF NOT EXISTS idx_sessions_conversation ON sessions (conversation_id);
 
 CREATE TABLE IF NOT EXISTS timeline_entries (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,

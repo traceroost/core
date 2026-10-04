@@ -3,6 +3,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { LogReader } from '../logReader'
+import { traceKey } from '../traceIdentity'
 
 // _readNewLines reads only appended bytes of a growing transcript but must always return every
 // line of the file — the same result a full re-read would give.
@@ -68,15 +69,19 @@ suite('LogReader — Claude session id on log cards', () => {
   test('a transcript card carries the sessionId its lines record (the key OTEL session.id shares)', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-claudesid-'))
     try {
-      const file = path.join(tmpDir, 'agent-a1.jsonl')
+      const file = path.join(tmpDir, 'parent-uuid.jsonl')
       const lines = [
-        { type: 'user', sessionId: 'parent-uuid', cwd: '/w', timestamp: '2026-01-01T00:00:00.000Z', message: { content: 'do it' } },
+        { type: 'user', sessionId: 'parent-uuid', promptId: 'p-1', cwd: '/w', timestamp: '2026-01-01T00:00:00.000Z', message: { content: 'do it' } },
         { type: 'assistant', sessionId: 'parent-uuid', timestamp: '2026-01-01T00:00:05.000Z', message: { id: 'm1', model: 'claude-sonnet-5', usage: { input_tokens: 10, output_tokens: 5 }, content: [{ type: 'text', text: 'ok' }] } },
       ]
       fs.writeFileSync(file, lines.map(l => JSON.stringify(l)).join('\n') + '\n')
       const [result] = new LogReader().parseFile(file, 'claude')
-      assert.strictEqual(result.card.sessionId, 'agent-a1')
+      assert.strictEqual(result.card.sessionId, traceKey('claude', 'p-1'))
       assert.strictEqual(result.card.claudeSessionId, 'parent-uuid')
+      // A subagent transcript (agent-*.jsonl) is never a trace of its own.
+      const agentFile = path.join(tmpDir, 'agent-a1.jsonl')
+      fs.writeFileSync(agentFile, lines.map(l => JSON.stringify(l)).join('\n') + '\n')
+      assert.deepStrictEqual(new LogReader().parseFile(agentFile, 'claude'), [])
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }

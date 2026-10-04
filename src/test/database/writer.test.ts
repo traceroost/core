@@ -6,6 +6,7 @@ import { DatabaseWriter } from '../../database/writer'
 import { calcTokenCostUsd } from '../../pricing'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 import type { SqlStatement } from '../../database/db'
+import { traceKey, claudeInteractionKey } from '../../traceIdentity'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -380,83 +381,86 @@ suite('DatabaseWriter', () => {
   })
 })
 
-// ── Claude OTEL + log double counting ────────────────────────────────────────
-// Claude's OTEL cards are per interaction (session_id = interaction spanId) while its log cards
-// are per transcript (session_id = transcript id = Claude Code's session.id). The shared key is
-// claudeConversationKey — OTEL wins whichever order the two arrive in.
+// ── Source precedence (stable trace identity) ──────────────────────────────
+// A turn's OTEL card and its transcript card carry the same canonical key, so they are one row:
+// a lower source rank never replaces a higher one, within a rank the newer card wins.
 
-suite('DatabaseWriter — Claude OTEL/log dedupe', () => {
-  const T0 = '2024-01-01T00:00:00.000Z'
-  const T0_PLUS_2M = '2024-01-01T00:02:00.000Z'
-  const otelInteraction = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
-    sessionId: 'interaction-span-1', traceId: 'trace-1', dataSource: 'otel',
-    claudeSessionId: 'claude-session-uuid', startTime: T0_PLUS_2M, durationMs: 30_000, ...overrides,
+suite('DatabaseWriter — source precedence on one key', () => {
+  const KEY = traceKey('claude', 'prompt-aaaa-1111')
+  const otelCard = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
+    sessionId: KEY, traceId: 'otel-trace-1', dataSource: 'otel', sourceRank: 3,
+    claudeSessionId: 'claude-session-uuid', conversationId: 'claude-session-uuid', ...overrides,
   })
-  const logTranscript = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
-    sessionId: 'claude-session-uuid', traceId: 'claude-session-uuid', dataSource: 'log',
-    startTime: T0, durationMs: 10 * 60_000, ...overrides,
+  const logCard = (overrides: Partial<SessionSummaryCard> = {}) => makeCard({
+    sessionId: KEY, traceId: KEY, dataSource: 'log', sourceRank: 2,
+    conversationId: 'claude-session-uuid', inputTokens: 900, ...overrides,
   })
 
-  test('a log card arriving after OTEL of the same conversation is skipped', async () => {
+  test('transcript then OTEL: one row, the OTEL card wins and stays on a transcript re-scan', async () => {
     const db = await openInMemoryDb()
     const w = new DatabaseWriter(db, makeStorageUri(), () => {})
-    w.enqueue(otelInteraction(), 'ws')
+    w.enqueue(logCard(), 'ws')
     await w.drain()
-    w.enqueue(logTranscript(), 'ws')
+    assert.strictEqual(queryValue(db, 'SELECT data_source FROM sessions'), 'log')
+    w.enqueue(otelCard(), 'ws')
     await w.drain()
     assert.strictEqual(countRows(db, 'sessions'), 1)
-    assert.strictEqual(queryValue(db, `SELECT data_source FROM sessions`), 'otel')
+    assert.strictEqual(queryValue(db, 'SELECT data_source FROM sessions'), 'otel')
+    assert.strictEqual(queryInt(db, 'SELECT source_rank FROM sessions'), 3)
+    // The transcript is re-read (it grew, or the process restarted): a lower rank never downgrades.
+    w.enqueue(logCard({ inputTokens: 950, subagentCount: 2 }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 1)
+    assert.strictEqual(queryValue(db, 'SELECT data_source FROM sessions'), 'otel')
+    assert.strictEqual(queryInt(db, 'SELECT input_tokens FROM sessions'), 1000)
+    // …but what only the transcript knows is kept on the row.
+    assert.strictEqual(queryInt(db, 'SELECT subagent_count FROM sessions'), 2)
     db.close()
   })
 
-  test('an OTEL interaction replaces an already-stored log card of the same conversation', async () => {
+  test('OTEL with no usage yet (partial) gives way to the full transcript; within a rank the newer card wins', async () => {
     const db = await openInMemoryDb()
     const w = new DatabaseWriter(db, makeStorageUri(), () => {})
-    w.enqueue(logTranscript(), 'ws')
+    w.enqueue(otelCard({ sourceRank: 1, inputTokens: 0, outputTokens: 0 }), 'ws')
     await w.drain()
-    w.enqueue(otelInteraction(), 'ws')
+    w.enqueue(logCard(), 'ws')
     await w.drain()
-    // The same interaction written again (re-summarized on the next update) stays one row.
-    w.enqueue(otelInteraction(), 'ws')
+    assert.strictEqual(queryValue(db, 'SELECT data_source FROM sessions'), 'log')
+    w.enqueue(logCard({ inputTokens: 1200 }), 'ws')
     await w.drain()
-    assert.strictEqual(countRows(db, 'sessions'), 1)
-    assert.strictEqual(queryValue(db, `SELECT session_id FROM sessions`), 'interaction-span-1')
+    assert.strictEqual(queryInt(db, 'SELECT input_tokens FROM sessions'), 1200)
     db.close()
   })
 
-  test('a gap-split log segment outside every OTEL interaction is kept', async () => {
+  test('a row written before ranks existed is ranked by inference (OTEL with usage beats a transcript)', async () => {
     const db = await openInMemoryDb()
     const w = new DatabaseWriter(db, makeStorageUri(), () => {})
-    w.enqueue(otelInteraction(), 'ws')
+    w.enqueue(otelCard({ sourceRank: undefined }), 'ws')
     await w.drain()
-    w.enqueue(logTranscript({ sessionId: 'claude-session-uuid#1', startTime: '2024-01-02T00:00:00.000Z' }), 'ws')
+    db.run('UPDATE sessions SET source_rank = NULL')
+    w.enqueue(logCard(), 'ws')
+    await w.drain()
+    assert.strictEqual(queryValue(db, 'SELECT data_source FROM sessions'), 'otel')
+    db.close()
+  })
+
+  test('a card whose join is still on hold is never persisted under its provisional id', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelCard({ sessionId: 'interaction-span-1', keyPending: true }), 'ws')
+    await w.drain()
+    assert.strictEqual(countRows(db, 'sessions'), 0)
+    db.close()
+  })
+
+  test('a derived OTEL key and a transcript turn key are never merged', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.enqueue(otelCard({ sessionId: claudeInteractionKey('claude-session-uuid', Date.parse('2024-01-01T00:00:00Z')), derived: true }), 'ws')
+    w.enqueue(logCard(), 'ws')
     await w.drain()
     assert.strictEqual(countRows(db, 'sessions'), 2)
-    db.close()
-  })
-
-  test('a subagent transcript (its own file, parent session id inside) is covered by the parent\'s OTEL', async () => {
-    const db = await openInMemoryDb()
-    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
-    w.enqueue(otelInteraction({ startTime: T0, durationMs: 10 * 60_000 }), 'ws')
-    await w.drain()
-    w.enqueue(logTranscript({
-      sessionId: 'agent-a16e8e506b6303ff4', claudeSessionId: 'claude-session-uuid',
-      startTime: T0_PLUS_2M, durationMs: 60_000,
-    }), 'ws')
-    await w.drain()
-    assert.strictEqual(countRows(db, 'sessions'), 1)
-    db.close()
-  })
-
-  test('different conversations are never deduped against each other', async () => {
-    const db = await openInMemoryDb()
-    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
-    w.enqueue(otelInteraction({ claudeSessionId: 'another-session' }), 'ws')
-    await w.drain()
-    w.enqueue(logTranscript(), 'ws')
-    await w.drain()
-    assert.strictEqual(countRows(db, 'sessions'), 2)
+    assert.strictEqual(queryInt(db, 'SELECT COUNT(*) FROM sessions WHERE derived = 1'), 1)
     db.close()
   })
 })

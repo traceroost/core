@@ -84,7 +84,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - **Files Changed** — The Files sub-tab tracks every file created or modified by a trace, organized with inline before/after diffs. A git-outcome banner then classifies each file as Merged (reached the trunk branch), Committed, or still Uncommitted by comparing against local git history after the fact — answers "did this trace's changes actually survive?" The same verdict drives the Traces table's **Out** column and Outcome filter (VS Code extension and native process; not available in Docker mode — same host git-repo access limitation as log file ingestion)
 - **Language & Change Size** — Each trace gets a primary (and, when it touched more than one, secondary) programming language from a fixed list — TypeScript, JavaScript, Python, Go, Rust, Java, C#, C/C++, Ruby, PHP, Swift, Kotlin, Dart, Shell, SQL, HTML, CSS, Other code, or No code — derived from the extensions of the files the agent read and changed (each distinct file counted once; Vue/Svelte components count as TypeScript when the trace touched TypeScript, else JavaScript; docs, config, lockfiles and data files ignored). Alongside it, the agent's own change size: files changed and lines added/removed by its edit and write tool calls (agent-authored edits, not git stats; every file counts here, code or not). Shown as the Traces table's **Lang** and **Changes** columns and in the expanded trace, filterable with the **Language** filter, broken down in Analytics, and included in exports. Traces stored before this existed show "—"
 - **One-shot / Retry Rate** — Tracks what fraction of edited files reached their final state in a single edit pass vs. needed retries, per trace (Files sub-tab) and aggregated per-agent in Analytics — a proxy for correction effort
-- **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, lines changed, and top tools for Copilot, Claude, Codex, OpenCode, and Cursor CLI), a language breakdown (traces, tokens, cost, files and lines changed per primary language), plan limits, outcome & token spend over time (tokens stacked by merged / committed / uncommitted), code changes over time (lines added/removed and files changed by the agent's own edits — not git stats; traces without line data are left out and counted in a note), estimated cost with a daily total overlay, token usage per trace, and context growth
+- **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, lines changed, and top tools for Copilot, Claude, Codex, OpenCode, and Cursor CLI), a by-language table (files and lines changed by the agent, then traces, cost, tokens and lines +/− per primary language), plan limits, outcome & token spend over time (tokens stacked by merged / committed / uncommitted), code changes over time (lines added/removed and files changed by the agent's own edits — not git stats; traces without line data are left out and counted in a note), estimated cost with a daily total overlay, token usage per trace, and context growth
 - **Advisor** — A "How to spend less" card ranking the biggest savings, plus project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Suggestions are worked out per repo and Apply appends them to the instruction file you pick (CLAUDE.md, .github/copilot-instructions.md, AGENTS.md for Codex/OpenCode/Cursor CLI, or a `.cursor/rules/traceroost.mdc` Cursor rule): in VS Code for the open folder, in standalone/npx mode for every repo in your traces, grouped by repo.
 - **Plan Limits** — For Claude Pro/Max and ChatGPT-plan users: how full your 5-hour and weekly windows are, how much of them each trace used, when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save — live in the sidebar, charted in Analytics, and as a Traces column. Read only from files Claude Code and Codex already write (no credentials, no network); Copilot, Cursor and OpenCode don't record plan limits, so nothing appears for them
 - **Cost Estimation** — Estimates trace cost for Copilot, Claude Code, Codex, and OpenCode (all token-based), broken down by model in a day-grouped table; Cursor CLI records no token counts, so its traces carry no cost
@@ -137,7 +137,7 @@ The general picture above is the same for every agent — OTEL is richer, logs a
 
 **Log files** (automatic, no setup) — `~/.claude/projects/<project>/<session-uuid>.jsonl`
 
-Each file is one trace. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks.
+Each file is one conversation, and each prompt in it is one trace, keyed by the prompt's own `promptId` — so the OTEL copy of the same turn lands on the same row instead of a second one, and a resumed session updates the turns it copied rather than duplicating them. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks. Subagent transcripts (`<session-uuid>/subagents/agent-*.jsonl`) are counted in the prompt that started them, not as traces of their own.
 
 Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written. Several signals can fire from this log alone (repeated tool calls, edit/revert cycles, runaway steps, hallucinated imports, degraded runaway-cost detection).
 Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, context flooding, failed check submission) — those need OTEL. See the in-app Help tab's Signals section for the per-signal breakdown.
@@ -150,7 +150,7 @@ With the recommended configuration (all three `OTEL_LOG_*` vars): prompt text, t
 
 **Log files** (automatic, no setup) — `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
 
-`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format.
+`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format. Each turn is one trace, keyed by Codex's own `turn_id` — the same key its OTEL turn gets.
 
 Available from logs: model, timestamps, token counts (input, output, cache read).
 Not in logs: prompt text, tool names, TTFT, latency.
@@ -163,7 +163,7 @@ Two surfaces, two formats: the **CLI** writes its own logs; **Copilot Chat** (th
 
 **CLI log files** (automatic, no setup) — `~/.copilot/session-state/<session-uuid>/events.jsonl`
 
-`session.start` carries the model and workspace. `user.message` carries the user prompt. `assistant.message` carries per-turn output token counts. `session.shutdown` carries total context size.
+`session.start` carries the model and workspace. `user.message` carries the user prompt — each one starts a trace. `assistant.message` carries per-turn output token counts. `session.shutdown` carries total context size.
 
 Available from logs: prompt, model, workspace, timestamps, output tokens, total context size, tool names.
 Not in logs: input tokens per turn (estimated from shutdown totals), TTFT, cache token breakdown.
@@ -176,7 +176,7 @@ Not in logs: input tokens per turn (estimated from shutdown totals), TTFT, cache
 
 OpenCode stores all trace data in a local SQLite database. TraceRoost reads this directly — no agent configuration or OTEL setup is required. The database uses WAL (Write-Ahead Log) mode; TraceRoost merges the WAL at read time so traces are visible immediately after each run.
 
-Available from the database: trace ID, user prompt (last user message), model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names, inputs/outputs, and per-tool error status. Unlike every other log source, that per-tool error status means most signals can actually fire from OpenCode's database alone — it's the one log-only exception noted throughout the in-app Help tab's Signals section.
+Each user message and the replies to it are one trace. Available from the database: trace ID, user prompt, model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names, inputs/outputs, and per-tool error status. Unlike every other log source, that per-tool error status means most signals can actually fire from OpenCode's database alone — it's the one log-only exception noted throughout the in-app Help tab's Signals section.
 
 Not available: time-to-first-token, per-tool execution timing, or streaming speed (no span timing data, since OpenCode has no OTEL path at all). Two signals still don't fire here — edit/revert cycles and hallucinated imports need before/after edit content only Claude Code (its own log, or OTEL) and Copilot (OTEL) capture; OpenCode's parser never records it. Traces show a **Log** badge and a blue info banner in the Overview tab noting the timing limitations.
 
@@ -188,7 +188,7 @@ Override the default database location with the `OPENCODE_DATA_DIR` environment 
 
 This is Cursor's standalone terminal agent (`cursor-agent`, installed via `curl https://cursor.com/install -fsS | bash`), not Cursor the IDE's built-in composer/chat agent — those are separate products with separate storage; see the note in the log-location table above.
 
-Available from logs: prompt, tool calls (names, arguments, file paths touched), session-level success/failure. Session start/end times fall back to the transcript file's own filesystem timestamps, since the format has no per-turn timestamps.
+Each `user` line starts a trace. Available from logs: prompt, tool calls (names, arguments, file paths touched), the last turn's success/failure. Start/end times fall back to the transcript file's own filesystem timestamps, since the format has no per-turn timestamps.
 
 Not available, confirmed by direct inspection rather than assumed: **token/usage counts, model name, workspace path, and per-tool error detail** — none of these exist anywhere in Cursor CLI's local storage today. These show as an honest unpriced/unknown gap (matching every other unrecognized-model session) rather than a guessed number. No OTEL path exists for this agent, so there is no richer alternative source to fall back to — Cursor CLI traces always carry a **Log** badge.
 
@@ -489,6 +489,16 @@ printed with the dashboard URL at startup. Browsers: open `http://<host>:3000/?t
 or `scripts/configure-agents.sh --host <host> --token <token>`. MCP clients: send the same
 `Authorization: Bearer <token>` header.
 
+**One server per data directory.** Only one TraceRoost server may use a data directory at a time
+— two would overwrite each other's `spans.json`. A second `npx traceroost` / `pnpm run local` on
+the same `DATA_DIR` (say, while the background service is running) refuses to start and names the
+running one: its pid, its dashboard URL, and how to stop it. To run a second instance on purpose,
+give it its own data directory and ports, e.g.
+`DATA_DIR=~/traceroost-2 UI_PORT=3001 OTLP_PORT=4319 MCP_PORT=4317 npx traceroost@latest`. The lock
+(`<data dir>/server.lock`) is removed when the server exits; one left by a crash is taken over
+automatically on the next start. The background service, if blocked this way, waits and starts as
+soon as the other server stops. The VS Code extension keeps its own data and isn't affected.
+
 The local server uses the same port as the VS Code extension — only one can run at a time. To run both simultaneously, use different ports:
 
 ```bash
@@ -572,6 +582,14 @@ docker run --pull=always -p 127.0.0.1:3001:3000 -p 127.0.0.1:4319:4318 \
 ```
 
 Then point your agents at `http://localhost:4319` and open <http://localhost:3001>.
+
+Mounting `~/.traceroost` shares that data directory with any native TraceRoost server on the host,
+and [only one server may use a data directory](#native-process-recommended-for-local-use) — the
+container refuses to start while the host's background service or `npx traceroost` holds it (and
+vice versa). Stop that one first, or mount a different directory. A container that was killed
+rather than stopped (`docker rm -f`, a crash) leaves its lock behind; since a new container has a
+new hostname, that lock is taken over 90 seconds after its last heartbeat — `docker stop` releases
+it at once.
 
 ### Node.js (from source)
 

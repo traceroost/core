@@ -38,6 +38,7 @@ import {
   authorHash,
   type RepoKeyContext,
 } from '../../repoKey'
+import { toUuid } from '../../traceIdentity'
 
 /** The only fields of a session the builder is allowed to see. Every one is a scalar, an enum,
  *  a number, or an array of paths/enums — nothing that can hold free text. */
@@ -63,9 +64,9 @@ export interface SessionRollupInput {
   llmModels?: string[]
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
-  /** Set only when this session is one segment of a log file split by a long idle gap — see
-   *  `SessionSummaryCard.conversationId` (logReader.ts). Absent for an ordinary one-file-one-
-   *  session card, same as core's own color-coding (getConversationColor) leaves it uncolored. */
+  /** The conversation this trace (one turn) belongs to — the agent's conversation/transcript id,
+   *  see `SessionSummaryCard.conversationId`. Lets the server group a conversation's turns the way
+   *  the local conversation marker does. Sent only as a hash. */
   conversationId?: string
   /** Allowlisted language ids (src/language.ts) — fixed-choice labels, never free text. */
   language?: string
@@ -74,9 +75,15 @@ export interface SessionRollupInput {
   filesChangedCount?: number
   linesAdded?: number
   linesRemoved?: number
+  /** Source rank of this snapshot (src/traceIdentity.ts's `sourceRankOf`) — an integer 1–3,
+   *  nothing else; anything outside that range is clamped into it. */
+  sourceRank: number
 }
 
 export interface BuildContext {
+  /** The sending host's id (`src/cloud/org/hostIdentity.ts`) — a random UUID, sent as
+   *  `session.host_id` so a trace manifest only ever retires this host's own rows. */
+  hostId: string
   /** Absent when the workspace's repository can't be keyed (not a git repo, a shallow clone, or
    *  no discoverable root commit) — the rollup is still built, just without repo grouping. */
   repoKey?: RepoKeyContext
@@ -96,19 +103,9 @@ export interface BuildContext {
   revision?: number
 }
 
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
-
-/** Session ids from some agents are not UUIDs. The schema requires `format: uuid`, so a
- *  non-UUID id is folded to a deterministic v8-style UUID of its sha256 — stable across runs and
- *  machines, and carrying no information the raw id did not (it is already an opaque token). */
-export function toUuid(raw: string): string {
-  if (UUID_RE.test(raw)) return raw.toLowerCase()
-  const b = crypto.createHash('sha256').update(raw).digest()
-  b[6] = (b[6] & 0x0f) | 0x80 // version 8 (name-based, custom)
-  b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
-  const h = b.toString('hex')
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
-}
+/** Re-exported from the local trace-identity module (the canonical keys are minted with it) — see
+ *  src/traceIdentity.ts. */
+export { toUuid }
 
 /** Plain sha256 — deliberately not the repo_key-derived HMAC repoHash/branchHash/fileHash use.
  *  A conversationId is already an opaque, high-entropy token (a uuid, or an OTEL trace id), not a
@@ -194,6 +191,8 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
     errors: nonNegInt(input.errors),
     outcome: ctx.outcome ? toWireOutcome(ctx.outcome) : 'unknown',
     data_source: input.dataSource,
+    source_rank: wireSourceRank(input.sourceRank),
+    host_id: ctx.hostId,
   }
   if (input.initiator) rollup.initiator = input.initiator
   if (input.conversationId) rollup.conversation_hash = sha256Hex(input.conversationId)
@@ -245,6 +244,13 @@ export function sessionRollupPayload(input: SessionRollupInput, ctx: BuildContex
     ...(ctx.repoKey && ctx.authorEmail ? { member_author_hash: authorHash(ctx.repoKey, ctx.authorEmail) } : {}),
     session: buildSessionRollup(input, ctx),
   }
+}
+
+/** The schema allows only 1–3; a non-finite rank reads as the lowest (it can never outrank a
+ *  real snapshot). */
+function wireSourceRank(rank: number): 1 | 2 | 3 {
+  if (!Number.isFinite(rank)) return 1
+  return Math.min(3, Math.max(1, Math.round(rank))) as 1 | 2 | 3
 }
 
 // Mirrors #/$defs/count's `maximum` in schema/rollup.v1.json. A session that legitimately

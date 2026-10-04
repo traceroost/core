@@ -3,7 +3,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { findSessionById, runTraceCli } from './traceCli'
-import { loadAllSessions, loadSessionsMatchingId } from './sessionLoader'
+import { toUuid } from '../../src/traceIdentity'
+import { loadAllSessions } from './sessionLoader'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 function makeCard(overrides: Partial<SessionSummaryCard> = {}): SessionSummaryCard {
@@ -55,6 +56,20 @@ suite('findSessionById', () => {
     assert.strictEqual(findSessionById(sessions, 'nope'), undefined)
   })
 
+  test('matches the wire session_id the cloud hand-off shows for a non-UUID local key', () => {
+    const local = 'copilot-otel-span-7f3a'
+    const sessions = [makeCard({ sessionId: 'other' }), makeCard({ sessionId: local })]
+    assert.strictEqual(findSessionById(sessions, toUuid(local))?.sessionId, local)
+    assert.strictEqual(findSessionById(sessions, toUuid(local).toUpperCase())?.sessionId, local)
+  })
+
+  test('a UUID local key matches itself case-insensitively but no other trace', () => {
+    const key = '0b6c2f9e-3a1d-4c55-8e2f-1a2b3c4d5e6f'
+    const sessions = [makeCard({ sessionId: 'x' }), makeCard({ sessionId: key })]
+    assert.strictEqual(findSessionById(sessions, key.toUpperCase())?.sessionId, key)
+    assert.strictEqual(findSessionById(sessions, toUuid('unrelated')), undefined)
+  })
+
   test('does not partial-match — an id that is only a substring of a real one does not match', () => {
     const sessions = [makeCard({ sessionId: 'abcdef' })]
     assert.strictEqual(findSessionById(sessions, 'abc'), undefined)
@@ -76,7 +91,7 @@ suite('runTraceCli', () => {
   })
 })
 
-suite('loadSessionsMatchingId', () => {
+suite('runTraceCli against recorded transcripts', () => {
   const saved = { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, DATA_DIR: process.env.DATA_DIR }
   let root: string
 
@@ -94,11 +109,8 @@ suite('loadSessionsMatchingId', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-trace-'))
     const projects = path.join(root, 'claude', 'projects')
     const t0 = Date.parse('2026-03-01T00:00:00Z')
-    for (let i = 0; i < 5; i++) transcript(path.join(projects, '-repo-a'), `tr-sess-${i}`, [t0 + i * 60_000])
-    // Split into two sessions (`tr-split`, `tr-split#1`) by a day-long gap.
+    // Two turns a day apart in one transcript: two traces, one per turn.
     transcript(path.join(projects, '-repo-a'), 'tr-split', [t0, t0 + 86_400_000])
-    // The same file name under a second project, newer — the full load picks this one first.
-    transcript(path.join(projects, '-repo-b'), 'tr-sess-2', [t0 + 3_600_000], '/repo-b')
     process.env.CLAUDE_CONFIG_DIR = path.join(root, 'claude')
     process.env.DATA_DIR = path.join(root, 'data')
   })
@@ -111,16 +123,21 @@ suite('loadSessionsMatchingId', () => {
     fs.rmSync(root, { recursive: true, force: true })
   })
 
-  test('finds the same session a full load would, parsing only the files that can hold it', () => {
-    const all = loadAllSessions()
-    for (const id of ['tr-sess-0', 'tr-sess-2', 'tr-split', 'tr-split#1', 'tr-split#2', 'nope']) {
-      const narrowed = loadSessionsMatchingId(id)
-      assert.deepStrictEqual(findSessionById(narrowed, id), findSessionById(all, id), id)
-      const base = id.replace(/#\d+$/, '')
-      assert.ok(narrowed.filter(s => s.sessionId.startsWith('tr-')).every(s => s.sessionId.replace(/#\d+$/, '') === base), id)
+  test('finds a trace by its per-turn key; a transcript file name is not a trace id', async () => {
+    const turns = loadAllSessions().filter(s => s.conversationId === 'tr-split')
+    assert.strictEqual(turns.length, 2)
+    const second = turns.find(s => s.userRequest === 'prompt 1 for tr-split')
+    assert.ok(second)
+    assert.strictEqual(findSessionById(loadAllSessions(), second.sessionId)?.userRequest, 'prompt 1 for tr-split')
+    assert.strictEqual(findSessionById(loadAllSessions(), 'tr-split'), undefined)
+
+    const log = console.log
+    console.log = () => {}
+    try {
+      assert.strictEqual(await runTraceCli(['--id', second.sessionId]), 0)
+      assert.strictEqual(await runTraceCli(['--id', 'tr-split']), 1)
+    } finally {
+      console.log = log
     }
-    assert.strictEqual(findSessionById(loadSessionsMatchingId('tr-sess-2'), 'tr-sess-2')?.workspace, '/repo-b')
-    assert.strictEqual(findSessionById(loadSessionsMatchingId('tr-split#1'), 'tr-split#1')?.sessionId, 'tr-split#1')
-    assert.strictEqual(loadSessionsMatchingId('tr-sess-2').filter(s => s.sessionId === 'tr-sess-2').length, 2)
   })
 })

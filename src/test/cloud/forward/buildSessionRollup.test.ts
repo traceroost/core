@@ -4,9 +4,11 @@ import { buildSessionRollup, sessionRollupPayload, toUuid, type SessionRollupInp
 import { validateRollupPayload } from '../../../cloud/forward/validate'
 import { stableStringify } from '../../../cloud/forward/preview'
 import { authorHash, type RepoKeyContext } from '../../../repoKey'
+import { traceKey } from '../../../traceIdentity'
 
 const CTX: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('test-key').digest() }
-const BUILD = { repoKey: CTX, branch: 'main', outcome: 'merged' }
+const HOST = '6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
+const BUILD = { repoKey: CTX, branch: 'main', outcome: 'merged', hostId: HOST }
 
 const BASE: SessionRollupInput = {
   sessionId: 'sess-abc',
@@ -28,6 +30,7 @@ const BASE: SessionRollupInput = {
   oneShotStats: { filesConsidered: 3, oneShotFiles: 2, totalEdits: 5 },
   dataSource: 'log',
   initiator: 'user',
+  sourceRank: 2,
 }
 
 suite('forward/buildSessionRollup', () => {
@@ -221,5 +224,45 @@ suite('forward/buildSessionRollup', () => {
     payload.session.language_secondary = 'rust'
     payload.session.language = 'Rust'
     assert.notDeepStrictEqual(validateRollupPayload(payload), [])
+  })
+
+  test('source_rank: always sent (clamped to 1–3), schema version "1"; the schema requires it and allows only 1–3', () => {
+    const sent = sessionRollupPayload({ ...BASE, sourceRank: 3 }, BUILD)
+    assert.strictEqual(sent.session!.source_rank, 3)
+    assert.strictEqual(sent.schema_version, '1')
+    assert.deepStrictEqual(validateRollupPayload(sent), [])
+    for (const [raw, wire] of [[0, 1], [4, 3], [2.4, 2], [NaN, 1]] as const) {
+      assert.strictEqual(buildSessionRollup({ ...BASE, sourceRank: raw }, BUILD).source_rank, wire, String(raw))
+    }
+    const missing = sessionRollupPayload(BASE, BUILD) as unknown as { session: Record<string, unknown> }
+    delete missing.session.source_rank
+    assert.notDeepStrictEqual(validateRollupPayload(missing), [], 'a rollup without source_rank is rejected')
+    const payload = sessionRollupPayload(BASE, BUILD) as unknown as { session: Record<string, unknown> }
+    for (const rank of [1, 2, 3]) {
+      payload.session.source_rank = rank
+      assert.deepStrictEqual(validateRollupPayload(payload), [], String(rank))
+    }
+    for (const bad of [0, 4, 2.5, '3']) {
+      payload.session.source_rank = bad
+      assert.notDeepStrictEqual(validateRollupPayload(payload), [], String(bad))
+    }
+  })
+
+  test('host_id: always sent as the build context gives it; the schema requires a uuid', () => {
+    const sent = sessionRollupPayload(BASE, BUILD)
+    assert.strictEqual(sent.session!.host_id, HOST)
+    assert.deepStrictEqual(validateRollupPayload(sent), [])
+    const payload = sessionRollupPayload(BASE, BUILD) as unknown as { session: Record<string, unknown> }
+    delete payload.session.host_id
+    assert.notDeepStrictEqual(validateRollupPayload(payload), [], 'a rollup without host_id is rejected')
+    for (const bad of ['my-laptop', '', 42]) {
+      payload.session.host_id = bad
+      assert.notDeepStrictEqual(validateRollupPayload(payload), [], String(bad))
+    }
+  })
+
+  test('a canonical trace key is the wire session_id unchanged', () => {
+    const key = traceKey('claude', 'prompt-1')
+    assert.strictEqual(buildSessionRollup({ ...BASE, sessionId: key }, BUILD).session_id, key)
   })
 })

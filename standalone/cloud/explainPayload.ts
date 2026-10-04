@@ -14,12 +14,15 @@ import { loadAllSessions } from '../local/sessionLoader'
 import { classifySessionOutcome } from '../../src/gitOutcome'
 import { readServiceConfig, ensureInstallId } from '../../src/serviceConfig'
 import { loadCredentials } from '../../src/cloud/org/credentials'
+import { currentHostId, setHostStore, PREVIEW_HOST_ID } from '../../src/cloud/org/hostIdentity'
 import { deriveRepoKey } from '../../src/repoKey'
 import { sessionRollupPayload, type SessionRollupInput } from '../../src/cloud/forward/buildSessionRollup'
 import { assertValidRollupPayload } from '../../src/cloud/forward/validate'
 import { stableStringify } from '../../src/cloud/forward/preview'
 import { ForwardQueue } from '../../src/cloud/forward/queue'
 import { SENT, NEVER_SENT } from '../../src/cloud/org/privacy'
+import { previewManifestChunk } from '../../src/cloud/forward/traceManifest'
+import { sourceRankOf, traceKeysInWindow, localHorizonOf, countTracesInWindow } from '../../src/traceIdentity'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 export interface ExplainOptions {
@@ -52,7 +55,8 @@ function currentBranch(workspace: string): string {
 /** One line naming the per-session fields that are easiest to misread as content. */
 export const SESSION_FIELD_NOTE =
   'language / language_secondary are fixed ids from a 14-value list (derived locally from file extensions); ' +
-  'files_changed / lines_added / lines_removed are counts only — no paths, no file content, and not git stats.'
+  'files_changed / lines_added / lines_removed are counts only — no paths, no file content, and not git stats; ' +
+  'host_id is a random id generated once for this host\'s own store, never derived from the machine.'
 
 function toInput(card: SessionSummaryCard): SessionRollupInput {
   return {
@@ -81,13 +85,18 @@ function toInput(card: SessionSummaryCard): SessionRollupInput {
     filesChangedCount: card.filesChangedCount,
     linesAdded: card.linesAdded,
     linesRemoved: card.linesRemoved,
+    sourceRank: sourceRankOf(card),
   }
 }
 
 export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
   const creds = loadCredentials()
   const orgId = creds?.orgId ?? 'unlinked-preview'
-  ensureInstallId(readServiceConfig())
+  const config = ensureInstallId(readServiceConfig())
+  // The standalone server's own host id (its data dir, as server.ts resolves it); a placeholder
+  // when unlinked, like the org salt — and then no host-id file is written.
+  setHostStore(process.env.DATA_DIR ?? config.dataDir)
+  const hostId = creds ? currentHostId() : PREVIEW_HOST_ID
 
   // `--all` dumps the forwarding queue when it has anything in it — the exact bytes pending
   // right now — falling back to a preview built from all local sessions when it is empty.
@@ -142,9 +151,28 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
       repoKey: rk.ctx,
       branch: currentBranch(rk.ctx.root),
       outcome: outcome?.overall,
+      hostId,
     })
     assertValidRollupPayload(payload)
     console.log(stableStringify(payload))
+    console.log('')
+  }
+
+  // The trace manifest (stable trace identity): what reconciliation sends besides rollups.
+  const chunk = previewManifestChunk({
+    localHorizonMs: () => localHorizonOf(all),
+    listTraceKeys: (fromMs, toMs) => traceKeysInWindow(all, fromMs, toMs),
+    countTraces: (fromMs, toMs) => countTracesInWindow(all, fromMs, toMs),
+  }, hostId)
+  if (chunk) {
+    console.log('# Trace manifest (POST /api/ingest/manifest) — the newest day\'s chunk as it would be sent now.')
+    console.log('# One chunk per UTC day of the settled window: the trace keys this machine still holds (the same')
+    console.log('# session_id values above), so the cloud can retire traces it holds from this server that no')
+    console.log('# longer exist here. Only window bounds and opaque UUIDs — nothing else. host_id is a random id')
+    console.log('# generated once for this server\'s data dir (the editor extension has its own), so a manifest')
+    console.log('# never retires a trace only the other one saw.')
+    console.log(creds ? '# Sent by the forwarding timer.' : '# Not sent: this machine is not linked.')
+    console.log(stableStringify(chunk))
     console.log('')
   }
   return 0

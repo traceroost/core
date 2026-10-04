@@ -97,7 +97,7 @@ suite('org/link', () => {
     await linkInteractive({ openUrl: fakeBrowser(), timeoutMs: 2000 })
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-leave-'))
     try {
-      new ForwardQueue(home).enqueue({ schema_version: '1', repo_key_fp: 'a'.repeat(64), session: { session_id: '11111111-1111-4111-8111-111111111111', agent: 'claude-code', started_at: '2026-03-01T00:00:00.000Z', duration_ms: 1 } })
+      new ForwardQueue(home).enqueue({ schema_version: '1', repo_key_fp: 'a'.repeat(64), session: { session_id: '11111111-1111-4111-8111-111111111111', agent: 'claude-code', started_at: '2026-03-01T00:00:00.000Z', duration_ms: 1, source_rank: 2, host_id: '0a0a0a0a-1111-4111-8111-aaaaaaaaaaaa' } })
       globalThis.fetch = (() => { throw new Error('offline') }) as typeof fetch
       const res = await leave(home)
       assert.strictEqual(res.wasLinked, true)

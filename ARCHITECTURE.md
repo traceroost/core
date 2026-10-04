@@ -239,10 +239,10 @@ OpenCode stores all session data in a local SQLite database (`opencode.db`) usin
 **Three-query parse:** `_parseOpenCodeDb()` executes three queries in one pass:
 
 1. **Session query** — `session` table: `id, title, directory, model, time_created, tokens_input, tokens_output, tokens_cache_read, tokens_cache_write`. Filters: `parent_id` null/empty (skip sub-sessions), total tokens > 0. Model is stored as JSON (`{"id":"...", "providerID":"..."}`); the `id` field is extracted.
-2. **Message query** — `message` table joined on `session_id`: per-assistant-turn timing (`time.created`, `time.completed` from the `data` JSON) and token counts.
+2. **Message query** — `message` table joined on `session_id`: role, `parentID`, per-message timing (`time.created`, `time.completed` from the `data` JSON) and token counts (input, output, reasoning, cache read/write).
 3. **Part query** — `part` table joined with `message`: `type` (text / tool / step-start / step-finish / reasoning), `text`, `tool_name`, `callID`, `tool_input_json`, `tool_output`, `tool_status`, and timestamps. Results are grouped per session into `partsBySess` for card building.
 
-**User request:** The last `text`-type part with `role=user` is used as `userRequest` (not the first) to capture the most recent user message in multi-turn sessions.
+**Turns:** each user message opens a trace; an assistant message belongs to the user message its `parentID` names (else the latest one before it), and so do its parts. The trace's `userRequest` is its user message's text (the session title when it has none), its tokens are its assistant messages' (a database that records only session totals puts them on the session's last turn), and its key is derived from the session id plus the user message's id.
 
 **Timeline:** `llmEvents` (one per assistant message, from the message query) and `toolEvents` (one per tool part, from the part query) are merged and sorted by timestamp into `TimelineEntry[]`.
 
@@ -276,7 +276,7 @@ flowchart TD
     INC -- cards --> WRI
 ```
 
-**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `logFileState.ts`'s `restoreLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`. The file carries a version (`LOG_FILE_STATE_VERSION`): a parser fix that must correct already-stored sessions bumps it, and restoring an older file forgets the affected files so they're re-parsed and their rows rewritten once — version 2 re-reads Codex rollouts (within retention) stored with reasoning tokens counted twice (`logFileState.codexReparse.test.ts`).
+**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `logFileState.ts`'s `restoreLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`. The file carries a version (`LOG_FILE_STATE_VERSION`): a parser fix that must correct already-stored sessions bumps it, and restoring an older file forgets the affected files so they're re-parsed and their rows rewritten once — version 2 re-reads Codex rollouts (within retention) stored with reasoning tokens counted twice (`logFileState.codexReparse.test.ts`); version 3 re-reads every file within retention once, one trace per turn (see Trace identity below).
 
 **Two-phase startup loading:** the fast group (all non-.json files) runs first and surfaces recent sessions immediately. The slow group (legacy .json snapshots) starts after the fast group finishes, with a 50 ms gap between each 2-file batch to keep the extension host responsive (each ~60 ms parsing window).
 
@@ -300,13 +300,39 @@ flowchart TD
 
 Sessions produced by `LogReader` carry `dataSource: 'log'` on `SessionSummaryCard`; OTLP sessions carry `dataSource: 'otel'`. The UI shows an OTEL/Log source badge on each session row.
 
+### Trace identity — one turn, one key
+
+One agent turn is one trace, on every source, and it has one key everywhere — the local `sessionId`, the database row, the wire `session_id`, the delivery ledger, deep links and every per-session cache (`src/traceIdentity.ts`):
+
+```
+traceKey = toUuid(`${agent}:turn:${turnId}`)
+```
+
+`turnId` is the agent's own turn id, scoped by agent only (never by file or conversation), so a resumed or forked copy of a transcript upserts onto the original row. Prompt text, prompt length, file paths and timestamps never enter a key.
+
+| Source | Turn | Key |
+| --- | --- | --- |
+| Claude Code transcript | opens at the first prompt line with a new `promptId`; interrupt markers, compaction carry-overs and slash-command lines sharing that promptId stay in it; a message typed mid-turn arrives inside a tool result and opens nothing (`src/claudeTurns.ts`) | `promptId` — exact. A transcript from before promptIds: derived (file id + the prompt line's `uuid`) |
+| Claude Code OTEL | one `claude_code.interaction` | no turn id on the wire — joined to its transcript turn (`src/claudeTurnJoin.ts`): `session.id` names the file, the interaction start picks the prompt line within ±2 s (OTEL leads by 1–67 ms; a line more than 250 ms *before* is a neighbouring turn and never taken), `user_prompt_length` (equal or +1) breaks a tie. Not joinable after a short hold (5 s, `TRACEROOST_CLAUDE_JOIN_HOLD_MS`) → derived `claude:interaction:<session.id>:<start ms>`, never merged by guesswork |
+| Codex rollout + OTEL | opens at a `user_message` (walked back over its bookkeeping lines); a `user_message` with the running turn's id opens nothing | `turn_id` (task_started / turn_context; OTEL `turn.id` / `turn_id`) — exact. No turn id: derived (rollout id + prompt timestamp) |
+| Copilot Chat (`.jsonl` / `.json`) | one request | `requestId` — exact for the log. Copilot OTEL keeps its own exact key (the invoke_agent span id): log ↔ OTEL id equality is unverified, so no cross-source merge |
+| Copilot CLI, OpenCode, Cursor CLI | one prompt (`user.message` / user message / `role: user` line) | derived: conversation id + the opening record's own id, or its exact timestamp (Cursor: its position — the format has neither) |
+
+Derived keys carry `derived: true`. Subagent transcripts (`<session>/subagents/agent-*.jsonl`) never get a key: their usage, tool calls and files fold into the parent turn (the turn whose promptId they carry, else the last one started before them), which records `subagentCount` — matching OTEL, which counts subagent calls under the parent interaction. So the `agent` initiator no longer comes from Claude subagents. The conversation marker groups a conversation's turns by `conversationId` (the transcript / rollout / chat id).
+
+**Source precedence.** A turn's log and OTEL cards are the same key, so "counting it once" is an upsert, not an overlap guess. Each card carries a `sourceRank` — OTEL with usage (3) > full transcript (2) > partial transcript or OTEL without usage (1). A lower rank never replaces a higher one; within a rank the newer card wins. The extension's `DatabaseWriter`, the standalone server's merge (`mergeCardsByKey` in `claudeConversation.ts`), the live/stored merge (`mergeSessions`) and the cloud forward path (`contentChangeForward.ts`, via `trace_revision.source_rank`) all apply it, so a transcript re-scan after the OTEL card landed never downgrades the row — locally or in the cloud.
+
+**Changed turns only.** A growing transcript is re-parsed whole, but `parseFile`/`scan` return only the turns whose card changed since the last pass (`LogReader._onlyChanged`).
+
+**Upgrading a store.** A trace store older than `TRACE_STORE_VERSION` (SQLite `PRAGMA user_version`, `src/database/traceStore.ts` — the extension's `traceroost.db` and the standalone server's `outcomes-cache.db`) is not migrated: its trace tables (sessions with their timelines, git-outcome caches, trace revisions, commit attribution, plan-limit hits) are dropped and refilled by reading the agent logs again from scratch (`LOG_FILE_STATE_VERSION` 4), and queued or delivered trace records go with them, while settings, instruction suggestions, blame/turnover caches, plan-limit readings and rollups, the cloud link and the host id are kept. The trace-key manifest (feature 11 step 5, `src/cloud/forward/traceManifest.ts` — see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)`, `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` over the standalone server's cards.
+
 ### Per-session language and change size
 
 Every card gets `language` / `languageSecondary` and `filesChangedCount` / `linesAdded` / `linesRemoved` at the moment it is built — `_buildCard` in `logReader.ts` for log sessions, the end of `summarizeSpans()` for OTEL — so the database, the standalone server's in-memory store, export and cloud forwarding all read the same values without their own pass.
 
 - **Language** (`src/language.ts`, byte-identical copy at `media/src/language.ts`, parity-tested in `src/test/language.test.ts`): a fixed allowlist — `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none` — derived from the extensions of the session's distinct `filesRead` + `filesChanged` paths. Each distinct file counts once; non-code files (docs, JSON/YAML/TOML, lockfiles, config, dotfiles, images, text, CSV) and unknown extensions are excluded; a small explicit `OTHER_CODE_EXTENSIONS` set counts as `other`; Vue/Svelte components (`COMPONENT_EXTENSIONS`) count as `typescript` when the session touched any TypeScript file, else `javascript` (paths only, so `lang="ts"` is never read). Primary is the most common, secondary the runner-up (never `none`, may be `other`); ties break by count, then changed-over-read, then allowlist order.
 - **Change size** (`src/editStats.ts`): `filesChangedCount` is the distinct `filesChanged` count (every file, code or not); lines come from the timeline's `editDetails` — old→new strings are line-diffed (common prefix/suffix trimmed, LCS on the middle), `apply_patch` hunks (parsed once in `summarizers/helpers.ts`'s `parseApplyPatchEditDetails`, for Copilot and Codex) count their `-`/`+` lines, a content-only write counts every line as added. Agent-authored edits, not git stats (`src/attribution/` is the git side). Undefined lines mean the source records no edit contents (OpenCode, Cursor, Codex/Copilot logs).
-- Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`, added by `applyMigrations`); rows from before stay NULL and display "—" until re-summarized from their log — no backfill. Language and change-size cells read from Codex and Copilot Chat logs, which record no file paths, are `none` / unknown.
+- Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`). Language and change-size cells read from Codex and Copilot Chat logs, which record no file paths, are `none` / unknown.
 
 ### Bypasses SessionStore / SpanSummarizer
 
@@ -351,7 +377,7 @@ graph LR
     PL --> SP
 ```
 
-**Key non-obvious behaviour:** Codex session IDs (`codex:{conversationId}:{turnId}`) are assigned on arrival. Once set, the mapping is immutable even if spans arrive out of order or are retried.
+**Key non-obvious behaviour:** Codex session IDs (`codex:{conversationId}:{turnId}`) are assigned on arrival. Once set, the mapping is immutable even if spans arrive out of order or are retried. After summarization the card takes its canonical key, `traceKey('codex', turnId)` — the key its rollout turn gets (see §4, Trace identity).
 
 ---
 
@@ -472,6 +498,9 @@ erDiagram
         TEXT one_shot_stats
         TEXT initiator
         TEXT conversation_id
+        INTEGER derived
+        INTEGER source_rank
+        INTEGER subagent_count
         TEXT language
         TEXT language_secondary
         INTEGER files_changed_count
@@ -649,6 +678,9 @@ classDiagram
         +source: copilot, claude_code, codex, opencode, cursor
         +dataSource: otel, log
         +conversationId?: string
+        +derived?: boolean
+        +sourceRank?: number
+        +subagentCount?: number
         +workspace: string
         +projectPath?: string
         +userRequest: string
@@ -838,7 +870,7 @@ graph LR
     T1 --> D4[Tools sub-tab<br/>donut chart + call table]
     T1 --> D5[Files sub-tab<br/>files changed · open in editor<br/>one-shot/retry-rate summary<br/>git outcome banner + per-file badges]
 
-    T2[Analytics<br/>AGENT BREAKDOWN · LANGUAGE BREAKDOWN · PLAN LIMITS<br/>OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST<br/>TOKEN USAGE PER TRACE · CONTEXT GROWTH]
+    T2[Analytics<br/>AGENT BREAKDOWN · BY LANGUAGE · PLAN LIMITS<br/>OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST<br/>TOKEN USAGE PER TRACE · CONTEXT GROWTH]
     T2 --> A1[CostBarChart — per-session bars<br/>daily total overlay · pricing mode toggle<br/>CSV export download button]
     T2 --> A2[AgentCard per agent with data — stat tiles<br/>incl. One-shot rate and Lines +/− tiles]
     T2 --> A3[SessionTokenChart — input/output bars<br/>day boundary highlights]
@@ -1014,6 +1046,22 @@ story instead of diverging. `service install` writes `config.json` just before r
 service (the freshly started server reads it immediately) and, if registration fails, rolls the
 service back and restores whatever `config.json` held before.
 
+**One server per data dir.** Before it reads or writes anything in its data dir, the server takes
+an exclusive lock, `<dataDir>/server.lock` (`standalone/dataDirLock.ts`): created with O_EXCL,
+holding pid, hostname, start time and — once bound — its ports. Two servers on one dir would each
+load `spans.json` and then overwrite each other's saves, so a second one is refused with a message
+naming the running instance (pid, dashboard URL, how to stop it, or `DATA_DIR` + other ports for a
+deliberate second instance). Run as the background service, a refused server waits and retries
+every 10 s instead of exiting, so launchd's KeepAlive doesn't respawn it in a loop and it takes
+over when the ad-hoc run stops. The lock is released on exit; a crashed holder's lock is taken
+over on the next start — on the same host when its pid is gone (or is our own pid, as in a
+restarted container), from another host (a shared filesystem, a re-created container) once the
+30 s heartbeat that bumps its mtime is 90 s old. A holder whose lock was taken over exits without
+saving. The VS Code extension takes no part: its spans live in its own SQLite store under VS
+Code's global storage, and the per-machine files it does share with the server (forward queue,
+delivery ledger, credential, always under `~/.traceroost`) are guarded per write by
+`src/cloud/forward/fileLock.ts`.
+
 `uninstall` removes the service definition only (on Windows that includes the generated
 `<dataDir>/service/run.cmd` wrapper, and a task that's already gone isn't an error) — it never
 touches `~/.traceroost`'s data or config, matching the same separation the extension's Clear-All-Data command already keeps between
@@ -1144,9 +1192,11 @@ link — routed through VS Code's own URI scheme, not a custom-registered `agent
 `src/extension.ts`'s "Deep links" comment.
 | `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
 | `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
+| `src/cloud/org/hostIdentity.ts` | This host's `host_id` — a random UUID kept in its own trace store (`cloud-host-id`), created on first linked use; the extension and the standalone server each have one |
 | `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
 | `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
 | `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
+| `src/cloud/forward/traceManifest.ts` | The trace-key manifest — per-day chunks of the keys this host holds, tagged with its `host_id`, sent after a drain by the store's single writer (each host for its own rows); full sweep on startup/(re-)link, changed days otherwise |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
 `traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
@@ -1263,7 +1313,11 @@ traceroost/
 │   ├── sessionRiskSignals.ts     # Post-hoc, on-demand risk detectors (session detail view) — malfunction patterns visible only once a session is complete
 │   ├── automationEngine.ts       # Server-side port of Automation's threshold evaluation for MCP tools — hand-kept in sync with media/src/tabs/Automation.tsx's own copy
 │   ├── claudeUsageLines.ts       # Selects whole cumulative usage snapshots from growing Claude Code output lines
-│   ├── claudeConversation.ts     # One rule (shared by DB writer and standalone server) for counting a Claude conversation's OTEL + transcript cards once
+│   ├── claudeConversation.ts     # Merge a turn's OTEL + log cards by key, higher source rank wins (standalone server; the DB writer applies the same rule)
+│   ├── claudeTurns.ts            # Claude transcript → turns (one per promptId), shared by the log reader and the OTEL join
+│   ├── claudeTurnJoin.ts         # Claude OTEL interaction → transcript turn join (no turn id on the wire)
+│   ├── otelTraceKeys.ts          # Gives OTEL-built cards their canonical key (Claude join, Codex turn id)
+│   ├── traceIdentity.ts          # Canonical trace keys (toUuid), derived keys, source ranks
 │   ├── actionLog.ts              # Persistent record of every shell command TraceRoost runs (header action-log button)
 │   ├── repoKey.ts                # Repo hash from the clone's root commit (Traces table Repo (ID) column; HMAC primitives for cloud/)
 │   ├── suggestionRules.ts        # Instruction-suggestion rules — byte-identical copy of media/src/suggestionRules.ts (test-enforced)
@@ -1280,9 +1334,10 @@ traceroost/
 │   ├── database/
 │   │   ├── schema.ts             # SCHEMA_SQL — CREATE TABLE statements + indexes
 │   │   ├── db.ts                 # TraceRoostDb — open, migrate, save, dispose
-│   │   ├── writer.ts             # DatabaseWriter — enqueue/drain, blob writes, cost_usd, one_shot_stats
-│   │   ├── reader.ts             # DatabaseReader — list, search, analytics, burn rate, blobs
+│   │   ├── writer.ts             # DatabaseWriter — enqueue/drain, source precedence, blob writes, cost_usd
+│   │   ├── reader.ts             # DatabaseReader — list, search, analytics, burn rate, blobs, trace keys in a window
 │   │   ├── migration.ts          # migrateGlobalStateToSqlite (one-time)
+│   │   ├── traceStore.ts         # TRACE_STORE_VERSION — drops and rebuilds a trace store older than it
 │   │   ├── retention.ts          # runRetention — DELETE old sessions + blob eviction
 │   │   ├── instructionRepository.ts # Applied/dismissed instruction-suggestion records
 │   │   ├── gitOutcomeRepository.ts # SQLite cache for per-session git-outcome classification; invalidated by cache key, not TTL
@@ -1351,7 +1406,7 @@ traceroost/
 │   │       │                     #   changing the sort returns to page 1
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
-│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · LANGUAGE BREAKDOWN · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
+│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · BY LANGUAGE · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
 │   │       ├── outcomeTrend.ts   # Day/week binning (dayBins) for OUTCOME & TOKEN SPEND OVER TIME
 │   │       ├── codeChanges.ts    # CODE CHANGES OVER TIME bins — agent-authored lines/files, traces without line data excluded

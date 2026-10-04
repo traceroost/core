@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://traceroost.cloud/schema/rollup.v1.json",
   "title": "TraceRoost rollup, version 1",
-  "description": "The complete wire format between a linked machine and the TraceRoost Cloud ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. See docs/decisions/0003-what-we-can-and-cannot-see.md.",
+  "description": "The complete wire format between a linked machine and the TraceRoost Cloud ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. The root describes one rollup (POST /api/ingest); $defs/trace_manifest describes one manifest chunk (POST /api/ingest/manifest). See docs/decisions/0003-what-we-can-and-cannot-see.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version"],
@@ -43,7 +43,7 @@
       "type": "string",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2})$"
     },
-    "agent": { "type": "string", "enum": ["claude-code", "copilot", "codex", "cursor", "other"] },
+    "agent": { "type": "string", "enum": ["claude-code", "copilot", "codex", "cursor", "opencode", "other"] },
     "attribution": { "type": "string", "enum": ["certain", "probable", "unknown"] },
     "outcome": {
       "type": "string",
@@ -73,7 +73,7 @@
     "session": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["session_id", "agent", "started_at", "duration_ms"],
+      "required": ["session_id", "agent", "started_at", "duration_ms", "source_rank", "host_id"],
       "properties": {
         "session_id": { "type": "string", "format": "uuid" },
         "agent": { "$ref": "#/$defs/agent" },
@@ -147,7 +147,18 @@
         "revision": {
           "type": "integer",
           "minimum": 1,
-          "description": "Durable, monotonically increasing local revision number for this session's canonical trace snapshot (staged feature 10). Absent on a legacy/first-cut send that predates the revision protocol -- the server treats an absent revision as the lowest possible one for replace-ordering purposes, never as newer than an already-acknowledged revisioned snapshot."
+          "description": "Durable, monotonically increasing local revision number for this trace's snapshot. Omitted when the sender doesn't know it yet; the server orders sends by (source_rank, revision) and treats an absent revision as the lowest within its rank, never as newer than an acknowledged revision."
+        },
+        "source_rank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "How much evidence this snapshot of the trace carries (stable trace identity): 3 OTEL with usage, 2 full transcript, 1 partial transcript or OTEL without usage. A turn's log and OTEL snapshots share one session_id; a lower rank never replaces a higher one, and within a rank the newer revision wins."
+        },
+        "host_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Which TraceRoost host on the linked machine sent this snapshot -- the editor extension and the standalone server share one install but each keeps its own trace store. A random UUID generated once per host store, never derived from a hostname, path or anything else identifying. A trace manifest only retires rows whose last sender was the manifest's own host_id."
         }
       }
     },
@@ -231,6 +242,38 @@
             "loop_rate": { "type": "number", "minimum": 0, "maximum": 1 },
             "insufficient": { "type": "boolean" }
           }
+        }
+      }
+    },
+    "trace_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "host_id", "window", "keys"],
+      "description": "One chunk of an install's trace manifest, sent by one of its hosts: every session_id that host holds whose trace started in [window.from, window.to). The server retires (soft-deletes) the rows this install last received from that host (session.host_id = host_id) started in that window whose session_id is not listed. Opaque UUIDs only -- host_id and the same values that already travel as session.session_id.",
+      "properties": {
+        "schema_version": { "const": "1" },
+        "host_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The sending host's id -- the same value its rollups carry as session.host_id. Only rows this install last received from this host are retired."
+        },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to"],
+          "properties": {
+            "from": { "$ref": "#/$defs/timestamp" },
+            "to": { "$ref": "#/$defs/timestamp" }
+          }
+        },
+        "keys": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": { "type": "string", "format": "uuid" }
+        },
+        "confirm_empty": {
+          "type": "boolean",
+          "description": "Required (true) for an empty keys list to retire anything: the client positively holds zero turns for this window, and the window is inside its local horizon. An empty chunk without it retires nothing."
         }
       }
     }

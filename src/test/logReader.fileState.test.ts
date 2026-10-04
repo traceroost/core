@@ -90,6 +90,8 @@ suite('LogReader — file-state persistence across restarts', () => {
     const afterRestart = new LogReader()
     afterRestart.importFileState(persisted)
     const rescan = afterRestart.parseFile(filePath, 'claude')
-    assert.strictEqual(rescan.length, 1, 'a genuinely changed file is still re-parsed after restoring file state')
+    // A new process re-parses the changed file and returns every turn in it (the appended prompt
+    // is a turn of its own) — what was returned before the restart isn't remembered.
+    assert.strictEqual(rescan.length, 2, 'a genuinely changed file is still re-parsed after restoring file state')
   })
 })

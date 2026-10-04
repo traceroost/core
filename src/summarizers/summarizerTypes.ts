@@ -10,9 +10,22 @@ export interface SessionSummaryCard {
   initiator?: 'user' | 'agent' | 'api'
   conversationId?: string
   /** Claude Code's own session id (its OTEL `session.id`, and the `sessionId` field of every
-   *  transcript line) when known. Only used to keep the OTEL and log copies of the same Claude
-   *  session from both being stored — see database/writer.ts's claudeConversationKey. */
+   *  transcript line) when known — how an OTEL interaction finds its transcript turn
+   *  (claudeTurnJoin.ts). */
   claudeSessionId?: string
+  // ── Stable trace identity (staged feature 11 — see src/traceIdentity.ts) ──
+  /** True when `sessionId` is a derived key: the source has no turn id of its own (or a Claude
+   *  OTEL interaction could not be joined to its transcript turn). Never merged with another
+   *  source's card. */
+  derived?: boolean
+  /** OTEL with usage (3) > full transcript (2) > partial (1) — see traceIdentity.ts. A lower
+   *  rank never replaces a higher one for the same key. Inferred when absent. */
+  sourceRank?: number
+  /** Claude: subagent transcripts folded into this turn (their usage is in its totals). */
+  subagentCount?: number
+  /** A Claude OTEL card whose transcript join is still on hold (claudeTurnJoin.ts): its
+   *  `sessionId` is provisional, so it is shown but not persisted or forwarded yet. */
+  keyPending?: boolean
   workspace: string
   projectPath?: string
   userRequest: string

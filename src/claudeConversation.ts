@@ -1,63 +1,41 @@
 /**
- * One Claude Code conversation is ingested two ways: live OTEL (one card per interaction,
- * sessionId = the interaction span id, carrying Claude Code's `session.id` as `claudeSessionId`)
- * and its on-disk transcript (one card per transcript or gap-split segment `<id>#<n>`, whose lines
- * carry the same id). Without a shared rule both get counted. The VS Code extension applies this
- * rule in the database writer (database/writer.ts); the standalone server applies it when it
- * merges its OTEL and log-sourced cards (mergeOtelAndLogSessions below) — same key, same overlap
- * test, so both surfaces count a Claude session once, with OTEL winning.
+ * One turn of an agent conversation can arrive two ways: live OTEL and the agent's on-disk log.
+ * With stable trace identity (staged feature 11 — traceIdentity.ts) both copies carry the same
+ * canonical key, so "counting it once" is no longer an overlap guess: it is the same key, and
+ * source precedence decides which copy the row shows — a lower-rank card never replaces a
+ * higher-rank one, within a rank the newer wins. The VS Code extension applies that in the
+ * database writer (database/writer.ts); the standalone server applies it when it merges its OTEL
+ * and log-sourced cards (mergeCardsByKey below) — same rule, so both surfaces agree.
  */
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
+import { sourceRankOf } from './traceIdentity'
 
-/** Slack when matching a Claude log card's [start, end] against OTEL interactions' ranges: the
- *  interaction span starts a beat before the transcript's first line is written. */
-export const CLAUDE_OVERLAP_SLACK_MS = 60_000
-
-/** The Claude Code session a card belongs to — the key shared by its OTEL and log cards. */
-export function claudeConversationKey(card: SessionSummaryCard): string | null {
-  if (card.source !== 'claude_code') return null
-  if (card.claudeSessionId) return card.claudeSessionId
-  return card.dataSource === 'log' ? card.sessionId.replace(/#\d+$/, '') : null
-}
-
-/** True when `otel` (an OTEL Claude interaction) belongs to the same conversation as `log` (a
- *  transcript card) and their time ranges overlap — the writer's _claudeOtelCovers test. */
-export function claudeOtelCoversLog(otel: SessionSummaryCard, log: SessionSummaryCard): boolean {
-  if (otel.dataSource !== 'otel' || log.dataSource !== 'log') return false
-  const key = claudeConversationKey(log)
-  if (!key || claudeConversationKey(otel) !== key) return false
-  const logStart = Date.parse(log.startTime)
-  const otelStart = Date.parse(otel.startTime)
-  if (!logStart || !otelStart) return false
-  const logEnd = logStart + (log.durationMs || 0)
-  const otelEnd = otelStart + (otel.durationMs || 0)
-  return otelStart <= logEnd + CLAUDE_OVERLAP_SLACK_MS && otelEnd >= logStart - CLAUDE_OVERLAP_SLACK_MS
+/** The conversation a card belongs to — what the conversation marker groups by: the log
+ *  parser's conversationId, else (a Claude OTEL card) Claude Code's own session id. */
+export function conversationKey(card: SessionSummaryCard): string | null {
+  if (card.conversationId) return card.conversationId
+  return card.source === 'claude_code' && card.claudeSessionId ? card.claudeSessionId : null
 }
 
 /**
- * The log-sourced cards that should still be listed next to `otelCards`: a log card is dropped
- * when an OTEL card has the same sessionId (the existing id-collision rule) or covers the same
- * Claude conversation (claudeOtelCoversLog). A dropped card's `conversationId` is backfilled onto
- * the OTEL card that replaced it when that card has none — the log parser links multi-segment
- * conversations; the live OTEL path never does. Mutates `otelCards` for that backfill only.
+ * The cards to list for `otelCards` + `logCards`: one per key. When both sources have a card for
+ * a key, the higher source rank wins (a tie goes to the OTEL card, which is rebuilt live); what
+ * only the losing card knows — its conversation, its folded subagent count — is carried over.
+ * Never mutates the input cards.
  */
-export function logCardsNotCoveredByOtel(otelCards: SessionSummaryCard[], logCards: Iterable<SessionSummaryCard>): SessionSummaryCard[] {
-  const otelById = new Map(otelCards.map(s => [s.sessionId, s]))
-  const otelClaudeByKey = new Map<string, SessionSummaryCard[]>()
-  for (const s of otelCards) {
-    const key = s.dataSource === 'otel' ? claudeConversationKey(s) : null
-    if (!key) continue
-    const list = otelClaudeByKey.get(key)
-    if (list) list.push(s)
-    else otelClaudeByKey.set(key, [s])
-  }
-  const kept: SessionSummaryCard[] = []
+export function mergeCardsByKey(otelCards: SessionSummaryCard[], logCards: Iterable<SessionSummaryCard>): SessionSummaryCard[] {
+  const byKey = new Map<string, SessionSummaryCard>()
+  for (const c of otelCards) byKey.set(c.sessionId, c)
+  const merged: SessionSummaryCard[] = []
   for (const log of logCards) {
-    const key = claudeConversationKey(log)
-    const replacement = otelById.get(log.sessionId)
-      ?? (key ? otelClaudeByKey.get(key)?.find(o => claudeOtelCoversLog(o, log)) : undefined)
-    if (!replacement) { kept.push(log); continue }
-    if (!replacement.conversationId && log.conversationId) replacement.conversationId = log.conversationId
+    const otel = byKey.get(log.sessionId)
+    if (!otel) { merged.push(log); continue }
+    const winner = sourceRankOf(log) > sourceRankOf(otel) ? log : otel
+    const loser = winner === log ? otel : log
+    const extra: Partial<SessionSummaryCard> = {}
+    if (!winner.conversationId && loser.conversationId) extra.conversationId = loser.conversationId
+    if (winner.subagentCount === undefined && loser.subagentCount !== undefined) extra.subagentCount = loser.subagentCount
+    byKey.set(log.sessionId, Object.keys(extra).length > 0 ? { ...winner, ...extra } : winner)
   }
-  return kept
+  return [...byKey.values(), ...merged]
 }

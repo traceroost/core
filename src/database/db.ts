@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { SCHEMA_SQL } from './schema'
+import { dropStaleTraceStore, TRACE_STORE_REBUILT_MESSAGE } from './traceStore'
 
 // Minimal sql.js surface we use — avoids pulling in @types/sql.js
 // which has a transitive @types/emscripten dep that requires browser lib types.
@@ -76,29 +77,37 @@ export function openDatabaseWith(
   }
   const loadedStat = statOrNull(dbPath)
 
+  // True when the file held a store older than TRACE_STORE_VERSION: its trace tables were dropped
+  // (traceStore.ts), and the caller reads the agent logs again from scratch.
+  let rebuiltTraceStore = false
   if (fileBuffer) {
     try {
       db = new SQL.Database(fileBuffer)
+      rebuiltTraceStore = dropStaleTraceStore(db)
       db.run(SCHEMA_SQL)
       applyMigrations(db)
     } catch (err) {
       try { db?.close() } catch { /* ignore */ }
       db = undefined
+      rebuiltTraceStore = false
       loadError = String(err)
     }
   }
   if (!db) {
     db = new SQL.Database()
+    dropStaleTraceStore(db)
     db.run(SCHEMA_SQL)
     applyMigrations(db)
   }
   if (loadError) {
     log(`TraceRoost: could not load ${dbPath} (${loadError}) — running without saving so the existing file is left untouched.`)
   }
+  if (rebuiltTraceStore) log(`TraceRoost: ${TRACE_STORE_REBUILT_MESSAGE}`)
 
   ensureBlobsDir(storagePath)
 
   const tdb = new TraceRoostDb(db, SQL, dbPath, path.join(storagePath, BLOBS_DIR), loadedStat, loadError, log)
+  tdb.rebuiltTraceStore = rebuiltTraceStore
   tdb.tryAcquireOwnership()
   return tdb
 }
@@ -147,6 +156,8 @@ function isProcessAlive(pid: number): boolean {
 export class TraceRoostDb {
   private owner = false
   private lastStamp: FileStamp
+  /** True when this open dropped a store older than TRACE_STORE_VERSION (traceStore.ts). */
+  rebuiltTraceStore = false
   /** Minimum gap between two saves made through saveSoon(). Public so tests can shorten it. */
   saveCoalesceMs = SAVE_COALESCE_MS
   private lastSaveMs = 0
@@ -289,66 +300,8 @@ export class TraceRoostDb {
 }
 
 function applyMigrations(db: SqlDatabase): void {
-  // Each migration is guarded so re-running on an already-migrated DB is safe.
-  const cols = db.exec('PRAGMA table_info(sessions)')
-  const colNames = cols[0]?.values.map(row => row[1] as string) ?? []
-  if (!colNames.includes('cost_usd')) {
-    db.run('ALTER TABLE sessions ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0')
-  }
-  if (!colNames.includes('data_source')) {
-    db.run("ALTER TABLE sessions ADD COLUMN data_source TEXT NOT NULL DEFAULT 'otel'")
-  }
-  if (!colNames.includes('files_written')) {
-    db.run("ALTER TABLE sessions ADD COLUMN files_written TEXT NOT NULL DEFAULT '[]'")
-  }
-  if (!colNames.includes('models')) {
-    db.run("ALTER TABLE sessions ADD COLUMN models TEXT NOT NULL DEFAULT '[]'")
-  }
-  if (!colNames.includes('one_shot_stats')) {
-    db.run("ALTER TABLE sessions ADD COLUMN one_shot_stats TEXT NOT NULL DEFAULT '{}'")
-  }
-  if (!colNames.includes('initiator')) {
-    db.run('ALTER TABLE sessions ADD COLUMN initiator TEXT')
-  }
-  // The agent's own conversation id (Claude Code's session.id / transcript id) — lets the writer
-  // drop a Claude log card that OTEL already covers. See DatabaseWriter.enqueue.
-  if (!colNames.includes('conversation_id')) {
-    db.run('ALTER TABLE sessions ADD COLUMN conversation_id TEXT')
-  }
-  db.run('CREATE INDEX IF NOT EXISTS idx_sessions_conversation ON sessions (conversation_id)')
-  // Per-session programming language (src/language.ts) — a fixed-choice id, never free text.
-  // Older rows stay NULL (shown "—") until the session is re-summarized from its log; no backfill.
-  if (!colNames.includes('language')) {
-    db.run('ALTER TABLE sessions ADD COLUMN language TEXT')
-  }
-  if (!colNames.includes('language_secondary')) {
-    db.run('ALTER TABLE sessions ADD COLUMN language_secondary TEXT')
-  }
-  // Per-session change size from the agent's own edits (src/editStats.ts) — counts only, never
-  // paths or content. NULL on older rows and when the source records no edit contents.
-  for (const c of ['files_changed_count', 'lines_added', 'lines_removed']) {
-    if (!colNames.includes(c)) db.run(`ALTER TABLE sessions ADD COLUMN ${c} INTEGER`)
-  }
-
-  // timeline_entries cache token columns
-  const teCols = db.exec('PRAGMA table_info(timeline_entries)')
-  const teColNames = teCols[0]?.values.map(row => row[1] as string) ?? []
-  if (!teColNames.includes('cache_read_tokens')) {
-    db.run('ALTER TABLE timeline_entries ADD COLUMN cache_read_tokens INTEGER')
-  }
-  if (!teColNames.includes('cache_create_tokens')) {
-    db.run('ALTER TABLE timeline_entries ADD COLUMN cache_create_tokens INTEGER')
-  }
-
-  // trace_revision.payload_hash (staged feature 10's content-hash generalization) -- see
-  // schema.ts's doc comment on the table.
-  const trCols = db.exec('PRAGMA table_info(trace_revision)')
-  if (trCols[0]) {
-    const trColNames = trCols[0].values.map(row => row[1] as string)
-    if (!trColNames.includes('payload_hash')) {
-      db.run('ALTER TABLE trace_revision ADD COLUMN payload_hash TEXT')
-    }
-  }
+  // Each migration is guarded so re-running on an already-migrated DB is safe. Trace tables need
+  // none: a store older than TRACE_STORE_VERSION has them dropped and recreated (traceStore.ts).
 
   // instruction_applied table (feat-instruction-advisor)
   const appliedCols = db.exec('PRAGMA table_info(instruction_applied)')
