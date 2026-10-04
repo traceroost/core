@@ -147,7 +147,7 @@
         "revision": {
           "type": "integer",
           "minimum": 1,
-          "description": "Durable, monotonically increasing local revision number for this session's canonical trace snapshot (staged feature 10). Absent on a legacy/first-cut send that predates the revision protocol -- the server treats an absent revision as the lowest possible one for replace-ordering purposes, never as newer than an already-acknowledged revisioned snapshot."
+          "description": "Durable, monotonically increasing local revision number for this trace's snapshot. Omitted when the sender doesn't know it yet; the server orders sends by (source_rank, revision) and treats an absent revision as the lowest within its rank, never as newer than an acknowledged revision."
         },
         "source_rank": {
           "type": "integer",
@@ -249,7 +249,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["schema_version", "host_id", "window", "keys"],
-      "description": "One chunk of an install's trace manifest (staged feature 11), sent by one of its hosts: every session_id that host holds whose trace started in [window.from, window.to). The server retires (soft-deletes) the rows this install last received from that host (session.host_id = host_id) started in that window whose session_id is not listed. Opaque UUIDs only -- host_id and the same values that already travel as session.session_id.",
+      "description": "One chunk of an install's trace manifest, sent by one of its hosts: every session_id that host holds whose trace started in [window.from, window.to). The server retires (soft-deletes) the rows this install last received from that host (session.host_id = host_id) started in that window whose session_id is not listed. Opaque UUIDs only -- host_id and the same values that already travel as session.session_id.",
       "properties": {
         "schema_version": { "const": "1" },
         "host_id": {
