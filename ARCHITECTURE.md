@@ -838,7 +838,7 @@ graph LR
     T1 --> D4[Tools sub-tab<br/>donut chart + call table]
     T1 --> D5[Files sub-tab<br/>files changed · open in editor<br/>one-shot/retry-rate summary<br/>git outcome banner + per-file badges]
 
-    T2[Analytics<br/>AGENT BREAKDOWN · LANGUAGE BREAKDOWN · PLAN LIMITS<br/>OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST<br/>TOKEN USAGE PER TRACE · CONTEXT GROWTH]
+    T2[Analytics<br/>AGENT BREAKDOWN · BY LANGUAGE · PLAN LIMITS<br/>OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST<br/>TOKEN USAGE PER TRACE · CONTEXT GROWTH]
     T2 --> A1[CostBarChart — per-session bars<br/>daily total overlay · pricing mode toggle<br/>CSV export download button]
     T2 --> A2[AgentCard per agent with data — stat tiles<br/>incl. One-shot rate and Lines +/− tiles]
     T2 --> A3[SessionTokenChart — input/output bars<br/>day boundary highlights]
@@ -1351,7 +1351,7 @@ traceroost/
 │   │       │                     #   changing the sort returns to page 1
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
-│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · LANGUAGE BREAKDOWN · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
+│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · BY LANGUAGE · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
 │   │       ├── outcomeTrend.ts   # Day/week binning (dayBins) for OUTCOME & TOKEN SPEND OVER TIME
 │   │       ├── codeChanges.ts    # CODE CHANGES OVER TIME bins — agent-authored lines/files, traces without line data excluded

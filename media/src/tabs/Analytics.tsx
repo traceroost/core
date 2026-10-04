@@ -20,7 +20,7 @@ import { OUTCOME_META } from './Sessions'
 import { gitOutcomes, selectedAgentFilter } from '../state'
 import { planUsage, hasPlanData, forAgentFilter, PROVIDER_LABEL } from '../planUsage'
 import { PlanLimitsSection } from './PlanLimits'
-import { buildLanguageBreakdown } from './languageBreakdown'
+import { buildLanguageBreakdown, LANGUAGE_NOT_REPORTED_LABEL, type CodeChangeTotals, type LanguageBreakdownRow } from './languageBreakdown'
 import { languageLabel } from '../language'
 
 // ── Section heading helper ────────────────────────────────────────────────────
@@ -104,6 +104,71 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
 }
 
 // ── Main Analytics component ──────────────────────────────────────────────────
+
+/** By language's "lines the agent changed" line: files and +/− lines summed over the traces that
+ *  recorded them, and how many of the traces in view that was (cloud's CodeChangesSummary). */
+function LanguageCodeChangesSummary({ totals }: { totals: CodeChangeTotals }) {
+  if (totals.sessionsReported === 0) {
+    return (
+      <p data-testid="language-code-changes" style="font-size:12px;color:var(--muted);margin:0 0 10px">
+        No trace in view recorded files or lines changed — traces stored before change tracking, and agents that don't record edit contents, have none.
+      </p>
+    )
+  }
+  const stat = (value: string, label: string, color?: string) => (
+    <div>
+      <div style={`font-size:20px;font-weight:600${color ? `;color:${color}` : ''}`}>{value}</div>
+      <div style="color:var(--muted)">{label}</div>
+    </div>
+  )
+  const notReported = totals.sessions - totals.sessionsReported
+  return (
+    <div data-testid="language-code-changes" style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;margin:0 0 10px">
+      {stat(totals.filesChanged.toLocaleString(), 'files changed')}
+      {stat(`+${totals.linesAdded.toLocaleString()}`, 'lines added', CHANGE_COLOR.added)}
+      {stat(`−${totals.linesRemoved.toLocaleString()}`, 'lines removed', CHANGE_COLOR.removed)}
+      <div style="align-self:flex-end;color:var(--muted)">
+        from {totals.sessionsReported.toLocaleString()} of {totals.sessions.toLocaleString()} trace{totals.sessions === 1 ? '' : 's'}
+        {notReported > 0 && ` (${notReported.toLocaleString()} recorded no change data)`}
+      </div>
+    </div>
+  )
+}
+
+/** Traces, cost, tokens and lines per primary language (cloud's LanguageBreakdownTable). */
+function LanguageBreakdownTable({ rows }: { rows: LanguageBreakdownRow[] }) {
+  const max = Math.max(...rows.map(r => r.sessions), 1)
+  const th = (label: string, last = false) => <th scope="col" style={`text-align:left;font-weight:600;padding:0 ${last ? 0 : 8}px 4px 0`}>{label}</th>
+  return (
+    <div class="h-scroll-hint" role="region" aria-label="Traces by language" tabIndex={0}>
+      <table data-testid="language-breakdown" style="font-size:12px;width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="color:var(--muted);font-size:11px">
+            {th('Language')}{th('Traces')}{th('Est cost')}{th('Tokens')}{th('Lines +/−', true)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.language ?? 'not-reported'} style="border-top:1px solid var(--border)">
+              <td style="padding:6px 8px 6px 0;white-space:nowrap">
+                <div>{r.language === null ? LANGUAGE_NOT_REPORTED_LABEL : languageLabel(r.language)}</div>
+                <div aria-hidden="true" style={`height:4px;margin-top:3px;width:${Math.max(2, r.sessions / max * 100)}%;max-width:120px;border-radius:999px;background:${r.language === null ? 'var(--border)' : 'var(--accent)'}`} />
+              </td>
+              <td style="padding:6px 8px 6px 0">{r.sessions.toLocaleString()}</td>
+              <td style="padding:6px 8px 6px 0">{fmtUsd(r.costUsd)}</td>
+              <td style="padding:6px 8px 6px 0;color:var(--muted)">{formatCompact(r.tokens)}</td>
+              <td style="padding:6px 0;white-space:nowrap">
+                {r.sessionsReported === 0
+                  ? <span style="color:var(--muted)">—</span>
+                  : <><span style={`color:${CHANGE_COLOR.added}`}>+{r.linesAdded.toLocaleString()}</span>{' '}<span style={`color:${CHANGE_COLOR.removed}`}>−{r.linesRemoved.toLocaleString()}</span></>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 export function Analytics() {
   const [abbrevTokens, setAbbrevTokens] = useState(true)
@@ -195,8 +260,8 @@ export function Analytics() {
   const hasAgentBreakdown = breakdown.length > 0
   // By-language cut — only once some trace in view actually carries a language (older stored
   // rows don't), otherwise it would be one "—" row.
-  const languageRows = buildLanguageBreakdown(sessions)
-  const hasLanguageBreakdown = languageRows.some(r => r.language !== 'unrecorded')
+  const languageBreakdown = buildLanguageBreakdown(sessions)
+  const hasLanguageBreakdown = languageBreakdown.rows.some(r => r.language !== null)
 
   // Outcome & token spend over time — same binning `requestGitOutcomesFor` above keeps filling in,
   // so this grows as outcomes resolve rather than waiting for all of them up front.
@@ -213,7 +278,7 @@ export function Analytics() {
 
   const navSections: NavSection[] = [
     ...(hasAgentBreakdown ? [{ id: 'analytics-agent-breakdown', label: 'Agent breakdown' }] : []),
-    ...(hasLanguageBreakdown ? [{ id: 'analytics-language-breakdown', label: 'Language breakdown' }] : []),
+    ...(hasLanguageBreakdown ? [{ id: 'analytics-language-breakdown', label: 'By language' }] : []),
     ...(hasPlan ? [{ id: 'analytics-plan-limits', label: 'Plan limits' }] : []),
     ...(trend.bins.length > 0 ? [{ id: 'analytics-outcome-tokens', label: 'Outcome & token spend' }] : []),
     { id: 'analytics-code-changes', label: 'Code changes' },
@@ -236,39 +301,17 @@ export function Analytics() {
         </>
       )}
 
-      {/* Language breakdown — traces grouped by primary language (media/src/language.ts). */}
+      {/* By language — traces grouped by primary language (media/src/language.ts), in the cloud
+          dashboard's "By language" format: intro, lines-changed summary, then the table. */}
       {hasLanguageBreakdown && (
         <>
-          <SectionHead id="analytics-language-breakdown" title="LANGUAGE BREAKDOWN" first={!hasAgentBreakdown} helpAnchor="help-language"
+          <SectionHead id="analytics-language-breakdown" title="BY LANGUAGE" first={!hasAgentBreakdown} helpAnchor="help-language"
             tip="Traces grouped by primary language — the most common code language among the files the agent read or changed. Docs, config and lockfiles don't count; 'No code' means none was touched." />
-          <div class="h-scroll-hint">
-            <table data-testid="language-breakdown" style="font-size:11px;width:100%;border-collapse:collapse">
-              <thead>
-                <tr style="color:var(--muted);border-bottom:1px solid var(--vscode-panel-border)">
-                  <th style="text-align:left;font-weight:400;padding:3px 8px 3px 0">Language</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 8px">Traces</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 8px">Tokens</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 8px">Est. cost</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 8px" title="Distinct files the agent edited or wrote, summed across traces (all files, code or not)">Files changed</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 8px" title="Lines the agent's own edit/write tool calls added and removed — not git stats">Lines +/−</th>
-                  <th style="text-align:right;font-weight:400;padding:3px 0 3px 8px">With signals</th>
-                </tr>
-              </thead>
-              <tbody>
-                {languageRows.map(r => (
-                  <tr key={r.language} style="border-top:1px solid var(--vscode-panel-border)">
-                    <td style="padding:3px 8px 3px 0">{r.language === 'unrecorded' ? '— (not recorded)' : languageLabel(r.language)}</td>
-                    <td style="padding:3px 8px;text-align:right">{r.sessions.toLocaleString()}</td>
-                    <td style="padding:3px 8px;text-align:right">{formatCompact(r.tokens)}</td>
-                    <td style="padding:3px 8px;text-align:right">{fmtUsd(r.costUsd)}</td>
-                    <td style="padding:3px 8px;text-align:right">{r.filesChanged.toLocaleString()}</td>
-                    <td style="padding:3px 8px;text-align:right">+{formatCompact(r.linesAdded)} / −{formatCompact(r.linesRemoved)}</td>
-                    <td style="padding:3px 0 3px 8px;text-align:right;color:var(--muted)">{r.withSignals > 0 ? `${r.withSignals} (${Math.round(r.withSignals / r.sessions * 100)}%)` : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
+            Each trace's main programming language and the lines its agent added and removed.
+          </p>
+          <LanguageCodeChangesSummary totals={languageBreakdown.totals} />
+          <LanguageBreakdownTable rows={languageBreakdown.rows} />
         </>
       )}
 
