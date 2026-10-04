@@ -15,7 +15,8 @@ import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
-import { classifyOtlpPayload, objectItems } from '../src/otlpParser'
+import { classifyOtlpPayload } from '../src/otlpParser'
+import { OtlpIngest } from '../src/otlpIngest'
 import { mergeCardsByKey } from '../src/claudeConversation'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, findClaudeTranscripts, type OpenCodeSqlFactory } from '../src/logReader'
@@ -718,67 +719,10 @@ async function ingestHistoricalLogs(): Promise<void> {
 }
 
 // ── OTLP parsing ──────────────────────────────────────────────────────────────
-
-type RawAttr = { key: string; value: Record<string, unknown> }
-
-function toAttrs(raw: unknown): RawAttr[] {
-  return objectItems(raw).filter((o): o is RawAttr =>
-    typeof o.key === 'string' && typeof o.value === 'object' && o.value !== null
-  )
-}
-
-function attrStr(attrs: RawAttr[], ...keys: string[]): string {
-  for (const key of keys) {
-    const a = attrs.find(x => x.key === key)
-    if (!a) continue
-    const v = a.value
-    const s = v.stringValue ?? v.intValue ?? v.doubleValue
-    if (s != null) return String(s)
-  }
-  return ''
-}
-
-function isCodexWebsocketSpanName(name: string): boolean {
-  const lower = name.toLowerCase()
-  return lower.startsWith('codex.') && lower.includes('websocket')
-}
-
-function isCodexWebsocketTraceSpan(name: string, attrs: RawAttr[]): boolean {
-  const lower = name.toLowerCase()
-  if (!lower.includes('websocket')) return false
-  const eventName = attrStr(attrs, 'event.name', 'event_name', 'name', 'event').toLowerCase()
-  const hasCodexAttr = Boolean(attrStr(attrs, 'codex.session.id', 'codex.conversation.id', 'codex.turn.id'))
-  return lower.startsWith('codex.') || eventName.startsWith('codex.') || hasCodexAttr
-}
-
-function attrsFromBodyKv(body: unknown): RawAttr[] {
-  if (typeof body !== 'object' || body === null) return []
-  const obj = body as Record<string, unknown>
-  const kv = obj.kvlistValue as Record<string, unknown> | undefined
-  const values = kv?.values
-  if (!Array.isArray(values)) return []
-  const attrs: RawAttr[] = []
-  for (const entry of objectItems(values)) {
-    const key = typeof entry.key === 'string' ? entry.key : ''
-    const attrValue = entry.value as Record<string, unknown> | undefined
-    if (!key || typeof attrValue !== 'object' || attrValue === null) continue
-    attrs.push({ key, value: attrValue })
-  }
-  return attrs
-}
-
-function mergeAttrs(...lists: RawAttr[][]): RawAttr[] {
-  const out: RawAttr[] = []
-  const seen = new Set<string>()
-  for (const list of lists) {
-    for (const attr of list) {
-      if (seen.has(attr.key)) continue
-      seen.add(attr.key)
-      out.push(attr)
-    }
-  }
-  return out
-}
+//
+// The same parser the extension's collector runs (src/otlpIngest.ts), so a Codex trace is remapped
+// to the same prompt-session id on either host, and gen_ai response content logged separately is
+// attached to its span here too.
 
 function agentLabelFromSpanName(name: string): string {
   if (name.startsWith('claude_code.')) return 'Claude Code'
@@ -787,96 +731,33 @@ function agentLabelFromSpanName(name: string): string {
   return 'unknown'
 }
 
+/** The first agent seen in the current request, for the ingest log line. */
+let ingestAgent = 'unknown'
+
+const otlpIngest = new OtlpIngest({
+  addSpan(span) {
+    if (ingestAgent === 'unknown') ingestAgent = agentLabelFromSpanName(span.name)
+    addSpan(span)
+  },
+  injectSpanAttribute(traceId, spanId, key, value) {
+    const span = spans.find(s => s.traceId === traceId && s.spanId === spanId)
+    if (!span) return false
+    const existing = span.attributes.find(a => a.key === key)
+    if (existing) existing.value = { stringValue: value }
+    else span.attributes.push({ key, value: { stringValue: value } })
+    dataVersion++
+    return true
+  },
+})
+
 function processTraces(payload: unknown, collectorPath = '/v1/traces'): { count: number; agent: string } {
-  const p = payload as { resourceSpans?: Array<{ resource?: { attributes?: unknown }; scopeSpans?: Array<{ spans?: unknown[] }> }> }
-  // Resource-level attributes (Claude Code puts `session.id` there) are merged onto every span, the
-  // span's own value winning on a key collision — same as the extension's collector
-  // (otlpCollector.ts), so the Claude OTEL card carries the session id the transcript dedupe keys on.
-  const rawSpans = objectItems<{ resource?: { attributes?: unknown }; scopeSpans?: unknown }>(p?.resourceSpans).flatMap(rs => {
-    const resourceAttrs = toAttrs(rs.resource?.attributes)
-    return objectItems<{ spans?: unknown }>(rs.scopeSpans).flatMap(ss => objectItems(ss.spans).map(span => ({ span, resourceAttrs })))
-  })
-  let count = 0
-  let agent = 'unknown'
-  for (const { span: raw, resourceAttrs } of rawSpans) {
-    const s = raw as Record<string, unknown>
-    if (typeof s.traceId !== 'string' || typeof s.spanId !== 'string' || typeof s.name !== 'string') continue
-    let attrs = toAttrs(s.attributes)
-    const own = new Set(attrs.map(a => a.key))
-    attrs = [...attrs, ...resourceAttrs.filter(a => !own.has(a.key))]
-    if (isCodexWebsocketTraceSpan(s.name, attrs)) continue
-    if (agent === 'unknown') agent = agentLabelFromSpanName(s.name)
-    attrs = [...attrs, { key: '_traceroost.collector_path', value: { stringValue: collectorPath } }]
-    addSpan({
-      traceId: s.traceId,
-      spanId: s.spanId,
-      parentSpanId: (s.parentSpanId as string) || undefined,
-      name: s.name,
-      startTime: s.startTimeUnixNano as string,
-      endTime: s.endTimeUnixNano as string,
-      attributes: attrs,
-      status: s.status as { code: number; message?: string } | undefined,
-    })
-    count++
-  }
-  return { count, agent }
+  ingestAgent = 'unknown'
+  const count = otlpIngest.processTraces(payload, collectorPath)
+  return { count, agent: ingestAgent }
 }
 
 function processLogs(payload: unknown, collectorPath = '/v1/logs'): number {
-  type SL = { logRecords?: unknown[] }
-  type RL = { scopeLogs?: SL[]; resource?: { attributes?: unknown } }
-  const p = payload as { resourceLogs?: RL[] }
-  const fallback = `codex-${Date.now()}`
-  let n = 0
-  for (const rl of objectItems<RL>(p?.resourceLogs)) {
-    const resourceAttrs = toAttrs(rl.resource?.attributes)
-    for (const sl of objectItems<SL>(rl.scopeLogs)) {
-      const scopeAttrs = toAttrs((sl as { scope?: { attributes?: unknown } }).scope?.attributes)
-      for (const rec of objectItems(sl.logRecords)) {
-        const r = rec as Record<string, unknown>
-        const attrs = mergeAttrs(toAttrs(r.attributes), attrsFromBodyKv(r.body), scopeAttrs, resourceAttrs)
-        const name = attrStr(attrs, 'event.name', 'event_name', 'name', 'event')
-        const logToolName = attrStr(attrs, 'tool.name')
-        const isCodexEvent = name.startsWith('codex.')
-        const isClaudeToolResult = name === 'tool_result' && logToolName !== ''
-        if (!isCodexEvent && !isClaudeToolResult) continue
-        if (isCodexEvent && isCodexWebsocketSpanName(name)) continue
-        let traceId: string
-        let spanName: string
-        if (isClaudeToolResult) {
-          traceId = (typeof r.traceId === 'string' && r.traceId)
-            ? r.traceId
-            : attrStr(attrs, 'session.id', 'session_id') || fallback
-          spanName = 'claude_code.tool_result'
-        } else {
-          traceId = (typeof r.traceId === 'string' && r.traceId)
-            ? r.traceId
-            : attrStr(attrs, 'conversation.id', 'conversation_id', 'session.id', 'session_id') || fallback
-          spanName = name
-        }
-        const spanId = (typeof r.spanId === 'string' && r.spanId)
-          ? r.spanId
-          : attrStr(attrs, 'span_id', 'spanId') || `cl-${Math.random().toString(36).slice(2, 10)}`
-        let startTime = String(r.timeUnixNano ?? r.observedTimeUnixNano ?? '0')
-        let endTime = startTime
-        if (startTime === '0') {
-          const timestamp = attrStr(attrs, 'event.timestamp')
-          const ms = timestamp ? new Date(timestamp).getTime() : 0
-          if (ms > 0) {
-            const endNs = String(BigInt(ms) * BigInt(1_000_000))
-            const durMs = parseInt(attrStr(attrs, 'duration_ms') || '0') || 0
-            endTime = endNs
-            startTime = durMs > 0
-              ? String(BigInt(endNs) - BigInt(durMs) * BigInt(1_000_000))
-              : endNs
-          }
-        }
-        addSpan({ traceId, spanId, name: spanName, startTime, endTime, attributes: [...attrs, { key: '_traceroost.collector_path', value: { stringValue: collectorPath } }], status: undefined })
-        n++
-      }
-    }
-  }
-  return n
+  return otlpIngest.processLogs(payload, collectorPath)
 }
 
 // ── SSE push ──────────────────────────────────────────────────────────────────
@@ -2875,8 +2756,15 @@ const otlpServer = http.createServer((req, res) => {
   })
   req.on('end', () => {
     if (tooLarge) return
+    let payload: unknown
     try {
-      const payload = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
+      payload = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
+    } catch {
+      // Non-JSON (an exporter set to protobuf): accepted so it does not retry — as the extension does.
+      console.warn(`[TraceRoost] Ignored POST ${req.url ?? '/'}: non-JSON payload (protobuf?)`)
+      res.writeHead(200); res.end(); return
+    }
+    try {
       const kind = classifyOtlpPayload(payload)
       if (req.url === '/v1/traces' || kind === 'traces') {
         const { count, agent } = processTraces(payload, req.url ?? '/v1/traces')
@@ -2891,7 +2779,11 @@ const otlpServer = http.createServer((req, res) => {
       schedulePushUpdate()
       scheduleSave()
     } catch (e) {
-      console.error('[TraceRoost] Parse error:', e)
+      // Malformed-but-parseable OTLP: a 400, as the extension's collector answers it.
+      console.error('[TraceRoost] Malformed OTLP payload:', e)
+      schedulePushUpdate()  // spans before the bad record were stored
+      scheduleSave()
+      res.writeHead(400); res.end(); return
     }
     res.writeHead(200); res.end()
   })
