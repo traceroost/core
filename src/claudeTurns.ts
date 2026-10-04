@@ -113,8 +113,12 @@ export function segmentClaudeTurns(parsed: unknown[]): ClaudeTurnSpan[] {
   }
 
   // No prompt line at all (an assistant-only fragment): one derived turn for the lot, opened at
-  // the first line with an id or timestamp, so its usage is still counted once.
-  if (turns.length === 0 && leading.length > 0) {
+  // the first line with an id or timestamp, so its usage is still counted once. Only when there
+  // is an assistant line to count: a transcript read before its first prompt line is written
+  // holds only bookkeeping (Claude Code opens a file with queue-operation lines ~100 ms ahead of
+  // the prompt), and a turn keyed off those would be re-keyed by the prompt a moment later —
+  // the early key already sent to the cloud, but held by no store.
+  if (turns.length === 0 && leading.some(i => isEntry(parsed[i]) && (parsed[i] as Entry)['type'] === 'assistant')) {
     const first = leading.find(i => isEntry(parsed[i]) && (typeof (parsed[i] as Entry)['uuid'] === 'string' || tsMs(parsed[i] as Entry) > 0))
     if (first === undefined) return []
     const e = parsed[first] as Entry

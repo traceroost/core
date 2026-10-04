@@ -27,7 +27,7 @@ export type { OrgMessage, OrgPanelDeps, SuggestionLedger }
 
 export interface EnqueueResult {
   enqueued: boolean
-  reason?: 'not-linked' | 'duplicate' | 'already-delivered' | 'lower-rank' | 'error'
+  reason?: 'not-linked' | 'unkeyed' | 'duplicate' | 'already-delivered' | 'lower-rank' | 'error'
 }
 
 export interface ForwardSchedulerHandle {

@@ -11,7 +11,9 @@
  * | 403 / install revoked  | stop forwarding, clear the credential and the queue, tell the developer once. |
  * | 400 / schema rejected  | drop the record, log locally with the error, never retry.         |
  * | 413 / too large        | split the batch and resend the halves; a single record that is    |
- * |                       | itself too large is dropped and logged, never retried.             |
+ * |                       | itself too large is dropped and logged, never retried. A dropped   |
+ * |                       | session the cloud never held is recorded (`DroppedLedger`) so the  |
+ * |                       | trace manifest stops listing it (see traceManifest.ts).            |
  * | 429                   | back off per `Retry-After`, stop the whole drain (the server just  |
  * |                       | told us to).                                                       |
  * | Disk full             | stop queueing, keep working (handled in `queue.ts`).              |
@@ -48,7 +50,7 @@
  */
 
 import { ForwardQueue, type QueueItem } from './queue'
-import { DeliveryLedger, scopedKey } from './deliveryLedger'
+import { DeliveryLedger, DroppedLedger, scopedKey } from './deliveryLedger'
 import { readForwardState, writeForwardState, clearForwardState } from './forwardState'
 import { loadCredentials, clearCredentials, ensureInstallId } from '../org/credentials'
 import { TokenRefreshError } from '../org/oauthClient'
@@ -175,7 +177,11 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
     if (installId) {
       const ledger = new DeliveryLedger(deps.baseHome)
-      ledger.markDeliveredMany(keys.map(key => scopedKey(installId, key)))
+      const scoped = keys.map(key => scopedKey(installId, key))
+      ledger.markDeliveredMany(scoped)
+      // A session the cloud now holds is no longer one it refused for good.
+      const accepted = new Set(scoped)
+      new DroppedLedger(deps.baseHome).forget(key => accepted.has(key))
     }
   }
 
@@ -189,6 +195,13 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     // Only the rejected payload: a newer revision queued since is a different record.
     queue.removeSent([item])
     droppedInvalid++
+    // A session the cloud has never accepted under any revision would gate its day's trace
+    // manifest (`missing_keys`) for good — recorded so the manifest leaves its key out. One the
+    // cloud already holds (an earlier revision was delivered) still has a row there: not recorded.
+    if (item.payload.session && installId) {
+      const key = scopedKey(installId, item.key)
+      if (!new DeliveryLedger(deps.baseHome).isDelivered(key)) new DroppedLedger(deps.baseHome).markDropped(key)
+    }
     writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: reason }, deps.baseHome)
     deps.onItemDone?.()
   }

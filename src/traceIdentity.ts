@@ -121,6 +121,14 @@ export interface KeyedCard {
   keyPending?: boolean
 }
 
+/** Whether `card` carries its canonical key yet. A Claude OTEL card whose transcript join is on
+ *  hold (`keyPending`, a provisional id) or a synthesized in-progress root (`synth-…`, its root
+ *  span hasn't arrived) has none: neither is ever stored, put in a manifest or sent to the cloud —
+ *  a row sent under one would be a cloud row no local store ever holds. */
+export function hasSettledKey(card: Pick<KeyedCard, 'sessionId' | 'keyPending'>): boolean {
+  return !card.keyPending && !card.sessionId.startsWith('synth-')
+}
+
 function startMsOf(card: KeyedCard): number {
   const ms = Date.parse(card.startTime)
   return Number.isFinite(ms) ? ms : 0
@@ -133,7 +141,7 @@ function startMsOf(card: KeyedCard): number {
 export function traceKeysInWindow(cards: Iterable<KeyedCard>, fromMs: number, toMs: number): string[] {
   const keys = new Set<string>()
   for (const c of cards) {
-    if (c.keyPending || c.sessionId.startsWith('synth-')) continue
+    if (!hasSettledKey(c)) continue
     const ms = startMsOf(c)
     if (ms >= fromMs && ms <= toMs) keys.add(toUuid(c.sessionId))
   }
@@ -156,7 +164,7 @@ export function countTracesInWindow(cards: Iterable<KeyedCard>, fromMs: number, 
 export function localHorizonOf(cards: Iterable<KeyedCard>): number | null {
   let min: number | null = null
   for (const c of cards) {
-    if (c.keyPending || c.sessionId.startsWith('synth-')) continue
+    if (!hasSettledKey(c)) continue
     const ms = startMsOf(c)
     if (ms > 0 && (min === null || ms < min)) min = ms
   }

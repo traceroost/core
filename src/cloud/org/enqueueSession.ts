@@ -11,10 +11,11 @@ import { toUuid } from '../forward/buildSessionRollup'
 import { loadCredentials } from './credentials'
 import { buildPayloadForCard, type PayloadBuildCache } from './payloadPreview'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
+import { hasSettledKey } from '../../traceIdentity'
 
 export interface EnqueueResult {
   enqueued: boolean
-  reason?: 'not-linked' | 'duplicate' | 'already-delivered' | 'lower-rank' | 'error'
+  reason?: 'not-linked' | 'unkeyed' | 'duplicate' | 'already-delivered' | 'lower-rank' | 'error'
 }
 
 /** Builds the rollup for `card` and appends it to the forwarding queue, if an org is linked. A
@@ -47,6 +48,11 @@ export interface EnqueueResult {
 export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: string) => void, cache?: PayloadBuildCache, revision?: number): Promise<EnqueueResult> {
   const creds = loadCredentials()
   if (!creds) return { enqueued: false, reason: 'not-linked' }
+  // A live card with no canonical key yet (a synthesized in-progress root, a Claude join on hold)
+  // reaches here from every path that lists live cards — reconciliation, the org panel's
+  // reconcile, the standalone server's idle-OTEL check. Its id is never stored or listed in a
+  // manifest, so sending it would leave a cloud row no local store holds; it is sent once keyed.
+  if (!hasSettledKey(card)) return { enqueued: false, reason: 'unkeyed' }
   // Matches the key a built session payload would get — see buildSessionRollup.ts's session_id
   // field and queue.ts's itemKey — without paying for the git-subprocess work just to discard it.
   if (

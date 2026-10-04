@@ -23,7 +23,7 @@ import { loadCredentials } from './credentials'
 import type { EnqueueResult } from './enqueueSession'
 import type { ReconciliationService } from '../../reconcile/reconciliationService'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
-import { sourceRankOf } from '../../traceIdentity'
+import { hasSettledKey, sourceRankOf } from '../../traceIdentity'
 
 export async function maybeForwardOnContentChange(
   reconciliation: ReconciliationService,
@@ -32,6 +32,8 @@ export async function maybeForwardOnContentChange(
   cache?: PayloadBuildCache,
 ): Promise<EnqueueResult> {
   if (!loadCredentials()) return { enqueued: false, reason: 'not-linked' }
+  // Never under a provisional or synthesized id — see enqueueSession.ts.
+  if (!hasSettledKey(card)) return { enqueued: false, reason: 'unkeyed' }
 
   try {
     const built = await buildPayloadForCard(card, cache)

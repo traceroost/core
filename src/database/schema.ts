@@ -158,6 +158,19 @@ CREATE TABLE IF NOT EXISTS limit_plan_status (
   session_id        TEXT
 );
 
+-- What each Claude Code OTEL interaction (its span id) was joined to (claudeTurnJoin.ts): its
+-- transcript turn's key, or its own claude:interaction fallback key. A decision is final, across
+-- restarts too -- re-deciding from a reloaded span window could flip a turn between the two keys.
+-- Opaque ids and a key only. Follows trace retention.
+CREATE TABLE IF NOT EXISTS claude_join (
+  interaction_id TEXT    PRIMARY KEY,
+  turn_key       TEXT    NOT NULL,
+  status         TEXT    NOT NULL,
+  derived        INTEGER NOT NULL DEFAULT 0,
+  decided_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_claude_join_turn_key ON claude_join (turn_key);
+
 -- One row per completed plan window, written when its reset is detected: the peak it reached and
 -- whether a limit was hit. Kept 12 months regardless of trace retention -- it's what the
 -- week-over-week chart reads once the raw readings have aged out.

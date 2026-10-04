@@ -178,6 +178,32 @@ export class DatabaseWriter {
     bumpSessionsVersion(this.db)
   }
 
+  /**
+   * Removes the log-sourced rows of `keys` — keys a re-read log file no longer produces
+   * (LogReader.takeRetiredKeys). A row an OTEL card wrote stays: that key is held by its own
+   * evidence. Timeline and edit rows go with the session row (ON DELETE CASCADE). Returns the
+   * keys actually removed.
+   */
+  deleteLogSessions(keys: readonly string[]): string[] {
+    if (keys.length === 0) return []
+    const removed: string[] = []
+    for (const key of keys) {
+      const queued = this.pending.get(key)
+      if (queued && queued.card.dataSource === 'log') this.pending.delete(key)
+      try {
+        const rows = this.db.exec(`SELECT 1 FROM sessions WHERE session_id = ? AND data_source = 'log'`, [key])
+        if ((rows[0]?.values.length ?? 0) === 0) continue
+        this.db.run(`DELETE FROM sessions WHERE session_id = ? AND data_source = 'log'`, [key])
+        this.writtenFingerprints.delete(key)
+        removed.push(key)
+      } catch (err) {
+        this.log(`DatabaseWriter: could not remove retired session ${key}: ${err}`)
+      }
+    }
+    if (removed.length > 0) bumpSessionsVersion(this.db)
+    return removed
+  }
+
   async drain(): Promise<void> {
     return this.drainPromise
   }

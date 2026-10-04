@@ -118,7 +118,7 @@ suite('LogReader — Copilot CLI (events.jsonl)', () => {
 
   test('uses data.startTime when no event carries a timestamp', () => {
     const eventsFile = path.join(tmp, 'sess-start', 'events.jsonl')
-    writeJsonl(eventsFile, [{ type: 'session.start', data: { startTime: '2026-09-02T08:00:00.000Z' } }])
+    writeJsonl(eventsFile, [{ type: 'session.start', data: { startTime: '2026-09-02T08:00:00.000Z' } }, { type: 'assistant.message', data: { outputTokens: 3 } }])
     const [r] = new LogReader().parseFile(eventsFile, 'copilot')
     assert.strictEqual(r.card.startTime, '2026-09-02T08:00:00.000Z')
   })
@@ -138,7 +138,7 @@ suite('LogReader — Copilot CLI (events.jsonl)', () => {
 
   test('an unchanged file is not re-parsed; a missing file yields nothing', () => {
     const eventsFile = path.join(tmp, 'c', 'events.jsonl')
-    writeJsonl(eventsFile, [{ type: 'session.start', timestamp: '2026-09-01T10:00:00.000Z', data: {} }])
+    writeJsonl(eventsFile, [{ type: 'session.start', timestamp: '2026-09-01T10:00:00.000Z', data: {} }, { type: 'user.message', timestamp: '2026-09-01T10:00:01.000Z', data: { transformedContent: 'hi' } }])
     const reader = new LogReader()
     assert.strictEqual(reader.parseFile(eventsFile, 'copilot').length, 1)
     assert.strictEqual(reader.parseFile(eventsFile, 'copilot').length, 0)
@@ -338,7 +338,7 @@ suite('LogReader — log discovery (collectFileMeta / getWatchDirs)', () => {
 
   test('scan() parses every discovered agent and only re-reads changed files', () => {
     const copilot = path.join(home, '.copilot', 'session-state', 'cp-scan', 'events.jsonl')
-    writeJsonl(copilot, [{ type: 'session.start', timestamp: '2026-09-01T10:00:00.000Z', data: {} }])
+    writeJsonl(copilot, [{ type: 'session.start', timestamp: '2026-09-01T10:00:00.000Z', data: {} }, { type: 'user.message', timestamp: '2026-09-01T10:00:01.000Z', data: { transformedContent: 'hi' } }])
     const chatDir = path.join(home, '.config', 'Code', 'User', 'workspaceStorage', 'h', 'chatSessions')
     fs.mkdirSync(chatDir, { recursive: true })
     fs.writeFileSync(path.join(chatDir, 'old-snap.json'), JSON.stringify({ creationDate: 1_700_000_000_000, requests: [{ message: { text: 'hi' } }] }))

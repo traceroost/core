@@ -18,6 +18,7 @@ import { SessionRepository } from './sessionRepository'
 import { summarizeSpans, summarizeTraces } from './spanSummarizer'
 import { LogReader, findClaudeTranscripts } from './logReader'
 import { ClaudeTurnJoiner, setClaudeTurnJoiner, joinHoldMsFromEnv } from './claudeTurnJoin'
+import { ClaudeJoinRepository } from './database/claudeJoinRepository'
 import { restoreLogFileState, writeLogFileState } from './logFileState'
 import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
@@ -136,8 +137,14 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // A Claude OTEL interaction takes its transcript turn's key through this join (stable trace
-  // identity — see claudeTurnJoin.ts); every summarizeSpans() reads it.
-  const claudeJoiner = new ClaudeTurnJoiner({ findTranscripts: findClaudeTranscripts, holdMs: joinHoldMsFromEnv() })
+  // identity — see claudeTurnJoin.ts); every summarizeSpans() reads it. Its decisions persist in
+  // the database (claude_join), so they hold across restarts too.
+  let claudeJoins: ClaudeJoinRepository | undefined
+  if (traceRoostDb) {
+    const tdb = traceRoostDb
+    claudeJoins = new ClaudeJoinRepository(tdb.raw, () => tdb.saveSoon())
+  }
+  const claudeJoiner = new ClaudeTurnJoiner({ findTranscripts: findClaudeTranscripts, holdMs: joinHoldMsFromEnv(), store: claudeJoins })
   setClaudeTurnJoiner(claudeJoiner)
 
   // ── Writer + reader + repository ─────────────────────────────────────────────
@@ -161,12 +168,14 @@ export async function activate(context: vscode.ExtensionContext) {
     const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
     void runRetention(traceRoostDb.raw, retentionDays, traceRoostDb.blobsDir, log)
     getPlanUsageService()?.runRetention(retentionDays)
+    claudeJoins?.prune(Date.now() - retentionDays * 86_400_000)
 
     // Periodic retention: once per 24 hours while the extension is active.
     const retentionTimer = setInterval(() => {
       const days = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
       void runRetention(traceRoostDb!.raw, days, traceRoostDb!.blobsDir, log)
       getPlanUsageService()?.runRetention(days)
+      claudeJoins?.prune(Date.now() - days * 86_400_000)
     }, 24 * 60 * 60 * 1000)
     context.subscriptions.push({ dispose: () => clearInterval(retentionTimer) })
 
@@ -401,6 +410,14 @@ export async function activate(context: vscode.ExtensionContext) {
       if (traceRoostDb?.isOwner) writeLogFileState(context.globalStorageUri.fsPath, lr.exportFileState())
     }
     const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
+    // Keys a re-read log file no longer produces (LogReader.takeRetiredKeys) leave the database —
+    // and so the count and the trace manifest, which retires them in the cloud. Applied once the
+    // writes queued alongside them are on disk.
+    const retireLogKeys = (keys: string[]) => {
+      if (keys.length === 0) return
+      const removed = writer!.deleteLogSessions(keys)
+      if (removed.length > 0) outputChannel!.appendLine(`[TraceRoost] Removed ${removed.length} trace(s) their log files no longer contain`)
+    }
 
     // Periodic incremental scan: only picks up files that have changed since last run.
     // Every 30 s. Parses changed files in small batches across event-loop turns rather than one
@@ -444,7 +461,8 @@ export async function activate(context: vscode.ExtensionContext) {
       step(0)
     }
     const writeScanResults = (results: ReturnType<typeof lr.scan>) => {
-      if (results.length === 0) return
+      const retired = lr.takeRetiredKeys()
+      if (results.length === 0 && retired.length === 0) return
       getPlanUsageService()?.ingest(results)
       const ws = fallbackWorkspace()
       for (const { card, workspace } of results) {
@@ -459,6 +477,7 @@ export async function activate(context: vscode.ExtensionContext) {
         forwardChangedSession({ ...card, workspace: workspace || ws })
       }
       void writer!.drain().then(() => {
+        retireLogKeys(retired)
         provider.refresh()
         DashboardPanel.currentPanel?.update()
         traceRoostDb?.saveSoon(saved => {
@@ -512,8 +531,8 @@ export async function activate(context: vscode.ExtensionContext) {
           for (let i = idx; i < Math.min(idx + batchSize, files.length); i++) {
             progress.done++
             try {
-              // Usually one result; a Claude Code transcript split by a large gap between
-              // prompts (see splitClaudeLinesOnPromptGaps) can yield more than one.
+              // One result per turn of the file whose card changed (one turn = one trace — see
+              // LogReader.parseFile).
               const results = lr.parseFile(files[i].filePath, files[i].agentKey)
               getPlanUsageService()?.ingest(results)
               for (const result of results) {
@@ -537,8 +556,10 @@ export async function activate(context: vscode.ExtensionContext) {
               }
             } catch { /* skip bad file */ }
           }
-          if (written > 0) {
+          const retired = lr.takeRetiredKeys()
+          if (written > 0 || retired.length > 0) {
             void writer!.drain().then(() => {
+              retireLogKeys(retired)
               // Coalesced — this runs every 10 files of the initial load, and each save rewrites
               // the whole database file.
               traceRoostDb?.saveSoon()

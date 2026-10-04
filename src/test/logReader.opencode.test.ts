@@ -193,35 +193,29 @@ suite('LogReader — OpenCode', () => {
     }
   })
 
-  test('falls back to JSON message files when no sqlFactory', () => {
+  test('reads only the database: no sqlFactory, or a database that fails to open, yields nothing (no JSON fallback with other keys)', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-fallback-'))
     const msgDir = path.join(tmpDir, 'storage', 'message')
     fs.mkdirSync(msgDir, { recursive: true })
-
+    // The JSON message files older OpenCode storage kept beside the database: read as a fallback
+    // they keyed each session once ('session'), started 1970 — keys no database read produces.
     fs.writeFileSync(path.join(msgDir, 'msg-a.json'), JSON.stringify({
       role: 'assistant', session_id: 'fallback-sess', id: 'claude-sonnet-4-6',
       tokens: { input: 600, output: 120, reasoning: 0, cache: { read: 200, write: 50 } },
     }))
-    fs.writeFileSync(path.join(msgDir, 'msg-u.json'), JSON.stringify({ role: 'user', session_id: 'fallback-sess' }))
-    // dummy opencode.db so the data dir is detected
-    fs.writeFileSync(path.join(tmpDir, 'opencode.db'), '')
-
+    // Not a database: opening it fails.
+    fs.writeFileSync(path.join(tmpDir, 'opencode.db'), 'not a database')
     const origEnv = process.env['OPENCODE_DATA_DIR']
     process.env['OPENCODE_DATA_DIR'] = tmpDir
-
     try {
-      const reader = new LogReader()  // no sqlFactory → fallback
-      const results = reader.scanOpenCode()
-      const sess = results.find(r => r.card.conversationId === 'fallback-sess')
-      assert.ok(sess, 'fallback session should be found')
-      assert.strictEqual(sess!.card.source, 'opencode')
-      assert.strictEqual(sess!.card.model, 'claude-sonnet-4-6')
-      assert.strictEqual(sess!.card.turns, 1)
-      assert.strictEqual(sess!.card.outputTokens, 120)
-      assert.strictEqual(sess!.card.cacheReadTokens, 200)
-      assert.strictEqual(sess!.card.cacheCreateTokens, 50)
+      assert.deepStrictEqual(new LogReader().scanOpenCode(), [])
+      const reader = new LogReader({ sqlFactory: factory })
+      assert.deepStrictEqual(reader.scanOpenCode(), [])
+      assert.ok(!Object.keys(reader.exportFileState()).some(k => path.basename(k) === 'opencode.db'),
+        'a failed read is not recorded, so the next scan retries it')
     } finally {
-      process.env['OPENCODE_DATA_DIR'] = origEnv
+      if (origEnv === undefined) delete process.env['OPENCODE_DATA_DIR']
+      else process.env['OPENCODE_DATA_DIR'] = origEnv
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })

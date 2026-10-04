@@ -236,7 +236,16 @@ and a retired key that is sent again later comes back.
   (not-yet-keyed ones included) inside the horizon; otherwise skipped. A day over 5,000 keys is split into
   shorter windows, never truncated.
 - **Gates:** `missing_keys` (a listed key isn't delivered yet) → that day is re-sent after the queue
-  drains again, with growing backoff; `empty_unconfirmed` → logged once.
+  drains again, with growing backoff; `empty_unconfirmed` → logged once. A reply whose
+  `skipped_recent` is above zero (rows absent from the chunk's keys that the cloud left alone because
+  they were ingested in the last 10 minutes — older clouds send no such field) marks the day
+  _settling_: re-sent once, a little over 10 minutes later, not on the missing_keys schedule.
+- **Dropped rollups:** a session rollup the cloud refused for good (a 400 or a single-record 413 —
+  `sender.ts`) that it never held under any revision is recorded in `~/.traceroost/dropped.json`
+  (`DroppedLedger`, scoped to the install like the delivery ledger) and left out of every manifest:
+  the cloud has no row for it, and listing it would hold the day at `missing_keys` for a delivery
+  that will never come. A later accepted revision of the same session clears the entry. A day whose
+  every key was dropped sends nothing (the store isn't empty, so no `confirm_empty`).
 - One output line per run that sent anything — chunk, retired and gated counts, never a key.
   `--explain-payload` prints the newest chunk as it would be sent.
 
