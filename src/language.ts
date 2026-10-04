@@ -23,12 +23,17 @@
 //    poetry.lock, composer.lock), any dotfile (`.eslintrc.js`, `.env.local`), and any unknown
 //    extension — unknown is excluded rather than `other`, so a session that only touched config
 //    never reads as a "language".
+//  - Vue and Svelte single-file components (.vue, .svelte) have no id of their own: their script
+//    is TypeScript or JavaScript. Only paths are available here (never file contents, so a
+//    component's `lang="ts"` can't be read), so a component counts as `typescript` when the same
+//    session touched any TypeScript file (.ts .tsx .mts .cts), otherwise as `javascript`.
+//    languageForPath, which sees one path alone, reports a component as `javascript`.
 //  - `language` is the language with the most distinct files; `none` when no code file was
 //    touched. Ties break deterministically: more distinct files, then more distinct CHANGED files
 //    (edited/written beats read-only), then LANGUAGE_IDS order.
 //  - `languageSecondary` is the runner-up distinct language under the same ordering, or null when
 //    only one language was touched. It is never `none`. `other` MAY be secondary (a TypeScript
-//    session that also edited a shell script reads typescript + other), and may be primary.
+//    session that also edited a Lua script reads typescript + other), and may be primary.
 //
 // The session's change size (files changed, lines added/removed — src/editStats.ts) is the
 // opposite on purpose: it counts EVERY file the agent edited or wrote, code or not. Language
@@ -36,7 +41,7 @@
 
 export const LANGUAGE_IDS = [
   'typescript', 'javascript', 'python', 'go', 'rust', 'java', 'csharp', 'cpp',
-  'ruby', 'php', 'swift', 'kotlin', 'other', 'none',
+  'ruby', 'php', 'swift', 'kotlin', 'dart', 'shell', 'sql', 'html', 'css', 'other', 'none',
 ] as const
 
 export type SessionLanguage = typeof LANGUAGE_IDS[number]
@@ -56,6 +61,11 @@ export const LANGUAGE_LABELS: Record<SessionLanguage, string> = {
   php: 'PHP',
   swift: 'Swift',
   kotlin: 'Kotlin',
+  dart: 'Dart',
+  shell: 'Shell',
+  sql: 'SQL',
+  html: 'HTML',
+  css: 'CSS',
   other: 'Other code',
   none: 'No code',
 }
@@ -77,6 +87,11 @@ export const LANGUAGE_ABBREVIATIONS: Record<SessionLanguage, string> = {
   php: 'PHP',
   swift: 'Swift',
   kotlin: 'Kt',
+  dart: 'Dart',
+  shell: 'Sh',
+  sql: 'SQL',
+  html: 'HTML',
+  css: 'CSS',
   other: 'Other',
   none: 'None',
 }
@@ -95,17 +110,26 @@ export const EXTENSION_LANGUAGE: Readonly<Record<string, CodeLanguage>> = {
   '.php': 'php',
   '.swift': 'swift',
   '.kt': 'kotlin', '.kts': 'kotlin',
+  '.dart': 'dart',
+  '.sh': 'shell', '.bash': 'shell', '.zsh': 'shell', '.fish': 'shell',
+  '.sql': 'sql',
+  '.html': 'html', '.htm': 'html',
+  '.css': 'css', '.scss': 'css', '.sass': 'css', '.less': 'css',
 }
+
+/** Vue/Svelte single-file components — TypeScript or JavaScript depending on the rest of the
+ *  session (see the header comment), never an id of their own. */
+export const COMPONENT_EXTENSIONS: readonly string[] = ['.vue', '.svelte']
 
 /** Code outside the allowlist — counted as `other`. Deliberately a small explicit set: an
  *  extension in neither map is excluded, never guessed to be code. */
 export const OTHER_CODE_EXTENSIONS: readonly string[] = [
-  '.sh', '.bash', '.zsh', '.ps1', '.sql', '.scala', '.lua', '.dart', '.vue', '.svelte',
-  '.html', '.htm', '.css', '.scss', '.sass', '.less', '.r', '.pl', '.ex', '.exs', '.erl',
+  '.ps1', '.scala', '.lua', '.r', '.pl', '.ex', '.exs', '.erl',
   '.hs', '.clj', '.elm', '.zig', '.m', '.mm', '.fs', '.groovy', '.jl',
 ]
 
 const OTHER_CODE_SET = new Set(OTHER_CODE_EXTENSIONS)
+const COMPONENT_SET = new Set(COMPONENT_EXTENSIONS)
 
 export function isSessionLanguage(v: unknown): v is SessionLanguage {
   return typeof v === 'string' && (LANGUAGE_IDS as readonly string[]).includes(v)
@@ -115,8 +139,13 @@ export function isCodeLanguage(v: unknown): v is CodeLanguage {
   return isSessionLanguage(v) && v !== 'none'
 }
 
-/** The language one path counts toward, or null when it is not a code file (excluded). */
+/** The language one path counts toward, or null when it is not a code file (excluded). A
+ *  Vue/Svelte component reads `javascript` here; deriveSessionLanguage may count it as TypeScript. */
 export function languageForPath(filePath: string): CodeLanguage | null {
+  return classifyPath(filePath)?.lang ?? null
+}
+
+function classifyPath(filePath: string): { lang: CodeLanguage; component: boolean } | null {
   if (typeof filePath !== 'string' || filePath === '') return null
   const slash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
   const base = filePath.slice(slash + 1)
@@ -126,8 +155,9 @@ export function languageForPath(filePath: string): CodeLanguage | null {
   if (dot <= 0) return null
   const ext = base.slice(dot).toLowerCase()
   const lang = EXTENSION_LANGUAGE[ext]
-  if (lang) return lang
-  return OTHER_CODE_SET.has(ext) ? 'other' : null
+  if (lang) return { lang, component: false }
+  if (COMPONENT_SET.has(ext)) return { lang: 'javascript', component: true }
+  return OTHER_CODE_SET.has(ext) ? { lang: 'other', component: false } : null
 }
 
 function fileKey(filePath: string): string {
@@ -147,20 +177,24 @@ export function deriveSessionLanguage(files: {
   filesWritten?: readonly string[]
 }): SessionLanguageResult {
   // Distinct file → (language, was it changed). A file both read and changed counts once, as changed.
-  const seen = new Map<string, { lang: CodeLanguage; changed: boolean }>()
+  const seen = new Map<string, { lang: CodeLanguage; component: boolean; changed: boolean }>()
   const add = (paths: readonly string[] | undefined, changed: boolean) => {
     for (const p of paths ?? []) {
-      const lang = languageForPath(p)
-      if (!lang) continue
+      const c = classifyPath(p)
+      if (!c) continue
       const key = fileKey(p)
       const prev = seen.get(key)
       if (prev) prev.changed = prev.changed || changed
-      else seen.set(key, { lang, changed })
+      else seen.set(key, { ...c, changed })
     }
   }
   add(files.filesChanged, true)
   add(files.filesWritten, true)
   add(files.filesRead, false)
+  // Vue/Svelte components follow the session's script language: TypeScript if it touched any.
+  if ([...seen.values()].some(f => !f.component && f.lang === 'typescript')) {
+    for (const f of seen.values()) if (f.component) f.lang = 'typescript'
+  }
 
   const tally = new Map<CodeLanguage, { files: number; changed: number }>()
   for (const { lang, changed } of seen.values()) {

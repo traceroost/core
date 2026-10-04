@@ -304,7 +304,7 @@ Sessions produced by `LogReader` carry `dataSource: 'log'` on `SessionSummaryCar
 
 Every card gets `language` / `languageSecondary` and `filesChangedCount` / `linesAdded` / `linesRemoved` at the moment it is built — `_buildCard` in `logReader.ts` for log sessions, the end of `summarizeSpans()` for OTEL — so the database, the standalone server's in-memory store, export and cloud forwarding all read the same values without their own pass.
 
-- **Language** (`src/language.ts`, byte-identical copy at `media/src/language.ts`, parity-tested in `src/test/language.test.ts`): a fixed allowlist — `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `other` `none` — derived from the extensions of the session's distinct `filesRead` + `filesChanged` paths. Each distinct file counts once; non-code files (docs, JSON/YAML/TOML, lockfiles, config, dotfiles, images, text, CSV) and unknown extensions are excluded; a small explicit `OTHER_CODE_EXTENSIONS` set counts as `other`. Primary is the most common, secondary the runner-up (never `none`, may be `other`); ties break by count, then changed-over-read, then allowlist order.
+- **Language** (`src/language.ts`, byte-identical copy at `media/src/language.ts`, parity-tested in `src/test/language.test.ts`): a fixed allowlist — `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none` — derived from the extensions of the session's distinct `filesRead` + `filesChanged` paths. Each distinct file counts once; non-code files (docs, JSON/YAML/TOML, lockfiles, config, dotfiles, images, text, CSV) and unknown extensions are excluded; a small explicit `OTHER_CODE_EXTENSIONS` set counts as `other`; Vue/Svelte components (`COMPONENT_EXTENSIONS`) count as `typescript` when the session touched any TypeScript file, else `javascript` (paths only, so `lang="ts"` is never read). Primary is the most common, secondary the runner-up (never `none`, may be `other`); ties break by count, then changed-over-read, then allowlist order.
 - **Change size** (`src/editStats.ts`): `filesChangedCount` is the distinct `filesChanged` count (every file, code or not); lines come from the timeline's `editDetails` — old→new strings are line-diffed (common prefix/suffix trimmed, LCS on the middle), `apply_patch` hunks (parsed once in `summarizers/helpers.ts`'s `parseApplyPatchEditDetails`, for Copilot and Codex) count their `-`/`+` lines, a content-only write counts every line as added. Agent-authored edits, not git stats (`src/attribution/` is the git side). Undefined lines mean the source records no edit contents (OpenCode, Cursor, Codex/Copilot logs).
 - Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`, added by `applyMigrations`); rows from before stay NULL and display "—" until re-summarized from their log — no backfill. Language and change-size cells read from Codex and Copilot Chat logs, which record no file paths, are `none` / unknown.
 
@@ -824,7 +824,7 @@ graph TD
 
 ### Tab component overview
 
-Five tabs in the sticky tab bar (Traces — routing id `sessions` — Analytics, Advisor, Export, Import). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx` — the rate tables behind it), and Help. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. The bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
+Five tabs in the sticky tab bar (Traces — routing id `sessions` — Analytics, Advisor, Export, Import). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx` — the rate tables behind it), a "Make a suggestion" link (`media/src/suggest.ts` — TraceRoost Cloud's public `/suggest` page with `?from=core&context=<version · tab>`, opened in the browser; in both editions), and Help. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. The bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
 
 ```mermaid
 graph LR
@@ -842,6 +842,7 @@ graph LR
     T2 --> A2[AgentCard ×3 — per-agent stat tiles<br/>incl. One-shot rate tile]
     T2 --> A3[SessionTokenChart — input/output bars<br/>day boundary highlights]
     T2 --> A4[ContextGrowthChart — animated<br/>per-session spotlight · play/pause/speed]
+    T2 --> A5[CodeChangesChart — lines +/− per day or week<br/>files-changed line · agent-authored edits]
 
     T3[Advisor<br/>hot files · behavioral loop patterns<br/>efficiency scatter · Instructions sub-view]
     T4[Export<br/>full or redacted export<br/>format: JSON · CSV · Markdown]
@@ -1308,7 +1309,7 @@ traceroost/
 │   ├── src/
 │   │   ├── dashboard.tsx         # Entry point — mounts App into the webview DOM
 │   │   ├── App.tsx               # Preact root, message handler, tab router, sticky tab bar, header icons
-│   │   │                         #   (bell · action log · gear ConfigPanel · $ Pricing · Help; Org/update where applicable)
+│   │   │                         #   (bell · action log · gear ConfigPanel · $ Pricing · suggest · Help; Org/update where applicable)
 │   │   ├── state.ts              # Signals: sessions, timelines, blobs, analytics, sort, time range, gitOutcomes
 │   │   ├── types.ts              # Frontend types mirroring backend + analytics types
 │   │   ├── pricing.ts            # Browser pricing: rate table, lookupRates, calcTokenCost
@@ -1326,6 +1327,7 @@ traceroost/
 │   │   ├── SectionNav.tsx        # Left-hand jump rail for the long single-page tabs (Analytics, Advisor)
 │   │   ├── planUsage.ts          # Plan-limit snapshot (mirrors src/planUsage/) + the "no data, no UI" render rules
 │   │   ├── suggestionRules.ts    # Instruction-suggestion rules — byte-identical copy of src/suggestionRules.ts
+│   │   ├── suggest.ts            # Header "Make a suggestion" link URL (public Cloud /suggest page; both editions)
 │   │   ├── orgPanel.ts           # The webview's one seam to the Org panel (cloud/panels/OrgPanel.tsx)
 │   │   ├── orgPanel.core.tsx     # Core edition's inert Org panel stub
 │   │   ├── cloud/panels/OrgPanel.tsx # TraceRoost Cloud Org panel (full edition; BSL)
@@ -1346,12 +1348,13 @@ traceroost/
 │   │       ├── Sessions.tsx      # Sortable session table, expand-in-place detail panel
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
-│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · PLAN LIMITS · OUTCOME & TOKEN SPEND · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
+│   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
-│   │       ├── outcomeTrend.ts   # Day/week binning for OUTCOME & TOKEN SPEND OVER TIME
+│   │       ├── outcomeTrend.ts   # Day/week binning (dayBins) for OUTCOME & TOKEN SPEND OVER TIME
+│   │       ├── codeChanges.ts    # CODE CHANGES OVER TIME bins — agent-authored lines/files, traces without line data excluded
 │   │       ├── Insights.tsx      # InsightCard component + generateInsights; clipboard copy icon
 │   │       ├── Cost.tsx          # CostBarChart (canvas, used by Analytics), fmtUsd re-export
-│   │       ├── SessionCharts.tsx # ContextGrowthChart (animated), SessionTokenChart, TurnsLink
+│   │       ├── SessionCharts.tsx # ContextGrowthChart (animated), SessionTokenChart, OutcomeTrendChart, CodeChangesChart, TurnsLink
 │   │       ├── Traces.tsx        # Waterfall rows (Step/StepRow), background span groups
 │   │       ├── Flow.tsx          # Turn-to-tool semantic graph (canvas), FlowCanvas component
 │   │       ├── Agents.tsx        # computeStats helper used by Analytics AgentCard

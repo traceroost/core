@@ -35,6 +35,7 @@ import { receiveInstructionMessage } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
+import { suggestionUrl } from './suggest'
 
 /** The REPO filter's empty state, shown as its placeholder and first list entry. */
 const REPO_ALL = 'All'
@@ -255,6 +256,20 @@ function IconLog() {
   )
 }
 
+// A person shouting — head and shoulders with sound waves from the mouth. Same path data as
+// TraceRoost Cloud's public/brand/suggest.svg, at the header icons' stroke width.
+function IconSuggest() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+      <circle cx="8" cy="8" r="3.5" />
+      <path d="M2 21v-1.5A5.5 5.5 0 0 1 7.5 14h1a5.5 5.5 0 0 1 5.5 5.5V21" />
+      <path d="M14.5 6a3.5 3.5 0 0 1 0 5" />
+      <path d="M17.5 4a6.5 6.5 0 0 1 0 9" />
+      <path d="M20.5 2a9.5 9.5 0 0 1 0 13" />
+    </svg>
+  )
+}
+
 function IconDollar() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">
@@ -447,6 +462,24 @@ function PricingButton() {
       aria-pressed={isActive}
       onClick={() => { activeTab.value = 'pricing' }}
     ><IconDollar /></button>
+  )
+}
+
+// A link, not a message to the host: like Help's external links, VS Code opens an https link
+// clicked in a webview with env.openExternal, and the standalone dashboard opens a new tab.
+// See suggest.ts for what the URL may carry.
+function SuggestButton() {
+  const tab = normalizeTabId(activeTab.value)
+  const tabLabel = TABS.find(t => t.id === tab)?.label ?? (tab === 'help' ? 'Help' : tab === 'pricing' ? 'Pricing' : tab)
+  return (
+    <a
+      class="icon-btn"
+      href={suggestionUrl(window.__VERSION__, tabLabel)}
+      target="_blank"
+      rel="noreferrer"
+      title="Make a suggestion — opens TraceRoost's suggestion page in your browser"
+      aria-label="Make a suggestion"
+    ><IconSuggest /></a>
   )
 }
 
@@ -838,6 +871,7 @@ export function App() {
           <LogButton />
           <GearButton />
           <PricingButton />
+          <SuggestButton />
           <HelpButton />
         </div>
       </div>

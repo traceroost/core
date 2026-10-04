@@ -5,6 +5,7 @@ import { dayKeyUtc } from '../sessionMetrics'
 import type { SessionSummaryCard, GitOutcome, FileOutcome } from '../types'
 import { OUTCOME_META } from './Sessions'
 import { TREND_OUTCOMES, TREND_COLOR, niceMax, type TrendBin } from './outcomeTrend'
+import type { CodeChangeTrend } from './codeChanges'
 
 export function TurnsLink() {
   return (
@@ -509,7 +510,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 function shortDate(day: string): string {
   return `${MONTHS[Number(day.slice(5, 7)) - 1]} ${Number(day.slice(8, 10))}`
 }
-function binLabel(bin: TrendBin, unit: 'day' | 'week'): string {
+function binLabel(bin: { start: string; end: string }, unit: 'day' | 'week'): string {
   return unit === 'day' || bin.start === bin.end ? shortDate(bin.start) : `${shortDate(bin.start)} – ${shortDate(bin.end)}`
 }
 
@@ -621,3 +622,119 @@ export function OutcomeTrendChart({ bins, unit, hitMarkers = [] }: { bins: Trend
   )
 }
 
+
+// ── Code changes over time ────────────────────────────────────────────────────
+
+/** Theme tokens — VS Code supplies charts-* in every theme (light, dark, high contrast). */
+export const CHANGE_COLOR = {
+  added: 'var(--vscode-charts-green,#81c784)',
+  removed: 'var(--vscode-charts-red,#f44747)',
+  files: 'var(--vscode-charts-blue,#4fc3f7)',
+}
+
+const CHANGE_PAD = { top: 14, right: 34, bottom: 16, left: 44 }
+const CHANGE_H = 120
+
+/**
+ * Diverging bars per bin — lines added above the zero line, lines removed below, one shared
+ * scale — with files changed as a line on its own right axis. Same bins and layout as
+ * OutcomeTrendChart. Data: buildCodeChangeBins (codeChanges.ts).
+ */
+export function CodeChangesChart({ trend }: { trend: CodeChangeTrend }) {
+  const [hover, setHover] = useState<number | null>(null)
+  const { bins, unit } = trend
+
+  if (bins.length === 0) {
+    return <div class="empty-state" data-testid="code-changes-empty" style="font-size:11px">No traces in view recorded line counts — older traces and agents that don't log edit contents (Codex, OpenCode, Cursor) have none.</div>
+  }
+
+  const chartW = TREND_W - CHANGE_PAD.left - CHANGE_PAD.right
+  const slotW = chartW / bins.length
+  const barW = Math.max(1, Math.min(20, slotW * 0.7))
+  const H = CHANGE_PAD.top + CHANGE_H + CHANGE_PAD.bottom
+  const top = CHANGE_PAD.top
+
+  const maxAdded = Math.max(...bins.map(b => b.added), 0)
+  const maxRemoved = Math.max(...bins.map(b => b.removed), 0)
+  const { step } = niceMax(Math.max(maxAdded, maxRemoved))
+  // One step size both ways; each side only as tall as it needs (an empty side keeps one step).
+  const upMax = Math.max(step, Math.ceil(maxAdded / step) * step)
+  const downMax = maxRemoved > 0 ? Math.ceil(maxRemoved / step) * step : 0
+  const span = upMax + downMax
+  const zeroY = top + (upMax / span) * CHANGE_H
+  const yOf = (v: number) => zeroY - (v / span) * CHANGE_H
+
+  const fileScale = niceMax(Math.max(...bins.map(b => b.files), 0), 2)
+  // Files share the zero line and use only the upper half, so a file count never reads as negative.
+  const fileY = (v: number) => zeroY - (v / fileScale.max) * (zeroY - top)
+
+  const ticks: number[] = []
+  for (let v = -downMax; v <= upMax + 1e-9; v += step) ticks.push(v)
+  const labelEvery = Math.max(1, Math.ceil(bins.length / Math.max(1, Math.floor(chartW / 70))))
+  const last = bins.length - 1
+  const cx = (i: number) => CHANGE_PAD.left + (i + 0.5) * slotW
+  const muted = 'var(--vscode-descriptionForeground,#888)'
+
+  const hovered = hover !== null ? bins[hover] : null
+  const plural = (n: number, w: string) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`
+  const t = trend.total
+  const aria = `Lines changed by the agent per ${unit}, ${bins[0].start} to ${bins[last].end}: ` +
+    `${t.added.toLocaleString()} added, ${t.removed.toLocaleString()} removed, ${plural(t.files, 'file')} changed, across ${plural(t.traces, 'trace')}.`
+
+  return (
+    <div style="position:relative" data-testid="code-changes-chart">
+      <svg viewBox={`0 0 ${TREND_W} ${H}`} style="width:100%;height:auto;display:block"
+        role="img" aria-label={aria}
+        onMouseLeave={() => setHover(null)}
+      >
+        <text x={CHANGE_PAD.left} y={top - 4} font-size="9" fill={muted}>Lines per {unit} (+ added / − removed)</text>
+        <text x={TREND_W - 2} y={top - 4} text-anchor="end" font-size="9" fill={muted}>Files</text>
+        {ticks.map(v => (
+          <g key={v}>
+            <line x1={CHANGE_PAD.left} y1={yOf(v)} x2={TREND_W - CHANGE_PAD.right} y2={yOf(v)}
+              stroke="var(--vscode-panel-border,#333)" stroke-width={v === 0 ? 1 : 0.5} />
+            <text x={CHANGE_PAD.left - 6} y={yOf(v)} text-anchor="end" dominant-baseline="middle" font-size="9" fill={muted}>
+              {v > 0 ? '+' : v < 0 ? '−' : ''}{formatCompact(Math.abs(v))}
+            </text>
+          </g>
+        ))}
+        {[0, fileScale.max].map(v => (
+          <text key={`f${v}`} x={TREND_W - CHANGE_PAD.right + 6} y={fileY(v)} dominant-baseline="middle" font-size="9" fill={CHANGE_COLOR.files}>{formatCompact(v)}</text>
+        ))}
+
+        {bins.map((b, i) => (
+          <g key={b.start} onMouseEnter={() => setHover(i)}>
+            {hover === i && (
+              <rect x={CHANGE_PAD.left + i * slotW} y={top} width={slotW} height={CHANGE_H} fill="var(--foreground)" opacity="0.05" />
+            )}
+            {b.added > 0 && <rect x={cx(i) - barW / 2} y={yOf(b.added)} width={barW} height={Math.max(1, zeroY - yOf(b.added))} fill={CHANGE_COLOR.added} opacity={hover === i ? 1 : 0.85} />}
+            {b.removed > 0 && <rect x={cx(i) - barW / 2} y={zeroY} width={barW} height={Math.max(1, yOf(-b.removed) - zeroY)} fill={CHANGE_COLOR.removed} opacity={hover === i ? 1 : 0.85} />}
+            <rect x={CHANGE_PAD.left + i * slotW} y={top} width={slotW} height={CHANGE_H} fill="transparent" />
+            {(i % labelEvery === 0 || i === last) && (
+              <text x={Math.min(cx(i), TREND_W - CHANGE_PAD.right - 14)} y={top + CHANGE_H + 12}
+                text-anchor="middle" font-size="9" fill={muted}>{shortDate(b.start)}</text>
+            )}
+          </g>
+        ))}
+
+        <polyline points={bins.map((b, i) => `${cx(i)},${fileY(b.files)}`).join(' ')}
+          fill="none" stroke={CHANGE_COLOR.files} stroke-width="1.5" stroke-dasharray="4 2" pointer-events="none" />
+        {bins.map((b, i) => b.traces > 0 && (
+          <circle key={`d${b.start}`} cx={cx(i)} cy={fileY(b.files)} r={hover === i ? 3 : 2} fill={CHANGE_COLOR.files} pointer-events="none" />
+        ))}
+      </svg>
+
+      {hovered && (
+        <div data-testid="code-changes-tooltip" style={`position:absolute;top:${top}px;${hover !== null && hover / bins.length > 0.6 ? 'right' : 'left'}:8px;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--vscode-panel-border,#333);border-radius:4px;padding:8px 10px;font-size:11px;line-height:1.7;pointer-events:none;z-index:10;white-space:nowrap`}>
+          <div style="font-weight:600;margin-bottom:2px">{binLabel(hovered, unit)}</div>
+          <div><span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${CHANGE_COLOR.added};margin-right:6px`} />Added: <strong>+{hovered.added.toLocaleString()}</strong> lines</div>
+          <div><span style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${CHANGE_COLOR.removed};margin-right:6px`} />Removed: <strong>−{hovered.removed.toLocaleString()}</strong> lines</div>
+          <div><span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CHANGE_COLOR.files};margin-right:6px`} />Files changed: <strong>{hovered.files.toLocaleString()}</strong></div>
+          <div style="margin-top:4px;padding-top:4px;border-top:1px solid var(--vscode-panel-border,#333);color:var(--muted)">
+            {plural(hovered.traces, 'trace')} counted
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

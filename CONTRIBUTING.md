@@ -72,7 +72,8 @@ TraceRoost Cloud (org link + upload) code. The split is made at build time, not 
   standalone route, Help-tab sections) is wrapped in a literal
   `process.env.TRACEROOST_EDITION !== 'core'` check so the core build drops it entirely.
 - `node scripts/check-edition.mjs core` then greps the five shipped bundles for Cloud markers
-  (cloud module paths, Cloud endpoints and hostnames, queue/link identifiers) and checks the
+  (cloud module paths, Cloud endpoints and hostnames — except the one public "Make a suggestion"
+  link, `media/src/suggest.ts` — queue/link identifiers) and checks the
   packaged manifest; `check-edition.mjs full` checks the markers are still present in a full build.
 
 ```bash

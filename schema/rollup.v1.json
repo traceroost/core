@@ -68,7 +68,7 @@
     "initiator": { "type": "string", "enum": ["user", "agent", "api"] },
     "language": {
       "type": "string",
-      "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "other", "none"]
+      "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "dart", "shell", "sql", "html", "css", "other", "none"]
     },
     "session": {
       "type": "object",
@@ -138,7 +138,7 @@
         "conversation_hash": { "$ref": "#/$defs/hash" },
         "language": { "$ref": "#/$defs/language" },
         "language_secondary": {
-          "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "other", null],
+          "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "dart", "shell", "sql", "html", "css", "other", null],
           "description": "Second most common distinct language in the session -- any language id except none. Omitted (or null) when only one language was touched."
         },
         "files_changed": { "$ref": "#/$defs/count" },

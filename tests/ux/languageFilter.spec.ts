@@ -75,3 +75,29 @@ test('Language filter narrows traces; Lang/Changes columns and the breakdown ren
   await expect(breakdown).toContainText('— (not recorded)')
   expect(errors, 'browser errors').toEqual([])
 })
+
+test('Shell, SQL, HTML, CSS and Dart get their own abbreviations and filter options', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  const NEW = [['css', 'CSS'], ['shell', 'Sh'], ['dart', 'Dart'], ['sql', 'SQL'], ['html', 'HTML']] as const
+  const withLang = sessions.slice(0, NEW.length).map((s, i) => ({ ...s, language: NEW[i][0], languageSecondary: null }))
+
+  await page.goto('/')
+  await page.locator('#sessions-content').waitFor()
+  await page.evaluate(
+    (sessions) => window.postMessage({ type: 'update', sessionSummary: { sessions } }, '*'),
+    withLang,
+  )
+  const rows = page.locator('#sessions-content tbody tr')
+  await expect(rows).toHaveCount(NEW.length)
+  const langCells = page.locator('#sessions-content td.trace-language')
+  await expect(langCells.filter({ hasText: /^Sh$/ })).toHaveAttribute('title', 'Language: Shell')
+  for (const [, abbr] of NEW) await expect(langCells.filter({ hasText: new RegExp(`^${abbr}$`) })).toHaveCount(1)
+
+  // Allowlist order, full names.
+  const select = page.locator('#tr-filter-language')
+  await expect(select.locator('option')).toHaveText(['All', 'Dart', 'Shell', 'SQL', 'HTML', 'CSS'])
+  await select.selectOption('sql')
+  await expect(rows).toHaveCount(1)
+  expect(errors, 'browser errors').toEqual([])
+})

@@ -52,6 +52,40 @@ function emptyByOutcome(): Record<FileOutcome, Measure> {
 }
 
 /**
+ * The day/week bucketing every over-time Analytics chart shares (this one, and Code changes —
+ * codeChanges.ts): a dense, gap-free run of bins covering `days`' own span (YYYY-MM-DD, UTC),
+ * daily up to WEEKLY_AFTER_DAYS, else whole Monday-start weeks. `binOf` maps a day to the `start`
+ * of the bin holding it. `days` must be non-empty.
+ */
+export function dayBins(days: string[]): {
+  bins: Array<{ start: string; end: string }>
+  unit: 'day' | 'week'
+  binOf: (day: string) => string
+} {
+  const first = days.reduce((m, d) => (d < m ? d : m), days[0])
+  const last = days.reduce((m, d) => (d > m ? d : m), days[0])
+  const startMs = fromDay(first)
+  const endMs = fromDay(last)
+
+  const spanDays = Math.round((endMs - startMs) / DAY_MS) + 1
+  const unit: 'day' | 'week' = spanDays > WEEKLY_AFTER_DAYS ? 'week' : 'day'
+
+  // Snap the first bin back to its Monday so every weekly bin is a whole calendar week.
+  const binStart = (ms: number) => {
+    if (unit === 'day') return ms
+    const dow = (new Date(ms).getUTCDay() + 6) % 7 // Monday = 0
+    return ms - dow * DAY_MS
+  }
+  const step = unit === 'day' ? DAY_MS : 7 * DAY_MS
+
+  const bins: Array<{ start: string; end: string }> = []
+  for (let ms = binStart(startMs); ms <= endMs; ms += step) {
+    bins.push({ start: toDay(ms), end: toDay(Math.min(ms + step - DAY_MS, endMs)) })
+  }
+  return { bins, unit, binOf: (day: string) => toDay(binStart(fromDay(day))) }
+}
+
+/**
  * Turns sessions with a resolved outcome into a dense, gap-free run of bins covering their own
  * date span. A session with no entry in `outcomes` yet (not requested, or still resolving) or a
  * `null`/`'ambiguous'` entry is omitted from every bin — never counted as zero — same rule the
@@ -70,38 +104,12 @@ export function buildTrendBins(
   }
   if (counted.length === 0) return { bins: [], unit: 'day' }
 
-  const days = counted.map(({ s }) => dayKeyUtc(s.startTime))
-  const first = days.reduce((m, d) => (d < m ? d : m), days[0])
-  const last = days.reduce((m, d) => (d > m ? d : m), days[0])
-  const startMs = fromDay(first)
-  const endMs = fromDay(last)
-
-  const spanDays = Math.round((endMs - startMs) / DAY_MS) + 1
-  const unit: 'day' | 'week' = spanDays > WEEKLY_AFTER_DAYS ? 'week' : 'day'
-
-  // Snap the first bin back to its Monday so every weekly bin is a whole calendar week.
-  const binStart = (ms: number) => {
-    if (unit === 'day') return ms
-    const dow = (new Date(ms).getUTCDay() + 6) % 7 // Monday = 0
-    return ms - dow * DAY_MS
-  }
-  const step = unit === 'day' ? DAY_MS : 7 * DAY_MS
-
-  const bins: TrendBin[] = []
-  const index = new Map<string, TrendBin>()
-  for (let ms = binStart(startMs); ms <= endMs; ms += step) {
-    const bin: TrendBin = {
-      start: toDay(ms),
-      end: toDay(Math.min(ms + step - DAY_MS, endMs)),
-      byOutcome: emptyByOutcome(),
-      total: { sessions: 0, tokens: 0 },
-    }
-    bins.push(bin)
-    index.set(bin.start, bin)
-  }
+  const layout = dayBins(counted.map(({ s }) => dayKeyUtc(s.startTime)))
+  const bins: TrendBin[] = layout.bins.map(b => ({ ...b, byOutcome: emptyByOutcome(), total: { sessions: 0, tokens: 0 } }))
+  const index = new Map(bins.map(b => [b.start, b]))
 
   for (const { s, outcome } of counted) {
-    const bin = index.get(toDay(binStart(fromDay(dayKeyUtc(s.startTime)))))
+    const bin = index.get(layout.binOf(dayKeyUtc(s.startTime)))
     if (!bin) continue
     const tokens = (s.inputTokens ?? 0) + (s.outputTokens ?? 0)
     const m = bin.byOutcome[outcome]
@@ -111,7 +119,7 @@ export function buildTrendBins(
     bin.total.tokens += tokens
   }
 
-  return { bins, unit }
+  return { bins, unit: layout.unit }
 }
 
 /** Range totals per outcome plus the landed/uncommitted split the card's headline reports. */

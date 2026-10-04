@@ -3,7 +3,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {
   deriveSessionLanguage, languageForPath, languageFromRecord, languageLabel, isSessionLanguage,
-  LANGUAGE_IDS, EXTENSION_LANGUAGE, OTHER_CODE_EXTENSIONS,
+  LANGUAGE_IDS, EXTENSION_LANGUAGE, OTHER_CODE_EXTENSIONS, COMPONENT_EXTENSIONS, LANGUAGE_ABBREVIATIONS,
+  LANGUAGE_LABELS, languageAbbreviation,
 } from '../language'
 import { WIRE_LANGUAGES } from '../cloud/forward/schema'
 
@@ -30,7 +31,55 @@ suite('language — per-session programming language', () => {
     assert.deepStrictEqual(byLang('python'), ['.py', '.pyi'])
     assert.deepStrictEqual(byLang('cpp'), ['.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx'])
     assert.deepStrictEqual(byLang('kotlin'), ['.kt', '.kts'])
-    for (const ext of OTHER_CODE_EXTENSIONS) assert.strictEqual(EXTENSION_LANGUAGE[ext], undefined, ext)
+    assert.deepStrictEqual(byLang('dart'), ['.dart'])
+    assert.deepStrictEqual(byLang('shell'), ['.bash', '.fish', '.sh', '.zsh'])
+    assert.deepStrictEqual(byLang('sql'), ['.sql'])
+    assert.deepStrictEqual(byLang('html'), ['.htm', '.html'])
+    assert.deepStrictEqual(byLang('css'), ['.css', '.less', '.sass', '.scss'])
+    for (const ext of [...OTHER_CODE_EXTENSIONS, ...COMPONENT_EXTENSIONS]) assert.strictEqual(EXTENSION_LANGUAGE[ext], undefined, ext)
+    for (const ext of COMPONENT_EXTENSIONS) assert.ok(!OTHER_CODE_EXTENSIONS.includes(ext), ext)
+  })
+
+  test('Shell, SQL, HTML, CSS and Dart are languages of their own; PowerShell stays other', () => {
+    const cases: [string, string][] = [
+      ['/r/deploy.sh', 'shell'], ['/r/setup.BASH', 'shell'], ['/r/prompt.zsh', 'shell'], ['/r/conf.fish', 'shell'],
+      ['/r/db/001_init.sql', 'sql'],
+      ['/r/index.html', 'html'], ['/r/legacy.HTM', 'html'],
+      ['/r/site.css', 'css'], ['/r/app.scss', 'css'], ['/r/old.sass', 'css'], ['/r/theme.less', 'css'],
+      ['/r/lib/main.dart', 'dart'],
+      ['/r/build.ps1', 'other'],
+    ]
+    for (const [p, lang] of cases) assert.strictEqual(languageForPath(p), lang, p)
+    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/a.sql', '/r/b.sql', '/r/run.sh'] }),
+      { language: 'sql', languageSecondary: 'shell' })
+    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/index.html', '/r/site.css', '/r/app.scss'] }),
+      { language: 'css', languageSecondary: 'html' })
+  })
+
+  test('labels and abbreviations cover every id, and new ids read as standard short forms', () => {
+    assert.deepStrictEqual(Object.keys(LANGUAGE_LABELS), [...LANGUAGE_IDS])
+    assert.deepStrictEqual(Object.keys(LANGUAGE_ABBREVIATIONS), [...LANGUAGE_IDS])
+    assert.deepStrictEqual(
+      ['dart', 'shell', 'sql', 'html', 'css'].map(id => [languageLabel(id), languageAbbreviation(id)]),
+      [['Dart', 'Dart'], ['Shell', 'Sh'], ['SQL', 'SQL'], ['HTML', 'HTML'], ['CSS', 'CSS']])
+    assert.strictEqual(languageAbbreviation('kotlin'), 'Kt')
+    assert.strictEqual(languageAbbreviation('cobol'), '—')
+  })
+
+  test('Vue/Svelte components count as TypeScript when the session touched TypeScript, else JavaScript', () => {
+    // Path alone: JavaScript.
+    assert.strictEqual(languageForPath('/r/App.vue'), 'javascript')
+    assert.strictEqual(languageForPath('/r/Card.Svelte'), 'javascript')
+    // With any TypeScript file (even read-only) in the session, components join TypeScript.
+    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/App.vue', '/r/Nav.vue', '/r/x.py', '/r/y.py'], filesRead: ['/r/store.ts'] }),
+      { language: 'typescript', languageSecondary: 'python' })
+    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/Card.svelte', '/r/lib.mts'] }),
+      { language: 'typescript', languageSecondary: null })
+    // Without TypeScript they are JavaScript, alongside any real .js files.
+    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/App.vue', '/r/main.js', '/r/site.css'] }),
+      { language: 'javascript', languageSecondary: 'css' })
+    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/Card.svelte'] }),
+      { language: 'javascript', languageSecondary: null })
   })
 
   test('a mixed session: most distinct files wins, runner-up is secondary', () => {
@@ -94,13 +143,13 @@ suite('language — per-session programming language', () => {
   })
 
   test('other code is counted as other (and may be secondary); unknown extensions are excluded', () => {
-    assert.strictEqual(languageForPath('/r/q.sql'), 'other')
-    assert.strictEqual(languageForPath('/r/App.vue'), 'other')
+    assert.strictEqual(languageForPath('/r/q.scala'), 'other')
+    assert.strictEqual(languageForPath('/r/init.lua'), 'other')
     assert.strictEqual(languageForPath('/r/blob.weird'), null)
     assert.strictEqual(languageForPath('/r/Makefile'), null)
-    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/a.ts', '/r/b.ts', '/r/deploy.sh', '/r/x.weird'] }),
+    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/a.ts', '/r/b.ts', '/r/deploy.ps1', '/r/x.weird'] }),
       { language: 'typescript', languageSecondary: 'other' })
-    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/a.sh', '/r/b.sql'] }),
+    assert.deepStrictEqual(deriveSessionLanguage({ filesChanged: ['/r/a.lua', '/r/b.scala'] }),
       { language: 'other', languageSecondary: null })
   })
 
