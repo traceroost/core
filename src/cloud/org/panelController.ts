@@ -11,11 +11,11 @@ import { linkInteractive, linkViaDevice, leave, refreshOrgNameIfStale } from './
 import { getQueueStats } from '../forward/currentQueueStats'
 import { syncForwardSchedulerToLinkState, drainForwardQueueSoon, checkForwardQueueNow, isForwardQueueDraining } from '../forward/scheduler'
 import { syncPricingToLinkState } from './pricingSync'
-import { maybeEnqueueSession } from './enqueueSession'
-import { createPayloadBuildCache } from './payloadPreview'
+import { queueUnsentSessions } from './reconcileUnsent'
 import { isOrgEnvironment } from './config'
 import { saveSelectedEnvironment } from './environmentSelection'
 import { isLinked } from './credentials'
+import { markLinkStateSeen } from './linkWatcher'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export interface OrgMessage {
@@ -72,67 +72,16 @@ const MAX_PAYLOAD_PREVIEW_SESSIONS = 5
  * already saved when called from a link, so every payload is built (and every hash salted) with
  * whichever org is *currently* linked.
  */
-// How many sessions' `maybeEnqueueSession` calls run at once. Matches the shape of
-// `gitOutcome.ts`'s `MAX_CONCURRENT_SESSION_CLASSIFICATIONS` — bounded so total concurrent `git`
-// subprocess load stays predictable, not unbounded fan-out over a large backlog.
-const RECONCILE_CONCURRENCY = 6
-
-/** Runs `worker` over `sessions` with up to `RECONCILE_CONCURRENCY` in flight at once, rather than
- *  one at a time. Progress (when `onProgress` is given) is reported after each *completion*, in
- *  whichever order they land — no longer tied to array order the way the old serial loop was. */
-async function runReconcilePool(
-  sessions: SessionSummaryCard[],
-  worker: (session: SessionSummaryCard) => Promise<{ enqueued: boolean }>,
-  onProgress?: (done: number, total: number) => void,
-): Promise<number> {
-  const total = sessions.length
-  let nextIndex = 0
-  let done = 0
-  let queued = 0
-
-  async function runOne(): Promise<void> {
-    for (;;) {
-      const i = nextIndex++
-      if (i >= total) return
-      const res = await worker(sessions[i])
-      if (res.enqueued) queued++
-      done++
-      if (onProgress) {
-        onProgress(done, total)
-        // Without this, a progress update can sit unsent: when `worker` short-circuits on an
-        // already-delivered session, it resolves via microtasks only (no real async I/O), so a
-        // burst of already-delivered sessions completing back-to-back never actually returns
-        // control to the event loop — and posting to the webview is IPC, which needs that to
-        // flush. `setImmediate` forces one real event-loop tick per completion so the webview
-        // sees progress as it happens instead of one burst at the end.
-        await new Promise<void>(resolve => setImmediate(resolve))
-      }
-    }
-  }
-
-  const workerCount = Math.min(RECONCILE_CONCURRENCY, total)
-  await Promise.all(Array.from({ length: workerCount }, runOne))
-  return queued
-}
-
 async function reconcileLocalSessions(deps: OrgPanelDeps, reportProgress = false): Promise<number> {
   const sessions = deps.allLocalSessions?.()
   if (!sessions || sessions.length === 0) return 0
-  // Scoped to this one reconcile pass — memoizes the per-workspace git work (repo key, branch,
-  // outcome classification) that would otherwise be recomputed once per session instead of once
-  // per distinct repo a developer's sessions cluster in. See payloadPreview.ts's
-  // createPayloadBuildCache and .staged-issues/reconcile-gap-and-latency.md.
-  const cache = createPayloadBuildCache()
-  const queued = await runReconcilePool(
+  const queued = await queueUnsentSessions(
     sessions,
-    (session) => maybeEnqueueSession(session, deps.log, cache),
+    deps.log,
     // Report progress only for the on-demand "Check for unsent traces" click (`orgReconcile`
     // below); the link-time call is fire-and-forget and nothing is listening for it.
     reportProgress ? (done, total) => deps.post({ type: 'orgReconcileProgress', done, total }) : undefined,
   )
-  if (queued > 0) {
-    deps.log?.(`[TraceRoost] Reconcile: queued ${queued} local session(s) not yet confirmed delivered`)
-  }
   // Always nudge the scheduler, not just when new sessions were found — the on-demand button's
   // whole point is "try to get things moving right now," and a backlog stuck retrying on its own
   // backoff schedule (queue.ts's stuckItems) is exactly the case where clicking it should visibly
@@ -211,6 +160,7 @@ export async function handleOrgMessage(msg: OrgMessage, deps: OrgPanelDeps): Pro
         })
         syncForwardSchedulerToLinkState()
         syncPricingToLinkState()
+        markLinkStateSeen() // this panel reconciles below; the link watcher needn't too
         void reconcileLocalSessions(deps)
         deps.post({ type: 'orgActionResult', action: 'link', ok: true })
       } catch (err) {
@@ -227,6 +177,7 @@ export async function handleOrgMessage(msg: OrgMessage, deps: OrgPanelDeps): Pro
         })
         syncForwardSchedulerToLinkState()
         syncPricingToLinkState()
+        markLinkStateSeen() // this panel reconciles below; the link watcher needn't too
         void reconcileLocalSessions(deps)
         deps.post({ type: 'orgActionResult', action: 'link', ok: true })
       } catch (err) {

@@ -17,6 +17,7 @@
 
 import { cloudBridge } from './cloud/bridge'
 import type { OrgMessage, OrgPanelDeps } from './cloud/org/panelController'
+import type { LinkWatcherOptions } from './cloud/org/linkWatcher'
 import type { SuggestionLedger } from './cloud/org/instructionTelemetry'
 import type { ReconciliationService } from './reconcile/reconciliationService'
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
@@ -111,6 +112,9 @@ export interface CloudBridge {
   drainUploadsSoon(): void
   /** Starts the linked org's rate-table sync (only ever runs while linked). */
   startPricingSync(opts: { onSync?: () => void }): { dispose(): void }
+  /** Notices a link or leave made outside this process (the CLI, another server or window) and
+   *  catches up: starts/stops the timers and queues every trace not yet sent (linkWatcher.ts). */
+  startLinkWatcher(opts: LinkWatcherOptions): { dispose(): void }
 
   // ── Org panel (webview) ───────────────────────────────────────────────────
   /** Handles every `org*` / `getOrgStatus` webview message (panelController.ts). */

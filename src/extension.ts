@@ -862,6 +862,18 @@ export async function activate(context: vscode.ExtensionContext) {
   })
   context.subscriptions.push({ dispose: () => forwardScheduler?.dispose() })
 
+  // A link made outside this window (`traceroost org link`, another window or server sharing
+  // ~/.traceroost) would otherwise go unnoticed until a reload: no forwarding timer, and no
+  // history queued. Same owner/readiness gate as the trace manifest above.
+  const linkWatcher = cloud.startLinkWatcher({
+    allLocalSessions: () => repository?.listSessions({ limit: Infinity }) ?? [],
+    isWriter: () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoostDb.loadError,
+    isReady: () => traceStoreReady && !!repository,
+    log: (msg) => outputChannel?.appendLine(msg),
+    onLinkStateChange: () => DashboardPanel.pushOrgStatus(),
+  })
+  context.subscriptions.push(linkWatcher)
+
   // ── Cloud: pricing sync ────────────────────────────────────────────────────────
   // Same "no timer unless linked" invariant as the forwarding scheduler above, on its own
   // (longer) interval — see pricingSync.ts for why it isn't just piggybacked on the drain cadence.
