@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 import {
   filteredSessions, sessionSummary, sessionTimelines, gitOutcomes, burnRateData,
   focusedSessionId, vscode, ignoredInsightKeys,
-  sessionSortKey, sessionSortDir, type SortKey,
+  sessionSortKey, sessionSortDir, type SortKey, sessionsPage,
   goToHelp,
   getSessionsPagination,
   evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt,
@@ -25,7 +25,7 @@ import { LogIngestionNote } from './IngestionNote'
 import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
-import { languageLabel } from '../language'
+import { languageAbbreviation, languageLabel } from '../language'
 import { planUsage, showLimitColumn } from '../planUsage'
 import { LimitUsedCell, LimitHitBanner, PlanLimitDetail } from './PlanLimits'
 
@@ -218,6 +218,12 @@ function sessionLanguageTitle(sess: SessionSummaryCard): string {
   return sess.languageSecondary
     ? `Primary: ${languageLabel(sess.language)} · Secondary: ${languageLabel(sess.languageSecondary)}`
     : `Language: ${languageLabel(sess.language)}`
+}
+
+/** Screen-reader name for the Lang cell, which shows only an abbreviation — the full names. */
+function sessionLanguageAriaLabel(sess: SessionSummaryCard): string {
+  if (!sess.language) return 'Language: not recorded'
+  return `Language: ${sessionLanguageText(sess)}`
 }
 
 /** "3f +120 −40" — files changed and agent-authored lines; "3f ?" when lines are unknown. */
@@ -725,11 +731,17 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
           )}
         </td>
 
-        {/* Language — primary, with the secondary (if any) in the hover title */}
-        <td class="trace-language" style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis" title={sessionLanguageTitle(sess)}>
-          {languageLabel(sess.language)}
+        {/* Language — the primary's short form (LANGUAGE_ABBREVIATIONS: "TS", "Py"), since this is a
+            compact cell; the full names stay in the title and aria-label. The "+1" badge's own
+            title names both full languages. */}
+        <td class="trace-language" style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis" title={sessionLanguageTitle(sess)} aria-label={sessionLanguageAriaLabel(sess)}>
+          {languageAbbreviation(sess.language)}
           {sess.languageSecondary && (
-            <span style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:9px;vertical-align:middle">+1</span>
+            <span
+              class="trace-language-secondary"
+              title={`Primary: ${languageLabel(sess.language)} · Secondary: ${languageLabel(sess.languageSecondary)}`}
+              style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:9px;vertical-align:middle"
+            >+1</span>
           )}
         </td>
 
@@ -846,6 +858,8 @@ export function Sessions() {
       sessionSortKey.value = key
       sessionSortDir.value = 'desc'
     }
+    // A new order makes page 3's rows an arbitrary slice — start again from the top.
+    sessionsPage.value = 0
   }
 
   const thBase = 'padding:3px 2px;font-size:10px;font-weight:600;white-space:nowrap;user-select:none'
@@ -897,7 +911,7 @@ export function Sessions() {
             <th scope="col" aria-sort={sortKey === 'model' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
               <button class="sort-button" onClick={() => onSortClick('model')}>Model{sortArrow('model')}</button>
             </th>
-            {sortHeader('language', 'Lang', 'left', '<b>Language</b>\nMost common code language among the files the agent read or changed (README/config/lockfiles excluded). "+1" means a second language was touched too — hover a cell. "—" means a trace stored before language tracking.')}
+            {sortHeader('language', 'Lang', 'left', '<b>Language</b>\nMost common code language among the files the agent read or changed (README/config/lockfiles excluded), abbreviated (TS, Py, C++…) — hover a cell for the full name. "+1" means a second language was touched too — hover it for both. "—" means a trace stored before language tracking.')}
             {sortHeader('lines', 'Changes', 'left', '<b>Changes</b>\nFiles the agent edited or wrote, and lines its own edit/write tool calls added (+) and removed (−). Agent-authored edits, not git commit stats. Lines show "?" when the agent\'s data records no edit contents.')}
             {sortHeader('prompt', 'Prompt (ID)')}
             {showWorkspace && (

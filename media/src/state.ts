@@ -520,6 +520,30 @@ export const availableLanguages = computed<SessionLanguage[]>(() => {
   return LANGUAGE_IDS.filter(id => seen.has(id))
 })
 
+// Agents the Agent filter offers pills for, mirroring availableLanguages: only agents at least
+// one loaded trace has (`source`), in the pill order (AGENT_FILTER_ORDER). Read from every loaded
+// trace, not the filtered set, so picking an agent never hides the others. A selected agent stays
+// listed even if no trace carries it any more (it can also arrive from the extension's setFilter),
+// so the pills never hide the active filter. 'All' is not listed here — it is always offered.
+export const AGENT_FILTER_ORDER: readonly Exclude<AgentFilter, 'all'>[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor']
+export const availableAgents = computed<Exclude<AgentFilter, 'all'>[]>(() => {
+  const seen = new Set<string>()
+  for (const s of sessionSummary.value?.sessions ?? []) {
+    if (s.source) seen.add(s.source)
+  }
+  const selected = selectedAgentFilter.value
+  if (selected !== 'all') seen.add(selected)
+  return AGENT_FILTER_ORDER.filter(id => seen.has(id))
+})
+
+// Whether the Agent pill row is worth showing. With one agent (or none) holding data there is
+// nothing to choose between — "All" and that agent are the same set — so the row is hidden.
+// The exception is a selected agent: the row then stays (All + the selection, plus any agent with
+// data) so the active filter is visible and can be cleared where it was set. That covers a
+// filter picked before the other agents' traces were dropped, or one set by the extension.
+export const showAgentFilter = computed<boolean>(() =>
+  selectedAgentFilter.value !== 'all' || availableAgents.value.length > 1)
+
 export const agentFilteredSessions = computed<SessionSummaryCard[]>(() => {
   let all = sessionSummary.value?.sessions ?? []
   const filter = selectedAgentFilter.value

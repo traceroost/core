@@ -1,0 +1,63 @@
+name: Traffic history
+
+# GitHub keeps repo traffic (Insights → Traffic: views, unique visitors, clones, unique cloners,
+# referrers, popular pages) for only 14 days. This snapshots it weekly into CSVs on the
+# `traffic-stats` branch (created on first run), so main gets no bot commits. Runs overlap by a
+# week and merge by date — see scripts/traffic-snapshot.mjs.
+#
+# Needs the TRAFFIC_TOKEN secret: a fine-grained token for this repo with
+# "Administration: Read-only" (or a classic token with `repo`). The Actions GITHUB_TOKEN can't
+# read traffic; it's used only to push the CSVs.
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Monday 06:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: traffic-history
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/traffic-snapshot.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Check out the traffic-stats branch
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$url" traffic-stats >/dev/null; then
+            git clone --depth 1 --branch traffic-stats "$url" stats
+          else
+            git init -b traffic-stats stats
+            git -C stats remote add origin "$url"
+            printf '# Traffic history\n\nWeekly snapshots of Insights → Traffic, written by `.github/workflows/traffic.yml` on main. Dates are UTC.\n' > stats/README.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Snapshot traffic
+        run: node scripts/traffic-snapshot.mjs "$GITHUB_REPOSITORY" stats >> "$GITHUB_STEP_SUMMARY"
+        env:
+          GITHUB_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+
+      - name: Commit
+        working-directory: stats
+        run: |
+          git add -A
+          if git diff --cached --quiet; then echo 'No change.'; exit 0; fi
+          git commit -m "Traffic snapshot $(date -u +%F)"
+          git push origin traffic-stats

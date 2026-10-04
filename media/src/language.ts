@@ -60,6 +60,27 @@ export const LANGUAGE_LABELS: Record<SessionLanguage, string> = {
   none: 'No code',
 }
 
+/** Short form for compact table cells (the Traces table's Lang column) — standard abbreviations,
+ *  the same mapping TraceRoost Cloud uses. Everywhere with room (the Language filter, a trace's
+ *  detail tiles, the by-language table, Help) shows LANGUAGE_LABELS; a cell showing this keeps the
+ *  full label in its title/aria-label. */
+export const LANGUAGE_ABBREVIATIONS: Record<SessionLanguage, string> = {
+  typescript: 'TS',
+  javascript: 'JS',
+  python: 'Py',
+  go: 'Go',
+  rust: 'Rust',
+  java: 'Java',
+  csharp: 'C#',
+  cpp: 'C++',
+  ruby: 'Ruby',
+  php: 'PHP',
+  swift: 'Swift',
+  kotlin: 'Kt',
+  other: 'Other',
+  none: 'None',
+}
+
 /** Extension (lower-case, with the dot) → allowlisted language. */
 export const EXTENSION_LANGUAGE: Readonly<Record<string, CodeLanguage>> = {
   '.ts': 'typescript', '.tsx': 'typescript', '.mts': 'typescript', '.cts': 'typescript',
@@ -175,4 +196,9 @@ export function languageFromRecord(
 /** Display label for a stored language — "—" when unknown (a row stored before this existed). */
 export function languageLabel(lang: string | null | undefined): string {
   return isSessionLanguage(lang) ? LANGUAGE_LABELS[lang] : '—'
+}
+
+/** Compact-cell label for a stored language (LANGUAGE_ABBREVIATIONS) — "—" when unknown. */
+export function languageAbbreviation(lang: string | null | undefined): string {
+  return isSessionLanguage(lang) ? LANGUAGE_ABBREVIATIONS[lang] : '—'
 }
