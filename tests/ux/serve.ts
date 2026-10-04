@@ -24,8 +24,11 @@ async function main() {
     outfile: 'test-results/ux/dashboard.js',
     jsx: 'automatic',
     jsxImportSource: 'preact',
-    // The webview has no `process`; esbuild.js bakes the edition in the same way.
-    define: { 'process.env.TRACEROOST_EDITION': JSON.stringify(process.env.TRACEROOST_EDITION || 'full') },
+    // The webview has no `process`; esbuild.js bakes these in the same way (a dev build, not a release).
+    define: {
+      'process.env.TRACEROOST_RELEASE_BUILD': '""',
+      'process.env.TRACEROOST_EDITION': JSON.stringify(process.env.TRACEROOST_EDITION || 'full'),
+    },
   })
 
   const standalone = await readFile('standalone/server.ts', 'utf8')

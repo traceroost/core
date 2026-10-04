@@ -111,8 +111,9 @@ inert (never linked, nothing queued or sent, Org panel renders nothing, `org` /
 `--explain-payload` / `cluster` print "not available in the TraceRoost core edition" and exit 1).
 The core build refuses to bundle any module under a `cloud/` directory, and
 `scripts/check-edition.mjs` greps the shipped bundles for Cloud markers afterwards — allowing
-exactly one: the header's "Make a suggestion" link (`media/src/suggest.ts`), a fixed public
-`https://traceroost.com/suggest` URL the browser opens, carrying only `from=core` and the version
+exactly one: the header's "Make a suggestion" link (`media/src/suggest.ts`), a public `/suggest`
+URL the browser opens — `https://traceroost.com/suggest` in a release build, the default
+environment's `https://stage.traceroost.com/suggest` otherwise — carrying only `from=core` and the version
 and tab name; it is not Cloud code and sends nothing. The free rows
 (marked *free*) work identically in both editions, except that a cloud `repo_hash` only resolves in
 full.

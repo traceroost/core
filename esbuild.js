@@ -31,8 +31,12 @@ const releaseDefine = {
 	'process.env.TRACEROOST_RELEASE_BUILD': production ? '"1"' : '""',
 	'process.env.TRACEROOST_EDITION': JSON.stringify(edition),
 };
-// The webview bundle has no `process` at all — define the edition there too (both editions).
-const mediaDefine = { 'process.env.TRACEROOST_EDITION': JSON.stringify(edition) };
+// The webview bundle has no `process` at all — define both there too (both editions). The release
+// flag picks the "Make a suggestion" link's environment (media/src/suggest.ts).
+const mediaDefine = {
+	'process.env.TRACEROOST_RELEASE_BUILD': releaseDefine['process.env.TRACEROOST_RELEASE_BUILD'],
+	'process.env.TRACEROOST_EDITION': JSON.stringify(edition),
+};
 
 // Each seam's full implementation → its core stub. Every import of a key resolves to its value
 // in a core build; nothing else changes. Keep in step with src/cloudBridge.ts,

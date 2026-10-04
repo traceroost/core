@@ -22,7 +22,7 @@ test('header icon buttons have accessible names', async ({ page }) => {
  * only from=core and a "core <version> · <tab>" context, never workspace paths or prompts.
  */
 test('suggestion link opens the public /suggest page with a context free of user data', async ({ page, context }) => {
-  await context.route('https://traceroost.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>suggest</title>' }))
+  await context.route('https://stage.traceroost.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>suggest</title>' }))
   await page.goto('/')
   await page.locator('#sessions-content').waitFor()
   const suggest = page.getByRole('link', { name: 'Make a suggestion', exact: true })
@@ -34,7 +34,7 @@ test('suggestion link opens the public /suggest page with a context free of user
 
   const [popup] = await Promise.all([page.waitForEvent('popup'), suggest.click()])
   const url = new URL(popup.url())
-  expect(`${url.origin}${url.pathname}`).toBe('https://traceroost.com/suggest')
+  expect(`${url.origin}${url.pathname}`).toBe('https://stage.traceroost.com/suggest')
   expect([...url.searchParams.keys()]).toEqual(['from', 'context'])
   expect(url.searchParams.get('from')).toBe('core')
   expect(url.searchParams.get('context')).toBe('core UX fixture · Traces')
