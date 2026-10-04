@@ -48,11 +48,13 @@ export type WireInitiator = 'user' | 'agent' | 'api'
  *  text: derived from file extensions on the machine, only the id leaves it. */
 export type WireLanguage =
   | 'typescript' | 'javascript' | 'python' | 'go' | 'rust' | 'java' | 'csharp' | 'cpp'
-  | 'ruby' | 'php' | 'swift' | 'kotlin' | 'dart' | 'shell' | 'sql' | 'html' | 'css' | 'other' | 'none'
+  | 'ruby' | 'php' | 'swift' | 'kotlin' | 'dart' | 'shell' | 'sql' | 'html' | 'css' | 'other'
+  | 'docs' | 'config' | 'data' | 'assets' | 'none' | 'no_files'
 
 export const WIRE_LANGUAGES: readonly WireLanguage[] = [
   'typescript', 'javascript', 'python', 'go', 'rust', 'java', 'csharp', 'cpp',
-  'ruby', 'php', 'swift', 'kotlin', 'dart', 'shell', 'sql', 'html', 'css', 'other', 'none',
+  'ruby', 'php', 'swift', 'kotlin', 'dart', 'shell', 'sql', 'html', 'css', 'other',
+  'docs', 'config', 'data', 'assets', 'none', 'no_files',
 ]
 
 /** Maps a local language id to the wire enum; anything unrecognised becomes undefined (the field
@@ -213,11 +215,12 @@ export interface SessionRollup {
    *  org-scoped salt to stay uncorrelatable. */
   conversation_hash?: Sha256
   /** Primary language (most common code language among the distinct files the session read or
-   *  changed) — see src/language.ts. Absent for a session built before language tracking. */
+   *  changed; with no code, the kind of file — docs, config, data, assets — or none/no_files) —
+   *  see src/language.ts. Absent for a session built before language tracking. */
   language?: WireLanguage
-  /** Second most common distinct language — never 'none'. Omitted (the schema also accepts null)
-   *  when only one language was touched. */
-  language_secondary?: Exclude<WireLanguage, 'none'> | null
+  /** Runner-up in the primary's tier (code or non-code) — never 'none' or 'no_files'. Omitted (the
+   *  schema also accepts null) when only one was touched. */
+  language_secondary?: Exclude<WireLanguage, 'none' | 'no_files'> | null
   /** Change size from the agent's own edit/write tool calls (src/editStats.ts) — counts only,
    *  never paths or content, and not git stats. files_changed is the distinct file count; the
    *  line counts are omitted when the source records no edit contents. */

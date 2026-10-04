@@ -25,7 +25,7 @@ import { LogIngestionNote } from './IngestionNote'
 import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
-import { languageAbbreviation, languageLabel } from '../language'
+import { isNonCodeCategory, languageAbbreviation, languageLabel } from '../language'
 import { planUsage, showLimitColumn } from '../planUsage'
 import { LimitUsedCell, LimitHitBanner, PlanLimitDetail } from './PlanLimits'
 
@@ -214,7 +214,12 @@ function sessionLanguageText(sess: SessionSummaryCard): string {
 
 function sessionLanguageTitle(sess: SessionSummaryCard): string {
   if (!sess.language) return 'Language not recorded — this trace was stored before language tracking'
-  if (sess.language === 'none') return 'No code files read or changed (docs, config and lockfiles are not counted)'
+  if (sess.language === 'none') return 'No code: files were touched, but none of a recognised kind'
+  if (sess.language === 'no_files') return 'No files: no file was read or changed (Codex and Copilot Chat logs record none)'
+  if (isNonCodeCategory(sess.language)) {
+    const kinds = sess.languageSecondary ? `${languageLabel(sess.language)} and ${languageLabel(sess.languageSecondary)}` : languageLabel(sess.language)
+    return `No code — only ${kinds} files were read or changed`
+  }
   return sess.languageSecondary
     ? `Primary: ${languageLabel(sess.language)} · Secondary: ${languageLabel(sess.languageSecondary)}`
     : `Language: ${languageLabel(sess.language)}`

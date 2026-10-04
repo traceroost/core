@@ -68,7 +68,7 @@
     "initiator": { "type": "string", "enum": ["user", "agent", "api"] },
     "language": {
       "type": "string",
-      "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "dart", "shell", "sql", "html", "css", "other", "none"]
+      "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "dart", "shell", "sql", "html", "css", "other", "docs", "config", "data", "assets", "none", "no_files"]
     },
     "session": {
       "type": "object",
@@ -138,8 +138,8 @@
         "conversation_hash": { "$ref": "#/$defs/hash" },
         "language": { "$ref": "#/$defs/language" },
         "language_secondary": {
-          "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "dart", "shell", "sql", "html", "css", "other", null],
-          "description": "Second most common distinct language in the session -- any language id except none. Omitted (or null) when only one language was touched."
+          "enum": ["typescript", "javascript", "python", "go", "rust", "java", "csharp", "cpp", "ruby", "php", "swift", "kotlin", "dart", "shell", "sql", "html", "css", "other", "docs", "config", "data", "assets", null],
+          "description": "Runner-up language in the session, in the primary's own tier (code with code; docs/config/data/assets with each other) -- any id except none and no_files. Omitted (or null) when only one was touched."
         },
         "files_changed": { "$ref": "#/$defs/count" },
         "lines_added": { "$ref": "#/$defs/count" },

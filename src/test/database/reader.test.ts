@@ -100,6 +100,23 @@ suite('DatabaseReader', () => {
     db.close()
   })
 
+  test('a row stored as none (before the non-code categories) is re-derived from its own file lists', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'docs-only', language: 'none', filesRead: ['/r/README.md'], filesChanged: ['/r/guide.md', '/r/package.json'] }),
+      makeCard({ sessionId: 'no-paths', language: 'none', filesRead: [], filesChanged: [], filesWritten: [] }),
+      makeCard({ sessionId: 'kept', language: 'config', languageSecondary: 'docs' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const byId = new Map(reader.listSessions().map(s => [s.sessionId, s]))
+    assert.deepStrictEqual([byId.get('docs-only')!.language, byId.get('docs-only')!.languageSecondary], ['docs', 'config'])
+    assert.deepStrictEqual([byId.get('no-paths')!.language, byId.get('no-paths')!.languageSecondary], ['no_files', null])
+    assert.deepStrictEqual([byId.get('kept')!.language, byId.get('kept')!.languageSecondary], ['config', 'docs'])
+    const searched = reader.searchSessions({ limit: 10 }).sessions.find(s => s.sessionId === 'docs-only')!
+    assert.strictEqual(searched.language, 'docs')
+    db.close()
+  })
+
   test('listSessions returns rows in start_time DESC order', async () => {
     const db = await openDb()
     await seedDb(db, [
