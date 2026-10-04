@@ -2,8 +2,9 @@
  * Forwards a session whenever its built rollup content actually changed (staged feature 10's
  * generalization beyond outcome-only re-forwarding) -- the live-update counterpart to
  * `enqueueSession.ts`'s ledger-gated `maybeEnqueueSession`, used only on paths that see a session
- * repeatedly while it's still being written to (extension.ts's `store.onUpdate`,
- * standalone/server.ts's `runLogScan`), not on one-time historical/restart-rediscovery loads --
+ * repeatedly while it's still being written to (extension.ts's `store.onUpdate` and periodic log
+ * scan, via sessionForwarder.ts; standalone/server.ts's `runLogScan`), not on one-time
+ * historical/restart-rediscovery loads --
  * those keep the cheap ledger short-circuit, since replaying a machine's whole history through
  * this function on every restart would rebuild (real `git` subprocesses) and diff every session
  * every time.
