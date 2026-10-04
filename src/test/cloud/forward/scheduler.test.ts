@@ -2,7 +2,8 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { startForwardScheduler } from '../../../cloud/forward/scheduler'
+import { startForwardScheduler, beginCatchUp } from '../../../cloud/forward/scheduler'
+import type { TraceManifestSource } from '../../../cloudBridge'
 import { ForwardQueue } from '../../../cloud/forward/queue'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
@@ -108,5 +109,74 @@ suite('forward/scheduler', () => {
     scheduler.dispose()
 
     assert.ok(calls > afterStart, 'drainSoon\'s eventual drain should have fired onDrainComplete again')
+  })
+
+  test('drainWhenIdle sends within about a second, and repeated calls do not push it back', async () => {
+    setCredentialStore(memStore(CREDS))
+    globalThis.fetch = stubBatchOk()
+    const scheduler = startForwardScheduler({ baseHome: home })
+    await new Promise(resolve => setTimeout(resolve, 50)) // the startup drain, on an empty queue
+
+    const q = new ForwardQueue(home)
+    // A catch-up queueing one session every 200 ms: a debounce that restarts on each call (as
+    // drainSoon does) would not send until the burst ends.
+    for (let i = 0; i < 6; i++) {
+      q.enqueue(payload(`${(i + 1).toString().repeat(8)}-0000-4000-8000-000000000000`))
+      scheduler.drainWhenIdle()
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+    const depthMidBurst = q.depth()
+    await new Promise(resolve => setTimeout(resolve, 1300))
+    scheduler.dispose()
+
+    assert.ok(depthMidBurst < 6, `items should go out while the burst is still going (depth ${depthMidBurst})`)
+    assert.strictEqual(q.depth(), 0)
+  })
+
+  test('drainWhenIdle during a drain runs one more drain right after it, not at the next tick', async () => {
+    setCredentialStore(memStore(CREDS))
+    const q = new ForwardQueue(home)
+    q.enqueue(payload(ID1))
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const ok = stubBatchOk()
+    let requests = 0
+    globalThis.fetch = (async (url: unknown, init?: unknown) => {
+      if (requests++ === 0) await gate // hold the startup drain open
+      return ok(url as string, init as RequestInit)
+    }) as typeof fetch
+
+    const scheduler = startForwardScheduler({ baseHome: home })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    q.enqueue(payload('22222222-2222-4222-8222-222222222222'))
+    scheduler.drainWhenIdle()
+    release()
+    await new Promise(resolve => setTimeout(resolve, 1300))
+    scheduler.dispose()
+
+    assert.strictEqual(q.depth(), 0)
+  })
+
+  test('the trace manifest waits while a catch-up is still queueing', async () => {
+    setCredentialStore(memStore(CREDS))
+    globalThis.fetch = stubBatchOk()
+    let manifestRuns = 0
+    const source: TraceManifestSource = {
+      isWriter: () => { manifestRuns++; return false },
+      isReady: () => true, localHorizonMs: () => null, listTraceKeys: () => [], countTraces: () => 0,
+    }
+    const endCatchUp = beginCatchUp()
+    let scheduler
+    try {
+      scheduler = startForwardScheduler({ baseHome: home, traceManifest: source })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      assert.strictEqual(manifestRuns, 0)
+    } finally {
+      endCatchUp()
+    }
+    scheduler.drainWhenIdle()
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    scheduler.dispose()
+    assert.strictEqual(manifestRuns, 1)
   })
 })

@@ -21,6 +21,21 @@ import type { TraceManifestSource } from '../../cloudBridge'
 // cap, at the default per-batch limit (`drainQueue`'s own `batchLimit ?? 200`) — a sanity
 // backstop against an unbounded loop, not a limit expected to bite in practice.
 const MAX_DRAIN_ITERATIONS_PER_RUN = Math.ceil(DEFAULT_MAX_ITEMS / 200)
+// How long `drainWhenIdle` lets items gather before draining: long enough to batch a burst of
+// enqueues into one request, short enough that the cloud sees the first traces within seconds.
+const WHEN_IDLE_DELAY_MS = 1_000
+
+let catchUpsInFlight = 0
+
+/** Marks a catch-up pass (org/reconcileUnsent.ts) as still adding to the queue, until the returned
+ *  function is called. The trace manifest waits for it: mid-pass the queue can briefly be empty
+ *  while sessions not yet queued are still unsent, and a manifest listing them would only come
+ *  back gated. */
+export function beginCatchUp(): () => void {
+  catchUpsInFlight++
+  let ended = false
+  return () => { if (!ended) { ended = true; catchUpsInFlight-- } }
+}
 
 export interface ForwardScheduler {
   /** Re-evaluate whether the timer should be running (call after link / leave). */
@@ -29,6 +44,12 @@ export interface ForwardScheduler {
    *  respects each item's own backoff, same as the automatic timer, so this alone won't retry
    *  something that failed recently. */
   drainSoon(): void
+  /** Drain shortly, for a caller that is still adding to the queue (the post-link catch-up queues
+   *  the history one session at a time): safe to call on every item. Unlike `drainSoon` it never
+   *  pushes a pending drain back, so the first items go out while the rest are still being
+   *  prepared, and a call made mid-drain runs one more drain right after, so nothing queued during
+   *  it waits for the next tick. */
+  drainWhenIdle(): void
   /** Immediately attempts every queued item, ignoring backoff — for a deliberate, user-initiated
    *  "check for unsent traces" click, not automatic. See `DrainDeps.force`'s doc comment for why
    *  this needs to exist separately from `drainSoon`: fixing whatever was actually broken doesn't
@@ -79,6 +100,7 @@ export function startForwardScheduler(opts: {
   let timer: ReturnType<typeof setInterval> | undefined
   let draining = false
   let soonTimer: ReturnType<typeof setTimeout> | undefined
+  let drainAgain = false
   const manifest = opts.traceManifest ? new TraceManifestSender(opts.traceManifest, { log: opts.log, baseHome: opts.baseHome }) : undefined
 
   const run = async (runOpts: { force?: boolean } = {}) => {
@@ -118,10 +140,12 @@ export function startForwardScheduler(opts: {
       draining = false
       opts.onDrainComplete?.()
     }
+    if (drainAgain) { drainAgain = false; scheduler.drainWhenIdle() }
     // After the drain, not inside it: the manifest only goes out once the queue holds no session
     // rollups (see traceManifest.ts), and it isn't "a trace in transit" for the Org panel's dot.
     // Not awaited, so checkNow() still resolves when the drain does; it guards its own overlap.
-    if (manifest && loadCredentials()) void manifest.run()
+    // Held while a catch-up is still queueing (`beginCatchUp`): the drain after it runs it.
+    if (manifest && loadCredentials() && catchUpsInFlight === 0) void manifest.run()
   }
 
   const start = () => {
@@ -146,7 +170,14 @@ export function startForwardScheduler(opts: {
     drainSoon() {
       if (!loadCredentials()) return
       if (soonTimer) clearTimeout(soonTimer)
-      soonTimer = setTimeout(() => { void run() }, 3_000)
+      soonTimer = setTimeout(() => { soonTimer = undefined; void run() }, 3_000)
+      soonTimer.unref?.()
+    },
+    drainWhenIdle() {
+      if (!loadCredentials()) return
+      if (draining) { drainAgain = true; return }
+      if (soonTimer) return
+      soonTimer = setTimeout(() => { soonTimer = undefined; void run() }, WHEN_IDLE_DELAY_MS)
       soonTimer.unref?.()
     },
     async checkNow() {
@@ -180,6 +211,9 @@ export function syncForwardSchedulerToLinkState(): void {
 }
 export function drainForwardQueueSoon(): void {
   activeScheduler?.drainSoon()
+}
+export function drainForwardQueueWhenIdle(): void {
+  activeScheduler?.drainWhenIdle()
 }
 export async function checkForwardQueueNow(): Promise<void> {
   await activeScheduler?.checkNow()
