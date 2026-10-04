@@ -2988,6 +2988,15 @@ async function startUiServer(): Promise<void> {
 
   // Cloud: forwarding scheduler. No timer runs unless an org is linked.
   cloud.startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients, traceManifest: traceManifestSource })
+  // A link made outside this server (`traceroost org link`, another process on this data dir)
+  // would otherwise go unnoticed until a restart: no forwarding timer, and no history queued.
+  cloud.startLinkWatcher({
+    allLocalSessions: () => buildSessionSummary()?.sessions ?? [],
+    isWriter: () => dataDirLock.isOurs(),
+    isReady: () => traceStoreReady,
+    log: (msg) => console.log(msg),
+    onLinkStateChange: pushOrgStatusToClients,
+  })
 
   // Cloud: pricing sync — own (longer) interval, see pricingSync.ts.
   cloud.startPricingSync({ onSync: pushOrgStatusToClients })

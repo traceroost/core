@@ -36,6 +36,7 @@ export const cloudBridge: CloudBridge = {
   startForwardScheduler: () => inertTimer,
   drainUploadsSoon: () => {},
   startPricingSync: () => inertTimer,
+  startLinkWatcher: () => inertTimer,
 
   // The core webview never sends org messages (its Org panel is a stub that renders nothing), but
   // a stray one — an old page, a hand-made request to the standalone server — still gets a reply
