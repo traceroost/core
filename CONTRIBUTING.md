@@ -49,6 +49,8 @@ pull or rebase. Run that `git config` line yourself if you installed with `--ign
 pnpm run check-types   # TypeScript type check
 pnpm run lint          # ESLint
 pnpm run test:unit     # Unit tests (Mocha)
+pnpm run test:coverage # Unit tests with a c8 coverage summary (informational in CI, not a gate)
+pnpm run test:ux       # Playwright UX evaluations of the dashboard (Chromium)
 node esbuild.js        # Bundle — outputs to dist/ and media/
 ```
 
@@ -95,6 +97,7 @@ Releases are core until TraceRoost Cloud launches — see
 | --- | --- | --- |
 | `ci.yml` | every push/PR to `main`/`cloud`; Ubuntu + Windows | lint, types, unit tests, production build, edition checks, Playwright UX evaluations |
 | `windows-e2e.yml` | every push/PR to `main`/`cloud`, nightly, manual, on release; Windows x64 + ARM64, macOS, Ubuntu | the extension inside a real VS Code, the npm package installed globally and run (including `traceroost service` on Task Scheduler / launchd / systemd), both VSIXes installed into a fresh VS Code, and `scripts/configure-*.ps1` under PowerShell 7 and 5.1. Its `real-agents` job (nightly/manual/release only) drives the real Claude Code and Codex CLIs and needs the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` repository secrets — it skips with a notice without them |
+| `traffic.yml` | weekly (Monday 06:17 UTC) and manual | not a check: snapshots Insights → Traffic (views, clones, referrers, popular pages — GitHub keeps only 14 days) into CSVs on the `traffic-stats` branch via `scripts/traffic-snapshot.mjs`, so `main` gets no bot commits. Needs the `TRAFFIC_TOKEN` secret (fine-grained, *Administration: Read-only*; the Actions `GITHUB_TOKEN` can't read traffic) |
 
 The end-to-end suites live in `tests/e2e/` (plain Node scripts) and `src/test/integration/`
 (`*.itest.ts`, run inside VS Code by `tests/e2e/vscode/run.mjs` — not part of `pnpm test` /
