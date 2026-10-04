@@ -121,32 +121,33 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
       .map(t => SIGNAL_FORMULAS[t] ? `${SIGNAL_FORMULAS[t].short}\n<b>What to do:</b> ${SIGNAL_FORMULAS[t].tip}` : undefined)
       .filter(Boolean)
       .join('\n\n')
+  // Up to MAX_SIGNAL_ICONS, drawn small (.sig-icon) so they fit the narrow Sig column instead of
+  // spilling into Turns; anything past the cap is listed in the last icon's tooltip rather than a
+  // "+N" badge there's no room for.
+  const overflowTip = overflow.length > 0
+    ? `\n\n<b>+${overflow.length} more:</b>\n\n` + overflow.map(([, e]) => `<b>${labelFor(e)}</b> (${e.severity})\n${formulaFor(e)}`).join('\n\n')
+    : ''
   return (
-    <span style="display:inline-flex;align-items:center;gap:3px">
-      {shown.map(([type, e]) => {
+    <span style="display:inline-flex;align-items:center;gap:1px">
+      {shown.map(([type, e], i) => {
         const color = SIGNAL_SEVERITY_COLOR[e.severity]
         const label = labelFor(e)
         const Icon = SIGNAL_ICON[type]
+        const isLast = i === shown.length - 1
         return (
           <span
             key={type}
             role="img"
-            aria-label={`${label} (${e.severity})`}
-            title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}`}
+            aria-label={`${label} (${e.severity})${isLast && overflow.length > 0 ? `, and ${overflow.length} more` : ''}`}
+            title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}${isLast ? overflowTip : ''}`}
             data-tip-html
-            style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;flex-shrink:0"
+            class="sig-icon"
+            style="display:inline-flex;align-items:center;justify-content:center;width:11px;height:11px;flex-shrink:0"
           >
             {Icon ? <Icon color={color} /> : <span style={`font-size:9px;font-weight:700;color:${color}`}>?</span>}
           </span>
         )
       })}
-      {overflow.length > 0 && (
-        <span
-          title={overflow.map(([, e]) => `<b>${labelFor(e)}</b> (${e.severity})\n${formulaFor(e)}`).join('\n\n')}
-          data-tip-html
-          style="display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 2px;border-radius:3px;border:1px solid var(--muted);font-size:9px;font-weight:700;color:var(--muted);flex-shrink:0"
-        >+{overflow.length}</span>
-      )}
     </span>
   )
 }
@@ -773,14 +774,14 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
 
         {/* Signals — own column, unconditional (unlike Repo/Outcome above, doesn't need a
             workspace) so a struggle pattern is visible regardless of showWorkspace. */}
-        <td style="padding:4px 2px 4px 8px;text-align:left">
+        <td style="padding:4px 2px 4px 4px;text-align:left">
           <SignalsCell signals={sess.loopSignals} />
         </td>
 
         {/* Turns */}
         <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:10px;color:var(--muted)">
           {sess.turns}
-          {sess.errors > 0 && <span style="color:var(--error)"> · {sess.errors} err</span>}
+          {sess.errors > 0 && <> · <span style="color:var(--error)" title={`${sess.errors} error${sess.errors === 1 ? '' : 's'}`}>{sess.errors}</span></>}
         </td>
 
         {/* Duration */}
@@ -875,14 +876,14 @@ export function Sessions() {
       {/* Every column but Prompt has a fixed width, so a wide panel's spare space all goes to
           Prompt instead of being spread across the narrow number columns as gaps. min-width
           keeps Prompt at least 160px when every optional column is showing. */}
-      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${694 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 96 : 0) + 160}px`}>
+      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${694 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 72 : 0) + 160}px`}>
         <colgroup>
           <col style="width:8px" /><col style="width:18px" /><col style="width:196px" /><col style="width:92px" /><col style="width:64px" /><col style="width:80px" />
           <col />
           {showWorkspace && <col style="width:110px" />}
           {showOutcome && <col style="width:36px" />}
           <col style="width:42px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
-          {showLimit && <col style="width:96px" />}
+          {showLimit && <col style="width:72px" />}
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">

@@ -186,6 +186,9 @@ button:disabled { cursor: default; opacity: .5; }
   transition: background-color 0.1s, color 0.1s, border-color 0.1s;
 }
 .tr-reset-btn:disabled { cursor: default; }
+/* Sessions.tsx's SignalsCell: the shared 13px signal icons (signalIcons.tsx) drawn smaller so three
+ * fit side by side in the narrow Sig column. */
+.sig-icon svg { width: 11px; height: 11px; }
 .trace-expand { color: var(--muted); background: none; border: 0; font: inherit; cursor: pointer; padding: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
