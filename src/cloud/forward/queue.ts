@@ -237,6 +237,24 @@ export class ForwardQueue {
     })
   }
 
+  /** Removes each sent item only if the queue still holds exactly the payload that was sent.
+   *  `enqueue` replaces a queued session in place when a newer revision arrives — possibly while
+   *  the older one is mid-request — and a removal by key alone would then delete the newer,
+   *  never-sent revision along with the confirmation for the older one. Leaving it queued means
+   *  it goes out on the next drain. Locked, same reason as `enqueue` -- see fileLock.ts. */
+  removeSent(sent: Pick<QueueItem, 'key' | 'payload'>[]): void {
+    withFileLock(this.file, () => {
+      const sentPayload = new Map(sent.map(it => [it.key, JSON.stringify(it.payload)]))
+      const items = this.readCached().items
+      const keep = items.filter(it => {
+        const was = sentPayload.get(it.key)
+        return was === undefined || JSON.stringify(it.payload) !== was
+      })
+      if (keep.length === items.length) return
+      this.writeAll(keep)
+    })
+  }
+
   /** Records a failed attempt (bumps `attempts`, stores the error) without removing the item.
    *  Locked, same reason as `enqueue` -- see fileLock.ts. */
   recordFailure(key: string, error: string): void {
