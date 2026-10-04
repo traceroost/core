@@ -39,12 +39,15 @@ export interface SuggestionSession {
 }
 
 /** " Most (7 of 9) are `python` traces." when ≥60% of at least 3 sessions share one real primary
- *  language (not `none`/`other`/unrecorded) — context for the evidence line, never a trigger. */
+ *  code language (not `other`, a non-code category or unrecorded) — context for the evidence line, never a trigger. */
+// Language ids that name no stack (src/language.ts) — inlined, as this file imports nothing.
+const NOT_A_STACK = new Set(['other', 'docs', 'config', 'data', 'assets', 'none', 'no_files'])
+
 export function dominantLanguageNote(sessions: SuggestionSession[]): string {
   if (sessions.length < 3) return ''
   const counts = new Map<string, number>()
   for (const s of sessions) {
-    if (!s.language || s.language === 'none' || s.language === 'other') continue
+    if (!s.language || NOT_A_STACK.has(s.language)) continue
     counts.set(s.language, (counts.get(s.language) ?? 0) + 1)
   }
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]

@@ -95,14 +95,14 @@ suite('Summarizers — language and change size', () => {
     assert.strictEqual(codex.linesRemoved, 1)
   })
 
-  test('a log source with no file paths reads none, with unknown-free 0/0 change size', () => {
+  test('a log source with no file paths reads no_files, with unknown-free 0/0 change size', () => {
     const filePath = path.join(tmpDir, 'sess-none.jsonl')
     fs.writeFileSync(filePath, [
       { type: 'user', cwd: '/w', timestamp: '2026-01-01T00:00:00.000Z', message: { content: 'hi' } },
       { type: 'assistant', timestamp: '2026-01-01T00:00:02.000Z', message: { model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text', text: 'hello' }] } },
     ].map(l => JSON.stringify(l)).join('\n') + '\n')
     const card = new LogReader().parseFile(filePath, 'claude')[0].card
-    assert.strictEqual(card.language, 'none')
+    assert.strictEqual(card.language, 'no_files')
     assert.strictEqual(card.languageSecondary, null)
     assert.deepStrictEqual([card.filesChangedCount, card.linesAdded, card.linesRemoved], [0, 0, 0])
   })

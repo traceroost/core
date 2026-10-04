@@ -31,7 +31,7 @@ export interface LanguageBreakdown {
   rows: LanguageBreakdownRow[]
 }
 
-/** Display label for the no-language row (distinct from `none`, "No code", which was recorded). */
+/** Display label for the no-language row (distinct from `none`/`no_files`, which were recorded). */
 export const LANGUAGE_NOT_REPORTED_LABEL = 'Not reported'
 
 const emptyTotals = (): CodeChangeTotals => ({ filesChanged: 0, linesAdded: 0, linesRemoved: 0, sessionsReported: 0, sessions: 0 })

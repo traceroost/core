@@ -6,7 +6,7 @@ import type { OneShotStats } from '../oneShotRate'
 import { lookupRates, calcAggregateTokenCostUsd } from '../pricing'
 import { sessionsVersion } from './sessionsVersion'
 import { toUuid } from '../traceIdentity'
-import { isSessionLanguage, isCodeLanguage, type SessionLanguage, type CodeLanguage } from '../language'
+import { isSessionLanguage, languageFromRecord, type SessionLanguage, type SecondaryLanguage } from '../language'
 
 /** Stored change-size counts — only non-negative integers come back; NULL (an older row, or a
  *  source with no edit contents) stays absent. */
@@ -34,9 +34,11 @@ function readIdentity(derived: unknown, rank: unknown, subagents: unknown): Pick
   return out
 }
 
-function readLanguage(primary: unknown, secondary: unknown): { language?: SessionLanguage; languageSecondary?: CodeLanguage | null } {
+/** A row stored as `none` predates the non-code categories (docs, config, …) and is re-derived from
+ *  its own file lists, so a trace whose log is gone is still categorised (see src/language.ts). */
+function readLanguage(primary: unknown, secondary: unknown, files: () => { filesRead: string[]; filesChanged: string[] }): { language?: SessionLanguage; languageSecondary?: SecondaryLanguage | null } {
   if (!isSessionLanguage(primary)) return {}
-  return { language: primary, languageSecondary: isCodeLanguage(secondary) ? secondary : null }
+  return languageFromRecord({ language: primary, languageSecondary: secondary }, primary === 'none' ? files() : {})
 }
 
 export interface DailyStatRow {
@@ -204,7 +206,10 @@ export class DatabaseReader {
         loopSignals:      this._parseJson(col(row, 'loop_signals') as string, []),
         oneShotStats:     this._parseJson<OneShotStats | undefined>(col(row, 'one_shot_stats') as string, undefined),
         initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
-        ...readLanguage(col(row, 'language'), col(row, 'language_secondary')),
+        ...readLanguage(col(row, 'language'), col(row, 'language_secondary'), () => ({
+          filesRead: this._parseJson<string[]>(col(row, 'files_read') as string, []),
+          filesChanged: this._parseJson<string[]>(col(row, 'files_changed') as string, []),
+        })),
         ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
         ...readIdentity(col(row, 'derived'), col(row, 'source_rank'), col(row, 'subagent_count')),
         ...readConversation(col(row, 'conversation_id')),
@@ -478,7 +483,10 @@ export class DatabaseReader {
         loopSignals:      this._parseJson(col(row, 'loop_signals') as string, []),
         oneShotStats:     this._parseJson<OneShotStats | undefined>(col(row, 'one_shot_stats') as string, undefined),
         initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
-        ...readLanguage(col(row, 'language'), col(row, 'language_secondary')),
+        ...readLanguage(col(row, 'language'), col(row, 'language_secondary'), () => ({
+          filesRead: this._parseJson<string[]>(col(row, 'files_read') as string, []),
+          filesChanged: this._parseJson<string[]>(col(row, 'files_changed') as string, []),
+        })),
         ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
         ...readIdentity(col(row, 'derived'), col(row, 'source_rank'), col(row, 'subagent_count')),
         ...readConversation(col(row, 'conversation_id')),

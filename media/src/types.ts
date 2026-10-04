@@ -1,7 +1,7 @@
 // Browser-side type definitions for TraceRoost dashboard
 // These mirror the backend types from src/types.ts and src/summarizers/summarizerTypes.ts
 
-import type { SessionLanguage, CodeLanguage } from './language'
+import type { SessionLanguage, SecondaryLanguage } from './language'
 
 export interface Span {
   traceId: string
@@ -125,7 +125,7 @@ export interface SessionSummaryCard {
   /** Mirrors src/summarizers/summarizerTypes.ts — see media/src/language.ts. Absent on rows stored
    *  before language tracking existed (shown "—"). */
   language?: SessionLanguage
-  languageSecondary?: CodeLanguage | null
+  languageSecondary?: SecondaryLanguage | null
   /** Mirrors src/summarizers/summarizerTypes.ts — see src/editStats.ts. Agent-authored edits, not
    *  git stats; lines are undefined when the source records no edit contents. */
   filesChangedCount?: number

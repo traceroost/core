@@ -306,7 +306,7 @@ export function Analytics() {
       {hasLanguageBreakdown && (
         <>
           <SectionHead id="analytics-language-breakdown" title="BY LANGUAGE" first={!hasAgentBreakdown} helpAnchor="help-language"
-            tip="Traces grouped by primary language — the most common code language among the files the agent read or changed. Docs, config and lockfiles don't count; 'No code' means none was touched." />
+            tip="Traces grouped by primary language — the most common code language among the files the agent read or changed. A trace with no code is grouped by the kind of file it touched (Docs, Config, Data, Assets); 'No files' means it touched none." />
           <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
             Each trace's main programming language and the lines its agent added and removed.
           </p>

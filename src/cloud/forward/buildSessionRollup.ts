@@ -200,7 +200,7 @@ export function buildSessionRollup(input: SessionRollupInput, ctx: BuildContext)
   if (language) {
     rollup.language = language
     const secondary = toWireLanguage(input.languageSecondary)
-    if (secondary && secondary !== 'none' && secondary !== language) rollup.language_secondary = secondary
+    if (secondary && secondary !== 'none' && secondary !== 'no_files' && secondary !== language) rollup.language_secondary = secondary
   }
   // Change size: counts only. files_changed falls back to the distinct filesChanged count.
   const filesChangedCount = input.filesChangedCount ?? new Set(input.filesChanged ?? []).size

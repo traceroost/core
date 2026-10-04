@@ -21,7 +21,7 @@ suite('language — per-session programming language', () => {
     assert.deepStrictEqual([...LANGUAGE_IDS], [...WIRE_LANGUAGES])
     const schema = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'schema', 'rollup.v1.json'), 'utf-8'))
     assert.deepStrictEqual(schema.$defs.language.enum, [...LANGUAGE_IDS])
-    assert.deepStrictEqual(schema.$defs.session.properties.language_secondary.enum, [...LANGUAGE_IDS.filter(l => l !== 'none'), null])
+    assert.deepStrictEqual(schema.$defs.session.properties.language_secondary.enum, [...LANGUAGE_IDS.filter(l => l !== 'none' && l !== 'no_files'), null])
   })
 
   test('the extension map covers the spec extension sets exactly', () => {
@@ -89,11 +89,31 @@ suite('language — per-session programming language', () => {
     }), { language: 'python', languageSecondary: 'typescript' })
   })
 
-  test('a README/config-only session is none, with no secondary', () => {
+  test('a README/config-only session is named by its files: most distinct kind wins, runner-up is secondary', () => {
     assert.deepStrictEqual(deriveSessionLanguage({
       filesRead: ['/r/README.md', '/r/package.json', '/r/.env', '/r/config.yaml', '/r/settings.ini', '/r/pom.xml', '/r/logo.png', '/r/data.csv', '/r/notes.txt'],
       filesChanged: ['/r/CHANGELOG.md', '/r/tsconfig.json', '/r/Cargo.toml', '/r/.eslintrc.js'],
-    }), { language: 'none', languageSecondary: null })
+    }), { language: 'config', languageSecondary: 'docs' })
+  })
+
+  test('code always wins over docs/config, and never takes a non-code secondary', () => {
+    assert.deepStrictEqual(deriveSessionLanguage({
+      filesChanged: ['/r/a.md', '/r/b.md', '/r/c.md', '/r/d.json', '/r/x.ts'],
+    }), { language: 'typescript', languageSecondary: null })
+  })
+
+  test('each non-code category, by extension and by well-known name', () => {
+    const one = (f: string) => deriveSessionLanguage({ filesChanged: [f] }).language
+    for (const f of ['/r/README.md', '/r/guide.MDX', '/r/notes.txt', '/r/index.rst', '/r/LICENSE', '/r/CODEOWNERS']) assert.strictEqual(one(f), 'docs', f)
+    for (const f of ['/r/a.json', '/r/b.yml', '/r/Cargo.toml', '/r/.gitignore', '/r/.eslintrc.js', '/r/Dockerfile', '/r/Dockerfile.dev', '/r/Makefile', '/r/go.mod', '/r/yarn.lock', '/r/main.tf']) assert.strictEqual(one(f), 'config', f)
+    for (const f of ['/r/a.csv', '/r/b.tsv', '/r/c.jsonl', '/r/d.parquet', '/r/e.xlsx', '/r/app.sqlite']) assert.strictEqual(one(f), 'data', f)
+    for (const f of ['/r/logo.png', '/r/icon.SVG', '/r/font.woff2', '/r/demo.mp4']) assert.strictEqual(one(f), 'assets', f)
+  })
+
+  test('no path at all is no_files; only unrecognised files is none — neither has a secondary', () => {
+    assert.deepStrictEqual(deriveSessionLanguage({}), { language: 'no_files', languageSecondary: null })
+    assert.deepStrictEqual(deriveSessionLanguage({ filesRead: [], filesChanged: [] }), { language: 'no_files', languageSecondary: null })
+    assert.deepStrictEqual(deriveSessionLanguage({ filesRead: ['/r/blob.weird', '/r/LICENSE-MIT'] }), { language: 'none', languageSecondary: null })
   })
 
   test('lockfiles are ignored', () => {
@@ -160,5 +180,20 @@ suite('language — per-session programming language', () => {
     assert.strictEqual(isSessionLanguage('Brainfuck'), false)
     assert.strictEqual(languageLabel(undefined), '—')
     assert.strictEqual(languageLabel('cpp'), 'C/C++')
+  })
+
+  test('languageFromRecord re-derives a stored none (written before the non-code categories), and keeps tiers apart', () => {
+    assert.deepStrictEqual(languageFromRecord({ language: 'none' }, { filesChanged: ['/r/README.md'] }), { language: 'docs', languageSecondary: null })
+    assert.deepStrictEqual(languageFromRecord({ language: 'none' }, {}), { language: 'no_files', languageSecondary: null })
+    assert.deepStrictEqual(languageFromRecord({ language: 'docs', languageSecondary: 'config' }, {}), { language: 'docs', languageSecondary: 'config' })
+    assert.deepStrictEqual(languageFromRecord({ language: 'rust', languageSecondary: 'docs' }, {}), { language: 'rust', languageSecondary: null })
+    assert.deepStrictEqual(languageFromRecord({ language: 'docs', languageSecondary: 'rust' }, {}), { language: 'docs', languageSecondary: null })
+    assert.deepStrictEqual(languageFromRecord({ language: 'no_files', languageSecondary: 'docs' }, {}), { language: 'no_files', languageSecondary: null })
+  })
+
+  test('labels for the non-code ids', () => {
+    assert.deepStrictEqual(
+      ['docs', 'config', 'data', 'assets', 'none', 'no_files'].map(id => [languageLabel(id), languageAbbreviation(id)]),
+      [['Docs', 'Docs'], ['Config', 'Cfg'], ['Data', 'Data'], ['Assets', 'Asset'], ['No code', 'None'], ['No files', 'Nil']])
   })
 })
