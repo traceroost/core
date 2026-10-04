@@ -25,7 +25,7 @@
  * - the window is [max(localHorizon, now − 60 d), now − 10 min]: nothing older than the oldest
  *   trace still held, nothing still settling. Computed right before sending, never queued;
  * - an empty chunk is sent (with `confirm_empty`) only when the store positively holds no trace
- *   in it at all, legacy rows included, inside the horizon — otherwise it is skipped;
+ *   in it at all, not-yet-keyed ones included, inside the horizon — otherwise it is skipped;
  * - a day holding more than `MANIFEST_MAX_KEYS` keys is split into shorter windows, never
  *   truncated (a truncated list would retire the rest).
  *

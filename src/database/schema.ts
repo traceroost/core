@@ -218,7 +218,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   lines_added         INTEGER,
   lines_removed       INTEGER,
   derived             INTEGER NOT NULL DEFAULT 0,
-  legacy              INTEGER NOT NULL DEFAULT 0,
   source_rank         INTEGER,
   subagent_count      INTEGER,
   created_at          INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
@@ -227,6 +226,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON sessions (start_time DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_source     ON sessions (source);
 CREATE INDEX IF NOT EXISTS idx_sessions_workspace  ON sessions (workspace);
+CREATE INDEX IF NOT EXISTS idx_sessions_conversation ON sessions (conversation_id);
 
 CREATE TABLE IF NOT EXISTS timeline_entries (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,23 +302,6 @@ CREATE TABLE IF NOT EXISTS trace_sends (
 );
 
 CREATE INDEX IF NOT EXISTS idx_trace_sends_sent_at ON trace_sends (sent_at);
-
--- Stable trace identity (staged feature 11): an id a trace was stored or sent under before it got
--- its canonical key (a whole-file or 30-minute-gap log row, an OTEL span id, and each one's wire
--- uuid) -> that key. Deep links and lookups by an old id resolve through it. Opaque ids only.
-CREATE TABLE IF NOT EXISTS trace_aliases (
-  old_id      TEXT PRIMARY KEY,
-  new_id      TEXT NOT NULL,
-  created_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
-);
-CREATE INDEX IF NOT EXISTS idx_trace_aliases_new ON trace_aliases (new_id);
-
--- One row once the one-time local re-key (database/traceKeyMigration.ts) has run.
-CREATE TABLE IF NOT EXISTS trace_key_migration (
-  id       INTEGER PRIMARY KEY CHECK (id = 1),
-  version  INTEGER NOT NULL,
-  done_at  INTEGER NOT NULL
-);
 
 ${OUTCOMES_SCHEMA_SQL}
 `

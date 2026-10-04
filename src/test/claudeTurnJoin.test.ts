@@ -100,7 +100,6 @@ suite('ClaudeTurnJoiner — OTEL interaction → transcript turn', () => {
     setClaudeTurnJoiner(joiner())
     const otel = summarizeSpans(interactionSpans('span-1', ms('2026-05-01T10:00:00.000Z'))).sessions[0]
     assert.strictEqual(otel.sessionId, traceKey('claude', 'p-1'))
-    assert.deepStrictEqual(otel.aliases, ['span-1'])
     assert.strictEqual(otel.sourceRank, 3)
     assert.strictEqual(otel.conversationId, SID)
 

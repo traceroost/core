@@ -270,8 +270,6 @@ export interface LogSessionResult {
 /** A subagent transcript folded into its parent turn (see LogReader._claudeSubagentsByTurn). */
 interface ClaudeSubagent {
   parsed: unknown[]
-  /** The id it was stored under as its own session before stable trace identity. */
-  legacyId: string
 }
 
 /** Claude Code subagent transcripts: subagents/agent-*.jsonl (or agent-*.jsonl in older layouts). */
@@ -484,11 +482,9 @@ export class LogReader {
     const baseSessionId = path.basename(filePath, '.jsonl')
     const turns = segmentClaudeTurns(parsed)
     if (turns.length === 0) return []
-    const legacyIds = legacySegmentIdsByLine(parsed, baseSessionId, isClaudePromptBoundary)
     const subagentsByTurn = this._claudeSubagentsByTurn(filePath, baseSessionId, turns)
 
     const results: LogSessionResult[] = []
-    const aliased = new Set<string>()
     for (let t = 0; t < turns.length; t++) {
       const turn = turns[t]
       const key = turn.exact ? traceKey('claude', turn.turnId) : derivedTraceKey('claude', baseSessionId, turn.turnId)
@@ -503,13 +499,6 @@ export class LogReader {
       card.conversationId = baseSessionId
       if (!turn.exact) card.derived = true
       if (subagents.length > 0) card.subagentCount = subagents.length
-      // What this turn was stored under before stable trace identity: the whole file or its n-th
-      // 30-minute-gap segment, plus each folded subagent transcript. The writer retires those
-      // rows; the first turn of each becomes the alias old deep links resolve to.
-      const legacyId = legacyIds[turn.opening]
-      card.supersedes = [legacyId, ...subagents.map(s => s.legacyId)]
-      card.aliases = subagents.map(s => s.legacyId)
-      if (!aliased.has(legacyId)) { aliased.add(legacyId); card.aliases.unshift(legacyId) }
       results.push(result)
     }
     return results
@@ -760,7 +749,7 @@ export class LogReader {
         for (let i = 0; i < turns.length; i++) if (turns[i].startMs > 0 && turns[i].startMs <= firstMs) turnIndex = i
       }
       const list = byTurn.get(turnIndex) ?? []
-      list.push({ parsed, legacyId: path.basename(file, '.jsonl') })
+      list.push({ parsed })
       byTurn.set(turnIndex, list)
     }
     return byTurn
@@ -858,9 +847,7 @@ export class LogReader {
     const parsed = lines.map(parseLogLine)
     const { id: rolloutId, cwd: fileWorkspace } = codexSessionMeta(parsed)
     const conversationId = rolloutId || baseSessionId
-    const legacyIds = legacySegmentIdsByLine(parsed, baseSessionId, isCodexLegacyBoundary)
     const results: LogSessionResult[] = []
-    const aliased = new Set<string>()
     let runningTotalTokenUsage: Record<string, number> | undefined
     for (const turn of codexTurnRanges(parsed)) {
       const key = turn.turnId ? traceKey('codex', turn.turnId) : derivedTraceKey('codex', conversationId, turn.openingTs)
@@ -871,10 +858,6 @@ export class LogReader {
       // The rollout's own id — Codex's thread id, the conversation id its OTEL card carries too.
       card.conversationId = conversationId
       if (!turn.turnId) card.derived = true
-      const legacyId = legacyIds[turn.opening]
-      card.supersedes = [legacyId]
-      card.aliases = aliased.has(legacyId) ? [] : [legacyId]
-      aliased.add(legacyId)
       results.push(segment.result)
     }
     return results
@@ -1141,8 +1124,6 @@ export class LogReader {
       card.conversationId = sessionId
       card.derived = true
       card.sourceRank = turn.totalOutput > 0 || (isLast && sawShutdown) ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
-      card.supersedes = [sessionId]
-      card.aliases = i === 0 ? [sessionId] : []
       results.push({ workspace, card })
     })
     return results
@@ -1204,13 +1185,13 @@ export class LogReader {
 
     interface Req {
       requestId: string; ts?: number; text: string; rendered: string; modelId: string
-      completion?: number; prompt?: number; elapsedMs?: number; pushLine: number
+      completion?: number; prompt?: number; elapsedMs?: number
     }
     const reqs: Req[] = []
     let sessionCreatedMs = 0
     let model = ''
     const parsed = lines.map(parseLogLine)
-    parsed.forEach((e, lineIdx) => {
+    parsed.forEach(e => {
       if (e === undefined) return
       const entry = e as Record<string, unknown>
       const kind = entry['kind'] as number | undefined
@@ -1241,7 +1222,6 @@ export class LogReader {
             rendered: '',
             modelId: typeof r?.['modelId'] === 'string' ? (r['modelId'] as string).replace(/^copilot\//, '') : '',
             completion: typeof r?.['completionTokens'] === 'number' ? r['completionTokens'] : undefined,
-            pushLine: lineIdx,
           })
         }
       }
@@ -1274,9 +1254,7 @@ export class LogReader {
     })
 
     const baseSessionId = path.basename(filePath, '.jsonl')
-    const legacyIds = legacySegmentIdsByLine(parsed, baseSessionId, isCopilotVSCodeRequestsPush, copilotVSCodePushTimestampMs)
     const results: LogSessionResult[] = []
-    const aliased = new Set<string>()
     reqs.forEach((req, i) => {
       // The chat panel's creation time stands in only for a first request with no timestamp of
       // its own: a panel can sit open for hours before its first message.
@@ -1305,10 +1283,6 @@ export class LogReader {
       card.conversationId = baseSessionId
       if (!req.requestId) card.derived = true
       card.sourceRank = req.completion !== undefined ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
-      const legacyId = legacyIds[req.pushLine]
-      card.supersedes = [legacyId]
-      card.aliases = aliased.has(legacyId) ? [] : [legacyId]
-      aliased.add(legacyId)
       results.push({ workspace, card })
     })
     return results
@@ -1404,8 +1378,6 @@ export class LogReader {
       if (!requestId) card.derived = true
       // This format stores no token counts at all.
       card.sourceRank = SOURCE_RANK_PARTIAL
-      card.supersedes = [sid]
-      card.aliases = i === 0 ? [sid] : []
       results.push({ workspace, card })
     })
     return results
@@ -1729,8 +1701,6 @@ export class LogReader {
           card.conversationId = sessionId
           card.derived = true
           card.sourceRank = tokIn + tokOut > 0 ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
-          card.supersedes = [sessionId]
-          card.aliases = ti === 0 ? [sessionId] : []
           results.push({ card, workspace })
         })
       }
@@ -1797,8 +1767,6 @@ export class LogReader {
       )
       card.conversationId = sessionId
       card.derived = true
-      card.supersedes = [sessionId]
-      card.aliases = [sessionId]
       results.push({ card, workspace: '' })
     }
     return results
@@ -1953,8 +1921,6 @@ export class LogReader {
       card.conversationId = sessionId
       card.derived = true
       card.sourceRank = SOURCE_RANK_PARTIAL
-      card.supersedes = [sessionId]
-      card.aliases = i === 0 ? [sessionId] : []
       return { workspace: '', card }
     })
   }
@@ -2095,14 +2061,10 @@ interface CardAccum {
   initiator: 'user' | 'agent' | 'api'
 }
 
-// ── Turn boundaries and legacy segment ids ─────────────────────────────────
+// ── Turn boundaries ─────────────────────────────────────────────────────────
 //
 // Every log source is read one turn per trace (claudeTurns.ts, codexTurnRanges, one per Copilot
-// request …). Before stable trace identity a transcript was read whole, or split into segments at a
-// 30-minute gap between two prompts, and each segment was stored under `<file id>` / `<file id>#n`.
-// That gap algorithm survives below only to name those old rows, so the writer can retire them and
-// alias their ids (deep links) to the per-turn keys that replace them — it no longer decides what
-// a trace is.
+// request …).
 
 /**
  * Drops any line whose `uuid` was already seen earlier in the file, keeping the first
@@ -2143,10 +2105,6 @@ function dedupeParsedByUuid(lines: string[], parsed: unknown[]): { lines: string
   return { lines: result, parsed: resultParsed }
 }
 
-// The gap between two consecutive prompts that used to start a new stored segment (see the section
-// comment above). Only names legacy rows now.
-export const LEGACY_SEGMENT_GAP_MS = 30 * 60_000
-
 // A chain of bookkeeping events immediately preceding a real prompt (Codex: thread_settings_
 // applied, task_started, and — only discovered by checking a second real file, after task_started
 // alone turned out to have exactly the same problem as user_message — turn_aborted when the prior
@@ -2163,97 +2121,6 @@ function defaultLineTimestampMs(entry: Record<string, unknown>): number | null {
   const ts = entry['timestamp'] as string | undefined
   const tsMs = ts ? Date.parse(ts) : NaN
   return Number.isFinite(tsMs) ? tsMs : null
-}
-
-/**
- * The legacy segments of a log, as [start, end) index ranges into its parsed lines: a new segment
- * started before a prompt line (isPromptBoundary) more than LEGACY_SEGMENT_GAP_MS after the
- * highest prompt timestamp so far, walked back over immediately-preceding near-simultaneous
- * bookkeeping lines (WALKBACK_EPSILON_MS). getBoundaryTimestampMs defaults to the top-level
- * `timestamp` string (Claude/Codex); Copilot VS Code's numeric `v[0].timestamp` overrides it.
- */
-function promptGapBoundaries(
-  parsed: unknown[],
-  isPromptBoundary: (entry: Record<string, unknown>) => boolean,
-  getBoundaryTimestampMs: (entry: Record<string, unknown>) => number | null = defaultLineTimestampMs,
-): Array<[number, number]> {
-  if (parsed.length === 0) return []
-
-  const timestamps: Array<number | null> = parsed.map(entry => {
-    if (entry === undefined) return null
-    try { return defaultLineTimestampMs(entry as Record<string, unknown>) } catch { return null }
-  })
-
-  const boundaries: number[] = [0]
-  // Tracks the highest prompt timestamp seen so far, not just the most recently seen one — real
-  // transcripts can contain an isolated out-of-order timestamp (confirmed on real Claude Code
-  // data: one entry mid-file stamped a full day earlier than its neighbors, apparently from
-  // Claude Code's own resume/continuation handling). Comparing against the max rather than the
-  // last value keeps a single such anomaly from corrupting the gap baseline for every comparison
-  // after it.
-  let maxTs: number | null = null
-  for (let i = 0; i < parsed.length; i++) {
-    if (parsed[i] === undefined) continue
-    const entry = parsed[i] as Record<string, unknown>
-    if (!isPromptBoundary(entry)) continue
-
-    const tsMs = getBoundaryTimestampMs(entry)
-    if (tsMs === null) continue
-
-    if (maxTs !== null && tsMs - maxTs > LEGACY_SEGMENT_GAP_MS) {
-      let boundary = i
-      while (boundary > 0) {
-        const prevTs = timestamps[boundary - 1]
-        const curTs = timestamps[boundary]
-        if (prevTs === null || curTs === null) break
-        const delta = curTs - prevTs
-        if (delta < 0 || delta > WALKBACK_EPSILON_MS) break
-        boundary--
-      }
-      // Never walk back past (or onto) the previous boundary — a segment must keep at least one
-      // line, and the previous segment's own real content must stay its own.
-      const prevBoundary = boundaries[boundaries.length - 1]
-      boundaries.push(Math.max(boundary, prevBoundary + 1))
-    }
-    maxTs = Math.max(maxTs ?? tsMs, tsMs)
-  }
-
-  const segments: Array<[number, number]> = []
-  for (let b = 0; b < boundaries.length; b++) {
-    const start = boundaries[b]
-    const end = b + 1 < boundaries.length ? boundaries[b + 1] : parsed.length
-    segments.push([start, end])
-  }
-  return segments
-}
-
-/** The id each line was stored under before stable trace identity: the file's own id for its
- *  first 30-minute-gap segment, `<id>#<n>` for later ones (see promptGapBoundaries). Kept only so
- *  the writer can retire those rows and alias their ids to the per-turn keys that replace them. */
-function legacySegmentIdsByLine(
-  parsed: unknown[],
-  baseSessionId: string,
-  isPromptBoundary: (entry: Record<string, unknown>) => boolean,
-  getBoundaryTimestampMs?: (entry: Record<string, unknown>) => number | null,
-): string[] {
-  const ids: string[] = new Array(parsed.length)
-  promptGapBoundaries(parsed, isPromptBoundary, getBoundaryTimestampMs).forEach(([start, end], segmentIndex) => {
-    for (let i = start; i < end; i++) ids[i] = claudeSegmentSessionId(baseSessionId, segmentIndex)
-  })
-  return ids
-}
-
-function isClaudePromptBoundary(entry: Record<string, unknown>): boolean {
-  return entry['type'] === 'user'
-}
-
-
-// turn_aborted counted as a legacy boundary too: Codex logs it at the *resumption* time, too far
-// (0.1 s to 31 s) from the next turn's bookkeeping for the walkback to absorb it.
-function isCodexLegacyBoundary(entry: Record<string, unknown>): boolean {
-  if (entry['type'] !== 'event_msg') return false
-  const payload = entry['payload'] as Record<string, unknown> | undefined
-  return payload?.['type'] === 'user_message' || payload?.['type'] === 'turn_aborted'
 }
 
 /** The rollout's own session id (session_meta payload.id — Codex's thread id, the conversation
@@ -2338,27 +2205,6 @@ export function codexTurnRanges(parsed: unknown[]): CodexTurnRange[] {
     merged.push(r)
   }
   return merged
-}
-
-function isCopilotVSCodeRequestsPush(entry: Record<string, unknown>): boolean {
-  const k = entry['k']
-  return entry['kind'] === 2 && Array.isArray(k) && k.length === 1 && k[0] === 'requests'
-    && Array.isArray(entry['v']) && (entry['v'] as unknown[]).length > 0
-}
-
-// A `kind: 2` push to `requests` is how VS Code's delta-log format records a new request — its
-// timestamp is numeric epoch-ms nested at v[0].timestamp (a push can batch several requests; the
-// first is the earliest new activity in it).
-function copilotVSCodePushTimestampMs(entry: Record<string, unknown>): number | null {
-  const first = (entry['v'] as Array<Record<string, unknown>>)[0]
-  const ts = first?.['timestamp']
-  return typeof ts === 'number' ? ts : null
-}
-
-/** The id a legacy segment was stored under: the file's own id for segment 0, `<id>#<n>` after.
- *  Shared by every log format — Claude-named only because it shipped first. */
-export function claudeSegmentSessionId(baseSessionId: string, segmentIndex: number): string {
-  return segmentIndex === 0 ? baseSessionId : `${baseSessionId}#${segmentIndex}`
 }
 
 /** Copilot Chat's workspace: the sibling workspace.json two levels up

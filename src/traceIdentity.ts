@@ -19,8 +19,6 @@
 import * as crypto from 'crypto'
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
-// toUuid's own output: version 8 (name-based, custom), RFC 4122 variant.
-const V8_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 /** Session ids from some agents are not UUIDs. The wire schema requires `format: uuid`, so a
  *  non-UUID id is folded to a deterministic v8-style UUID of its sha256 — stable across runs and
@@ -32,6 +30,19 @@ export function toUuid(raw: string): string {
   b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
   const h = b.toString('hex')
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
+}
+
+/** Whether `id` names this trace: its local key, its wire `session_id` (the cloud dashboard's
+ *  hand-off shows that form — a non-UUID local key reaches the cloud folded through `toUuid`),
+ *  or its OTEL trace id. */
+export function matchesTraceId(trace: { sessionId: string; traceId?: string | null }, id: string): boolean {
+  const want = id.trim()
+  if (!want) return false
+  return (
+    trace.sessionId === want ||
+    trace.traceId === want ||
+    (UUID_RE.test(want) && toUuid(trace.sessionId) === want.toLowerCase())
+  )
 }
 
 /** The agent part of a key. Short and fixed — `SessionSummaryCard.source` values map onto it. */
@@ -64,12 +75,6 @@ export function derivedTraceKey(agent: KeyAgent, conversationId: string, opening
  *  claudeTurnJoin.ts): Claude Code's `session.id` plus the interaction's start in epoch ms. */
 export function claudeInteractionKey(claudeSessionId: string, startMs: number): string {
   return toUuid(`claude:interaction:${claudeSessionId}:${Math.round(startMs)}`)
-}
-
-/** True for an id minted by toUuid from a non-UUID string — the shape of every canonical and
- *  derived key. Agent-issued v4 UUIDs (an old Claude transcript id, a Copilot chat id) are not. */
-export function isMintedKey(id: string): boolean {
-  return V8_UUID_RE.test(id)
 }
 
 // ── Source precedence ─────────────────────────────────────────────────────────
@@ -113,7 +118,6 @@ export function mayReplace(existing: RankedCard, incoming: RankedCard): boolean 
 export interface KeyedCard {
   sessionId: string
   startTime: string
-  legacy?: boolean
   keyPending?: boolean
 }
 
@@ -122,22 +126,22 @@ function startMsOf(card: KeyedCard): number {
   return Number.isFinite(ms) ? ms : 0
 }
 
-/** The wire keys of the traces in `cards` that started in [fromMs, toMs] — legacy rows, cards
- *  whose key isn't settled yet (a Claude join on hold, a synthesized in-progress root) left out.
+/** The wire keys of the traces in `cards` that started in [fromMs, toMs] — cards whose key
+ *  isn't settled yet (a Claude join on hold, a synthesized in-progress root) left out.
  *  For a host that holds its traces in memory (the standalone server); the extension's database
  *  answers the same with DatabaseReader.listTraceKeys. */
 export function traceKeysInWindow(cards: Iterable<KeyedCard>, fromMs: number, toMs: number): string[] {
   const keys = new Set<string>()
   for (const c of cards) {
-    if (c.legacy || c.keyPending || c.sessionId.startsWith('synth-')) continue
+    if (c.keyPending || c.sessionId.startsWith('synth-')) continue
     const ms = startMsOf(c)
     if (ms >= fromMs && ms <= toMs) keys.add(toUuid(c.sessionId))
   }
   return [...keys]
 }
 
-/** How many traces in `cards` started in [fromMs, toMs] — legacy, not-yet-keyed and synthesized
- *  ones included — so 0 means positively none there (the trace manifest's `confirm_empty`). */
+/** How many traces in `cards` started in [fromMs, toMs] — not-yet-keyed and synthesized ones
+ *  included — so 0 means positively none there (the trace manifest's `confirm_empty`). */
 export function countTracesInWindow(cards: Iterable<KeyedCard>, fromMs: number, toMs: number): number {
   let n = 0
   for (const c of cards) {
@@ -152,7 +156,7 @@ export function countTracesInWindow(cards: Iterable<KeyedCard>, fromMs: number, 
 export function localHorizonOf(cards: Iterable<KeyedCard>): number | null {
   let min: number | null = null
   for (const c of cards) {
-    if (c.legacy || c.keyPending || c.sessionId.startsWith('synth-')) continue
+    if (c.keyPending || c.sessionId.startsWith('synth-')) continue
     const ms = startMsOf(c)
     if (ms > 0 && (min === null || ms < min)) min = ms
   }

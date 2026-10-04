@@ -232,7 +232,7 @@ and a retired key that is sent again later comes back.
   keys). At most 120 chunks an hour per host (the cloud allows 300 per install); a 429 waits out
   `Retry-After`, a 5xx backs off.
 - **Empty days:** sent with `confirm_empty` only when the store positively holds no trace there
-  (legacy rows included) inside the horizon; otherwise skipped. A day over 5,000 keys is split into
+  (not-yet-keyed ones included) inside the horizon; otherwise skipped. A day over 5,000 keys is split into
   shorter windows, never truncated.
 - **Gates:** `missing_keys` (a listed key isn't delivered yet) → that day is re-sent after the queue
   drains again, with growing backoff; `empty_unconfirmed` → logged once.

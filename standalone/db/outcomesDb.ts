@@ -9,6 +9,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { OUTCOMES_SCHEMA_SQL } from '../../src/database/schema'
+import { dropStaleTraceStore } from '../../src/database/traceStore'
 
 interface SqlDatabase {
   run(sql: string, params?: unknown[]): void
@@ -29,6 +30,9 @@ export interface OutcomesDb {
   raw: SqlDatabase
   /** Flush the in-memory database to disk. */
   save(): void
+  /** True when the file held a store older than TRACE_STORE_VERSION and its trace tables were
+   *  dropped (src/database/traceStore.ts). */
+  rebuiltTraceStore: boolean
 }
 
 /** Returns null (never throws) when sql.js can't be loaded — the caller falls back to computing
@@ -46,8 +50,8 @@ export async function openOutcomesDb(dataDir: string): Promise<OutcomesDb | null
     } catch {
       db = new SQL.Database()
     }
+    const rebuiltTraceStore = dropStaleTraceStore(db)
     db.run(OUTCOMES_SCHEMA_SQL)
-    applyOutcomesMigrations(db)
 
     return {
       raw: db,
@@ -55,25 +59,9 @@ export async function openOutcomesDb(dataDir: string): Promise<OutcomesDb | null
         fs.mkdirSync(dataDir, { recursive: true })
         fs.writeFileSync(dbPath, Buffer.from(db.export()))
       },
+      rebuiltTraceStore,
     }
   } catch {
     return null
-  }
-}
-
-// trace_revision.payload_hash (staged feature 10's content-hash generalization) -- `CREATE TABLE
-// IF NOT EXISTS` in OUTCOMES_SCHEMA_SQL never adds a column to an already-existing table, so a
-// pre-existing outcomes-cache.db (created before this column existed) needs this same guarded
-// ALTER TABLE db.ts's applyMigrations() runs for the editor's traceroost.db.
-function applyOutcomesMigrations(db: SqlDatabase): void {
-  const cols = db.exec('PRAGMA table_info(trace_revision)')
-  if (!cols[0]) return
-  const colNames = cols[0].values.map(row => row[1] as string)
-  if (!colNames.includes('payload_hash')) {
-    db.run('ALTER TABLE trace_revision ADD COLUMN payload_hash TEXT')
-  }
-  // trace_revision.source_rank (staged feature 11) -- same reason.
-  if (!colNames.includes('source_rank')) {
-    db.run('ALTER TABLE trace_revision ADD COLUMN source_rank INTEGER')
   }
 }

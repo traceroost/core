@@ -29,7 +29,7 @@ function memStore(initial: OrgCredentials | null): CredentialStore {
   return { load: () => cur, save: c => { cur = c }, clear: () => { cur = null } }
 }
 
-interface Held { id: string; ms: number; legacy?: boolean }
+interface Held { id: string; ms: number; pending?: boolean }
 
 /** A store in memory: `held` is what the install holds; flags are mutable for the gate tests. */
 function memSource(held: Held[], flags = { writer: true, ready: true }): TraceManifestSource & { held: Held[]; flags: typeof flags } {
@@ -38,10 +38,10 @@ function memSource(held: Held[], flags = { writer: true, ready: true }): TraceMa
     isWriter: () => flags.writer,
     isReady: () => flags.ready,
     localHorizonMs: () => {
-      const ms = held.filter(h => !h.legacy).map(h => h.ms)
+      const ms = held.filter(h => !h.pending).map(h => h.ms)
       return ms.length ? Math.min(...ms) : null
     },
-    listTraceKeys: (from, to) => [...new Set(held.filter(h => !h.legacy && h.ms >= from && h.ms <= to).map(h => toUuid(h.id)))],
+    listTraceKeys: (from, to) => [...new Set(held.filter(h => !h.pending && h.ms >= from && h.ms <= to).map(h => toUuid(h.id)))],
     countTraces: (from, to) => held.filter(h => h.ms >= from && h.ms <= to).length,
   }
 }
@@ -135,9 +135,10 @@ suite('forward/traceManifest — planning a day', () => {
     assert.deepStrictEqual(plan.chunks, [buildManifestChunk(HOST_A, day.fromMs, day.toMs, [], true)])
     assert.strictEqual(plan.chunks[0].confirm_empty, true)
 
-    // Only a legacy row there: not positively empty → the day is skipped, not sent empty.
-    const legacyOnly = memSource([{ id: 'old', ms: at(1), legacy: true }, { id: 'later', ms: at(0) }])
-    assert.strictEqual(planManifestDay(legacyOnly, day, day.fromMs - DAY_MS, HOST_A), null)
+    // Only a trace whose key isn't settled yet there: not positively empty → the day is skipped,
+    // not sent empty.
+    const pendingOnly = memSource([{ id: 'span', ms: at(1), pending: true }, { id: 'later', ms: at(0) }])
+    assert.strictEqual(planManifestDay(pendingOnly, day, day.fromMs - DAY_MS, HOST_A), null)
 
     // Outside the horizon (before the oldest trace held): never confirmed empty.
     assert.strictEqual(planManifestDay(empty, day, day.fromMs + 1, HOST_A), null)

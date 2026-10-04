@@ -144,11 +144,6 @@ export class SessionRepository {
     return merged.slice()
   }
 
-  /** The canonical key an old trace id now lives under (stable trace identity), or null. */
-  resolveTraceAlias(id: string): string | null {
-    return this.reader.resolveTraceAlias(id)
-  }
-
   /** Keys of the traces this install holds that started in [fromMs, toMs], and the start of the
    *  oldest one it still has evidence for — what a trace-key manifest is built from (DatabaseReader). */
   listTraceKeys(fromMs: number, toMs: number): string[] {
@@ -159,7 +154,7 @@ export class SessionRepository {
     return this.reader.localHorizonMs()
   }
 
-  /** Every trace held that started in [fromMs, toMs], legacy rows included (DatabaseReader). */
+  /** Every trace held that started in [fromMs, toMs], synthesized rows included (DatabaseReader). */
   countTraces(fromMs: number, toMs: number): number {
     return this.reader.countTraces(fromMs, toMs)
   }

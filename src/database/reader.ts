@@ -26,10 +26,9 @@ function readConversation(v: unknown): { conversationId?: string } {
 }
 
 /** The stable-trace-identity columns (staged feature 11) — absent ones stay off the card. */
-function readIdentity(derived: unknown, legacy: unknown, rank: unknown, subagents: unknown): Pick<SessionSummaryCard, 'derived' | 'legacy' | 'sourceRank' | 'subagentCount'> {
-  const out: Pick<SessionSummaryCard, 'derived' | 'legacy' | 'sourceRank' | 'subagentCount'> = {}
+function readIdentity(derived: unknown, rank: unknown, subagents: unknown): Pick<SessionSummaryCard, 'derived' | 'sourceRank' | 'subagentCount'> {
+  const out: Pick<SessionSummaryCard, 'derived' | 'sourceRank' | 'subagentCount'> = {}
   if (derived === 1) out.derived = true
-  if (legacy === 1) out.legacy = true
   if (typeof rank === 'number' && rank > 0) out.sourceRank = rank
   if (typeof subagents === 'number' && subagents > 0) out.subagentCount = subagents
   return out
@@ -108,30 +107,23 @@ export class DatabaseReader {
 
   // ── Stable trace identity (staged feature 11) ────────────────────────────────
 
-  /** The canonical key an old id (a pre-feature-11 row id, or its wire uuid) now lives under, or
-   *  null when `id` was never aliased. Deep links resolve through this. */
-  resolveTraceAlias(id: string): string | null {
-    const rows = this.db.exec(`SELECT new_id FROM trace_aliases WHERE old_id = '${this._esc(id)}'`)
-    return (rows[0]?.values[0]?.[0] as string | undefined) ?? null
-  }
-
   /** The wire keys (`session_id` as sent — toUuid of the local id, an identity for every minted
-   *  key) of the traces this install holds that started in [fromMs, toMs]. Legacy rows are left
-   *  out: they are exactly what a manifest should let the cloud retire. The hook a trace-key
+   *  key) of the traces this install holds that started in [fromMs, toMs], synthesized in-progress
+   *  roots left out. The hook a trace-key
    *  manifest (feature 11 step 5) builds on — see traceIdentity.ts's traceKeysInWindow for the
    *  same over in-memory cards (the standalone server). */
   listTraceKeys(fromMs: number, toMs: number): string[] {
     const rows = this.db.exec(
       `SELECT session_id FROM sessions
         WHERE start_time >= ${Math.floor(fromMs)} AND start_time <= ${Math.floor(toMs)}
-          AND legacy = 0 AND session_id NOT LIKE 'synth-%'
+          AND session_id NOT LIKE 'synth-%'
         ORDER BY start_time ASC`,
     )
     return [...new Set((rows[0]?.values ?? []).map(r => toUuid(String(r[0]))))]
   }
 
-  /** How many traces this install holds that started in [fromMs, toMs] — legacy and synthesized
-   *  rows included — so 0 means it positively holds none there (the trace manifest's `confirm_empty`). */
+  /** How many traces this install holds that started in [fromMs, toMs] — synthesized rows
+   *  included — so 0 means it positively holds none there (the trace manifest's `confirm_empty`). */
   countTraces(fromMs: number, toMs: number): number {
     const rows = this.db.exec(
       `SELECT COUNT(*) FROM sessions
@@ -143,7 +135,7 @@ export class DatabaseReader {
   /** Start time of the oldest trace this install still holds evidence for (epoch ms), or null
    *  with none — the manifest window's lower bound (feature 11's localHorizon). */
   localHorizonMs(): number | null {
-    const rows = this.db.exec(`SELECT MIN(start_time) FROM sessions WHERE legacy = 0 AND start_time > 0 AND session_id NOT LIKE 'synth-%'`)
+    const rows = this.db.exec(`SELECT MIN(start_time) FROM sessions WHERE start_time > 0 AND session_id NOT LIKE 'synth-%'`)
     const v = rows[0]?.values[0]?.[0]
     return typeof v === 'number' ? v : null
   }
@@ -214,7 +206,7 @@ export class DatabaseReader {
         initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
         ...readLanguage(col(row, 'language'), col(row, 'language_secondary')),
         ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
-        ...readIdentity(col(row, 'derived'), col(row, 'legacy'), col(row, 'source_rank'), col(row, 'subagent_count')),
+        ...readIdentity(col(row, 'derived'), col(row, 'source_rank'), col(row, 'subagent_count')),
         ...readConversation(col(row, 'conversation_id')),
         timeline:         [],
         backgroundSpans:  [],
@@ -488,7 +480,7 @@ export class DatabaseReader {
         initiator:        (col(row, 'initiator') as 'user' | 'agent' | 'api' | null) ?? undefined,
         ...readLanguage(col(row, 'language'), col(row, 'language_secondary')),
         ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
-        ...readIdentity(col(row, 'derived'), col(row, 'legacy'), col(row, 'source_rank'), col(row, 'subagent_count')),
+        ...readIdentity(col(row, 'derived'), col(row, 'source_rank'), col(row, 'subagent_count')),
         ...readConversation(col(row, 'conversation_id')),
         timeline:         [],
         backgroundSpans:  [],

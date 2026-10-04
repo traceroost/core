@@ -40,6 +40,7 @@ import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './d
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud, type TraceManifestSource } from '../src/cloudBridge'
+import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
 import { traceKeysInWindow, localHorizonOf, countTracesInWindow } from '../src/traceIdentity'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
@@ -536,6 +537,12 @@ async function startLogIngestion() {
     const { openOutcomesDb } = require('./db/outcomesDb') as typeof import('./db/outcomesDb')
     outcomesDb = await openOutcomesDb(DATA_DIR)
   } catch { /* falls back to uncached git-outcome classification, same as before this existed */ }
+  // Its trace tables predated stable trace identity and were dropped (src/database/traceStore.ts);
+  // the logs are read from scratch on every start anyway, and spans.json holds raw spans, not keys.
+  if (outcomesDb?.rebuiltTraceStore) {
+    console.log(`[TraceRoost] ${TRACE_STORE_REBUILT_MESSAGE}`)
+    cloud.dropQueuedTraces()
+  }
 
   // Live trace reconciliation (staged feature 10) — runs from server lifecycle, not from any
   // particular browser tab being open, so a commit/merge made while the tab is closed is already

@@ -51,11 +51,11 @@ suite('claudeConversation — merging a turn\'s OTEL and log cards by key', () =
 })
 
 suite('traceIdentity — manifest hooks over in-memory cards', () => {
-  test('traceKeysInWindow: wire keys of settled, non-legacy traces started in the window; localHorizonOf: the oldest', () => {
+  test('traceKeysInWindow: wire keys of settled traces started in the window; localHorizonOf: the oldest', () => {
     const cards = [
       card({ sessionId: KEY, startTime: '2026-01-01T00:00:00.000Z' }),
       card({ sessionId: 'copilot-span-1', startTime: '2026-01-02T00:00:00.000Z' }),
-      card({ sessionId: 'old-file#1', startTime: '2025-12-01T00:00:00.000Z', legacy: true }),
+      card({ sessionId: 'synth-root-1', startTime: '2025-12-01T00:00:00.000Z' }),
       card({ sessionId: 'span-pending', startTime: '2026-01-03T00:00:00.000Z', keyPending: true }),
     ]
     assert.deepStrictEqual(traceKeysInWindow(cards, Date.parse('2026-01-01T00:00:00Z'), Date.parse('2026-01-05T00:00:00Z')), [KEY, toUuid('copilot-span-1')])

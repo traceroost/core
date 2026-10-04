@@ -4,7 +4,7 @@ import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarize
 import { calcSessionCostUsd } from '../pricing'
 import { bumpSessionsVersion } from './sessionsVersion'
 import { conversationKey } from '../claudeConversation'
-import { sourceRankOf, toUuid } from '../traceIdentity'
+import { sourceRankOf } from '../traceIdentity'
 
 // Strings below this length are kept inline in the DB row rather than written to a blob file.
 const BLOB_MIN_LENGTH = 512
@@ -32,8 +32,8 @@ const INSERT_SESSION_SQL = `INSERT OR REPLACE INTO sessions (
         files_read, files_changed, files_written, files_searched, files_changed_note, cost_usd,
         data_source, models, one_shot_stats, initiator, conversation_id,
         language, language_secondary, files_changed_count, lines_added, lines_removed,
-        derived, legacy, source_rank, subagent_count
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        derived, source_rank, subagent_count
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 
 // sessions.created_at's column default (schema.ts) — what every INSERT OR REPLACE of a row sets.
 const CREATED_AT_NOW_SQL = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
@@ -156,7 +156,7 @@ export class DatabaseWriter {
   }
 
   /** A lower-rank card that lost to the stored row still carries what only its source knows: the
-   *  conversation it belongs to, how many subagents it folded, and which old rows it replaces. */
+   *  conversation it belongs to and how many subagents it folded. */
   private _backfillFrom(card: SessionSummaryCard): void {
     const conversation = conversationKey(card)
     this.db.run(
@@ -164,35 +164,7 @@ export class DatabaseWriter {
         WHERE session_id = ?`,
       [conversation, card.subagentCount ?? null, card.sessionId],
     )
-    if ((card.supersedes?.length ?? 0) > 0 || (card.aliases?.length ?? 0) > 0) {
-      this.db.run('BEGIN')
-      try {
-        this._retireSuperseded(card)
-        this.db.run('COMMIT')
-      } catch {
-        try { this.db.run('ROLLBACK') } catch { /* ignore */ }
-      }
-    }
     bumpSessionsVersion(this.db)
-  }
-
-  /** Deletes the pre-stable-identity rows this card's turn replaces (a whole-file or gap-segment
-   *  log row, a subagent transcript's own row) and records `card.aliases` → this key, with each old
-   *  id's wire uuid, so deep links to an old id still land here. Runs inside a transaction. */
-  private _retireSuperseded(card: SessionSummaryCard): void {
-    for (const old of card.supersedes ?? []) {
-      if (!old || old === card.sessionId) continue
-      this.db.run(`DELETE FROM sessions WHERE session_id = ? AND data_source = 'log' AND source = ?`, [old, card.source])
-      this.db.run('DELETE FROM git_outcome WHERE session_id = ?', [old])
-      this.db.run('DELETE FROM git_outcome_key WHERE session_id = ?', [old])
-    }
-    for (const old of card.aliases ?? []) {
-      if (!old || old === card.sessionId) continue
-      for (const id of new Set([old, toUuid(old)])) {
-        if (id === card.sessionId) continue
-        this.db.run('INSERT OR IGNORE INTO trace_aliases (old_id, new_id) VALUES (?, ?)', [id, card.sessionId])
-      }
-    }
   }
 
   /** Removes any synthetic placeholder session (session_id LIKE 'synth-%') for the given traceId. */
@@ -312,8 +284,7 @@ export class DatabaseWriter {
     }
     // Everything the rows below will hold, computed up front: if it's exactly what this writer
     // last wrote for this session, and that row is still there (nothing but this writer rewrites
-    // a session's rows; a delete — retention, a per-turn card retiring a legacy row — removes them
-    // outright), rewriting would only reproduce the same rows, so skip it. Blob files are
+    // a session's rows; a delete — retention — removes them outright), rewriting would only reproduce the same rows, so skip it. Blob files are
     // write-once per span id, and a fingerprint is only recorded once they were all written.
     const sessionParams = this._sessionRowParams(card, workspace)
     const timelineParams = card.timeline.map((entry, i) => this._timelineEntryParams(card.sessionId, entry, i))
@@ -327,7 +298,6 @@ export class DatabaseWriter {
     const stmts = new StatementCache(this.db)
     this.db.run('BEGIN')
     try {
-      this._retireSuperseded(card)
       if (unchanged) {
         // The one value a rewrite would still have changed: REPLACE re-applies the column default.
         this.db.run(`UPDATE sessions SET created_at = ${CREATED_AT_NOW_SQL} WHERE session_id = ?`, [card.sessionId])
@@ -422,7 +392,6 @@ export class DatabaseWriter {
       card.linesAdded ?? null,
       card.linesRemoved ?? null,
       card.derived ? 1 : 0,
-      card.legacy ? 1 : 0,
       sourceRankOf(card),
       card.subagentCount ?? null,
     ]

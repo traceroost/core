@@ -49,9 +49,9 @@ export interface TraceManifestSource {
   isReady(): boolean
   /** Start of the oldest trace still held (localHorizon), or null with none. */
   localHorizonMs(): number | null
-  /** The wire keys (session_id) of the non-legacy traces that started in the window. */
+  /** The wire keys (session_id) of the traces that started in the window. */
   listTraceKeys(fromMs: number, toMs: number): string[]
-  /** Every trace held that started in the window — legacy and not-yet-keyed ones included — so 0
+  /** Every trace held that started in the window — not-yet-keyed ones included — so 0
    *  means the store positively holds none there. */
   countTraces(fromMs: number, toMs: number): number
 }
@@ -95,6 +95,11 @@ export interface CloudBridge {
    *  data dir) — its cloud host id lives there (src/cloud/org/hostIdentity.ts). Call once at
    *  startup, before anything is enqueued. Writes nothing; a no-op in the core edition. */
   setHostStore(storeDir: string): void
+  /** Drops every queued trace rollup and every trace delivery record, for a host whose trace store
+   *  was just rebuilt (src/database/traceStore.ts): what it held was keyed by ids no longer
+   *  minted, and the re-read history is queued again under its new keys. A no-op in the core
+   *  edition. */
+  dropQueuedTraces(): void
   /** Session close → forwarding queue. A no-op unless linked. */
   enqueueSession(card: SessionSummaryCard, log?: (m: string) => void, revision?: number): Promise<EnqueueResult>
   /** Re-forward a live session whenever its rollup content changes (staged feature 10). */

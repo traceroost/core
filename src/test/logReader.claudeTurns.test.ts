@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
-import { LogReader, claudeSegmentSessionId, dedupeByUuid } from '../logReader'
+import { LogReader, dedupeByUuid } from '../logReader'
 import { segmentClaudeTurns } from '../claudeTurns'
 import { traceKey, derivedTraceKey, toUuid } from '../traceIdentity'
 
@@ -152,7 +152,6 @@ suite('LogReader — Claude Code, one trace per turn', () => {
     assert.strictEqual(parent.outputTokens, 120)
     assert.strictEqual(parent.totalLlmCalls, 4)
     assert.strictEqual(parent.initiator, 'user')
-    assert.ok(parent.supersedes?.includes('agent-a16e8e506b6303ff4'), 'the subagent\'s old row is retired')
     assert.strictEqual(results[1].card.subagentCount, undefined)
     assert.strictEqual(results[1].card.inputTokens, 100)
     // Never collected as a file of its own.
@@ -169,18 +168,6 @@ suite('LogReader — Claude Code, one trace per turn', () => {
     fs.appendFileSync(filePath, [prompt('2026-05-01T10:03:00.000Z', 'two', 'p-2'), reply('2026-05-01T10:03:02.000Z', 'msg_2')].map(l => JSON.stringify(l)).join('\n') + '\n')
     const again = reader.parseFile(filePath, 'claude')
     assert.deepStrictEqual(again.map(r => r.card.sessionId), [traceKey('claude', 'p-2')])
-  })
-
-  test('legacy ids: each turn retires the whole-file or gap-segment row it replaces; the first turn of each is its alias', () => {
-    const filePath = path.join(tmpDir, 'proj', `${SID}.jsonl`)
-    writeJsonl(filePath, [
-      prompt('2026-05-01T10:00:00.000Z', 'morning', 'p-1'), reply('2026-05-01T10:00:02.000Z', 'msg_1'),
-      prompt('2026-05-01T10:05:00.000Z', 'more', 'p-2'), reply('2026-05-01T10:05:02.000Z', 'msg_2'),
-      prompt('2026-05-01T15:00:00.000Z', 'afternoon', 'p-3'), reply('2026-05-01T15:00:02.000Z', 'msg_3'),
-    ])
-    const cards = new LogReader().parseFile(filePath, 'claude').map(r => r.card)
-    assert.deepStrictEqual(cards.map(c => c.supersedes), [[SID], [SID], [`${SID}#1`]])
-    assert.deepStrictEqual(cards.map(c => c.aliases), [[SID], [], [`${SID}#1`]])
   })
 
   test('no promptIds (older transcript): derived keys from the conversation id and the prompt line\'s own uuid', () => {
@@ -205,12 +192,7 @@ suite('LogReader — Claude Code, one trace per turn', () => {
   })
 })
 
-suite('legacy helpers', () => {
-  test('claudeSegmentSessionId names legacy segments: the file id, then <id>#n', () => {
-    assert.strictEqual(claudeSegmentSessionId('abc-123', 0), 'abc-123')
-    assert.strictEqual(claudeSegmentSessionId('abc-123', 2), 'abc-123#2')
-  })
-
+suite('dedupeByUuid', () => {
   test('dedupeByUuid keeps the first occurrence, leaves uuid-less and malformed lines alone', () => {
     const a = JSON.stringify({ type: 'user', uuid: 'a', message: { content: 'first' } })
     const result = dedupeByUuid([a, JSON.stringify({ type: 'session_meta' }), JSON.stringify({ type: 'session_meta' }), 'not json', a])

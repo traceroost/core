@@ -127,6 +127,15 @@ export class DeliveryLedger {
     })
   }
 
+  /** Removes every recorded key `drop` matches, in one locked read-modify-write. */
+  forget(drop: (key: string) => boolean): void {
+    withFileLock(this.file, () => {
+      const existing = this.readCached().keys
+      const kept = existing.filter(key => !drop(key))
+      if (kept.length !== existing.length) this.writeAll(kept)
+    })
+  }
+
   private writeAll(keys: string[]): void {
     const dir = path.dirname(this.file)
     fs.mkdirSync(dir, { recursive: true })

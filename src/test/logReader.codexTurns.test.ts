@@ -119,7 +119,6 @@ suite('LogReader — Codex, one trace per turn', () => {
     const card = summarizeSpans(spans).sessions.find(s => s.source === 'codex')
     assert.ok(card)
     assert.strictEqual(card.sessionId, traceKey('codex', 't-1'))
-    assert.deepStrictEqual(card.aliases, ['prompt-1'])
     assert.strictEqual(card.sourceRank, 3)
   })
 })

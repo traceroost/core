@@ -18,21 +18,11 @@ export interface SessionSummaryCard {
    *  OTEL interaction could not be joined to its transcript turn). Never merged with another
    *  source's card. */
   derived?: boolean
-  /** True for a stored row that kept its pre-feature-11 id because nothing on this machine could
-   *  re-key it any more (its transcript is gone). */
-  legacy?: boolean
   /** OTEL with usage (3) > full transcript (2) > partial (1) — see traceIdentity.ts. A lower
    *  rank never replaces a higher one for the same key. Inferred when absent. */
   sourceRank?: number
   /** Claude: subagent transcripts folded into this turn (their usage is in its totals). */
   subagentCount?: number
-  /** Ids this turn's evidence was stored under before stable trace identity (a whole-file or
-   *  30-minute-gap segment row, a subagent transcript's own row). The writer retires those rows.
-   *  Transient — never stored on the row or sent. */
-  supersedes?: string[]
-  /** Old ids that should now resolve to this key (deep links) — recorded in the alias table.
-   *  Transient — never stored on the row or sent. */
-  aliases?: string[]
   /** A Claude OTEL card whose transcript join is still on hold (claudeTurnJoin.ts): its
    *  `sessionId` is provisional, so it is shown but not persisted or forwarded yet. */
   keyPending?: boolean

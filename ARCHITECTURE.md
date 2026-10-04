@@ -324,7 +324,7 @@ Derived keys carry `derived: true`. Subagent transcripts (`<session>/subagents/a
 
 **Changed turns only.** A growing transcript is re-parsed whole, but `parseFile`/`scan` return only the turns whose card changed since the last pass (`LogReader._onlyChanged`).
 
-**Local re-key.** Rows stored before this used whatever id the source happened to have (an OTEL span id, a transcript's file name, a 30-minute-gap segment `<id>#n`). `database/traceKeyMigration.ts` runs once (idempotent, one transaction, safe to interrupt): Claude OTEL rows are re-keyed through the transcript join (or the derived interaction key — both computable from the stored session id and start time), Codex OTEL rows from the turn id in `trace_id`, Copilot OTEL rows keep theirs. Log rows can't be split into turns from the row, so they're marked `legacy`; `LOG_FILE_STATE_VERSION` 3 re-reads every transcript within retention once, and each per-turn card retires the legacy row it replaces (`supersedes`) and aliases its id (`aliases`). Every old id — raw and as the wire uuid the cloud holds — resolves through `trace_aliases`, which the `find` deep link uses; the standalone `traceroost trace --id` matches the same aliases. Rows whose transcript is gone keep their old id, marked `legacy`. The trace-key manifest (feature 11 step 5, `src/cloud/forward/traceManifest.ts` — see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)` (legacy rows excluded), `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` over the standalone server's cards.
+**Upgrading a store.** A trace store older than `TRACE_STORE_VERSION` (SQLite `PRAGMA user_version`, `src/database/traceStore.ts` — the extension's `traceroost.db` and the standalone server's `outcomes-cache.db`) is not migrated: its trace tables (sessions with their timelines, git-outcome caches, trace revisions, commit attribution, plan-limit hits) are dropped and refilled by reading the agent logs again from scratch (`LOG_FILE_STATE_VERSION` 4), and queued or delivered trace records go with them, while settings, instruction suggestions, blame/turnover caches, plan-limit readings and rollups, the cloud link and the host id are kept. The trace-key manifest (feature 11 step 5, `src/cloud/forward/traceManifest.ts` — see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)`, `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` over the standalone server's cards.
 
 ### Per-session language and change size
 
@@ -332,7 +332,7 @@ Every card gets `language` / `languageSecondary` and `filesChangedCount` / `line
 
 - **Language** (`src/language.ts`, byte-identical copy at `media/src/language.ts`, parity-tested in `src/test/language.test.ts`): a fixed allowlist — `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none` — derived from the extensions of the session's distinct `filesRead` + `filesChanged` paths. Each distinct file counts once; non-code files (docs, JSON/YAML/TOML, lockfiles, config, dotfiles, images, text, CSV) and unknown extensions are excluded; a small explicit `OTHER_CODE_EXTENSIONS` set counts as `other`; Vue/Svelte components (`COMPONENT_EXTENSIONS`) count as `typescript` when the session touched any TypeScript file, else `javascript` (paths only, so `lang="ts"` is never read). Primary is the most common, secondary the runner-up (never `none`, may be `other`); ties break by count, then changed-over-read, then allowlist order.
 - **Change size** (`src/editStats.ts`): `filesChangedCount` is the distinct `filesChanged` count (every file, code or not); lines come from the timeline's `editDetails` — old→new strings are line-diffed (common prefix/suffix trimmed, LCS on the middle), `apply_patch` hunks (parsed once in `summarizers/helpers.ts`'s `parseApplyPatchEditDetails`, for Copilot and Codex) count their `-`/`+` lines, a content-only write counts every line as added. Agent-authored edits, not git stats (`src/attribution/` is the git side). Undefined lines mean the source records no edit contents (OpenCode, Cursor, Codex/Copilot logs).
-- Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`, added by `applyMigrations`); rows from before stay NULL and display "—" until re-summarized from their log — no backfill. Language and change-size cells read from Codex and Copilot Chat logs, which record no file paths, are `none` / unknown.
+- Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`). Language and change-size cells read from Codex and Copilot Chat logs, which record no file paths, are `none` / unknown.
 
 ### Bypasses SessionStore / SpanSummarizer
 
@@ -499,7 +499,6 @@ erDiagram
         TEXT initiator
         TEXT conversation_id
         INTEGER derived
-        INTEGER legacy
         INTEGER source_rank
         INTEGER subagent_count
         TEXT language
@@ -680,7 +679,6 @@ classDiagram
         +dataSource: otel, log
         +conversationId?: string
         +derived?: boolean
-        +legacy?: boolean
         +sourceRank?: number
         +subagentCount?: number
         +workspace: string
@@ -1336,10 +1334,10 @@ traceroost/
 │   ├── database/
 │   │   ├── schema.ts             # SCHEMA_SQL — CREATE TABLE statements + indexes
 │   │   ├── db.ts                 # TraceRoostDb — open, migrate, save, dispose
-│   │   ├── writer.ts             # DatabaseWriter — enqueue/drain, source precedence, legacy-row retirement + aliases, blob writes, cost_usd
-│   │   ├── reader.ts             # DatabaseReader — list, search, analytics, burn rate, blobs, trace aliases, trace keys in a window
+│   │   ├── writer.ts             # DatabaseWriter — enqueue/drain, source precedence, blob writes, cost_usd
+│   │   ├── reader.ts             # DatabaseReader — list, search, analytics, burn rate, blobs, trace keys in a window
 │   │   ├── migration.ts          # migrateGlobalStateToSqlite (one-time)
-│   │   ├── traceKeyMigration.ts  # One-time re-key of stored traces onto canonical keys (stable trace identity)
+│   │   ├── traceStore.ts         # TRACE_STORE_VERSION — drops and rebuilds a trace store older than it
 │   │   ├── retention.ts          # runRetention — DELETE old sessions + blob eviction
 │   │   ├── instructionRepository.ts # Applied/dismissed instruction-suggestion records
 │   │   ├── gitOutcomeRepository.ts # SQLite cache for per-session git-outcome classification; invalidated by cache key, not TTL

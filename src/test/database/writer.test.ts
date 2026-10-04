@@ -6,8 +6,7 @@ import { DatabaseWriter } from '../../database/writer'
 import { calcTokenCostUsd } from '../../pricing'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 import type { SqlStatement } from '../../database/db'
-import { DatabaseReader } from '../../database/reader'
-import { traceKey, toUuid, claudeInteractionKey } from '../../traceIdentity'
+import { traceKey, claudeInteractionKey } from '../../traceIdentity'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -442,26 +441,6 @@ suite('DatabaseWriter — source precedence on one key', () => {
     w.enqueue(logCard(), 'ws')
     await w.drain()
     assert.strictEqual(queryValue(db, 'SELECT data_source FROM sessions'), 'otel')
-    db.close()
-  })
-
-  test('a per-turn card retires the legacy whole-file row it replaces and aliases that id (raw and wire uuid)', async () => {
-    const db = await openInMemoryDb()
-    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
-    w.enqueue(makeCard({ sessionId: 'claude-session-uuid', traceId: 'claude-session-uuid', dataSource: 'log' }), 'ws')
-    w.enqueue(makeCard({ sessionId: 'claude-session-uuid#1', traceId: 'claude-session-uuid#1', dataSource: 'log' }), 'ws')
-    await w.drain()
-    w.enqueue(logCard({ supersedes: ['claude-session-uuid'], aliases: ['claude-session-uuid'] }), 'ws')
-    const second = logCard({ sessionId: traceKey('claude', 'prompt-bbbb-2222'), supersedes: ['claude-session-uuid#1'], aliases: ['claude-session-uuid#1'] })
-    w.enqueue(second, 'ws')
-    await w.drain()
-    const ids = db.exec('SELECT session_id FROM sessions ORDER BY session_id')[0].values.map(r => r[0])
-    assert.deepStrictEqual(ids.sort(), [KEY, second.sessionId].sort())
-    const reader = new DatabaseReader(db, makeStorageUri())
-    assert.strictEqual(reader.resolveTraceAlias('claude-session-uuid'), KEY)
-    assert.strictEqual(reader.resolveTraceAlias('claude-session-uuid#1'), second.sessionId)
-    assert.strictEqual(reader.resolveTraceAlias(toUuid('claude-session-uuid#1')), second.sessionId)
-    assert.strictEqual(reader.resolveTraceAlias('never-seen'), null)
     db.close()
   })
 

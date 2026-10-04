@@ -18,7 +18,6 @@ import { SessionRepository } from './sessionRepository'
 import { summarizeSpans, summarizeTraces } from './spanSummarizer'
 import { LogReader, findClaudeTranscripts } from './logReader'
 import { ClaudeTurnJoiner, setClaudeTurnJoiner, joinHoldMsFromEnv } from './claudeTurnJoin'
-import { migrateTraceKeys } from './database/traceKeyMigration'
 import { restoreLogFileState, writeLogFileState } from './logFileState'
 import { detectLoopSignals } from './loopDetector'
 import { computeOneShotStats } from './oneShotRate'
@@ -29,6 +28,7 @@ import { cloud, type ForwardSchedulerHandle } from './cloudBridge'
 import { ReconciliationService } from './reconcile/reconciliationService'
 import { startBackgroundReconciliation, type BackgroundWatcher } from './reconcile/backgroundWatcher'
 import { KeyedDebouncer } from './reconcile/keyedDebouncer'
+import { matchesTraceId } from './traceIdentity'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -142,19 +142,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // owns the database file can persist it — anywhere else it would mark globalState migrated
     // while the migrated rows stay in an in-memory copy that is never saved.
     if (traceRoostDb.isOwner) await migrateGlobalStateToSqlite(context, writer, log)
-    // One-time re-key of stored traces onto their canonical keys (stable trace identity). Owner
-    // only, for the same reason as above; idempotent, and nothing is on disk until the save.
-    if (traceRoostDb.isOwner) {
-      try {
-        const migrated = migrateTraceKeys(traceRoostDb.raw, { findTranscripts: findClaudeTranscripts })
-        if (migrated) {
-          log(`TraceRoost: stable trace identity — re-keyed ${migrated.rekeyed} stored trace(s) (${migrated.derived} derived); ${migrated.legacy} log-sourced row(s) await re-reading their transcript.`)
-          traceRoostDb.saveSoon()
-        }
-      } catch (err) {
-        log(`TraceRoost: trace re-key migration failed (will retry next start): ${err}`)
-      }
-    }
+    // A rebuilt trace store (traceStore.ts) re-queues its history under the new keys; what was
+    // queued or recorded delivered under the old ones goes. Owner only, for the same reason.
+    if (traceRoostDb.isOwner && traceRoostDb.rebuiltTraceStore) cloud.dropQueuedTraces()
 
     // Initial retention run on activation. Its session deletes run synchronously inside this call;
     // only the orphaned-blob sweep (a full timeline scan) is left to finish after activation.
@@ -409,10 +399,9 @@ export async function activate(context: vscode.ExtensionContext) {
   if (enableLogIngestion && writer) {
     logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
     // Also re-derives what a parser change needs re-read (see LOG_FILE_STATE_VERSION) — e.g.
-    // every transcript once, one trace per turn, for stable trace identity.
-    const reparse = restoreLogFileState(logReader, context.globalStorageUri.fsPath,
+    // every file once, into a store rebuilt for stable trace identity.
+    restoreLogFileState(logReader, context.globalStorageUri.fsPath,
       vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90))
-    if (reparse > 0) outputChannel.appendLine(`TraceRoost: re-reading ${reparse} log file(s) once — one trace per agent turn now.`)
     const lr = logReader  // non-null alias for use inside closures
     // Only once the parsed sessions are actually on disk: a read-only window (see TraceRoostDb)
     // recording files as processed would make the owning window skip them on its next activation.
@@ -1087,16 +1076,12 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
             ? ` It may be on ${reporter}'s linked machine instead of this one.`
             : ' It may be on a different linked machine.'
           void (async () => {
-            // An id from before stable trace identity (a cloud row's old session_id, an old
-            // transcript or span id) resolves through the alias table to the trace's key now.
-            const alias = repo.resolveTraceAlias(hash)
-            const wanted = new Set([hash, ...(alias ? [alias] : [])])
-            const session = repo.listSessions().find(s => wanted.has(s.sessionId) || s.traceId === hash)
+            const session = repo.listSessions().find(s => matchesTraceId(s, hash))
             if (session) {
               vscode.commands.executeCommand('traceRoost.openDashboard')
               setTimeout(() => {
                 DashboardPanel.switchToTab('sessions')
-                DashboardPanel.sendFilter(undefined, undefined, undefined, session.sessionId === hash || session.traceId === hash ? hash : session.sessionId)
+                DashboardPanel.sendFilter(undefined, undefined, undefined, hash)
               }, 250)
               return
             }

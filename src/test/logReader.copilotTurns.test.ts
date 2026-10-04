@@ -45,7 +45,6 @@ suite('LogReader — Copilot Chat, one trace per request', () => {
     writeJsonl(filePath, [snapshot(t0), requestsPush(t0, 'first', 10), requestsPush(t0 + 5 * 3600_000, 'second'), completionTokensSet(1, 25)])
     const cards = new LogReader().parseFile(filePath, 'copilot_vscode').map(r => r.card)
     assert.deepStrictEqual(cards.map(c => c.outputTokens), [10, 25])
-    assert.deepStrictEqual(cards.map(c => c.supersedes), [['chat-2'], ['chat-2#1']], 'each retires the legacy gap segment it was in')
   })
 
   test('a request starts at its own timestamp, not the chat panel\'s creation; one with no requestId gets a derived key', () => {
@@ -84,6 +83,5 @@ suite('LogReader — Copilot CLI, one trace per prompt', () => {
     assert.deepStrictEqual(cards.map(c => c.cacheReadTokens), [0, 1000])
     assert.deepStrictEqual(cards[0].filesChanged, ['/work/repo/a.ts'])
     assert.ok(cards.every(c => c.derived && c.workspace === '/work/repo'))
-    assert.deepStrictEqual(cards.map(c => c.aliases), [[sessionId], []])
   })
 })

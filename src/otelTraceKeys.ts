@@ -11,8 +11,6 @@
  *     OTEL key. Verify at scale: rollout ↔ OTEL turn_id equality rests on one sample.
  *   - Copilot: keeps its own exact OTEL key (the invoke_agent span id) — the log ↔ OTEL id
  *     equality is unverified, so no cross-source merge by key.
- *
- * The id a card had before (its span id) is kept in `aliases`, for deep links to old rows.
  */
 
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
@@ -44,7 +42,6 @@ export function assignOtelTraceKeys(cards: SessionSummaryCard[], hints: OtelKeyH
         : { status: 'derived' as const, key: claudeInteractionKey(sid, startMs) }
       if (result.status === 'pending') { card.keyPending = true; continue }
       card.sessionId = result.key
-      card.aliases = [spanId]
       if (result.status === 'derived' || result.derived) card.derived = true
       // Every turn of a transcript carries its file id as conversationId; so does its OTEL card.
       if (!card.conversationId) card.conversationId = sid
@@ -54,9 +51,7 @@ export function assignOtelTraceKeys(cards: SessionSummaryCard[], hints: OtelKeyH
     if (card.source === 'codex') {
       const m = CODEX_TURN_RE.exec(card.traceId)
       if (!m || m[1].startsWith('prompt-')) continue
-      const old = card.sessionId
       card.sessionId = traceKey('codex', m[1])
-      card.aliases = [old]
     }
   }
 }
