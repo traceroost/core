@@ -21,6 +21,7 @@ import { mergeCardsByKey } from '../src/claudeConversation'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, findClaudeTranscripts, type OpenCodeSqlFactory } from '../src/logReader'
 import { ClaudeTurnJoiner, setClaudeTurnJoiner, joinHoldMsFromEnv } from '../src/claudeTurnJoin'
+import { ClaudeJoinRepository } from '../src/database/claudeJoinRepository'
 import { computeOneShotStats } from '../src/oneShotRate'
 import { languageFromRecord } from '../src/language'
 import { editStatsFromRecord } from '../src/editStats'
@@ -42,7 +43,7 @@ import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaus
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud, type TraceManifestSource } from '../src/cloudBridge'
 import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
-import { traceKeysInWindow, localHorizonOf, countTracesInWindow } from '../src/traceIdentity'
+import { traceKeysInWindow, localHorizonOf, countTracesInWindow, hasSettledKey } from '../src/traceIdentity'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
   isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
@@ -289,6 +290,18 @@ function setLogSession(card: SessionSummaryCard): void {
   dataVersion++
 }
 
+/** Drops the keys a re-read log file no longer produces (LogReader.takeRetiredKeys) — out of the
+ *  dashboard and the trace manifest, which then retires them in the cloud. Returns true when any
+ *  went. */
+function retireLogSessions(): boolean {
+  let removed = false
+  for (const key of logReader.takeRetiredKeys()) {
+    if (logSessions.delete(key)) removed = true
+  }
+  if (removed) dataVersion++
+  return removed
+}
+
 // Host-independent reconciliation (staged feature 10) — created once outcomesDb opens, in
 // startLogIngestion() below. Undefined only when sql.js failed to load; getGitOutcome falls back
 // to an in-flight-only, non-durable classification in that case, same posture as before this
@@ -392,8 +405,10 @@ function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummary
 
 let logReader = new LogReader()
 // A Claude OTEL interaction takes its transcript turn's key through this join (stable trace
-// identity — see src/claudeTurnJoin.ts); summarizeSpans() reads it.
-const claudeTurnJoiner = new ClaudeTurnJoiner({ findTranscripts: findClaudeTranscripts, holdMs: joinHoldMsFromEnv() })
+// identity — see src/claudeTurnJoin.ts); summarizeSpans() reads it. Its decisions persist in
+// outcomes-cache.db (claude_join), which opens in startLogIngestion(): until then nothing is
+// decided, so a restart re-reading spans.json can't re-key a turn decided earlier.
+const claudeTurnJoiner = new ClaudeTurnJoiner({ findTranscripts: findClaudeTranscripts, holdMs: joinHoldMsFromEnv(), awaitStore: true })
 setClaudeTurnJoiner(claudeTurnJoiner)
 let outcomesDb: import('./db/outcomesDb').OutcomesDb | null = null
 
@@ -437,8 +452,11 @@ function checkStaleOtelSessions() {
   for (const card of summary.sessions) {
     // A card the merge kept as OTEL outranks any log card of its key (stable trace identity: they
     // share it), so it is forwarded as an update of that key, not skipped for having a log
-    // counterpart. One still waiting on its transcript join has no settled key yet.
-    if (card.dataSource !== 'otel' || card.keyPending) continue
+    // counterpart. One still waiting on its transcript join, or a synthesized in-progress root
+    // (its root span hasn't arrived — a long tool run or permission prompt idles it), has no
+    // settled key yet: skipped without being marked attempted, so the keyed card that replaces it
+    // under the same traceId is still forwarded once it settles.
+    if (card.dataSource !== 'otel' || !hasSettledKey(card)) continue
     if (otelAttempted.has(card.traceId)) continue
     const prev = otelLastSeen.get(card.traceId)
     if (!prev || prev.durationMs !== card.durationMs) {
@@ -465,6 +483,11 @@ const PLAN_USAGE_RETENTION_DAYS = 90
 let outcomesSaveTimer: ReturnType<typeof setTimeout> | null = null
 function saveOutcomesSoon(): void {
   planUsageVersion++
+  flushOutcomesSoon()
+}
+
+/** The coalesced save alone — also after a Claude join decision is stored (claude_join). */
+function flushOutcomesSoon(): void {
   if (outcomesSaveTimer) return
   outcomesSaveTimer = setTimeout(() => {
     outcomesSaveTimer = null
@@ -484,6 +507,7 @@ function runLogScan() {
   const results = logReader.scan()
   let changed = pollClaudePlanUsage()
   if (getPlanUsageService()?.ingest(results)) saveOutcomesSoon()
+  if (retireLogSessions()) changed = true
   for (const { card } of results) {
     card.oneShotStats = computeOneShotStats(card)
     setLogSession(card)
@@ -531,7 +555,7 @@ async function startLogIngestion() {
     const initSqlJs = require('sql.js') as (cfg: { locateFile: (f: string) => string }) => Promise<OpenCodeSqlFactory>
     const sqlFactory = await initSqlJs({ locateFile: (f: string) => path.join(sqlJsDir, f) })
     logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory })
-  } catch { /* no sql.js — OpenCode falls back to JSON */ }
+  } catch { /* no sql.js — no OpenCode database reads */ }
 
   // Git-outcome caching — a separate small sqlite file, see standalone/db/outcomesDb.ts.
   try {
@@ -544,6 +568,16 @@ async function startLogIngestion() {
     console.log(`[TraceRoost] ${TRACE_STORE_REBUILT_MESSAGE}`)
     cloud.dropQueuedTraces()
   }
+  // Claude join decisions (claude_join) — the joiner has held every interaction until now.
+  if (outcomesDb) {
+    const joins = new ClaudeJoinRepository(outcomesDb.raw, flushOutcomesSoon)
+    joins.prune(Date.now() - PLAN_USAGE_RETENTION_DAYS * 86_400_000)
+    setInterval(() => joins.prune(Date.now() - PLAN_USAGE_RETENTION_DAYS * 86_400_000), 24 * 60 * 60 * 1000).unref()
+    claudeTurnJoiner.attachStore(joins)
+  } else {
+    claudeTurnJoiner.attachStore(null)
+  }
+  dataVersion++
 
   // Live trace reconciliation (staged feature 10) — runs from server lifecycle, not from any
   // particular browser tab being open, so a commit/merge made while the tab is closed is already
@@ -670,8 +704,8 @@ async function ingestHistoricalLogs(): Promise<void> {
     }
     logIngestProgress.done++
     try {
-      // Usually one result; a Claude Code transcript split by a large gap between prompts
-      // (see splitClaudeLinesOnPromptGaps) can yield more than one.
+      // One result per turn of the file whose card changed (one turn = one trace — see
+      // LogReader.parseFile).
       const results = logReader.parseFile(file.filePath, file.agentKey)
       if (getPlanUsageService()?.ingest(results)) saveOutcomesSoon()
       for (const result of results) {
@@ -696,6 +730,7 @@ async function ingestHistoricalLogs(): Promise<void> {
       }
     } catch { /* skip bad file */ }
   }
+  retireLogSessions()
 
   // Merge copilot_vscode and copilot_vscode_json into one display row
   const displayCounts = new Map<string, { label: string; dir: string; count: number }>()

@@ -4,10 +4,11 @@ import * as os from 'os'
 import * as path from 'path'
 import {
   manifestDays, planManifestDay, buildManifestChunk, syncTraceManifest, TraceManifestSender, previewManifestChunk,
-  manifestStatePath,
+  manifestStatePath, SETTLING_RETRY_MS,
   DAY_MS, MANIFEST_SETTLE_MS, MANIFEST_MAX_AGE_MS, MANIFEST_MAX_KEYS, MANIFEST_HOURLY_BUDGET,
 } from '../../../cloud/forward/traceManifest'
 import { ForwardQueue } from '../../../cloud/forward/queue'
+import { DroppedLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { drainQueue } from '../../../cloud/forward/sender'
 import { SchemaValidator } from '../../../cloud/forward/jsonSchemaValidate'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
@@ -347,6 +348,77 @@ suite('forward/traceManifest — sending', () => {
     const again = await sync(threeDays())
     assert.strictEqual(again.chunks, 1)
     assert.ok(cloud.manifests[0].keys.includes(toUuid('d')))
+  })
+
+  test('a rollup the cloud refused for good (DroppedLedger) is left out of its day\'s keys, so the day is not held at missing_keys', async () => {
+    const cloud = installFakeCloud()
+    // The cloud knows nothing of "c" (its rollup was 400'd); a chunk naming it would be gated.
+    cloud.manifestReply = (c) => c.keys.includes(toUuid('c'))
+      ? { status: 200, body: { retired: 0, missing: 1, gated: 'missing_keys' } }
+      : { status: 200, body: { retired: 1, missing: 0 } }
+    new DroppedLedger(home).markDropped(scopedKey(CREDS.installId!, `session:${toUuid('c')}`))
+    const res = await sync(threeDays(), { fullSweep: true })
+    assert.strictEqual(res.gated, 0)
+    assert.strictEqual(res.chunks, 3)
+    const day1 = cloud.manifests.find(m => m.keys.includes(toUuid('b')))!
+    assert.deepStrictEqual(day1.keys, [toUuid('b')], 'the dropped key is not listed; the rest of the day is')
+    assert.strictEqual(day1.confirm_empty, undefined)
+    // Another install's drop record says nothing about this link.
+    cloud.manifests = []
+    new DroppedLedger(home).markDropped(scopedKey('install-other', `session:${toUuid('d')}`))
+    assert.strictEqual((await sync(threeDays())).chunks, 0, 'this install\'s key set is unchanged')
+  })
+
+  test('a day whose every key was dropped sends nothing — not confirm_empty, the store is not empty', async () => {
+    const cloud = installFakeCloud()
+    new DroppedLedger(home).markDropped(scopedKey(CREDS.installId!, `session:${toUuid('a')}`))
+    const res = await sync(threeDays(), { fullSweep: true })
+    assert.strictEqual(res.chunks, 2)
+    assert.ok(!cloud.manifests.some(m => m.keys.length === 0), 'no empty chunk for the dropped-only day')
+    assert.ok(!cloud.manifests.some(m => m.keys.includes(toUuid('a'))))
+    // previewManifestChunk builds by the same rule: with "a" dropped there is no non-empty chunk
+    // to show, only the fallback (a confirmed-empty later day) — never the dropped key.
+    const preview = previewManifestChunk(memSource([{ id: 'a', ms: at(2) }]), HOST_A, NOW, home)
+    assert.ok(preview === null || (preview.keys.length === 0 && preview.confirm_empty === true))
+  })
+
+  test('skipped_recent > 0 marks the day settling: re-sent once a little over the settle margin, not on the missing_keys schedule', async () => {
+    const cloud = installFakeCloud()
+    // Day 0 holds a row this host sent and then stopped holding, ingested minutes ago: the cloud
+    // left it alone (skipped_recent) rather than retiring it.
+    cloud.manifestReply = (c) => c.keys.includes(toUuid('d'))
+      ? { status: 200, body: { retired: 0, missing: 0, gated: null, skipped_recent: 1 } }
+      : { status: 200, body: { retired: 0, missing: 0, gated: null, skipped_recent: 0 } }
+    const res = await sync(threeDays(), { fullSweep: true })
+    assert.strictEqual(res.chunks, 3)
+    assert.strictEqual(res.settling, 1)
+    assert.strictEqual(res.gated, 0)
+    cloud.manifests = []
+    // Not right away…
+    clock += 5 * 60_000
+    assert.strictEqual((await sync(threeDays())).chunks, 0)
+    // …but after the settle margin (well short of the 6 h missing_keys ceiling) that day goes again.
+    clock += SETTLING_RETRY_MS
+    cloud.manifestReply = () => ({ status: 200, body: { retired: 1, missing: 0, gated: null, skipped_recent: 0 } })
+    const again = await sync(threeDays())
+    assert.strictEqual(again.chunks, 1)
+    assert.strictEqual(again.retired, 1)
+    assert.ok(cloud.manifests[0].keys.includes(toUuid('d')))
+    // Reconciled now: not sent again until its keys change.
+    clock += SETTLING_RETRY_MS
+    assert.strictEqual((await sync(threeDays())).chunks, 0)
+  })
+
+  test('skipped_recent is tolerated absent (an older cloud) and outranked by a missing_keys gate', async () => {
+    const cloud = installFakeCloud()
+    cloud.manifestReply = (c) => c.keys.includes(toUuid('d'))
+      ? { status: 200, body: { retired: 0, missing: 1, gated: 'missing_keys', skipped_recent: 2 } }
+      : { status: 200, body: { retired: 0, missing: 0 } }
+    const res = await sync(threeDays(), { fullSweep: true })
+    assert.strictEqual(res.gated, 1)
+    assert.strictEqual(res.settling, 0)
+    const raw = JSON.parse(fs.readFileSync(manifestStatePath(HOST_A, home), 'utf-8')) as { days: Record<string, { status: string }> }
+    assert.deepStrictEqual(Object.values(raw.days).map(d => d.status).sort(), ['gated', 'ok', 'ok'])
   })
 
   test('empty_unconfirmed is logged once, not retried', async () => {

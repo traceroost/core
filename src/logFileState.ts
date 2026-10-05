@@ -24,8 +24,12 @@ export const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
  * 4: Stable trace identity (staged feature 11): every log source is read one turn per trace,
  *    keyed by the agent's own turn id. The trace store is rebuilt empty (database/traceStore.ts),
  *    so every file within retention is read again. (3 was an interim development format.)
+ * 5: Each file's state carries the trace keys its last read produced (FileState.keys), so a key a
+ *    file stops producing is removed from the store (LogReader.takeRetiredKeys). The trace store
+ *    is rebuilt again (TRACE_STORE_VERSION 2) to drop keys earlier builds kept that way; every file
+ *    within retention is read again to record its keys.
  */
-export const LOG_FILE_STATE_VERSION = 4
+export const LOG_FILE_STATE_VERSION = 5
 
 export function readLogFileState(storageDir: string): { version: number; files: Record<string, FileState> } {
   try {
@@ -59,8 +63,8 @@ export function writeLogFileState(storageDir: string, files: Record<string, File
 export function restoreLogFileState(lr: LogReader, storageDir: string, retentionDays: number): number {
   const { version, files } = readLogFileState(storageDir)
   let forgotten = 0
-  // Version 4 re-reads every file within retention, which covers version 2's Codex re-read too.
-  if (version < 4) {
+  // Version 5 re-reads every file within retention, which covers every earlier upgrade's re-read.
+  if (version < 5) {
     const cutoffMs = Date.now() - retentionDays * 86_400_000
     for (const [filePath, state] of Object.entries(files)) {
       if (state.mtimeMs >= cutoffMs) {

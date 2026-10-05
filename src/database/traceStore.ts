@@ -10,6 +10,8 @@
  * (standalone/db/outcomesDb.ts), which holds a subset of the same tables.
  *
  *   1: stable trace identity (staged feature 11 — traceIdentity.ts): one agent turn, one key.
+ *   2: a key a log file stops producing is removed (LogReader.takeRetiredKeys); stores written
+ *      before still hold such keys. Claude join decisions persist (claude_join).
  */
 
 interface Db {
@@ -17,13 +19,13 @@ interface Db {
   exec(sql: string): Array<{ values: unknown[][] }>
 }
 
-export const TRACE_STORE_VERSION = 1
+export const TRACE_STORE_VERSION = 2
 
 /** Every table keyed by a trace's key, or holding one — children before their parent
  *  (timeline_entries cascades from sessions, edit_details from timeline_entries). */
 export const TRACE_TABLES = [
   'edit_details', 'timeline_entries', 'sessions',
-  'git_outcome', 'git_outcome_key', 'trace_revision', 'commit_attribution', 'limit_hits',
+  'git_outcome', 'git_outcome_key', 'trace_revision', 'commit_attribution', 'limit_hits', 'claude_join',
 ] as const
 
 /**
@@ -51,4 +53,4 @@ export function dropStaleTraceStore(db: Db): boolean {
 
 /** The one line a host logs (after its own prefix) when dropStaleTraceStore rebuilt its store. */
 export const TRACE_STORE_REBUILT_MESSAGE =
-  'The local trace store predated stable trace identity (one agent turn, one key) — rebuilt it; agent logs are read again from scratch.'
+  'The local trace store predated this build\'s trace keys (one agent turn, one key) — rebuilt it; agent logs are read again from scratch.'

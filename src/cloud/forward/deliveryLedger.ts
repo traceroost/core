@@ -27,6 +27,11 @@ export function ledgerPath(baseHome: string = os.homedir()): string {
   return path.join(baseHome, '.traceroost', 'delivered.json')
 }
 
+/** The dropped-keys record (`DroppedLedger`), beside the delivery ledger. */
+export function droppedLedgerPath(baseHome: string = os.homedir()): string {
+  return path.join(baseHome, '.traceroost', 'dropped.json')
+}
+
 /**
  * "Delivered" only means anything relative to a specific *install*, not a specific org. The
  * server tracks delivery per-install (`/api/installs/me` counts `rollups` by `install_id`), and
@@ -55,9 +60,14 @@ export class DeliveryLedger {
   private readonly file: string
   private readonly maxEntries: number
 
-  constructor(baseHome?: string, maxEntries = DEFAULT_MAX_ENTRIES) {
-    this.file = ledgerPath(baseHome)
+  constructor(baseHome?: string, maxEntries = DEFAULT_MAX_ENTRIES, file: string = ledgerPath(baseHome)) {
+    this.file = file
     this.maxEntries = maxEntries
+  }
+
+  /** Every recorded (scoped) key — for a reader that has to enumerate, not look one up. */
+  all(): readonly string[] {
+    return this.readCached().keys
   }
 
   /**
@@ -146,5 +156,49 @@ export class DeliveryLedger {
     // several keys per drain) doesn't immediately re-read what it just wrote.
     const stat = fs.statSync(this.file)
     readCache.set(this.file, { mtimeMs: stat.mtimeMs, keys, set: new Set(keys) })
+  }
+}
+
+/**
+ * Session rollups the cloud refused for good — a 400 (schema-rejected) or a 413 (too large on its
+ * own) — and that it never held under any revision (`sender.ts`'s `dropPermanently`). Same file
+ * shape, scoping and cap as the delivery ledger, in `~/.traceroost/dropped.json`.
+ *
+ * It exists for the trace manifest (`traceManifest.ts`): the local store still holds such a trace,
+ * so its key would be listed, and a key the cloud has never seen gates the whole day's chunk as
+ * `missing_keys` — a gate meant for "not delivered *yet*", re-sent with growing backoff, which
+ * for a key that will never arrive wedges that day's manifest for good. Listing the key is
+ * pointless (the cloud has no row to keep) so the manifest leaves it out. An entry is forgotten
+ * the moment a later revision of the same session is accepted: the key is then a delivered one.
+ */
+export class DroppedLedger {
+  private readonly ledger: DeliveryLedger
+
+  constructor(baseHome?: string, maxEntries = DEFAULT_MAX_ENTRIES) {
+    this.ledger = new DeliveryLedger(baseHome, maxEntries, droppedLedgerPath(baseHome))
+  }
+
+  isDropped(key: string): boolean {
+    return this.ledger.isDelivered(key)
+  }
+
+  markDropped(key: string): void {
+    this.ledger.markDeliveredMany([key])
+  }
+
+  /** The wire `session_id`s dropped for `installId` — what a manifest leaves out. */
+  sessionIds(installId: string): Set<string> {
+    const prefix = `${installId}:session:`
+    const out = new Set<string>()
+    for (const key of this.ledger.all()) {
+      if (key.startsWith(prefix)) out.add(key.slice(prefix.length))
+    }
+    return out
+  }
+
+  /** Removes every recorded key `drop` matches. */
+  forget(drop: (key: string) => boolean): void {
+    if (this.ledger.all().length === 0) return
+    this.ledger.forget(drop)
   }
 }

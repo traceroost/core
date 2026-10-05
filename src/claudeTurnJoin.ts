@@ -13,7 +13,9 @@
  * for that turn becomes the same row. Not joinable yet → held for `holdMs` (a few seconds, the
  * transcript line may not be on disk yet) and then given a derived key
  * `claude:interaction:<session.id>:<start ms>`, marked `derived`, never merged by guesswork. A
- * decision is final for the life of the process; a turn is joined by at most one interaction.
+ * decision is final — across restarts too, when the host gives the joiner a `store` (a reloaded span
+ * window re-decided against a transcript that has grown since could otherwise flip a turn between
+ * the two keys); a turn is joined by at most one interaction.
  *
  * Timestamps and prompt lengths are only compared here and discarded; none of them enters a key.
  */
@@ -47,11 +49,23 @@ export type ClaudeJoinResult =
 interface IndexedTurn { key: string; derived: boolean; startMs: number; promptLength: number }
 interface FileIndex { mtimeMs: number; size: number; turns: IndexedTurn[] }
 
+/** Where decisions outlive the process (database/claudeJoinRepository.ts). */
+export interface ClaudeJoinStore {
+  get(interactionId: string): (ClaudeJoinResult & { status: 'joined' | 'derived' }) | undefined
+  /** The interaction a turn key was joined to, if any. */
+  ownerOf(turnKey: string): string | undefined
+  put(interactionId: string, result: ClaudeJoinResult & { status: 'joined' | 'derived' }): void
+}
+
 export interface ClaudeTurnJoinerOptions {
   /** Transcript files that may hold `claudeSessionId` (default: none — inject the log reader's). */
   findTranscripts?: (claudeSessionId: string) => string[]
   holdMs?: number
   now?: () => number
+  store?: ClaudeJoinStore
+  /** The store opens later (attachStore): until then every undecided interaction stays pending,
+   *  so nothing is decided — and keyed — without the decisions an earlier run already made. */
+  awaitStore?: boolean
 }
 
 export class ClaudeTurnJoiner {
@@ -63,16 +77,34 @@ export class ClaudeTurnJoiner {
   /** Turn key → the interaction that joined it. */
   private readonly claimed = new Map<string, string>()
   private readonly indexes = new Map<string, FileIndex>()
+  private store: ClaudeJoinStore | undefined
+  private storeReady: boolean
 
   constructor(opts: ClaudeTurnJoinerOptions = {}) {
     this.findTranscripts = opts.findTranscripts ?? (() => [])
     this.holdMs = opts.holdMs ?? DEFAULT_JOIN_HOLD_MS
     this.now = opts.now ?? Date.now
+    this.store = opts.store
+    this.storeReady = !opts.awaitStore || !!opts.store
+  }
+
+  /** Gives an `awaitStore` joiner its store — or null when none could be opened, to decide
+   *  without one (per process) rather than hold every interaction forever. */
+  attachStore(store: ClaudeJoinStore | null): void {
+    this.store = store ?? undefined
+    this.storeReady = true
   }
 
   resolve(input: ClaudeJoinInput): ClaudeJoinResult {
     const done = this.decided.get(input.interactionId)
     if (done) return done
+    if (!this.storeReady) return { status: 'pending' }
+    const stored = this.store?.get(input.interactionId)
+    if (stored) {
+      if (stored.status === 'joined') this.claimed.set(stored.key, input.interactionId)
+      this.remember(input.interactionId, stored, false)
+      return stored
+    }
     const seen = this.firstSeen.get(input.interactionId) ?? this.now()
     if (!this.firstSeen.has(input.interactionId)) this.firstSeen.set(input.interactionId, seen)
 
@@ -82,13 +114,14 @@ export class ClaudeTurnJoiner {
       ? { status: 'joined', key: pick.key, derived: pick.derived }
       : { status: 'derived', key: claudeInteractionKey(input.claudeSessionId, input.startMs) }
     if (result.status === 'joined') this.claimed.set(result.key, input.interactionId)
-    this.remember(input.interactionId, result)
+    this.remember(input.interactionId, result, true)
     return result
   }
 
-  private remember(interactionId: string, result: ClaudeJoinResult & { status: 'joined' | 'derived' }): void {
+  private remember(interactionId: string, result: ClaudeJoinResult & { status: 'joined' | 'derived' }, fresh: boolean): void {
     this.firstSeen.delete(interactionId)
     this.decided.set(interactionId, result)
+    if (fresh) this.store?.put(interactionId, result)
     if (this.decided.size > MAX_MEMO) {
       const oldest = this.decided.keys().next().value as string
       const old = this.decided.get(oldest)
@@ -104,7 +137,7 @@ export class ClaudeTurnJoiner {
       for (const turn of this.index(file)) {
         const delta = turn.startMs - input.startMs
         if (delta < -LEAD_SLACK_MS || delta > JOIN_WINDOW_MS) continue
-        const owner = this.claimed.get(turn.key)
+        const owner = this.claimed.get(turn.key) ?? this.store?.ownerOf(turn.key)
         if (owner && owner !== input.interactionId) continue
         if (!candidates.some(c => c.turn.key === turn.key)) candidates.push({ turn, delta })
       }

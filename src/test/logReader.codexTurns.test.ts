@@ -103,6 +103,9 @@ suite('LogReader — Codex, one trace per turn', () => {
   test('a rollout with no turn ids gets derived keys, marked derived', () => {
     const filePath = path.join(tmpDir, 'rollout-old.jsonl')
     writeJsonl(filePath, [sessionMeta(T0), ...turn(at(T0, 1000), 'first'), tokenCount(at(T0, 2000), 100, 10)])
+    // An old rollout: a fresh one with an id-less turn is held for its turn_id (cloudKeyStability).
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(filePath, old, old)
     const card = new LogReader().parseFile(filePath, 'codex')[0].card
     assert.strictEqual(card.sessionId, derivedTraceKey('codex', THREAD, at(T0, 1000)))
     assert.strictEqual(card.derived, true)

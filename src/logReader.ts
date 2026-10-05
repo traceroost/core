@@ -225,9 +225,17 @@ function vscodeFamilyWorkspaceStorageRoots(): string[] {
 
 // ── File state tracking ───────────────────────────────────────────────────────
 
+/** How long a Codex rollout must have sat still before a turn with no turn_id is taken as one the
+ *  rollout will never give an id to (see LogReader._parseCodexFile). */
+export const CODEX_TURN_ID_SETTLE_MS = 2_000
+
 export interface FileState {
   bytesRead: number
   mtimeMs: number
+  /** The trace keys the file's last complete read produced (see LogReader.takeRetiredKeys).
+   *  Persisted with the rest of the state so a key the file stops producing after a restart is
+   *  still noticed. */
+  keys?: string[]
 }
 
 // Line cache for incremental reads of growing transcripts (LogReader._readNewLines): only files
@@ -294,6 +302,14 @@ export class LogReader {
   private readonly agentFileSessionIds = new Map<string, { mtimeMs: number; size: number; sessionId: string }>()
   // filePath → turn key → fingerprint of the last card emitted for it — see _onlyChanged.
   private readonly emittedTurns = new Map<string, Map<string, string>>()
+  // filePath → the trace keys its last complete read produced, and the keys no file produces any
+  // more, waiting for takeRetiredKeys — see _onlyChanged.
+  private readonly fileKeys = new Map<string, Set<string>>()
+  private retiredKeys = new Set<string>()
+  // The file the current parse actually read (set by _readNewLines/_readJsonFile on success) and
+  // its mtime, so a read that failed is never mistaken for a file that now produces no turns.
+  private lastRead: string | null = null
+  private lastReadMtimeMs = 0
 
   constructor(options: LogReaderOptions = {}) {
     this.log = options.log ?? (() => { /* silent */ })
@@ -306,6 +322,8 @@ export class LogReader {
     this.lineCache.clear()
     this.lineCacheBytes = 0
     this.emittedTurns.clear()
+    this.fileKeys.clear()
+    this.retiredKeys.clear()
   }
 
   /** Plain-object snapshot of the per-file mtime/size cache, for a caller to persist to disk
@@ -313,7 +331,18 @@ export class LogReader {
    *  instead of re-parsing every historical log file from scratch. See
    *  .staged-issues/scalability.md, risk #1. */
   exportFileState(): Record<string, FileState> {
-    return Object.fromEntries(this.fileState)
+    const out: Record<string, FileState> = {}
+    for (const [filePath, state] of this.fileState) {
+      const keys = this.fileKeys.get(filePath)
+      out[filePath] = keys && keys.size > 0 ? { bytesRead: state.bytesRead, mtimeMs: state.mtimeMs, keys: [...keys] } : { bytesRead: state.bytesRead, mtimeMs: state.mtimeMs }
+    }
+    // A file whose state was dropped to force a re-read (a Claude subagent changed, a Codex turn
+    // held for its turn_id) keeps its keys, under a state that never matches, so the next process
+    // re-reads it and still notices any key it stopped producing.
+    for (const [filePath, keys] of this.fileKeys) {
+      if (!(filePath in out) && keys.size > 0) out[filePath] = { bytesRead: -1, mtimeMs: -1, keys: [...keys] }
+    }
+    return out
   }
 
   /** Restores a snapshot from `exportFileState`. Merges into (does not clear) any state already
@@ -322,8 +351,24 @@ export class LogReader {
    *  would have been within the same still-running process. */
   importFileState(snapshot: Record<string, FileState>): void {
     for (const [filePath, state] of Object.entries(snapshot)) {
-      this.fileState.set(filePath, state)
+      this.fileState.set(filePath, { bytesRead: state.bytesRead, mtimeMs: state.mtimeMs })
+      if (state.keys && state.keys.length > 0) this.fileKeys.set(filePath, new Set(state.keys))
     }
+  }
+
+  /**
+   * The trace keys that a re-read file stopped producing — and that no other file still produces
+   * (a resumed or forked transcript can carry the same turn) — since the last call. A host removes
+   * them from its store: a key is a pure function of what the file says, so one the file no longer
+   * yields (a turn read before its prompt line was written, a turn whose boundaries moved) names
+   * no turn any more. Kept out of the store, it drops out of the trace manifest too, and the cloud
+   * retires the row it was sent under. Nothing from a read that failed: that file's keys stay.
+   */
+  takeRetiredKeys(): string[] {
+    if (this.retiredKeys.size === 0) return []
+    const out = [...this.retiredKeys].filter(k => ![...this.fileKeys.values()].some(keys => keys.has(k)))
+    this.retiredKeys = new Set()
+    return out
   }
 
   /**
@@ -849,7 +894,16 @@ export class LogReader {
     const conversationId = rolloutId || baseSessionId
     const results: LogSessionResult[] = []
     let runningTotalTokenUsage: Record<string, number> | undefined
+    // Codex logs a turn's user_message before the task_started / turn_context line that carries
+    // its turn_id. A rollout read in between has one turn with no id yet — a derived key the next
+    // read replaces with traceKey('codex', turn_id). While the file is still fresh (written within
+    // CODEX_TURN_ID_SETTLE_MS), such a turn is held: not emitted (so neither stored nor sent under
+    // the derived key), and the file's state is dropped so the next scan reads it again. Once the
+    // file has sat still that long, the turn is what the rollout says it is and goes out derived.
+    const fresh = Date.now() - this.lastReadMtimeMs < CODEX_TURN_ID_SETTLE_MS
+    let held = false
     for (const turn of codexTurnRanges(parsed)) {
+      if (!turn.turnId && fresh) { held = true; continue }
       const key = turn.turnId ? traceKey('codex', turn.turnId) : derivedTraceKey('codex', conversationId, turn.openingTs)
       const segment = this._parseCodexSegment(lines.slice(turn.start, turn.end), key, runningTotalTokenUsage, fileWorkspace)
       if (segment.cumulativeUsage) runningTotalTokenUsage = segment.cumulativeUsage
@@ -860,6 +914,7 @@ export class LogReader {
       if (!turn.turnId) card.derived = true
       results.push(segment.result)
     }
+    if (held) this.fileState.delete(filePath)
     return results
   }
 
@@ -1094,8 +1149,12 @@ export class LogReader {
       }
     }
 
-    // No prompt at all: the session's one (prompt-less) turn, as before.
-    if (turns.length === 0 && leading) turns.push(leading)
+    // No prompt at all: the session's one (prompt-less) turn, as before — but only once it has
+    // activity of its own. A session read between session.start and its first user.message (the
+    // user can sit at the prompt for minutes) would otherwise get a turn keyed off session.start
+    // that the first prompt then replaces with its own key: the early key reaches the cloud, and
+    // no store holds it.
+    if (turns.length === 0 && leading && (leading.turns > 0 || leading.totalOutput > 0 || leading.totalToolCalls > 0)) turns.push(leading)
     const results: LogSessionResult[] = []
     let model = sessionModel
     turns.forEach((turn, i) => {
@@ -1386,7 +1445,6 @@ export class LogReader {
   // ── OpenCode ──────────────────────────────────────────────────────────────────
   // Primary data source: ~/.local/share/opencode/opencode.db (SQLite)
   //   Tables: session (id, parent_id, title, cwd, time), message (id, session_id, data JSON)
-  // Fallback: ~/.local/share/opencode/storage/message/*.json (one JSON per message)
   // Override: OPENCODE_DATA_DIR (comma-separated list of data dirs)
   //
   // Only root sessions (parent_id IS NULL / '') are included in this pass.
@@ -1417,15 +1475,17 @@ export class LogReader {
         continue
       }
 
-      if (this.sqlFactory) {
-        try {
-          results.push(...this._parseOpenCodeDb(dbPath))
-        } catch (err) {
-          this.log(`[LogReader] OpenCode DB error ${dbPath}: ${err}`)
-          results.push(...this._parseOpenCodeJsonFallback(dataDir))
-        }
-      } else {
-        results.push(...this._parseOpenCodeJsonFallback(dataDir))
+      // The database is the only source read. The JSON message files that may sit beside it
+      // (older OpenCode storage) carry no user-message order or start times — read instead of a
+      // database that failed to open, they keyed the same turns differently (one 'session' key per
+      // conversation, started 1970). A failed read (a WAL caught mid-write) is retried on the next
+      // scan instead: its state is dropped so the file reads as changed.
+      if (!this.sqlFactory) continue
+      try {
+        results.push(...this._parseOpenCodeDb(dbPath))
+      } catch (err) {
+        this.log(`[LogReader] OpenCode DB error ${dbPath}: ${err}`)
+        this.fileState.delete(dbPath)
       }
     }
     return results
@@ -1710,68 +1770,6 @@ export class LogReader {
     }
   }
 
-  private _parseOpenCodeJsonFallback(dataDir: string): LogSessionResult[] {
-    // Reads ~/.local/share/opencode/storage/message/*.json as a fallback when
-    // the SQLite DB is unavailable. Each file is one message; session grouping
-    // uses the session_id field. Session title and cwd are not available here, and
-    // neither is a reliable user-message order — so unlike the database reader this
-    // stays one trace per session, under a derived key (session id + 'session').
-    const msgDir = path.join(dataDir, 'storage', 'message')
-    let names: string[]
-    try { names = fs.readdirSync(msgDir).filter(n => n.endsWith('.json')) } catch { return [] }
-
-    const sessions = new Map<string, {
-      model: string; sessionTime: string
-      tokIn: number; tokOut: number; tokReasoning: number
-      tokCacheRead: number; tokCacheWrite: number; turns: number
-    }>()
-
-    for (const name of names) {
-      let msg: Record<string, unknown>
-      try { msg = JSON.parse(fs.readFileSync(path.join(msgDir, name), 'utf-8')) as Record<string, unknown> } catch { continue }
-      if (msg['role'] !== 'assistant') continue
-      const sessionId = String(msg['session_id'] ?? '')
-      if (!sessionId) continue
-      const tokens = msg['tokens'] as Record<string, unknown> | undefined
-      const cache  = tokens?.['cache'] as Record<string, unknown> | undefined
-      const modelId = String(msg['id'] ?? '')
-      let s = sessions.get(sessionId)
-      if (!s) {
-        s = { model: modelId, sessionTime: '', tokIn: 0, tokOut: 0, tokReasoning: 0, tokCacheRead: 0, tokCacheWrite: 0, turns: 0 }
-        sessions.set(sessionId, s)
-      }
-      if (modelId && !s.model) s.model = modelId
-      s.tokIn        += Number(tokens?.['input']     ?? 0)
-      s.tokOut       += Number(tokens?.['output']    ?? 0)
-      s.tokReasoning += Number(tokens?.['reasoning'] ?? 0)
-      s.tokCacheRead += Number(cache?.['read']  ?? 0)
-      s.tokCacheWrite+= Number(cache?.['write'] ?? 0)
-      s.turns++
-    }
-
-    const results: LogSessionResult[] = []
-    for (const [sessionId, s] of sessions) {
-      const totalOutput = s.tokOut + s.tokReasoning
-      const card = _buildCard(
-        derivedTraceKey('opencode', sessionId, 'session'), 'opencode', s.model || 'opencode',
-        s.sessionTime, s.sessionTime,
-        {
-          totalInput: s.tokIn, totalOutput, totalCacheRead: s.tokCacheRead,
-          totalCacheCreate: s.tokCacheWrite, peakContextPerTurn: 0,
-          turns: s.turns, totalToolCalls: 0, toolCounts: {},
-          filesRead: new Set(), filesChanged: new Set(),
-          filesWritten: new Set(), filesSearched: new Set(),
-          userRequest: '', timeline: [], initiator: 'user',
-        },
-        '',
-      )
-      card.conversationId = sessionId
-      card.derived = true
-      results.push({ card, workspace: '' })
-    }
-    return results
-  }
-
   // ── Shared helpers ────────────────────────────────────────────────────────────
 
   private _collectJsonlFiles(dir: string): string[] {
@@ -1795,7 +1793,10 @@ export class LogReader {
       if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return null
       const content = fs.readFileSync(filePath, 'utf-8')
       this.fileState.set(filePath, { bytesRead: stat.size, mtimeMs: stat.mtimeMs })
-      return JSON.parse(content) as Record<string, unknown>
+      const parsed = JSON.parse(content) as Record<string, unknown>
+      this.lastRead = filePath
+      this.lastReadMtimeMs = stat.mtimeMs
+      return parsed
     } catch (err) {
       this.log(`[LogReader] read error ${filePath}: ${err}`)
       return null
@@ -1938,6 +1939,8 @@ export class LogReader {
       // only the appended bytes are read from disk — the earlier lines come from lineCache.
       const lines = this._readAllLinesIncremental(filePath, stat)
       this.fileState.set(filePath, { bytesRead: stat.size, mtimeMs: stat.mtimeMs })
+      this.lastRead = filePath
+      this.lastReadMtimeMs = stat.mtimeMs
       return lines
     } catch (err) {
       this.lineCache.delete(filePath)
@@ -2017,7 +2020,10 @@ export class LogReader {
       const stat = fs.statSync(filePath)
       const prev = this.fileState.get(filePath)
       if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return []
-      return this._onlyChanged(filePath, parseFn())
+      this.lastRead = null
+      const results = parseFn()
+      // Only a read that succeeded says what the file now produces (see _onlyChanged).
+      return this.lastRead === filePath ? this._onlyChanged(filePath, results) : results
     } catch {
       return []
     }
@@ -2026,7 +2032,10 @@ export class LogReader {
   /** A growing transcript is re-parsed whole, but only its newest turn usually changed: every
    *  earlier turn's card comes out identical. Returning those again would make every caller
    *  rewrite (and the cloud path rebuild a payload for) each turn of the file on every pass, so
-   *  only turns whose card differs from the one last returned for this file go out. */
+   *  only turns whose card differs from the one last returned for this file go out.
+   *
+   *  Only ever called with a complete read of the file, so it also records the file's key set and
+   *  notes any key it stopped producing (takeRetiredKeys). */
   private _onlyChanged(filePath: string, results: LogSessionResult[]): LogSessionResult[] {
     const prev = this.emittedTurns.get(filePath)
     const next = new Map<string, string>()
@@ -2037,6 +2046,13 @@ export class LogReader {
       if (prev?.get(r.card.sessionId) !== fp) changed.push(r)
     }
     this.emittedTurns.set(filePath, next)
+
+    const keys = new Set(next.keys())
+    for (const k of this.fileKeys.get(filePath) ?? []) {
+      if (!keys.has(k)) this.retiredKeys.add(k)
+    }
+    if (keys.size > 0) this.fileKeys.set(filePath, keys)
+    else this.fileKeys.delete(filePath)
     return changed
   }
 }

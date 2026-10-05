@@ -42,6 +42,7 @@ function seedTraceRows(db: Raw, sid: string): void {
   db.run(`INSERT INTO trace_revision (session_id, revision, fingerprint, checked_at, changed_at) VALUES (?, 7, 'fp', 1, 1)`, [sid])
   db.run(`INSERT INTO commit_attribution (repo_root, sha, authored_at, session_ids) VALUES ('/r', 'c1', '2026-01-01', ?)`, [JSON.stringify([sid])])
   db.run(`INSERT INTO limit_hits (provider, session_id, window_kind, hit_at) VALUES ('codex', ?, 'five_hour', 1)`, [sid])
+  db.run(`INSERT INTO claude_join (interaction_id, turn_key, status, decided_at) VALUES ('span-1', ?, 'joined', 1)`, [sid])
 }
 
 /** What survives a rebuild: settings-like and cache rows that aren't keyed by a trace. */

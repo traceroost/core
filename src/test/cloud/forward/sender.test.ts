@@ -4,7 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { drainQueue } from '../../../cloud/forward/sender'
 import { ForwardQueue } from '../../../cloud/forward/queue'
-import { DeliveryLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
+import { DeliveryLedger, DroppedLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { readForwardState } from '../../../cloud/forward/forwardState'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
@@ -152,6 +152,34 @@ suite('forward/sender', () => {
     const res = await drainQueue({ baseHome: home })
     assert.strictEqual(res.droppedInvalid, 1)
     assert.strictEqual(new ForwardQueue(home).depth(), 0)
+  })
+
+  test('a 400 for a session the cloud never held is recorded dropped (for the trace manifest); one it already holds is not', async () => {
+    const ledger = new DeliveryLedger(home)
+    ledger.markDelivered(scopedKey(CREDS.installId!, `session:${ID2}`)) // an earlier revision of ID2 was accepted
+    new ForwardQueue(home).enqueue(payload(ID1))
+    new ForwardQueue(home).enqueue({ ...payload(ID2), session: { ...payload(ID2).session!, revision: 2 } })
+    stubFetch((_url, init) => batchOk(batchItems(init), () => ({ status: 400, error: 'schema validation failed' })))
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.droppedInvalid, 2)
+    const dropped = new DroppedLedger(home)
+    assert.strictEqual(dropped.isDropped(scopedKey(CREDS.installId!, `session:${ID1}`)), true)
+    assert.strictEqual(dropped.isDropped(scopedKey(CREDS.installId!, `session:${ID2}`)), false, 'the cloud still has a row for it')
+    assert.deepStrictEqual([...dropped.sessionIds(CREDS.installId!)], [ID1])
+    assert.deepStrictEqual([...dropped.sessionIds('some-other-install')], [])
+  })
+
+  test('a single-record 413 is recorded dropped too; a later accepted revision of the session clears it', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    stubFetch(() => new Response('', { status: 413 }))
+    await drainQueue({ baseHome: home })
+    assert.strictEqual(new DroppedLedger(home).isDropped(scopedKey(CREDS.installId!, `session:${ID1}`)), true)
+    // A trimmed revision goes through: the key is delivered now, no longer dropped.
+    new ForwardQueue(home).enqueue({ ...payload(ID1), session: { ...payload(ID1).session!, revision: 2 } })
+    stubAllOk()
+    await drainQueue({ baseHome: home })
+    assert.strictEqual(new DroppedLedger(home).isDropped(scopedKey(CREDS.installId!, `session:${ID1}`)), false)
+    assert.strictEqual(new DeliveryLedger(home).isDelivered(scopedKey(CREDS.installId!, `session:${ID1}`)), true)
   })
 
   test('401 → refresh once, then retry succeeds', async () => {

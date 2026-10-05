@@ -27,7 +27,11 @@
  * - an empty chunk is sent (with `confirm_empty`) only when the store positively holds no trace
  *   in it at all, not-yet-keyed ones included, inside the horizon — otherwise it is skipped;
  * - a day holding more than `MANIFEST_MAX_KEYS` keys is split into shorter windows, never
- *   truncated (a truncated list would retire the rest).
+ *   truncated (a truncated list would retire the rest);
+ * - a key whose rollup the cloud refused for good (a 400/413 — `DroppedLedger`) is left out: the
+ *   cloud has no row for it, and listing it would gate the day as `missing_keys` for a delivery
+ *   that will never come. A day whose every key was dropped sends nothing (the store isn't empty,
+ *   so no `confirm_empty`; an unconfirmed empty chunk would only be gated).
  *
  * Cadence: a full sweep of every day in the window on startup and on (re-)link, then on each
  * forwarding tick only the days whose key set changed since their last successful chunk (a small
@@ -35,8 +39,11 @@
  * sorted keys + result). At most `MANIFEST_HOURLY_BUDGET` chunks an hour per host (the cloud
  * allows 300 per install, so both hosts together stay under it); a 429 pauses for its
  * Retry-After, a 5xx or network failure backs off, a `missing_keys` gate re-sends that day only
- * once the queue has drained again, with growing backoff. One log line per run that sent
- * anything, at debug level (`TRACEROOST_LOG_LEVEL=debug`) — counts only, never a key.
+ * once the queue has drained again, with growing backoff. A chunk the cloud answered with
+ * `skipped_recent > 0` (rows absent from its keys that it left alone because they were ingested
+ * in the last 10 min — a key this host sent and then stopped holding) is re-sent once they have
+ * settled, after `SETTLING_RETRY_MS`, not on the missing_keys schedule. One log line per run that
+ * sent anything, at debug level (`TRACEROOST_LOG_LEVEL=debug`) — counts only, never a key.
  */
 
 import * as crypto from 'crypto'
@@ -50,6 +57,7 @@ import { manifestUrl, type OrgCredentials } from '../org/config'
 import { clientVersion, TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
 import { ForwardQueue } from './queue'
+import { DroppedLedger } from './deliveryLedger'
 import { logDebug } from '../../logLevel'
 import { SCHEMA_VERSION, type TraceManifestChunk } from './schema'
 
@@ -68,6 +76,9 @@ export const MANIFEST_HOURLY_BUDGET = 120
 const SWEEP_SKIP_CONFIRMED_WITHIN_MS = HOUR_MS
 const GATED_RETRY_BASE_MS = 5 * MINUTE_MS
 const GATED_RETRY_MAX_MS = 6 * HOUR_MS
+/** A day the cloud answered with `skipped_recent` is sent again once those rows are past the
+ *  settle margin: a little over the cloud's 10 minutes. */
+export const SETTLING_RETRY_MS = MANIFEST_SETTLE_MS + MINUTE_MS
 const FAILURE_BACKOFF_BASE_MS = 5 * MINUTE_MS
 const FAILURE_BACKOFF_MAX_MS = HOUR_MS
 /** How many times a day's window may be halved to fit `MANIFEST_MAX_KEYS`. */
@@ -118,13 +129,15 @@ export interface DayPlan {
 }
 
 /** What `hostId` should send for `day`, or null when nothing should be (an empty day that isn't
- *  positively empty inside the horizon). Window bounds handed to the source are inclusive, so
- *  [from, to) asks for [from, to − 1]. */
-export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys' | 'countTraces'>, day: ManifestDay, horizonMs: number, hostId: string): DayPlan | null {
+ *  positively empty inside the horizon, or one whose every key is in `exclude`). Window bounds
+ *  handed to the source are inclusive, so [from, to) asks for [from, to − 1]. `exclude` is the
+ *  wire ids of rollups the cloud refused for good (`DroppedLedger`) — never listed. */
+export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys' | 'countTraces'>, day: ManifestDay, horizonMs: number, hostId: string, exclude?: ReadonlySet<string>): DayPlan | null {
   const chunks: TraceManifestChunk[] = []
   const allKeys: string[] = []
   const plan = (fromMs: number, toMs: number, depth: number): void => {
-    const keys = source.listTraceKeys(fromMs, toMs - 1)
+    let keys = source.listTraceKeys(fromMs, toMs - 1)
+    if (exclude && exclude.size > 0) keys = keys.filter(k => !exclude.has(k.toLowerCase()))
     if (keys.length === 0) {
       if (fromMs >= horizonMs && source.countTraces(fromMs, toMs - 1) === 0) chunks.push(buildManifestChunk(hostId, fromMs, toMs, [], true))
       return
@@ -152,9 +165,10 @@ export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys
 interface DayRecord {
   hash: string
   /** ok: the cloud reconciled it (or it retired nothing on purpose for a reason a re-send won't
-   *  change); gated: `missing_keys`, re-send after the queue drains; rejected: a 400/413 for this
-   *  exact key set — not re-sent until the set changes. */
-  status: 'ok' | 'gated' | 'rejected'
+   *  change); gated: `missing_keys`, re-send after the queue drains; settling: `skipped_recent`,
+   *  re-send after SETTLING_RETRY_MS; rejected: a 400/413 for this exact key set — not re-sent
+   *  until the set changes. */
+  status: 'ok' | 'gated' | 'settling' | 'rejected'
   at: number
   attempts: number
 }
@@ -214,6 +228,8 @@ export interface ManifestSyncResult {
   chunks: number
   retired: number
   gated: number
+  /** Chunks the cloud answered with `skipped_recent > 0` — re-sent after SETTLING_RETRY_MS. */
+  settling: number
 }
 
 export interface ManifestSyncDeps {
@@ -235,7 +251,7 @@ function gatedRetryDue(rec: DayRecord, nowMs: number): boolean {
 
 /** One manifest run for the linked install: decides what's due, sends it, records the results. */
 export async function syncTraceManifest(source: TraceManifestSource, deps: ManifestSyncDeps): Promise<ManifestSyncResult> {
-  const result: ManifestSyncResult = { chunks: 0, retired: 0, gated: 0 }
+  const result: ManifestSyncResult = { chunks: 0, retired: 0, gated: 0, settling: 0 }
   const now = deps.now ?? Date.now
   const once = (key: string, msg: string) => {
     if (deps.loggedOnce?.has(key)) return
@@ -258,6 +274,8 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   const horizon = source.localHorizonMs()
   const days = manifestDays(horizon, now())
   if (horizon === null || days.length === 0) return { ...result, skipped: 'nothing-held' }
+  // Rollups the cloud refused for good under this install — never listed (see the header).
+  const dropped = new DroppedLedger(deps.baseHome).sessionIds(link.installId)
 
   let refreshed = false
   if (accessTokenExpiring(creds, now)) {
@@ -269,7 +287,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   const finish = (stopped?: ManifestSyncResult['stopped']): ManifestSyncResult => {
     writeState(state, hostId, now(), deps.baseHome)
     if (result.chunks > 0) {
-      logDebug(deps.log, `[TraceRoost] Trace manifest${deps.fullSweep ? ' (full sweep)' : ''}: sent ${result.chunks} chunk(s), retired ${result.retired} trace(s), ${result.gated} gated${stopped ? ` — stopped (${stopped})` : ''}`)
+      logDebug(deps.log, `[TraceRoost] Trace manifest${deps.fullSweep ? ' (full sweep)' : ''}: sent ${result.chunks} chunk(s), retired ${result.retired} trace(s), ${result.gated} gated, ${result.settling} settling${stopped ? ` — stopped (${stopped})` : ''}`)
     }
     return stopped ? { ...result, stopped } : result
   }
@@ -278,13 +296,14 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
     // Re-checked per day: the requests below yield, and the store may be cleared (and re-read)
     // or change hands in the meantime.
     if (!source.isWriter() || !source.isReady()) return finish('interrupted')
-    const plan = planManifestDay(source, day, horizon, hostId)
+    const plan = planManifestDay(source, day, horizon, hostId, dropped)
     if (!plan) continue
     const rec = state.days[day.day]
     const nowMs = now()
     let due: boolean
     if (!rec || rec.hash !== plan.hash) due = true
     else if (rec.status === 'gated') due = gatedRetryDue(rec, nowMs)
+    else if (rec.status === 'settling') due = nowMs - rec.at >= SETTLING_RETRY_MS
     else if (rec.status === 'rejected') due = false
     else due = deps.fullSweep === true && nowMs - rec.at >= SWEEP_SKIP_CONFIRMED_WITHIN_MS
     if (!due) continue
@@ -311,7 +330,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
         result.chunks++
         state.failures = 0
         state.nextAttemptAt = null
-        let body: { retired?: unknown; gated?: unknown } = {}
+        let body: { retired?: unknown; gated?: unknown; skipped_recent?: unknown } = {}
         try { body = (await res.json()) as typeof body } catch { /* counts unknown */ }
         if (typeof body.retired === 'number') result.retired += body.retired
         if (body.gated === 'missing_keys') {
@@ -320,6 +339,12 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
         } else if (body.gated === 'empty_unconfirmed') {
           result.gated++
           once('empty-unconfirmed', '[TraceRoost] Trace manifest: the cloud held back an empty chunk as unconfirmed.')
+        } else if (typeof body.skipped_recent === 'number' && body.skipped_recent > 0) {
+          // Rows this chunk didn't list that the cloud left alone for being ingested in the last
+          // 10 minutes (older clouds send no such field). They'll have settled by the next try;
+          // a missing_keys gate in the same reply outranks this (that day waits on the queue).
+          result.settling++
+          if (dayStatus === 'ok') dayStatus = 'settling'
         }
         continue
       }
@@ -403,13 +428,16 @@ export class TraceManifestSender {
 }
 
 /** The newest non-empty chunk as `hostId` would send it now (else the newest empty one, or null) —
- *  for `--explain-payload`, built by the same code as the real send. */
-export function previewManifestChunk(source: Pick<TraceManifestSource, 'localHorizonMs' | 'listTraceKeys' | 'countTraces'>, hostId: string, nowMs: number = Date.now()): TraceManifestChunk | null {
+ *  for `--explain-payload`, built by the same code as the real send (dropped keys left out when
+ *  the install is linked). */
+export function previewManifestChunk(source: Pick<TraceManifestSource, 'localHorizonMs' | 'listTraceKeys' | 'countTraces'>, hostId: string, nowMs: number = Date.now(), baseHome?: string): TraceManifestChunk | null {
   const horizon = source.localHorizonMs()
   if (horizon === null) return null
+  const installId = loadCredentials()?.installId
+  const dropped = installId ? new DroppedLedger(baseHome).sessionIds(installId) : undefined
   let fallback: TraceManifestChunk | null = null
   for (const day of manifestDays(horizon, nowMs)) {
-    const plan = planManifestDay(source, day, horizon, hostId)
+    const plan = planManifestDay(source, day, horizon, hostId, dropped)
     const withKeys = plan?.chunks.find(c => c.keys.length > 0)
     if (withKeys) return withKeys
     fallback ??= plan?.chunks[0] ?? null
