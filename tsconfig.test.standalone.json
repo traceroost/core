@@ -41,6 +41,10 @@
     "standalone/requestBody.ts",
     "standalone/requestBody.test.ts",
     "standalone/dataDirLock.ts",
-    "standalone/dataDirLock.test.ts"
+    "standalone/dataDirLock.test.ts",
+    "standalone/versionCheck.ts",
+    "standalone/versionCheck.test.ts",
+    "standalone/cliArgs.ts",
+    "standalone/cliArgs.test.ts"
   ]
 }

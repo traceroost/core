@@ -59,6 +59,32 @@ suite('forward/buildInstructionTelemetry', () => {
     assert.ok(!JSON.stringify(fps).includes('hot-file'))
   })
 
+  test('suggestion_id is keyed by the repo key, not a plain digest of the id', () => {
+    const input = { id: 'hot_file:src_auth_ts', category: 'context' as const, priority: 'high' as const, targetAgents: [], action: 'surfaced' as const, atIso: '2026-03-01T00:00:00.000Z' }
+    const [a] = buildSuggestionEvents([input], CTX)
+    const plain = crypto.createHash('sha256').update(input.id).digest('hex')
+    assert.notStrictEqual(a.suggestion_id, plain)
+    assert.strictEqual(a.suggestion_id, crypto.createHmac('sha256', CTX.key).update(`suggestion:${input.id}`).digest('hex'))
+    // Stable within a repo key (members of one org agree), different under another.
+    assert.strictEqual(buildSuggestionEvents([input], CTX)[0].suggestion_id, a.suggestion_id)
+    const other: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('other').digest() }
+    assert.notStrictEqual(buildSuggestionEvents([input], other)[0].suggestion_id, a.suggestion_id)
+  })
+
+  test('out-of-range counts are clamped to the schema maximum, so the payload still validates', () => {
+    const huge = 5e12
+    const payload: RollupPayload = {
+      schema_version: '1',
+      repo_key_fp: 'a'.repeat(64),
+      instruction_files: [buildInstructionFileState({ present: true, kind: 'agents_md', path: 'AGENTS.md', content: 'x', lineCount: huge }, CTX)],
+      file_footprints: buildFileFootprints([{ path: 'a.ts', sessionsRead: huge, sessionsTotal: huge, earlyReads: huge, tokenSize: huge, coveredByInstructions: true }], CTX),
+    }
+    assert.strictEqual(payload.instruction_files![0].line_count, 100_000_000)
+    const fp = payload.file_footprints![0]
+    for (const n of [fp.sessions_read, fp.sessions_total, fp.early_reads, fp.token_size]) assert.strictEqual(n, 100_000_000)
+    assert.deepStrictEqual(validateRollupPayload(payload), [])
+  })
+
   test('a full instruction rollup validates against the committed (extended) schema', () => {
     const payload: RollupPayload = {
       schema_version: '1',

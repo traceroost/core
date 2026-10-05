@@ -18,13 +18,17 @@ import {
   type SuggestionPriority,
   type SuggestionAction,
 } from './schema'
-import { repoHash, fileHash, type RepoKeyContext } from '../../repoKey'
+import { repoHash, fileHash, suggestionHash, type RepoKeyContext } from '../../repoKey'
 
 function sha256(s: string): string {
   return crypto.createHash('sha256').update(s).digest('hex')
 }
+// Mirrors #/$defs/count's `maximum` in schema/rollup.v1.json, as buildSessionRollup.ts does: a
+// clamped count loses a little precision on one field; an out-of-range one fails validation and
+// loses the whole payload.
+const MAX_COUNT = 100_000_000
 function nonNegInt(n: number): number {
-  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0
+  return Number.isFinite(n) && n > 0 ? Math.min(MAX_COUNT, Math.round(n)) : 0
 }
 function normalizeTimestamp(t: string | undefined): string | undefined {
   if (!t) return undefined
@@ -95,7 +99,7 @@ export function buildFileFootprints(inputs: FileFootprintInput[], ctx: RepoKeyCo
 // ── SuggestionEvent ─────────────────────────────────────────────────────────
 
 export interface SuggestionEventInput {
-  /** The existing `SuggestionCard.id` — hashed here, never sent raw. */
+  /** The existing `SuggestionCard.id` — HMAC'd under the repo key here, never sent raw. */
   id: string
   category: SuggestionCategory
   priority: SuggestionPriority
@@ -116,7 +120,7 @@ export function buildSuggestionEvents(inputs: SuggestionEventInput[], ctx: RepoK
   return inputs.slice(0, 200).map((e): SuggestionEvent => {
     const ev: SuggestionEvent = {
       repo_hash,
-      suggestion_id: sha256(e.id),
+      suggestion_id: suggestionHash(ctx, e.id),
       category: e.category,
       priority: e.priority,
       target_agents: e.targetAgents.map(toWireTargetAgent),

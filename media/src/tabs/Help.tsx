@@ -56,6 +56,7 @@ const HELP_SECTIONS = {
   mcp:        { href: '#help-mcp',        heading: 'MCP' },
   cloud:      { href: '#help-cloud',      heading: 'Cloud' },
   privacy:    { href: '#help-privacy',    heading: 'Privacy' },
+  network:    { href: '#help-network',    heading: 'Network' },
   export:     { href: '#help-export',     heading: 'Export' },
   import:     { href: '#help-import',     heading: 'Import' },
   badges:     { href: '#help-badges',     heading: 'Badges' },
@@ -231,7 +232,7 @@ function OverviewSection() {
       </div>
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
-        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, with no data leaving your machine. Docker is the least capable option: it receives OTEL only — no local log files, no agent auto-configuration, no git outcomes — so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database and Cursor CLI's transcript files — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
+        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, and your trace data never leaves your machine. Docker is the least capable option: it receives OTEL only — no local log files, no agent auto-configuration, no git outcomes — so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database and Cursor CLI's transcript files — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
         <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects seventeen signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt — see <a href="#help-signals">Signals</a> below for the full catalog.</p>
       </div>
     </div>
@@ -795,7 +796,7 @@ function AnalyticsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">By Language</dt>
-            <dd class="glossary-def" style="display:block">Traces in view grouped by primary <a href="#help-language">language</a>, the same format as the cloud dashboard's By language card. A summary line totals the files changed and lines added and removed by the agent's own edits, from the traces that recorded them (and says how many of the traces in view that was). The table then shows, per language, trace count with a bar, estimated cost, tokens (input + output) and lines +/− ("—" when none of its traces recorded lines), most traces first. Shown once any trace in view has a recorded language; traces stored before language tracking are grouped last as "Not reported".</dd>
+            <dd class="glossary-def" style="display:block">Traces in view grouped by primary <a href="#help-language">language</a>. A summary line totals the files changed and lines added and removed by the agent's own edits, from the traces that recorded them (and says how many of the traces in view that was). The table then shows, per language, trace count with a bar, estimated cost, tokens (input + output) and lines +/− ("—" when none of its traces recorded lines), most traces first. Shown once any trace in view has a recorded language; traces stored before language tracking are grouped last as "Not reported".</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Plan Limits</dt>
@@ -1140,7 +1141,7 @@ function CloudSection() {
     <div class="help-section" id="help-cloud">
       <h3 class="help-heading">{HELP_SECTIONS.cloud.heading}</h3>
       <div class="help-overview-body">
-        <p>TraceRoost Cloud links your machine to your org so a lead can see aggregate figures — cost, turnover, activity — across everyone's repositories, without seeing any individual's work. It's opt-in, off by default, and never required for the local dashboard to work. See <a href="#help-privacy">Privacy</a> below for exactly what that means and what gets sent.</p>
+        <p>TraceRoost Cloud links your machine to your org so its admins can see cost and activity figures across everyone's repositories, without seeing anyone's code, prompts or file contents. An admin sees each linked developer's individual figures; other members see only what the org's teammate-visibility settings allow. It's opt-in, off by default, and never required for the local dashboard to work. See <a href="#help-privacy">Privacy</a> below for exactly what that means and what gets sent.</p>
 
         <h4 style={subHeadStyle}>Linking and leaving</h4>
         <p style={mutedP}>Linking opens your browser once, for account setup — nothing is sent until that completes. Leaving deletes the local credential and stops all forwarding immediately, even offline; revoking the token on the server is attempted afterwards, best-effort, so nothing waits on it.</p>
@@ -1170,11 +1171,33 @@ function PrivacySection() {
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Cloud can't reverse it</dt>
-            <dd class="glossary-def" style="display:block">A hash can't be turned back into a file path or a commit sha — it's a one-way function. TraceRoost Cloud only ever sees an opaque token.</dd>
+            <dd class="glossary-def" style="display:block">A hash can't be turned back into a file path or a commit sha — it's a one-way function. TraceRoost Cloud only ever sees an opaque token. One honest caveat: the key is only as secret as your repository's root commit. For a public repository that commit is public, so anyone who also knows your organization's id can derive the key and test guesses (say, a list of likely file paths) against the hashes.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Consistent within your org, meaningless outside it</dt>
             <dd class="glossary-def" style="display:block">The same file hashes to the same token every time within your org, so patterns like "this file keeps churning" are visible without anyone learning the file's name. Because the org id is mixed into the key, the same file hashed by a different organization produces a completely unrelated token.</dd>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Shown in both editions: what TraceRoost itself sends over the network, linked or not.
+function NetworkSection() {
+  return (
+    <div class="help-section" id="help-network">
+      <h3 class="help-heading">{HELP_SECTIONS.network.heading}</h3>
+      <div class="help-overview-body">
+        <p>What goes over the network. Your trace data never leaves your machine{process.env.TRACEROOST_EDITION !== 'core' ? <> unless you link to <a href="#help-cloud">TraceRoost Cloud</a>, and then only what <a href="#help-privacy">Privacy</a> lists</> : null}. TraceRoost receives OTEL and reads agent logs locally; neither needs a connection.</p>
+        <div class="glossary">
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term">Update check (standalone only)</dt>
+            <dd class="glossary-def" style="display:block">The standalone server — npx, a global install, the background service or Docker — asks the npm registry for the latest published TraceRoost version at startup and every 8 hours, so it can show an update button. The request sends no trace or workspace data. Set <code style={codeStyle}>TRACEROOST_NO_UPDATE_CHECK=1</code> to turn it off. The IDE extension never makes it; it updates through your editor's marketplace.</dd>
+          </div>
+          <div class="glossary-item" style="flex-direction:column;gap:2px">
+            <dt class="glossary-term">Make a suggestion</dt>
+            <dd class="glossary-def" style="display:block">Opens TraceRoost's suggestion page in your browser — only when you click it. The link carries the TraceRoost version and the current tab's name, never your traces.</dd>
           </div>
         </div>
       </div>
@@ -1333,6 +1356,7 @@ export function Help() {
         <McpSection />
         {process.env.TRACEROOST_EDITION !== 'core' && <CloudSection />}
         {process.env.TRACEROOST_EDITION !== 'core' && <PrivacySection />}
+        <NetworkSection />
         <ExportSection />
         <ImportSection />
         <BadgesSection />

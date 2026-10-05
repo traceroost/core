@@ -7,7 +7,7 @@ when a release is published. `ci.yml`'s `windows-latest` leg still covers lint, 
 the production build and the Playwright UX evaluations (against a stub server).
 
 **Trigger for the manual pass below:** before cutting a release, or after touching anything in the
-"still manual" list. Before that, check the latest `Windows E2E` run is green — if it is, only the
+"still manual" list. Before that, check the latest `E2E` run is green — if it is, only the
 manual items are left.
 
 ## What CI proves on Windows
@@ -38,7 +38,7 @@ run-summary notice) when its key is missing. Nothing else needs a secret.
 These need a person — an interactive sign-in, a human eye, or hardware CI doesn't have. Use a
 Windows VM (UTM on Apple Silicon runs ARM64 Windows 11 for free; Parallels/VMware Fusion for x64),
 install VS Code, [Git for Windows](https://git-scm.com/download/win), Node 24 and `pnpm`, then
-install the VSIX artifact from the latest `Windows E2E` or `Release` run.
+install the VSIX artifact from the latest `E2E` or `Release` run.
 
 1. **GitHub Copilot in VS Code.** Copilot Chat needs an interactive GitHub sign-in, so no CI job
    drives it. Run one Copilot Chat agent turn and confirm the session appears (TraceRoost

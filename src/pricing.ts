@@ -276,16 +276,24 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
 // is completely unaffected — only where a rate's *numbers* come from can change.
 //
 // Cloud's effective-rates endpoint only knows 4 flat per-MTok rates (no tiered/long-context
-// surcharge fields, no contextWindowTokens — the cloud pricing table doesn't model either). An
-// override entry always gets contextWindowTokens: 0 ("unknown"), same as any other model this
-// file has no context-window data for; cost math is unaffected, only the Projection tab's
-// context-fill estimate loses precision for an overridden model specifically.
+// surcharge fields, no contextWindowTokens — the cloud pricing table doesn't model either). So an
+// override is merged over the local entry: cloud's four rates win, the local contextWindowTokens
+// and long-context tier fields are kept. Only a model unknown locally gets a bare entry, with
+// contextWindowTokens: 0 ("unknown") like any other model this file has no context-window data for.
 let cloudRateOverrides: Map<string, ModelRates> = new Map()
 
 export function setCloudRateOverrides(rates: Record<string, Omit<ModelRates, 'contextWindowTokens'>>): void {
   const map = new Map<string, ModelRates>()
   for (const [modelId, r] of Object.entries(rates)) {
-    map.set(normalizeCostKey(modelId), { ...r, contextWindowTokens: 0 })
+    const key = normalizeCostKey(modelId)
+    const flat = {
+      inputPerMTok: r.inputPerMTok,
+      cacheReadPerMTok: r.cacheReadPerMTok,
+      cacheWritePerMTok: r.cacheWritePerMTok,
+      outputPerMTok: r.outputPerMTok,
+    }
+    const local = RATES_BY_COST_KEY.get(key)
+    map.set(key, local ? { ...local, ...flat } : { ...flat, contextWindowTokens: 0 })
   }
   cloudRateOverrides = map
 }

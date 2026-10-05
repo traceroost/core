@@ -5,14 +5,14 @@
 > **Note:** AgentLens is now **TraceRoost**. Already using AgentLens? See [Upgrading from AgentLens](#upgrading-from-agentlens).
 
 [![CI](https://github.com/traceroost/core/actions/workflows/ci.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/ci.yml)
-[![Windows E2E](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml)
+[![E2E](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
 
 ![TraceRoost dashboard showing OTEL traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.a83a52c7ce2b.gif)
 
-Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. Nothing leaves your machine.
+Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. Your trace data never leaves your machine.
 
-TraceRoost receives **OpenTelemetry traces** from Copilot, Claude Code, and Codex in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** and Cursor CLI's transcript files — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
+TraceRoost supports **Claude Code, Codex, GitHub Copilot, OpenCode, and Cursor CLI**. It receives **OpenTelemetry traces** from Claude Code, Codex, and GitHub Copilot in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** and Cursor CLI's transcript files — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
 
 Two things it does that a usage dashboard doesn't:
 
@@ -108,7 +108,7 @@ See [Manual Configuration](#manual-configuration) for the specific settings each
 
 ### Log file ingestion (fallback source, VS Code-family IDEs and native process only)
 
-TraceRoost also reads the local log files that Claude Code, Codex, Copilot CLI, and Copilot Chat write automatically to your home directory. This requires no configuration and backfills trace history that predates OTEL setup. Log-sourced traces show a **Log** badge. **Not available in Docker mode** — the container cannot access host log directories without explicit volume mounts for every agent path.
+TraceRoost also reads the local log files that Claude Code, Codex, GitHub Copilot (Copilot CLI and Copilot Chat), OpenCode, and Cursor CLI write automatically to your home directory. This requires no configuration and backfills trace history that predates OTEL setup. Log-sourced traces show a **Log** badge. **Not available in Docker mode** — the container cannot access host log directories without explicit volume mounts for every agent path.
 
 | Agent | Log file location (Mac/Linux) | Windows |
 | --- | --- | --- |
@@ -301,7 +301,7 @@ The extension receives OTEL traces in real time **and** reads local log files, s
 
 Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
 
-1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=traceroost.traceroost)**
+1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)**
 2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
 3. TraceRoost auto-configures OTEL telemetry for Copilot, Claude Code, and Codex — restart any running agents to start streaming traces
 4. Past trace history loads automatically from local log files — no extra setup needed
@@ -477,6 +477,7 @@ Environment variables:
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
 | `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
 | `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Configure OTEL** button reports that it's disabled) |
+| `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends no data) |
 | `TRACEROOST_BUDGET_CAP_USD` | unset | Per-trace dollar cap for the **Budget Overrun** signal; the signal is off until this is set (also read by the VS Code extension from its environment) |
 
 **LAN mode / security.** On the default `127.0.0.1` bind only processes on your machine can connect,
@@ -618,6 +619,48 @@ TraceRoost is built in two editions from the same source:
 `node esbuild.js --edition=core` builds core; the default is full. See
 [CONTRIBUTING.md](CONTRIBUTING.md#editions) for how the split is enforced.
 
+## Network
+
+Your trace data stays on your machine. The one outbound request TraceRoost makes on its own is an
+update check: the standalone server (`npx traceroost`, the background service and Docker) asks
+`registry.npmjs.org` for the latest `traceroost` version at startup and every 8 hours, so the
+dashboard can tell you when a newer release is out. It sends no trace data, settings or
+identifiers — it's a plain request for the public package's latest version. Set
+`TRACEROOST_NO_UPDATE_CHECK=1` to turn it off.
+
+## Uninstall
+
+**Remove TraceRoost itself:**
+
+- **VS Code extension** — uninstall it from the Extensions view, or run
+  `code --uninstall-extension agentlens.agentlens-dashboard`.
+- **Background service** — `traceroost service uninstall` removes the launchd / systemd / Scheduled
+  Task definition (your data is left alone). `service install` under `npx` also installed
+  `traceroost` globally; remove that with `npm uninstall -g traceroost`.
+- **Docker** — stop and remove the container (`docker rm -f <container>`) and, if you like, the
+  image (`docker rmi traceroost/traceroost`).
+
+**Remove its data:** delete `~/.traceroost` (or wherever you pointed `DATA_DIR` /
+`--data-dir`) — the standalone server's trace database, its `config.json` (ports, access token)
+and logs. Automation prompts files (`traceroost-prompts-*.md`) live in your workspace root or the
+server's working directory if you turned them on.
+
+**Remove what auto-configuration wrote into your agents** (skip this if you turned
+auto-configuration off). TraceRoost only ever added or updated these keys; everything else in the
+files is yours. When it changed a file that already existed, it first saved the original once as
+`<file>.traceroost.bak` next to it — restoring that undoes everything TraceRoost changed (and
+anything you changed since).
+
+| Agent | File | What to remove |
+| --- | --- | --- |
+| **Claude Code** | `~/.claude/settings.json` | Under `"env"`: `CLAUDE_CODE_ENABLE_TELEMETRY`, `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`, `OTEL_TRACES_EXPORTER`, `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT`, `OTEL_LOG_USER_PROMPTS` |
+| **Codex** | `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) | In the `[otel]` table: `log_user_prompt`, `exporter`, `trace_exporter` (or the whole `[otel]` table if TraceRoost added it) |
+| **GitHub Copilot** | VS Code user `settings.json` — in each VS Code-family IDE (VS Code, Insiders, Cursor, Windsurf, VSCodium, Trae, Kiro) | `github.copilot.chat.otel.enabled`, `github.copilot.chat.otel.exporterType`, `github.copilot.chat.otel.otlpEndpoint` |
+
+OpenCode and Cursor CLI need no configuration, so there's nothing to remove for them. Restart any
+running agents afterwards. Leaving the keys in place is harmless apart from the agents trying to
+send telemetry to a port nothing is listening on.
+
 ## Automation Prompts File
 
 When an automation threshold is crossed, TraceRoost can write the generated prompt to a markdown file. To act on it automatically, configure your agent to watch or include that file as an input — for example, by pointing Claude Code at it via a hook or referencing it in a system prompt. Without that wiring, the file serves as a persistent, reviewable log you can paste from manually. For simpler workflows, leave **Write prompts file** off and use the **Copy Prompt** notification button instead.
@@ -688,6 +731,6 @@ License 1.1) — see [NOTICE.md](NOTICE.md).
 
 ## Disclaimer
 
-TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); or OpenAI, LLC (Codex CLI). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products only through their telemetry interfaces and the log files and databases they write locally on your machine.
+TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); OpenAI, LLC (Codex CLI); Anysphere, Inc. (Cursor / Cursor CLI); or the OpenCode project (OpenCode). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products only through their telemetry interfaces and the log files and databases they write locally on your machine.
 
 **Third-party changes.** TraceRoost depends on log formats, telemetry, pricing, and plan-limit information controlled by third-party vendors, including Anthropic, OpenAI, GitHub/Microsoft, Cursor, and OpenCode. These vendors may change, deprecate, or remove their products, APIs, log formats, telemetry, pricing, or usage limits at any time, without notice. Such upstream changes are outside the control of TraceRoost and its maintainers, and may cause TraceRoost to show incomplete, inaccurate, or missing data, or to stop working in whole or in part. TraceRoost and its maintainers are not responsible or liable for any impact of those changes, including on costs, charges, rate limits, quotas, or decisions made based on data TraceRoost reports. TraceRoost is provided "as is", without warranty of any kind, as stated in its [license](#license).

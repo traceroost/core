@@ -5,6 +5,11 @@
   "version": "0.18.1",
   "publisher": "traceroost",
   "license": "MIT",
+  "author": "TraceRoost",
+  "homepage": "https://github.com/traceroost/core#readme",
+  "bugs": {
+    "url": "https://github.com/traceroost/core/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/traceroost/core"
@@ -36,6 +41,7 @@
     "dashboard"
   ],
   "categories": [
+    "AI",
     "Other",
     "Visualization"
   ],
@@ -126,7 +132,7 @@
           {
             "id": "traceroost.autoConfig",
             "title": "Agents Are Ready",
-            "description": "TraceRoost automatically configured your agents to send telemetry to the local collector. Restart any running agents to start collecting traces. Past trace history is already loading from local log files — no restart needed to see it.",
+            "description": "Unless auto-configuration is turned off (traceRoost.autoConfigureAgents), TraceRoost configured your agents to send telemetry to the local collector. Restart any running agents to start collecting traces. Past trace history is already loading from local log files — no restart needed to see it.",
             "media": {
               "markdown": "walkthrough/agents.md"
             }

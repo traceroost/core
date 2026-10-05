@@ -239,7 +239,7 @@ export function describeLockHolder(dataDir: string, holder: DataDirLockInfo | nu
       ? `dashboard http://localhost:${holder.uiPort}, OTLP port ${holder.otlpPort}, MCP port ${holder.mcpPort}`
       : 'still binding its ports'
     lines.push(`  Running instance: pid ${holder.pid} ${where}${holder.service ? ', the background service' : ''} — ${ports}, started ${holder.startedAt}.`)
-    lines.push('  Two servers on one data directory overwrite each other\'s spans.json and race the cloud forward queue, so only one may run.')
+    lines.push('  Two servers on one data directory overwrite each other\'s spans.json, so only one may run.')
     if (holder.uiPort !== undefined && local) lines.push(`  - Use the running one: open http://localhost:${holder.uiPort}`)
     if (holder.service) {
       lines.push(`  - Or stop it: \`traceroost service stop\`${local ? '' : ` on ${holder.hostname}`}.`)

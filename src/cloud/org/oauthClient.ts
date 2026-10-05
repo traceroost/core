@@ -85,13 +85,31 @@ export function clientVersion(): string {
   // would be wrong in at least one of them.
   for (const rel of ['..', '../..', '../../..']) {
     try {
-      const raw = fs.readFileSync(path.join(__dirname, rel, 'package.json'), 'utf-8')
-      const v = (JSON.parse(raw) as { name?: string; version?: string })
-      if (v.name === 'agentlens-dashboard' && v.version) { cachedVersion = v.version; return cachedVersion }
+      const v = versionFromPackageJson(fs.readFileSync(path.join(__dirname, rel, 'package.json'), 'utf-8'))
+      if (v) { cachedVersion = v; return cachedVersion }
     } catch { /* try the next candidate */ }
   }
   cachedVersion = '0.0.0'
   return cachedVersion
+}
+
+/** The extension ships as `agentlens-dashboard`, the npm/standalone package as `traceroost`; any
+ *  other package.json found on the way up (a host project's) is not ours. */
+const OUR_PACKAGE_NAMES = new Set(['agentlens-dashboard', 'traceroost'])
+
+/** The version in a package.json body, if it is one of ours. Exported for tests. */
+export function versionFromPackageJson(raw: string): string | undefined {
+  const v = JSON.parse(raw) as { name?: string; version?: string }
+  return v.name && OUR_PACKAGE_NAMES.has(v.name) && v.version ? v.version : undefined
+}
+
+/** RFC 6749 §5.2: a refresh rejected with `invalid_grant` or `invalid_client` will never succeed
+ *  on retry. Matches on the code before any space or parenthesis, so a server that appends detail
+ *  to `error` (`invalid_grant (refresh token expired)`) is still read as permanent. */
+export function isPermanentRefreshError(error: unknown): boolean {
+  if (typeof error !== 'string') return false
+  const code = error.trim().split(/[\s(]/, 1)[0]
+  return code === 'invalid_grant' || code === 'invalid_client'
 }
 
 function parseTokenBody(raw: RawTokenBody): TokenResponse {
@@ -155,7 +173,7 @@ export async function refreshTokens(refreshToken: string, endpoint = orgEndpoint
   })
   const raw = (await res.json().catch(() => ({}))) as RawTokenBody
   if (!res.ok) {
-    const permanent = raw.error === 'invalid_grant' || raw.error === 'invalid_client'
+    const permanent = isPermanentRefreshError(raw.error)
     throw new TokenRefreshError(`token refresh failed: ${raw.error ?? `HTTP ${res.status}`}`, permanent)
   }
   return parseTokenBody(raw)

@@ -11,11 +11,13 @@ import { SENT, NEVER_SENT, whoSeesWhat } from '../../../cloud/org/privacy'
 suite('org/privacy', () => {
   test('SENT is the agreed list, verbatim', () => {
     assert.deepStrictEqual([...SENT], [
-      'Usage counts — traces, turns, tool calls, tokens, files changed, lines added and removed',
-      'Model, agent and programming-language names, with timestamps',
-      'Hashed repository, branch and file ids — one-way, from your own clone',
+      'Usage counts — traces, turns, tool calls by tool name, tokens, files changed, lines added and removed',
+      'Model, agent and language names, and the outcome, with timestamps',
+      'Hashed repository, branch, file and git-author ids — one-way, keyed by your own clone',
       'Instruction-file line counts and how often sessions read each file',
       'Loop and error categories (never a message)',
+      'Which Advisor suggestions you applied or dismissed, with before/after averages',
+      'Your machine’s hostname and TraceRoost version, when you link it',
     ])
   })
 

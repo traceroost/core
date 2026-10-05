@@ -1,4 +1,4 @@
-name: Windows E2E
+name: E2E
 
 # Real end-to-end coverage on Windows (x64 and ARM64), with macOS and Linux alongside for
 # comparison. ci.yml's windows-latest leg covers lint/types/unit tests/build and the Playwright UX

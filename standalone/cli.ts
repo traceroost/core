@@ -9,9 +9,12 @@
 // locally (traces-table.tsx's HashHandoff) and prints what it finds, ending with a `vscode://`
 // deep link into the interactive view — doesn't start the server. `traceroost trace --id <id>`
 // and `traceroost patterns --repo <hash|name>` run either half of `find` directly.
-// Any other bare word is an unknown subcommand: print usage and exit non-zero rather than
-// silently starting the server. `--help`/`-h` prints the usage. No arguments (or other flags
-// only) starts the server.
+// Any other bare word is an unknown subcommand, and any other flag an unknown option: print usage
+// and exit non-zero rather than silently starting the server (which also auto-configures agents).
+// `--help`/`-h` prints the usage, `--version`/`-v` the version. Only no arguments at all starts
+// the server (see cliArgs.ts).
+
+import { topLevelAction, usageText } from './cliArgs'
 
 // TraceRoost Cloud (org link + upload) subcommands and the cloud step of local ones come only
 // through this seam — see cliCloud.ts. The core edition's build swaps in inert stubs. Loaded
@@ -21,25 +24,18 @@ const loadCloud = async () => (await import('./cliCloud.js')).cliCloud
 // A literal `process.env.TRACEROOST_EDITION` check (esbuild.js defines it), so the core build's
 // usage text doesn't advertise commands it can't run.
 const CLOUD = process.env.TRACEROOST_EDITION !== 'core'
-
-const USAGE = [
-  'Usage:',
-  '  traceroost                                   start the server (UI, OTLP receiver, MCP)',
-  CLOUD && '  traceroost --explain-payload [--last|--all|--session <id>|--since <date>] [--dry-run]',
-  '  traceroost service <install|uninstall|start|stop|restart|status|logs|update>',
-  CLOUD && '  traceroost org <link|status|verify|leave> [--device]',
-  '  traceroost find <repo hash | trace/session id> [--reporter <email>]',
-  '  traceroost trace --id <sessionId>',
-  '  traceroost patterns --repo <hash|name>',
-  '  traceroost advise <--list|--apply <id>> [--repo <path>]',
-  CLOUD && '  traceroost cluster --repo <hash> --id <id>',
-  '  traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]',
-].filter(Boolean).join('\n')
+const USAGE = usageText(CLOUD)
 
 async function main() {
   const args = process.argv.slice(2)
-  if (args[0] === '--help' || args[0] === '-h') {
+  const action = topLevelAction(args)
+  if (action === 'help') {
     console.log(USAGE)
+    return
+  }
+  if (action === 'version') {
+    const { readPackageManifest } = await import('../src/serviceConfig.js')
+    console.log(readPackageManifest(__dirname).version ?? 'unknown')
     return
   }
   if (args[0] === 'service') {
@@ -83,14 +79,21 @@ async function main() {
     process.exitCode = await runPatternsCli(args.slice(1), undefined, (await loadCloud()).resolveRepoHash)
     return
   }
-  if (args[0] !== undefined && !args[0].startsWith('-')) {
+  if (action === 'subcommand') {
     console.error(`Unknown command: ${args[0]}\n\n${USAGE}`)
     process.exitCode = 1
     return
   }
-  const explain = (await loadCloud()).maybeRunExplainPayload(args)
-  if (explain) {
-    process.exitCode = await explain
+  if (action === 'explain') {
+    const explain = (await loadCloud()).maybeRunExplainPayload(args)
+    if (explain) {
+      process.exitCode = await explain
+      return
+    }
+  }
+  if (action !== 'server') {
+    console.error(`Unknown option: ${args[0]}\n\n${USAGE}`)
+    process.exitCode = 1
     return
   }
   await import('./server.js')
