@@ -477,6 +477,7 @@ Environment variables:
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
 | `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
 | `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Configure OTEL** button reports that it's disabled) |
+| `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends no data) |
 | `TRACEROOST_BUDGET_CAP_USD` | unset | Per-trace dollar cap for the **Budget Overrun** signal; the signal is off until this is set (also read by the VS Code extension from its environment) |
 
 **LAN mode / security.** On the default `127.0.0.1` bind only processes on your machine can connect,
