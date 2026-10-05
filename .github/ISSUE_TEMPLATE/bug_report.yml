@@ -42,6 +42,8 @@ body:
         - GitHub Copilot
         - Claude Code
         - Codex CLI
+        - OpenCode
+        - Cursor CLI
         - Multiple / unsure
     validations:
       required: true
@@ -52,8 +54,10 @@ body:
       label: Running as
       options:
         - VS Code extension
-        - Standalone server (pnpm run standalone)
+        - npx traceroost
+        - Background service (traceroost service install)
         - Docker container
+        - From source
     validations:
       required: true
 
@@ -72,7 +76,7 @@ body:
     id: version
     attributes:
       label: TraceRoost version
-      placeholder: "e.g. 0.1.0  (Help tab → About, or check package.json)"
+      placeholder: "e.g. 0.18.1  (bottom-left of the Traces tab, or run `traceroost --version`)"
     validations:
       required: false
 

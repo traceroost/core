@@ -1,4 +1,4 @@
-TraceRoost ran a built-in OTEL receiver and wrote telemetry config for each agent it detected:
+TraceRoost runs a built-in OTEL receiver and, unless auto-configuration is turned off (the `traceRoost.autoConfigureAgents` setting), wrote telemetry config for each agent it detected:
 
 ## OpenTelemetry (primary — real-time, richest data)
 
@@ -10,7 +10,7 @@ TraceRoost ran a built-in OTEL receiver and wrote telemetry config for each agen
 
 OTEL gives you real-time span timing, time-to-first-token, loop detection, file diffs, and streaming speed. Traces from OTEL show an **OTEL** badge.
 
-> **Restart any running agent sessions** to pick up the OTEL config. No external infrastructure is required — everything stays on-device.
+> **Restart any running agent sessions** to pick up the OTEL config. With auto-configuration off, use **Configure OTEL** in Settings or set it up by hand (Help tab → Setup). No external infrastructure is required — everything stays on-device.
 
 ## Log files (fallback — history, no extra setup)
 
