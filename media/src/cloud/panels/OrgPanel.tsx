@@ -7,11 +7,13 @@ import { vscode, goToHelp } from '../../state'
 // side (src/test/cloud/org/privacy.test.ts) pins the source-of-truth copy and checks this file
 // carries the same lines (SENT, NEVER_SENT, and whoSeesWhat below).
 const SENT = [
-  'Usage counts — traces, turns, tool calls, tokens, files changed, lines added and removed',
-  'Model, agent and programming-language names, with timestamps',
-  'Hashed repository, branch and file ids — one-way, from your own clone',
+  'Usage counts — traces, turns, tool calls by tool name, tokens, files changed, lines added and removed',
+  'Model, agent and language names, and the outcome, with timestamps',
+  'Hashed repository, branch, file and git-author ids — one-way, keyed by your own clone',
   'Instruction-file line counts and how often sessions read each file',
   'Loop and error categories (never a message)',
+  'Which Advisor suggestions you applied or dismissed, with before/after averages',
+  'Your machine’s hostname and TraceRoost version, when you link it',
 ]
 const NEVER_SENT = [
   'Prompts, completions, diffs and file contents',
@@ -357,8 +359,8 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
       </Section>
       <Section title="Why link">
         <ul style="margin:0;padding-left:14px;color:var(--muted);font-size:11px;line-height:1.6">
-          <li>Gives your org's admins org-wide cost &amp; activity totals, without exposing anyone's code</li>
-          <li>Team totals only by default — individual numbers stay private unless your team turns that on</li>
+          <li>Gives your org's admins cost &amp; activity figures across the team, without exposing anyone's code</li>
+          <li>An admin sees your individual figures; other members see only what your org's teammate-visibility settings allow</li>
           <li>Opt-in and off by default; nothing is sent until you link</li>
           <li>Reversible any time — unlinking deletes the local credential and stops sending immediately, even offline</li>
           <li>Works offline — sessions queue locally and send automatically once you're back</li>

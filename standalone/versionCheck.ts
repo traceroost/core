@@ -78,10 +78,19 @@ export function getCachedVersionCheck(currentVersion: string): VersionCheckResul
   return { ...cache, currentVersion }
 }
 
+/** `TRACEROOST_NO_UPDATE_CHECK=1` (or `true`) turns the npm check off entirely — the only request
+ *  the standalone server makes to the internet on its own. */
+export function updateCheckDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = env.TRACEROOST_NO_UPDATE_CHECK?.trim().toLowerCase()
+  return v === '1' || v === 'true'
+}
+
 /** Starts a background check now (fire-and-forget) and re-checks every `REFRESH_INTERVAL_MS` for
- *  as long as the process lives. Call once, near server startup. */
+ *  as long as the process lives. Call once, near server startup. Does nothing beyond recording
+ *  the current version when `updateCheckDisabled()` — no fetch, no timer. */
 export function startVersionCheckLoop(currentVersion: string, packageName = 'traceroost'): void {
   cache = { ...cache, currentVersion }
+  if (updateCheckDisabled()) { return }
   void refresh(currentVersion, packageName)
   setInterval(() => {
     if (Date.now() - lastAttemptAt < REFRESH_INTERVAL_MS) { return }

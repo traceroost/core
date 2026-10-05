@@ -16,13 +16,18 @@
  *  git commit / turnover records have wire shapes (`buildCommitRecords.ts`, schema) but no caller
  *  — add them back here, in both repos, in the same change that starts sending them. "files
  *  changed, lines added and removed" are the session's own agent-authored edit counts
- *  (`src/editStats.ts`), and "programming-language names" are the fixed ids of `src/language.ts`. */
+ *  (`src/editStats.ts`), "language names" are the fixed ids of `src/language.ts`, the git-author
+ *  id is `member_author_hash` (`repoKey.ts` `authorHash`), the Advisor line is AL 08's suggestion
+ *  events (`buildInstructionTelemetry.ts`), and the hostname and version are the link's `label`
+ *  and `client_version` (`oauthClient.ts`). */
 export const SENT: readonly string[] = [
-  'Usage counts — traces, turns, tool calls, tokens, files changed, lines added and removed',
-  'Model, agent and programming-language names, with timestamps',
-  'Hashed repository, branch and file ids — one-way, from your own clone',
+  'Usage counts — traces, turns, tool calls by tool name, tokens, files changed, lines added and removed',
+  'Model, agent and language names, and the outcome, with timestamps',
+  'Hashed repository, branch, file and git-author ids — one-way, keyed by your own clone',
   'Instruction-file line counts and how often sessions read each file',
   'Loop and error categories (never a message)',
+  'Which Advisor suggestions you applied or dismissed, with before/after averages',
+  'Your machine’s hostname and TraceRoost version, when you link it',
 ]
 
 /** What never leaves the machine. There is no wire field that could hold it. */

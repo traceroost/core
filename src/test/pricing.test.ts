@@ -265,7 +265,23 @@ suite('pricing — cloud rate overrides', () => {
     assert.ok(local && local.inputPerMTok > 0)
     setCloudRateOverrides({ 'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4 } })
     assert.deepStrictEqual(lookupRates('claude-sonnet-5'), {
-      inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4, contextWindowTokens: 0,
+      inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4, contextWindowTokens: local.contextWindowTokens,
+    })
+  })
+
+  test('an override keeps the local context window and long-context tier fields', () => {
+    const local = lookupRates('gpt-5.4')!
+    assert.ok(local.contextWindowTokens > 0 && local.longContextThresholdTokens)
+    setCloudRateOverrides({ 'gpt-5.4': { inputPerMTok: 3, cacheReadPerMTok: 0.3, cacheWritePerMTok: 0, outputPerMTok: 16 } })
+    assert.deepStrictEqual(lookupRates('gpt-5.4'), {
+      ...local, inputPerMTok: 3, cacheReadPerMTok: 0.3, cacheWritePerMTok: 0, outputPerMTok: 16,
+    })
+  })
+
+  test('an override for a model unknown locally is a bare entry with an unknown context window', () => {
+    setCloudRateOverrides({ 'some-orgs-fine-tune': { inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 5 } })
+    assert.deepStrictEqual(lookupRates('some-orgs-fine-tune'), {
+      inputPerMTok: 1, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 5, contextWindowTokens: 0,
     })
   })
 
@@ -296,7 +312,7 @@ suite('pricing — cloud rate overrides', () => {
     assert.deepStrictEqual(getCloudRateOverrides(), {})
     setCloudRateOverrides({ 'Claude-Sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4 } })
     assert.deepStrictEqual(getCloudRateOverrides(), {
-      'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4, contextWindowTokens: 0 },
+      'claude-sonnet-5': { inputPerMTok: 1, cacheReadPerMTok: 2, cacheWritePerMTok: 3, outputPerMTok: 4, contextWindowTokens: 1_000_000 },
     })
   })
 })

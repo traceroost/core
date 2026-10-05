@@ -12,6 +12,7 @@
  * commit_hash = HMAC(repo_key, <commit sha>)
  * repo_key_fp = HMAC(repo_key, "fingerprint")
  * author_hash = HMAC(repo_key, "author:" + <git author email, lowercased>)
+ * suggestion_id = HMAC(repo_key, "suggestion:" + <Advisor suggestion id>)
  * ```
  *
  * `author_hash` (AL 04's commit-attribution fix, docs/decisions/0005 in `cloud`) is the same
@@ -143,6 +144,13 @@ export function commitHash(ctx: RepoKeyContext, sha: string): string {
  *  git configs don't produce two different hashes for the same person. */
 export function authorHash(ctx: RepoKeyContext, email: string): string {
   return hmac(ctx.key, `author:${email.trim().toLowerCase()}`)
+}
+
+/** Hashes an Advisor suggestion id for `suggestion_id`. The id can embed a repo-relative path
+ *  (`hot_file:src_foo_ts`), so a plain digest would be guessable from a list of likely paths;
+ *  keying it like `file_hash` closes that. Prefixed so it can never equal another hash kind. */
+export function suggestionHash(ctx: RepoKeyContext, id: string): string {
+  return hmac(ctx.key, `suggestion:${id}`)
 }
 
 /** Fingerprint carried on every record so the service can flag a member whose history was

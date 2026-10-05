@@ -4,7 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { fileCredentialStore, setCredentialStore, loadCredentials } from '../../../cloud/org/credentials'
 import { refreshCredentials, freshCredentials, fetchWithFreshToken } from '../../../cloud/org/tokenRefresh'
-import { TokenRefreshError } from '../../../cloud/org/oauthClient'
+import { TokenRefreshError, isPermanentRefreshError, versionFromPackageJson } from '../../../cloud/org/oauthClient'
 import type { OrgCredentials } from '../../../cloud/org/config'
 
 const CREDS: OrgCredentials = {
@@ -58,6 +58,32 @@ suite('org/tokenRefresh', () => {
   test('a genuinely rejected refresh token surfaces as a permanent error', async () => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })) as typeof fetch
     await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && e.permanent)
+  })
+
+  test('a rejection whose error carries trailing detail is still permanent', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'invalid_grant (refresh token expired)' }), { status: 400 })) as typeof fetch
+    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && e.permanent)
+  })
+
+  test('a server error during refresh is not permanent', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'server_error' }), { status: 500 })) as typeof fetch
+    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && !e.permanent)
+  })
+
+  test('isPermanentRefreshError reads only the error code before any detail', () => {
+    for (const e of ['invalid_grant', 'invalid_client', 'invalid_grant (refresh token expired)', 'invalid_client(revoked)', ' invalid_grant']) {
+      assert.strictEqual(isPermanentRefreshError(e), true, e)
+    }
+    for (const e of [undefined, 42, '', 'server_error', 'invalid_grants', 'temporarily_unavailable (invalid_grant)', 'invalid_request']) {
+      assert.strictEqual(isPermanentRefreshError(e), false, String(e))
+    }
+  })
+
+  test('versionFromPackageJson accepts the extension and npm package names only', () => {
+    assert.strictEqual(versionFromPackageJson(JSON.stringify({ name: 'agentlens-dashboard', version: '1.2.3' })), '1.2.3')
+    assert.strictEqual(versionFromPackageJson(JSON.stringify({ name: 'traceroost', version: '4.5.6' })), '4.5.6')
+    assert.strictEqual(versionFromPackageJson(JSON.stringify({ name: 'some-host-project', version: '9.9.9' })), undefined)
+    assert.strictEqual(versionFromPackageJson(JSON.stringify({ name: 'traceroost' })), undefined)
   })
 
   test('freshCredentials leaves a comfortably valid token alone', async () => {
