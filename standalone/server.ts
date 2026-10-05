@@ -2859,7 +2859,7 @@ async function startOtlpServer(): Promise<void> {
         console.warn(
           `[TraceRoost] Two TraceRoost hosts are running — the VS Code extension already holds port ${OTLP_PORT}; this service moved to port ${bound} instead.\n` +
           `  - Agents are already pointed at ${bound}, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.\n` +
-          `  - Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (\`code --uninstall-extension traceroost.traceroost\`), then reload.\n` +
+          `  - Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (\`code --uninstall-extension agentlens.agentlens-dashboard\`), then reload.\n` +
           `  - Prefer VS Code instead? Stop this service with \`traceroost service stop\`.`
         )
       } else {

@@ -302,6 +302,9 @@ export type CollectorConflict = {
   owner: 'standalone' | 'plugin' | 'foreign'
   port: number
   boundPort?: number
+  /** The installed extension's marketplace id (sent by the VS Code extension, for the uninstall
+   *  command); absent from the background/npx service, which can't know it. */
+  extensionId?: string
 } | null
 
 /** Progress of the host's one-time historical log pass at startup (standalone/server.ts's

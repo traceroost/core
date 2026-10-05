@@ -58,7 +58,7 @@ const TABS = [
   { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail — waterfall, files, cost, and flagged issues for each trace.' },
   { id: 'analytics',  label: 'Analytics',  title: 'Aggregate charts and metrics: token/cost trends, agent comparison, tool distribution, and active insights.' },
   { id: 'patterns',   label: 'Advisor',    title: 'Cross-trace behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
-  { id: 'export',     label: 'Export',     title: 'Export raw or redacted trace data as JSON files.' },
+  { id: 'export',     label: 'Export',     title: 'Export raw or redacted trace data as JSON, CSV, or Markdown.' },
   { id: 'import',     label: 'Import',     title: 'Import trace data from a TraceRoost export file.' },
 ]
 
@@ -910,6 +910,11 @@ export function App() {
 // the version/paging row — rather than drifting down to the panel's full flex-filled height
 // whenever content is shorter than the viewport. Sticky still keeps it pinned to the visible
 // bottom edge while scrolling through long content.
+
+// The marketplace id the extension is published under (vsce-identity.json) — used when the host
+// can't say which id is installed (the background/npx service).
+const PUBLISHED_EXTENSION_ID = 'agentlens.agentlens-dashboard'
+
 // Shown on both hosts this ships as — the VS Code extension (owner 'standalone'/'foreign') and
 // the background/npx service (owner 'plugin'/'foreign', which fell back to boundPort instead of
 // failing to start; see standalone/server.ts's startOtlpServer). Dismissible per conflict identity
@@ -920,6 +925,7 @@ function CollectorConflictBanner() {
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
   if (!conflict) return null
   const { owner, port, boundPort } = conflict
+  const extensionId = conflict.extensionId ?? PUBLISHED_EXTENSION_ID
   const key = `${owner}:${port}:${boundPort ?? ''}`
   if (dismissedKey === key) return null
   return (
@@ -932,7 +938,7 @@ function CollectorConflictBanner() {
             <ul style="margin:2px 0 0;padding-left:16px">
               <li>New sessions here come from log files only (no prompt/tool content).</li>
               <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command).</li>
-              <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension traceroost.traceroost</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
+              <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension {extensionId}</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
             </ul>
           </>
         ) : owner === 'plugin' ? (
@@ -940,7 +946,7 @@ function CollectorConflictBanner() {
             <strong>Two TraceRoost hosts are running</strong> — the VS Code extension already holds port <code>{port}</code>; this service moved to port <code>{boundPort}</code> instead.
             <ul style="margin:2px 0 0;padding-left:16px">
               <li>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.</li>
-              <li>Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (<code>code --uninstall-extension traceroost.traceroost</code>), then reload.</li>
+              <li>Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (<code>code --uninstall-extension {extensionId}</code>), then reload.</li>
               <li>Prefer VS Code instead? Stop this service with <code>traceroost service stop</code>.</li>
             </ul>
           </>

@@ -2,6 +2,43 @@
 
 All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
+## [Unreleased]
+
+> **Your local trace history is rebuilt once on the first start after upgrading.** Traces now get one stable key per agent turn, so the VS Code extension and the npx/service server drop their stored traces and read every agent log file again from scratch (instruction suggestions, plan-limit readings and settings are kept). A large history takes a few minutes to fill back in. Traces that only ever reached TraceRoost over OTEL, or whose log file the agent has since deleted, may not come back — export them first if you need them (#288, #296)
+
+### Added
+
+- **Language and change size for every trace** — each trace gets a primary (and secondary) language from the files its tool calls touched, plus files changed and lines added/removed by the agent's own edits. They show as Lang and Changes columns, detail tiles, a Language filter, a By language table in Analytics and fields in exports. Dart, Shell, SQL, HTML and CSS are recognised; `.vue`/`.svelte` count as TypeScript or JavaScript (#274, #280, #284, #286, #288)
+- **Non-code traces are named by what they touched** — instead of "No code", a trace reads Docs, Config, Data or Assets by the most common kind of file, or No files when no path was touched at all (#295)
+- **Code changes over time in Analytics** — lines added and removed per day or week from the agent's own edits, with files changed as a line; traces without change data are left out and counted in a note (#286)
+- **Make a suggestion** — a header link to TraceRoost's public suggestion page, sending only the version and the current tab (#286, #289)
+- **One trace per agent turn on every log source** — interrupts, compaction and subagent files stay in their turn, a Claude Code OTEL trace joins its transcript turn, and richer data (OTEL with usage) is never replaced by a poorer copy (#288)
+- **Instruction suggestions for every repo in the npx/service dashboard**, each with its own file picker and Apply/Dismiss; suggestions can also target OpenCode and Cursor CLI (`AGENTS.md`, `.cursor/rules/traceroost.mdc`) (#274)
+- **`traceroost --version`** prints the version. An unknown option (`traceroost --prot 3001`) now prints the usage and exits with an error instead of starting the server — and auto-configuring your agents
+- **Plan limit detail** — the Traces column shows the 5-hour window (weekly when there's none) and an expanded trace lists every window and any limit hits (#282)
+
+### Fixed
+
+- **The npx/service server now parses OTLP exactly like the extension** — the same Codex run produced different trace ids on the two hosts; both now share one parser, and the server answers a malformed payload with 400 as the extension does (#293)
+- **Forward queue: a newer revision of a trace could be lost** when an older one was confirmed or rejected while it was queued; only the revision that was sent is removed now. The extension also forwards traces changed by its periodic log scan, not just live OTLP updates (#293)
+- **Linking from the CLI or another window went unnoticed until a restart** — a link made outside the current process now starts sending and queues history straight away, and the post-link catch-up starts sending the newest traces while older ones are still being prepared (#291, #294)
+- **Trace keys stay in step with the cloud** — placeholder keys are never sent, keys a re-read log no longer produces are removed, and one rejected payload no longer holds up a whole day (#296)
+- **`find` matches the trace id the cloud shows**, so non-UUID local keys (Copilot OTEL) are found (#288)
+- **Changing the sort returns to page 1** of the Traces table (#284)
+- **The README demo GIF didn't show on GitHub** (over its 5 MB image limit) (#273)
+
+### Changed
+
+- **Traces table** — abbreviated language names, agent pills only for agents with data, the Language dropdown lists only languages your traces have, a narrower Plan limit column, at most three signal icons, and the expanded row stays pinned under the header with a Repo (ID) chip (#280, #281, #284, #285)
+- **Export** — one clear "N traces match your current filters" box above both export cards (#289)
+- **Instructions** — the empty state says when the active filters, not a lack of history, leave too few traces (#289)
+- **Quieter VS Code startup** — the "TraceRoost active" notification shows only on first install and after an update, and the Output panel no longer opens on every start
+- **Uninstall commands name the real extension id** (`agentlens.agentlens-dashboard`), and Help's signal notes are in plain language
+- **Quieter logs** — routine forwarding and trace-manifest counts move to debug; `TRACEROOST_LOG_LEVEL=debug` turns them back on (#290)
+- **Docs, Help and CI** — Help and docs cover the new features, CI reports coverage on Windows too, a weekly traffic snapshot, and GitHub Actions updates. No user-facing product change (#274, #275–#279, #284, #287)
+
+---
+
 ## [0.18.1] — 2026-10-01
 
 ### Added

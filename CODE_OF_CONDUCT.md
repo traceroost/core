@@ -15,12 +15,11 @@ We are committed to making participation in this project a welcoming, respectful
 **Unacceptable behavior:**
 
 - Harassment, insults, or personal attacks
-- Dismissing issues or PRs without explanation
 - Publishing others' private information
 
 ## Enforcement
 
-Violations can be reported by opening a private issue or contacting the maintainers directly. Reports will be reviewed and responded to promptly.
+Violations can be reported by emailing [support@traceroost.com](mailto:support@traceroost.com). Reports will be reviewed and responded to promptly.
 
 ## Attribution
 

@@ -71,7 +71,7 @@ export class DashboardPanel {
    *  postMessage below so the webview shows a persistent warning banner for as long as this
    *  window isn't actually receiving OTel, rather than a one-time toast that's easy to miss or
    *  dismiss and forget about. */
-  public static collectorConflict: { owner: 'standalone' | 'foreign'; port: number } | undefined
+  public static collectorConflict: { owner: 'standalone' | 'foreign'; port: number; extensionId: string } | undefined
   /** Progress of extension.ts's batched log load (startBatchedLoad); null when none is running.
    *  Inlined into a panel opened mid-load and posted to an open one as it advances, so the
    *  webview shows a progress banner rather than an empty dashboard. */
