@@ -215,7 +215,7 @@ export function isCodexToolResultSpan(name: string): boolean {
   return name === 'codex.tool_result'
 }
 
-export function isCodexToolSpanName(name: string): boolean {
+function isCodexToolSpanName(name: string): boolean {
   return name === 'codex.tool_result'
     || name === 'codex.tool'
     || name === 'codex.tool_decision'

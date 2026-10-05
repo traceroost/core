@@ -125,7 +125,11 @@ When the TraceRoost brand is established and you want the marketplace URL to say
      and let the user correct it before you commit to a version number the changelog entry, commit
      message, and tag will all repeat several times over.
 
-3. Write the `CHANGELOG.md` entry — insert it directly under the `All notable changes...` line, above
+3. Write the `CHANGELOG.md` entry. PRs merged since the last release have already added their
+   bullets under `## [Unreleased]` (CONTRIBUTING.md asks for that); turn that section into the
+   release entry — rename its heading, check every merge since the last tag has a bullet
+   (`git log --first-parent --oneline v<prev>..HEAD`), tidy the wording — and start a fresh, empty
+   `## [Unreleased]` above it. The entry sits directly under the `All notable changes...` line, above
    the previous latest entry (newest-first), separated from the entry below it by a `---` line (every
    version section in this file has one — easy to forget when inserting at the top, since there isn't
    one *above* the newest entry to copy from by pattern-matching what's directly below).

@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type { FileState, LogReader } from './logReader'
+import { writeFileAtomic, quarantineCorruptFile } from './fsAtomic'
 
 // ── Log-reader file-state persistence ────────────────────────────────────────
 //
@@ -31,9 +32,12 @@ export const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
  */
 export const LOG_FILE_STATE_VERSION = 5
 
-export function readLogFileState(storageDir: string): { version: number; files: Record<string, FileState> } {
+export function readLogFileState(storageDir: string, log?: (msg: string) => void): { version: number; files: Record<string, FileState> } {
+  const file = path.join(storageDir, LOG_FILE_STATE_FILENAME)
+  let text: string
+  try { text = fs.readFileSync(file, 'utf8') } catch { return { version: LOG_FILE_STATE_VERSION, files: {} } } // missing — start empty
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(storageDir, LOG_FILE_STATE_FILENAME), 'utf8')) as unknown
+    const raw = JSON.parse(text) as unknown
     if (raw && typeof raw === 'object') {
       const obj = raw as { version?: unknown; files?: unknown }
       if (typeof obj.version === 'number' && obj.files && typeof obj.files === 'object') {
@@ -41,16 +45,22 @@ export function readLogFileState(storageDir: string): { version: number; files: 
       }
       return { version: 1, files: raw as Record<string, FileState> }
     }
-  } catch { /* missing or unreadable — start empty */ }
+  } catch { /* unreadable — quarantined below, then start empty */ }
+  // A file that exists but doesn't parse (a torn write from a crash) is moved aside rather than
+  // overwritten by the next writeLogFileState, so it can still be inspected; every file within
+  // retention is re-parsed, as it would be after a fresh install.
+  const aside = quarantineCorruptFile(file)
+  log?.(`[TraceRoost] ${LOG_FILE_STATE_FILENAME} could not be parsed${aside ? ` — moved it to ${aside}` : ''}; re-reading every log file within retention.`)
   return { version: LOG_FILE_STATE_VERSION, files: {} }
 }
 
 /** Only called once the parsed sessions are on disk, so an interrupted upgrade (re-parse) is
- *  simply redone on the next activation: the old-version file is still there. */
+ *  simply redone on the next activation: the old-version file is still there. Written atomically
+ *  (temp + rename): a torn file here would otherwise cost a full re-parse of the whole history. */
 export function writeLogFileState(storageDir: string, files: Record<string, FileState>): void {
   try {
-    fs.writeFileSync(path.join(storageDir, LOG_FILE_STATE_FILENAME),
-      JSON.stringify({ version: LOG_FILE_STATE_VERSION, files }))
+    writeFileAtomic(path.join(storageDir, LOG_FILE_STATE_FILENAME),
+      JSON.stringify({ version: LOG_FILE_STATE_VERSION, files }), { mode: 0o600 })
   } catch { /* non-fatal — worst case, the next activation re-parses from scratch */ }
 }
 
@@ -60,8 +70,8 @@ export function writeLogFileState(storageDir: string, files: Record<string, File
  * Files last modified before the retention cutoff are left alone: re-parsing them would only
  * bring back sessions retention already deleted.
  */
-export function restoreLogFileState(lr: LogReader, storageDir: string, retentionDays: number): number {
-  const { version, files } = readLogFileState(storageDir)
+export function restoreLogFileState(lr: LogReader, storageDir: string, retentionDays: number, log?: (msg: string) => void): number {
+  const { version, files } = readLogFileState(storageDir, log)
   let forgotten = 0
   // Version 5 re-reads every file within retention, which covers every earlier upgrade's re-read.
   if (version < 5) {

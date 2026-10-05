@@ -46,7 +46,7 @@ export function claudeConfigPath(env: NodeJS.ProcessEnv = process.env, home = os
   return dir && dir.trim() ? path.join(dir, '.claude.json') : path.join(home, '.claude.json')
 }
 
-export function hashAccountId(accountId: string): string {
+function hashAccountId(accountId: string): string {
   return createHash('sha256').update(`traceroost-plan-usage:${accountId}`).digest('hex').slice(0, 16)
 }
 

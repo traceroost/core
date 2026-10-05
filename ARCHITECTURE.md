@@ -1145,14 +1145,14 @@ tests for `pnpm run test:unit` (`compile-tests:standalone`).
 
 ## 15. TraceRoost Cloud — org link
 
-Everything in `src/cloud/org/` is the **client half of TraceRoost Cloud** — an optional layer that lets a
-lead see cross-developer aggregates. The rest of the codebase reaches it only through
+Everything in `src/cloud/org/` is the **client half of TraceRoost Cloud** — an optional layer that lets an
+org admin see cross-developer aggregates. The rest of the codebase reaches it only through
 `src/cloudBridge.ts` (implemented by `src/cloud/bridge.ts`), `media/src/orgPanel.ts` and
 `standalone/cliCloud.ts`, so the core edition (§14) can be built without any of it. It is built against two rules:
 
 1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
    TraceRoost service — no version ping, no "do you have an org" check. `getOrgStatus()` and
-   `loadCredentials()` touch local disk only. The wire format (AL 02) has no free-text field, so
+   `loadCredentials()` touch local disk only. The wire format has no free-text field, so
    there is nothing for source code to travel in.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my machine, my
    commits, my repositories* is free and ungimped. Paid is *everyone's* — aggregation a local
@@ -1174,13 +1174,13 @@ lead see cross-developer aggregates. The rest of the codebase reaches it only th
 | `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
 | `src/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
 | `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
-| `src/cloud/forward/buildCommitRecords.ts` | Wire mapper for AL 05 commit records (schema'd, but nothing builds and sends them yet — see CLOUD_ARCHITECTURE.md) |
+| `src/cloud/forward/buildCommitRecords.ts` | Wire mapper for commit records (schema'd, but nothing builds and sends them yet — see CLOUD_ARCHITECTURE.md) |
 | `src/cloud/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
-| `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders (AL 08) — prose fields structurally unreachable |
+| `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders — prose fields structurally unreachable |
 | `src/cloud/org/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
 | `src/cloud/org/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
 
-**The split that makes AL 08 genuinely a Cloud feature:** the cloud finds the pattern (some file is read in
+**The split that makes instruction suggestions genuinely a Cloud feature:** the cloud finds the pattern (some file is read in
 62% of sessions by four of six developers), the machine writes the text (which file, and the
 sentence). `getHotFileSuggestions` already fires at 40% over *one* person's sessions; pooling
 raises it to "four of you do, and none of your instruction files mention it," which no local
@@ -1201,9 +1201,9 @@ link — routed through VS Code's own URI scheme, not a custom-registered `agent
 
 `traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
 (`standalone/cloud/explainPayload.ts`) print the exact bytes for a real session, stable-key-ordered,
-on a free install with no org. A test asserts the printed JSON equals the queued JSON (AL 04).
+on a free install with no org. A test asserts the printed JSON equals the queued JSON.
 
-The wire contract (AL 02) is owned **here**, in the client the sceptic already trusts, and the
+The wire contract is owned **here**, in the client the sceptic already trusts, and the
 service validates against the identical document. `src/cloud/forward/` is a closed island: every field
 is a number, an enum, a hash or a timestamp, and a CI test walks `schema/rollup.v1.json` to fail
 the build if any string is left unconstrained.
@@ -1221,13 +1221,14 @@ is **not** in the payload — the service derives identity from the bearer token
   `TraceRoost: Unlink (Cloud)`.
 - **Standalone server** — `GET/POST /api/org`, dispatched through the same `panelController`.
 
-### The free/paid boundary (AL 09)
+### The free/paid boundary
 
 **Free is my machine. Paid is everyone's** — structural, not administrative. A local install
 cannot see other machines, so there is no flag to patch out and no fork that recovers Cloud features. The
-full statement, and the four things the free tier will never do (no feature removed to force an
-upgrade, no quotas, no trial, no free self-hostable team server), lives with the pricing-page
-copy.
+full statement, and the things the free tier will never do (no feature removed to force an
+upgrade, no quotas, no free self-hostable team server), lives with the pricing-page copy. (Cloud
+itself offers a no-card Individual trial — `INDIVIDUAL_TRIAL_DAYS` in `traceroost/cloud`'s
+`src/lib/trial.ts`; that is a Cloud plan, not a limit on the free local tier.)
 
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
 machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
@@ -1236,7 +1237,7 @@ and `vscode://agentlens.agentlens-dashboard/cohort?repo=<hash>&merged=…&window
 repo hashes for local clones only — it is not an oracle, and a deep link for an unknown repo
 makes no request.
 
-### The free outcome metric (AL 05–07)
+### The free outcome metric
 
 `src/attribution/` and `src/turnover/` are **free forever, local, single-developer**. They have
 no transport — the engines have no network path at all — and nothing they produce is gated. They
@@ -1259,7 +1260,7 @@ directories, and they are MIT-licensed like the rest of the tool.
 There was previously a dedicated free **Outcomes** dashboard tab (`media/src/cloud/tabs/Outcomes.tsx`)
 surfacing this engine's output directly, billed as the free tier's activation event. It was retired
 in commit `0ee7842` in favor of folding outcome signal (merged/committed/abandoned, per-file) inline
-into the Sessions tab's Files sub-tab — see §10's tab overview, "git outcome banner + per-file
+into the Traces tab's Files sub-tab — see §10's tab overview, "git outcome banner + per-file
 badges." Its report-assembly file, `src/cloud/turnover/localReport.ts` (as the path was then), had no other caller and was
 removed with it. The attribution/turnover engine itself is unaffected by that retirement and is
 still free, local, and single-developer with no network path — reachable today via
@@ -1341,14 +1342,14 @@ traceroost/
 │   │   ├── retention.ts          # runRetention — DELETE old sessions + blob eviction
 │   │   ├── instructionRepository.ts # Applied/dismissed instruction-suggestion records
 │   │   ├── gitOutcomeRepository.ts # SQLite cache for per-session git-outcome classification; invalidated by cache key, not TTL
-│   │   ├── fileBlameRepository.ts # SQLite cache for per-file blame (AL 06) — re-blamed only when a file's blob sha changes
+│   │   ├── fileBlameRepository.ts # SQLite cache for per-file blame — re-blamed only when a file's blob sha changes
 │   │   ├── traceRevisionRepository.ts # Canonical trace revisions (staged feature 10, Stage 1) — advances only on a real outcome change
 │   │   ├── outcomeKeyRepository.ts # What each session's git-outcome cache key was built from — lets reconcile skip `git log`
 │   │   ├── attributionRepository.ts / turnoverRepository.ts # Caches for the attribution/turnover engines (§15)
 │   │   ├── sessionsVersion.ts    # Write counter for the sessions table — cheap staleness check for SessionRepository's memo
 │   │   └── types.ts              # Shared DB types
-│   ├── attribution/              # Free, local commit attribution (AL 05) — git + session records, no network (§15)
-│   ├── turnover/                 # Free, local cohort/survival engine (AL 06/07) built on attribution/ (§15)
+│   ├── attribution/              # Free, local commit attribution — git + session records, no network (§15)
+│   ├── turnover/                 # Free, local cohort/survival engine built on attribution/ (§15)
 │   ├── cloud/                    # TraceRoost Cloud client — org link (org/) + upload (forward/); BSL, see NOTICE.md (§15)
 │   ├── cloudBridge.ts            # The one seam to cloud/ (interface + full impl via cloud/bridge.ts); §14 Editions
 │   ├── cloudBridge.core.ts       # Core edition's inert CloudBridge — swapped in by `esbuild.js --edition=core`

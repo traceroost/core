@@ -501,9 +501,9 @@ window.addEventListener('message', (e: MessageEvent<UpdateMsg>) => {
     if (incoming?.startTime !== state.currentSession?.startTime) state.burnRate = null
     state.currentSession = incoming
   }
-  if ('burnRate' in msg && msg.burnRate != null) state.burnRate = msg.burnRate
-  if (msg.avgInputTokens != null) state.avgInputTokens = msg.avgInputTokens
-  if (msg.avgOutputTokens != null) state.avgOutputTokens = msg.avgOutputTokens
+  if ('burnRate' in msg && msg.burnRate !== null && msg.burnRate !== undefined) state.burnRate = msg.burnRate
+  if (msg.avgInputTokens !== null && msg.avgInputTokens !== undefined) state.avgInputTokens = msg.avgInputTokens
+  if (msg.avgOutputTokens !== null && msg.avgOutputTokens !== undefined) state.avgOutputTokens = msg.avgOutputTokens
   if ('planLimit' in msg) state.planLimit = msg.planLimit ?? null
   if (msg.planMeters) state.planMeters = msg.planMeters
   render()

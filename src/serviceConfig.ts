@@ -10,6 +10,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import * as crypto from 'crypto'
+import { writeFileAtomic, quarantineCorruptFile } from './fsAtomic'
 
 export interface ServiceConfig {
   uiPort: number
@@ -28,7 +29,15 @@ export interface ServiceConfig {
    *  in the rollup body — the service derives the install from the bearer token — but it keys
    *  the client's own forwarding queue and `--explain-payload` output. */
   installId: string
+  /** How many days of log-sourced trace history the standalone server keeps in memory and
+   *  re-reads at startup — the counterpart of the editor's `traceRoost.sessionRetentionDays`
+   *  setting (same default). Transcript files last modified before the cutoff are not read, and
+   *  traces that started before it are dropped on the daily tick. */
+  sessionRetentionDays: number
 }
+
+/** Default for `sessionRetentionDays` — matches the editor setting's default in package.json. */
+export const DEFAULT_SESSION_RETENTION_DAYS = 90
 
 // `baseHome` defaults to the real home directory in production; tests pass a temp directory
 // so these never touch the developer's actual ~/.traceroost.
@@ -46,6 +55,7 @@ export function defaultServiceConfig(baseHome?: string): ServiceConfig {
     dataDir: defaultDataDir(baseHome),
     authToken: '',
     installId: '',
+    sessionRetentionDays: DEFAULT_SESSION_RETENTION_DAYS,
   }
 }
 
@@ -56,24 +66,32 @@ export function serviceConfigPath(baseHome?: string): string {
   return path.join(defaultDataDir(baseHome), 'config.json')
 }
 
-export function readServiceConfig(baseHome?: string): ServiceConfig {
+export function readServiceConfig(baseHome?: string, log?: (msg: string) => void): ServiceConfig {
   const defaults = defaultServiceConfig(baseHome)
+  const configPath = serviceConfigPath(baseHome)
+  let raw: string
+  try { raw = fs.readFileSync(configPath, 'utf-8') } catch { return defaults } // no file yet
   try {
-    const raw = fs.readFileSync(serviceConfigPath(baseHome), 'utf-8')
     const parsed = JSON.parse(raw) as Partial<ServiceConfig>
+    if (!parsed || typeof parsed !== 'object') throw new Error('not an object')
     return { ...defaults, ...parsed }
   } catch {
+    // A torn config.json would otherwise be silently replaced — along with its access token, which
+    // every configured agent and bookmarked dashboard URL still carries — the moment ensureAuthToken
+    // mints a new one. Keep the evidence aside and start from defaults.
+    const aside = quarantineCorruptFile(configPath)
+    log?.(`[TraceRoost] ${configPath} could not be parsed${aside ? ` — moved it to ${aside}` : ''}; using default settings (a new access token will be generated).`)
     return defaults
   }
 }
 
 export function writeServiceConfig(config: ServiceConfig, baseHome?: string): void {
   const configPath = serviceConfigPath(baseHome)
-  fs.mkdirSync(path.dirname(configPath), { recursive: true })
-  // Holds the bearer token — owner-only. `mode` only applies when the file is created, so an
-  // existing (pre-0600) file is tightened too; chmod is a harmless no-op on Windows.
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 })
-  try { fs.chmodSync(configPath, 0o600) } catch { /* best effort */ }
+  fs.mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 })
+  // Holds the bearer token — owner-only, and replaced atomically (temp + rename) so a crash
+  // mid-write can't leave a torn file; the rename carries the 0600 mode over an existing
+  // (pre-0600) file too. chmod is a harmless no-op on Windows.
+  writeFileAtomic(configPath, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 })
 }
 
 /** Generates a fresh bearer token for the UI/OTLP/MCP servers. */
@@ -185,6 +203,7 @@ const FLAG_TO_KEY: Record<string, keyof ServiceConfig> = {
   '--mcp-port':  'mcpPort',
   '--bind-host': 'bindHost',
   '--data-dir':  'dataDir',
+  '--retention-days': 'sessionRetentionDays',
 }
 
 /** Parses `--ui-port 3000 --data-dir /custom/path` style flags on top of the defaults. */

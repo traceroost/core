@@ -5,6 +5,7 @@ module.exports = {
     'out/test-media/src/test/media/**/*.test.js',
     'out/test-standalone/standalone/local/*.test.js',
     'out/test-standalone/standalone/service/*.test.js',
+    'out/test-standalone/standalone/db/*.test.js',
     'out/test-standalone/standalone/*.test.js',
   ],
   timeout: 10000,

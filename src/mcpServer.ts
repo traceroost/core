@@ -519,7 +519,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
  * connect a Server that is already connected, so a shared one only works while every tool
  * handler finishes synchronously before the next request arrives.
  */
-export function handleMcpRequest(
+function handleMcpRequest(
   serverOrFactory: Server | (() => Server),
   req: http.IncomingMessage,
   res: http.ServerResponse,

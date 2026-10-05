@@ -31,6 +31,7 @@ import { startBackgroundReconciliation, type BackgroundWatcher } from './reconci
 import { KeyedDebouncer } from './reconcile/keyedDebouncer'
 import { createSessionForwarder } from './sessionForwarder'
 import { matchesTraceId } from './traceIdentity'
+import { decidePipeline } from './ownerGate'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -51,13 +52,20 @@ let runLogScanFn: (() => void) | undefined
 let forwardScheduler: ForwardSchedulerHandle | undefined
 // Forwards a session whose content changed — a live OTLP update or a log-scan result — to the
 // cloud; see sessionForwarder.ts. A hard no-op unless an org is linked.
-const forwardChangedSession = createSessionForwarder({
+const forwardChangedSessionUngated = createSessionForwarder({
   cloud,
   reconciliation: () => reconciliationService,
   debouncer: contentChangeDebouncer,
   drainSoon: () => forwardScheduler?.drainSoon(),
   log: m => outputChannel?.appendLine(m),
 })
+// Only the window that owns the database forwards (ownerGate.ts): elsewhere the revision a forward
+// would carry comes from a counter in a copy that is never saved. Read on every call — a viewer
+// window becomes the owner when the owning window closes.
+const ownsPipeline = () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoostDb.loadError
+const forwardChangedSession: typeof forwardChangedSessionUngated = (card) => {
+  if (ownsPipeline()) forwardChangedSessionUngated(card)
+}
 // The trace manifest (stable trace identity) lists what the database holds, so it must not go
 // out while the database is still filling: false until the startup log load has been written,
 // and again while "clear all data" re-ingests.
@@ -89,6 +97,7 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
 export async function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('TraceRoost')
   context.subscriptions.push(outputChannel)
+  DashboardPanel.log = (msg) => outputChannel?.appendLine(msg)
   outputChannel.appendLine(`TraceRoost activating… (v${context.extension.packageJSON.version})`)
 
   // ── Duplicate-install guard ─────────────────────────────────────────────────
@@ -163,22 +172,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // queued or recorded delivered under the old ones goes. Owner only, for the same reason.
     if (traceRoostDb.isOwner && traceRoostDb.rebuiltTraceStore) cloud.dropQueuedTraces()
 
-    // Initial retention run on activation. Its session deletes run synchronously inside this call;
-    // only the orphaned-blob sweep (a full timeline scan) is left to finish after activation.
-    const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
-    void runRetention(traceRoostDb.raw, retentionDays, traceRoostDb.blobsDir, log)
-    getPlanUsageService()?.runRetention(retentionDays)
-    claudeJoins?.prune(Date.now() - retentionDays * 86_400_000)
-
-    // Periodic retention: once per 24 hours while the extension is active.
-    const retentionTimer = setInterval(() => {
-      const days = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
-      void runRetention(traceRoostDb!.raw, days, traceRoostDb!.blobsDir, log)
-      getPlanUsageService()?.runRetention(days)
-      claudeJoins?.prune(Date.now() - days * 86_400_000)
-    }, 24 * 60 * 60 * 1000)
-    context.subscriptions.push({ dispose: () => clearInterval(retentionTimer) })
-
     // The collector adds a payload's spans one at a time and each addSpan notifies; summarizing
     // the whole window on every one of those was O(n²) per payload. Collect the touched traceIds
     // and summarize once, after the synchronous ingest of the payload finishes.
@@ -198,7 +191,7 @@ export async function activate(context: vscode.ExtensionContext) {
       // a payload every few seconds each, and every save rewrites the whole database file.
       void writer.drain().then(() => {
         traceRoostDb?.saveSoon(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
-      }).catch(err => console.error('[TraceRoost] writer.drain error:', err))
+      }).catch(err => outputChannel?.appendLine(`[TraceRoost] writer.drain error: ${err}`))
     }
     // Traces whose Claude transcript join is on hold (keyPending) get one more pass once the hold
     // runs out, even if no further span arrives for them.
@@ -343,12 +336,40 @@ export async function activate(context: vscode.ExtensionContext) {
   const repo = repository ?? fallbackRepository(store)
   const provider = new SidebarPanel(repo, context.extensionUri)
 
-  // ── Live trace reconciliation (staged feature 10) ────────────────────────────
-  // One instance for the whole extension-host lifetime, independent of whether a Traces panel is
-  // open — see reconciliationService.ts and backgroundWatcher.ts. Requires the SQLite database
-  // (traceRoostDb); without it there's nothing durable to revision, so both stay undefined and
-  // DashboardPanel falls back to its uncached per-request path, same as before this feature.
-  if (traceRoostDb) {
+  // ── Owner pipeline ───────────────────────────────────────────────────────────
+  // Everything that writes the shared database or forwards from it — retention, live trace
+  // reconciliation and its background git watcher, log ingestion and its 30 s scan, and every
+  // cloud enqueue — runs only in the window that owns the database file (ownerGate.ts explains
+  // why). Other windows are viewers (the poll further down) and start this the moment they take
+  // ownership over from a window that closed. Idempotent: started at most once per window.
+  let ownerPipelineStarted = false
+  let logReader: LogReader | undefined
+  let startBatchedLoad: ((onAllDone?: () => void) => void) | undefined
+  const startOwnerPipeline = () => {
+    if (ownerPipelineStarted || !traceRoostDb || !writer) return
+    ownerPipelineStarted = true
+    const log = (msg: string) => outputChannel!.appendLine(msg)
+
+    // Initial retention run. Its session deletes run synchronously inside this call; only the
+    // orphaned-blob sweep (a full timeline scan) is left to finish afterwards.
+    const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
+    void runRetention(traceRoostDb.raw, retentionDays, traceRoostDb.blobsDir, log)
+    getPlanUsageService()?.runRetention(retentionDays)
+    claudeJoins?.prune(Date.now() - retentionDays * 86_400_000)
+
+    // Periodic retention: once per 24 hours while the extension is active.
+    const retentionTimer = setInterval(() => {
+      const days = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
+      void runRetention(traceRoostDb!.raw, days, traceRoostDb!.blobsDir, log)
+      getPlanUsageService()?.runRetention(days)
+      claudeJoins?.prune(Date.now() - days * 86_400_000)
+    }, 24 * 60 * 60 * 1000)
+    context.subscriptions.push({ dispose: () => clearInterval(retentionTimer) })
+
+    // ── Live trace reconciliation ──
+    // One instance for the whole extension-host lifetime, independent of whether a Traces panel is
+    // open — see reconciliationService.ts and backgroundWatcher.ts. In a viewer window both stay
+    // undefined and DashboardPanel falls back to its uncached per-request path.
     reconciliationService = new ReconciliationService(traceRoostDb.raw)
     // A revision change detected in the background (a commit, merge, edit, etc. while nothing was
     // watching) must reach the forwarding queue, not just the UI — otherwise a corrected outcome
@@ -391,263 +412,306 @@ export async function activate(context: vscode.ExtensionContext) {
       log: (msg) => outputChannel!.appendLine(msg),
     })
     context.subscriptions.push({ dispose: () => { unsubscribeForwarding(); if (revisionFlushTimer) clearTimeout(revisionFlushTimer); backgroundWatcher?.dispose(); reconciliationService?.dispose(); contentChangeDebouncer.dispose() } })
-  }
 
-  // ── Log ingestion ─────────────────────────────────────────────────────────
-  const enableLogIngestion = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableLogIngestion', true)
-  let logReader: LogReader | undefined
-  let startBatchedLoad: ((onAllDone?: () => void) => void) | undefined
-  if (enableLogIngestion && writer) {
-    logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
-    // Also re-derives what a parser change needs re-read (see LOG_FILE_STATE_VERSION) — e.g.
-    // every file once, into a store rebuilt for stable trace identity.
-    restoreLogFileState(logReader, context.globalStorageUri.fsPath,
-      vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90))
-    const lr = logReader  // non-null alias for use inside closures
-    // Only once the parsed sessions are actually on disk: a read-only window (see TraceRoostDb)
-    // recording files as processed would make the owning window skip them on its next activation.
-    const persistFileState = () => {
-      if (traceRoostDb?.isOwner) writeLogFileState(context.globalStorageUri.fsPath, lr.exportFileState())
-    }
-    const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
-    // Keys a re-read log file no longer produces (LogReader.takeRetiredKeys) leave the database —
-    // and so the count and the trace manifest, which retires them in the cloud. Applied once the
-    // writes queued alongside them are on disk.
-    const retireLogKeys = (keys: string[]) => {
-      if (keys.length === 0) return
-      const removed = writer!.deleteLogSessions(keys)
-      if (removed.length > 0) outputChannel!.appendLine(`[TraceRoost] Removed ${removed.length} trace(s) their log files no longer contain`)
-    }
+    // ── Log ingestion ──
+    const enableLogIngestion = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableLogIngestion', true)
+    if (enableLogIngestion) {
+      logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
+      // Also re-derives what a parser change needs re-read (see LOG_FILE_STATE_VERSION) — e.g.
+      // every file once, into a store rebuilt for stable trace identity.
+      restoreLogFileState(logReader, context.globalStorageUri.fsPath,
+        vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90))
+      const lr = logReader  // non-null alias for use inside closures
+      // Only once the parsed sessions are actually on disk: a read-only window (see TraceRoostDb)
+      // recording files as processed would make the owning window skip them on its next activation.
+      // (This whole pipeline is owner-only; the check stays as the last line of defence.)
+      const persistFileState = () => {
+        if (traceRoostDb?.isOwner) writeLogFileState(context.globalStorageUri.fsPath, lr.exportFileState())
+      }
+      const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
+      // Keys a re-read log file no longer produces (LogReader.takeRetiredKeys) leave the database —
+      // and so the count and the trace manifest, which retires them in the cloud. Applied once the
+      // writes queued alongside them are on disk.
+      const retireLogKeys = (keys: string[]) => {
+        if (keys.length === 0) return
+        const removed = writer!.deleteLogSessions(keys)
+        if (removed.length > 0) outputChannel!.appendLine(`[TraceRoost] Removed ${removed.length} trace(s) their log files no longer contain`)
+      }
 
-    // Periodic incremental scan: only picks up files that have changed since last run.
-    // Every 30 s. Parses changed files in small batches across event-loop turns rather than one
-    // synchronous lr.scan() over every log directory, so a large or fast-growing transcript
-    // doesn't stall the extension host; LogReader itself reads only the bytes appended since the
-    // last scan (see _readNewLines). A tick that fires while the previous scan is still in
-    // progress is skipped.
-    let logScanInFlight = false
-    const LOG_SCAN_BATCH = 10
-    // Claude Code caches its plan-usage reading in ~/.claude.json; a new fetch there is a new
-    // reading even when no session log changed.
-    const pollClaudePlanUsage = () => {
-      if (!traceRoostDb?.isOwner || !getPlanUsageService()?.pollClaudeCache()) return
-      traceRoostDb.saveSoon()
-      provider.refresh()
-      DashboardPanel.refreshSoon()
-    }
-    const runLogScan = runLogScanFn = () => {
-      pollClaudePlanUsage()
-      if (logScanInFlight) return
-      let files: ReturnType<typeof lr.collectFileMeta>
-      let results: ReturnType<typeof lr.scan>
-      try {
-        // OpenCode is one DB holding many sessions — scanned whole, as in the initial load.
-        files = lr.collectFileMeta().filter(f => f.agentKey !== 'opencode')
-        results = lr.scanOpenCode()
-      } catch (err) {
-        outputChannel!.appendLine(`[TraceRoost] Log ingestion collect error: ${err}`)
-        return
-      }
-      logScanInFlight = true
-      const step = (idx: number) => {
-        for (let i = idx; i < Math.min(idx + LOG_SCAN_BATCH, files.length); i++) {
-          try { results.push(...lr.parseFile(files[i].filePath, files[i].agentKey)) } catch { /* skip bad file */ }
-        }
-        const next = idx + LOG_SCAN_BATCH
-        if (next < files.length) { setTimeout(() => step(next), 0); return }
-        logScanInFlight = false
-        writeScanResults(results)
-      }
-      step(0)
-    }
-    const writeScanResults = (results: ReturnType<typeof lr.scan>) => {
-      const retired = lr.takeRetiredKeys()
-      if (results.length === 0 && retired.length === 0) return
-      getPlanUsageService()?.ingest(results)
-      const ws = fallbackWorkspace()
-      for (const { card, workspace } of results) {
-        card.loopSignals = detectLoopSignals(card)
-        card.oneShotStats = computeOneShotStats(card)
-        writer!.enqueue(card, workspace || ws)
-        // Cloud: scan() returns only sessions whose log file changed, so forward each (the content
-        // gate skips one whose rollup didn't actually change). Without this, a log-only session —
-        // a Q&A turn, a non-git directory — and every later change to one already delivered
-        // reached the cloud only on the next activation's load, and meanwhile held its day's trace
-        // manifest at missing_keys. The standalone server's runLogScan does the same.
-        forwardChangedSession({ ...card, workspace: workspace || ws })
-      }
-      void writer!.drain().then(() => {
-        retireLogKeys(retired)
+      // Periodic incremental scan: only picks up files that have changed since last run.
+      // Every 30 s. Parses changed files in small batches across event-loop turns rather than one
+      // synchronous lr.scan() over every log directory, so a large or fast-growing transcript
+      // doesn't stall the extension host; LogReader itself reads only the bytes appended since the
+      // last scan (see _readNewLines). A tick that fires while the previous scan is still in
+      // progress is skipped.
+      let logScanInFlight = false
+      const LOG_SCAN_BATCH = 10
+      // Claude Code caches its plan-usage reading in ~/.claude.json; a new fetch there is a new
+      // reading even when no session log changed.
+      const pollClaudePlanUsage = () => {
+        if (!traceRoostDb?.isOwner || !getPlanUsageService()?.pollClaudeCache()) return
+        traceRoostDb.saveSoon()
         provider.refresh()
-        DashboardPanel.currentPanel?.update()
-        traceRoostDb?.saveSoon(saved => {
-          if (saved) writeLastWriteSignal(context.globalStorageUri)
-          persistFileState()
-        })
-      }).catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
-    }
-
-    // Initial load: collect file metadata sorted newest-first, then process in two
-    // priority groups so the extension host stays responsive throughout.
-    //
-    // Fast group  (.jsonl and other small files): batch=10, no artificial delay.
-    // Slow group  (copilot_vscode_json — legacy .json snapshots that average 1.8 MB):
-    //             batch=2 with a 50 ms gap between batches.  This keeps each event-loop
-    //             tick under ~100 ms so VS Code can process incoming messages.
-    //
-    // Both groups use setTimeout(fn, 0) rather than setImmediate so the host can
-    // drain its own message queue between batches.
-    startBatchedLoad = (onAllDone?: () => void) => {
-      let allFiles: ReturnType<typeof lr.collectFileMeta>
-      try {
-        allFiles = lr.collectFileMeta()
-      } catch (err) {
-        outputChannel!.appendLine(`[TraceRoost] Log ingestion collect error: ${err}`)
-        onAllDone?.()
-        return
+        DashboardPanel.refreshSoon()
       }
-      if (allFiles.length === 0) { onAllDone?.(); return }
-
-      const AGENT_KEY_LABEL: Record<string, string> = {
-        claude:              'Claude Code',
-        codex:               'Codex',
-        copilot:             'Copilot CLI',
-        copilot_vscode:      'Copilot (VS Code)',
-        copilot_vscode_json: 'Copilot (VS Code)',
-        opencode:            'OpenCode',
-        cursor:              'Cursor CLI',
-      }
-      const countByKey = new Map<string, number>()
-
-      const processGroup = (
-        files: typeof allFiles,
-        batchSize: number,
-        delayMs: number,
-        onDone: () => void,
-      ) => {
-        const step = (idx: number) => {
-          const ws = fallbackWorkspace()
-          let written = 0
-          for (let i = idx; i < Math.min(idx + batchSize, files.length); i++) {
-            progress.done++
-            try {
-              // One result per turn of the file whose card changed (one turn = one trace — see
-              // LogReader.parseFile).
-              const results = lr.parseFile(files[i].filePath, files[i].agentKey)
-              getPlanUsageService()?.ingest(results)
-              for (const result of results) {
-                result.card.loopSignals = detectLoopSignals(result.card)
-                result.card.oneShotStats = computeOneShotStats(result.card)
-                writer!.enqueue(result.card, result.workspace || ws)
-                const dk = files[i].agentKey === 'copilot_vscode_json' ? 'copilot_vscode' : files[i].agentKey
-                countByKey.set(dk, (countByKey.get(dk) ?? 0) + 1)
-                written++
-                // Cloud: enqueue this session for forwarding. Hard no-op unless an org is
-                // linked. Has to happen in this one-time historical load, not only wherever
-                // a live session close triggers it — lr.parseFile() above records this
-                // file's mtime/size into the same LogReader's fileState that a later
-                // incremental scan checks for "has this changed", so a historical file read
-                // here first makes it permanently invisible to that scan as "new" (see the
-                // matching fix and its longer note in standalone/server.ts).
-                void cloud.enqueueSession(
-                  { ...result.card, workspace: result.workspace || ws },
-                  m => outputChannel?.appendLine(m),
-                )
-              }
-            } catch { /* skip bad file */ }
-          }
-          const retired = lr.takeRetiredKeys()
-          if (written > 0 || retired.length > 0) {
-            void writer!.drain().then(() => {
-              retireLogKeys(retired)
-              // Coalesced — this runs every 10 files of the initial load, and each save rewrites
-              // the whole database file.
-              traceRoostDb?.saveSoon()
-              provider.refresh()
-              DashboardPanel.refreshSoon()
-            }).catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
-          }
-          DashboardPanel.setLogIngestProgress(progress)
-          const next = idx + batchSize
-          if (next < files.length) {
-            setTimeout(() => step(next), delayMs)
-          } else {
-            onDone()
-          }
+      const runLogScan = runLogScanFn = () => {
+        pollClaudePlanUsage()
+        if (logScanInFlight) return
+        let files: ReturnType<typeof lr.collectFileMeta>
+        let results: ReturnType<typeof lr.scan>
+        try {
+          // OpenCode is one DB holding many sessions — scanned whole, as in the initial load.
+          files = lr.collectFileMeta().filter(f => f.agentKey !== 'opencode')
+          results = lr.scanOpenCode()
+        } catch (err) {
+          outputChannel!.appendLine(`[TraceRoost] Log ingestion collect error: ${err}`)
+          return
         }
-        if (files.length > 0) setTimeout(() => step(0), delayMs)
-        else onDone()
+        logScanInFlight = true
+        const step = (idx: number) => {
+          for (let i = idx; i < Math.min(idx + LOG_SCAN_BATCH, files.length); i++) {
+            try { results.push(...lr.parseFile(files[i].filePath, files[i].agentKey)) } catch { /* skip bad file */ }
+          }
+          const next = idx + LOG_SCAN_BATCH
+          if (next < files.length) { setTimeout(() => step(next), 0); return }
+          logScanInFlight = false
+          writeScanResults(results)
+        }
+        step(0)
       }
-
-      // OpenCode: DB file returns multiple sessions — process separately before batched files.
-      const ocResults = lr.scanOpenCode()
-      if (ocResults.length > 0) {
+      const writeScanResults = (results: ReturnType<typeof lr.scan>) => {
+        const retired = lr.takeRetiredKeys()
+        if (results.length === 0 && retired.length === 0) return
+        getPlanUsageService()?.ingest(results)
         const ws = fallbackWorkspace()
-        for (const { card, workspace } of ocResults) {
+        for (const { card, workspace } of results) {
           card.loopSignals = detectLoopSignals(card)
           card.oneShotStats = computeOneShotStats(card)
           writer!.enqueue(card, workspace || ws)
-          void cloud.enqueueSession(
-            { ...card, workspace: workspace || ws },
-            m => outputChannel?.appendLine(m),
-          )
+          // Cloud: scan() returns only sessions whose log file changed, so forward each (the content
+          // gate skips one whose rollup didn't actually change). Without this, a log-only session —
+          // a Q&A turn, a non-git directory — and every later change to one already delivered
+          // reached the cloud only on the next activation's load, and meanwhile held its day's trace
+          // manifest at missing_keys. The standalone server's runLogScan does the same.
+          forwardChangedSession({ ...card, workspace: workspace || ws })
         }
-        countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + ocResults.length)
-      }
-
-      const fastFiles = allFiles.filter(f => f.agentKey !== 'copilot_vscode_json' && f.agentKey !== 'opencode')
-      const slowFiles = allFiles.filter(f => f.agentKey === 'copilot_vscode_json')
-      // Drives the dashboard's progress banner (see DashboardPanel.setLogIngestProgress).
-      const progress = { done: 0, total: fastFiles.length + slowFiles.length }
-      DashboardPanel.setLogIngestProgress(progress)
-
-      // Saves are coalesced (saveSoon), so the cross-window signal and the processed-files record
-      // wait for the save that actually covers everything enqueued so far.
-      const afterSaved = (after: (saved: boolean) => void) => {
-        void writer!.drain().then(() => traceRoostDb!.saveSoon(after))
-          .catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
-      }
-
-      processGroup(fastFiles, 10, 0, () => {
-        afterSaved(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
-        // Slow-pass: legacy .json snapshots loaded at low priority after fast pass completes.
-        processGroup(slowFiles, 2, 50, () => {
-          DashboardPanel.setLogIngestProgress(null)
-          afterSaved(saved => {
+        void writer!.drain().then(() => {
+          retireLogKeys(retired)
+          provider.refresh()
+          DashboardPanel.currentPanel?.update()
+          traceRoostDb?.saveSoon(saved => {
             if (saved) writeLastWriteSignal(context.globalStorageUri)
             persistFileState()
           })
-          DashboardPanel.refreshSoon()
-          const total = [...countByKey.values()].reduce((s, n) => s + n, 0)
-          if (total > 0) {
-            const breakdown = [...countByKey.entries()]
-              .sort((a, b) => b[1] - a[1])
-              .map(([k, n]) => `${AGENT_KEY_LABEL[k] ?? k}: ${n}`)
-              .join(', ')
-            outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
-          }
+        }).catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
+      }
+
+      // Initial load: collect file metadata sorted newest-first, then process in two
+      // priority groups so the extension host stays responsive throughout.
+      //
+      // Fast group  (.jsonl and other small files): batch=10, no artificial delay.
+      // Slow group  (copilot_vscode_json — legacy .json snapshots that average 1.8 MB):
+      //             batch=2 with a 50 ms gap between batches.  This keeps each event-loop
+      //             tick under ~100 ms so VS Code can process incoming messages.
+      //
+      // Both groups use setTimeout(fn, 0) rather than setImmediate so the host can
+      // drain its own message queue between batches.
+      startBatchedLoad = (onAllDone?: () => void) => {
+        let allFiles: ReturnType<typeof lr.collectFileMeta>
+        try {
+          allFiles = lr.collectFileMeta()
+        } catch (err) {
+          outputChannel!.appendLine(`[TraceRoost] Log ingestion collect error: ${err}`)
           onAllDone?.()
+          return
+        }
+        if (allFiles.length === 0) { onAllDone?.(); return }
+
+        const AGENT_KEY_LABEL: Record<string, string> = {
+          claude:              'Claude Code',
+          codex:               'Codex',
+          copilot:             'Copilot CLI',
+          copilot_vscode:      'Copilot (VS Code)',
+          copilot_vscode_json: 'Copilot (VS Code)',
+          opencode:            'OpenCode',
+          cursor:              'Cursor CLI',
+        }
+        const countByKey = new Map<string, number>()
+
+        const processGroup = (
+          files: typeof allFiles,
+          batchSize: number,
+          delayMs: number,
+          onDone: () => void,
+        ) => {
+          const step = (idx: number) => {
+            const ws = fallbackWorkspace()
+            let written = 0
+            for (let i = idx; i < Math.min(idx + batchSize, files.length); i++) {
+              progress.done++
+              try {
+                // One result per turn of the file whose card changed (one turn = one trace — see
+                // LogReader.parseFile).
+                const results = lr.parseFile(files[i].filePath, files[i].agentKey)
+                getPlanUsageService()?.ingest(results)
+                for (const result of results) {
+                  result.card.loopSignals = detectLoopSignals(result.card)
+                  result.card.oneShotStats = computeOneShotStats(result.card)
+                  writer!.enqueue(result.card, result.workspace || ws)
+                  const dk = files[i].agentKey === 'copilot_vscode_json' ? 'copilot_vscode' : files[i].agentKey
+                  countByKey.set(dk, (countByKey.get(dk) ?? 0) + 1)
+                  written++
+                  // Cloud: enqueue this session for forwarding. Hard no-op unless an org is
+                  // linked. Has to happen in this one-time historical load, not only wherever
+                  // a live session close triggers it — lr.parseFile() above records this
+                  // file's mtime/size into the same LogReader's fileState that a later
+                  // incremental scan checks for "has this changed", so a historical file read
+                  // here first makes it permanently invisible to that scan as "new" (see the
+                  // matching fix and its longer note in standalone/server.ts).
+                  void cloud.enqueueSession(
+                    { ...result.card, workspace: result.workspace || ws },
+                    m => outputChannel?.appendLine(m),
+                  )
+                }
+              } catch { /* skip bad file */ }
+            }
+            const retired = lr.takeRetiredKeys()
+            if (written > 0 || retired.length > 0) {
+              void writer!.drain().then(() => {
+                retireLogKeys(retired)
+                // Coalesced — this runs every 10 files of the initial load, and each save rewrites
+                // the whole database file.
+                traceRoostDb?.saveSoon()
+                provider.refresh()
+                DashboardPanel.refreshSoon()
+              }).catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
+            }
+            DashboardPanel.setLogIngestProgress(progress)
+            const next = idx + batchSize
+            if (next < files.length) {
+              setTimeout(() => step(next), delayMs)
+            } else {
+              onDone()
+            }
+          }
+          if (files.length > 0) setTimeout(() => step(0), delayMs)
+          else onDone()
+        }
+
+        // OpenCode: DB file returns multiple sessions — process separately before batched files.
+        const ocResults = lr.scanOpenCode()
+        if (ocResults.length > 0) {
+          const ws = fallbackWorkspace()
+          for (const { card, workspace } of ocResults) {
+            card.loopSignals = detectLoopSignals(card)
+            card.oneShotStats = computeOneShotStats(card)
+            writer!.enqueue(card, workspace || ws)
+            void cloud.enqueueSession(
+              { ...card, workspace: workspace || ws },
+              m => outputChannel?.appendLine(m),
+            )
+          }
+          countByKey.set('opencode', (countByKey.get('opencode') ?? 0) + ocResults.length)
+        }
+
+        const fastFiles = allFiles.filter(f => f.agentKey !== 'copilot_vscode_json' && f.agentKey !== 'opencode')
+        const slowFiles = allFiles.filter(f => f.agentKey === 'copilot_vscode_json')
+        // Drives the dashboard's progress banner (see DashboardPanel.setLogIngestProgress).
+        const progress = { done: 0, total: fastFiles.length + slowFiles.length }
+        DashboardPanel.setLogIngestProgress(progress)
+
+        // Saves are coalesced (saveSoon), so the cross-window signal and the processed-files record
+        // wait for the save that actually covers everything enqueued so far.
+        const afterSaved = (after: (saved: boolean) => void) => {
+          void writer!.drain().then(() => traceRoostDb!.saveSoon(after))
+            .catch(err => outputChannel!.appendLine(`[TraceRoost] Log ingestion drain error: ${err}`))
+        }
+
+        processGroup(fastFiles, 10, 0, () => {
+          afterSaved(saved => { if (saved) writeLastWriteSignal(context.globalStorageUri) })
+          // Slow-pass: legacy .json snapshots loaded at low priority after fast pass completes.
+          processGroup(slowFiles, 2, 50, () => {
+            DashboardPanel.setLogIngestProgress(null)
+            afterSaved(saved => {
+              if (saved) writeLastWriteSignal(context.globalStorageUri)
+              persistFileState()
+            })
+            DashboardPanel.refreshSoon()
+            const total = [...countByKey.values()].reduce((s, n) => s + n, 0)
+            if (total > 0) {
+              const breakdown = [...countByKey.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .map(([k, n]) => `${AGENT_KEY_LABEL[k] ?? k}: ${n}`)
+                .join(', ')
+              outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
+            }
+            onAllDone?.()
+          })
         })
+      }
+
+      // Defer off the activation stack so activation itself completes instantly.
+      setImmediate(() => {
+        startBatchedLoad!(() => { void writer!.drain().then(() => { traceStoreReady = true }) })
+        pollClaudePlanUsage()
       })
+      logReaderTimer = setInterval(runLogScan, 30_000)
+      context.subscriptions.push({ dispose: () => clearInterval(logReaderTimer) })
+      outputChannel!.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')
     }
 
-    // Defer off the activation stack so activation itself completes instantly.
-    setImmediate(() => {
-      startBatchedLoad!(() => { void writer!.drain().then(() => { traceStoreReady = true }) })
-      pollClaudePlanUsage()
-    })
-    logReaderTimer = setInterval(runLogScan, 30_000)
-    context.subscriptions.push({ dispose: () => clearInterval(logReaderTimer) })
-    outputChannel.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')
+    if (!logReader) traceStoreReady = true // nothing to load from logs
   }
 
-  if (!logReader) traceStoreReady = true // nothing to load from logs
+  const pipeline = decidePipeline({
+    hasDb: !!traceRoostDb,
+    isOwner: !!traceRoostDb?.isOwner,
+    loadError: !!traceRoostDb?.loadError,
+  })
+  if (pipeline.runPipeline) startOwnerPipeline()
+  else if (pipeline.viewer) outputChannel.appendLine('TraceRoost: viewing the database owned by another window — log ingestion, reconciliation and forwarding run there.')
 
-  if (collectorFailed || (traceRoostDb && !traceRoostDb.isOwner)) {
-    // Non-collector (or read-only database) window: poll the last-write signal; refresh from a
-    // DB snapshot when it changes.
+  // The OTLP port is held by the window whose collector started first, owner or not. When this
+  // window takes the database over from a closed owner that also held the port, it is free now.
+  const retryCollector = async () => {
+    if (collector || !collectorFailed || collectorConflict || !store) return
+    const retry = new OtlpCollector(port, store, outputChannel!)
+    try {
+      await retry.start()
+      retry.setIngestionEnabled(vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableOtelIngestion', true))
+      collector = retry
+      collectorFailed = false
+      outputChannel!.appendLine(`TraceRoost: OTLP collector now listening on port ${port}`)
+      updateStatusBar()
+    } catch (err) {
+      outputChannel!.appendLine(`TraceRoost: port ${port} is still in use — this window keeps reading the shared database without its own collector (${err})`)
+    }
+  }
+
+  if (collectorFailed || pipeline.viewer) {
+    // Viewer window: poll the last-write signal and refresh from a DB snapshot when it changes —
+    // and, on every tick, see whether the owning window has gone so this one can take over.
+    const liveRepository = repository
     let lastKnownWriteMs = readLastWriteMs(context.globalStorageUri)
     const pollTimer = setInterval(() => {
+      // tryTakeOver() is also true when a save() already acquired the lock in passing (TraceRoostDb
+      // tries on every save), so the pipeline starts whichever way ownership arrived.
+      if (traceRoostDb && !ownerPipelineStarted && traceRoostDb.tryTakeOver()) {
+        outputChannel!.appendLine('TraceRoost: the window that owned the database has closed — this window owns it now and takes over log ingestion, reconciliation and forwarding.')
+        // Back to the repository on the live copy (reloaded from disk by the takeover); a snapshot
+        // reader from an earlier tick would never see this window's own writes.
+        if (liveRepository) {
+          repository = liveRepository
+          provider.setRepository(repository)
+          DashboardPanel.setRepository(repository)
+        }
+        startOwnerPipeline()
+        void retryCollector()
+        provider.refresh()
+        return
+      }
+      // The owner reads its own writes through the live repository; nothing to refresh from disk.
+      if (traceRoostDb?.isOwner) return
       const latest = readLastWriteMs(context.globalStorageUri)
       if (latest > lastKnownWriteMs) {
         lastKnownWriteMs = latest
@@ -657,6 +721,7 @@ export async function activate(context: vscode.ExtensionContext) {
           context.globalStorageUri,
           context.extensionUri.fsPath,
           traceRoostDb?.sqlFactory,
+          (msg) => outputChannel!.appendLine(msg),
         )
         if (snapshotReader && store) {
           const snapshotWriter = writer ?? new DatabaseWriter(traceRoostDb!.raw, context.globalStorageUri, () => {})
@@ -783,6 +848,10 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('traceRoost.clearSessions', () => {
       if (!repository || !writer) return
+      if (traceRoostDb && !traceRoostDb.isOwner) {
+        vscode.window.showInformationMessage('TraceRoost: another VS Code window owns the trace database — clear it from that window.')
+        return
+      }
       // Clear DB and live span window
       repository.clearAll()
       store?.clear()
@@ -989,7 +1058,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
         return
       }
       const confirm = await vscode.window.showWarningMessage(
-        'Unlink this machine from TraceRoost Cloud? The local credential is deleted and this machine stops forwarding immediately. This does not remove you from the org — a lead can still see you on the roster until they remove you there.',
+        'Unlink this machine from TraceRoost Cloud? The local credential is deleted and this machine stops forwarding immediately. This does not remove you from the org — an admin can still see you on the roster until they remove you there.',
         { modal: true },
         'Unlink',
       )
@@ -998,7 +1067,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage(
         res.serverRevoked
           ? 'TraceRoost: unlinked. This machine has stopped forwarding.'
-          : 'TraceRoost: unlinked locally. Could not reach the server to revoke the token — it will be revoked on next contact, or by a lead from the roster.',
+          : 'TraceRoost: unlinked locally. Could not reach the server to revoke the token — it will be revoked on next contact, or by an admin from the roster.',
       )
       forwardScheduler?.syncToLinkState()
       DashboardPanel.currentPanel?.update()
@@ -1006,7 +1075,7 @@ function registerOrgCommands(context: vscode.ExtensionContext): void {
   )
 }
 
-// ── Deep links (AL 08 / AL 09) ──────────────────────────────────────────────
+// ── Deep links ───────────────────────────────────────────────────────────────
 //
 // Routed through VS Code's own `vscode://<publisher>.<extension-id>/<path>?<query>` scheme —
 // there is no separately-registered custom `traceroost://` or `agentlens://` protocol anywhere,

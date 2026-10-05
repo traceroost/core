@@ -126,13 +126,13 @@ for what each job proves and the commands.
 
 **Merging:** PRs are squash-merged into `main` so the history stays one-line-per-change readable.
 
-**Releases:** bump `version` in `package.json` and add a `CHANGELOG.md` entry in the same PR. After merge, tag `main` with `vX.Y.Z` — the release and Docker workflows refuse a tag that doesn't match `package.json`'s version.
+**Changelog and releases:** a user-facing PR adds its bullets under `## [Unreleased]` in `CHANGELOG.md` (`### Added` / `### Fixed` / `### Changed`, bold lead-in, PR number in parens — see the existing entries). **Never bump `version` in `package.json` in a feature PR.** The bump and the dated `## [X.Y.Z]` heading are written at release time by a release commit on `main`, which is then tagged `vX.Y.Z` — the release and Docker workflows refuse a tag that doesn't match `package.json`'s version. The whole procedure is [`runbooks/RELEASING.md`](runbooks/RELEASING.md).
 
 ## Submitting a pull request
 
 1. Fork the repo and create a branch (`feat/<slug>` or `fix/<slug>`)
 2. Make your changes and verify `pnpm run check-types && pnpm run lint` pass
-3. Bump the version and update `CHANGELOG.md` if your change is user-facing
+3. If your change is user-facing, add a bullet under `## [Unreleased]` in `CHANGELOG.md` (don't bump the version — releases do that)
 4. Open a PR with a clear description of what changed and why; the PR title should follow Conventional Commits format
 
 Please keep PRs focused on a single change. Large refactors should be discussed in an issue first.

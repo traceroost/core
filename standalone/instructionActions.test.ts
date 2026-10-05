@@ -201,4 +201,17 @@ suite('standalone instruction actions', () => {
     fs.writeFileSync(stateFile, '{not json')
     assert.deepStrictEqual(loadInstructionState(stateFile), { applied: [], dismissed: [] })
   })
+
+  test('a corrupt state file is moved aside, and the next save is atomic and owner-only', () => {
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true })
+    fs.writeFileSync(stateFile, '{"applied":[{"id":"x"')
+    const logs: string[] = []
+    loadInstructionState(stateFile, m => logs.push(m))
+    assert.strictEqual(logs.length, 1)
+    saveInstructionState(stateFile, { applied: [], dismissed: [] })
+    const names = fs.readdirSync(path.dirname(stateFile)).sort()
+    assert.strictEqual(names.length, 2, names.join(','))
+    assert.ok(names.some(n => n.startsWith(`${path.basename(stateFile)}.corrupt-`)), names.join(','))
+    if (process.platform !== 'win32') assert.strictEqual(fs.statSync(stateFile).mode & 0o777, 0o600)
+  })
 })

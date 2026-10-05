@@ -62,6 +62,9 @@ function isPathInside(parent: string, child: string): boolean {
 
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined
+  /** Where this panel's own errors go — the TraceRoost output channel, set by extension.ts. The
+   *  extension host's console is invisible to users; the output channel is what they can read. */
+  public static log: (msg: string) => void = () => { /* silent until extension.ts wires it */ }
   /** The port the MCP server actually bound (set by extension.ts) — it can differ from the
    *  configured traceRoost.mcpPort when that port was busy and listenWithFallback moved on. */
   public static boundMcpPort: number | undefined
@@ -179,7 +182,7 @@ export class DashboardPanel {
           // Belt-and-suspenders: individual org* cases reply on both success and failure, but if
           // one doesn't, this is what stops the webview's busy/loading state from hanging forever
           // with no error shown (see App.tsx's `orgError` handler).
-          console.error('[TraceRoost] Org message handler failed:', err)
+          DashboardPanel.log(`[TraceRoost] Org message handler failed: ${err}`)
           this.panel.webview.postMessage({ type: 'orgError', error: (err as Error).message })
         }
         return
@@ -198,7 +201,7 @@ export class DashboardPanel {
           (msg.workspace as string) || '',
           Array.isArray(msg.filesChanged) ? msg.filesChanged as string[] : [],
           (msg.endTime as string) || '',
-        ).catch(err => console.error('[TraceRoost] sendGitOutcome failed:', err))
+        ).catch(err => DashboardPanel.log(`[TraceRoost] sendGitOutcome failed: ${err}`))
       } else if (msg.type === 'getGitOutcomes' && Array.isArray(msg.sessionIds)) {
         const sessionIds = msg.sessionIds.filter((id: unknown): id is string => typeof id === 'string')
         void this.sendGitOutcomes(sessionIds)
@@ -568,7 +571,7 @@ export class DashboardPanel {
       // ever posts a `gitOutcome` reply, that would permanently strand the Outcome filter's
       // "resolving N outcomes" spinner above zero. Reply now (as "not applicable") so the spinner
       // can count this one down; it will be retried on the next request for this session.
-      console.error(`[TraceRoost] Git-outcome classification failed for session ${sessionId}:`, err)
+      DashboardPanel.log(`[TraceRoost] Git-outcome classification failed for session ${sessionId}: ${err}`)
       outcome = null
     }
     // Post-hoc risk signals (hallucinated import, submitted-despite-a-failing-check) and
@@ -609,7 +612,7 @@ export class DashboardPanel {
           if (result.deferred) this.panel.webview.postMessage({ type: 'gitOutcomeDeferred', sessionId: result.sessionId })
         }
       } catch (err) {
-        console.error('[TraceRoost] Batched git-outcome reconciliation failed:', err)
+        DashboardPanel.log(`[TraceRoost] Batched git-outcome reconciliation failed: ${err}`)
         await Promise.all(inputs.map(input => this.sendGitOutcome(
           input.sessionId, input.workspace, input.filesChanged, input.endTime,
         )))
@@ -731,7 +734,7 @@ export class DashboardPanel {
       // MAX_SESSIONS_TO_WEBVIEW. That cap exists to bound the webview postMessage payload; an
       // install with a history past it would otherwise silently strand its oldest sessions,
       // permanently unreachable by "Check for unsent traces". See sessionRepository.ts's
-      // MAX_SESSIONS_TO_WEBVIEW doc comment and .staged-issues/reconcile-gap-and-latency.md.
+      // MAX_SESSIONS_TO_WEBVIEW doc comment and CLOUD_ARCHITECTURE.md's "Check for unsent traces".
       allLocalSessions: () => this.repo.listSessions({ limit: Infinity }),
       traceSendStats: () => this.repo.queryTraceSendStats(Date.now()),
       buildPayloadPreview: (sessions) => cloud.buildPayloadPreview(sessions),
@@ -743,7 +746,7 @@ export class DashboardPanel {
           (err) => { void vscode.window.showErrorMessage(`TraceRoost: could not open ${url}: ${err instanceof Error ? err.message : err}`) },
         )
       },
-      log: (m) => console.warn(m),
+      log: (m) => DashboardPanel.log(m),
     }
   }
 

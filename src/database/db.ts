@@ -1,7 +1,10 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { SCHEMA_SQL } from './schema'
-import { dropStaleTraceStore, TRACE_STORE_REBUILT_MESSAGE } from './traceStore'
+import { dropStaleTraceStore, TRACE_STORE_REBUILT_MESSAGE, TRACE_STORE_VERSION } from './traceStore'
+import { ensureColumns, storeDowngradeWarning, type ColumnMigration } from './schemaEvolution'
+import { takeoverStep } from '../ownerGate'
+export { ensureColumn, ensureColumns, storeDowngradeWarning, type ColumnMigration } from './schemaEvolution'
 
 // Minimal sql.js surface we use — avoids pulling in @types/sql.js
 // which has a transitive @types/emscripten dep that requires browser lib types.
@@ -35,7 +38,7 @@ const OWNER_LOCK_SUFFIX = '.owner'
 // and rewrites the whole database (well over 100 MB for a long history, ~0.4 s of blocked
 // extension host each), and ingestion used to ask for one per OTLP payload and per 10 log files.
 // Kept equal to the other windows' last-write poll interval so they don't see changes any later.
-export const SAVE_COALESCE_MS = 2_000
+const SAVE_COALESCE_MS = 2_000
 
 /**
  * Opens (or creates) the TraceRoost SQLite database at storagePath/traceroost.db
@@ -83,9 +86,7 @@ export function openDatabaseWith(
   if (fileBuffer) {
     try {
       db = new SQL.Database(fileBuffer)
-      rebuiltTraceStore = dropStaleTraceStore(db)
-      db.run(SCHEMA_SQL)
-      applyMigrations(db)
+      rebuiltTraceStore = prepareLoadedDb(db, log)
     } catch (err) {
       try { db?.close() } catch { /* ignore */ }
       db = undefined
@@ -95,9 +96,7 @@ export function openDatabaseWith(
   }
   if (!db) {
     db = new SQL.Database()
-    dropStaleTraceStore(db)
-    db.run(SCHEMA_SQL)
-    applyMigrations(db)
+    prepareLoadedDb(db, log)
   }
   if (loadError) {
     log(`TraceRoost: could not load ${dbPath} (${loadError}) — running without saving so the existing file is left untouched.`)
@@ -110,6 +109,21 @@ export function openDatabaseWith(
   tdb.rebuiltTraceStore = rebuiltTraceStore
   tdb.tryAcquireOwnership()
   return tdb
+}
+
+/**
+ * Brings a freshly loaded (or brand-new) database up to this build's schema: drops a trace store
+ * older than TRACE_STORE_VERSION (traceStore.ts), warns about one newer than it, runs the schema and
+ * the column migrations. Returns dropStaleTraceStore's result (true when an existing store was
+ * rebuilt).
+ */
+function prepareLoadedDb(db: SqlDatabase, log: (msg: string) => void): boolean {
+  const downgrade = storeDowngradeWarning(db, TRACE_STORE_VERSION)
+  if (downgrade) log(`TraceRoost: ${downgrade}`)
+  const rebuilt = dropStaleTraceStore(db)
+  db.run(SCHEMA_SQL)
+  applyMigrations(db, log)
+  return rebuilt
 }
 
 type FileStamp = { mtimeMs: number; size: number } | null
@@ -164,8 +178,12 @@ export class TraceRoostDb {
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private saveCallbacks: Array<(saved: boolean) => void> = []
 
+  // Swapped by reloadFromDisk(); everything outside reaches it through the stable `raw` facade.
+  private db: SqlDatabase
+  private readonly facade: SqlDatabase
+
   constructor(
-    private readonly db: SqlDatabase,
+    db: SqlDatabase,
     readonly sqlFactory: SqlJsStatic,
     private readonly dbPath: string,
     readonly blobsDir: string,
@@ -174,7 +192,15 @@ export class TraceRoostDb {
     readonly loadError?: string,
     private readonly log: (msg: string) => void = () => { /* silent */ },
   ) {
+    this.db = db
     this.lastStamp = loadedStat
+    this.facade = {
+      run: (sql, params) => this.db.run(sql, params),
+      exec: sql => this.db.exec(sql),
+      prepare: sql => this.db.prepare(sql),
+      export: () => this.db.export(),
+      close: () => this.db.close(),
+    }
   }
 
   /** True when this host owns writes to the database file. */
@@ -184,6 +210,63 @@ export class TraceRoostDb {
 
   private get lockPath(): string {
     return this.dbPath + OWNER_LOCK_SUFFIX
+  }
+
+  /** Whether the owner lock exists and names a process that is still running (not us). */
+  private lockHeldByLiveProcess(): boolean {
+    let holder = NaN
+    try { holder = parseInt(fs.readFileSync(this.lockPath, 'utf8'), 10) } catch { return false }
+    return holder !== process.pid && isProcessAlive(holder)
+  }
+
+  /**
+   * Replaces the in-memory copy with the file as it is on disk now — what a read-only window needs
+   * before it can take over writing (its copy is stale as soon as the owner saved once). Readers
+   * and writers built on `raw` keep working: `raw` is a facade over the current copy. Returns
+   * false (and changes nothing) when the file can't be read or loaded.
+   */
+  reloadFromDisk(): boolean {
+    if (this.owner || this.loadError) return false
+    let fresh: SqlDatabase | undefined
+    try {
+      const buffer = fs.readFileSync(this.dbPath)
+      const stamp = statOrNull(this.dbPath)
+      fresh = new this.sqlFactory.Database(buffer)
+      prepareLoadedDb(fresh, this.log)
+      const old = this.db
+      this.db = fresh
+      this.lastStamp = stamp
+      try { old.close() } catch { /* ignore */ }
+      return true
+    } catch (err) {
+      try { fresh?.close() } catch { /* ignore */ }
+      this.log(`TraceRoost: could not reload ${this.dbPath}: ${err}`)
+      return false
+    }
+  }
+
+  /**
+   * A read-only window's chance to become the writer once the owning window is gone: when the lock
+   * is free (or its holder died), reload the file if our copy is stale, then acquire. Cheap when the
+   * owner is alive (one small file read), so it can run on the viewer's refresh tick. Returns
+   * whether this host owns the database afterwards.
+   */
+  tryTakeOver(): boolean {
+    const step = takeoverStep({
+      isOwner: this.owner,
+      loadError: !!this.loadError,
+      lockHeldByLiveProcess: this.lockHeldByLiveProcess(),
+      diskChangedSinceLoad: !sameStamp(this.lastStamp, statOrNull(this.dbPath)),
+    })
+    switch (step) {
+      case 'already-owner': return true
+      case 'blocked-load-error':
+      case 'lock-held': return false
+      case 'reload-then-acquire':
+        if (!this.reloadFromDisk()) return false
+        return this.tryAcquireOwnership()
+      case 'acquire': return this.tryAcquireOwnership()
+    }
   }
 
   /** Tries to become the database file's single writer. Returns whether this host now owns it. */
@@ -293,15 +376,31 @@ export class TraceRoostDb {
     }
   }
 
-  /** Direct access for query/write operations added in later phases. */
+  /** Direct access for queries and writes. Stable for the life of this object — it follows a
+   *  reloadFromDisk() — so repositories can hold it. */
   get raw(): SqlDatabase {
-    return this.db
+    return this.facade
   }
 }
 
-function applyMigrations(db: SqlDatabase): void {
+/**
+ * Columns added to tables that survive a trace-store rebuild (see traceStore.ts for which tables
+ * are dropped instead) after the table first shipped. `CREATE TABLE IF NOT EXISTS` never adds a
+ * column to an existing table, so a new column on such a table goes here — not into
+ * TRACE_STORE_VERSION, which would throw the user's whole trace history away to add it. Entries are
+ * permanent: a store from any earlier build must still find its column.
+ */
+export const KEPT_TABLE_COLUMNS: readonly ColumnMigration[] = [
+  // e.g. { table: 'limit_plan_status', column: 'seat_count', ddl: 'INTEGER' }
+]
+
+function applyMigrations(db: SqlDatabase, log: (msg: string) => void = () => { /* silent */ }): void {
   // Each migration is guarded so re-running on an already-migrated DB is safe. Trace tables need
   // none: a store older than TRACE_STORE_VERSION has them dropped and recreated (traceStore.ts).
+
+  for (const added of ensureColumns(db, KEPT_TABLE_COLUMNS)) {
+    log(`TraceRoost migration: added ${added.table}.${added.column}`)
+  }
 
   // instruction_applied table (feat-instruction-advisor)
   const appliedCols = db.exec('PRAGMA table_info(instruction_applied)')

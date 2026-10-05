@@ -19,7 +19,7 @@ export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection, Tr
  * is the backstop regardless of that finding — a known, tested ceiling, the same shape as
  * `spanStore.ts`'s `DEFAULT_MAX_SPANS`, so an unusually large history degrades to "most recent N
  * sessions" instead of risking V8's ~512MB max string length on the webview `postMessage` payload.
- * See .staged-issues/scalability.md, risk #5.
+ * (The multi-year-history stress test, src/test/database/scalability.stress.test.ts, pins this.)
  */
 export const MAX_SESSIONS_TO_WEBVIEW = 20_000
 

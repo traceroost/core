@@ -62,6 +62,42 @@ suite('serviceConfig', () => {
       fs.writeFileSync(serviceConfigPath(home), 'not valid json{{{', 'utf-8')
       assert.deepStrictEqual(readServiceConfig(home), defaultServiceConfig(home))
     })
+
+    test('moves a corrupt file aside so the next write (a new token) does not destroy it', () => {
+      const home = tmpHome()
+      const configPath = serviceConfigPath(home)
+      fs.mkdirSync(path.dirname(configPath), { recursive: true })
+      fs.writeFileSync(configPath, '{"authToken":"abc","uiPort":30', 'utf-8') // torn mid-write
+      const logs: string[] = []
+      readServiceConfig(home, m => logs.push(m))
+      assert.strictEqual(logs.length, 1)
+      assert.ok(logs[0].includes('moved it to'))
+      writeServiceConfig(defaultServiceConfig(home), home)
+      const names = fs.readdirSync(path.dirname(configPath)).sort()
+      assert.ok(names.includes('config.json'))
+      const aside = names.find(n => n.startsWith('config.json.corrupt-'))
+      assert.ok(aside, names.join(','))
+      assert.strictEqual(fs.readFileSync(path.join(path.dirname(configPath), aside!), 'utf-8'), '{"authToken":"abc","uiPort":30')
+    })
+
+    test('writes atomically (no temp sibling) and owner-only', () => {
+      const home = tmpHome()
+      writeServiceConfig(defaultServiceConfig(home), home)
+      const dir = path.dirname(serviceConfigPath(home))
+      assert.deepStrictEqual(fs.readdirSync(dir), ['config.json'])
+      if (process.platform !== 'win32') {
+        assert.strictEqual(fs.statSync(serviceConfigPath(home)).mode & 0o777, 0o600)
+        assert.strictEqual(fs.statSync(dir).mode & 0o777, 0o700)
+      }
+    })
+
+    test('sessionRetentionDays defaults to 90 and is read from the file', () => {
+      const home = tmpHome()
+      assert.strictEqual(readServiceConfig(home).sessionRetentionDays, 90)
+      fs.mkdirSync(path.dirname(serviceConfigPath(home)), { recursive: true })
+      fs.writeFileSync(serviceConfigPath(home), JSON.stringify({ sessionRetentionDays: 30 }), 'utf-8')
+      assert.strictEqual(readServiceConfig(home).sessionRetentionDays, 30)
+    })
   })
 
   suite('generateAuthToken', () => {
@@ -129,6 +165,11 @@ suite('serviceConfig', () => {
       assert.strictEqual(config.mcpPort, 4317)
       assert.strictEqual(config.bindHost, '0.0.0.0')
       assert.strictEqual(config.dataDir, '/tmp/traceroost-data')
+    })
+
+    test('parses --retention-days', () => {
+      assert.strictEqual(parseServiceInstallFlags(['--retention-days', '30']).sessionRetentionDays, 30)
+      assert.strictEqual(parseServiceInstallFlags([]).sessionRetentionDays, 90)
     })
 
     test('falls back to defaults for any flag not passed', () => {

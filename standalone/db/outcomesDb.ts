@@ -10,6 +10,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { OUTCOMES_SCHEMA_SQL } from '../../src/database/schema'
 import { dropStaleTraceStore } from '../../src/database/traceStore'
+import { writeFileAtomic, quarantineCorruptFile } from '../../src/fsAtomic'
 
 interface SqlDatabase {
   run(sql: string, params?: unknown[]): void
@@ -37,7 +38,7 @@ export interface OutcomesDb {
 
 /** Returns null (never throws) when sql.js can't be loaded — the caller falls back to computing
  *  turnover uncached, same as it already does today. */
-export async function openOutcomesDb(dataDir: string): Promise<OutcomesDb | null> {
+export async function openOutcomesDb(dataDir: string, log: (msg: string) => void = () => {}): Promise<OutcomesDb | null> {
   try {
     const sqlJsDir = path.dirname(require.resolve('sql.js'))
     const initSqlJs = require('sql.js') as InitSqlJs
@@ -45,9 +46,21 @@ export async function openOutcomesDb(dataDir: string): Promise<OutcomesDb | null
 
     const dbPath = path.join(dataDir, DB_FILENAME)
     let db: SqlDatabase
-    try {
-      db = new SQL.Database(fs.readFileSync(dbPath))
-    } catch {
+    let bytes: Buffer | null = null
+    try { bytes = fs.readFileSync(dbPath) } catch { /* no file yet — fresh database */ }
+    if (bytes) {
+      try {
+        db = new SQL.Database(bytes)
+        // A torn file can still "open": make sure it answers a query before trusting it.
+        db.exec('PRAGMA schema_version')
+      } catch (err) {
+        // Keep the unreadable file aside rather than letting the first save overwrite it — it holds
+        // plan-limit readings, Claude join decisions and revisions that can't be re-derived.
+        const aside = quarantineCorruptFile(dbPath)
+        log(`[TraceRoost] ${dbPath} could not be opened (${err instanceof Error ? err.message : String(err)})${aside ? ` — moved it to ${aside}` : ''}; starting a fresh outcomes cache.`)
+        db = new SQL.Database()
+      }
+    } else {
       db = new SQL.Database()
     }
     const rebuiltTraceStore = dropStaleTraceStore(db)
@@ -56,8 +69,10 @@ export async function openOutcomesDb(dataDir: string): Promise<OutcomesDb | null
     return {
       raw: db,
       save: () => {
-        fs.mkdirSync(dataDir, { recursive: true })
-        fs.writeFileSync(dbPath, Buffer.from(db.export()))
+        fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+        // Owner-only (it caches per-trace data) and atomic: a crash mid-write used to leave a
+        // truncated file that the next start silently replaced with an empty database.
+        writeFileAtomic(dbPath, db.export(), { mode: 0o600 })
       },
       rebuiltTraceStore,
     }

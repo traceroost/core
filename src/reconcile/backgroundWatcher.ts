@@ -1,6 +1,7 @@
 /**
- * Background reconciliation (staged feature 10, Stage 2 — see
- * .staged-features/10-live-outcome-reconciliation.md).
+ * Background reconciliation ("live outcome reconciliation", stage 2 of 2 — reconciliationService.ts
+ * is stage 1: a trace's git outcome keeps being re-checked after the fact, so a commit or merge made
+ * long after the session still corrects the stored outcome and reaches the cloud as a new revision).
  *
  * Runs from extension-host / standalone-server lifecycle, not dashboard lifecycle: started once
  * at activation/startup and kept alive independent of whether a Traces view is open, so "leave

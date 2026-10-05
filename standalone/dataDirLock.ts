@@ -80,7 +80,9 @@ export type AcquireResult =
  * reports who holds it. Never waits. Creates `dataDir` if it doesn't exist yet.
  */
 export function tryAcquireDataDirLock(dataDir: string, opts: { service?: boolean } = {}, env: LockEnv = defaultLockEnv()): AcquireResult {
-  fs.mkdirSync(dataDir, { recursive: true })
+  // Owner-only when this creates it: the dir holds every recorded prompt and tool output
+  // (spans.json) beside the credential files. An existing dir's mode is left alone.
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })
   const lockPath = path.join(dataDir, LOCK_FILENAME)
   const info: DataDirLockInfo = {
     pid: env.pid, hostname: env.hostname, startedAt: new Date(env.now()).toISOString(),

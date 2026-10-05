@@ -16,18 +16,31 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **Instruction suggestions for every repo in the npx/service dashboard**, each with its own file picker and Apply/Dismiss; suggestions can also target OpenCode and Cursor CLI (`AGENTS.md`, `.cursor/rules/traceroost.mdc`) (#274)
 - **`traceroost --version`** prints the version. An unknown option (`traceroost --prot 3001`) now prints the usage and exits with an error instead of starting the server — and auto-configuring your agents
 - **Plan limit detail** — the Traces column shows the 5-hour window (weekly when there's none) and an expanded trace lists every window and any limit hits (#282)
+- **`TRACEROOST_NO_UPDATE_CHECK=1`** turns off the npx/service/Docker server's check of registry.npmjs.org for a newer version; Help gains a Network section in both editions saying exactly what each build talks to (#297)
+- **One VS Code window does the work** — with several windows open, only the window that owns the shared trace database reads agent logs, re-checks git outcomes and forwards to the cloud; the others just show its results, and take over automatically when it closes. Before, every window ran all of it against a copy that was never saved, so revision numbers could drift between windows
+- **Older builds warn about a newer trace store** — opening a database written by a newer TraceRoost logs a warning naming both store versions instead of running silently; new columns on kept tables are now added in place on open rather than by rebuilding the store
 
 ### Fixed
+
+- **The npx/service server could be taken down by any web page** — a malformed `/api/timeline/<id>` address threw an uncaught error and exited the process, losing in-flight OTEL data. The address is now rejected with a 400, and the server logs and keeps serving on any unexpected error instead of exiting
+- **Torn files no longer wipe your history** — `spans.json`, the outcomes database, the log-file state, `config.json` and `ports.json` are written atomically (temp file + rename); a file that fails to load is kept aside as `*.corrupt-<timestamp>` instead of being overwritten with an empty one
+- **The npx/service server now keeps 90 days of log-sourced traces** like the extension does (`sessionRetentionDays` in `~/.traceroost/config.json`, `service install --retention-days N`, `0` keeps everything); before, it held every trace it had ever read in memory
+- **OTEL traces that keep growing after their first idle minutes are re-sent to TraceRoost Cloud** from the npx/service server too (the extension already did); "Clear all data" re-reads history in slices instead of blocking the server
 
 - **The npx/service server now parses OTLP exactly like the extension** — the same Codex run produced different trace ids on the two hosts; both now share one parser, and the server answers a malformed payload with 400 as the extension does (#293)
 - **Forward queue: a newer revision of a trace could be lost** when an older one was confirmed or rejected while it was queued; only the revision that was sent is removed now. The extension also forwards traces changed by its periodic log scan, not just live OTLP updates (#293)
 - **Linking from the CLI or another window went unnoticed until a restart** — a link made outside the current process now starts sending and queues history straight away, and the post-link catch-up starts sending the newest traces while older ones are still being prepared (#291, #294)
 - **Trace keys stay in step with the cloud** — placeholder keys are never sent, keys a re-read log no longer produces are removed, and one rejected payload no longer holds up a whole day (#296)
 - **`find` matches the trace id the cloud shows**, so non-UUID local keys (Copilot OTEL) are found (#288)
+- **An expired cloud sign-in is recognised as expired** — a token refresh the server rejected as `invalid_grant`/`invalid_client` with extra detail appended was retried forever instead of asking you to re-link (#297)
+- **Cloud rate overrides keep the local model entry** — context-window size and long-context tiers were dropped when the cloud sent a rate for a model TraceRoost already knew (#297)
+- **Instruction telemetry** — counts are clamped to the schema maximum like trace rollups, and the suggestion id is hashed under the repo key before sending (the raw id could embed a file path) (#297)
 - **Changing the sort returns to page 1** of the Traces table (#284)
 - **The README demo GIF didn't show on GitHub** (over its 5 MB image limit) (#273)
 
 ### Changed
+
+- **Hardened the npx/service server** — released builds ignore a `.env` in the current directory (development builds still load one); the `/api/git-outcome`, `/api/repo-hash` and `/api/instruction-suggestions` routes cap their request bodies and only accept a workspace a recorded trace ran in; the dashboard is served with an enforced Content-Security-Policy; prompt-bearing files under `~/.traceroost` are owner-only; the LAN-mode token is no longer written to `service.log` and is dropped from the address bar after sign-in; "Write prompts file" writes into `~/.traceroost/` instead of the server's working directory; a single log file over 512 MB is skipped with a warning instead of retried every scan
 
 - **Traces table** — abbreviated language names, agent pills only for agents with data, the Language dropdown lists only languages your traces have, a narrower Plan limit column, at most three signal icons, and the expanded row stays pinned under the header with a Repo (ID) chip (#280, #281, #284, #285)
 - **Export** — one clear "N traces match your current filters" box above both export cards (#289)
@@ -35,6 +48,8 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **Quieter VS Code startup** — the "TraceRoost active" notification shows only on first install and after an update, and the Output panel no longer opens on every start
 - **Uninstall commands name the real extension id** (`agentlens.agentlens-dashboard`), and Help's signal notes are in plain language
 - **Quieter logs** — routine forwarding and trace-manifest counts move to debug; `TRACEROOST_LOG_LEVEL=debug` turns them back on (#290)
+- **Org link wording matches TraceRoost Cloud** — the link consent and Org panel list exactly what is sent, mirror Cloud's teammate-visibility wording, no longer claim admins see team totals only, and note that hashes of public repos can be recognised (#283, #297)
+- **Clear All Traces is a declared command** (hidden from the palette — use the dashboard's Clear button, which confirms first), and in a window that doesn't own the trace database it points you at the window that does
 - **Docs, Help and CI** — Help and docs cover the new features, CI reports coverage on Windows too, a weekly traffic snapshot, and GitHub Actions updates. No user-facing product change (#274, #275–#279, #284, #287)
 
 ---

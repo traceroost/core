@@ -324,9 +324,9 @@ export function Analytics() {
         </>
       )}
 
-      {/* Outcome & token spend over time — see .staged-issues (cloud repo) for the design this
-          ports; analytics-outcome-tokens used to be a single median-per-outcome bar chart
-          (buildOutcomeTokenBuckets still feeds this section's median column). */}
+      {/* Outcome & token spend over time — ports the cloud's Analytics chart of the same name;
+          this used to be a single median-per-outcome bar chart (buildOutcomeTokenBuckets still
+          feeds this section's median column). */}
       {trend.bins.length > 0 && (
         <>
           <SectionHead id="analytics-outcome-tokens" title="OUTCOME &amp; TOKEN SPEND OVER TIME" first={!hasPlan && !hasAgentBreakdown && !hasLanguageBreakdown}

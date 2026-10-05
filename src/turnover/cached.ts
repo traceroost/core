@@ -39,7 +39,7 @@ export interface CachedTurnoverDeps extends ComputeTurnoverOptions {
 
 /** Fingerprint of the session set attribution joins against — ids, end times and changed-file
  *  counts, so a newly ingested or still-growing session changes it. */
-export function sessionsFingerprint(sessions: AttributionSession[] | undefined): string {
+function sessionsFingerprint(sessions: AttributionSession[] | undefined): string {
   const h = createHash('sha256')
   for (const s of [...(sessions ?? [])].sort((a, b) => a.sessionId.localeCompare(b.sessionId))) {
     h.update(`${s.sessionId}:${s.endMs}:${s.filesChanged.length}\n`)

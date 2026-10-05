@@ -1,7 +1,7 @@
 /**
- * Stress test for .staged-issues/scalability.md — replaces "at some point this might be slow"
- * with real numbers at a realistic multi-year DB size, per that doc's Acceptance criteria. Its own
- * Notes section is explicit that risks #2 (incremental TraceRoostDb.save()) and #3 (DB-level
+ * Scalability stress test — replaces "at some point this might be slow" with real numbers at a
+ * realistic multi-year DB size. The scalability review it came from numbered the risks; it was
+ * explicit that risks #2 (incremental TraceRoostDb.save()) and #3 (DB-level
  * pagination for the main Sessions list) should NOT be built speculatively — only if this test
  * shows they matter. Risk #1 (LogReader.fileState persistence, see logReader.fileState.test.ts)
  * and risk #5 (a spanStore.ts-style safety valve, see sessionRepository.test.ts) are fixed

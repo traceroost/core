@@ -13,7 +13,7 @@ import type { LimitHit, LimitProvider, LimitWindowKind } from './limitReadings'
 import type { StoredReading, WindowRollup } from './limitRepository'
 
 const HOUR = 3_600_000
-export const WINDOW_MS: Record<LimitWindowKind, number> = {
+const WINDOW_MS: Record<LimitWindowKind, number> = {
   five_hour: 5 * HOUR,
   weekly: 7 * 24 * HOUR,
   weekly_opus: 7 * 24 * HOUR,
@@ -22,7 +22,7 @@ export const WINDOW_MS: Record<LimitWindowKind, number> = {
 
 /** The two windows every per-session figure, chart and alert is built on. The per-model weekly
  *  windows stay as numbers in the meter only. */
-export const PRIMARY_WINDOWS: LimitWindowKind[] = ['five_hour', 'weekly']
+const PRIMARY_WINDOWS: LimitWindowKind[] = ['five_hour', 'weekly']
 
 export interface SessionSpan {
   sessionId: string
@@ -74,7 +74,7 @@ function groupReadings(readings: StoredReading[]): Map<string, StoredReading[]> 
 /** Whether the window reset between two consecutive readings: usage dropped, the reading before's
  *  reset time has passed, or the gap is longer than the window itself. Detected this way — not by
  *  `resets_at` changing — because resets_at can drift slightly between readings of one window. */
-export function isReset(prev: StoredReading, next: StoredReading): boolean {
+function isReset(prev: StoredReading, next: StoredReading): boolean {
   return next.usedPct < prev.usedPct
     || (prev.resetsAt !== undefined && next.observedAt >= prev.resetsAt)
     || next.observedAt - prev.observedAt > WINDOW_MS[next.windowKind]

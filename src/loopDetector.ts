@@ -19,9 +19,9 @@
  *  13. budget_overrun        — session cost exceeded a user-configured cap (opt-in, no default)
  *  14. model_tier_mismatch   — a premium model ran a long read-only, low-output stretch
  *
- * Signals 8-14 were added from the 2026-09-26 signal-catalog research pass
- * (.staged-issues/signal-catalog-*.md, stages 01-04) — see those files for the research this
- * catalog is drawn from and the gap analysis against what was already built. Every threshold
+ * Signals 8-14 were added from the 2026-09-26 signal-catalog research pass (a gap analysis of
+ * published agent-failure taxonomies against what was already built; the surviving signals and
+ * their calibration procedure are runbooks/SIGNAL_CALIBRATION.md). Every threshold
  * introduced there is flagged "unconfirmed" in SIGNAL_FORMULAS below until it's been run through
  * scripts/calibrateSignals.ts against real session history, same discipline as signals 1-7.
  *
@@ -909,7 +909,7 @@ export function detectContextFloodingRisk(session: SessionSummaryCard, signals: 
 
 // ── Detector 8: Tool-call cycle ──────────────────────────────────────────────
 //
-// .staged-issues/signal-catalog-01-tool-call-cycle.md. detectExactToolRepeat above only catches a
+// Signal-catalog stage 01 (runbooks/SIGNAL_CALIBRATION.md). detectExactToolRepeat above only catches a
 // literal repeated label (a length-1 streak); this catches a multi-step oscillation across 2-5
 // distinct calls (run tests → read log → run tests → read log) that a length-1 streak, and edit_revert_cycle's
 // single-file string reversal, both miss.
@@ -976,7 +976,7 @@ export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSi
 
 // ── Detector 9: File reread ──────────────────────────────────────────────────
 //
-// .staged-issues/signal-catalog-02-file-reread.md. Keyed on resolved file path rather than the
+// Signal-catalog stage 02 (runbooks/SIGNAL_CALIBRATION.md). Keyed on resolved file path rather than the
 // literal label, so a reread with a different line range (`read_file foo.ts L1-50` then
 // `read_file foo.ts L40-90`) still counts — detectExactToolRepeat's literal-label match misses it.
 
@@ -1060,7 +1060,7 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
 
 // ── Detector 10/11: Cache miss and TTL expiry ────────────────────────────────
 //
-// .staged-issues/signal-catalog-03-cache-and-ttl-signals.md. Claude Code's own /usage rule,
+// Signal-catalog stage 03 (runbooks/SIGNAL_CALIBRATION.md). Claude Code's own /usage rule,
 // applied per LLM call: a call counts as a miss when it re-processed more than 5% and at least
 // 2,000 tokens of what it could have read from cache instead. TTL expiry is the subset of misses
 // where the gap since the previous call exceeds the cache's TTL — a miss caused by waiting too
@@ -1152,7 +1152,7 @@ export function detectTtlExpiry(session: SessionSummaryCard, signals: LoopSignal
 
 // ── Detector 12: Low cache hit ratio ─────────────────────────────────────────
 //
-// .staged-issues/signal-catalog-03-cache-and-ttl-signals.md. Promotes the session-level
+// Signal-catalog stage 03 (runbooks/SIGNAL_CALIBRATION.md). Promotes the session-level
 // `cacheHitRate` already shown in the Cost tab from a number to an actual signal — same
 // promotion pattern as chronic_tool_failures. Guarded by a minimum-activity floor: a source that
 // never reports caching at all (Cursor, Copilot CLI/Chat) would otherwise read as a 0% hit ratio,
@@ -1183,7 +1183,7 @@ export function detectLowCacheHitRatio(session: SessionSummaryCard, signals: Loo
 
 // ── Detector 13: Budget overrun ──────────────────────────────────────────────
 //
-// .staged-issues/signal-catalog-04-budget-and-tier-mismatch.md. Unlike every other threshold in
+// Signal-catalog stage 04 (runbooks/SIGNAL_CALIBRATION.md). Unlike every other threshold in
 // this file, the right cap isn't derivable from this project's own session history — it's a
 // dollar figure the user should set for themselves. No default cap ships; this stays a no-op
 // until TRACEROOST_BUDGET_CAP_USD is set, so nobody starts seeing a new warning the moment this
@@ -1218,7 +1218,7 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
 
 // ── Detector 14: Model tier mismatch ─────────────────────────────────────────
 //
-// .staged-issues/signal-catalog-04-budget-and-tier-mismatch.md. Local-only (see toWireLoopSignal
+// Signal-catalog stage 04 (runbooks/SIGNAL_CALIBRATION.md). Local-only (see toWireLoopSignal
 // in src/cloud/forward/schema.ts) — this is a cost-optimization tip, not a loop/malfunction
 // pattern, so it deliberately doesn't ship to cloud. "Premium" is derived from pricing.ts's own
 // rate table rather than a hardcoded model-name list, so it tracks new models automatically.

@@ -31,7 +31,7 @@ async function main() {
     },
   })
 
-  const standalone = await readFile('standalone/server.ts', 'utf8')
+  const standalone = await readFile('standalone/dashboardHtml.ts', 'utf8')
   const theme = standalone.slice(
     standalone.indexOf('  <style>') + 9,
     standalone.indexOf('  </style>'),

@@ -384,7 +384,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               if (isCursor) {
                 // Real, confirmed gaps in cursor-agent's local transcript format (no OTEL export
                 // exists for it to fall back to, unlike Claude Code/Codex/Copilot) — see
-                // .staged-issues/support-cursor-cli.md. Cost/token/model are honestly zero/unknown
+                // ARCHITECTURE.md §4 "Cursor CLI — transcript log". Cost/token/model are honestly zero/unknown
                 // here, never a guessed number.
                 return (
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
@@ -875,9 +875,9 @@ export function Sessions() {
     </th>
   }
 
-  // Rendering every matching session as its own live component with no cap was the mechanism
-  // behind .staged-issues/session-list-scaling.md — see getSessionsPagination's own doc comment
-  // for why the clamping happens there rather than here.
+  // Rendering every matching session as its own live component with no cap is what made the table
+  // unusable on a long history — see getSessionsPagination's own doc comment (state.ts) for why the
+  // clamping happens there rather than here.
   const { page, totalPages, pageSize } = getSessionsPagination(sessions.length)
   const pageSessions = sessions.slice(page * pageSize, (page + 1) * pageSize)
   // Only when a row on this page has a value — an all-blank column is UI without data.

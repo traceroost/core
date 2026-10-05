@@ -14,6 +14,7 @@ import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
 import { defaultDataDir } from './serviceConfig'
+import { writeFileAtomic } from './fsAtomic'
 
 export interface ResolvedPorts {
   ui: number
@@ -45,8 +46,10 @@ export function readResolvedPorts(baseHome?: string): ResolvedPorts | undefined 
 
 export function writeResolvedPorts(ports: ResolvedPorts, baseHome?: string): void {
   const configPath = resolvedPortsPath(baseHome)
-  fs.mkdirSync(path.dirname(configPath), { recursive: true })
-  fs.writeFileSync(configPath, JSON.stringify(ports, null, 2) + '\n', 'utf-8')
+  fs.mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 })
+  // Owner-only like config.json beside it, and atomic so a reader (`service status`, the extension's
+  // port probe) never sees a half-written record.
+  writeFileAtomic(configPath, JSON.stringify(ports, null, 2) + '\n', { mode: 0o600 })
 }
 
 export class PortScanExhaustedError extends Error {

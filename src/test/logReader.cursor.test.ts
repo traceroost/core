@@ -13,7 +13,7 @@ function writeJsonl(filePath: string, lines: Record<string, unknown>[]) {
 // Fixture shape confirmed against real output from cursor-agent 2026.09.18-9a7762b
 // (`cursor-agent --print --output-format json "..."`, inspecting the resulting
 // ~/.cursor/projects/<workspace>/agent-transcripts/<uuid>/<uuid>.jsonl) — see
-// .staged-issues/support-cursor-cli.md for the full investigation. Re-verified 2026-09-19
+// ARCHITECTURE.md §4 "Cursor CLI — transcript log" for the format. Re-verified 2026-09-19
 // against a real `--resume`d two-turn session (see the "counts real turns" test below for what
 // that confirmed about `turn_ended`'s actual semantics).
 

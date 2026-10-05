@@ -22,7 +22,7 @@ import { withFileLockAsync } from '../forward/fileLock'
 import type { OrgCredentials } from './config'
 
 /** Refresh this long before the access token actually expires, so a request never races expiry. */
-export const REFRESH_SKEW_MS = 60_000
+const REFRESH_SKEW_MS = 60_000
 
 /**
  * Rotates `stale`'s tokens and saves the result, under the credential file's lock. Returns the

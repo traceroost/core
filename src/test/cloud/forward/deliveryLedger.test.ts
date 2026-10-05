@@ -87,7 +87,7 @@ suite('forward/deliveryLedger', () => {
     const realReadFileSync = fs.readFileSync
     const spy = ((...args: Parameters<typeof fs.readFileSync>) => {
       if (args[0] === file) reads++
-      return realReadFileSync(...(args as [string]))
+      return realReadFileSync(...(args as unknown as [string]))
     }) as typeof fs.readFileSync
     // `deliveryLedger.ts`'s `import * as fs from 'fs'` reads `readFileSync` off the real,
     // `require`-cached `fs` module object live on every call (that's how TS compiles a

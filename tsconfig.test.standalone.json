@@ -45,6 +45,22 @@
     "standalone/versionCheck.ts",
     "standalone/versionCheck.test.ts",
     "standalone/cliArgs.ts",
-    "standalone/cliArgs.test.ts"
+    "standalone/cliArgs.test.ts",
+    "standalone/requestGuards.ts",
+    "standalone/requestGuards.test.ts",
+    "standalone/otelForwardGate.ts",
+    "standalone/otelForwardGate.test.ts",
+    "standalone/sessionRetention.ts",
+    "standalone/sessionRetention.test.ts",
+    "standalone/revisionForwardBatcher.ts",
+    "standalone/revisionForwardBatcher.test.ts",
+    "standalone/agentLabels.ts",
+    "standalone/dashboardCsp.ts",
+    "standalone/dashboardHtml.ts",
+    "standalone/dashboardHtml.test.ts",
+    "standalone/openBrowser.ts",
+    "standalone/openBrowser.test.ts",
+    "standalone/db/outcomesDb.ts",
+    "standalone/db/outcomesDb.test.ts"
   ]
 }

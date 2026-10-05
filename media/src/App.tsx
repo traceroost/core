@@ -1,5 +1,6 @@
 import { signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
+import type { ComponentChildren } from 'preact'
 import {
   sessionSummary, toolCalls,
   selectedAgentFilter, availableAgents, showAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
@@ -83,7 +84,7 @@ function normalizeTabId(tab: string): string {
   return tab
 }
 
-function CollapsibleSection({ title, children }: { title: string; children: any }) {
+function CollapsibleSection({ title, children }: { title: string; children: ComponentChildren }) {
   const [open, setOpen] = useState(true)
   return (
     <div style="border-bottom:1px solid var(--border)">
@@ -800,7 +801,7 @@ export function App() {
         otelReconfigureResult.value = msg.results
       } else if (msg.type === 'instructionApplied') {
         // Re-request applied list after successful apply — handled by appliedSuggestions message
-      } else if (msg.type === 'searchResults' && msg.sessions != null) {
+      } else if (msg.type === 'searchResults' && msg.sessions !== null && msg.sessions !== undefined) {
         const data = {
           sessions: msg.sessions,
           totalCount: msg.totalCount ?? 0,
