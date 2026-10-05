@@ -44,7 +44,7 @@ export interface EditStats {
 }
 
 /** Above this many DP cells (old middle lines × new middle lines) an edit is not LCS-diffed. */
-export const LCS_CELL_LIMIT = 250_000
+const LCS_CELL_LIMIT = 250_000
 
 export function countLines(s: string | undefined): number {
   if (!s) return 0

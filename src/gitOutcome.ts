@@ -3,7 +3,8 @@
  * it all the way to the shared trunk branch?
  *
  * Local git only, on-demand (called per session when its detail view is opened, not eagerly for
- * every loaded session — see .staged-issues/03-git-outcome-correlation.md for why). Classifies
+ * every loaded session: each classification is several git subprocesses, and a history of thousands
+ * of sessions would make activation and every refresh a git storm). Classifies
  * each changed file by comparing its content right now against the working tree, the local HEAD,
  * and (when resolvable) the tip of the repo's trunk branch — using git history as the source of
  * truth rather than TraceRoost's own recorded diff snippets (which only capture partial
@@ -117,7 +118,7 @@ async function runGitDetailed(cwd: string, args: string[]): Promise<{ stdout: st
 /** Exported for the background watcher (reconciliationService's Stage-2 caller), which needs to
  *  resolve a session's repo root once to decide which `.git` directory to watch — independent of
  *  classifySessionOutcome's per-file work. */
-export async function findRepoRoot(workspace: string): Promise<string | null> {
+async function findRepoRoot(workspace: string): Promise<string | null> {
   const out = await runGit(workspace, ['rev-parse', '--show-toplevel'])
   return out?.trim() || null
 }
@@ -128,7 +129,9 @@ export async function findRepoRoot(workspace: string): Promise<string | null> {
  * every one of them re-runs the same `git rev-parse`/`symbolic-ref` round trips from scratch.
  * Scoped to whatever call site constructs one (e.g. one on-demand reconcile pass); nothing here is
  * cached across separate instances, so a mid-history branch change is picked up next time one is
- * created, same as the uncached path. See .staged-issues/reconcile-gap-and-latency.md.
+ * created, same as the uncached path. (Introduced when a reconcile over a long history was found
+ * to re-resolve the same repo's trunk ref once per session — see CLOUD_ARCHITECTURE.md's "Check
+ * for unsent traces".)
  */
 export interface OutcomeRepoCache {
   root(workspace: string): Promise<string | null>

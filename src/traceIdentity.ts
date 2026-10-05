@@ -48,16 +48,6 @@ export function matchesTraceId(trace: { sessionId: string; traceId?: string | nu
 /** The agent part of a key. Short and fixed — `SessionSummaryCard.source` values map onto it. */
 export type KeyAgent = 'claude' | 'codex' | 'copilot' | 'opencode' | 'cursor'
 
-export function keyAgentOf(source: string): KeyAgent {
-  switch (source) {
-    case 'claude_code': return 'claude'
-    case 'codex': return 'codex'
-    case 'opencode': return 'opencode'
-    case 'cursor': return 'cursor'
-    default: return 'copilot'
-  }
-}
-
 /** The canonical key of an agent-issued turn id. Exact. */
 export function traceKey(agent: KeyAgent, turnId: string): string {
   return toUuid(`${agent}:turn:${turnId}`)
@@ -107,11 +97,9 @@ export function sourceRankOf(card: RankedCard): number {
   return hasUsage ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
 }
 
-/** Whether `incoming` may replace `existing` for the same key: never a lower rank; an equal or
- *  higher one does (the incoming card is the newer revision of what it has evidence for). */
-export function mayReplace(existing: RankedCard, incoming: RankedCard): boolean {
-  return sourceRankOf(incoming) >= sourceRankOf(existing)
-}
+// The replace rule itself — never a lower rank; an equal or higher one replaces (it is the newer
+// revision of what it has evidence for) — is applied where cards meet: mergeCardsByKey and
+// DatabaseWriter.
 
 // ── Trace-key manifest hooks (feature 11 step 5 builds on these) ─────────────
 

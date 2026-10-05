@@ -75,7 +75,8 @@ async function currentBranch(cwd: string): Promise<string> {
  * shallow-clone check, and trunk ref once per *session* instead of once per distinct workspace.
  * Scoped to whatever call site creates one (see `panelController.ts`'s reconcile loop) — nothing
  * here is cached across separate reconcile runs, so a mid-history branch change or repo move is
- * still picked up next time. See .staged-issues/reconcile-gap-and-latency.md.
+ * still picked up next time. (Without it a reconcile over a long history re-ran the per-repo git
+ * work — trunk ref, remote, repo key — once per session instead of once per repo.)
  */
 export interface PayloadBuildCache {
   repoKey(workspace: string, orgId: string): Promise<RepoKeyResult>

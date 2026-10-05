@@ -247,7 +247,7 @@ const CONVERSATION_COLORS = [
 /** Deterministically maps a conversationId to one of a fixed set of colors, so a given split
  *  conversation always gets the same color across reloads with nothing persisted — same idea as
  *  hashing to a palette index. Used to color-code Sessions rows that are really one conversation
- *  split across multiple session cards (see .staged-issues/color-code-multi-segment-conversations.md). */
+ *  split across multiple session cards, so the eye can group them without an extra column. */
 export function getConversationColor(conversationId: string): string {
   let hash = 0
   for (let i = 0; i < conversationId.length; i++) {

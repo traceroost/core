@@ -107,6 +107,87 @@ suite('TraceRoostDb (multi-window safety)', () => {
   })
 })
 
+// A viewer window takes the writer role over once the owning window has closed (extension.ts
+// calls tryTakeOver on its refresh tick, then starts the ingest/reconcile/forward pipeline).
+suite('TraceRoostDb (takeover)', () => {
+  let SQL: SqlJsStatic
+  suiteSetup(async () => { SQL = await loadSqlJs() })
+
+  test('is refused while the owner is alive, and costs no reload', () => {
+    const dir = tmpDir()
+    const first = openDatabaseWith(SQL, dir)
+    first.save()
+    first.dispose()
+    const lockPath = path.join(dir, 'traceroost.db.owner')
+    fs.writeFileSync(lockPath, String(OTHER_LIVE_PID))
+    const logged: string[] = []
+    const viewer = openDatabaseWith(SQL, dir, m => logged.push(m))
+    assert.strictEqual(viewer.isOwner, false)
+    assert.strictEqual(viewer.tryTakeOver(), false)
+    assert.strictEqual(viewer.isOwner, false)
+    assert.deepStrictEqual(logged, [])
+    viewer.dispose()
+    assert.strictEqual(fs.readFileSync(lockPath, 'utf8'), String(OTHER_LIVE_PID), 'the live owner keeps its lock')
+  })
+
+  test('a stale viewer reloads the owner\'s last saves from disk, then becomes the writer', () => {
+    const dir = tmpDir()
+    const first = openDatabaseWith(SQL, dir)
+    first.save()
+    first.dispose()
+    const lockPath = path.join(dir, 'traceroost.db.owner')
+    fs.writeFileSync(lockPath, String(OTHER_LIVE_PID))
+    const viewer = openDatabaseWith(SQL, dir)
+    const rawBefore = viewer.raw
+    assert.strictEqual(viewer.isOwner, false)
+    // The owning window writes newer history, then exits (its lock goes with it).
+    fs.rmSync(lockPath)
+    const owner = openDatabaseWith(SQL, dir)
+    insertSession(owner.raw, 'from-owner')
+    const future = new Date(Date.now() + 5_000)
+    owner.save()
+    fs.utimesSync(path.join(dir, 'traceroost.db'), future, future)
+    owner.dispose()
+
+    assert.strictEqual(viewer.tryTakeOver(), true)
+    assert.ok(viewer.isOwner)
+    assert.strictEqual(viewer.raw, rawBefore, 'raw stays the same object across the reload')
+    assert.strictEqual(viewer.raw.exec('SELECT COUNT(*) FROM sessions')[0].values[0][0], 1, 'sees the owner\'s rows')
+    insertSession(viewer.raw, 'from-new-owner')
+    assert.strictEqual(viewer.save(), true)
+    assert.strictEqual(viewer.tryTakeOver(), true, 'already the owner')
+    viewer.dispose()
+    assert.strictEqual(sessionCount(dir, SQL), 2, 'nothing rolled back, new write kept')
+  })
+
+  test('an up-to-date viewer acquires the freed lock without a reload', () => {
+    const dir = tmpDir()
+    const first = openDatabaseWith(SQL, dir)
+    first.save()
+    first.dispose()
+    const lockPath = path.join(dir, 'traceroost.db.owner')
+    fs.writeFileSync(lockPath, String(OTHER_LIVE_PID))
+    const viewer = openDatabaseWith(SQL, dir)
+    insertSession(viewer.raw, 'kept-in-memory')
+    fs.rmSync(lockPath) // the owner exited without saving anything new
+    assert.strictEqual(viewer.tryTakeOver(), true)
+    assert.strictEqual(viewer.raw.exec('SELECT COUNT(*) FROM sessions')[0].values[0][0], 1, 'in-memory copy kept (no reload needed)')
+    viewer.dispose()
+    assert.strictEqual(sessionCount(dir, SQL), 1)
+  })
+
+  test('a window that could not load the file never takes over', () => {
+    const dir = tmpDir()
+    fs.writeFileSync(path.join(dir, 'traceroost.db'), 'not a database')
+    const broken = openDatabaseWith(SQL, dir)
+    assert.ok(broken.loadError)
+    assert.strictEqual(broken.tryTakeOver(), false)
+    assert.strictEqual(broken.isOwner, false)
+    assert.ok(!fs.existsSync(path.join(dir, 'traceroost.db.owner')))
+    broken.dispose()
+  })
+})
+
 suite('TraceRoostDb (saving)', () => {
   let SQL: SqlJsStatic
   suiteSetup(async () => { SQL = await loadSqlJs() })

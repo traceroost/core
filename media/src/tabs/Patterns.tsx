@@ -349,7 +349,7 @@ function actionTipFor(a: CostSavingAction): string | null {
 
 /** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
  *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
- *  See .staged-issues/value-prop-and-cost-savings.md, Step 1. */
+ *  Built only from signals already computed (costSavingActions.ts) — no new heuristics here. */
 /** Suggests narrowing to one repo via the header's REPO filter: instruction-file suggestions are
  *  only as specific as the traces behind them. Gone once a repo is chosen, when there's only one
  *  repo (the filter isn't shown), when this window's open folder already scopes them, or in the

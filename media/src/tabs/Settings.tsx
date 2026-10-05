@@ -83,8 +83,8 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; Icon: () => 
 ]
 
 // Standalone only — the VS Code webview always follows the IDE's own theme (VS Code already has
-// its own system/dark/light/high-contrast picker), so this is never rendered there. See
-// .staged-issues/theme-toggle.md.
+// its own system/dark/light/high-contrast picker), so this is never rendered there. The choice is
+// per browser (localStorage), never sent anywhere.
 export function ThemeToggle() {
   const current = themePreference.value
 
@@ -108,10 +108,10 @@ export function ThemeToggle() {
   )
 }
 
-// Both VS Code and standalone — unlike theme, there's no IDE-native equivalent to defer to. See
-// .staged-issues/session-list-scaling.md for why this exists: the Sessions table rendered every
-// matching session as its own component with no cap, and the most common view ("All" time) had no
-// limit applied at all.
+// Both VS Code and standalone — unlike theme, there's no IDE-native equivalent to defer to. Why
+// it exists: the Traces table used to render every matching session as its own component with no
+// cap, and the most common view ("All" time) had no limit applied at all — fine at hundreds,
+// unusable past a few thousand.
 export function SessionsPageSizeControl() {
   const current = sessionsPageSize.value
 

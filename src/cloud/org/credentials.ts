@@ -112,7 +112,7 @@ export function isLinked(): boolean {
  *  `admin`). A credential file written before that says `lead` / `member` — read those as the
  *  roles they always meant rather than rejecting an otherwise-valid credential; the next roster
  *  lookup (`link.ts`'s `refreshOrgNameIfStale`) rewrites it in the current vocabulary. */
-export function normalizeRole(role: unknown): OrgCredentials['role'] | null {
+function normalizeRole(role: unknown): OrgCredentials['role'] | null {
   if (role === 'admin' || role === 'lead') return 'admin'
   if (role === 'developer' || role === 'member') return 'developer'
   return null

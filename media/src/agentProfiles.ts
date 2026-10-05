@@ -91,7 +91,8 @@ export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
   // Placeholder, not yet calibrated against real Cursor CLI session data (see runbooks/
   // SIGNAL_CALIBRATION.md) — mirrors automationEngine.ts's server-side copy, itself copied from
   // claude_code/opencode's defaults as a starting point. Re-calibrate both together once enough
-  // real session data exists — see .staged-issues/support-cursor-cli.md §1.3.
+  // real session data exists (cursor-agent's transcript carries no cost, token or model data, so
+  // several signals can never fire for it — ARCHITECTURE.md §4 "Cursor CLI — transcript log").
   cursor: {
     source: 'cursor',
     label: 'Cursor',

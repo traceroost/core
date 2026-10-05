@@ -245,6 +245,17 @@ const LINE_CACHE_MAX_BYTES = 32 * 1024 * 1024
 const LINE_CACHE_RECENT_MS = 60 * 60 * 1000
 const LINE_CACHE_PROBE_BYTES = 256
 
+/**
+ * Largest log file the reader will load into memory (a transcript, a Copilot chat snapshot, a
+ * subagent transcript, or the OpenCode database plus its WAL). Files are read whole — a card is
+ * built from the whole file every pass — and a multi-GB one (an agent looping for days, or a
+ * planted file under ~/.claude/projects) would throw `RangeError`/OOM on every scan, forever,
+ * because a failed read left no file state to say "don't retry". Above this, the file is skipped
+ * with one warning, its state recorded so it isn't tried again until it changes. The real
+ * transcripts seen so far are a few MB; 512 MB is far beyond any legitimate session.
+ */
+export const MAX_LOG_FILE_BYTES = 512 * 1024 * 1024
+
 // ── Public interface ──────────────────────────────────────────────────────────
 
 /** Minimal sql.js surface needed to open an external SQLite file read-only. */
@@ -259,6 +270,8 @@ export interface LogReaderOptions {
   log?: (msg: string) => void
   /** When provided, enables reading OpenCode sessions from its SQLite DB. */
   sqlFactory?: OpenCodeSqlFactory
+  /** Overrides MAX_LOG_FILE_BYTES (tests). */
+  maxFileBytes?: number
 }
 
 export interface LogSessionResult {
@@ -310,10 +323,27 @@ export class LogReader {
   // its mtime, so a read that failed is never mistaken for a file that now produces no turns.
   private lastRead: string | null = null
   private lastReadMtimeMs = 0
+  // Files skipped for exceeding MAX_LOG_FILE_BYTES, so each is warned about once (see _tooLarge).
+  private readonly oversizeWarned = new Set<string>()
+  private readonly maxFileBytes: number
 
   constructor(options: LogReaderOptions = {}) {
     this.log = options.log ?? (() => { /* silent */ })
     this.sqlFactory = options.sqlFactory
+    this.maxFileBytes = options.maxFileBytes ?? MAX_LOG_FILE_BYTES
+  }
+
+  /** True (after recording the file's state so it isn't retried until it changes, and warning
+   *  once) when `size` bytes is more than this reader will load — see MAX_LOG_FILE_BYTES. */
+  private _tooLarge(filePath: string, size: number, mtimeMs: number): boolean {
+    if (size <= this.maxFileBytes) return false
+    this.fileState.set(filePath, { bytesRead: size, mtimeMs })
+    this.lineCache.delete(filePath)
+    if (!this.oversizeWarned.has(filePath)) {
+      this.oversizeWarned.add(filePath)
+      this.log(`[LogReader] Skipping ${filePath}: ${(size / 1024 / 1024).toFixed(0)} MB is over the ${(this.maxFileBytes / 1024 / 1024).toFixed(0)} MB limit for a single log file.`)
+    }
+    return true
   }
 
   /** Clears cached file state so the next scan re-reads all files from scratch. */
@@ -372,11 +402,13 @@ export class LogReader {
   }
 
   /**
-   * Collects all session files across all agents, sorted newest-first by mtime.
-   * Does NOT read file contents. Used by the startup batch-loader to process
-   * files in priority order without one big synchronous block.
+   * Collects all session files across all agents. Does NOT read file contents. Used by the
+   * startup batch-loader to process files without one big synchronous block.
+   * `minMtimeMs` leaves out files last modified before it (the standalone server's retention
+   * cutoff — standalone/sessionRetention.ts); the extension applies its retention to its database
+   * instead and passes nothing.
    */
-  collectFileMeta(): Array<{ filePath: string; mtimeMs: number; agentKey: string }> {
+  collectFileMeta(opts: { minMtimeMs?: number } = {}): Array<{ filePath: string; mtimeMs: number; agentKey: string }> {
     const entries: Array<{ filePath: string; mtimeMs: number; agentKey: string }> = []
 
     // Claude
@@ -438,6 +470,9 @@ export class LogReader {
     for (const filePath of collectCursorTranscriptFiles()) {
       try { entries.push({ filePath, mtimeMs: fs.statSync(filePath).mtimeMs, agentKey: 'cursor' }) } catch { /* skip */ }
     }
+
+    const min = opts.minMtimeMs
+    if (min !== undefined && min > 0) return entries.filter(e => e.mtimeMs >= min)
 
     // Newest first — caller processes in this order so recent sessions appear first.
     entries.sort((a, b) => b.mtimeMs - a.mtimeMs)
@@ -775,7 +810,11 @@ export class LogReader {
     for (const file of this._claudeSubagentFiles(parentPath, baseSessionId)) {
       let raw: string
       let stat: fs.Stats
-      try { stat = fs.statSync(file); raw = fs.readFileSync(file, 'utf-8') } catch { continue }
+      try {
+        stat = fs.statSync(file)
+        if (this._tooLarge(file, stat.size, stat.mtimeMs)) continue
+        raw = fs.readFileSync(file, 'utf-8')
+      } catch { continue }
       this.fileState.set(file, { bytesRead: stat.size, mtimeMs: stat.mtimeMs })
       const rawLines = raw.split('\n').filter(l => l.trim())
       const { parsed } = dedupeParsedByUuid(rawLines, rawLines.map(parseLogLine))
@@ -1470,6 +1509,15 @@ export class LogReader {
         const effectiveMtime = Math.max(stat.mtimeMs, walMtime)
         const prev = this.fileState.get(dbPath)
         if (prev && effectiveMtime === prev.mtimeMs && stat.size === prev.bytesRead) continue
+        // The database and its WAL are both read whole and merged in memory.
+        let walSize = 0
+        try { walSize = fs.statSync(walPath).size } catch { /* no WAL */ }
+        if (this._tooLarge(dbPath, stat.size + walSize, effectiveMtime)) {
+          // _tooLarge recorded stat.size + walSize; store the real size so a WAL checkpoint (which
+          // shrinks the pair) reads as a change and is tried again.
+          this.fileState.set(dbPath, { bytesRead: stat.size, mtimeMs: effectiveMtime })
+          continue
+        }
         this.fileState.set(dbPath, { bytesRead: stat.size, mtimeMs: effectiveMtime })
       } catch {
         continue
@@ -1791,6 +1839,7 @@ export class LogReader {
       const stat = fs.statSync(filePath)
       const prev = this.fileState.get(filePath)
       if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return null
+      if (this._tooLarge(filePath, stat.size, stat.mtimeMs)) return null
       const content = fs.readFileSync(filePath, 'utf-8')
       this.fileState.set(filePath, { bytesRead: stat.size, mtimeMs: stat.mtimeMs })
       const parsed = JSON.parse(content) as Record<string, unknown>
@@ -1932,6 +1981,7 @@ export class LogReader {
       const stat = fs.statSync(filePath)
       const prev = this.fileState.get(filePath)
       if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return null
+      if (this._tooLarge(filePath, stat.size, stat.mtimeMs)) return null
 
       // Always return the whole file's lines so each scan produces a complete card (a card
       // built from only the new lines would replace the full card and lose prior-turn data).

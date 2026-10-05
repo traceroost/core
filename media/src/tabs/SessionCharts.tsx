@@ -457,7 +457,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
 
 // ── Outcome vs. tokens — median tokens per git outcome bucket ─────────────────
 // Answers "did the sessions that spent more tokens tend to land?" for the local,
-// single-developer view. See .staged-issues/outcome-vs-tokens-chart.md.
+// single-developer view. Medians, not means: one runaway session would otherwise dominate a bucket.
 
 // Only the three buckets `gitOutcome.ts` actually classifies locally get a bar — 'ambiguous' has
 // no OUTCOME_META entry (nothing meaningful to show, per Sessions.tsx's own comment) and is

@@ -386,8 +386,8 @@ export function setThemePreference(pref: ThemePreference): void {
 // ── Sessions table pagination (both VS Code and standalone — no built-in equivalent to defer to
 //    in either context, unlike theme) ──────────────────────────────────────────
 
-// Rendering every matching trace as its own live component with no cap was the mechanism behind
-// .staged-issues/session-list-scaling.md — fine at hundreds, unbounded past that, and the one time
+// Rendering every matching trace as its own live component with no cap is what made the table
+// unusable on a long history — fine at hundreds, unbounded past that, and the one time
 // range ("All") most likely to be selected had no cap at all. 20 is picked as a reasonable
 // default — enough to browse recent activity on one page without constant clicking, small enough
 // to keep the DOM light — not a measured number, same honesty standard as every other threshold

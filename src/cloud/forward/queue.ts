@@ -78,7 +78,8 @@ export class ForwardQueue {
   /** `log`, if given, is used to surface a loud line when `enqueue` evicts to stay under
    *  `maxItems` — without it, an install whose backlog outgrows the cap (a sustained 5xx, an
    *  offline stretch, a slow network) silently drops undelivered work, indistinguishable from
-   *  "still queued, just slow". See .staged-issues/reconcile-gap-and-latency.md. */
+   *  "still queued, just slow" — which is exactly the gap "Check for unsent traces" exists to
+   *  close (CLOUD_ARCHITECTURE.md). */
   constructor(baseHome?: string, maxItems = DEFAULT_MAX_ITEMS, log?: (m: string) => void) {
     this.file = queuePath(baseHome)
     this.maxItems = maxItems

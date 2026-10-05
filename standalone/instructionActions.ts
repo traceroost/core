@@ -23,6 +23,7 @@ import { computeBaseline } from '../src/instructionEffectiveness'
 import type { AppliedSuggestion } from '../src/database/instructionRepository'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { isStrictlyInside } from './pathGuard'
+import { writeFileAtomic, quarantineCorruptFile } from '../src/fsAtomic'
 
 /** Largest request body the instruction routes accept (413 above it). A suggestion is a few
  *  hundred bytes of text; this leaves room for a hand-edited one without buffering anything huge. */
@@ -59,23 +60,28 @@ export interface InstructionHost {
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
-export function loadInstructionState(file: string): InstructionState {
+export function loadInstructionState(file: string, log?: (msg: string) => void): InstructionState {
+  let text: string
+  try { text = fs.readFileSync(file, 'utf-8') } catch { return { applied: [], dismissed: [] } } // none yet
   try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<InstructionState>
+    const raw = JSON.parse(text) as Partial<InstructionState>
     return {
       applied: Array.isArray(raw.applied) ? raw.applied : [],
       dismissed: Array.isArray(raw.dismissed) ? raw.dismissed : [],
     }
   } catch {
+    // Torn by a crash mid-write (pre-atomic builds): keep it aside instead of letting the next
+    // apply/dismiss overwrite the only record of what was applied where.
+    const aside = quarantineCorruptFile(file)
+    log?.(`[TraceRoost] ${file} could not be parsed${aside ? ` — moved it to ${aside}` : ''}; starting with no applied/dismissed suggestions.`)
     return { applied: [], dismissed: [] }
   }
 }
 
+/** Owner-only (it names which suggestions were applied in which repo) and atomic — src/fsAtomic.ts. */
 export function saveInstructionState(file: string, state: InstructionState): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = `${file}.tmp`
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf-8')
-  fs.renameSync(tmp, file)
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  writeFileAtomic(file, JSON.stringify(state, null, 2), { mode: 0o600 })
 }
 
 /** `workspace` is the exact folder of at least one recorded session. That, not anything the page

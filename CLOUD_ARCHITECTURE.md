@@ -1,8 +1,8 @@
 # TraceRoost Cloud Architecture
 
-This is the entry point for the **cloud / org** feature set merged into `main` from the
-`pro/01`–`pro/09` series (`AL 01`–`AL 09` in the plan below). It indexes the deep-dive docs that
-already exist rather than repeating them, and adds the diagrams none of them have yet.
+This is the entry point for the **cloud / org** feature set — the client half of TraceRoost
+Cloud that ships in the full edition. It indexes the deep-dive docs that already exist rather than
+repeating them, and adds the diagrams none of them have yet.
 
 **Start here, then go deep:**
 
@@ -77,7 +77,7 @@ out so a core-only build can drop every cloud directory without losing them — 
 where" below.) It's free forever, and reachable directly via
 `traceroost cohort` — no org link required to run it yourself. There was previously a dedicated
 free **Outcomes** dashboard tab surfacing it automatically; retired in commit `0ee7842` in favor of
-inline git-outcome signal (merged/committed/abandoned) in the Sessions tab's Files sub-tab instead
+inline git-outcome signal (merged/committed/abandoned) in the Traces tab's Files sub-tab instead
 (see `ARCHITECTURE.md` §10). The engine's only current caller is the cohort hand-off below.
 
 ```mermaid
@@ -122,7 +122,7 @@ full.
 | --- | --- | --- |
 | VS Code command palette | `TraceRoost: Link This Machine to an Org (Cloud)` / `TraceRoost: Org Link Status (Cloud)` / `TraceRoost: Unlink (Cloud)` | `registerOrgCommands` in `src/extension.ts` (calls `cloud.*` from `src/cloudBridge.ts`; not registered, and not in the core `package.json`, in core) |
 | VS Code webview | Org panel, a slide-in beside Settings | `media/src/cloud/panels/OrgPanel.tsx` (via `media/src/orgPanel.ts`) + `src/cloud/org/panelController.ts` (via `src/cloud/bridge.ts`) |
-| Dashboard tab (free) | Sessions → Files sub-tab: git outcome banner + per-file badges | `gitOutcome.ts`; no dedicated tab today — see `ARCHITECTURE.md` §10. Retired the earlier **Outcomes** tab (`0ee7842`) |
+| Dashboard tab (free) | Traces → Files sub-tab: git outcome banner + per-file badges | `gitOutcome.ts`; no dedicated tab today — see `ARCHITECTURE.md` §10. Retired the earlier **Outcomes** tab (`0ee7842`) |
 | CLI | `traceroost org <link\|status\|verify\|leave> [--device]` | `standalone/cloud/org-cli.ts`, dispatched through `standalone/cliCloud.ts` → `standalone/cloud/cliBridge.ts` |
 | CLI | `traceroost --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` (same seam) |
 | CLI (free) | `traceroost advise <--list\|--apply <id>>` | `standalone/local/adviseCli.ts` — regenerates instruction text with real paths and appends it. The cloud step (suggestion ledger + a `SuggestionEvent` when linked) is `standalone/cloud/adviseTelemetry.ts`, passed in by `cli.ts` through `standalone/cliCloud.ts` (absent in core) |

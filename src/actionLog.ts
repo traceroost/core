@@ -4,7 +4,8 @@
  * transient — a command vanished the instant it finished) into something that (a) covers every
  * `execFile`/`exec` call site that shells out on the user's behalf, git or not, and (b) keeps a
  * bounded history past completion, so "what did TraceRoost just do to my repo" has an answer more
- * than a second after it happened. See .staged-issues/action-log.md for the plan this implements.
+ * than a second after it happened. The design goal: every git subprocess TraceRoost runs on the
+ * user's behalf is visible to them, after the fact, from the dashboard — not only in a log file.
  *
  * Two views over the same entries:
  *   - "running" — entries with `finishedAt === null`, formatted as a single line each (the

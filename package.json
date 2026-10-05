@@ -101,9 +101,19 @@
       {
         "command": "traceRoost.orgLeave",
         "title": "TraceRoost: Unlink (Cloud)"
+      },
+      {
+        "command": "traceRoost.clearSessions",
+        "title": "TraceRoost: Clear All Traces"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "traceRoost.clearSessions",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "traceRoost.openDashboard",
@@ -278,7 +288,7 @@
   "devDependencies": {
     "@playwright/test": "1.56.1",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.19.1",
     "@types/vscode": "^1.118.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^3.1.0",

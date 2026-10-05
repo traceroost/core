@@ -95,9 +95,9 @@ export function toWireAgent(source: string): WireAgent {
  *
  * `budget_overrun` and `model_tier_mismatch` (added 2026-09-26, signal-catalog stage 04) are
  * deliberately absent from this map and fall through to `null` — both are local-only
- * cost-optimization tips, not loop/malfunction patterns, per .staged-issues/
- * signal-catalog-04-budget-and-tier-mismatch.md's explicit design decision to keep them off the
- * wire rather than force them into an existing bucket.
+ * cost-optimization tips, not loop/malfunction patterns — the signal-catalog stage 04 decision was
+ * to keep them off the wire rather than force them into an existing bucket (the cloud's taxonomy
+ * is loop/malfunction only; see runbooks/SIGNAL_CALIBRATION.md for the catalog).
  *
  * `skipped_checks` (added 2026-09-26, signal-catalog stage 05) is also absent, for now — none of
  * the 9 existing buckets fit "shipped without verification" well, and it isn't calibrated yet (see

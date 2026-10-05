@@ -10,12 +10,13 @@
  *   - detectHallucinatedImports   — an edit imports a package absent from the project's manifest
  *                                   and unresolvable on disk.
  *   - detectSkippedChecks         — the session's changes reached the shared branch, but no
- *                                   test/build check ever ran. See .staged-issues/
- *                                   signal-catalog-05-skipped-checks-and-rejected-edits.md.
+ *                                   test/build check ever ran (signal-catalog stage 05;
+ *                                   runbooks/SIGNAL_CALIBRATION.md).
  *
- * The first two are deliberately narrow. See .staged-issues/additional-malfunction-detections.md
- * for the broader set of failure modes considered and rejected as too false-positive-prone to
- * ship — these are the ones that survived that review.
+ * The first two are deliberately narrow: the broader set of failure modes considered for post-hoc
+ * detection (silent scope creep, dependency drift, unexplained deletions, …) was rejected as too
+ * false-positive-prone to ship without a corpus to calibrate against — these are the ones that
+ * survived that review.
  */
 
 import * as fs from 'fs'
@@ -74,8 +75,8 @@ export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSi
  * Datadog's own published rule: `commit_count > 0 && push_count > 0 && test_fix_cycle_count == 0`
  * — changes shipped without ever being verified. This codebase has no reliable way to observe a
  * `git push` directly: default Claude Code telemetry redacts Bash tool arguments, so a session's
- * own `Bash` tool calls carry no command text to match `git push` against (see the spike in
- * .staged-issues/signal-catalog-05-skipped-checks-and-rejected-edits.md). Uses `outcome.overall
+ * own `Bash` tool calls carry no command text to match `git push` against (confirmed against real
+ * sessions during the signal-catalog stage 05 spike). Uses `outcome.overall
  * === 'merged'` instead — gitOutcome.ts's `resolveTrunkRef` already prefers a remote-tracking ref
  * (`refs/remotes/origin/HEAD`/`origin/main`) over the local branch when a remote exists, so
  * 'merged' already means this content reached the remote-tracked trunk, which requires a push to

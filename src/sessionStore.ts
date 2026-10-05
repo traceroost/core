@@ -7,7 +7,7 @@ export type { Span, SessionSummary } from './types'
 
 // Ceiling on spans held in memory regardless of the retention rules below — the same cap the
 // standalone server uses for its own span list.
-export const MAX_LIVE_SPANS = DEFAULT_MAX_SPANS
+const MAX_LIVE_SPANS = DEFAULT_MAX_SPANS
 
 export class SessionStore {
   private spans: Span[] = []

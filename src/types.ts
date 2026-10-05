@@ -43,8 +43,9 @@ export type LoopSignalType =
   // git-outcome classification rather than eagerly for every session. See that file's docstring.
   | 'hallucinated_import'
   | 'failed_check_submission'
-  // Added from the 2026-09-26 signal-catalog research pass (.staged-issues/signal-catalog-*.md,
-  // stages 01-04) — all real-time, computed by loopDetector.ts alongside the nine above.
+  // Added from the 2026-09-26 signal-catalog research pass (stages 01-04; the catalog and its
+  // calibration are runbooks/SIGNAL_CALIBRATION.md) — all real-time, computed by loopDetector.ts
+  // alongside the nine above.
   | 'tool_call_cycle'
   | 'file_reread'
   | 'cache_miss'
@@ -52,8 +53,7 @@ export type LoopSignalType =
   | 'low_cache_hit_ratio'
   | 'budget_overrun'
   | 'model_tier_mismatch'
-  // Post-hoc, added from signal-catalog-05 (.staged-issues/
-  // signal-catalog-05-skipped-checks-and-rejected-edits.md) — detected by
+  // Post-hoc, added from signal-catalog stage 05 (runbooks/SIGNAL_CALIBRATION.md) — detected by
   // src/sessionRiskSignals.ts alongside hallucinated_import/failed_check_submission above.
   | 'skipped_checks'
 

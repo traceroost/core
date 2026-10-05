@@ -159,7 +159,7 @@ Not in logs: prompt text, tool names, TTFT, latency.
 
 #### GitHub Copilot
 
-Two surfaces, two formats: the **CLI** writes its own logs; **Copilot Chat** (the VS Code-family extension) is OTEL-only, no log fallback of its own. The OTEL guidance below applies to both.
+Two surfaces, two formats: the **CLI** writes `events.jsonl` logs; **Copilot Chat** (the VS Code-family extension) writes per-conversation `chatSessions/` files (see the table above), both read with no setup. The OTEL guidance below applies to both.
 
 **CLI log files** (automatic, no setup) — `~/.copilot/session-state/<session-uuid>/events.jsonl`
 
@@ -466,7 +466,7 @@ TraceRoost runs as a local web server outside VS Code — useful for CI, remote 
 
 Runs directly on your machine — no Docker required. Gives the server full access to the local filesystem, which is required for log file ingestion. Quick-start commands are in [Ways to Run](#local-otel-and-log-files) above.
 
-Environment variables:
+Environment variables (the first five predate the `TRACEROOST_` prefix and keep their unprefixed names):
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -479,14 +479,25 @@ Environment variables:
 | `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Configure OTEL** button reports that it's disabled) |
 | `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends no data) |
 | `TRACEROOST_BUDGET_CAP_USD` | unset | Per-trace dollar cap for the **Budget Overrun** signal; the signal is off until this is set (also read by the VS Code extension from its environment) |
+| `TRACEROOST_LOG_LEVEL` | `info` | Set to `debug` for routine per-tick detail — forwarding and trace-manifest counts, which are quiet at `info` (also read by the VS Code extension; its output goes to the TraceRoost output channel) |
+
+**`.env` files and the data directory.** Development builds (`pnpm run local`) load a `.env`
+from the current directory; released builds (`npx traceroost`, the background service, Docker)
+never do — use environment variables or `~/.traceroost/config.json`. Everything under
+`~/.traceroost` is owner-only (`0600` files in a `0700` directory), and a store that fails to load
+is kept aside as `*.corrupt-<timestamp>` rather than overwritten. The standalone server keeps 90
+days of log-sourced traces by default — `sessionRetentionDays` in `config.json`, or
+`traceroost service install --retention-days N`; `0` keeps everything.
 
 **LAN mode / security.** On the default `127.0.0.1` bind only processes on your machine can connect,
 so no token is required; the servers still refuse requests from web pages (a foreign `Origin`
 header, a DNS-rebinding `Host`, or an OTLP body sent as `text/plain`/form data). With
 `BIND_HOST=0.0.0.0` (or `::`) any `Host` name is accepted — LAN IP, hostname, Docker service name —
-and every request instead needs the bearer token from `~/.traceroost/config.json` (`authToken`),
-printed with the dashboard URL at startup. Browsers: open `http://<host>:3000/?token=<token>` once
-(a cookie keeps you signed in). Agents: `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>`,
+and every request instead needs the bearer token from `~/.traceroost/config.json` (`authToken`).
+An interactive run prints it with the dashboard URL; the background service prints the URL with
+`?token=<token>` instead, so the token never lands in `service.log` — read it from `config.json` or
+`traceroost service status`. Browsers: open `http://<host>:3000/?token=<token>` once (a cookie keeps
+you signed in and the token is dropped from the address bar). Agents: `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>`,
 or `scripts/configure-agents.sh --host <host> --token <token>`. MCP clients: send the same
 `Authorization: Bearer <token>` header.
 
@@ -550,7 +561,7 @@ Ports, bind host and data directory can be customized at install time (`--ui-por
 `~/.traceroost/config.json`:
 
 ```bash
-traceroost service install --ui-port 3001 --otlp-port 4319 --data-dir ~/traceroost-data
+traceroost service install --ui-port 3001 --otlp-port 4319 --data-dir ~/traceroost-data --retention-days 90
 ```
 
 Since `npx` always runs from a temporary cache with no stable path to launch from, running

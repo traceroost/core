@@ -32,7 +32,7 @@ function cachePath(baseHome?: string): string {
  *  minute ago. Safe to call on every startup, linked or not — an unlinked install simply has no
  *  cache file (`fetchAndCacheRates` is the only writer, and it's AL 01-gated), so this is a
  *  local-only read, not a network call. */
-export function loadCachedRatesIntoPricing(baseHome?: string): void {
+function loadCachedRatesIntoPricing(baseHome?: string): void {
   try {
     const raw = fs.readFileSync(cachePath(baseHome), 'utf-8')
     const parsed = JSON.parse(raw) as Record<string, ModelRates>

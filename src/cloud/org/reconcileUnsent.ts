@@ -69,7 +69,7 @@ export async function queueUnsentSessions(
   // Scoped to this one reconcile pass — memoizes the per-workspace git work (repo key, branch,
   // outcome classification) that would otherwise be recomputed once per session instead of once
   // per distinct repo a developer's sessions cluster in. See payloadPreview.ts's
-  // createPayloadBuildCache and .staged-issues/reconcile-gap-and-latency.md.
+  // createPayloadBuildCache and CLOUD_ARCHITECTURE.md's "Check for unsent traces".
   const cache = createPayloadBuildCache()
   const endCatchUp = beginCatchUp()
   let queued: number

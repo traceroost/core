@@ -7,8 +7,9 @@
  * `patternName`/`action`/`evidence` text (see src/loopDetector.ts's PATTERN_NAMES/
  * LOOP_SIGNAL_ACTIONS), so this doesn't need its own copy of that taxonomy.
  *
- * This is section 2 of core/.staged-issues/value-prop-and-cost-savings.md turned into product
- * surface (that doc's Step 1) — every item here cites the signal it's built from, not a new one.
+ * This is the "what would I do about it" half of the loop signals turned into product surface:
+ * every item here cites the signal it's built from, not a new one, so the list can never claim a
+ * saving the signals don't already evidence.
  */
 
 import type { SessionSummaryCard, LoopSignalType } from './types'

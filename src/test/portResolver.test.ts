@@ -179,6 +179,9 @@ suite('portResolver', () => {
       writeResolvedPorts(record, home)
       assert.strictEqual(fs.existsSync(resolvedPortsPath(home)), true)
       assert.deepStrictEqual(readResolvedPorts(home), record)
+      // Atomic (no temp sibling) and owner-only, like config.json beside it.
+      assert.deepStrictEqual(fs.readdirSync(path.dirname(resolvedPortsPath(home))), ['ports.json'])
+      if (process.platform !== 'win32') assert.strictEqual(fs.statSync(resolvedPortsPath(home)).mode & 0o777, 0o600)
     })
 
     test('returns undefined when no record has been written yet', () => {

@@ -19,7 +19,7 @@ export function deriveCodeChallenge(verifier: string): string {
 }
 
 /** Opaque value echoed back on the redirect and compared byte-for-byte to defeat CSRF. */
-export function generateState(): string {
+function generateState(): string {
   return base64UrlEncode(crypto.randomBytes(16))
 }
 
@@ -42,7 +42,7 @@ export function statesMatch(expected: string, received: string | undefined | nul
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received))
 }
 
-export function base64UrlEncode(buf: Buffer): string {
+function base64UrlEncode(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 

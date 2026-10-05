@@ -597,6 +597,7 @@ export function openReadonlySnapshot(
   storageUri: vscode.Uri,
   extensionPath: string,
   sqlFactory?: { Database: new (data?: Buffer | Uint8Array) => unknown },
+  log: (msg: string) => void = () => { /* silent */ },
 ): DatabaseReader | null {
   const dbPath = path.join(storagePath, 'traceroost.db')
   try {
@@ -610,7 +611,7 @@ export function openReadonlySnapshot(
     const db = new SQL.Database(fileBuffer)
     return new DatabaseReader(db, storageUri)
   } catch (e) {
-    console.warn('[TraceRoost] Could not open database:', e)
+    log(`[TraceRoost] Could not open database snapshot: ${e}`)
     return null
   }
 }
