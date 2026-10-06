@@ -140,7 +140,7 @@ suite('TraceRevisionRepository', () => {
     assert.strictEqual(repo.get('s2')?.outcomeOverall, 'abandoned')
   })
 
-  // ── recordPayloadHash() — the content-hash dimension (staged feature 10's generalization) ────
+  // ── recordPayloadHash() — the content-hash dimension (live reconciliation's generalization) ────
 
   test('recordPayloadHash() on a brand-new session allocates revision 1 and reports changed', async () => {
     const db = await openInMemoryDb()

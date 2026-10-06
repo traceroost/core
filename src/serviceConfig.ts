@@ -3,7 +3,7 @@
  * (macOS launchd / Linux systemd --user / Windows Scheduled Task). Kept dependency-free
  * (no fs/child_process side effects beyond the two explicit read/write functions) so the
  * service-definition generators are unit-testable without shelling out to a real OS service
- * manager — see .staged-issues/01-background-service-mode.md for the full design.
+ * manager.
  */
 
 import * as fs from 'fs'

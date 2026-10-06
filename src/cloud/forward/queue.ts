@@ -161,7 +161,7 @@ export class ForwardQueue {
 
   /** Appends a payload if its key is not already queued. If one already is, replaces it in place
    *  — keeping its original `enqueuedAt`/`attempts`/retry identity — when the new payload carries
-   *  a strictly newer `session.revision` than the queued one (staged feature 10): an unsent
+   *  a strictly newer `session.revision` than the queued one (live trace reconciliation): an unsent
    *  snapshot that's since been superseded by a real outcome change must not sit frozen at its
    *  first-queued values until it's sent. A payload with no revision, or a revision no greater
    *  than what's already queued, is treated as the legacy/no-op case and dropped (same as

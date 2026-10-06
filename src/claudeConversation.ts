@@ -1,6 +1,6 @@
 /**
  * One turn of an agent conversation can arrive two ways: live OTEL and the agent's on-disk log.
- * With stable trace identity (staged feature 11 — traceIdentity.ts) both copies carry the same
+ * With stable trace identity (traceIdentity.ts) both copies carry the same
  * canonical key, so "counting it once" is no longer an overlap guess: it is the same key, and
  * source precedence decides which copy the row shows — a lower-rank card never replaces a
  * higher-rank one, within a rank the newer wins. The VS Code extension applies that in the

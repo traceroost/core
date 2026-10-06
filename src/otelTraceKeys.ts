@@ -1,5 +1,5 @@
 /**
- * Gives every OTEL-built card its canonical key (staged feature 11 — see traceIdentity.ts), so
+ * Gives every OTEL-built card its canonical key (see traceIdentity.ts), so
  * an OTEL card and the log card of the same turn are one row:
  *
  *   - Claude: joined to its transcript turn (claudeTurnJoin.ts) → traceKey('claude', promptId);

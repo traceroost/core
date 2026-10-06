@@ -98,7 +98,7 @@ export interface BuildContext {
   authorEmail?: string
   /** git-outcome verdict for the session, if known (`productive` / `reverted` / …). */
   outcome?: string
-  /** This session's current durable revision number, if known (staged feature 10) -- see
+  /** This session's current durable revision number, if known (live trace reconciliation) -- see
    *  `SessionRollup.revision`'s doc comment. */
   revision?: number
 }

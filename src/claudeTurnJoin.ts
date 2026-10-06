@@ -1,6 +1,6 @@
 /**
  * Claude Code's OTEL carries no turn id, so a `claude_code.interaction` finds its transcript turn
- * by a join (staged feature 11), never by a key of its own:
+ * by a join (src/traceIdentity.ts), never by a key of its own:
  *
  *   - Claude Code's `session.id` names the transcript file (<projects>/<project>/<session.id>.jsonl);
  *   - the interaction's start picks the turn whose opening line is nearest, within ±2 s — OTEL

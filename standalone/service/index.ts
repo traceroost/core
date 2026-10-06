@@ -394,7 +394,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
       // Prefer the resolved-ports record (what the running process actually bound, written once
       // per start) over the configured port — a fallback after a conflict means the two can
       // differ, and probing the stale configured port would report "not reachable" for a service
-      // that's actually up on the port it fell back to. See .staged-issues/auto-pick-free-port.md.
+      // that's actually up on the port it fell back to (src/portResolver.ts).
       const resolved = readResolvedPorts()
       const effectiveUiPort = resolved?.ui ?? config.uiPort
       const running = await platformService.status(effectiveUiPort, config.bindHost)

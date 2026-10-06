@@ -1,5 +1,5 @@
 /**
- * Claude Code transcript → turns (staged feature 11). One turn = one trace: a turn opens at the
+ * Claude Code transcript → turns (src/traceIdentity.ts). One turn = one trace: a turn opens at the
  * first prompt line carrying a `promptId` not seen before in the file, and every later line
  * belongs to the turn that is open — except a line carrying an already-seen `promptId`, which goes
  * back to that turn (interrupt markers "[Request interrupted by user…]", compaction carry-overs

@@ -269,9 +269,7 @@ from the link moment.
   that **keeps going immediately while genuine backlog remains and nothing is stopping it** —
   instead of draining one 200-item batch and waiting up to 5 minutes for the next tick.
 
-See `.staged-issues/reconcile-gap-and-latency.md`'s investigation for the reported symptom (the
-button hanging for minutes on a real backlog) this was built against — file removed once
-implemented; git history has it.
+This was built against a reported symptom: the button hanging for minutes on a real backlog.
 
 ## Testing hooks worth knowing about
 

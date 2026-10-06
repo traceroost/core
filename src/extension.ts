@@ -42,7 +42,7 @@ let repository: SessionRepository | undefined
 let reconciliationService: ReconciliationService | undefined
 let backgroundWatcher: BackgroundWatcher | undefined
 // Coalesces bursty live onUpdate ticks for the same session before checking whether its rollup
-// content changed (staged feature 10) -- see keyedDebouncer.ts's doc comment for why: each check
+// content changed (live trace reconciliation) -- see keyedDebouncer.ts's doc comment for why: each check
 // rebuilds the payload via real `git` subprocesses.
 const contentChangeDebouncer = new KeyedDebouncer(3_000, 30_000)
 // How long reconciliation revision changes are collected before being forwarded as one batch.

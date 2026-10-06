@@ -174,7 +174,7 @@ async function resolveTrunkRef(root: string): Promise<string | null> {
 // Cheap stand-in for "has this file's on-disk content changed" — a content hash rather than
 // mtime, since mtime survives things that don't actually change bytes (a touch, a checkout that
 // restores identical content) and can also be unreliable across some filesystems/clock skews. See
-// staged feature 10: "do not rely on mtime alone for correctness."
+// Live reconciliation's contract: "do not rely on mtime alone for correctness."
 function workingTreeContentDigest(root: string, relPaths: string[]): string {
   const hash = crypto.createHash('sha256')
   for (const relPath of relPaths) {

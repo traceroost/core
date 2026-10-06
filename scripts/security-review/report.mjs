@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Parses trivy/semgrep/pnpm-outdated JSON into one categorized markdown report + a counts summary.
-// Used by .github/workflows/security-review.yml — see .staged-features/security-and-dependency-review.md.
+// Used by .github/workflows/security-review.yml.
 import { readFileSync, writeFileSync } from 'node:fs'
 
 function arg(name, fallback) {

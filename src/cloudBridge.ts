@@ -103,7 +103,7 @@ export interface CloudBridge {
   dropQueuedTraces(): void
   /** Session close → forwarding queue. A no-op unless linked. */
   enqueueSession(card: SessionSummaryCard, log?: (m: string) => void, revision?: number): Promise<EnqueueResult>
-  /** Re-forward a live session whenever its rollup content changes (staged feature 10). */
+  /** Re-forward a live session whenever its rollup content changes (live trace reconciliation). */
   forwardOnContentChange(reconciliation: ReconciliationService, card: SessionSummaryCard, log?: (m: string) => void): Promise<EnqueueResult>
   /** Instruction-file telemetry (AL 08) for `workspace`. Resolves true when something was queued. */
   enqueueInstructionTelemetry(workspace: string, sessions: SessionSummaryCard[], ledger?: SuggestionLedger): Promise<boolean>

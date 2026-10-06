@@ -9,7 +9,7 @@
  * Shared by the editor's traceroost.db (db.ts) and the standalone server's outcomes-cache.db
  * (standalone/db/outcomesDb.ts), which holds a subset of the same tables.
  *
- *   1: stable trace identity (staged feature 11 — traceIdentity.ts): one agent turn, one key.
+ *   1: stable trace identity (traceIdentity.ts): one agent turn, one key.
  *   2: a key a log file stops producing is removed (LogReader.takeRetiredKeys); stores written
  *      before still hold such keys. Claude join decisions persist (claude_join).
  */

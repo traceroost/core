@@ -119,7 +119,7 @@ if (!isLoopbackHost(BIND_HOST) && !AUTH_TOKEN) {
 // One record, written once all three ports are known — every other reader (the printed dashboard
 // URL, the browser auto-open, `service status`, the `reconfigureOtel` action) reads this instead
 // of re-deriving "the port" from OTLP_PORT/UI_PORT/MCP_PORT independently. See
-// .staged-issues/auto-pick-free-port.md.
+// src/portResolver.ts.
 const resolvedPorts: Partial<Record<'ui' | 'otlp' | 'mcp', number>> = {}
 
 function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, bound: number): void {
@@ -354,7 +354,7 @@ function retireLogSessions(): boolean {
   return removed
 }
 
-// Host-independent reconciliation (staged feature 10) — created once outcomesDb opens, in
+// Host-independent reconciliation — created once outcomesDb opens, in
 // startLogIngestion() below. Undefined only when sql.js failed to load; getGitOutcome falls back
 // to an in-flight-only, non-durable classification in that case, same posture as before this
 // feature (a permanent-until-restart Map has been replaced either way — see reconciliationService.ts).
@@ -486,7 +486,7 @@ const mcpServerReady: Promise<number> = startMcpHttpServer({
   })
 
 // OTEL-built cards reach the cloud from here; runLogScan() forwards the log-built ones. With
-// stable trace identity (staged feature 11) a turn's OTEL card and its transcript card share one
+// stable trace identity a turn's OTEL card and its transcript card share one
 // key, so whichever is sent second is an update of the same cloud row — never a second row — and
 // a lower source rank is never sent over a higher one (contentChangeForward.ts).
 //
@@ -577,7 +577,7 @@ function runLogScan() {
     // last check (see LogReader's fileState), and this whole function is itself only reached on a
     // 5s interval or a 300ms-debounced fs.watch event -- so no extra debounce is needed here, only
     // in extension.ts's per-tick `onUpdate` (see contentChangeForward.ts). Once reconciliation is
-    // available, the content-hash gate (staged feature 10) replaces the plain ledger-gated
+    // available, the content-hash gate (live trace reconciliation) replaces the plain ledger-gated
     // enqueue: it re-forwards under a fresh revision whenever this session's rollup content
     // actually changed (not just on its first send). Falls back to the old first-send-only
     // behavior without a reconciliation service, same as before this feature.
@@ -656,7 +656,7 @@ async function startLogIngestion() {
   }
   dataVersion++
 
-  // Live trace reconciliation (staged feature 10) — runs from server lifecycle, not from any
+  // Live trace reconciliation — runs from server lifecycle, not from any
   // particular browser tab being open, so a commit/merge made while the tab is closed is already
   // reconciled by the time it's reopened. See reconciliationService.ts and backgroundWatcher.ts.
   if (outcomesDb) {

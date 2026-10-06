@@ -339,7 +339,7 @@ export class DashboardPanel {
     const interval = setInterval(() => this.update(), 10000)
     this.disposables.push({ dispose: () => clearInterval(interval) })
 
-    // Unsolicited pushes (staged feature 10, Stage 2): the background watcher (registered by
+    // Unsolicited pushes (live trace reconciliation): the background watcher (registered by
     // extension.ts, outside this panel's lifetime) calls reconciliation.reconcileMany() for
     // retained sessions whether or not this panel is even open. When it is, this is what makes a
     // commit/merge/edit while Traces stays open show up without navigating away and back.

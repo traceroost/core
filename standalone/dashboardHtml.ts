@@ -79,7 +79,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
        defines them directly. Three states: System (default — follows
        prefers-color-scheme), Dark, Light (explicit override via the [data-theme]
        attribute the script above sets). Toggle lives in Settings — see
-       media/src/tabs/Settings.tsx's ThemeToggle and .staged-issues/theme-toggle.md.
+       media/src/tabs/Settings.tsx's ThemeToggle.
        Not used in the VS Code webview at all — that has its own HTML in
        src/dashboardPanel.ts and always inherits the IDE's real --vscode-* values. ── */
 

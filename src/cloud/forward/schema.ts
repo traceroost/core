@@ -228,12 +228,12 @@ export interface SessionRollup {
   lines_added?: number
   lines_removed?: number
   /** Durable, monotonically increasing local revision number for this session's canonical trace
-   *  snapshot (staged feature 10) -- see database/traceRevisionRepository.ts. Absent on a send
+   *  snapshot (live trace reconciliation) -- see database/traceRevisionRepository.ts. Absent on a send
    *  built without a known revision (no reconciliation service available, or the session's
    *  outcome has never been classified) -- the server treats an absent revision as the lowest
    *  possible one for replace-ordering, never as newer than an already-acknowledged one. */
   revision?: number
-  /** How much evidence this snapshot carries (staged feature 11, src/traceIdentity.ts): 3 OTEL
+  /** How much evidence this snapshot carries (src/traceIdentity.ts): 3 OTEL
    *  with usage, 2 full transcript, 1 partial. A turn's log and OTEL snapshots share one
    *  `session_id`; a lower rank must never replace a higher one, and within a rank the newer
    *  `revision` wins. Opaque small integer — no new information about the session. Always sent;

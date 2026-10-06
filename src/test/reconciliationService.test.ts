@@ -94,7 +94,7 @@ suite('reconciliationService', () => {
     assert.strictEqual(committed.outcome?.overall, 'merged')
 
     // No new commit — just an on-disk edit. The old cache key (commit sha + trunk sha only) would
-    // not have moved; this is exactly the "edits without a commit" gap staged feature 10 calls out.
+    // not have moved; this is exactly the "edits without a commit" gap live reconciliation calls out.
     writeFile(file, 'v2 (uncommitted)')
     const edited = await service.reconcile({ sessionId: 's1', workspace: repoDir, filesChanged: [abs], endTime: LONG_AGO })
     assert.strictEqual(edited.outcome?.overall, 'abandoned')

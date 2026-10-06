@@ -3,6 +3,8 @@
 TraceRoost is a VS Code extension (and the same code as a standalone server — `npx traceroost`, Docker, or a background service; see §13) that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database and Cursor CLI's transcript files), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
 
 > **Naming:** the UI calls one prompt-to-response run a **Trace** (the Traces tab, the Waterfall sub-tab). The codebase predates that and still says `session` throughout — `SessionSummaryCard`, `sessions` table, `session_id`, `listSessions`, the `get_recent_sessions` MCP tool, etc. Read "session" as "trace" everywhere below; the two are the same thing.
+>
+> **Turn:** A turn is a single, complete unit of back-and-forth communication with a large language model: one input message and its corresponding response. In TraceRoost that is one LLM call — the Turns column (`turns` / `totalLlmCalls`) counts them — so a trace can contain many turns. The agents' own formats use "turn" for the whole prompt-to-response cycle (Codex's `turn_id`, `turn_context`, Cursor's `turn_ended`); where this document names those ids, or the trace-identity table's Turn column, it means that cycle, i.e. a trace.
 
 ---
 
@@ -252,7 +254,7 @@ OpenCode stores all session data in a local SQLite database (`opencode.db`) usin
 
 Confirmed by direct inspection against a real install (`cursor-agent 2026.09.18-9a7762b`, 2026-09-19), not assumed:
 
-- **No token/usage, model name, or workspace path exist anywhere in this format.** These are left as an honest gap (0 tokens, `model: 'cursor-agent'` placeholder that matches no pricing entry, `workspace: ''`) rather than guessed — see `.staged-issues/support-cursor-cli.md`'s investigation (file since removed once implemented; git history has it).
+- **No token/usage, model name, or workspace path exist anywhere in this format.** These are left as an honest gap (0 tokens, `model: 'cursor-agent'` placeholder that matches no pricing entry, `workspace: ''`) rather than guessed.
 - **`turn_ended` does not persist per-turn.** Resuming a session (`cursor-agent --resume <id>`) removes the *previous* turn's `turn_ended` line and appends exactly one new one at the new end of file — confirmed with a real two-turn resumed session. A file with N real turns has only ever one `turn_ended` line on disk at read time. `_parseCursorFile` therefore counts real turns from `role: 'user'` lines (which do persist across a resume), not from `turn_ended` occurrences; `errors` reflects only the *most recently completed* turn's status, not a running total.
 - **No per-turn timestamps.** Session start/end bounds fall back to the transcript file's own `birthtimeMs`/`mtimeMs`.
 
@@ -300,9 +302,9 @@ flowchart TD
 
 Sessions produced by `LogReader` carry `dataSource: 'log'` on `SessionSummaryCard`; OTLP sessions carry `dataSource: 'otel'`. The UI shows an OTEL/Log source badge on each session row.
 
-### Trace identity — one turn, one key
+### Trace identity — one trace, one key
 
-One agent turn is one trace, on every source, and it has one key everywhere — the local `sessionId`, the database row, the wire `session_id`, the delivery ledger, deep links and every per-session cache (`src/traceIdentity.ts`):
+One prompt-to-response cycle of an agent (what the agents' own formats call a turn) is one trace, on every source, and it has one key everywhere — the local `sessionId`, the database row, the wire `session_id`, the delivery ledger, deep links and every per-session cache (`src/traceIdentity.ts`):
 
 ```
 traceKey = toUuid(`${agent}:turn:${turnId}`)
@@ -1328,7 +1330,7 @@ traceroost/
 │   ├── planUsage/                # Claude Pro/Max + ChatGPT plan-limit readings (Codex rollouts, ~/.claude.json cache) → PlanUsageSnapshot
 │   ├── types.ts                  # Shared extension-host types
 │   ├── reconcile/
-│   │   ├── reconciliationService.ts # Trace-outcome reconciliation (staged feature 10, Stage 1) — in-flight dedup over GitOutcomeRepository, not a long-lived cache
+│   │   ├── reconciliationService.ts # Trace-outcome reconciliation (live reconciliation) — in-flight dedup over GitOutcomeRepository, not a long-lived cache
 │   │   ├── backgroundWatcher.ts  # Debounced fs.watch + fallback-poll orchestrator driving reconciliationService
 │   │   ├── keyedDebouncer.ts     # Per-key debounce with a max wait, coalescing bursts of updates for one session
 │   │   └── payloadHash.ts        # Content hash of a session's built rollup — detects any change worth re-forwarding
@@ -1343,7 +1345,7 @@ traceroost/
 │   │   ├── instructionRepository.ts # Applied/dismissed instruction-suggestion records
 │   │   ├── gitOutcomeRepository.ts # SQLite cache for per-session git-outcome classification; invalidated by cache key, not TTL
 │   │   ├── fileBlameRepository.ts # SQLite cache for per-file blame — re-blamed only when a file's blob sha changes
-│   │   ├── traceRevisionRepository.ts # Canonical trace revisions (staged feature 10, Stage 1) — advances only on a real outcome change
+│   │   ├── traceRevisionRepository.ts # Canonical trace revisions (live reconciliation) — advances only on a real outcome change
 │   │   ├── outcomeKeyRepository.ts # What each session's git-outcome cache key was built from — lets reconcile skip `git log`
 │   │   ├── attributionRepository.ts / turnoverRepository.ts # Caches for the attribution/turnover engines (§15)
 │   │   ├── sessionsVersion.ts    # Write counter for the sessions table — cheap staleness check for SessionRepository's memo

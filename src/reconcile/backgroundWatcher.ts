@@ -10,12 +10,12 @@
  *
  * Scope, honestly: this watches each retained session's resolved repo root's `.git` directory
  * (HEAD, refs, packed-refs) for commits, checkouts, resets, rebases, merges, and fetches — the
- * bulk of the staged feature's trigger list. It does *not* additionally watch every session's
+ * bulk of the live-reconciliation design's trigger list. It does *not* additionally watch every session's
  * individual working-tree files (a large retained history can span thousands of files across
  * dozens of repos; watching all of them individually was judged not worth the fd/resource cost).
  * An uncommitted edit or a growing/shrinking file set is instead picked up by the bounded 60-second
  * fallback poll below, via resolveOutcomeCacheKey's working-tree content digest — slower than a
- * watch event, but within the staged feature's own 60-second fallback-detection budget, and it's
+ * watch event, but within the live-reconciliation design's own 60-second fallback-detection budget, and it's
  * the fallback poll (not a dedicated watch) that covers "changes to the session's file set" and
  * "relevant working-tree changes" for files that were never part of a commit.
  *
@@ -168,8 +168,8 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
     const gitDir = path.join(root, '.git')
     try {
       // `.git` can itself be a file (a linked worktree or submodule pointer, "gitdir: <path>") —
-      // resolve to the real directory before watching so worktrees are covered, per the staged
-      // feature's "including linked worktrees and packed refs."
+      // resolve to the real directory before watching so worktrees are covered, per the
+      // reconciliation contract's "including linked worktrees and packed refs."
       const target = resolveGitDir(gitDir)
       if (!target) return
       const watcher = fs.watch(target, { recursive: true, persistent: false }, () => scheduleDebounced(root))

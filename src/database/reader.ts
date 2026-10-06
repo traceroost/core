@@ -25,7 +25,7 @@ function readConversation(v: unknown): { conversationId?: string } {
   return typeof v === 'string' && v ? { conversationId: v } : {}
 }
 
-/** The stable-trace-identity columns (staged feature 11) — absent ones stay off the card. */
+/** The stable-trace-identity columns (src/traceIdentity.ts) — absent ones stay off the card. */
 function readIdentity(derived: unknown, rank: unknown, subagents: unknown): Pick<SessionSummaryCard, 'derived' | 'sourceRank' | 'subagentCount'> {
   const out: Pick<SessionSummaryCard, 'derived' | 'sourceRank' | 'subagentCount'> = {}
   if (derived === 1) out.derived = true
@@ -107,7 +107,7 @@ export class DatabaseReader {
     return sessionsVersion(this.db)
   }
 
-  // ── Stable trace identity (staged feature 11) ────────────────────────────────
+  // ── Stable trace identity ────────────────────────────────
 
   /** The wire keys (`session_id` as sent — toUuid of the local id, an identity for every minted
    *  key) of the traces this install holds that started in [fromMs, toMs], synthesized in-progress
