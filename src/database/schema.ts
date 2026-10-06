@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS git_outcome_key (
   computed_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
--- Canonical trace revision (staged feature 10, Stage 1, generalized). One durable monotonic
+-- Canonical trace revision (live trace reconciliation). One durable monotonic
 -- revision number per session, allocated when either of two independent dimensions changes:
 -- the classified git outcome (fingerprint/outcome_overall, written by recordCheck) or the
 -- content of the full allowlisted cloud-forwarded projection (payload_hash, written by
@@ -89,8 +89,8 @@ CREATE TABLE IF NOT EXISTS git_outcome_key (
 -- at the time the outcome dimension was last recorded. payload_hash is a canonical sha256 of the
 -- last-hashed SessionRollup (excluding its own revision field). Either write preserves the other
 -- dimension's stored value -- see traceRevisionRepository.ts. Lifecycle is reserved for future
--- active/idle/completed tracking; this pass only ever writes 'active'. source_rank (staged feature
--- 11) is the rank of the last content-hashed snapshot: a lower-rank snapshot of the same key is
+-- active/idle/completed tracking; this pass only ever writes 'active'. source_rank
+-- (traceIdentity.ts) is the rank of the last content-hashed snapshot: a lower-rank snapshot of the same key is
 -- never forwarded over it (traceIdentity.ts).
 CREATE TABLE IF NOT EXISTS trace_revision (
   session_id         TEXT PRIMARY KEY,

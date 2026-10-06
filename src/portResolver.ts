@@ -7,7 +7,6 @@
  * that isn't read back by every consumer (auto-configure, the printed dashboard URL, `service
  * status`, the MCP endpoint string) would silently point agents at a dead port. `ResolvedPorts` is
  * the one record every consumer reads instead of re-deriving "the port" from an env var.
- * See .staged-issues/auto-pick-free-port.md for the full design this implements.
  */
 
 import * as http from 'http'

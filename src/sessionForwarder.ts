@@ -4,7 +4,7 @@
  * extension learns a session changed: a live OTLP update and the periodic log scan. The standalone
  * server does the same in its own `runLogScan`/live paths.
  *
- * With reconciliation available, the content-hash gate (staged feature 10) re-forwards the session
+ * With reconciliation available, the content-hash gate (live trace reconciliation) re-forwards the session
  * under a fresh revision whenever its rollup content actually changed — not just on its first send
  * — debounced per session so a burst of updates coalesces into one check (each check rebuilds the
  * payload with `git` subprocesses; see keyedDebouncer.ts). Without reconciliation (no SQLite

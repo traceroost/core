@@ -26,9 +26,8 @@
  * owns a *separate* on-disk database (traceroost.db vs outcomes-cache.db under a different data
  * directory) today, so they do not race on the same file -- but neither do they see each other's
  * revisions or notify each other's subscribers. Serializing revision allocation and invalidation
- * across genuinely shared storage is called out in the staged feature's Stage 2 ("provide
- * cross-process ownership for overlapping standalone/editor hosts") and is intentionally not
- * attempted here; see the staged-features doc for the follow-up this leaves open.
+ * across genuinely shared storage (cross-process ownership for overlapping standalone/editor
+ * hosts) is a known follow-up and is intentionally not attempted here.
  */
 
 import {
@@ -145,15 +144,15 @@ export class ReconciliationService {
     return pending
   }
 
-  /** Content-hash dimension of revision tracking (staged feature 10's generalization beyond
+  /** Content-hash dimension of revision tracking (live reconciliation's generalization beyond
    *  outcome-only, see payloadHash.ts and traceRevisionRepository.ts's `recordPayloadHash`).
    *  Hashes `rollup` and allocates a new shared revision only if it differs from the last hash
    *  recorded for this session -- independent of, and composable with, the git-outcome dimension
    *  `reconcile()` tracks. Synchronous and cheap (no I/O beyond the same db this service already
    *  owns); building `rollup` itself is the caller's job and the expensive part (real `git`
    *  subprocesses) -- callers on a live/frequent path should debounce before calling this, not
-   *  because this call is expensive but because rebuilding `rollup` is. `sourceRank` (staged
-   *  feature 11): a snapshot ranked below the last recorded one is a downgrade -- no revision,
+   *  because this call is expensive but because rebuilding `rollup` is. `sourceRank`
+   *  (traceIdentity.ts): a snapshot ranked below the last recorded one is a downgrade -- no revision,
    *  `downgrade: true`, never forwarded. */
   recordContentChange(sessionId: string, rollup: SessionRollup, sourceRank?: number): { revision: number; changed: boolean; downgrade?: boolean } {
     return this.revisions.recordPayloadHash(sessionId, hashSessionRollup(rollup), sourceRank)

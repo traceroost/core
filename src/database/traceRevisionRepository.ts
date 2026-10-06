@@ -1,5 +1,5 @@
 /**
- * SQLite-backed store for canonical trace revisions (staged feature 10, Stage 1, generalized) --
+ * SQLite-backed store for canonical trace revisions (live trace reconciliation) --
  * see schema.ts's `trace_revision` / `trace_revision_counter` tables for the storage shape. A
  * revision advances when either of two independent dimensions changes: the classified git outcome
  * (`recordCheck`) or the content of the full allowlisted cloud-forwarded projection
@@ -22,7 +22,7 @@ export interface TraceRevisionRow {
   payloadHash: string | null
   checkedAt: number
   changedAt: number
-  /** Source rank of the last content-hashed snapshot (staged feature 11), or null. */
+  /** Source rank of the last content-hashed snapshot (src/traceIdentity.ts), or null. */
   sourceRank: number | null
 }
 
@@ -54,8 +54,8 @@ export class TraceRevisionRepository {
   /** Records a fresh classification. Only allocates (and returns) a new revision when
    *  `outcomeOverall` differs from the last-stored value for this session, or there was no prior
    *  row -- an unchanged verdict from a re-check (fingerprint moved but the classified outcome
-   *  didn't) just refreshes `checked_at` and reuses the existing revision, matching the staged
-   *  feature's "a repeated parse of identical evidence must not create a new revision" and its
+   *  didn't) just refreshes `checked_at` and reuses the existing revision, matching the
+   *  reconciliation contract's "a repeated parse of identical evidence must not create a new revision" and its
    *  narrower cousin, "an unchanged semantic outcome updates checked time without creating a
    *  revision." Returns the row's revision and whether it changed, so callers can decide whether
    *  this is forwarding-worthy. */
@@ -79,7 +79,7 @@ export class TraceRevisionRepository {
     return { revision, changed: true }
   }
 
-  /** Symmetric to `recordCheck`, for the content-hash dimension (staged feature 10's
+  /** Symmetric to `recordCheck`, for the content-hash dimension (live reconciliation's
    *  generalization beyond outcome-only): allocates a new revision only when `hash` -- a
    *  canonical hash of the full allowlisted rollup, see payloadHash.ts -- differs from the last
    *  one recorded for this session. Covers duration/tokens/tool-calls/model-mix/etc. growing or
@@ -90,7 +90,7 @@ export class TraceRevisionRepository {
   recordPayloadHash(sessionId: string, hash: string, sourceRank?: number): { revision: number; changed: boolean; downgrade?: boolean } {
     const existing = this.get(sessionId)
     const now = Date.now()
-    // Source precedence (staged feature 11): a snapshot from a lower-rank source (a transcript
+    // Source precedence (src/traceIdentity.ts): a snapshot from a lower-rank source (a transcript
     // re-scan after the OTEL card was sent) never becomes a newer revision of the same key.
     if (existing && sourceRank !== undefined && existing.sourceRank !== null && sourceRank < existing.sourceRank) {
       this.db.run('UPDATE trace_revision SET checked_at = ? WHERE session_id = ?', [now, sessionId])

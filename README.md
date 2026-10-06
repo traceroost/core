@@ -98,6 +98,8 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 
 ## Data Sources
 
+A **trace** is one prompt-to-response cycle of an agent. A turn is a single, complete unit of back-and-forth communication with a large language model: one input message and its corresponding response. In TraceRoost that is one LLM call, so a trace can contain many turns; the Traces table's Turns column counts them.
+
 TraceRoost collects data from two independent sources per agent. Each trace row shows a badge — **OTEL** or **Log** — indicating where its data came from. If both capture the same trace, OTEL always wins and the badge upgrades automatically.
 
 ### OpenTelemetry traces (primary source)
@@ -137,7 +139,7 @@ The general picture above is the same for every agent — OTEL is richer, logs a
 
 **Log files** (automatic, no setup) — `~/.claude/projects/<project>/<session-uuid>.jsonl`
 
-Each file is one conversation, and each prompt in it is one trace, keyed by the prompt's own `promptId` — so the OTEL copy of the same turn lands on the same row instead of a second one, and a resumed session updates the turns it copied rather than duplicating them. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks. Subagent transcripts (`<session-uuid>/subagents/agent-*.jsonl`) are counted in the prompt that started them, not as traces of their own.
+Each file is one conversation, and each prompt in it is one trace, keyed by the prompt's own `promptId` — so the OTEL copy of the same prompt lands on the same row instead of a second one, and a resumed session updates the turns it copied rather than duplicating them. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks. Subagent transcripts (`<session-uuid>/subagents/agent-*.jsonl`) are counted in the prompt that started them, not as traces of their own.
 
 Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written. Several signals can fire from this log alone (repeated tool calls, edit/revert cycles, runaway steps, hallucinated imports, degraded runaway-cost detection).
 Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, context flooding, failed check submission) — those need OTEL. See the in-app Help tab's Signals section for the per-signal breakdown.
@@ -150,7 +152,7 @@ With the recommended configuration (all three `OTEL_LOG_*` vars): prompt text, t
 
 **Log files** (automatic, no setup) — `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
 
-`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format. Each turn is one trace, keyed by Codex's own `turn_id` — the same key its OTEL turn gets.
+`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format. Each prompt-to-response cycle (what Codex calls a turn) is one trace, keyed by Codex's own `turn_id` — the same key its OTEL copy gets.
 
 Available from logs: model, timestamps, token counts (input, output, cache read).
 Not in logs: prompt text, tool names, TTFT, latency.
@@ -438,7 +440,7 @@ The CLI and VS Code extension both read the same file. Add to the `"env"` block:
 }
 ```
 
-`CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` enables span-level tracing — without it turns and LLM calls are indistinguishable and cache token breakdowns are unavailable. The three `OTEL_LOG_*` vars unlock tool details, file diff content (needed for the Files tab), and your typed prompt. If `settings.json` already exists, merge the `env` block — do not replace the whole file.
+`CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` enables span-level tracing — without it prompts and LLM calls are indistinguishable and cache token breakdowns are unavailable. The three `OTEL_LOG_*` vars unlock tool details, file diff content (needed for the Files tab), and your typed prompt. If `settings.json` already exists, merge the `env` block — do not replace the whole file.
 
 ---
 

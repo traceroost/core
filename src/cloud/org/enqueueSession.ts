@@ -38,7 +38,7 @@ export interface EnqueueResult {
  *  deduplicated server-side too.
  *
  *  `revision`, when passed, marks this as a deliberate re-send triggered by a detected change to
- *  the session's canonical trace snapshot (staged feature 10's reconciliation service — see
+ *  the session's canonical trace snapshot (the live reconciliation service — see
  *  extension.ts's/server.ts's `reconciliation.subscribe` wiring), not the passive
  *  restart-rediscovery path the delivery ledger exists to short-circuit. It therefore bypasses
  *  the ledger check below (a session already marked "delivered" under an older revision must

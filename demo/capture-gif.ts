@@ -24,9 +24,8 @@
  *   pnpm run demo:gif -- --edition full     # record the full edition (default: core, what releases ship)
  *   pnpm run demo:gif -- --no-outcomes      # skip the scratch git repo — no Outcome column/chart data
  *
- * Safety, and why it's structured this way: see .staged-issues/demo-gif-capture.md. In
- * short — the standalone server this spawns is started with TRACEROOST_NO_AUTOCONFIG=1
- * (the real off-switch) AND with HOME/DATA_DIR pointed at a scratch temp directory this
+ * Safety, and why it's structured this way: the standalone server this spawns is started
+ * with TRACEROOST_NO_AUTOCONFIG=1 (the real off-switch) AND with HOME/DATA_DIR pointed at a scratch temp directory this
  * script creates and deletes (a second, independent layer — if a future change ever adds
  * an auto-config call site that forgets to check the env var, it still can't reach the
  * real ~/.claude, ~/.codex, or VS Code Copilot config, because "home" itself is fake for

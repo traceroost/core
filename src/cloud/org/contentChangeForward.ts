@@ -1,5 +1,5 @@
 /**
- * Forwards a session whenever its built rollup content actually changed (staged feature 10's
+ * Forwards a session whenever its built rollup content actually changed (live reconciliation's
  * generalization beyond outcome-only re-forwarding) -- the live-update counterpart to
  * `enqueueSession.ts`'s ledger-gated `maybeEnqueueSession`, used only on paths that see a session
  * repeatedly while it's still being written to (extension.ts's `store.onUpdate` and periodic log
@@ -39,7 +39,7 @@ export async function maybeForwardOnContentChange(
     const built = await buildPayloadForCard(card, cache)
     if (!built.payload.session) return { enqueued: false, reason: 'error' }
 
-    // Source precedence (staged feature 11): a turn's log and OTEL cards share one key, so a
+    // Source precedence (src/traceIdentity.ts): a turn's log and OTEL cards share one key, so a
     // transcript re-scan after the OTEL card was sent must not go out as a newer revision.
     const { revision, changed, downgrade } = reconciliation.recordContentChange(built.payload.session.session_id, built.payload.session, sourceRankOf(card))
     if (downgrade) return { enqueued: false, reason: 'lower-rank' }

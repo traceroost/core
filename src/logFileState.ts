@@ -8,8 +8,7 @@ import { writeFileAtomic, quarantineCorruptFile } from './fsAtomic'
 // Without this, every extension activation re-parses every historical source-tool log file from
 // scratch — LogReader.fileState is an in-memory Map that starts empty on every process start. This
 // is pure waste today, at current scale, for anyone with more than a few weeks of log history, so
-// it's fixed unconditionally rather than gated behind the stress-test in scalability.md. See
-// .staged-issues/scalability.md, risk #1.
+// it's fixed unconditionally rather than gated behind a scalability stress test.
 
 export const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
 
@@ -22,7 +21,7 @@ export const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
  *    stored rows keep only the inflated total (no reasoning count, no raw usage), so they can't
  *    be corrected in the database; re-parsing the Codex rollout files re-derives them, and the
  *    writer's INSERT OR REPLACE rewrites each row with the corrected tokens and cost.
- * 4: Stable trace identity (staged feature 11): every log source is read one turn per trace,
+ * 4: Stable trace identity: every log source is read one turn per trace,
  *    keyed by the agent's own turn id. The trace store is rebuilt empty (database/traceStore.ts),
  *    so every file within retention is read again. (3 was an interim development format.)
  * 5: Each file's state carries the trace keys its last read produced (FileState.keys), so a key a

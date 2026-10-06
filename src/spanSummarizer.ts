@@ -169,7 +169,7 @@ export function summarizeSpans(spans: Span[]) {
   ].sort((a, b) => timestampToMs(a.startTime) - timestampToMs(b.startTime))
 
   const sessions = allSorted
-  // Canonical trace keys (staged feature 11): the same key the turn's log card gets.
+  // Canonical trace keys (src/traceIdentity.ts): the same key the turn's log card gets.
   const promptLengths = new Map<string, number>()
   for (const s of claudeInteractionSpans) {
     const len = getAttrInt(s, 'user_prompt_length')

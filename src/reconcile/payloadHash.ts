@@ -1,5 +1,5 @@
 /**
- * Canonical content hash of a session's built `SessionRollup` (staged feature 10's generalization
+ * Canonical content hash of a session's built `SessionRollup` (live reconciliation's generalization
  * of the trace-revision mechanism beyond git outcome alone). Used to detect any change to the
  * allowlisted, cloud-forwarded projection -- duration, tokens, tool calls, model mix, outcome,
  * etc. -- so a growing or corrected trace gets re-forwarded without needing a per-field diff.
@@ -8,7 +8,7 @@
  * `host_id` (which host sends it, not what the trace contains — and an unlinked install's preview
  * placeholder must not read as a change once it links), and deep-sorts object keys and array entries, so field order or a builder's own non-semantic array
  * ordering (see buildSessionRollup.ts's `perModelCalls`/`wireFileHashes`) never looks like a
- * content change on its own -- matching the staged feature's "exclude ... array ordering from
+ * content change on its own -- matching the live-reconciliation design's "exclude ... array ordering from
  * change detection."
  */
 

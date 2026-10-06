@@ -280,7 +280,7 @@ export interface LogSessionResult {
   workspace: string
   /** Subscription plan-limit readings found in this session's log (Codex only today). Kept off the
    *  card on purpose: limit data comes only from logs, so it must survive an OTEL card replacing
-   *  this one — see .staged-features/subscription-limit-usage.md. Absent when there are none. */
+   *  this one. Absent when there are none. */
   limitReadings?: LimitReading[]
   /** Plan limits hit during this session. Absent when there are none. */
   limitHits?: LimitHit[]
@@ -358,8 +358,7 @@ export class LogReader {
 
   /** Plain-object snapshot of the per-file mtime/size cache, for a caller to persist to disk
    *  (a sidecar JSON file, e.g.) so the next process start can restore it via `importFileState`
-   *  instead of re-parsing every historical log file from scratch. See
-   *  .staged-issues/scalability.md, risk #1. */
+   *  instead of re-parsing every historical log file from scratch (see logFileState.ts). */
   exportFileState(): Record<string, FileState> {
     const out: Record<string, FileState> = {}
     for (const [filePath, state] of this.fileState) {
@@ -1863,8 +1862,8 @@ export class LogReader {
   }
 
   /** Reads a Cursor CLI transcript, one result per turn — see the doc comment at the top of this
-   *  file and .staged-issues/support-cursor-cli.md for exactly what this format does and doesn't
-   *  contain. A turn opens at each `role: 'user'` line (those persist across a `--resume`, unlike
+   *  file and ARCHITECTURE.md's "Cursor CLI — transcript log" for exactly what this format does
+   *  and doesn't contain. A turn opens at each `role: 'user'` line (those persist across a `--resume`, unlike
    *  `turn_ended`). The format has no record ids and no timestamps, so a turn's derived key is the
    *  session id plus the turn's position among the file's prompts (stable for this append-only
    *  file), and every turn's times fall back to the file's birthtime — only the last turn ends at

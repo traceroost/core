@@ -1,5 +1,5 @@
 /**
- * Stable trace identity (staged feature 11): one agent turn = one trace = one key, everywhere —
+ * Stable trace identity: one agent turn = one trace = one key, everywhere —
  * the local `sessionId`, the wire `session_id`, the delivery ledger, deep links and every
  * per-session cache all use the same canonical key, so a trace whose evidence settles (a log card
  * first, its OTEL card later; a transcript re-scanned) is updated in place instead of re-keyed.

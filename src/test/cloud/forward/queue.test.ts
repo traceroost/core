@@ -132,7 +132,7 @@ suite('forward/queue', () => {
     assert.strictEqual(q.list()[0].lastError, 'boom')
   })
 
-  test('staged feature 10: a strictly newer revision replaces a still-unsent item in place', () => {
+  test('live reconciliation: a strictly newer revision replaces a still-unsent item in place', () => {
     const q = new ForwardQueue(home)
     const id = '11111111-1111-4111-8111-111111111111'
     assert.strictEqual(q.enqueue(payload(id, 1)), true)
@@ -141,7 +141,7 @@ suite('forward/queue', () => {
     assert.strictEqual(q.list()[0].payload.session?.revision, 2)
   })
 
-  test('staged feature 10: an equal or older revision does not replace the queued item', () => {
+  test('live reconciliation: an equal or older revision does not replace the queued item', () => {
     const q = new ForwardQueue(home)
     const id = '11111111-1111-4111-8111-111111111111'
     q.enqueue(payload(id, 3))
@@ -150,7 +150,7 @@ suite('forward/queue', () => {
     assert.strictEqual(q.list()[0].payload.session?.revision, 3)
   })
 
-  test('staged feature 10: a revision-bearing payload supersedes a legacy (no-revision) queued item', () => {
+  test('live reconciliation: a revision-bearing payload supersedes a legacy (no-revision) queued item', () => {
     const q = new ForwardQueue(home)
     const id = '11111111-1111-4111-8111-111111111111'
     q.enqueue(payload(id)) // legacy send, no revision field
@@ -158,7 +158,7 @@ suite('forward/queue', () => {
     assert.strictEqual(q.list()[0].payload.session?.revision, 1)
   })
 
-  test('staged feature 10: a payload with no revision never replaces an already-queued item, revisioned or not', () => {
+  test('live reconciliation: a payload with no revision never replaces an already-queued item, revisioned or not', () => {
     const q = new ForwardQueue(home)
     const id = '11111111-1111-4111-8111-111111111111'
     q.enqueue(payload(id, 5))
@@ -166,7 +166,7 @@ suite('forward/queue', () => {
     assert.strictEqual(q.list()[0].payload.session?.revision, 5)
   })
 
-  test('staged feature 10: replacing in place preserves retry identity (enqueuedAt, attempts)', () => {
+  test('live reconciliation: replacing in place preserves retry identity (enqueuedAt, attempts)', () => {
     const q = new ForwardQueue(home)
     const id = '11111111-1111-4111-8111-111111111111'
     q.enqueue(payload(id, 1))
