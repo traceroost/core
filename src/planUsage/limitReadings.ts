@@ -1,8 +1,7 @@
 /**
  * Subscription plan-limit readings (Claude Pro/Max, ChatGPT plans) — how much of the 5-hour and
  * weekly windows was used, and when a limit was hit. Read only from files the agent CLIs already
- * write; never from a credential store or a provider endpoint. See
- * .staged-features/subscription-limit-usage.md for the full design.
+ * write; never from a credential store or a provider endpoint.
  *
  * This module holds the shared types and the Codex rollout parser. Codex appends a `token_count`
  * event on every turn, and each one carries the account's rate limits as the server reported them:

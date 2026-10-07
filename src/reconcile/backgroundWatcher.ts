@@ -1,6 +1,5 @@
 /**
- * Background reconciliation (staged feature 10, Stage 2 — see
- * .staged-features/10-live-outcome-reconciliation.md).
+ * Background reconciliation (staged feature 10, Stage 2; shipped, plan removed).
  *
  * Runs from extension-host / standalone-server lifecycle, not dashboard lifecycle: started once
  * at activation/startup and kept alive independent of whether a Traces view is open, so "leave

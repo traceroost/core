@@ -259,7 +259,7 @@ export interface LogSessionResult {
   workspace: string
   /** Subscription plan-limit readings found in this session's log (Codex only today). Kept off the
    *  card on purpose: limit data comes only from logs, so it must survive an OTEL card replacing
-   *  this one — see .staged-features/subscription-limit-usage.md. Absent when there are none. */
+   *  this one. Absent when there are none. */
   limitReadings?: LimitReading[]
   /** Plan limits hit during this session. Absent when there are none. */
   limitHits?: LimitHit[]

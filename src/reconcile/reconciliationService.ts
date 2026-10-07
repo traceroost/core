@@ -1,6 +1,5 @@
 /**
- * Host-independent trace-outcome reconciliation (staged feature 10, Stage 1 -- see
- * .staged-features/10-live-outcome-reconciliation.md).
+ * Host-independent trace-outcome reconciliation (staged feature 10, Stage 1; shipped, plan removed).
  *
  * Both DashboardPanel (the editor webview) and standalone/server.ts used to keep their own
  * `Map<sessionId, Promise<GitOutcome | null>>` as a *permanent* success cache -- once a session's
