@@ -5,11 +5,9 @@ import * as path from 'path'
 import {
   detectFailedCheckSubmission,
   detectHallucinatedImports,
-  detectSkippedChecks,
   detectSessionRiskSignals,
 } from '../sessionRiskSignals'
 import { SessionSummaryCard, TimelineEntry } from '../spanSummarizer'
-import { GitOutcome } from '../gitOutcome'
 
 // ── Factories ────────────────────────────────────────────────────────────────
 
@@ -269,52 +267,6 @@ suite('detectHallucinatedImports', () => {
 
 // ── detectSessionRiskSignals ────────────────────────────────────────────────
 
-// ── detectSkippedChecks ──────────────────────────────────────────────────────
-
-function makeOutcome(overall: GitOutcome['overall']): GitOutcome {
-  return { overall, files: {}, reason: 'test' }
-}
-
-suite('detectSkippedChecks', () => {
-  test('null when outcome is null', () => {
-    const session = makeSession({ timeline: [] })
-    assert.strictEqual(detectSkippedChecks(session, null), null)
-  })
-
-  test('null when outcome is committed but not merged — not yet on the shared branch', () => {
-    const session = makeSession({ timeline: [] })
-    assert.strictEqual(detectSkippedChecks(session, makeOutcome('committed')), null)
-  })
-
-  test('null when outcome is abandoned or ambiguous', () => {
-    const session = makeSession({ timeline: [] })
-    assert.strictEqual(detectSkippedChecks(session, makeOutcome('abandoned')), null)
-    assert.strictEqual(detectSkippedChecks(session, makeOutcome('ambiguous')), null)
-  })
-
-  test('fires when merged and no test/build runner ever ran', () => {
-    const session = makeSession({ timeline: [makeEdit('src/a.ts', 'x'), makeLlm()] })
-    const signal = detectSkippedChecks(session, makeOutcome('merged'))
-    assert.ok(signal)
-    assert.strictEqual(signal!.type, 'skipped_checks')
-    assert.strictEqual(signal!.severity, 'warning')
-  })
-
-  test('null when merged but a test runner ran somewhere in the session, pass or fail', () => {
-    const session = makeSession({
-      timeline: [makeEdit('src/a.ts', 'x'), makeToolCall({ label: 'bash', toolInput: 'npm test', resultSummary: 'failed' })],
-    })
-    assert.strictEqual(detectSkippedChecks(session, makeOutcome('merged')), null)
-  })
-
-  test('a build runner (not just a test runner) also counts as a check', () => {
-    const session = makeSession({
-      timeline: [makeEdit('src/a.ts', 'x'), makeToolCall({ label: 'bash', toolInput: 'cargo test --release' })],
-    })
-    assert.strictEqual(detectSkippedChecks(session, makeOutcome('merged')), null)
-  })
-})
-
 suite('detectSessionRiskSignals', () => {
   test('empty when neither detector fires', () => {
     const dir = tmpWorkspace()
@@ -340,19 +292,4 @@ suite('detectSessionRiskSignals', () => {
     )
   })
 
-  test('omitting outcome defaults to null — detectSkippedChecks never fires without it', () => {
-    const dir = tmpWorkspace()
-    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: {} }))
-    const session = makeSession({ timeline: [makeEdit('src/a.ts', 'x')] })
-    assert.deepStrictEqual(detectSessionRiskSignals(session, dir), [])
-  })
-
-  test('passing a merged outcome lets detectSkippedChecks fire alongside the others', () => {
-    const dir = tmpWorkspace()
-    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: {} }))
-    const session = makeSession({ timeline: [makeEdit('src/a.ts', 'x')] })
-    const signals = detectSessionRiskSignals(session, dir, makeOutcome('merged'))
-    assert.strictEqual(signals.length, 1)
-    assert.strictEqual(signals[0].type, 'skipped_checks')
-  })
 })

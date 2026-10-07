@@ -43,11 +43,6 @@ export const LOOP_SIGNAL_ICON_TYPE: Record<LoopSignalType, string> = {
   low_cache_hit_ratio: 'context-thrash',
   budget_overrun: 'runaway-cost',
   model_tier_mismatch: 'runaway-cost',
-  // Added 2026-09-26 (signal-catalog stage 05). Local-only (see toWireLoopSignal's comment for
-  // skipped_checks) but still needs an icon bucket here since this map is exhaustive over
-  // LoopSignalType — reuses no-progress's bucket alongside failed_check_submission, since both are
-  // "verification didn't happen" rather than a loop pattern.
-  skipped_checks: 'no-progress',
 }
 
 // No SIGNAL_LABEL map here on purpose — a label derived from LOOP_SIGNAL_ICON_TYPE's collapsed

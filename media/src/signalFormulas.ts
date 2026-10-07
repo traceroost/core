@@ -217,19 +217,6 @@ export const SIGNAL_FORMULAS: Record<
     dataSourceNote:
       'Needs per-call model tags and output tokens, the same constraint token_runaway has: log-capable from Claude Code (degraded) and OpenCode, not from Codex, Copilot CLI/Chat, or Cursor logs.',
   },
-  skipped_checks: {
-    bullets: [
-      'The session\'s git outcome resolves to \'merged\' (its content matches the tip of the remote-tracked trunk branch) and no recognized test/build runner call appears anywhere in the timeline → warning',
-      'No critical tier — absence of a check isn\'t itself proof of a bug, just proof nothing was verified',
-    ],
-    caveat: 'Experimental — not yet tuned on real sessions. TraceRoost can’t see a git push directly, so “changes reached the shared branch” stands in for it. A change with nothing to test (a docs fix, a config tweak) still fires this, so expect some false positives.',
-    short: 'Changes reached the shared branch with no test/build check run.',
-    tip: 'Run the check yourself before trusting it — nothing verified this session\'s own work.',
-    dataSource: 'both',
-    dataSourceNote:
-      'Only needs tool labels (same fields exact_tool_repeat/runaway_steps use), not captured output, so it\'s log-capable from Claude Code, '
-      + 'OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all.',
-  },
 }
 
 /** Renders a signal's bullets as the `<ul>` HTML string LoopBlock's `why` prop expects. */

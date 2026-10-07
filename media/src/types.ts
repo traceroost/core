@@ -49,7 +49,6 @@ export type LoopSignalType =
   | 'low_cache_hit_ratio'
   | 'budget_overrun'
   | 'model_tier_mismatch'
-  | 'skipped_checks'
 
 export interface LoopSignal {
   type: LoopSignalType
