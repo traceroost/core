@@ -768,15 +768,6 @@ function SignalsSection() {
             steps={`<li>Route read/search-heavy turns to a smaller, cheaper model.</li><li>Reserve the premium model for turns that actually produce edits.</li>`}
             impact="Switching a read-only stretch from a premium to a mid-tier model can cut that portion's cost 5–10× with no quality loss."
           />
-          <LoopBlock id="help-skipped-checks" title="Unverified Ship" signalType="skipped_checks"
-            why={formulaHtml(SIGNAL_FORMULAS.skipped_checks.bullets)}
-            caveat={SIGNAL_FORMULAS.skipped_checks.caveat}
-            dataSource={SIGNAL_FORMULAS.skipped_checks.dataSource}
-            dataSourceNote={SIGNAL_FORMULAS.skipped_checks.dataSourceNote}
-            example="A trace edited three files that are now on main, but never ran the test suite or a build along the way."
-            steps={`<li>Run the project's checks yourself before relying on the change.</li><li>Add a line to your instruction file telling the agent to run the tests before it finishes.</li>`}
-            impact="Catches work that reached the shared branch without anything having verified it — the cheapest point to find a regression."
-          />
         </div>
       <p style="margin-top:16px;font-size:12px;color:var(--muted)">In the Insights panel, signals are sorted by severity; use <strong>Ignore</strong> to dismiss one that was intentional. The Traces table's <strong>Sig</strong> column shows which traces have signals — click its header to sort by it.</p>
     </div>

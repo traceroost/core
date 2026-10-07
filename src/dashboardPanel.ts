@@ -376,7 +376,7 @@ export class DashboardPanel {
       for (const result of pending.values()) {
         const card = cards.get(result.sessionId)
         if (!card) continue
-        const riskSignals = detectSessionRiskSignals(card, card.workspace, result.outcome)
+        const riskSignals = detectSessionRiskSignals(card, card.workspace)
         const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], result.outcome)
         this.panel.webview.postMessage({
           type: 'gitOutcome', sessionId: result.sessionId, outcome: result.outcome, riskSignals, temperedLoopSignals,
@@ -579,7 +579,7 @@ export class DashboardPanel {
     // known, same lifecycle as git-outcome classification — computed here rather than eagerly
     // for every session. See sessionRiskSignals.ts and temperLoopSignalSeverity's docstring.
     const card = this.repo.listSessions().find(s => s.sessionId === sessionId) ?? null
-    const riskSignals = card ? detectSessionRiskSignals(card, workspace, outcome) : []
+    const riskSignals = card ? detectSessionRiskSignals(card, workspace) : []
     const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
     this.panel.webview.postMessage({ type: 'gitOutcome', sessionId, outcome, riskSignals, temperedLoopSignals, revision })
   }

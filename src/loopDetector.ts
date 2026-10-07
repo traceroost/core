@@ -67,7 +67,6 @@ export const PATTERN_NAMES: Record<LoopSignalType, string> = {
   low_cache_hit_ratio:  'Poor Cache Utilization',
   budget_overrun:       'Budget Overrun',
   model_tier_mismatch:  'Model Tier Mismatch',
-  skipped_checks:       'Unverified Ship',
 }
 
 // ── Actionable recommendations per signal type ──────────────────────────────
@@ -147,10 +146,6 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
   model_tier_mismatch:
     'A premium-tier model ran a long stretch of read-only calls with no edits and short output — the kind of work a cheaper model typically handles just as well. '
     + 'Consider routing read/search-heavy turns to a smaller model and reserving the premium one for edits.',
-
-  skipped_checks:
-    'This session\'s changes reached the shared branch, but no recognized test or build command ever ran during the session. '
-    + 'Run the project\'s test/build command yourself before trusting the change, or ask the agent to verify its own work next time before finishing.',
 }
 
 // ── Formula/caveat text per signal type ─────────────────────────────────────
@@ -378,19 +373,6 @@ export const SIGNAL_FORMULAS: Record<
     dataSource: 'both',
     dataSourceNote:
       'Needs per-call model tags and output tokens, the same constraint token_runaway has: log-capable from Claude Code (degraded) and OpenCode, not from Codex, Copilot CLI/Chat, or Cursor logs.',
-  },
-  skipped_checks: {
-    bullets: [
-      'The session\'s git outcome resolves to \'merged\' (its content matches the tip of the remote-tracked trunk branch) and no recognized test/build runner call appears anywhere in the timeline → warning',
-      'No critical tier — absence of a check isn\'t itself proof of a bug, just proof nothing was verified',
-    ],
-    caveat: 'Experimental — not yet tuned on real sessions. TraceRoost can’t see a git push directly, so “changes reached the shared branch” stands in for it. A change with nothing to test (a docs fix, a config tweak) still fires this, so expect some false positives.',
-    short: 'Changes reached the shared branch with no test/build check run.',
-    tip: 'Run the check yourself before trusting it — nothing verified this session\'s own work.',
-    dataSource: 'both',
-    dataSourceNote:
-      'Only needs tool labels (same fields exact_tool_repeat/runaway_steps use), not captured output, so it\'s log-capable from Claude Code, '
-      + 'OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all.',
   },
 }
 

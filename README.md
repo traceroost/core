@@ -264,7 +264,6 @@ The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categori
 | **Poor Cache Utilization** | Little of the trace's context came from cache | Something invalidating the cached prefix every turn |
 | **Budget Overrun** | Trace cost exceeded the cap set in `TRACEROOST_BUDGET_CAP_USD` (off unless set) | A loop or retry pattern driving cost, or an under-sized cap |
 | **Model Tier Mismatch** | A premium model ran a long, read-only, low-output stretch with no edits | Read/search work that a cheaper model could do |
-| **Unverified Ship** | The trace's changes reached the trunk branch (git outcome Merged) with no test/build check run | Work merged without verification |
 
 Each signal includes a specific recommended action and a **Copy** button that copies the recommendation prompt to your clipboard so you can paste it into your agent. Use the **Ignore** button to dismiss signals that represent intentional behavior. The in-app Help tab's Signals section has each signal's exact trigger thresholds and which data source (OTEL or logs) it needs.
 

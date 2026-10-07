@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     const workspace = normalizeWorkspace(session.workspace)
     const signals = [
       ...detectLoopSignals(session),
-      ...detectSessionRiskSignals(session, workspace, outcome),
+      ...detectSessionRiskSignals(session, workspace),
     ]
     // One LoopSignal object per type per session already (each detector pushes at most one), so
     // no dedup needed here — unlike the fired-types Set this replaces, severity must come from

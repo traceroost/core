@@ -406,7 +406,7 @@ function pushGitOutcomeResult(r: ReconcileResult): void {
     for (const result of pending.values()) {
       const card = cards.get(result.sessionId)
       if (!card) continue
-      const riskSignals = detectSessionRiskSignals(card, card.workspace, result.outcome)
+      const riskSignals = detectSessionRiskSignals(card, card.workspace)
       const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], result.outcome)
       broadcastSse({ type: 'gitOutcome', sessionId: result.sessionId, outcome: result.outcome, riskSignals, temperedLoopSignals, revision: result.revision })
     }
@@ -1879,7 +1879,7 @@ const uiServer = http.createServer((req, res) => {
         // known, same lifecycle as git-outcome classification — computed here rather than eagerly
         // for every session. See sessionRiskSignals.ts and temperLoopSignalSeverity's docstring.
         const card = buildSessionSummary()?.sessions.find(s => s.sessionId === sessionId) ?? null
-        const riskSignals = card ? detectSessionRiskSignals(card, body.workspace ?? '', outcome) : []
+        const riskSignals = card ? detectSessionRiskSignals(card, body.workspace ?? '') : []
         const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ sessionId, outcome, riskSignals, temperedLoopSignals, revision }))
@@ -1940,7 +1940,7 @@ const uiServer = http.createServer((req, res) => {
             await Promise.all(cards.map(async card => {
               let outcome: GitOutcome | null = null
               try { outcome = await classifySessionOutcome(card.workspace, card.filesChanged) } catch { /* report unresolved below */ }
-              const riskSignals = detectSessionRiskSignals(card, card.workspace, outcome)
+              const riskSignals = detectSessionRiskSignals(card, card.workspace)
               const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], outcome)
               broadcastSse({ type: 'gitOutcome', sessionId: card.sessionId, outcome, riskSignals, temperedLoopSignals })
             }))

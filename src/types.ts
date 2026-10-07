@@ -53,9 +53,6 @@ export type LoopSignalType =
   | 'low_cache_hit_ratio'
   | 'budget_overrun'
   | 'model_tier_mismatch'
-  // Post-hoc, added from signal-catalog stage 05 (runbooks/SIGNAL_CALIBRATION.md) — detected by
-  // src/sessionRiskSignals.ts alongside hallucinated_import/failed_check_submission above.
-  | 'skipped_checks'
 
 export interface LoopSignal {
   type: LoopSignalType
