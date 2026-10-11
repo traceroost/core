@@ -955,7 +955,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // No timer runs unless an org is linked; `syncToLinkState` starts/stops it after link/leave.
   forwardScheduler = cloud.startForwardScheduler({
     notify: (message, kind, action) => {
-      if (action === 'relink') {
+      // Only the full edition ever passes an action (the core bridge sends nothing); the literal
+      // edition check drops the Cloud command reference from the core bundle.
+      if (process.env.TRACEROOST_EDITION !== 'core' && action === 'relink') {
         // The machine unlinked itself (its credential was rejected for good): one click links it
         // again — the same consent + browser flow as the command palette's "Link".
         void vscode.window.showWarningMessage(message, 'Re-link').then(choice => {
@@ -964,7 +966,7 @@ export async function activate(context: vscode.ExtensionContext) {
         DashboardPanel.pushOrgStatus()
         return
       }
-      if (action === 'update') {
+      if (process.env.TRACEROOST_EDITION !== 'core' && action === 'update') {
         void vscode.window.showWarningMessage(message, 'Open Extensions').then(choice => {
           if (choice === 'Open Extensions') void vscode.commands.executeCommand('workbench.view.extensions')
         })
