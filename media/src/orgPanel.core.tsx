@@ -19,3 +19,4 @@ export const requestOrgStatus: typeof Full.requestOrgStatus = () => {}
 export const handleOrgPanelMessage: typeof Full.handleOrgPanelMessage = () => false
 export function OrgButton(): null { return null }
 export function OrgPanel(): null { return null }
+export function OrgNoticeBanner(): null { return null }

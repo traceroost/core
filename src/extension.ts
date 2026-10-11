@@ -954,7 +954,23 @@ export async function activate(context: vscode.ExtensionContext) {
   // ── Cloud: forwarding scheduler ───────────────────────────────────────────────
   // No timer runs unless an org is linked; `syncToLinkState` starts/stops it after link/leave.
   forwardScheduler = cloud.startForwardScheduler({
-    notify: (message, kind) => {
+    notify: (message, kind, action) => {
+      if (action === 'relink') {
+        // The machine unlinked itself (its credential was rejected for good): one click links it
+        // again — the same consent + browser flow as the command palette's "Link".
+        void vscode.window.showWarningMessage(message, 'Re-link').then(choice => {
+          if (choice === 'Re-link') void vscode.commands.executeCommand('traceRoost.orgLink')
+        })
+        DashboardPanel.pushOrgStatus()
+        return
+      }
+      if (action === 'update') {
+        void vscode.window.showWarningMessage(message, 'Open Extensions').then(choice => {
+          if (choice === 'Open Extensions') void vscode.commands.executeCommand('workbench.view.extensions')
+        })
+        DashboardPanel.pushOrgStatus()
+        return
+      }
       if (kind === 'warning') vscode.window.showWarningMessage(message)
       else vscode.window.showInformationMessage(message)
     },

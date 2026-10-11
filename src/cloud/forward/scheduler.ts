@@ -24,6 +24,11 @@ const MAX_DRAIN_ITERATIONS_PER_RUN = Math.ceil(DEFAULT_MAX_ITEMS / 200)
 // How long `drainWhenIdle` lets items gather before draining: long enough to batch a burst of
 // enqueues into one request, short enough that the cloud sees the first traces within seconds.
 const WHEN_IDLE_DELAY_MS = 1_000
+/** After a refresh that failed for a reason other than a dead credential (a timeout, a 5xx, a lost
+ *  response), the next try comes this soon — doubling per failure up to the regular interval —
+ *  rather than on the next 5-minute tick: the cloud keeps the just-replaced refresh token usable
+ *  only for a short grace window, and a laptop that sleeps through a tick can miss it. */
+export const AUTH_RETRY_BASE_MS = 30_000
 
 let catchUpsInFlight = 0
 
@@ -95,11 +100,15 @@ export function startForwardScheduler(opts: {
   /** The host's local store, for the trace manifest (traceManifest.ts) — sent after each drain,
    *  once the queue is empty. Absent: no manifest. */
   traceManifest?: TraceManifestSource
+  /** Test-only override for `AUTH_RETRY_BASE_MS`. */
+  authRetryBaseMs?: number
 } = {}): ForwardScheduler {
   const intervalMs = opts.intervalMs ?? 5 * 60_000
   let timer: ReturnType<typeof setInterval> | undefined
   let draining = false
   let soonTimer: ReturnType<typeof setTimeout> | undefined
+  let authRetryTimer: ReturnType<typeof setTimeout> | undefined
+  let authFailures = 0
   let drainAgain = false
   const manifest = opts.traceManifest ? new TraceManifestSender(opts.traceManifest, { log: opts.log, baseHome: opts.baseHome }) : undefined
 
@@ -134,6 +143,17 @@ export function startForwardScheduler(opts: {
         opts.log?.(`[TraceRoost] Forwarding: paused after ${iterations} batches this run with ${res.remaining} still queued — resuming on the next tick`)
       }
       if (res.stopped === 'membership-revoked') stop()
+      // The credential is still here (a permanent refresh failure unlinks), so the refresh failed
+      // transiently: try again soon, backing off, instead of waiting out the interval.
+      if (res.stopped === 'auth-failed' && loadCredentials()) {
+        authFailures++
+        const delay = Math.min(intervalMs, (opts.authRetryBaseMs ?? AUTH_RETRY_BASE_MS) * 2 ** (authFailures - 1))
+        if (authRetryTimer) clearTimeout(authRetryTimer)
+        authRetryTimer = setTimeout(() => { authRetryTimer = undefined; void run() }, delay + Math.floor(Math.random() * delay * 0.2))
+        authRetryTimer.unref?.()
+      } else if (res.stopped !== 'auth-failed') {
+        authFailures = 0
+      }
     } catch (err) {
       opts.log?.(`[TraceRoost] Forwarding drain error: ${(err as Error).message}`)
     } finally {
@@ -157,6 +177,7 @@ export function startForwardScheduler(opts: {
 
   const stop = () => {
     if (timer) { clearInterval(timer); timer = undefined }
+    if (authRetryTimer) { clearTimeout(authRetryTimer); authRetryTimer = undefined }
   }
 
   // Initial evaluation.

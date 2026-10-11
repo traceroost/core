@@ -61,6 +61,7 @@ import { clientVersion, TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
 import { ForwardQueue, STUCK_ATTEMPTS_THRESHOLD } from './queue'
 import { DroppedLedger } from './deliveryLedger'
+import { UPGRADE_PAUSE_MS } from './sender'
 import { logDebug } from '../../logLevel'
 import { SCHEMA_VERSION, type TraceManifestChunk } from './schema'
 
@@ -235,7 +236,7 @@ export interface ManifestSyncResult {
   /** Why nothing was attempted, when nothing was. */
   skipped?: 'not-linked' | 'not-writer' | 'not-ready' | 'queue-not-drained' | 'paused' | 'nothing-held'
   /** Why the run ended early, when it did. */
-  stopped?: 'rate-limited' | 'budget' | 'failed' | 'auth' | 'revoked' | 'interrupted'
+  stopped?: 'rate-limited' | 'budget' | 'failed' | 'auth' | 'revoked' | 'interrupted' | 'upgrade-required'
   chunks: number
   retired: number
   gated: number
@@ -372,7 +373,12 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
         continue
       }
       if (res.status === 401) return finish('auth')
-      if (res.status === 403) return finish('revoked') // the drain clears the credential
+      if (res.status === 403) return finish('revoked') // the drain decides whether it's for good
+      if (res.status === 426) {
+        // This version is too old for the cloud (the drain tells the developer); wait like it does.
+        state.pausedUntil = now() + UPGRADE_PAUSE_MS
+        return finish('upgrade-required')
+      }
       if (res.status === 429) {
         const retryAfter = Number(res.headers.get('retry-after')) || 3600
         state.pausedUntil = now() + retryAfter * 1000

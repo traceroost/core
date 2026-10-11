@@ -72,6 +72,11 @@ export interface OrgStatus {
   /** True only while a drain is actually in flight — the state dot blinks for this, not for
    *  `indicator === 'reporting'` on its own (a fully-synced, idle state is a solid dot). */
   sending: boolean
+  /** Something to act on (src/cloud/org/status.ts): `relink` once the credential was rejected for
+   *  good and the machine unlinked itself; `upgrade` while the cloud refuses this version. */
+  notice?: { kind: 'relink' | 'upgrade'; message: string }
+  /** The org's own "who sees what about you" paragraph, when the cloud sent one. */
+  teammateVisibilitySummary?: string
 }
 
 /** `orgName` is never unset once linked — it falls back to the raw `orgId` at link time if the
@@ -116,8 +121,9 @@ export const orgPayloadBusy = signal(false)
 /** The authorize URL the host is opening (`orgLinkUrl`) — shown as a fallback link in case no
  *  browser opened (remote/SSH windows). Cleared when the link attempt finishes. */
 export const orgLinkUrl = signal<string | null>(null)
-/** Device-code prompt (`orgDevicePrompt`) while a device-flow link waits for approval. */
-export const orgDevicePrompt = signal<{ userCode: string; verificationUri: string; verificationUriComplete?: string } | null>(null)
+/** Device-code prompt (`orgDevicePrompt`) while a device-flow link waits for approval. `blocked`:
+ *  approved but held back (the org has no machine slot left) — still waiting on the same code. */
+export const orgDevicePrompt = signal<{ userCode: string; verificationUri: string; verificationUriComplete?: string; blocked?: string } | null>(null)
 /** Why the last link/leave failed (`orgActionResult` with `ok: false`); null after a success. */
 export const orgActionError = signal<string | null>(null)
 
@@ -146,9 +152,9 @@ export function handleOrgPanelMessage(msg: { type: string }): boolean {
   } else if (msg.type === 'orgLinkUrl') {
     orgLinkUrl.value = (msg as unknown as { url?: string }).url ?? null
   } else if (msg.type === 'orgDevicePrompt') {
-    const p = msg as unknown as { userCode?: string; verificationUri?: string; verificationUriComplete?: string }
+    const p = msg as unknown as { userCode?: string; verificationUri?: string; verificationUriComplete?: string; blocked?: string }
     orgDevicePrompt.value = p.userCode && p.verificationUri
-      ? { userCode: p.userCode, verificationUri: p.verificationUri, verificationUriComplete: p.verificationUriComplete }
+      ? { userCode: p.userCode, verificationUri: p.verificationUri, verificationUriComplete: p.verificationUriComplete, ...(p.blocked ? { blocked: p.blocked } : {}) }
       : null
   } else if (msg.type === 'orgActionResult') {
     const r = msg as unknown as { ok?: boolean; error?: string }
@@ -189,7 +195,7 @@ function IconCloud() {
 
 export function OrgButton() {
   const st = orgStatus.value
-  const indicator: OrgIndicator = st?.indicator ?? 'unlinked'
+  const indicator: OrgIndicator = st?.notice ? 'degraded' : (st?.indicator ?? 'unlinked')
   const sending = st?.sending ?? false
   const active = orgOpen.value
   return (
@@ -201,6 +207,29 @@ export function OrgButton() {
         onClick={() => { orgOpen.value = !orgOpen.value; if (orgOpen.value) requestOrgStatus() }}
       ><IconCloud /></button>
       <span style={`position:absolute;top:3px;right:2px;width:7px;height:7px;border-radius:50%;background:${DOT_COLOR[indicator]};box-shadow:0 0 0 1.5px var(--vscode-editor-background)${sending ? ';animation:tr-pulse 1.4s ease-in-out infinite' : ''}`} />
+    </div>
+  )
+}
+
+/** The top-bar notice for something the developer has to act on — shown on every tab, not only
+ *  inside the Org panel, because the standalone dashboard has no other way to say it (no toast).
+ *  Clears itself once the status no longer carries a notice (a re-link, an update). */
+export function OrgNoticeBanner() {
+  const notice = orgStatus.value?.notice
+  if (!notice) return null
+  return (
+    <div class="collector-conflict-banner" role="alert">
+      <span class="collector-conflict-banner-icon">⚠</span>
+      <div style="flex:1">
+        <strong>{notice.kind === 'relink' ? 'TraceRoost Cloud sign-in expired — re-link this machine' : 'Update TraceRoost to keep sending to TraceRoost Cloud'}</strong>
+        <div style="margin-top:2px">{notice.message}</div>
+      </div>
+      {notice.kind === 'relink' && (
+        <button
+          onClick={() => { orgOpen.value = true; requestOrgStatus() }}
+          style="font-size:12px;padding:4px 12px;border:none;border-radius:4px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer;font-weight:600;align-self:center"
+        >Re-link</button>
+      )}
     </div>
   )
 }
@@ -323,6 +352,11 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
   const busy = orgBusy.value
   return (
     <>
+      {st.notice && (
+        <Section>
+          <div style="font-size:12px;color:#f14c4c;line-height:1.5">{st.notice.message}</div>
+        </Section>
+      )}
       <Section title="This machine">
         <div style="font-size:12px;color:var(--fg);line-height:1.5">
           TraceRoost is working exactly as it does now. <strong>Nothing is being sent anywhere.</strong> There is
@@ -351,6 +385,11 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
           <div style="font-size:12px;color:var(--fg);margin-top:8px;line-height:1.6">
             Go to <a href={orgDevicePrompt.value.verificationUriComplete ?? orgDevicePrompt.value.verificationUri} style="color:var(--vscode-textLink-foreground,#4fc3f7)">{orgDevicePrompt.value.verificationUri}</a> and enter
             {' '}<code style="font-size:13px;font-weight:700;letter-spacing:1px">{orgDevicePrompt.value.userCode}</code>. Waiting for approval…
+            {orgDevicePrompt.value.blocked && (
+              <div style="font-size:11px;color:#f6a623;margin-top:6px">
+                {orgDevicePrompt.value.blocked} Still waiting — this same code links as soon as the org has a free machine slot.
+              </div>
+            )}
           </div>
         )}
         {orgActionError.value && (
@@ -387,7 +426,7 @@ function LinkedBody({ st }: { st: OrgStatus }) {
       <Section>
         <div style="font-size:11px;color:var(--muted)">You are <strong>{st.role === 'admin' ? 'an admin' : 'a developer'}</strong> · {st.email ?? `member ${short(st.memberId)}`}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">
-          {whoSeesWhat(!!st.perDeveloperVisibility, displayOrgName(st))}
+          {st.teammateVisibilitySummary ?? whoSeesWhat(!!st.perDeveloperVisibility, displayOrgName(st))}
         </div>
       </Section>
       <Section title="Status">

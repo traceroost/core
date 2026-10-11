@@ -2206,7 +2206,16 @@ async function startUiServer(): Promise<void> {
   startLogIngestion()
 
   // Cloud: forwarding scheduler. No timer runs unless an org is linked.
-  cloud.startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients, traceManifest: traceManifestSource })
+  // `notify`: the standalone has no toast — the message goes to the log, and the notice the sender
+  // persists (a re-link after the credential was rejected for good, an update the cloud requires)
+  // reaches every open dashboard through the org status it pushes (the Org panel's banner).
+  cloud.startForwardScheduler({
+    log: (msg) => console.log(msg),
+    notify: (message, kind) => { (kind === 'warning' ? console.warn : console.log)(`[TraceRoost] ${message}`); pushOrgStatusToClients() },
+    onDrainStart: pushOrgStatusToClients,
+    onDrainComplete: pushOrgStatusToClients,
+    traceManifest: traceManifestSource,
+  })
   // A link made outside this server (`traceroost org link`, another process on this data dir)
   // would otherwise go unnoticed until a restart: no forwarding timer, and no history queued.
   cloud.startLinkWatcher({
