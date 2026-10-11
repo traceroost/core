@@ -494,7 +494,7 @@ const mcpServerReady: Promise<number> = startMcpHttpServer({
 // settles once more (standalone/otelForwardGate.ts): the editor host re-forwards an OTEL turn on
 // every content change, and a turn that keeps growing after its first idle window used to stay
 // frozen in the cloud at its first snapshot when this host had received its spans.
-const OTEL_IDLE_MS = 3 * 60_000
+const OTEL_IDLE_MS = 2 * 60_000
 const otelForwardGate = new OtelForwardGate(OTEL_IDLE_MS)
 
 /** Logs a rejected forward instead of letting it become an unhandled rejection (the cloud calls
