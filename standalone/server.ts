@@ -1760,15 +1760,20 @@ const uiServer = http.createServer((req, res) => {
 
   if (req.method === 'GET' && url === '/api/version-check') {
     const result = getCachedVersionCheck(PACKAGE_VERSION)
-    // No signal distinguishes a Docker container from a bare npx run, so both get the same
-    // generic recommendation — only an OS-native background service (which sets this env var,
-    // see src/serviceConfig.ts's generators) gets the more precise `service update`.
+    // Three ways to be running, three different update commands: an OS-native background service
+    // (src/serviceConfig.ts's generators set TRACEROOST_SERVICE=1) updates in place; the Docker
+    // image (its Dockerfile sets TRACEROOST_DOCKER=1) needs a new image and a re-created
+    // container; anything else (npx, a global install) is pointed at the background service.
     const isService = process.env.TRACEROOST_SERVICE === '1'
+    const isDocker = !isService && process.env.TRACEROOST_DOCKER === '1'
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       ...result,
       isService,
-      recommendedCommand: isService ? 'traceroost service update' : 'npx traceroost@latest service install',
+      isDocker,
+      recommendedCommand: isService
+        ? 'traceroost service update'
+        : isDocker ? 'docker pull traceroost/traceroost' : 'npx traceroost@latest service install',
     }))
     return
   }

@@ -138,10 +138,11 @@ jobs:
           node scripts/prepare-edition.mjs core --out "$RUNNER_TEMP/package.core.json"
           node scripts/check-edition.mjs core --package "$RUNNER_TEMP/package.core.json"
 
-      - name: Check the core npm tarball ships no cloud files
+      - name: Check the core npm tarball ships no cloud files or cloud changelog
         run: |
           node scripts/prepare-edition.mjs core
           npm pack --dry-run --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/pack.txt"
+          node scripts/check-edition.mjs core
           node scripts/prepare-edition.mjs restore
           if grep -i 'cloud/' "$RUNNER_TEMP/pack.txt"; then
             echo "core npm tarball lists a cloud file"

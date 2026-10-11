@@ -22,8 +22,8 @@ permissions:
 # when that isn't set. Until TraceRoost Cloud launches every tagged release is `core`: the VSIX, the
 # npm package and the Docker image carry no org-link/upload code at all.
 # To ship `full` at launch: set the repository variable TRACEROOST_RELEASE_EDITION=full
-# (Settings → Secrets and variables → Actions → Variables) — docker.yml reads the same variable —
-# or change the `'core'` fallback below (and in docker.yml) to `'full'`.
+# (Settings → Secrets and variables → Actions → Variables), or change the `'core'` fallback below
+# (and in the `docker` job's `with:`, which can't read `env`) to `'full'`.
 env:
   EDITION: ${{ github.event_name == 'workflow_dispatch' && inputs.edition || vars.TRACEROOST_RELEASE_EDITION || 'core' }}
 
@@ -298,3 +298,18 @@ jobs:
         # short-lived publish credential — no NPM_TOKEN secret required.
         # NODE_AUTH_TOKEN must not be set; npm falls back to OIDC when it is absent.
         run: npm publish --access public --provenance
+
+  # The Docker image (traceroost/traceroost + ghcr.io) — only from a tag, and only after `package`
+  # has passed (lint, type check, unit tests, the privacy scan via its own `needs`, and the edition
+  # check), so a failing release never pushes `:latest`. docker.yml has no tag trigger of its own.
+  docker:
+    needs: package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      # `env` isn't available here — the same rule as EDITION above.
+      edition: ${{ vars.TRACEROOST_RELEASE_EDITION || 'core' }}
+    secrets: inherit

@@ -110,7 +110,7 @@ export const DEFAULT_AUTOMATION_CONFIGS: AutomationConfig[] = [
     id: 'high_turns',
     label: 'Turn Limit Wrap-up',
     severity: 'warning',
-    description: 'When a trace reaches its agent-specific turn threshold, prompt the agent to summarize progress, merge check-in details, and work toward a stopping point.',
+    description: 'When a trace reaches its agent-specific turn threshold, prompt the agent to summarize progress, list what remains, and work toward a stopping point.',
     enabled: false,
     writePromptsFile: false,
     threshold: 120,
@@ -504,9 +504,9 @@ export function Automation() {
       <div style="padding:12px 16px;margin:0 0 16px;border-radius:6px;border:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));font-size:12px;line-height:1.6">
         <div class="section-label" style="margin-bottom:6px">How Automation Works</div>
         <div style="color:var(--muted)">
-          Automations monitor in-progress agent sessions only — completed sessions are ignored.
+          Automations monitor in-progress traces only — completed traces are ignored.
           {standalone ? (
-            <> When a threshold is crossed, TraceRoost shows a notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>traceroost-prompts-&#123;agent&#125;.md</code> in the current directory instead.</>
+            <> When a threshold is crossed, TraceRoost shows a notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>traceroost-prompts-&#123;agent&#125;.md</code> in TraceRoost's data directory (<code>~/.traceroost</code> unless you set <code>DATA_DIR</code> / <code>--data-dir</code>) instead.</>
           ) : (
             <> When a threshold is crossed, TraceRoost shows a VS Code notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>traceroost-prompts-&#123;agent&#125;.md</code> in your workspace root instead.</>
           )}

@@ -8,8 +8,8 @@ Please report security issues privately — **not** in a public issue, discussio
   [traceroost/core → Security → Report a vulnerability](https://github.com/traceroost/core/security/advisories/new).
 - **Or email:** [support@traceroost.com](mailto:support@traceroost.com).
 
-Include what you found, the TraceRoost version (`traceroost --version`, or the version shown at the
-bottom-left of the Traces tab), how it runs (VS Code extension, `npx traceroost`, background service,
+Include what you found, the TraceRoost version (shown at the bottom-left of the Traces tab, or run `traceroost --version`),
+how it runs (VS Code extension, `npx traceroost`, background service,
 Docker), your OS, and the steps to reproduce. Please check it still reproduces on the latest release.
 
 ## In scope

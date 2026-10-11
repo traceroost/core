@@ -15,6 +15,7 @@ import { loadAllSessions } from './sessionLoader'
 import { resolveRepoArg, type RepoHashResolver } from './repoResolve'
 import { computeTurnover } from '../../src/turnover'
 import { toAttributionSessions } from '../../src/attribution/fromSessions'
+import { commandUsage, isCloudEdition } from '../cliArgs'
 
 function valueAfter(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag)
@@ -29,7 +30,7 @@ export async function runCohortCli(args: string[], resolveHash?: RepoHashResolve
   const window = (valueAfter(args, '--window') ?? '90').trim()
 
   if (!repoArg || !MONTH_RE.test(merged) || (window !== '30' && window !== '90')) {
-    console.log('Usage: traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]')
+    console.log(`Usage: ${commandUsage('cohort', isCloudEdition())}`)
     return 1
   }
 
