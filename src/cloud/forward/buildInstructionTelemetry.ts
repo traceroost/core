@@ -7,7 +7,6 @@
  * below carry only the id, the enums, and numbers.
  */
 
-import * as crypto from 'crypto'
 import {
   toWireTargetAgent,
   type InstructionFileState,
@@ -18,11 +17,8 @@ import {
   type SuggestionPriority,
   type SuggestionAction,
 } from './schema'
-import { repoHash, fileHash, suggestionHash, type RepoKeyContext } from '../../repoKey'
+import { repoHash, fileHash, suggestionHash, instructionContentHash, type RepoKeyContext } from '../../repoKey'
 
-function sha256(s: string): string {
-  return crypto.createHash('sha256').update(s).digest('hex')
-}
 // Mirrors #/$defs/count's `maximum` in schema/rollup.v1.json, as buildSessionRollup.ts does: a
 // clamped count loses a little precision on one field; an out-of-range one fails validation and
 // loses the whole payload.
@@ -43,7 +39,8 @@ export interface InstructionFileInput {
   kind: InstructionFileKind
   /** repo-relative or absolute path of the instruction file. */
   path: string
-  /** File content — hashed here; `content_hash` answers "did this change" and nothing else. */
+  /** File content — HMAC'd under the repo key here; `content_hash` answers "did this change" and
+   *  nothing else. */
   content: string
   lineCount: number
   lastModifiedIso?: string
@@ -58,7 +55,7 @@ export function buildInstructionFileState(input: InstructionFileInput, ctx: Repo
   const pathHash = fileHash(ctx, input.path)
   if (pathHash) state.path_hash = pathHash
   if (input.present) {
-    state.content_hash = sha256(input.content)
+    state.content_hash = instructionContentHash(ctx, input.content)
     state.line_count = nonNegInt(input.lineCount)
     const lm = normalizeTimestamp(input.lastModifiedIso)
     if (lm) state.last_modified = lm

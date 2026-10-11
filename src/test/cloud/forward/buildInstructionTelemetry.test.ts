@@ -49,6 +49,17 @@ suite('forward/buildInstructionTelemetry', () => {
     assert.strictEqual(state.line_count, 1)
   })
 
+  test('content_hash is keyed by the repo key: a stock template can\'t be recognised from a plain sha256; same repo, same hash', () => {
+    const content = '# CLAUDE.md\nUse pnpm.\n'
+    const input = { present: true, kind: 'claude_md' as const, path: 'CLAUDE.md', content, lineCount: 2 }
+    const state = buildInstructionFileState(input, CTX)
+    assert.notStrictEqual(state.content_hash, crypto.createHash('sha256').update(content).digest('hex'))
+    assert.strictEqual(state.content_hash, crypto.createHmac('sha256', CTX.key).update(`instruction-content:${content}`).digest('hex'))
+    assert.strictEqual(buildInstructionFileState(input, { ...CTX, root: '/elsewhere' }).content_hash, state.content_hash, 'another clone of the repo agrees')
+    const other: RepoKeyContext = { root: '/repo', key: crypto.createHash('sha256').update('other').digest() }
+    assert.notStrictEqual(buildInstructionFileState(input, other).content_hash, state.content_hash)
+  })
+
   test('file footprints carry a file_hash and the coverage boolean, not the path', () => {
     const fps = buildFileFootprints([
       { path: 'src/hot-file.ts', sessionsRead: 8, sessionsTotal: 10, earlyReads: 6, tokenSize: 1200, coveredByInstructions: false },
