@@ -20,6 +20,12 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **One VS Code window does the work** — with several windows open, only the window that owns the shared trace database reads agent logs, re-checks git outcomes and forwards to the cloud; the others just show its results, and take over automatically when it closes. Before, every window ran all of it against a copy that was never saved, so revision numbers could drift between windows
 - **Older builds warn about a newer trace store** — opening a database written by a newer TraceRoost logs a warning naming both store versions instead of running silently; new columns on kept tables are now added in place on open rather than by rebuilding the store
 
+### Security
+
+- **The npx/service dashboard only takes changes from its own page** — a page served on another local port (any dev server on `localhost`) could send a no-preflight `text/plain` POST that appended text to a file in a recorded repo (e.g. `.husky/pre-commit`), cleared all data or left the org. State-changing requests now have to be same-origin and `Content-Type: application/json`, and Apply writes only to the instruction files detected for that repo (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`, `.cursor/rules/traceroost.mdc`) — in the extension too
+- **OTLP refuses a browser POST with no Content-Type** — a local page could post spans without a preflight by sending a binary body
+- **The dashboard's static files can't be read from outside `media/`** — a path into a sibling folder whose name starts with `media` passed the old prefix check
+
 ### Fixed
 
 - **The npx/service server could be taken down by any web page** — a malformed `/api/timeline/<id>` address threw an uncaught error and exited the process, losing in-flight OTEL data. The address is now rejected with a 400, and the server logs and keeps serving on any unexpected error instead of exiting

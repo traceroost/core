@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { appendSuggestion, removeSuggestion, detectInstructionFiles, CURSOR_RULE_FILE } from '../instructionFiles'
+import { appendSuggestion, removeSuggestion, detectInstructionFiles, instructionTargetPath, CURSOR_RULE_FILE } from '../instructionFiles'
 
 suite('instructionFiles — apply/remove suggestion blocks', () => {
   let dir: string
@@ -81,5 +81,20 @@ suite('instructionFiles — apply/remove suggestion blocks', () => {
     assert.deepStrictEqual(files.find(f => f.relativePath === 'AGENTS.md')?.agents, ['codex', 'opencode', 'cursor'])
     assert.deepStrictEqual(files.find(f => f.relativePath === CURSOR_RULE_FILE)?.agents, ['cursor'])
     assert.ok(files.every(f => !f.exists))
+  })
+
+  test('instructionTargetPath resolves only the detected instruction files', () => {
+    assert.strictEqual(instructionTargetPath(dir, 'CLAUDE.md'), path.join(dir, 'CLAUDE.md'))
+    assert.strictEqual(instructionTargetPath(dir, 'AGENTS.md'), path.join(dir, 'AGENTS.md'))
+    assert.strictEqual(instructionTargetPath(dir, '.github/copilot-instructions.md'), path.join(dir, '.github/copilot-instructions.md'))
+    assert.strictEqual(instructionTargetPath(dir, CURSOR_RULE_FILE), path.join(dir, CURSOR_RULE_FILE))
+    for (const bad of ['.husky/pre-commit', '.git/hooks/pre-commit', '../CLAUDE.md', path.join(dir, 'CLAUDE.md'), '', 7, null, '.claude/CLAUDE.md']) {
+      assert.strictEqual(instructionTargetPath(dir, bad), null, String(bad))
+    }
+    // The alternate is a target only once detection finds it (and then CLAUDE.md is not).
+    fs.mkdirSync(path.join(dir, '.claude'))
+    fs.writeFileSync(path.join(dir, '.claude', 'CLAUDE.md'), '')
+    assert.strictEqual(instructionTargetPath(dir, '.claude/CLAUDE.md'), path.join(dir, '.claude', 'CLAUDE.md'))
+    assert.strictEqual(instructionTargetPath(dir, 'CLAUDE.md'), null)
   })
 })
