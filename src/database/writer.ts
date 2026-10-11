@@ -32,8 +32,9 @@ const INSERT_SESSION_SQL = `INSERT OR REPLACE INTO sessions (
         files_read, files_changed, files_written, files_searched, files_changed_note, cost_usd,
         data_source, models, one_shot_stats, initiator, conversation_id,
         language, language_secondary, files_changed_count, lines_added, lines_removed,
-        derived, source_rank, subagent_count
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        derived, source_rank, subagent_count, git_branch
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+        COALESCE(?, (SELECT git_branch FROM sessions WHERE session_id = ?)))`
 
 // sessions.created_at's column default (schema.ts) — what every INSERT OR REPLACE of a row sets.
 const CREATED_AT_NOW_SQL = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
@@ -156,13 +157,14 @@ export class DatabaseWriter {
   }
 
   /** A lower-rank card that lost to the stored row still carries what only its source knows: the
-   *  conversation it belongs to and how many subagents it folded. */
+   *  conversation it belongs to, how many subagents it folded, and the branch it recorded. */
   private _backfillFrom(card: SessionSummaryCard): void {
     const conversation = conversationKey(card)
     this.db.run(
-      `UPDATE sessions SET conversation_id = COALESCE(conversation_id, ?), subagent_count = COALESCE(subagent_count, ?)
+      `UPDATE sessions SET conversation_id = COALESCE(conversation_id, ?), subagent_count = COALESCE(subagent_count, ?),
+        git_branch = COALESCE(git_branch, ?)
         WHERE session_id = ?`,
-      [conversation, card.subagentCount ?? null, card.sessionId],
+      [conversation, card.subagentCount ?? null, card.gitBranch ?? null, card.sessionId],
     )
     bumpSessionsVersion(this.db)
   }
@@ -420,6 +422,9 @@ export class DatabaseWriter {
       card.derived ? 1 : 0,
       sourceRankOf(card),
       card.subagentCount ?? null,
+      // An OTEL card replacing the transcript's row keeps the branch the transcript recorded.
+      card.gitBranch ?? null,
+      card.sessionId,
     ]
   }
 

@@ -161,6 +161,19 @@ suite('DatabaseReader', () => {
     db.close()
   })
 
+  test('git_branch round-trips, and a higher-rank card without one (OTEL) keeps the transcript\'s', async () => {
+    const db = await openDb()
+    await seedDb(db, [makeCard({ sessionId: 'k1', source: 'claude_code', dataSource: 'log', sourceRank: 2, gitBranch: 'feature/y' })])
+    await seedDb(db, [makeCard({ sessionId: 'k1', source: 'claude_code', dataSource: 'otel', sourceRank: 3 })])
+    await seedDb(db, [makeCard({ sessionId: 'k2', source: 'copilot' })])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const byId = new Map(reader.listSessions().map(c => [c.sessionId, c]))
+    assert.strictEqual(byId.get('k1')?.dataSource, 'otel')
+    assert.strictEqual(byId.get('k1')?.gitBranch, 'feature/y')
+    assert.strictEqual(byId.get('k2')?.gitBranch, undefined)
+    db.close()
+  })
+
   test('listSessions with since filter excludes old rows', async () => {
     const db = await openDb()
     await seedDb(db, [

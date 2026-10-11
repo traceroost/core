@@ -235,6 +235,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   derived             INTEGER NOT NULL DEFAULT 0,
   source_rank         INTEGER,
   subagent_count      INTEGER,
+  git_branch          TEXT,
   created_at          INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER) * 1000)
 );
 
