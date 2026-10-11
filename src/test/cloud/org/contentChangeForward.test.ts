@@ -1,4 +1,5 @@
 import * as assert from 'assert'
+import { setRevisionClockForTests, REVISION_EPOCH_MS } from '../../../database/traceRevisionRepository'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -55,6 +56,10 @@ const realHome = process.env.HOME
 const realUserProfile = process.env.USERPROFILE
 
 suite('cloud/forward/contentChangeForward', () => {
+  // Revisions are floored by wall-clock seconds (traceRevisionRepository.ts); pinned to the epoch
+  // here so these read as the bare counter they test.
+  suiteSetup(() => setRevisionClockForTests(() => REVISION_EPOCH_MS))
+  suiteTeardown(() => setRevisionClockForTests(undefined))
   let home: string
   let service: ReconciliationService
 

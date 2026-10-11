@@ -104,7 +104,9 @@ CREATE TABLE IF NOT EXISTS trace_revision (
   source_rank         INTEGER
 );
 
--- Single global monotonic counter backing trace_revision.revision. One process (the editor's
+-- Single global monotonic counter backing trace_revision.revision, floored by wall-clock seconds
+-- since 2026-01-01 (traceRevisionRepository.ts's revisionClock) so revisions stay monotonic per
+-- machine across a database reset or a move between the extension and the service. One process (the editor's
 -- extension host, or the standalone server) owns its own on-disk database and therefore its own
 -- counter -- there is deliberately no attempt here to serialize revision allocation *across* the
 -- two processes when both are pointed at the same workspace; see reconciliationService.ts's doc
