@@ -125,7 +125,7 @@ full.
 | Dashboard tab (free) | Traces → Files sub-tab: git outcome banner + per-file badges | `gitOutcome.ts`; no dedicated tab today — see `ARCHITECTURE.md` §10. Retired the earlier **Outcomes** tab (`0ee7842`) |
 | CLI | `traceroost org <link\|status\|verify\|leave> [--device]` | `standalone/cloud/org-cli.ts`, dispatched through `standalone/cliCloud.ts` → `standalone/cloud/cliBridge.ts` |
 | CLI | `traceroost --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` (same seam) |
-| CLI (free) | `traceroost advise <--list\|--apply <id>>` | `standalone/local/adviseCli.ts` — regenerates instruction text with real paths and appends it. The cloud step (suggestion ledger + a `SuggestionEvent` when linked) is `standalone/cloud/adviseTelemetry.ts`, passed in by `cli.ts` through `standalone/cliCloud.ts` (absent in core) |
+| CLI (free) | `traceroost advise <--list\|--apply <id>>` | `standalone/local/adviseCli.ts` — regenerates instruction text with real paths and appends it. The cloud step (suggestion ledger + the updated instruction-file state when linked) is `standalone/cloud/adviseTelemetry.ts`, passed in by `cli.ts` through `standalone/cliCloud.ts` (absent in core) |
 | CLI (Cloud) | `traceroost cluster --repo <hash> --id <id>` | `standalone/cloud/clusterCli.ts` — resolves a Repeat work cluster via `GET /api/clusters/resolve`, matched against local sessions |
 | CLI (free) | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/local/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo. A 64-hex `repo_hash` resolves through `src/cloud/org/resolveRepoHash.ts`, injected by `cli.ts` through `standalone/cliCloud.ts` (`standalone/local/repoResolve.ts`; absent in core); a repo name needs nothing from `cloud/` |
 | CLI (free) | `traceroost find <hash>` | `standalone/local/findCli.ts` — classifies a hash as a session/trace or a repo and dispatches to `traceCli.ts` (`--id`) or `patternsCli.ts` accordingly; both share `sessionLoader.ts`, all under `standalone/local/`. Repo-hash resolution is injected the same way as `cohort` |
@@ -146,7 +146,7 @@ scopes, so the endpoint list below *is* what a token can do.
 | `POST /oauth/device/code`, `POST /oauth/device/token` | `link.ts` (`linkViaDevice`) | RFC 8628 fallback for headless boxes. |
 | `POST /oauth/token` (`refresh_token`) | `tokenRefresh.ts` | Rotates the pair. Under the credential file's lock, re-reading it first, so two hosts on one machine never rotate the same token (the loser's `invalid_grant` would otherwise unlink the machine). Proactive when `accessTokenExpiresAt` is within a minute. |
 | `POST /oauth/revoke` | `link.ts` (`leave`) | Best-effort, after the local credential and queue are already gone; also revokes the install. |
-| `POST /api/ingest/batch`, `POST /api/ingest` (fallback on 404) | `sender.ts` | Rollup delivery. 401 = expired/unknown token (refresh and retry once); 403 = install revoked (stop, clear credential and queue); 413 = too large (split / drop). |
+| `POST /api/ingest/batch`, `POST /api/ingest` (fallback on 404) | `sender.ts` | Rollup delivery. 401 = expired/unknown token (refresh and retry once; a transient refresh failure retries within ~30 s); 403 `{error:"install revoked"}` = stop, clear credential and queue, show a "re-link" notice — any other 403 backs off; 426 `client_upgrade_required` = pause, keep the queue, ask for an update; 400/413 drop a record only with the service's own error body; 413 = too large (split / drop). |
 | `POST /api/ingest/manifest` | `traceManifest.ts` | The trace manifest (below). 429 = wait out `Retry-After`; 5xx / network failure / anything else unexpected = back off; 400/413 = skip that day until its keys change; 401/403 as above. |
 | `GET /api/roster/me` | `oauthClient.ts` (`fetchRosterSelf`) | Org name, own role (`admin`/`developer`) and email for the Org panel. |
 | `GET /api/installs/me` | `traceroost org verify` | How many sessions the service holds for *this install* — compared against the local count. A re-link's backfill moves already-stored sessions to the new install, so the counts line up again. |
@@ -154,8 +154,10 @@ scopes, so the endpoint list below *is* what a token can do.
 | `GET /api/clusters/resolve` | `traceroost cluster` (`clusterResolve.ts`) | A Repeat work cluster's session ids, matched locally through the same `toUuid` the rollups use. |
 
 What goes over `/api/ingest` today: session rollups, and per-repo instruction telemetry
-(`instructionTelemetry.ts`: instruction-file presence/line counts, which the service stores, plus
-file footprints and suggestion events, which it accepts and does not yet store). The schema also
+(`instructionTelemetry.ts`: `instruction_files` only — each instruction file's kind, whether it
+exists, its hashed path, its content hash (keyed with the repo key), line count and last-modified
+time). The schema still has file footprints and suggestion events, but core no longer builds or
+sends them: the service accepted and dropped both. The schema also
 has commit and turnover records (`buildCommitRecords.ts`), but nothing builds and sends them yet —
 which is why the consent list (`privacy.ts`, identical in both repos) doesn't promise git commit
 line counts. It does list the session's own change size (below), which is a different thing.

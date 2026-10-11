@@ -45,6 +45,7 @@ import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
 import { traceKeysInWindow, sourceExtentsOf, countTracesInWindow, hasSettledKey } from '../src/traceIdentity'
 import { TraceHorizon, evictionFloorMs } from '../src/traceHorizon'
 import { HistoryReadiness } from '../src/historyReadiness'
+import { isSameOrInsideWorkspace } from '../src/workspacePath'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
   isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
@@ -1700,7 +1701,7 @@ const uiServer = http.createServer((req, res) => {
       return
     }
     const sessions = (buildSessionSummary()?.sessions ?? [])
-      .filter(s => (s.workspace ?? '') === workspace || s.workspace?.startsWith(workspace))
+      .filter(s => isSameOrInsideWorkspace(s.workspace, workspace))
     const { readAllInstructionContent } = require('../src/instructionFiles') as typeof import('../src/instructionFiles')
     const existingText = readAllInstructionContent(workspace)
     const suggestions = generateSuggestions(sessions, existingText)
