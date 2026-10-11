@@ -288,6 +288,8 @@ export interface VersionCheckResponse {
   checkedAt: string | null
   error: string | null
   isService: boolean
+  /** Running in the TraceRoost Docker image — update by pulling the image and re-running it. */
+  isDocker?: boolean
   recommendedCommand: string
 }
 

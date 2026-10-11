@@ -76,7 +76,7 @@ body:
     id: version
     attributes:
       label: TraceRoost version
-      placeholder: "e.g. 0.18.1  (bottom-left of the Traces tab, or run `traceroost --version`)"
+      placeholder: "e.g. 0.18.1  (shown at the bottom-left of the Traces tab, or run `traceroost --version`)"
     validations:
       required: false
 

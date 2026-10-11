@@ -125,6 +125,16 @@ if (edition === 'full') {
   }
 }
 
+// Packing in place (no --package): the CHANGELOG.md that ships must have lost its cloud-only
+// sections too (scripts/prepare-edition.mjs core).
+if (edition === 'core' && !skipManifest && pkgArgIndex < 0) {
+  const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
+  if (changelog.includes('### TraceRoost Cloud (full edition only)')) {
+    failed = true
+    console.error('✘ CHANGELOG.md still has a "TraceRoost Cloud (full edition only)" section (run scripts/prepare-edition.mjs core)')
+  }
+}
+
 if (edition === 'core' && !skipManifest) {
   const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
   const problems = manifestProblems(pkg)

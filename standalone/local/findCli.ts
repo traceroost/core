@@ -18,6 +18,7 @@ import { runPatternsCli } from './patternsCli'
 import type { RepoHashResolver } from './repoResolve'
 import { runTraceCli, findSessionById } from './traceCli'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
+import { commandUsage, isCloudEdition } from '../cliArgs'
 
 /** Must match the id `registerUriHandler` in extension.ts is actually registered under — see
  *  that file's own "Deep links" comment for why this can't just be the new `traceroost.traceroost`
@@ -56,7 +57,7 @@ export async function runFindCli(args: string[], resolveHash?: RepoHashResolver)
   const hash = firstPositional(args)
   const reporter = valueAfter(args, '--reporter')?.trim() || undefined
   if (!hash) {
-    console.log('Usage: traceroost find <repo hash | trace/session id> [--reporter <email>]')
+    console.log(`Usage: ${commandUsage('find', isCloudEdition())}`)
     return 1
   }
 

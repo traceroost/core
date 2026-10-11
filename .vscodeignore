@@ -35,6 +35,7 @@ scripts/check-edition.mjs
 scripts/prepare-edition.mjs
 .package.json.edition-backup
 .vscodeignore.edition-backup
+.CHANGELOG.md.edition-backup
 scripts/security-review/**
 CLAUDE.md
 ARCHITECTURE.md

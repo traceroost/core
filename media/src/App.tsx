@@ -15,7 +15,7 @@ import {
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   collectorConflict, type CollectorConflict, logIngestProgress,
-  getSessionsPagination, applySessionDelta, type SessionDelta,
+  getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp,
 } from './state'
 import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
@@ -384,10 +384,17 @@ function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
           <div style="margin-bottom:8px;color:var(--muted)">
             {info.isService
               ? 'Update the background service:'
-              : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTEL data is never lost. Install it (this also updates you to the latest version):"}
+              : info.isDocker
+                ? 'Pull the new image:'
+                : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTEL data is never lost. Install it (this also updates you to the latest version):"}
           </div>
           <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
-          {!info.isService && (
+          {info.isDocker && (
+            <div style="font-size:11px;color:var(--muted)">
+              Then stop and remove this container and start a new one with your usual <code>docker run</code> command (with <code>--pull=always</code>, that run alone also fetches the new image). Mount a volume on <code>/data</code> to keep your traces and access token across containers.
+            </div>
+          )}
+          {!info.isService && !info.isDocker && (
             <div style="font-size:11px;color:var(--muted)">
               Or for a quick one-off look: <code>npx traceroost@latest</code> · Docker: <code>docker pull traceroost/traceroost</code> and re-run your <code>docker run</code> command.
             </div>
@@ -622,6 +629,7 @@ export function App() {
         base?: number
         rev?: number
         tab?: string
+        anchor?: string
         agentFilter?: AgentFilter
         sessionLimit?: number
         workspaceFilter?: string
@@ -773,6 +781,8 @@ export function App() {
         const tab = normalizeTabId(msg.tab)
         if (tab === 'alerts' || tab === 'automation' || tab === 'settings-automation') {
           configOpen.value = true
+        } else if (tab === 'help' && typeof msg.anchor === 'string') {
+          goToHelp(msg.anchor)
         } else {
           activeTab.value = tab
         }

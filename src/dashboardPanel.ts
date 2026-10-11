@@ -134,8 +134,9 @@ export class DashboardPanel {
     }
   }
 
-  static switchToTab(tab: string) {
-    DashboardPanel.currentPanel?.panel.webview.postMessage({ type: 'switchTab', tab })
+  /** `anchor` (Help tab only) scrolls to that element id once the tab is shown. */
+  static switchToTab(tab: string, anchor?: string) {
+    DashboardPanel.currentPanel?.panel.webview.postMessage({ type: 'switchTab', tab, anchor })
   }
 
   /** Post an arbitrary message to this panel's webview (deep-link handlers). */
@@ -666,7 +667,7 @@ export class DashboardPanel {
     const all = this.repo.listSessions()
     const sessions = ids ? all.filter(s => ids.has(s.sessionId)) : all
     if (sessions.length === 0) {
-      vscode.window.showInformationMessage('TraceRoost: No session data to export')
+      vscode.window.showInformationMessage('TraceRoost: No trace data to export')
       return
     }
 
@@ -719,7 +720,7 @@ export class DashboardPanel {
     const fileUri = vscode.Uri.joinPath(baseUri, filename)
 
     await vscode.workspace.fs.writeFile(fileUri, Buffer.from(serializeExport(exportable, format)))
-    vscode.window.showInformationMessage(`TraceRoost: Exported ${sessions.length} sessions to ${filename}`)
+    vscode.window.showInformationMessage(`TraceRoost: Exported ${sessions.length} trace${sessions.length === 1 ? '' : 's'} to ${filename}`)
     const doc = await vscode.workspace.openTextDocument(fileUri)
     vscode.window.showTextDocument(doc, { preview: false })
   }

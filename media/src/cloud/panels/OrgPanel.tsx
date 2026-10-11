@@ -7,13 +7,14 @@ import { vscode, goToHelp } from '../../state'
 // side (src/test/cloud/org/privacy.test.ts) pins the source-of-truth copy and checks this file
 // carries the same lines (SENT, NEVER_SENT, and whoSeesWhat below).
 const SENT = [
-  'Usage counts — traces, turns, tool calls by tool name, tokens, files changed, lines added and removed',
-  'Model, agent and language names, and the outcome, with timestamps',
+  'Usage counts — traces, turns, tool calls by tool name, tokens, errors, files changed, one-shot edits, lines added and removed',
+  'Model, agent and language names, the outcome, whether a trace came from OTEL or logs, and whether you or an agent started it, with timestamps',
   'Hashed repository, branch, file and git-author ids — one-way, keyed by your own clone',
-  'Instruction-file line counts and how often sessions read each file',
+  'A hashed conversation id, so the traces of one conversation group together',
+  'Which instruction files (CLAUDE.md, AGENTS.md and the like) each repository has, with line counts, last-modified times and a hash that only shows whether they changed',
   'Loop and error categories (never a message)',
-  'Which Advisor suggestions you applied or dismissed, with before/after averages',
-  'Your machine’s hostname and TraceRoost version, when you link it',
+  'A random id for each TraceRoost on your machine (the editor extension and the standalone server each have one)',
+  'Your machine’s hostname when you link it, and the TraceRoost version with every request',
 ]
 const NEVER_SENT = [
   'Prompts, completions, diffs and file contents',

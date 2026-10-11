@@ -1,9 +1,16 @@
 name: Publish Docker Image
 
+# Never runs on a tag push by itself: a release image is built only by release.yml's `docker` job,
+# which calls this workflow after `package` (lint, type check, unit tests, the privacy scan and the
+# edition check) has passed — so a failing release can't push `:latest`. A manual run builds a
+# `sha-…`-tagged image of the chosen edition for testing.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      edition:
+        description: 'Edition to build — core or full (release.yml passes the edition it released)'
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       edition:
@@ -16,12 +23,11 @@ permissions:
   contents: read
   packages: write
 
-# Same edition rule as release.yml (see its comment and runbooks/RELEASING.md → "Editions"): a
-# manual run uses its input; a tag push uses the TRACEROOST_RELEASE_EDITION repository variable,
-# falling back to `core` until TraceRoost Cloud launches. To ship `full`, set that variable to `full`
-# (or change the `'core'` fallback here and in release.yml).
+# The edition always comes in as an input: a manual run's choice, or — when release.yml calls this
+# for a tag — the edition that release shipped (release.yml applies the TRACEROOST_RELEASE_EDITION
+# rule; see runbooks/RELEASING.md → "Editions").
 env:
-  EDITION: ${{ github.event_name == 'workflow_dispatch' && inputs.edition || vars.TRACEROOST_RELEASE_EDITION || 'core' }}
+  EDITION: ${{ inputs.edition }}
 
 jobs:
   docker:
@@ -33,7 +39,8 @@ jobs:
 
       # Same check as release.yml: never push a semver/`:latest` image whose
       # contents don't match the version the tag names. Skipped for manual
-      # workflow_dispatch runs, which are tagged `sha-…` only.
+      # workflow_dispatch runs, which are tagged `sha-…` only. (Called from
+      # release.yml, github.ref is the release's tag.)
       - name: Verify the pushed tag matches package.json's version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
