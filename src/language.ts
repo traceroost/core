@@ -114,7 +114,7 @@ export const LANGUAGE_ABBREVIATIONS: Record<SessionLanguage, string> = {
   data: 'Data',
   assets: 'Asset',
   none: 'None',
-  no_files: 'Nil',
+  no_files: '',
 }
 
 /** Extension (lower-case, with the dot) → allowlisted language. */

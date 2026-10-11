@@ -49,6 +49,7 @@
  * on a timer, and only when an org is linked.
  */
 
+import { gzipSync } from 'node:zlib'
 import { ForwardQueue, type QueueItem } from './queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from './deliveryLedger'
 import { readForwardState, writeForwardState, clearForwardState } from './forwardState'
@@ -143,7 +144,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   if (pending.length === 0) return { ...empty, stopped: 'nothing-eligible' }
 
   const batch = pending.slice(0, deps.batchLimit ?? 200)
-  const httpBatchSize = deps.httpBatchSize ?? DEFAULT_HTTP_BATCH_SIZE
+  const httpBatchSize = deps.httpBatchSize ?? learnedMaxItems ?? DEFAULT_HTTP_BATCH_SIZE
   let sent = 0
   let droppedInvalid = 0
   let refreshedThisDrain = false
@@ -327,8 +328,9 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
 
     let results: { status: number; error?: string }[] | null = null
     try {
-      const body = (await res.json()) as { results?: unknown }
+      const body = (await res.json()) as { results?: unknown; limits?: unknown }
       if (Array.isArray(body.results)) results = body.results as { status: number; error?: string }[]
+      learnLimits(body.limits)
     } catch {
       /* falls through to the malformed-response handling below */
     }
@@ -421,7 +423,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
   }
 
-  for (const chunk of chunkByCountAndBytes(batch, httpBatchSize, deps.maxBatchBytes ?? DEFAULT_MAX_BATCH_BYTES)) {
+  for (const chunk of chunkByCountAndBytes(batch, httpBatchSize, deps.maxBatchBytes ?? learnedMaxBytes ?? DEFAULT_MAX_BATCH_BYTES)) {
 
     if (useBatchEndpoint) {
       const outcome = await sendChunkBatched(chunk)
@@ -439,20 +441,71 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   return finish(sawTransientFailure ? 'offline' : null)
 }
 
+/** Bodies under this aren't worth the CPU/header overhead of gzip. */
+const GZIP_MIN_BYTES = 1024
+/** Set once a cloud that predates gzip support answers a gzipped body with "invalid JSON" / 415:
+ *  from then on this process sends plain JSON, so a new client never loses records to an old cloud. */
+let gzipUnsupported = false
+
+/** Batch limits the server advertised in its last successful `/api/ingest/batch` response. Until
+ *  one arrives (an older cloud never sends it) the conservative defaults above apply, so a new
+ *  client can never overshoot an old server's `items must not exceed 25` 400. */
+let learnedMaxItems: number | null = null
+let learnedMaxBytes: number | null = null
+
+/** Test seam: forget what we learned about the server (gzip support and advertised limits). */
+export function resetServerCapabilities(): void {
+  gzipUnsupported = false
+  learnedMaxItems = null
+  learnedMaxBytes = null
+}
+
+/** Reads `limits: { max_items, max_bytes }` off a batch response body, clamped to sane bounds. */
+function learnLimits(limits: unknown): void {
+  const l = limits as { max_items?: unknown; max_bytes?: unknown } | null
+  if (!l || typeof l !== 'object') return
+  if (typeof l.max_items === 'number' && Number.isFinite(l.max_items)) {
+    learnedMaxItems = Math.min(100, Math.max(1, Math.floor(l.max_items)))
+  }
+  if (typeof l.max_bytes === 'number' && Number.isFinite(l.max_bytes)) {
+    // Our chunk budget is measured on the serialized payloads, so leave headroom for the envelope.
+    learnedMaxBytes = Math.min(4 * 1024 * 1024, Math.max(64 * 1024, Math.floor(l.max_bytes * 0.75)))
+  }
+}
+
+/** POSTs a JSON body, gzipped when large enough and the server is known (or presumed) to accept it.
+ *  Rollup JSON repeats the same keys and hashes in every record, so it compresses several-fold.
+ *  The server caps the *inflated* size, so `chunkByCountAndBytes`'s uncompressed budget still holds. */
+async function postJson(url: string, accessToken: string, json: string, signal: AbortSignal): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${accessToken}`,
+    'User-Agent': `traceroost-client/${clientVersion()}`,
+  }
+  const plain = () => fetch(url, { method: 'POST', headers, body: json, signal })
+  if (gzipUnsupported || Buffer.byteLength(json) < GZIP_MIN_BYTES) return plain()
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Encoding': 'gzip' },
+    body: new Uint8Array(gzipSync(json)),
+    signal,
+  })
+  if (res.status !== 415 && res.status !== 400) return res
+  // 400 is also a real schema rejection, so only an "invalid JSON" 400 (an old cloud parsing gzip
+  // bytes) means "doesn't speak gzip". Never read the real response's body: clone first.
+  const unsupported =
+    res.status === 415 || ((await res.clone().json().catch(() => null)) as { error?: string } | null)?.error === 'invalid JSON'
+  if (!unsupported) return res
+  gzipUnsupported = true
+  return plain()
+}
+
 async function postBatch(accessToken: string, items: QueueItem[]): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20_000)
   try {
-    return await fetch(batchIngestUrl(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-        'User-Agent': `traceroost-client/${clientVersion()}`,
-      },
-      body: JSON.stringify({ items: items.map(it => it.payload) }),
-      signal: controller.signal,
-    })
+    return await postJson(batchIngestUrl(), accessToken, JSON.stringify({ items: items.map(it => it.payload) }), controller.signal)
   } finally {
     clearTimeout(timer)
   }
@@ -462,16 +515,7 @@ async function postPayload(accessToken: string, item: QueueItem): Promise<Respon
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20_000)
   try {
-    return await fetch(ingestUrl(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-        'User-Agent': `traceroost-client/${clientVersion()}`,
-      },
-      body: JSON.stringify(item.payload),
-      signal: controller.signal,
-    })
+    return await postJson(ingestUrl(), accessToken, JSON.stringify(item.payload), controller.signal)
   } finally {
     clearTimeout(timer)
   }
