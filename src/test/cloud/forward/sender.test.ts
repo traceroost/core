@@ -467,6 +467,18 @@ suite('forward/sender', () => {
     assert.strictEqual(readForwardState(home).notice, null)
   })
 
+  test('a per-item 426 in a batch reply keeps that item queued and raises the update notice', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    new ForwardQueue(home).enqueue(payload(ID2))
+    stubFetch((_u, init) => batchOk(batchItems(init), p => p.session!.session_id === ID1 ? { status: 202 } : { status: 426, error: 'client_upgrade_required' }))
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.stopped, 'upgrade-required')
+    assert.strictEqual(res.sent, 1)
+    assert.deepStrictEqual(new ForwardQueue(home).list().map(i => i.payload.session!.session_id), [ID2])
+    assert.strictEqual(readForwardState(home).notice?.kind, 'upgrade')
+    assert.strictEqual(readForwardState(home).paused, true, 'the success in the same drain does not lift the pause')
+  })
+
   test('a 426 without the cloud\'s error code is transient, not an upgrade notice', async () => {
     new ForwardQueue(home).enqueue(payload(ID1))
     stubFetch(() => new Response('', { status: 426 }))

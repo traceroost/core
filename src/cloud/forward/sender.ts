@@ -277,7 +277,10 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     // future restart's reconciliation (harmless, server-deduplicated), not a lost delivery.
     if (sent > 0) {
       // A send that went through also ends an upgrade notice (the cloud accepts this version now).
-      writeForwardState({ lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null, ...(state.notice?.kind === 'upgrade' ? { notice: null } : {}) }, deps.baseHome)
+      // (Not when this very drain just hit a 426: some items went through, the rest wait.)
+      writeForwardState(stopped === 'upgrade-required'
+        ? { lastSuccessAt: new Date().toISOString() }
+        : { lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null, ...(state.notice?.kind === 'upgrade' ? { notice: null } : {}) }, deps.baseHome)
       deps.recordSent?.(sent, now())
     }
     return { attempted: batch.length, sent, droppedInvalid, remaining: queue.depth(), stopped }
@@ -431,6 +434,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
 
     const succeeded: QueueItem[] = []
+    let upgrade = false
     chunk.forEach((item, idx) => {
       const r = results![idx]
       if (r.status === 202 || r.status === 200) {
@@ -438,12 +442,16 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         sent++
       } else if (r.status === 400) {
         dropInvalid(item, r.error ?? '')
+      } else if (r.status === 426 && r.error === UPGRADE_REQUIRED_ERROR) {
+        // Kept, untouched: it goes out after the update.
+        upgrade = true
       } else {
         queue.recordFailure(item.key, r.error ? `HTTP ${r.status}: ${r.error}` : `HTTP ${r.status}`)
         sawTransientFailure = true
       }
     })
     recordSuccesses(succeeded)
+    if (upgrade) return { stop: upgradeRequired() }
     return 'continue'
   }
 
