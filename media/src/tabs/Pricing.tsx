@@ -84,7 +84,7 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
       </table>
       {anyTiered && (
         <div style="font-size:10px;color:var(--muted);margin:-4px 0 12px">
-          † Tiered — a higher rate applies to the part of a single call above the model's long-context threshold (200K or 272K). Not broken out in this table; see <code>PRICING_SOURCES.md</code> for the full tier.
+          † Tiered — a single call whose prompt (input plus cache reads and writes) is over the model's long-context threshold (100K, 200K or 272K) is billed at a higher rate for all of its tokens, output included. Not broken out in this table; see <code>PRICING_SOURCES.md</code> for the full tier.
         </div>
       )}
       {anyPromo && (

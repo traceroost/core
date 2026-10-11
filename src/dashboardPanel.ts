@@ -3,7 +3,7 @@ import * as path from 'path'
 import { SidebarPanel } from './sidebarPanel'
 import { SessionRepository } from './sessionRepository'
 import { InstructionRepository } from './database/instructionRepository'
-import { detectInstructionFiles, appendSuggestion, removeSuggestion } from './instructionFiles'
+import { detectInstructionFiles, appendSuggestion, removeSuggestion, instructionTargetPath } from './instructionFiles'
 import { computeBaseline } from './instructionEffectiveness'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
 import { serializeExport, exportFileExtension, type ExportFormat } from './exportFormats'
@@ -288,11 +288,12 @@ export class DashboardPanel {
         }
         const wsFolders = vscode.workspace.workspaceFolders
         const wsRoot = wsFolders?.[0]?.uri.fsPath ?? workspace
-        const absPath = path.resolve(wsRoot, String(targetFile ?? ''))
-        // targetFile names an instruction file in the workspace (CLAUDE.md, AGENTS.md, …);
-        // `../../.bashrc` or an absolute path elsewhere must not become a write target.
-        if (!targetFile || typeof targetFile !== 'string' || absPath === path.resolve(wsRoot) || !isPathInside(wsRoot, absPath)) {
-          vscode.window.showErrorMessage(`TraceRoost: Refusing to apply suggestion — ${targetFile} is outside the workspace.`)
+        // targetFile must be one of the workspace's detected instruction files (CLAUDE.md,
+        // AGENTS.md, …) — not merely a path inside it (`.husky/pre-commit` is inside it too), and
+        // never `../../.bashrc` or an absolute path elsewhere.
+        const absPath = instructionTargetPath(wsRoot, targetFile)
+        if (!absPath || !isPathInside(wsRoot, absPath)) {
+          vscode.window.showErrorMessage(`TraceRoost: Refusing to apply suggestion — ${String(targetFile)} is not an instruction file of this workspace.`)
           return
         }
         try {

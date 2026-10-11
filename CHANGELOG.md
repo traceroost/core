@@ -20,8 +20,15 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **One VS Code window does the work** — with several windows open, only the window that owns the shared trace database reads agent logs, re-checks git outcomes and forwards to the cloud; the others just show its results, and take over automatically when it closes. Before, every window ran all of it against a copy that was never saved, so revision numbers could drift between windows
 - **Older builds warn about a newer trace store** — opening a database written by a newer TraceRoost logs a warning naming both store versions instead of running silently; new columns on kept tables are now added in place on open rather than by rebuilding the store
 
+### Security
+
+- **The npx/service dashboard only takes changes from its own page** — a page served on another local port (any dev server on `localhost`) could send a no-preflight `text/plain` POST that appended text to a file in a recorded repo (e.g. `.husky/pre-commit`), cleared all data or left the org. State-changing requests now have to be same-origin and `Content-Type: application/json`, and Apply writes only to the instruction files detected for that repo (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`, `.cursor/rules/traceroost.mdc`) — in the extension too
+- **OTLP refuses a browser POST with no Content-Type** — a local page could post spans without a preflight by sending a binary body
+- **The dashboard's static files can't be read from outside `media/`** — a path into a sibling folder whose name starts with `media` passed the old prefix check
+
 ### Fixed
 
+- **Long-context pricing follows the vendors' rule** — a call whose prompt (input plus cache reads and writes) is over the model's threshold (272K for GPT-5.4 and later, 200K for Gemini 3.1 Pro, Grok 4.5/4.6, GPT-5.6 Luna and Claude Sonnet 4) is now billed at the long-context rate for all of its tokens, output included. Before, only each token category's excess over the threshold got the higher rate, so most long-context calls were priced as short ones. Adds Claude Haiku 5.5 (whole call at the higher rate above 100K) and corrects Claude Sonnet 5.5's cache-read rate to $0.10/MTok
 - **The npx/service server could be taken down by any web page** — a malformed `/api/timeline/<id>` address threw an uncaught error and exited the process, losing in-flight OTEL data. The address is now rejected with a 400, and the server logs and keeps serving on any unexpected error instead of exiting
 - **Torn files no longer wipe your history** — `spans.json`, the outcomes database, the log-file state, `config.json` and `ports.json` are written atomically (temp file + rename); a file that fails to load is kept aside as `*.corrupt-<timestamp>` instead of being overwritten with an empty one
 - **The npx/service server now keeps 90 days of log-sourced traces** like the extension does (`sessionRetentionDays` in `~/.traceroost/config.json`, `service install --retention-days N`, `0` keeps everything); before, it held every trace it had ever read in memory

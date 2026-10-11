@@ -1,6 +1,6 @@
 import * as assert from 'assert'
 import * as path from 'path'
-import { isStrictlyInside } from './pathGuard'
+import { isStrictlyInside, resolveStaticFile } from './pathGuard'
 
 suite('isStrictlyInside', () => {
   const ws = path.resolve('/work/repo')
@@ -19,5 +19,30 @@ suite('isStrictlyInside', () => {
     assert.strictEqual(isStrictlyInside(ws, `${ws}-sibling/CLAUDE.md`), false)
     assert.strictEqual(isStrictlyInside(ws, ''), false)
     assert.strictEqual(isStrictlyInside(ws, '.'), false)
+  })
+})
+
+suite('resolveStaticFile', () => {
+  const media = path.resolve('/opt/traceroost/media')
+
+  test('serves files under the root', () => {
+    assert.strictEqual(resolveStaticFile(media, '/dist/webview.js'), path.join(media, 'dist', 'webview.js'))
+    assert.strictEqual(resolveStaticFile(media, '/icon.svg'), path.join(media, 'icon.svg'))
+    // Normalised traversal that stays inside is still inside.
+    assert.strictEqual(resolveStaticFile(media, '/dist/../icon.svg'), path.join(media, 'icon.svg'))
+  })
+
+  test('refuses a sibling folder that shares the root as a prefix', () => {
+    // path.join(media, '/../media-private/secret.js') === '/opt/traceroost/media-private/secret.js',
+    // which `startsWith(media)` accepted.
+    assert.ok(path.join(media, '/../media-private/secret.js').startsWith(media), 'precondition: the old check passed this')
+    assert.strictEqual(resolveStaticFile(media, '/../media-private/secret.js'), null)
+  })
+
+  test('refuses traversal out of the root and the root itself', () => {
+    assert.strictEqual(resolveStaticFile(media, '/../../../etc/passwd.js'), null)
+    assert.strictEqual(resolveStaticFile(media, '/../package.json'), null)
+    assert.strictEqual(resolveStaticFile(media, '/'), null)
+    assert.strictEqual(resolveStaticFile(media, ''), null)
   })
 })

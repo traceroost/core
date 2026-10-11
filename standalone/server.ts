@@ -45,10 +45,12 @@ import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
 import { traceKeysInWindow, localHorizonOf, countTracesInWindow, hasSettledKey } from '../src/traceIdentity'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
-  isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
+  isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isJsonContentType, isLoopbackHost,
+  isSameOriginRequest,
   extractCookieToken, authCookieHeader,
 } from '../src/httpSecurity'
 import { SseSessionSync, type SyncSummary } from './sseSessionSync'
+import { resolveStaticFile } from './pathGuard'
 import { autoConfigLogLines } from './autoConfigLog'
 import { promptsFileFor, IMPORT_SOURCES } from './promptsFile'
 import { handleInstructionMessage, loadInstructionState, saveInstructionState, MAX_INSTRUCTION_BODY_BYTES, type InstructionHost, type InstructionResult } from './instructionActions'
@@ -1547,10 +1549,20 @@ const uiServer = http.createServer((req, res) => {
     }
   }
   // No CORS: the dashboard is same-origin, and on loopback (no token) a wildcard
-  // Access-Control-Allow-Origin let any website read every session off /api/*. State-changing
-  // requests from a foreign page (e.g. POST /action clearAll) are refused outright.
-  if (req.method !== 'GET' && req.method !== 'HEAD' && !isAllowedOrigin(req.headers.origin, req.headers.host)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+  // Access-Control-Allow-Origin let any website read every session off /api/*. Every
+  // state-changing route here (/api/instructions/*, /api/clear, /api/org, /action, /api/import,
+  // …) is called only by this server's own page, so a browser request must be same-origin — not
+  // just "loopback": a page on another local port could otherwise append to files in a recorded
+  // workspace, clear all data or leave the org — and must say `Content-Type: application/json`,
+  // so a foreign page can't slip a "simple" text/plain or bodyless POST past CORS without a
+  // preflight (which this server never grants).
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    if (!isSameOriginRequest(req.headers)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+    }
+    if (!isJsonContentType(req.headers['content-type'])) {
+      res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type — send Content-Type: application/json'); return
+    }
   }
 
   if (url === '/events') {
@@ -2006,10 +2018,11 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
-  const filePath = path.join(mediaDir, url)
-  const ext = path.extname(filePath)
-  const mime = MIME[ext]
-  if (mime && fs.existsSync(filePath) && filePath.startsWith(mediaDir)) {
+  // Never outside media/ — see resolveStaticFile for the sibling-prefix escape a `startsWith`
+  // check allowed.
+  const filePath = resolveStaticFile(mediaDir, url)
+  const mime = filePath ? MIME[path.extname(filePath)] : undefined
+  if (filePath && mime && fs.existsSync(filePath)) {
     res.writeHead(200, { 'Content-Type': mime })
     fs.createReadStream(filePath).pipe(res)
     return
@@ -2043,7 +2056,7 @@ const otlpServer = http.createServer((req, res) => {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
   }
   if (req.method !== 'POST') { res.writeHead(200); res.end(); return }
-  if (!isAllowedOtlpContentType(req.headers['content-type'])) {
+  if (!isAllowedOtlpContentType(req.headers['content-type'], req.headers.origin)) {
     res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type'); return
   }
   const chunks: Buffer[] = []
