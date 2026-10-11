@@ -2,7 +2,8 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { drainQueue } from '../../../cloud/forward/sender'
+import { decodeBody } from './decodeBody'
+import { drainQueue, resetServerCapabilities } from '../../../cloud/forward/sender'
 import { ForwardQueue } from '../../../cloud/forward/queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { readForwardState } from '../../../cloud/forward/forwardState'
@@ -37,7 +38,7 @@ const realFetch = globalThis.fetch
 
 /** Parses a batch request's body and reads back its `items`, in request order. */
 function batchItems(init?: RequestInit): RollupPayload[] {
-  return (JSON.parse(String(init?.body)) as { items: RollupPayload[] }).items
+  return (JSON.parse(decodeBody(init?.body, init?.headers)) as { items: RollupPayload[] }).items
 }
 
 /** A 200 response from `/api/ingest/batch` carrying one result per item, computed positionally. */
@@ -50,6 +51,7 @@ suite('forward/sender', () => {
   setup(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-sender-'))
     setCredentialStore(memStore(CREDS))
+    resetServerCapabilities()
   })
   teardown(() => {
     globalThis.fetch = realFetch
@@ -66,6 +68,61 @@ suite('forward/sender', () => {
     if (url.endsWith('/oauth/token')) return new Response('', { status: 200 })
     if (url.endsWith('/api/ingest/batch')) return batchOk(batchItems(init), () => ({ status: 202 }))
     return new Response('', { status: 202 }) // single-item fallback route
+  })
+
+  const enqueueMany = (n: number) => {
+    const q = new ForwardQueue(home)
+    for (let i = 0; i < n; i++) q.enqueue(payload(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`))
+  }
+
+  test('a batch over 1 KiB is gzipped; a small one is sent plain', async () => {
+    const seen: Array<string | null> = []
+    stubFetch((_url, init) => {
+      seen.push(new Headers(init?.headers).get('content-encoding'))
+      return batchOk(batchItems(init), () => ({ status: 202 }))
+    })
+    enqueueMany(10)
+    assert.strictEqual((await drainQueue({ baseHome: home })).sent, 10)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(seen, ['gzip', null])
+  })
+
+  test('a cloud that predates gzip ("invalid JSON") gets plain JSON, loses nothing, and is not retried with gzip', async () => {
+    const seen: Array<string | null> = []
+    stubFetch((_url, init) => {
+      const enc = new Headers(init?.headers).get('content-encoding')
+      seen.push(enc)
+      if (enc === 'gzip') return new Response(JSON.stringify({ error: 'invalid JSON' }), { status: 400 })
+      return batchOk(batchItems(init), () => ({ status: 202 }))
+    })
+    enqueueMany(10)
+    assert.strictEqual((await drainQueue({ baseHome: home })).sent, 10)
+    enqueueMany(10)
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(seen, ['gzip', null, null])
+  })
+
+  test('learns the advertised batch limits and uses them on the next drain; an old cloud stays at 25', async () => {
+    const sizes: number[] = []
+    const advertise = (limits?: object) => stubFetch((_url, init) => {
+      const items = batchItems(init)
+      sizes.push(items.length)
+      return new Response(JSON.stringify({ results: items.map(() => ({ status: 202 })), limits }), { status: 200 })
+    })
+    advertise() // old cloud: no `limits`
+    enqueueMany(60)
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(sizes, [25, 25, 10])
+    sizes.length = 0
+    resetServerCapabilities()
+    advertise({ max_items: 50, max_bytes: 1024 * 1024 })
+    enqueueMany(1)
+    await drainQueue({ baseHome: home }) // teaches the limits; the next drain uses them
+    sizes.length = 0
+    enqueueMany(60)
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(sizes, [50, 10])
   })
 
   test('no org linked → stops immediately, makes no request', async () => {

@@ -1,3 +1,4 @@
+import { decodeBody } from './decodeBody'
 import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
@@ -36,7 +37,7 @@ const realFetch = globalThis.fetch
 function stubBatchOk(onRequest?: () => void): typeof fetch {
   return (async (_url: unknown, init?: unknown) => {
     onRequest?.()
-    const items = (JSON.parse(String((init as RequestInit | undefined)?.body)) as { items: unknown[] }).items
+    const items = (JSON.parse(decodeBody((init as RequestInit | undefined)?.body, (init as RequestInit | undefined)?.headers)) as { items: unknown[] }).items
     return new Response(JSON.stringify({ results: items.map(() => ({ status: 202 })) }), { status: 200 })
   }) as typeof fetch
 }
