@@ -165,6 +165,45 @@ suite('LogReader — OpenCode', () => {
     }
   })
 
+  test('a WAL write that changes no session reports nothing; one that changes a session reports only that one', async () => {
+    const write = (mutate: (db: SqlDb) => void, dbFile: string) => {
+      const db = createDb()
+      db.run(OPENCODE_SCHEMA)
+      insertSession(db, 'sess-a', { title: 'A' })
+      insertMessage(db, 'msg-ua', 'sess-a', 'user')
+      insertMessage(db, 'msg-aa', 'sess-a', 'assistant')
+      insertSession(db, 'sess-b', { title: 'B' })
+      insertMessage(db, 'msg-ub', 'sess-b', 'user')
+      insertMessage(db, 'msg-ab', 'sess-b', 'assistant')
+      mutate(db)
+      fs.writeFileSync(dbFile, Buffer.from(db.export()))
+      db.close()
+    }
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-wal-'))
+    const dbFile = path.join(dataDir, 'opencode.db')
+    const walFile = dbFile + '-wal'
+    const origEnv = process.env['OPENCODE_DATA_DIR']
+    process.env['OPENCODE_DATA_DIR'] = dataDir
+    try {
+      write(() => {}, dbFile)
+      const reader = new LogReader({ sqlFactory: factory })
+      assert.strictEqual(reader.scanOpenCode().length, 2)
+      // OpenCode touches its WAL (a write to some other table): nothing about either session changed.
+      fs.writeFileSync(walFile, 'x')
+      const later = Date.now() / 1000 + 5
+      fs.utimesSync(walFile, later, later)
+      assert.deepStrictEqual(reader.scanOpenCode(), [])
+      // Session B gets another reply: only B is reported.
+      write(db => insertMessage(db, 'msg-ab2', 'sess-b', 'assistant'), dbFile)
+      fs.utimesSync(walFile, later + 5, later + 5)
+      assert.deepStrictEqual(reader.scanOpenCode().map(r => r.card.conversationId), ['sess-b'])
+    } finally {
+      if (origEnv === undefined) delete process.env['OPENCODE_DATA_DIR']
+      else process.env['OPENCODE_DATA_DIR'] = origEnv
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('excludes subagent sessions (parent_id set)', async () => {
     const db = createDb()
     db.run(OPENCODE_SCHEMA)
