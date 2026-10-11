@@ -1,6 +1,6 @@
 // Pricing data for extension-host cost computation (cost_usd stored in sessions table).
 // Rate table is kept in sync with media/src/pricing.ts — update both when rates change.
-// PRICING_LAST_UPDATED: 2026-09-28
+// PRICING_LAST_UPDATED: 2026-10-11
 
 export interface ModelRates {
   inputPerMTok: number

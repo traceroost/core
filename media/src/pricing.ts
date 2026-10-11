@@ -1,6 +1,6 @@
 // Pricing data for Copilot cost estimation.
 // Token rates: https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing
-export const PRICING_LAST_UPDATED = '2026-09-28'
+export const PRICING_LAST_UPDATED = '2026-10-11'
 
 export interface ModelRates {
   inputPerMTok: number              // USD per 1M input tokens
