@@ -112,6 +112,15 @@ export class TraceRevisionRepository {
    *  (this dimension write reaching the row first) stores '' rather than leaving that dimension
    *  looking checked. */
   recordPayloadHash(sessionId: string, hash: string, sourceRank?: number): { revision: number; changed: boolean; downgrade?: boolean } {
+    const plan = this.planPayloadHash(sessionId, hash, sourceRank)
+    if (plan.changed) this.commitPayloadHash(sessionId, hash, plan.revision, sourceRank)
+    return plan
+  }
+
+  /** `recordPayloadHash`'s decision without its write: whether `hash` is a change, and if so a
+   *  freshly allocated revision for it — recorded only by `commitPayloadHash`, once the snapshot
+   *  carrying it was actually queued (a failed enqueue must not mark the content as sent). */
+  planPayloadHash(sessionId: string, hash: string, sourceRank?: number): { revision: number; changed: boolean; downgrade?: boolean } {
     const existing = this.get(sessionId)
     const now = Date.now()
     // Source precedence (src/traceIdentity.ts): a snapshot from a lower-rank source (a transcript
@@ -124,13 +133,18 @@ export class TraceRevisionRepository {
       this.db.run('UPDATE trace_revision SET checked_at = ? WHERE session_id = ?', [now, sessionId])
       return { revision: existing.revision, changed: false }
     }
-    const revision = this.allocateRevision()
+    return { revision: this.allocateRevision(), changed: true }
+  }
+
+  /** Records `hash` as sent under `revision` (from `planPayloadHash`). */
+  commitPayloadHash(sessionId: string, hash: string, revision: number, sourceRank?: number): void {
+    const existing = this.get(sessionId)
+    const now = Date.now()
     this.db.run(
       `INSERT OR REPLACE INTO trace_revision
          (session_id, revision, lifecycle, fingerprint, outcome_overall, payload_hash, checked_at, changed_at, source_rank)
        VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
-      [sessionId, revision, existing?.fingerprint ?? '', existing?.outcomeOverall ?? null, hash, now, now, sourceRank ?? existing?.sourceRank ?? null],
+      [sessionId, Math.max(revision, existing?.revision ?? 0), existing?.fingerprint ?? '', existing?.outcomeOverall ?? null, hash, now, now, sourceRank ?? existing?.sourceRank ?? null],
     )
-    return { revision, changed: true }
   }
 }

@@ -525,13 +525,15 @@ function checkStaleOtelSessions() {
     // With reconciliation, the content-hash gate sends it as a newer revision of a key the log
     // card may already have delivered (and never over a higher-rank snapshot); without it, the
     // ledger-gated first send.
-    if (reconciliationService) {
-      void cloud.forwardOnContentChange(reconciliationService, card, m => console.log(m))
-        .then(r => { if (r.enqueued) cloud.drainUploadsSoon() }, forwardFailed('OTEL trace forward'))
-    } else {
-      void cloud.enqueueSession(card, m => console.log(m))
-        .then(r => { if (r.enqueued) cloud.drainUploadsSoon() }, forwardFailed('OTEL trace forward'))
-    }
+    // The gate marks this shape forwarded only once the forward resolved (settle): one that
+    // errored, or found the machine unlinked meanwhile, is offered again on a later tick.
+    const forward = reconciliationService
+      ? cloud.forwardOnContentChange(reconciliationService, card, m => console.log(m))
+      : cloud.enqueueSession(card, m => console.log(m))
+    void forward.then(r => {
+      otelForwardGate.settle(card, r.enqueued || (r.reason !== 'error' && r.reason !== 'not-linked'))
+      if (r.enqueued) cloud.drainUploadsSoon()
+    }, e => { otelForwardGate.settle(card, false); forwardFailed('OTEL trace forward')(e) })
   }
 }
 
