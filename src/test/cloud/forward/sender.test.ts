@@ -125,6 +125,17 @@ suite('forward/sender', () => {
     assert.deepStrictEqual(sizes, [50, 10])
   })
 
+  test('reports each batch request’s size, wire size and latency', async () => {
+    stubFetch((_url, init) => batchOk(batchItems(init), () => ({ status: 202 })))
+    enqueueMany(10)
+    const stats: Array<{ items: number; rawBytes: number; wireBytes: number; status: number }> = []
+    await drainQueue({ baseHome: home, onBatchRequest: st => stats.push(st) })
+    assert.strictEqual(stats.length, 1)
+    assert.strictEqual(stats[0].items, 10)
+    assert.strictEqual(stats[0].status, 200)
+    assert.ok(stats[0].wireBytes > 0 && stats[0].wireBytes < stats[0].rawBytes, 'gzip shrank the body')
+  })
+
   test('no org linked → stops immediately, makes no request', async () => {
     setCredentialStore(memStore(null))
     let called = false

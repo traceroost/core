@@ -109,7 +109,7 @@ export function startForwardScheduler(opts: {
     draining = true
     opts.onDrainStart?.()
     try {
-      let res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
+      let res = await drainQueue({ onBatchRequest: st => logDebug(opts.log, `[TraceRoost] Forwarding batch: ${st.items} items, ${st.rawBytes} B -> ${st.wireBytes} B on the wire, ${st.ms} ms, HTTP ${st.status}`), notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
       if (res.sent > 0 || res.droppedInvalid > 0) {
         logDebug(opts.log, `[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)
       }
@@ -124,7 +124,7 @@ export function startForwardScheduler(opts: {
       // not a real limit expected to bite.
       let iterations = 1
       while (res.stopped === null && res.remaining > 0 && iterations < MAX_DRAIN_ITERATIONS_PER_RUN) {
-        res = await drainQueue({ notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
+        res = await drainQueue({ onBatchRequest: st => logDebug(opts.log, `[TraceRoost] Forwarding batch: ${st.items} items, ${st.rawBytes} B -> ${st.wireBytes} B on the wire, ${st.ms} ms, HTTP ${st.status}`), notify: opts.notify, baseHome: opts.baseHome, batchLimit: opts.batchLimit, onItemDone: opts.onDrainComplete, recordSent: opts.recordSent, force: runOpts.force })
         iterations++
         if (res.sent > 0 || res.droppedInvalid > 0) {
           logDebug(opts.log, `[TraceRoost] Forwarding: sent ${res.sent}, dropped ${res.droppedInvalid} invalid, ${res.remaining} queued`)

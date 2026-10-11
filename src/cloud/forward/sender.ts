@@ -67,7 +67,19 @@ export interface DrainResult {
   stopped: null | 'not-linked' | 'membership-revoked' | 'auth-failed' | 'rate-limited' | 'offline' | 'nothing-eligible'
 }
 
+/** One `/api/ingest/batch` round trip, for measuring: how big the body was before and after gzip,
+ *  and how long the server took. Local only — never sent anywhere. */
+export interface BatchRequestStat {
+  items: number
+  rawBytes: number
+  wireBytes: number
+  ms: number
+  status: number
+}
+
 export interface DrainDeps {
+  /** Called after every batch request with its size and latency (the scheduler logs it at debug). */
+  onBatchRequest?: (stat: BatchRequestStat) => void
   /** Surface a single, dismissible notice to the developer (401 refresh failed, membership revoked). */
   notify?: (message: string, kind: 'info' | 'warning') => void
   /** Injectable clock/sleep for tests. */
@@ -272,7 +284,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   async function sendChunkBatched(chunk: QueueItem[]): Promise<'continue' | 'fallback' | { stop: DrainResult }> {
     let res: Response
     try {
-      res = await postBatch(creds!.accessToken, chunk)
+      res = await postBatch(creds!.accessToken, chunk, deps.onBatchRequest)
     } catch {
       // A network-level failure tells us nothing about the *next* chunk — it may hit a warm
       // connection and succeed. Back this chunk off and keep going.
@@ -286,7 +298,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       const stop = await refreshOnce()
       if (stop) return { stop }
       // Retry this same chunk immediately with the fresh token.
-      res = await postBatch(creds!.accessToken, chunk).catch(() => res)
+      res = await postBatch(creds!.accessToken, chunk, deps.onBatchRequest).catch(() => res)
     }
 
     if (res.status === 403) return { stop: membershipRevoked() }
@@ -476,19 +488,24 @@ function learnLimits(limits: unknown): void {
 /** POSTs a JSON body, gzipped when large enough and the server is known (or presumed) to accept it.
  *  Rollup JSON repeats the same keys and hashes in every record, so it compresses several-fold.
  *  The server caps the *inflated* size, so `chunkByCountAndBytes`'s uncompressed budget still holds. */
-async function postJson(url: string, accessToken: string, json: string, signal: AbortSignal): Promise<Response> {
+async function postJson(url: string, accessToken: string, json: string, signal: AbortSignal, meta?: { wireBytes: number }): Promise<Response> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${accessToken}`,
     'User-Agent': `traceroost-client/${clientVersion()}`,
   }
-  const plain = () => fetch(url, { method: 'POST', headers, body: json, signal })
+  const plain = () => {
+    if (meta) meta.wireBytes = Buffer.byteLength(json)
+    return fetch(url, { method: 'POST', headers, body: json, signal })
+  }
   if (gzipUnsupported || Buffer.byteLength(json) < GZIP_MIN_BYTES) return plain()
 
+  const zipped = new Uint8Array(gzipSync(json))
+  if (meta) meta.wireBytes = zipped.byteLength
   const res = await fetch(url, {
     method: 'POST',
     headers: { ...headers, 'Content-Encoding': 'gzip' },
-    body: new Uint8Array(gzipSync(json)),
+    body: zipped,
     signal,
   })
   if (res.status !== 415 && res.status !== 400) return res
@@ -501,11 +518,16 @@ async function postJson(url: string, accessToken: string, json: string, signal: 
   return plain()
 }
 
-async function postBatch(accessToken: string, items: QueueItem[]): Promise<Response> {
+async function postBatch(accessToken: string, items: QueueItem[], onStat?: (s: BatchRequestStat) => void): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20_000)
   try {
-    return await postJson(batchIngestUrl(), accessToken, JSON.stringify({ items: items.map(it => it.payload) }), controller.signal)
+    const json = JSON.stringify({ items: items.map(it => it.payload) })
+    const meta = { wireBytes: 0 }
+    const started = Date.now()
+    const res = await postJson(batchIngestUrl(), accessToken, json, controller.signal, meta)
+    onStat?.({ items: items.length, rawBytes: Buffer.byteLength(json), wireBytes: meta.wireBytes, ms: Date.now() - started, status: res.status })
+    return res
   } finally {
     clearTimeout(timer)
   }
