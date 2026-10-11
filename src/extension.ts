@@ -31,6 +31,8 @@ import { startBackgroundReconciliation, type BackgroundWatcher } from './reconci
 import { KeyedDebouncer } from './reconcile/keyedDebouncer'
 import { createSessionForwarder } from './sessionForwarder'
 import { matchesTraceId } from './traceIdentity'
+import { TraceHorizon } from './traceHorizon'
+import { HistoryReadiness } from './historyReadiness'
 import { decidePipeline } from './ownerGate'
 
 let collector: OtlpCollector | undefined
@@ -66,10 +68,9 @@ const ownsPipeline = () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoost
 const forwardChangedSession: typeof forwardChangedSessionUngated = (card) => {
   if (ownsPipeline()) forwardChangedSessionUngated(card)
 }
-// The trace manifest (stable trace identity) lists what the database holds, so it must not go
-// out while the database is still filling: false until the startup log load has been written,
-// and again while "clear all data" re-ingests.
-let traceStoreReady = false
+// What the manifest may claim the database holds in full (src/traceHorizon.ts) — moved forward
+// by "clear all data". Set once the global storage dir is known.
+let traceHorizon: TraceHorizon | undefined
 
 // ── Cross-window sync ────────────────────────────────────────────────────────
 
@@ -113,6 +114,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // This host's trace store — its cloud host id lives beside the database, so the extension and
   // the standalone server (one shared link) each reconcile only their own traces.
   cloud.setHostStore(context.globalStorageUri.fsPath)
+  traceHorizon = new TraceHorizon(context.globalStorageUri.fsPath)
 
   // ── Database ────────────────────────────────────────────────────────────────
   try {
@@ -344,7 +346,25 @@ export async function activate(context: vscode.ExtensionContext) {
   // ownership over from a window that closed. Idempotent: started at most once per window.
   let ownerPipelineStarted = false
   let logReader: LogReader | undefined
-  let startBatchedLoad: ((onAllDone?: () => void) => void) | undefined
+  let startBatchedLoad: ((onAllDone?: (ok: boolean) => void) => void) | undefined
+  // The trace manifest's readiness gate (src/historyReadiness.ts): opened only once a load
+  // completed and was written, for the store as it is now; a failed load is retried with backoff.
+  let afterHistoryLoad: (() => void) | undefined
+  const historyReadiness = new HistoryReadiness({
+    log: (m) => outputChannel?.appendLine(m),
+    run: () => new Promise((resolve, reject) => {
+      if (!startBatchedLoad) { resolve('done'); return }
+      startBatchedLoad(ok => {
+        const after = afterHistoryLoad
+        afterHistoryLoad = undefined
+        after?.()
+        if (!ok) { reject(new Error('could not list the local trace logs')); return }
+        if (!writer) { resolve('done'); return }
+        writer.drain().then(() => resolve('done'), reject)
+      })
+    }),
+  })
+  context.subscriptions.push({ dispose: () => historyReadiness.dispose() })
   const startOwnerPipeline = () => {
     if (ownerPipelineStarted || !traceRoostDb || !writer) return
     ownerPipelineStarted = true
@@ -516,16 +536,17 @@ export async function activate(context: vscode.ExtensionContext) {
       //
       // Both groups use setTimeout(fn, 0) rather than setImmediate so the host can
       // drain its own message queue between batches.
-      startBatchedLoad = (onAllDone?: () => void) => {
+      startBatchedLoad = (onAllDone?: (ok: boolean) => void) => {
         let allFiles: ReturnType<typeof lr.collectFileMeta>
         try {
           allFiles = lr.collectFileMeta()
         } catch (err) {
+          // Not "no history" — the caller keeps the store not-ready and retries (markReadyAfterLoad).
           outputChannel!.appendLine(`[TraceRoost] Log ingestion collect error: ${err}`)
-          onAllDone?.()
+          onAllDone?.(false)
           return
         }
-        if (allFiles.length === 0) { onAllDone?.(); return }
+        if (allFiles.length === 0) { onAllDone?.(true); return }
 
         const AGENT_KEY_LABEL: Record<string, string> = {
           claude:              'Claude Code',
@@ -645,14 +666,14 @@ export async function activate(context: vscode.ExtensionContext) {
                 .join(', ')
               outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
             }
-            onAllDone?.()
+            onAllDone?.(true)
           })
         })
       }
 
       // Defer off the activation stack so activation itself completes instantly.
       setImmediate(() => {
-        startBatchedLoad!(() => { void writer!.drain().then(() => { traceStoreReady = true }) })
+        void historyReadiness.load()
         pollClaudePlanUsage()
       })
       logReaderTimer = setInterval(runLogScan, 30_000)
@@ -660,7 +681,7 @@ export async function activate(context: vscode.ExtensionContext) {
       outputChannel!.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')
     }
 
-    if (!logReader) traceStoreReady = true // nothing to load from logs
+    if (!logReader) historyReadiness.markReady() // nothing to load from logs
   }
 
   const pipeline = decidePipeline({
@@ -860,17 +881,22 @@ export async function activate(context: vscode.ExtensionContext) {
       // Refresh both panels to show the cleared state before re-ingestion starts.
       provider.refresh()
       if (repository) DashboardPanel.setRepository(repository)
+      // Everything before now is gone from the database for good: the trace manifest never again
+      // claims a day before the clear (it would list only what re-reading the logs brings back).
+      traceHorizon?.raiseFloor(Date.now())
       if (logReader && startBatchedLoad) {
-        traceStoreReady = false
+        historyReadiness.invalidate()
         logReader.clearFileState()
         // 5 s delay so the cleared state is visible before log sessions flow back in.
         // When all files are loaded, do a final refresh so the dashboard reflects
         // the fully re-ingested state.
-        setTimeout(() => startBatchedLoad!(() => {
-          provider.refresh()
-          if (repository) DashboardPanel.setRepository(repository)
-          void writer?.drain().then(() => { traceStoreReady = true })
-        }), 5000)
+        setTimeout(() => {
+          afterHistoryLoad = () => {
+            provider.refresh()
+            if (repository) DashboardPanel.setRepository(repository)
+          }
+          void historyReadiness.load()
+        }, 5000)
       }
       writeLastWriteSignal(context.globalStorageUri)
     })
@@ -942,8 +968,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Only the window that owns the database sends it (see TraceRoostDb), once it is loaded.
     traceManifest: {
       isWriter: () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoostDb.loadError,
-      isReady: () => traceStoreReady && !!repository,
-      localHorizonMs: () => repository?.localHorizonMs() ?? null,
+      isReady: () => historyReadiness.isReady() && !!repository,
+      localHorizonMs: () => (repository ? (traceHorizon ?? new TraceHorizon(null)).horizonMs(repository.sourceExtents()) : null),
       listTraceKeys: (fromMs, toMs) => repository?.listTraceKeys(fromMs, toMs) ?? [],
       countTraces: (fromMs, toMs) => repository?.countTraces(fromMs, toMs) ?? 1,
     },
@@ -956,7 +982,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const linkWatcher = cloud.startLinkWatcher({
     allLocalSessions: () => repository?.listSessions({ limit: Infinity }) ?? [],
     isWriter: () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoostDb.loadError,
-    isReady: () => traceStoreReady && !!repository,
+    isReady: () => historyReadiness.isReady() && !!repository,
     log: (msg) => outputChannel?.appendLine(msg),
     onLinkStateChange: () => DashboardPanel.pushOrgStatus(),
   })

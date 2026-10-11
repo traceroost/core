@@ -21,9 +21,12 @@
  *   retires only rows whose last sender was that host. A row both hosts sent belongs to whichever
  *   sent it last;
  * - only once the forwarding queue holds no session rollups — a key not delivered yet would gate
- *   the chunk (`missing_keys`) and spend rate budget for nothing;
- * - the window is [max(localHorizon, now − 60 d), now − 10 min]: nothing older than the oldest
- *   trace still held, nothing still settling. Computed right before sending, never queued;
+ *   the chunk (`missing_keys`) and spend rate budget for nothing. A rollup that keeps failing
+ *   (`STUCK_ATTEMPTS_THRESHOLD`) doesn't hold the run back; its day is skipped instead;
+ * - the window is [max(localHorizon, now − 60 d), now − 10 min]: nothing settling, and nothing
+ *   before the host's evidence horizon (src/traceHorizon.ts) — the latest of each source's oldest
+ *   trace, past any source that aged out entirely, evicted OTEL spans, a spans.json reset and
+ *   "Clear all data". Computed right before sending, never queued;
  * - an empty chunk is sent (with `confirm_empty`) only when the store positively holds no trace
  *   in it at all, not-yet-keyed ones included, inside the horizon — otherwise it is skipped;
  * - a day holding more than `MANIFEST_MAX_KEYS` keys is split into shorter windows, never
@@ -56,7 +59,7 @@ import { currentHostId } from '../org/hostIdentity'
 import { manifestUrl, type OrgCredentials } from '../org/config'
 import { clientVersion, TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
-import { ForwardQueue } from './queue'
+import { ForwardQueue, STUCK_ATTEMPTS_THRESHOLD } from './queue'
 import { DroppedLedger } from './deliveryLedger'
 import { logDebug } from '../../logLevel'
 import { SCHEMA_VERSION, type TraceManifestChunk } from './schema'
@@ -129,14 +132,22 @@ export interface DayPlan {
 }
 
 /** What `hostId` should send for `day`, or null when nothing should be (an empty day that isn't
- *  positively empty inside the horizon, or one whose every key is in `exclude`). Window bounds
- *  handed to the source are inclusive, so [from, to) asks for [from, to − 1]. `exclude` is the
- *  wire ids of rollups the cloud refused for good (`DroppedLedger`) — never listed. */
-export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys' | 'countTraces'>, day: ManifestDay, horizonMs: number, hostId: string, exclude?: ReadonlySet<string>): DayPlan | null {
+ *  positively empty inside the horizon, one whose every key is in `exclude`, or one holding a key
+ *  in `undelivered`). Window bounds handed to the source are inclusive, so [from, to) asks for
+ *  [from, to − 1]. `exclude` is the wire ids of rollups the cloud refused for good
+ *  (`DroppedLedger`) — never listed. `undelivered` is the wire ids of rollups still queued that
+ *  keep failing (`STUCK_ATTEMPTS_THRESHOLD`): the cloud may not have them, so their day is skipped
+ *  — never described without them, and not left to block every other day either. */
+export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys' | 'countTraces'>, day: ManifestDay, horizonMs: number, hostId: string, exclude?: ReadonlySet<string>, undelivered?: ReadonlySet<string>): DayPlan | null {
   const chunks: TraceManifestChunk[] = []
   const allKeys: string[] = []
+  let blocked = false
   const plan = (fromMs: number, toMs: number, depth: number): void => {
     let keys = source.listTraceKeys(fromMs, toMs - 1)
+    if (undelivered && undelivered.size > 0 && keys.some(k => undelivered.has(k.toLowerCase()))) {
+      blocked = true
+      return
+    }
     if (exclude && exclude.size > 0) keys = keys.filter(k => !exclude.has(k.toLowerCase()))
     if (keys.length === 0) {
       if (fromMs >= horizonMs && source.countTraces(fromMs, toMs - 1) === 0) chunks.push(buildManifestChunk(hostId, fromMs, toMs, [], true))
@@ -154,7 +165,7 @@ export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys
     plan(mid, toMs, depth + 1)
   }
   plan(day.fromMs, day.toMs, 0)
-  if (chunks.length === 0) return null
+  if (blocked || chunks.length === 0) return null
   const confirmed = chunks.some(c => c.confirm_empty)
   const hash = crypto.createHash('sha256').update([...allKeys].sort().join('\n') + (confirmed ? '\n#empty' : '')).digest('hex')
   return { hash, chunks }
@@ -263,7 +274,12 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   const link = { endpoint: creds.endpoint, installId: creds.installId }
   if (!source.isWriter()) return { ...result, skipped: 'not-writer' }
   if (!source.isReady()) return { ...result, skipped: 'not-ready' }
-  if (new ForwardQueue(deps.baseHome).list().some(it => it.key.startsWith('session:'))) return { ...result, skipped: 'queue-not-drained' }
+  // Rollups still on their way gate the run — except ones that keep failing (stuck): one bad item
+  // must not hold every day back for good. Their keys count as undelivered, so only their own
+  // days are skipped (planManifestDay), never described without them.
+  const queuedSessions = new ForwardQueue(deps.baseHome).list().filter(it => it.key.startsWith('session:'))
+  if (queuedSessions.some(it => it.attempts < STUCK_ATTEMPTS_THRESHOLD)) return { ...result, skipped: 'queue-not-drained' }
+  const stuckKeys = new Set(queuedSessions.map(it => (it.payload.session?.session_id ?? it.key.slice('session:'.length)).toLowerCase()))
 
   const hostId = deps.hostId ?? currentHostId()
   const state = readState(link, hostId, deps.baseHome)
@@ -296,7 +312,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
     // Re-checked per day: the requests below yield, and the store may be cleared (and re-read)
     // or change hands in the meantime.
     if (!source.isWriter() || !source.isReady()) return finish('interrupted')
-    const plan = planManifestDay(source, day, horizon, hostId, dropped)
+    const plan = planManifestDay(source, day, horizon, hostId, dropped, stuckKeys)
     if (!plan) continue
     const rec = state.days[day.day]
     const nowMs = now()
@@ -330,19 +346,26 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
         result.chunks++
         state.failures = 0
         state.nextAttemptAt = null
-        let body: { retired?: unknown; gated?: unknown; skipped_recent?: unknown } = {}
+        let body: { retired?: unknown; gated?: unknown; skipped_recent?: unknown; window?: unknown } = {}
         try { body = (await res.json()) as typeof body } catch { /* counts unknown */ }
         if (typeof body.retired === 'number') result.retired += body.retired
+        // The cloud clamps the window to its own [now − 60 d, now − 10 min] and says what it
+        // reconciled. A cut at the newer end (its clock behind ours) left the rest of the day
+        // unreconciled: re-send once that has settled. A cut at the older end is past the cloud's
+        // 60 days — nothing there is ever reconciled, so it doesn't hold the day back.
+        const clampedTo = clampedWindowEnd(body.window)
+        const reconciledToEnd = clampedTo === null || clampedTo >= Date.parse(chunk.window.to)
         if (body.gated === 'missing_keys') {
           result.gated++
           dayStatus = 'gated'
         } else if (body.gated === 'empty_unconfirmed') {
           result.gated++
           once('empty-unconfirmed', '[TraceRoost] Trace manifest: the cloud held back an empty chunk as unconfirmed.')
-        } else if (typeof body.skipped_recent === 'number' && body.skipped_recent > 0) {
+        } else if ((typeof body.skipped_recent === 'number' && body.skipped_recent > 0) || !reconciledToEnd) {
           // Rows this chunk didn't list that the cloud left alone for being ingested in the last
-          // 10 minutes (older clouds send no such field). They'll have settled by the next try;
-          // a missing_keys gate in the same reply outranks this (that day waits on the queue).
+          // 10 minutes (older clouds send no such field), or a window the cloud clamped short.
+          // They'll have settled by the next try; a missing_keys gate in the same reply outranks
+          // this (that day waits on the queue).
           result.settling++
           if (dayStatus === 'ok') dayStatus = 'settling'
         }
@@ -374,6 +397,16 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   }
   state.pausedUntil = null
   return finish()
+}
+
+/** The `window.to` a 200 reply says the cloud actually reconciled up to (epoch ms), or null when
+ *  the reply carries none (an older cloud) — then the chunk's own window stands. */
+function clampedWindowEnd(window: unknown): number | null {
+  if (!window || typeof window !== 'object') return null
+  const to = (window as { to?: unknown }).to
+  if (typeof to !== 'string') return null
+  const ms = Date.parse(to)
+  return Number.isFinite(ms) ? ms : null
 }
 
 async function postManifest(creds: OrgCredentials, chunk: TraceManifestChunk): Promise<Response> {
