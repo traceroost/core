@@ -37,6 +37,12 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **Instruction telemetry** — counts are clamped to the schema maximum like trace rollups, and the suggestion id is hashed under the repo key before sending (the raw id could embed a file path) (#297)
 - **Changing the sort returns to page 1** of the Traces table (#284)
 - **The README demo GIF didn't show on GitHub** (over its 5 MB image limit) (#273)
+- **TraceRoost Cloud: delivered traces are no longer retired by mistake** — the trace manifest only describes days every source still has history for (Claude Code deletes transcripts after 30 days; evicted OTEL spans, a reset `spans.json` and "Clear all data" count too), waits for the history load to actually succeed, and one stuck upload no longer holds every day back
+- **TraceRoost Cloud: a failed sign-in refresh recovers instead of unlinking** — it is retried within about 30 seconds, an `invalid_grant` is re-checked against a token another process just rotated, and a machine that does unlink says so: a "Re-link" button in VS Code, and a banner in the npx/service dashboard. Traces not yet sent are sent again after re-linking
+- **TraceRoost Cloud: a proxy or firewall error no longer unlinks the machine or drops traces** — only TraceRoost Cloud's own "install revoked" or "invalid record" answers do; an outdated version is told to update and keeps its queue
+- **TraceRoost Cloud: updates after a database reset or a move to the background service are no longer ignored**, two quick updates of one trace can't arrive out of order, and a trace's branch is the one it ran on, not the branch checked out when it was sent
+- **TraceRoost Cloud: instruction telemetry sends only instruction-file state** — per-file read counts and Advisor suggestion events are no longer sent, and the file content hash is keyed per repository
+- **TraceRoost Cloud: linking shows why the free tier refused it** and, with a device code, keeps waiting on the same code until a machine slot is free
 
 ### Changed
 
