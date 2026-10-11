@@ -392,6 +392,9 @@ export class TraceRoostDb {
  */
 export const KEPT_TABLE_COLUMNS: readonly ColumnMigration[] = [
   // e.g. { table: 'limit_plan_status', column: 'seat_count', ddl: 'INTEGER' }
+  // The branch an agent recorded for the turn (SessionSummaryCard.gitBranch) — a new column, not a
+  // TRACE_STORE_VERSION bump, so the stored history is kept.
+  { table: 'sessions', column: 'git_branch', ddl: 'TEXT' },
 ]
 
 function applyMigrations(db: SqlDatabase, log: (msg: string) => void = () => { /* silent */ }): void {

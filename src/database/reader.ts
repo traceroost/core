@@ -5,7 +5,7 @@ import type { SessionSummaryCard, TimelineEntry, EditDetail } from '../summarize
 import type { OneShotStats } from '../oneShotRate'
 import { lookupRates, calcAggregateTokenCostUsd } from '../pricing'
 import { sessionsVersion } from './sessionsVersion'
-import { toUuid } from '../traceIdentity'
+import { toUuid, horizonOfExtents, type SourceExtent } from '../traceIdentity'
 import { isSessionLanguage, languageFromRecord, type SessionLanguage, type SecondaryLanguage } from '../language'
 
 /** Stored change-size counts — only non-negative integers come back; NULL (an older row, or a
@@ -134,12 +134,27 @@ export class DatabaseReader {
     return Number(rows[0]?.values[0]?.[0] ?? 0)
   }
 
-  /** Start time of the oldest trace this install still holds evidence for (epoch ms), or null
-   *  with none — the manifest window's lower bound (feature 11's localHorizon). */
+  /** Each source's (agent's) oldest and newest settled trace start (epoch ms) — what the trace
+   *  manifest's horizon is built from (traceIdentity.ts's sourceExtentsOf, src/traceHorizon.ts). */
+  sourceExtents(): Map<string, SourceExtent> {
+    const rows = this.db.exec(
+      `SELECT source, MIN(start_time), MAX(start_time) FROM sessions
+        WHERE start_time > 0 AND session_id NOT LIKE 'synth-%'
+        GROUP BY source`,
+    )
+    const out = new Map<string, SourceExtent>()
+    for (const r of rows[0]?.values ?? []) {
+      const oldest = Number(r[1])
+      const newest = Number(r[2])
+      if (Number.isFinite(oldest) && Number.isFinite(newest) && oldest > 0) out.set(String(r[0]), { oldestMs: oldest, newestMs: newest })
+    }
+    return out
+  }
+
+  /** The manifest window's lower bound from the rows alone (feature 11's localHorizon): the latest
+   *  of each source's oldest trace start (epoch ms), or null with none — see localHorizonOf. */
   localHorizonMs(): number | null {
-    const rows = this.db.exec(`SELECT MIN(start_time) FROM sessions WHERE start_time > 0 AND session_id NOT LIKE 'synth-%'`)
-    const v = rows[0]?.values[0]?.[0]
-    return typeof v === 'number' ? v : null
+    return horizonOfExtents(this.sourceExtents())
   }
 
   listSessions(filter?: {
@@ -212,6 +227,7 @@ export class DatabaseReader {
         })),
         ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
         ...readIdentity(col(row, 'derived'), col(row, 'source_rank'), col(row, 'subagent_count')),
+        ...(typeof col(row, 'git_branch') === 'string' && col(row, 'git_branch') ? { gitBranch: col(row, 'git_branch') as string } : {}),
         ...readConversation(col(row, 'conversation_id')),
         timeline:         [],
         backgroundSpans:  [],
@@ -489,6 +505,7 @@ export class DatabaseReader {
         })),
         ...readEditStats(col(row, 'files_changed_count'), col(row, 'lines_added'), col(row, 'lines_removed')),
         ...readIdentity(col(row, 'derived'), col(row, 'source_rank'), col(row, 'subagent_count')),
+        ...(typeof col(row, 'git_branch') === 'string' && col(row, 'git_branch') ? { gitBranch: col(row, 'git_branch') as string } : {}),
         ...readConversation(col(row, 'conversation_id')),
         timeline:         [],
         backgroundSpans:  [],

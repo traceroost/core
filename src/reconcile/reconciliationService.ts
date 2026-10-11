@@ -158,6 +158,14 @@ export class ReconciliationService {
     return this.revisions.recordPayloadHash(sessionId, hashSessionRollup(rollup), sourceRank)
   }
 
+  /** `recordContentChange` in two steps, for a caller that must only record the content once it
+   *  was actually queued: `plan` decides (and allocates the revision), `commit` records. */
+  planContentChange(sessionId: string, rollup: SessionRollup, sourceRank?: number): { revision: number; changed: boolean; downgrade?: boolean; commit: () => void } {
+    const hash = hashSessionRollup(rollup)
+    const plan = this.revisions.planPayloadHash(sessionId, hash, sourceRank)
+    return { ...plan, commit: () => { if (plan.changed) this.revisions.commitPayloadHash(sessionId, hash, plan.revision, sourceRank) } }
+  }
+
   /** Convenience for the background watcher (Stage 2): reconciles many sessions sharing one
    *  short-lived root/trunk-ref cache, since a burst of retained sessions after a commit almost
    *  always shares a handful of repos. The cache is deliberately not retained by the service

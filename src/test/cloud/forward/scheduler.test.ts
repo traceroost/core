@@ -65,6 +65,31 @@ suite('forward/scheduler', () => {
     assert.strictEqual(new ForwardQueue(home).depth(), 0)
   })
 
+  test('a transient refresh failure is retried within the auth-retry delay (backing off), not on the next interval', async () => {
+    setCredentialStore(memStore({ ...CREDS, accessTokenExpiresAt: 0 }))
+    new ForwardQueue(home).enqueue(payload(ID1))
+    const tokenCalls: number[] = []
+    const started = Date.now()
+    globalThis.fetch = (async (u: unknown, init?: unknown) => {
+      if (String(u).endsWith('/oauth/token')) {
+        tokenCalls.push(Date.now() - started)
+        // Fails twice (the cloud's own server_error — definite, nothing rotated), then works.
+        if (tokenCalls.length <= 2) return new Response(JSON.stringify({ error: 'server_error' }), { status: 500 })
+        return new Response(JSON.stringify({ access_token: 'access-2', refresh_token: 'refresh-2', expires_in: 3600, member_id: 'm-1', org_id: 'org-1', install_id: 'install-1' }), { status: 200 })
+      }
+      if (String(u).endsWith('/api/ingest/batch')) {
+        if (new Headers((init as RequestInit).headers).get('authorization') !== 'Bearer access-2') return new Response('', { status: 401 })
+        return stubBatchOk()(u as string, init as RequestInit)
+      }
+      return new Response('', { status: 404 })
+    }) as typeof fetch
+    const scheduler = startForwardScheduler({ baseHome: home, intervalMs: 60 * 60_000, authRetryBaseMs: 40 })
+    await new Promise(resolve => setTimeout(resolve, 600))
+    scheduler.dispose()
+    assert.ok(tokenCalls.length >= 3, `refresh retried soon (${tokenCalls.length} calls)`)
+    assert.strictEqual(new ForwardQueue(home).depth(), 0, 'sent once the refresh went through')
+  })
+
   test('onDrainComplete does not fire when nothing is linked — the tick is skipped outright', async () => {
     setCredentialStore(memStore(null))
     let calls = 0

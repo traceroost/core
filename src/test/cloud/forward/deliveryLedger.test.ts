@@ -106,4 +106,21 @@ suite('forward/deliveryLedger', () => {
       nodeFs.readFileSync = realReadFileSync
     }
   })
+
+  test('another host\'s rewrite with the same mtime (coarse timestamps) is still seen — the cache compares inode, size and ctime too', () => {
+    const file = ledgerPath(home)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify(['session:a']), { mode: 0o600 })
+    const pinned = new Date('2026-01-01T00:00:00Z')
+    fs.utimesSync(file, pinned, pinned)
+    const ledger = new DeliveryLedger(home)
+    assert.strictEqual(ledger.isDelivered('session:b'), false)
+    // Another host replaces the file (tmp + rename) within the same mtime tick.
+    const tmp = `${file}.other.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(['session:a', 'session:b']), { mode: 0o600 })
+    fs.utimesSync(tmp, pinned, pinned)
+    fs.renameSync(tmp, file)
+    assert.strictEqual(fs.statSync(file).mtimeMs, pinned.getTime())
+    assert.strictEqual(new DeliveryLedger(home).isDelivered('session:b'), true)
+  })
 })

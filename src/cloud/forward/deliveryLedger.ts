@@ -50,11 +50,17 @@ export function scopedKey(installId: string, itemKey: string): string {
   return `${installId}:${itemKey}`
 }
 
-/** Per-process, per-file cache of the parsed ledger, keyed off the file's mtime — see `readAll`
- *  below for why this exists. Module-level (not per-instance) because every call site does
- *  `new DeliveryLedger()` fresh rather than holding one around. */
-interface LedgerCache { mtimeMs: number; keys: string[]; set: Set<string> }
+/** Per-process, per-file cache of the parsed ledger, keyed off the file's identity (inode, size,
+ *  mtime, ctime — as `queue.ts` does) — see `readAll` below for why this exists. mtime alone missed
+ *  a rewrite by another host landing within the filesystem's mtime granularity (coarse on some
+ *  filesystems), leaving this process on a stale set. Module-level (not per-instance) because
+ *  every call site does `new DeliveryLedger()` fresh rather than holding one around. */
+interface LedgerCache { stat: fs.Stats | null; keys: string[]; set: Set<string> }
 const readCache = new Map<string, LedgerCache>()
+
+function sameFile(a: fs.Stats | null, b: fs.Stats): boolean {
+  return a !== null && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs
+}
 
 export class DeliveryLedger {
   private readonly file: string
@@ -87,15 +93,15 @@ export class DeliveryLedger {
       stat = fs.statSync(this.file)
     } catch {
       readCache.delete(this.file)
-      return { mtimeMs: -1, keys: [], set: new Set() }
+      return { stat: null, keys: [], set: new Set() }
     }
     const cached = readCache.get(this.file)
-    if (cached && cached.mtimeMs === stat.mtimeMs) return cached
+    if (cached && sameFile(cached.stat, stat)) return cached
     let raw: string
     try {
       raw = fs.readFileSync(this.file, 'utf-8')
     } catch {
-      return { mtimeMs: -1, keys: [], set: new Set() }
+      return { stat: null, keys: [], set: new Set() }
     }
     let keys: string[]
     try {
@@ -104,7 +110,7 @@ export class DeliveryLedger {
     } catch {
       keys = []
     }
-    const entry: LedgerCache = { mtimeMs: stat.mtimeMs, keys, set: new Set(keys) }
+    const entry: LedgerCache = { stat, keys, set: new Set(keys) }
     readCache.set(this.file, entry)
     return entry
   }
@@ -155,7 +161,7 @@ export class DeliveryLedger {
     // Keep the cache in step with our own write so a `markDelivered` loop (sender.ts sends
     // several keys per drain) doesn't immediately re-read what it just wrote.
     const stat = fs.statSync(this.file)
-    readCache.set(this.file, { mtimeMs: stat.mtimeMs, keys, set: new Set(keys) })
+    readCache.set(this.file, { stat, keys, set: new Set(keys) })
   }
 }
 

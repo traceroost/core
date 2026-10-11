@@ -39,6 +39,17 @@ interface RawTokenBody {
   org_id?: string
   install_id?: string
   error?: string
+  /** RFC 6749 §5.2's human-readable detail — the cloud's machine-cap refusal puts its message here
+   *  (`error: "access_denied"`). */
+  error_description?: string
+}
+
+/** `error_description` when the server gave one (the human message — e.g. the free tier's machine
+ *  cap), else the bare `error` code, else the HTTP status. */
+export function describeOAuthError(raw: { error?: unknown; error_description?: unknown }, status: number): string {
+  if (typeof raw.error_description === 'string' && raw.error_description.trim()) return raw.error_description.trim()
+  if (typeof raw.error === 'string' && raw.error) return raw.error
+  return `HTTP ${status}`
 }
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -50,7 +61,11 @@ const REQUEST_TIMEOUT_MS = 15_000
  *  a malformed body) says something about the network or the service, not the credential, so
  *  `permanent` is false and callers should keep it and retry later. */
 export class TokenRefreshError extends Error {
-  constructor(message: string, public readonly permanent: boolean) {
+  /** `upgradeRequired`: the cloud answered 426 `client_upgrade_required` — this TraceRoost
+   *  version is too old; nothing is wrong with the credential (not permanent). */
+  /** `unanswered`: no definite answer from the cloud (a gateway error or a body that isn't the
+   *  cloud's) — the token may or may not have been rotated server-side. */
+  constructor(message: string, public readonly permanent: boolean, public readonly upgradeRequired = false, public readonly unanswered = false) {
     super(message)
   }
 }
@@ -160,7 +175,7 @@ export async function exchangeCode(opts: {
     redirect_uri: opts.redirectUri,
   })
   const raw = (await res.json().catch(() => ({}))) as RawTokenBody
-  if (!res.ok) throw new Error(`link failed: ${raw.error ?? `HTTP ${res.status}`}`)
+  if (!res.ok) throw new Error(`link failed: ${describeOAuthError(raw, res.status)}`)
   return parseTokenBody(raw)
 }
 
@@ -173,8 +188,13 @@ export async function refreshTokens(refreshToken: string, endpoint = orgEndpoint
   })
   const raw = (await res.json().catch(() => ({}))) as RawTokenBody
   if (!res.ok) {
+    if (res.status === 426 && raw.error === 'client_upgrade_required') {
+      throw new TokenRefreshError('token refresh failed: client_upgrade_required', false, true)
+    }
     const permanent = isPermanentRefreshError(raw.error)
-    throw new TokenRefreshError(`token refresh failed: ${raw.error ?? `HTTP ${res.status}`}`, permanent)
+    // The cloud always answers with an OAuth `error` code (a database failure is `server_error`, a
+    // definite "nothing rotated"); a bare 5xx is a gateway's, and says nothing about the token.
+    throw new TokenRefreshError(`token refresh failed: ${raw.error ?? `HTTP ${res.status}`}`, permanent, false, typeof raw.error !== 'string')
   }
   return parseTokenBody(raw)
 }
@@ -203,10 +223,12 @@ export interface DeviceCodeResponse {
 }
 
 export async function startDeviceFlow(hostnameLabel: string): Promise<DeviceCodeResponse> {
-  const res = await postForm(deviceCodeUrl(), { label: hostnameLabel, client_id: OAUTH_CLIENT_ID })
+  // `client_version` as the auth-code flow sends it (interactiveAuthorizeUrl) — the approval page
+  // shows it next to the label.
+  const res = await postForm(deviceCodeUrl(), { label: hostnameLabel, client_id: OAUTH_CLIENT_ID, client_version: clientVersion() })
   const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>
   if (!res.ok || typeof raw.device_code !== 'string' || typeof raw.user_code !== 'string') {
-    throw new Error(`device flow could not start: ${(raw.error as string) ?? `HTTP ${res.status}`}`)
+    throw new Error(`device flow could not start: ${describeOAuthError(raw, res.status)}`)
   }
   return {
     deviceCode: raw.device_code,
@@ -222,7 +244,11 @@ export type DevicePollResult =
   | { status: 'authorized'; tokens: TokenResponse }
   | { status: 'pending' }
   | { status: 'slow_down' }
-  | { status: 'denied' }
+  | { status: 'denied'; message?: string }
+  /** Approved, but refused for now — the org's free tier has no machine slot left (HTTP 403
+   *  `access_denied`, the reason in `error_description`). The cloud keeps the code pending, so the
+   *  same code links once the org upgrades or frees a machine: keep polling. */
+  | { status: 'blocked'; message: string }
   | { status: 'expired' }
 
 export async function pollDeviceFlow(deviceCode: string): Promise<DevicePollResult> {
@@ -233,12 +259,15 @@ export async function pollDeviceFlow(deviceCode: string): Promise<DevicePollResu
   })
   const raw = (await res.json().catch(() => ({}))) as RawTokenBody
   if (res.ok) return { status: 'authorized', tokens: parseTokenBody(raw) }
+  const description = typeof raw.error_description === 'string' && raw.error_description.trim() ? raw.error_description.trim() : undefined
   switch (raw.error) {
     case 'authorization_pending': return { status: 'pending' }
     case 'slow_down': return { status: 'slow_down' }
-    case 'access_denied': return { status: 'denied' }
+    // RFC 8628 answers a denial with 400. The cap gate answers 403 and leaves the code pending.
+    case 'access_denied':
+      return res.status === 403 ? { status: 'blocked', message: description ?? 'This org has no machine slot left.' } : { status: 'denied', message: description }
     case 'expired_token': return { status: 'expired' }
-    default: throw new Error(`device flow failed: ${raw.error ?? `HTTP ${res.status}`}`)
+    default: throw new Error(`device flow failed: ${describeOAuthError(raw, res.status)}`)
   }
 }
 
@@ -257,6 +286,10 @@ export interface RosterSelf {
   /** This member's own login email — reading it back is not a roster leak (AL 02): the server
    *  scopes `/api/roster/me` to the bearer token's own member row, never another member's. */
   email: string
+  /** The org's own "who sees what about you" paragraph, from its teammate-visibility switches
+   *  (cloud `teammateVisibilitySummary`) — shown instead of the generic `whoSeesWhat` line when
+   *  present. Absent from an older cloud. */
+  teammateVisibilitySummary?: string
 }
 
 export async function fetchRosterSelf(accessToken: string, endpoint = orgEndpoint()): Promise<RosterSelf | null> {
@@ -275,6 +308,9 @@ export async function fetchRosterSelf(accessToken: string, endpoint = orgEndpoin
       role: raw.role === 'admin' || raw.role === 'lead' ? 'admin' : 'developer',
       perDeveloperVisibility: raw.per_developer_visibility === true,
       email: typeof raw.email === 'string' ? raw.email : '',
+      ...(typeof raw.teammate_visibility_summary === 'string' && raw.teammate_visibility_summary.trim()
+        ? { teammateVisibilitySummary: raw.teammate_visibility_summary.trim().slice(0, 1000) }
+        : {}),
     }
   } catch {
     return null

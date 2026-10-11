@@ -58,7 +58,9 @@ export interface TraceManifestSource {
 }
 
 export interface ForwardSchedulerOptions {
-  notify?: (message: string, kind: 'info' | 'warning') => void
+  /** `action`: what the developer can do about it — `relink` (the credential is gone for good;
+   *  offer to link again) or `update` (this TraceRoost version is too old for the cloud). */
+  notify?: (message: string, kind: 'info' | 'warning', action?: 'relink' | 'update') => void
   log?: (msg: string) => void
   onDrainStart?: () => void
   onDrainComplete?: () => void

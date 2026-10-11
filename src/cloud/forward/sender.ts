@@ -6,14 +6,17 @@
  * | Failure               | Behaviour                                                            |
  * |-----------------------|---------------------------------------------------------------------|
  * | Service unreachable / 5xx | keep the item(s), back off, retry next tick. No UI change.     |
- * | 401, refresh transiently fails | refresh once; on failure, one dismissible notice, keep queueing. |
- * | 401, refresh token/client rejected (`invalid_grant`/`invalid_client`) | stop forwarding, clear the credential *and the queue*, tell the developer once — same as membership-gone below, since this credential will never refresh again. |
- * | 403 / install revoked  | stop forwarding, clear the credential and the queue, tell the developer once. |
- * | 400 / schema rejected  | drop the record, log locally with the error, never retry.         |
+ * | 401, refresh transiently fails | refresh once; on failure, one dismissible notice (once per streak), keep queueing; the scheduler retries the refresh within ~30 s, backing off. |
+ * | 401, refresh token/client rejected (`invalid_grant`/`invalid_client`, re-checked once after another host had a chance to rotate — tokenRefresh.ts) | stop forwarding, clear the credential *and the queue*, tell the developer with a "Re-link" action and a persistent notice (forwardState.ts) — same as membership-gone below, since this credential will never refresh again. |
+ * | 403 `{error:"install revoked"}` | stop forwarding, clear the credential and the queue, tell the developer once. |
+ * | 403 from anything else (a proxy or WAF page, a body that isn't the cloud's) | transient: back off, keep the credential and the queue. |
+ * | 426 `{error:"client_upgrade_required"}` | pause forwarding (the queue is kept), tell the developer to update TraceRoost. |
+ * | 400 / schema rejected (the cloud's own JSON error) | drop the record, log locally with the error, never retry. A 400 without one is transient. |
  * | 413 / too large        | split the batch and resend the halves; a single record that is    |
- * |                       | itself too large is dropped and logged, never retried. A dropped   |
- * |                       | session the cloud never held is recorded (`DroppedLedger`) so the  |
- * |                       | trace manifest stops listing it (see traceManifest.ts).            |
+ * |                       | itself too large (the cloud's own "payload too large") is dropped  |
+ * |                       | and logged, never retried. A dropped session the cloud never held |
+ * |                       | is recorded (`DroppedLedger`) so the trace manifest stops listing |
+ * |                       | it (see traceManifest.ts).                                         |
  * | 429                   | back off per `Retry-After`, stop the whole drain (the server just  |
  * |                       | told us to).                                                       |
  * | Disk full             | stop queueing, keep working (handled in `queue.ts`).              |
@@ -52,7 +55,7 @@
 import { gzipSync } from 'node:zlib'
 import { ForwardQueue, type QueueItem } from './queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from './deliveryLedger'
-import { readForwardState, writeForwardState, clearForwardState } from './forwardState'
+import { readForwardState, writeForwardState, clearForwardState, type ForwardNotice } from './forwardState'
 import { loadCredentials, clearCredentials, ensureInstallId } from '../org/credentials'
 import { TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
@@ -64,7 +67,39 @@ export interface DrainResult {
   sent: number
   droppedInvalid: number
   remaining: number
-  stopped: null | 'not-linked' | 'membership-revoked' | 'auth-failed' | 'rate-limited' | 'offline' | 'nothing-eligible'
+  stopped: null | 'not-linked' | 'membership-revoked' | 'auth-failed' | 'rate-limited' | 'offline' | 'nothing-eligible' | 'upgrade-required'
+}
+
+/** What a notice asks the developer to do — the host turns it into a button ("Re-link",
+ *  "Update"), or ignores it. */
+export type NoticeAction = 'relink' | 'update'
+
+export const RELINK_MESSAGE = 'TraceRoost Cloud sign-in expired — re-link this machine to resume sending. Nothing local is lost: traces not yet sent are sent again after you re-link.'
+export const REVOKED_MESSAGE = 'TraceRoost: this machine was unlinked from TraceRoost Cloud (its install was revoked, or your membership ended) and has stopped forwarding. Re-link it to resume.'
+export const UPGRADE_MESSAGE = 'Update TraceRoost to keep sending to TraceRoost Cloud — this version is no longer accepted. Traces stay queued and are sent after the update.'
+
+/** How long a 426 pauses forwarding before one more try (the cloud may have relaxed its floor);
+ *  a newer client version lifts it at once. */
+export const UPGRADE_PAUSE_MS = 6 * 60 * 60 * 1000
+
+/** The `error` codes the cloud answers a revoked install's token with (cloud `resolveBearer`).
+ *  Only one of these, in the cloud's own JSON body, unlinks the machine and drops its queue — a
+ *  403 from a corporate proxy or WAF must never do that. */
+const REVOKED_ERRORS = new Set(['install revoked', 'install_revoked'])
+/** The per-record 400s the cloud's ingest routes answer (cloud `/api/ingest`) — the record itself
+ *  is bad, so it's dropped. Any other 400 (an intermediary's) is transient. */
+const RECORD_REJECTED_ERRORS = new Set(['schema validation failed', 'invalid JSON'])
+const TOO_LARGE_ERRORS = new Set(['payload too large'])
+export const UPGRADE_REQUIRED_ERROR = 'client_upgrade_required'
+
+/** The cloud's own `{ error }` from a JSON error body, or null when the body isn't one (an HTML
+ *  page from a proxy, empty, unparseable). Reads a clone — the response stays readable. */
+export async function cloudErrorCode(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.clone().json()) as { error?: unknown } | null
+    if (body && typeof body === 'object' && typeof body.error === 'string') return body.error
+  } catch { /* not JSON */ }
+  return null
 }
 
 /** One `/api/ingest/batch` round trip, for measuring: how big the body was before and after gzip,
@@ -80,8 +115,9 @@ export interface BatchRequestStat {
 export interface DrainDeps {
   /** Called after every batch request with its size and latency (the scheduler logs it at debug). */
   onBatchRequest?: (stat: BatchRequestStat) => void
-  /** Surface a single, dismissible notice to the developer (401 refresh failed, membership revoked). */
-  notify?: (message: string, kind: 'info' | 'warning') => void
+  /** Surface a single, dismissible notice to the developer (401 refresh failed, membership revoked,
+   *  client too old). `action`, when given, is what the developer should do about it. */
+  notify?: (message: string, kind: 'info' | 'warning', action?: NoticeAction) => void
   /** Injectable clock/sleep for tests. */
   now?: () => number
   baseHome?: string
@@ -113,6 +149,7 @@ export interface DrainDeps {
   force?: boolean
 }
 
+const REFRESH_FAILED = 'token refresh failed'
 const BASE_BACKOFF_MS = 30_000
 const MAX_BACKOFF_MS = 60 * 60 * 1000
 const DEFAULT_HTTP_BATCH_SIZE = 25
@@ -148,6 +185,10 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   const installId = creds.installId
 
   const state = readForwardState(deps.baseHome)
+  const upgradeNotice = state.notice?.kind === 'upgrade' && (!state.notice.version || state.notice.version === clientVersion())
+  if (upgradeNotice && state.paused && state.pausedUntil !== null && state.pausedUntil > now()) {
+    return { ...empty, stopped: 'upgrade-required' }
+  }
   if (state.paused && state.pausedUntil !== null && state.pausedUntil > now()) {
     return { ...empty, stopped: 'rate-limited' }
   }
@@ -235,7 +276,11 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     // *were* sent — just without ledger-recording; the cost is a possible redundant resend on a
     // future restart's reconciliation (harmless, server-deduplicated), not a lost delivery.
     if (sent > 0) {
-      writeForwardState({ lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null }, deps.baseHome)
+      // A send that went through also ends an upgrade notice (the cloud accepts this version now).
+      // (Not when this very drain just hit a 426: some items went through, the rest wait.)
+      writeForwardState(stopped === 'upgrade-required'
+        ? { lastSuccessAt: new Date().toISOString() }
+        : { lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null, ...(state.notice?.kind === 'upgrade' ? { notice: null } : {}) }, deps.baseHome)
       deps.recordSent?.(sent, now())
     }
     return { attempted: batch.length, sent, droppedInvalid, remaining: queue.depth(), stopped }
@@ -243,13 +288,30 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
 
   // The credential is gone for good (refresh rejected, or the install revoked): stop, and drop
   // everything that was queued for it — see this file's header on why the queue can't be kept.
+  // The developer is told twice: a toast with a "Re-link" action where the host has one (the
+  // editor), and a notice kept in the forward state (`notice`) that every host's Org panel shows
+  // until the next link clears it — the standalone server has no toast at all. After a re-link the
+  // catch-up pass (org/reconcileUnsent.ts) re-queues every local trace the new install hasn't
+  // received, so nothing is lost.
   function unlinkAndClear(stopped: 'auth-failed' | 'membership-revoked', message: string): DrainResult {
     const result = finish(stopped)
     queue.clear()
     clearCredentials()
-    clearForwardState(deps.baseHome)
-    deps.notify?.(message, 'warning')
+    const notice: ForwardNotice = { kind: 'relink', message, at: new Date(now()).toISOString() }
+    clearForwardState(deps.baseHome, notice)
+    deps.notify?.(message, 'warning', 'relink')
     return { ...result, remaining: 0 }
+  }
+
+  // HTTP 426 `client_upgrade_required`: this version is too old for the cloud. Nothing is dropped
+  // — the queue waits for an update (or UPGRADE_PAUSE_MS, then one more try).
+  function upgradeRequired(): DrainResult {
+    const version = clientVersion()
+    const already = state.notice?.kind === 'upgrade' && state.notice.version === version
+    const notice: ForwardNotice = { kind: 'upgrade', message: UPGRADE_MESSAGE, at: new Date(now()).toISOString(), version }
+    writeForwardState({ paused: true, pausedUntil: now() + UPGRADE_PAUSE_MS, lastErrorAt: new Date().toISOString(), lastError: 'TraceRoost update required', notice }, deps.baseHome)
+    if (!already) deps.notify?.(UPGRADE_MESSAGE, 'warning', 'update')
+    return finish('upgrade-required')
   }
 
   // At most one refresh per drain, through the locked refresh in tokenRefresh.ts (which returns
@@ -261,20 +323,36 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       creds = await refreshCredentials(creds!, now)
       return undefined
     } catch (err) {
+      if (err instanceof TokenRefreshError && err.upgradeRequired) return upgradeRequired()
       if (err instanceof TokenRefreshError && err.permanent) {
         // The server rejected the refresh token/client itself — retrying later with the same
         // credential would just fail the same way forever. The Org panel drops back to "Unlinked"
         // with its "Link this machine" button, instead of staying stuck on "Paused".
-        return unlinkAndClear('auth-failed', 'TraceRoost: your org credential is no longer valid. Re-link this machine in the Org panel to resume forwarding.')
+        return unlinkAndClear('auth-failed', RELINK_MESSAGE)
       }
-      deps.notify?.('TraceRoost: could not refresh your org credential. Rollups are queued and will retry automatically.', 'warning')
-      writeForwardState({ paused: true, pausedUntil: null, lastErrorAt: new Date().toISOString(), lastError: 'token refresh failed' }, deps.baseHome)
+      // Once per streak of failures, not on every retry (the scheduler retries within ~30 s).
+      const alreadyTold = state.paused && state.lastError === REFRESH_FAILED
+      if (!alreadyTold) deps.notify?.('TraceRoost: could not refresh your org credential. Rollups are queued and will retry automatically.', 'warning')
+      writeForwardState({ paused: true, pausedUntil: null, lastErrorAt: new Date().toISOString(), lastError: REFRESH_FAILED }, deps.baseHome)
       return finish('auth-failed')
     }
   }
 
   function membershipRevoked(): DrainResult {
-    return unlinkAndClear('membership-revoked', 'TraceRoost: your org membership was revoked. This machine has stopped forwarding.')
+    return unlinkAndClear('membership-revoked', REVOKED_MESSAGE)
+  }
+
+  // A 403. Only the cloud's own "install revoked" answer means the credential is gone for good;
+  // anything else (a proxy's or WAF's page) leaves the credential and queue alone and backs off.
+  async function forbidden(res: Response, items: QueueItem[]): Promise<{ stop: DrainResult }> {
+    const code = await cloudErrorCode(res)
+    if (code !== null && REVOKED_ERRORS.has(code)) return { stop: membershipRevoked() }
+    backOffAll(items, `HTTP 403${code ? ` (${code.slice(0, 80)})` : ' (not from TraceRoost Cloud)'}`)
+    return { stop: finish('offline') }
+  }
+
+  async function isUpgradeRequired(res: Response): Promise<boolean> {
+    return res.status === 426 && (await cloudErrorCode(res)) === UPGRADE_REQUIRED_ERROR
   }
 
   // Sends one chunk to the batch endpoint. Returns 'continue' to move on to the next chunk,
@@ -301,14 +379,17 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       res = await postBatch(creds!.accessToken, chunk, deps.onBatchRequest).catch(() => res)
     }
 
-    if (res.status === 403) return { stop: membershipRevoked() }
+    if (res.status === 403) return forbidden(res, chunk)
+    if (await isUpgradeRequired(res)) return { stop: upgradeRequired() }
 
     if (res.status === 413) {
       // Over the server's body cap despite the byte budget (a single huge record, or a smaller
       // cap server-side). Split and resend; one record alone that's still too large can never be
-      // accepted, so it's dropped and logged rather than retried forever.
+      // accepted, so it's dropped and logged rather than retried forever — when the cloud itself
+      // said so (an intermediary's 413 is backed off like any other transient failure).
       if (chunk.length === 1) {
-        dropPermanently(chunk[0], 'payload too large (HTTP 413)')
+        if (TOO_LARGE_ERRORS.has((await cloudErrorCode(res)) ?? '')) dropPermanently(chunk[0], 'payload too large (HTTP 413)')
+        else backOffAll(chunk, 'HTTP 413 (not from TraceRoost Cloud)')
         return 'continue'
       }
       const mid = Math.ceil(chunk.length / 2)
@@ -353,6 +434,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
 
     const succeeded: QueueItem[] = []
+    let upgrade = false
     chunk.forEach((item, idx) => {
       const r = results![idx]
       if (r.status === 202 || r.status === 200) {
@@ -360,12 +442,16 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         sent++
       } else if (r.status === 400) {
         dropInvalid(item, r.error ?? '')
+      } else if (r.status === 426 && r.error === UPGRADE_REQUIRED_ERROR) {
+        // Kept, untouched: it goes out after the update.
+        upgrade = true
       } else {
         queue.recordFailure(item.key, r.error ? `HTTP ${r.status}: ${r.error}` : `HTTP ${r.status}`)
         sawTransientFailure = true
       }
     })
     recordSuccesses(succeeded)
+    if (upgrade) return { stop: upgradeRequired() }
     return 'continue'
   }
 
@@ -395,14 +481,16 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       if (res.status === 202 || res.status === 200) { recordSuccess(item); sent++; return }
     }
 
-    if (res.status === 403) return { stop: membershipRevoked() }
+    if (res.status === 403) return forbidden(res, [item])
+    if (await isUpgradeRequired(res)) return { stop: upgradeRequired() }
 
-    if (res.status === 413) {
+    const code = res.status === 413 || res.status === 400 ? await cloudErrorCode(res) : null
+    if (res.status === 413 && code !== null && TOO_LARGE_ERRORS.has(code)) {
       dropPermanently(item, 'payload too large (HTTP 413)')
       return
     }
 
-    if (res.status === 400) {
+    if (res.status === 400 && code !== null && RECORD_REJECTED_ERRORS.has(code)) {
       const detail = await safeText(res)
       dropInvalid(item, detail)
       return
@@ -428,9 +516,10 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       creds = await refreshCredentials(creds, now)
       refreshedThisDrain = true
     } catch (err) {
+      if (err instanceof TokenRefreshError && err.upgradeRequired) return upgradeRequired()
       if (err instanceof TokenRefreshError && err.permanent) {
         refreshedThisDrain = true
-        return unlinkAndClear('auth-failed', 'TraceRoost: your org credential is no longer valid. Re-link this machine in the Org panel to resume forwarding.')
+        return unlinkAndClear('auth-failed', RELINK_MESSAGE)
       }
     }
   }
@@ -510,10 +599,13 @@ async function postJson(url: string, accessToken: string, json: string, signal: 
   })
   if (res.status !== 415 && res.status !== 400) return res
   // 400 is also a real schema rejection, so only an "invalid JSON" 400 (an old cloud parsing gzip
-  // bytes) means "doesn't speak gzip". Never read the real response's body: clone first.
-  const unsupported =
-    res.status === 415 || ((await res.clone().json().catch(() => null)) as { error?: string } | null)?.error === 'invalid JSON'
-  if (!unsupported) return res
+  // bytes) or an "invalid gzip body" one (the body was mangled in transit, or by a proxy that
+  // re-encodes it) means "send it plain". Never read the real response's body: clone first.
+  const code = res.status === 415 ? null : ((await res.clone().json().catch(() => null)) as { error?: string } | null)?.error
+  const unsupported = res.status === 415 || code === 'invalid JSON'
+  if (!unsupported && code !== 'invalid gzip body') return res
+  // Only an old cloud's refusal turns gzip off for good; a mangled body is retried plain once.
+  if (!unsupported) return plain()
   gzipUnsupported = true
   return plain()
 }

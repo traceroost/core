@@ -34,7 +34,7 @@ import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { receiveInstructionMessage } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
-import { OrgButton, OrgPanel, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
+import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
 import { suggestionUrl } from './suggest'
 
@@ -888,6 +888,7 @@ export function App() {
       </div>
 
       <CollectorConflictBanner />
+      <OrgNoticeBanner />
       <LogIngestBanner />
       {showFilterBars && <TimeRangePicker />}
       {showFilterBars && <SearchFilterBar />}
