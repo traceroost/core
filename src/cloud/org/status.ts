@@ -11,6 +11,7 @@ import { loadCredentials } from './credentials'
 import { clientVersion } from './oauthClient'
 import { resolveOrgEnvironment, ORG_ENDPOINTS, type OrgEnvironment, type EnvironmentSource } from './config'
 import { getCloudRateOverrides, type ModelRates } from '../../pricing'
+import { currentForwardNotice } from '../forward/forwardState'
 
 /** Forwarding-queue health, supplied by AL 04. Absent until that lands (and always absent on an
  *  unlinked install, where there is no queue). */
@@ -54,6 +55,9 @@ export interface OrgStatus {
   email?: string
   role?: 'admin' | 'developer'
   perDeveloperVisibility?: boolean
+  /** The org's own "who sees what about you" paragraph (`/api/roster/me`), when the cloud sent
+   *  one — shown in place of privacy.ts's generic `whoSeesWhat`. */
+  teammateVisibilitySummary?: string
   linkedAt?: string
   queueDepth?: number
   lastRollupAt?: string | null
@@ -88,6 +92,10 @@ export interface OrgStatus {
    *  unlinked install, and false between drains even when `indicator` is `'reporting'`: a healthy,
    *  fully-synced state is a solid dot, not a pulsing one. */
   sending: boolean
+  /** Something the developer has to act on (forwardState.ts's ForwardNotice): `relink` after the
+   *  credential was rejected for good and the machine unlinked itself; `upgrade` while the cloud
+   *  refuses this TraceRoost version (HTTP 426). Absent when there is nothing to do. */
+  notice?: { kind: 'relink' | 'upgrade'; message: string }
 }
 
 function describeEndpoint(endpoint: string): OrgEnvironment | 'custom' {
@@ -97,9 +105,13 @@ function describeEndpoint(endpoint: string): OrgEnvironment | 'custom' {
   return known ?? 'custom'
 }
 
-export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats, sending = false): OrgStatus {
+export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats, sending = false, baseHome?: string): OrgStatus {
   const creds = loadCredentials()
   const version = clientVersion()
+  const n = currentForwardNotice(baseHome, version)
+  // A relink notice means nothing once linked again (the link clears it; another host's link is
+  // only noticed here), and an upgrade notice only while linked.
+  const notice = n && (n.kind === 'relink') === !creds ? { kind: n.kind, message: n.message } : undefined
 
   if (!creds) {
     const resolved = resolveOrgEnvironment()
@@ -113,12 +125,16 @@ export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats
       environmentEditable: resolved.source === 'selected' || resolved.source === 'default',
       cloudRateOverrides: getCloudRateOverrides(),
       sending: false,
+      ...(notice ? { notice } : {}),
     }
   }
 
   let indicator: OrgIndicator = 'reporting'
   let degradedReason: string | undefined
-  if (queue) {
+  if (notice) {
+    indicator = 'degraded'
+    degradedReason = notice.message
+  } else if (queue) {
     if (queue.stuckCount > 0) {
       // Checked ahead of the lastErrorAt/lastSuccessAt comparison below — that comparison only
       // sees the single most recent outcome across the whole queue, so a healthy item sending
@@ -148,6 +164,7 @@ export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats
     email: creds.email,
     role: creds.role,
     perDeveloperVisibility: creds.perDeveloperVisibility,
+    ...(creds.teammateVisibilitySummary ? { teammateVisibilitySummary: creds.teammateVisibilitySummary } : {}),
     linkedAt: creds.linkedAt,
     queueDepth: queue?.depth ?? 0,
     lastRollupAt: queue?.lastSuccessAt ?? null,
@@ -155,5 +172,6 @@ export function getOrgStatus(queue?: QueueStats, traceSendStats?: TraceSendStats
     cloudRateOverrides: getCloudRateOverrides(),
     sending,
     traceSendStats,
+    ...(notice ? { notice } : {}),
   }
 }

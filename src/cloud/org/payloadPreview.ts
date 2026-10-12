@@ -144,15 +144,21 @@ function sessionEndedWithinGrace(card: SessionSummaryCard): boolean {
 export async function buildPayloadForCard(card: SessionSummaryCard, cache?: PayloadBuildCache, revision?: number): Promise<PayloadForCard> {
   const creds = loadCredentials()
   const orgId = creds?.orgId ?? 'unlinked-preview'
-  const workspace = card.workspace || card.projectPath || process.cwd()
+  // No workspace recorded → no repository: never the repo this process happens to run in.
+  const workspace = card.workspace || card.projectPath || ''
 
-  const rk = cache ? await cache.repoKey(workspace, orgId) : await deriveRepoKey(workspace, orgId)
+  const rk: Awaited<ReturnType<typeof deriveRepoKey>> = !workspace
+    ? { ok: false, reason: 'not-a-repo' }
+    : cache ? await cache.repoKey(workspace, orgId) : await deriveRepoKey(workspace, orgId)
 
   const inGrace = sessionEndedWithinGrace(card)
-  const outcome = inGrace ? null : await classifySessionOutcome(workspace, card.filesChanged ?? [], cache?.outcome)
+  const outcome = inGrace || !workspace ? null : await classifySessionOutcome(workspace, card.filesChanged ?? [], cache?.outcome)
   const payload = sessionRollupPayload(cardToInput(card), {
     repoKey: rk.ok ? rk.ctx : undefined,
-    branch: rk.ok ? await (cache ? cache.branch(rk.ctx.root) : currentBranch(rk.ctx.root)) : undefined,
+    // The branch the agent recorded when the turn ran — never the repo's current HEAD, which a
+    // re-forward days later would read as wherever the developer is now (a feature-branch turn
+    // re-attributed to main). Unknown → no branch at all.
+    branch: rk.ok && card.gitBranch ? card.gitBranch : undefined,
     outcome: inGrace ? 'in_progress' : outcome?.overall,
     revision,
     // Unlinked: a placeholder, like the org salt above — and no host-id file is written.

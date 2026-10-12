@@ -4,6 +4,30 @@
  * `find`, …) are dispatched in cli.ts itself before any of this applies.
  */
 
+/** One local subcommand's usage line (without the leading "Usage: "). `cloud` is false in the
+ *  core edition, which leaves out the cloud-only parts (a cloud repo hash, `find --reporter`).
+ *  The subcommands print this on bad arguments, so it always matches the top-level `--help`. */
+export function commandUsage(command: 'find' | 'patterns' | 'cohort', cloud: boolean): string {
+  switch (command) {
+    case 'find':
+      return cloud
+        ? 'traceroost find <repo hash | trace/session id> [--reporter <email>]'
+        : 'traceroost find <trace/session id | repo name>'
+    case 'patterns':
+      return cloud ? 'traceroost patterns --repo <hash|name>' : 'traceroost patterns --repo <name>'
+    case 'cohort':
+      return cloud
+        ? 'traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]'
+        : 'traceroost cohort --repo <name> --merged <YYYY-MM> [--window 30|90]'
+  }
+}
+
+/** Whether this build is the full edition. A literal `process.env.TRACEROOST_EDITION` check
+ *  (esbuild.js defines it); unit tests run against the sources, i.e. the full edition. */
+export function isCloudEdition(): boolean {
+  return process.env.TRACEROOST_EDITION !== 'core'
+}
+
 /** The usage text. `cloud` is false in the core edition, which leaves out the commands it can't
  *  run and the cloud-only parts of local ones (a cloud repo hash, `find --reporter`). */
 export function usageText(cloud: boolean): string {
@@ -15,16 +39,12 @@ export function usageText(cloud: boolean): string {
     cloud && '  traceroost --explain-payload [--last|--all|--session <id>|--since <date>] [--dry-run]',
     '  traceroost service <install|uninstall|start|stop|restart|status|logs|update>',
     cloud && '  traceroost org <link|status|verify|leave> [--device]',
-    cloud
-      ? '  traceroost find <repo hash | trace/session id> [--reporter <email>]'
-      : '  traceroost find <trace/session id | repo name>',
+    `  ${commandUsage('find', cloud)}`,
     '  traceroost trace --id <sessionId>',
-    cloud ? '  traceroost patterns --repo <hash|name>' : '  traceroost patterns --repo <name>',
+    `  ${commandUsage('patterns', cloud)}`,
     '  traceroost advise <--list|--apply <id>> [--repo <path>]',
     cloud && '  traceroost cluster --repo <hash> --id <id>',
-    cloud
-      ? '  traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window 30|90]'
-      : '  traceroost cohort --repo <name> --merged <YYYY-MM> [--window 30|90]',
+    `  ${commandUsage('cohort', cloud)}`,
   ].filter(Boolean).join('\n')
 }
 

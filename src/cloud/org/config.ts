@@ -176,9 +176,15 @@ export interface OrgCredentials {
   role: 'admin' | 'developer'
   /** Whether this org lets a member see their own numbers in the team view. Display-only cache. */
   perDeveloperVisibility: boolean
+  /** The org's "who sees what about you" paragraph from `/api/roster/me`
+   *  (`teammate_visibility_summary`). Display-only cache; absent from an older cloud. */
+  teammateVisibilitySummary?: string
   /** OAuth tokens. `accessToken` is short-lived; `refreshToken` is used by AL 04's sender. */
   accessToken: string
   refreshToken: string
+  /** How many times `refreshToken` was presented without a definite answer (tokenRefresh.ts) —
+   *  dropped whenever a new pair is saved. */
+  unansweredRefreshes?: number
   /** Unix ms at which `accessToken` expires. */
   accessTokenExpiresAt: number
   /** When this machine was linked, ISO 8601. */

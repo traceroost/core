@@ -107,6 +107,9 @@ export interface KeyedCard {
   sessionId: string
   startTime: string
   keyPending?: boolean
+  /** The agent the card came from (`SessionSummaryCard.source`) — the manifest horizon is per
+   *  source (see localHorizonOf). */
+  source?: string
 }
 
 /** Whether `card` carries its canonical key yet. A Claude OTEL card whose transcript join is on
@@ -147,14 +150,39 @@ export function countTracesInWindow(cards: Iterable<KeyedCard>, fromMs: number, 
   return n
 }
 
-/** Start of the oldest trace in `cards` (epoch ms), or null — the manifest window's lower bound
- *  (localHorizon): the oldest turn this install still has evidence for from any source. */
-export function localHorizonOf(cards: Iterable<KeyedCard>): number | null {
-  let min: number | null = null
+/** The span of settled trace starts each source (agent) still holds: its oldest and newest card,
+ *  epoch ms. A source with no settled card is absent. */
+export interface SourceExtent { oldestMs: number; newestMs: number }
+export function sourceExtentsOf(cards: Iterable<KeyedCard>): Map<string, SourceExtent> {
+  const out = new Map<string, SourceExtent>()
   for (const c of cards) {
     if (!hasSettledKey(c)) continue
     const ms = startMsOf(c)
-    if (ms > 0 && (min === null || ms < min)) min = ms
+    if (ms <= 0) continue
+    const key = c.source ?? ''
+    const e = out.get(key)
+    if (!e) out.set(key, { oldestMs: ms, newestMs: ms })
+    else {
+      if (ms < e.oldestMs) e.oldestMs = ms
+      if (ms > e.newestMs) e.newestMs = ms
+    }
   }
-  return min
+  return out
+}
+
+/** The latest of the per-source oldest starts, or null with none held. */
+export function horizonOfExtents(extents: ReadonlyMap<string, SourceExtent>): number | null {
+  let max: number | null = null
+  for (const e of extents.values()) if (max === null || e.oldestMs > max) max = e.oldestMs
+  return max
+}
+
+/** The manifest window's lower bound (localHorizon) from the cards alone: the **latest** of each
+ *  source's oldest settled card (epoch ms), or null with none. Sources age out independently —
+ *  Claude Code deletes its transcripts after 30 days, Codex keeps them — so before the latest of
+ *  those starts some source's evidence may be gone, and a manifest there would list that day
+ *  without its keys (and the cloud would retire them). The host adds the evidence it knows it
+ *  lost on top (src/traceHorizon.ts). */
+export function localHorizonOf(cards: Iterable<KeyedCard>): number | null {
+  return horizonOfExtents(sourceExtentsOf(cards))
 }

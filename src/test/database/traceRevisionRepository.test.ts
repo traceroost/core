@@ -1,7 +1,7 @@
 import * as assert from 'assert'
 import * as path from 'path'
 import { SCHEMA_SQL } from '../../database/schema'
-import { TraceRevisionRepository } from '../../database/traceRevisionRepository'
+import { TraceRevisionRepository, setRevisionClockForTests, REVISION_EPOCH_MS, revisionClock } from '../../database/traceRevisionRepository'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -22,6 +22,10 @@ async function openInMemoryDb(): Promise<SqlDb> {
 }
 
 suite('TraceRevisionRepository', () => {
+  // Revisions are floored by wall-clock seconds (traceRevisionRepository.ts); pinned to the epoch
+  // here so these read as the bare counter they test.
+  suiteSetup(() => setRevisionClockForTests(() => REVISION_EPOCH_MS))
+  suiteTeardown(() => setRevisionClockForTests(undefined))
   test('get() returns undefined for a session with no row', async () => {
     const db = await openInMemoryDb()
     const repo = new TraceRevisionRepository(db)
@@ -107,6 +111,25 @@ suite('TraceRevisionRepository', () => {
     assert.strictEqual(s1Again.revision, 1)
     const s2Changed = repo.recordCheck('s2', 'fp2', 'abandoned')
     assert.strictEqual(s2Changed.revision, 3)
+  })
+
+  test('revisions are floored by wall-clock seconds: monotonic per machine across a database reset or a second store', async () => {
+    let clock = Date.UTC(2026, 9, 11, 12)
+    const oldDb = await openInMemoryDb()
+    const old = new TraceRevisionRepository(oldDb, () => clock)
+    const first = old.recordPayloadHash('s1', 'h1')
+    assert.strictEqual(first.revision, revisionClock(clock))
+    assert.ok(first.revision > 1_000_000, 'far above any counter an older build reached')
+    // Several in the same second still increase.
+    const second = old.recordPayloadHash('s1', 'h2')
+    assert.strictEqual(second.revision, first.revision + 1)
+    // A fresh store (a reset, or the service taking over from the extension) a little later.
+    clock += 5_000
+    const fresh = new TraceRevisionRepository(await openInMemoryDb(), () => clock)
+    const after = fresh.recordPayloadHash('s1', 'h3')
+    assert.ok(after.revision > second.revision, `${after.revision} > ${second.revision}`)
+    // Fits the cloud's int column for decades.
+    assert.ok(revisionClock(Date.UTC(2090, 0, 1)) < 2 ** 31 - 1)
   })
 
   test('get() handles a session id containing a single quote without breaking the query', async () => {

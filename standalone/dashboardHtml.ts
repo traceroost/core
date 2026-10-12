@@ -472,11 +472,11 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
           }${ORG_FETCH_SHIM}
           if (msg.type === 'confirmClear') {
             if (confirm('Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
-              fetch('/api/clear', { method: 'POST' });
+              fetch('/api/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
               window.dispatchEvent(new MessageEvent('message', { data: { type: 'clearAll' } }));
             }
           } else if (msg.type === 'clearAll') {
-            fetch('/api/clear', { method: 'POST' });
+            fetch('/api/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
           } else if (Object.prototype.hasOwnProperty.call(INSTRUCTION_ROUTES, msg.type)) {
             // Instructions tab — answered by the same messages dashboardPanel.ts posts back
             // (standalone/instructionActions.ts); an error is what the extension would show.
@@ -781,7 +781,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
     }
     function _requestFullUpdate() {
       if (!_es) return;
-      fetch('/api/sse-resync?client=' + _sseClientId, { method: 'POST' })
+      fetch('/api/sse-resync?client=' + _sseClientId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
         .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); })
         .catch(function() {
           // Stream not (yet) known to the server — reopen it without a revision, which always

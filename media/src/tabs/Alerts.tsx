@@ -31,9 +31,9 @@ import { planUsage, PROVIDER_LABEL } from '../planUsage'
 const ALERT_TOOLTIPS: Record<string, string> = {
   context_window: 'Peak context use is the largest single LLM input in a trace, not the average. Cache hits can make high input cheap, but they still occupy the context window.',
   high_turns:     'High turn counts often mean the task has become too broad. Ask for a wrap-up, split the task, or provide more exact files and stopping conditions.',
-  error_spike:    'Counts errors in the session. Stop retries and diagnose the root cause once the threshold is crossed.',
+  error_spike:    'Counts errors in the trace. Stop retries and diagnose the root cause once the threshold is crossed.',
   long_session:   'Uses active LLM/tool compute time, not wall-clock waiting time.',
-  no_cache:       'Only checks sessions above the input-token gate. Cache can be low for small sessions without being a problem.',
+  no_cache:       'Only checks traces above the input-token gate. Cache can be low for small traces without being a problem.',
   tool_loop:      'Counts identical tool plus argument repeats, not just the same tool name.',
   daily_cost:     'Estimated cost only, not a real billing figure. Sums today (UTC) across every agent using token-based pricing.',
   plan_weekly:    'Read from files Claude Code and Codex write themselves. Fires once per weekly window per agent. Claude\'s figure is its latest cached reading, so it can lag.',
@@ -67,11 +67,11 @@ interface AlertResult {
 
 const DEFAULT_CONFIGS: AlertConfig[] = [
   { id: 'daily_cost', label: 'Daily Estimated Cost Threshold', severity: 'warning', description: 'Fires when today\'s total estimated cost across all agents crosses the configured dollar threshold.', enabled: false, threshold: 20, unit: 'usd', min: 1, max: 500, step: 1 },
-  { id: 'context_window', label: 'Context Window Filling Up', severity: 'warning', description: 'Fires when any session reaches the configured peak input-token threshold for that agent.', enabled: true, threshold: 170000, unit: 'tokens', min: 10000, max: 1000000, step: 1000, agentThresholds: { claude_code: 170000, copilot: 108800, codex: 340000, opencode: 170000, cursor: 170000 } },
+  { id: 'context_window', label: 'Context Window Filling Up', severity: 'warning', description: 'Fires when any trace reaches the configured peak input-token threshold for that agent.', enabled: true, threshold: 170000, unit: 'tokens', min: 10000, max: 1000000, step: 1000, agentThresholds: { claude_code: 170000, copilot: 108800, codex: 340000, opencode: 170000, cursor: 170000 } },
   { id: 'high_turns', label: 'Too Many Turns Per Trace', severity: 'warning', description: 'Fires when any trace reaches its agent-specific LLM turn alert threshold. High turn counts often indicate scope creep or a task that should be split.', enabled: true, threshold: 200, unit: 'agent profile', min: 20, max: 500, step: 10 },
-  { id: 'error_spike', label: 'Error Spike', severity: 'error', description: 'Fires when any session reaches its agent-specific error count threshold.', enabled: true, threshold: 5, unit: 'agent profile', min: 2, max: 20, step: 1 },
+  { id: 'error_spike', label: 'Error Spike', severity: 'error', description: 'Fires when any trace reaches its agent-specific error count threshold.', enabled: true, threshold: 5, unit: 'agent profile', min: 2, max: 20, step: 1 },
   { id: 'long_session', label: 'Long Active Trace', severity: 'info', description: 'Fires when active LLM/tool compute time exceeds the agent-specific threshold. Wall-clock idle time does not count.', enabled: true, threshold: 60, unit: 'agent profile', min: 10, max: 240, step: 10 },
-  { id: 'no_cache', label: 'Zero Cache Utilization', severity: 'info', description: 'Fires when any session above that agent\'s input-token gate has 0% cache hit rate.', enabled: true, threshold: 30000, unit: 'tokens', min: 5000, max: 200000, step: 5000, agentThresholds: { claude_code: 30000, copilot: 30000, codex: 30000, opencode: 30000, cursor: 30000 } },
+  { id: 'no_cache', label: 'Zero Cache Utilization', severity: 'info', description: 'Fires when any trace above that agent\'s input-token gate has 0% cache hit rate.', enabled: true, threshold: 30000, unit: 'tokens', min: 5000, max: 200000, step: 5000, agentThresholds: { claude_code: 30000, copilot: 30000, codex: 30000, opencode: 30000, cursor: 30000 } },
   { id: 'plan_weekly', label: 'Weekly Plan Limit Filling Up', severity: 'warning', description: 'Fires when a Claude or ChatGPT plan\'s weekly window reaches this share.', enabled: true, threshold: 80, unit: '%', min: 10, max: 100, step: 5 },
   { id: 'plan_five_hour', label: '5-Hour Plan Limit Filling Up', severity: 'warning', description: 'Fires when a Claude or ChatGPT plan\'s 5-hour window reaches this share.', enabled: true, threshold: 90, unit: '%', min: 10, max: 100, step: 5 },
   { id: 'tool_loop', label: 'Identical Tool Repeat', severity: 'warning', description: 'Fires when the same tool with identical arguments repeats beyond the agent-specific threshold without a file change between repeats.', enabled: true, threshold: 5, unit: 'agent profile', min: 3, max: 20, step: 1 },

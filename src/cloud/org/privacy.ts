@@ -11,23 +11,30 @@
  * Grounding: `cloud/docs/decisions/0003-what-we-can-and-cannot-see.md`.
  */
 
-/** What a rollup carries. Every item is a count, an enum, a hash, or a time. Only what is
+/** What a linked machine sends. Every item is a count, an enum, a hash, or a time. Only what is
  *  actually sent today: cost is computed by the service from the token counts (never sent), and
  *  git commit / turnover records have wire shapes (`buildCommitRecords.ts`, schema) but no caller
- *  — add them back here, in both repos, in the same change that starts sending them. "files
- *  changed, lines added and removed" are the session's own agent-authored edit counts
- *  (`src/editStats.ts`), "language names" are the fixed ids of `src/language.ts`, the git-author
- *  id is `member_author_hash` (`repoKey.ts` `authorHash`), the Advisor line is AL 08's suggestion
- *  events (`buildInstructionTelemetry.ts`), and the hostname and version are the link's `label`
- *  and `client_version` (`oauthClient.ts`). */
+ *  — add them back here, in both repos, in the same change that starts sending them. Mapping to
+ *  the wire (`src/cloud/forward/schema.ts`): "errors" and "one-shot edits" are `errors` and
+ *  `one_shot`; "files changed, lines added and removed" are the trace's own agent-authored edit
+ *  counts (`src/editStats.ts`); "language names" are the fixed ids of `src/language.ts`; OTEL or
+ *  logs is `data_source`, you or an agent is `initiator`; the git-author id is
+ *  `member_author_hash` (`repoKey.ts` `authorHash`); the conversation id is `conversation_hash`;
+ *  the instruction-file line is `instruction_files` (kind, hashed path, `content_hash`,
+ *  `line_count`, `last_modified` — `buildInstructionTelemetry.ts`); the random id is `host_id`
+ *  (`hostIdentity.ts`), also on trace manifests; the hostname is the link's `label`
+ *  (`oauthClient.ts`), and the version is `client_version` there plus the
+ *  `traceroost-client/<version>` User-Agent on every request (`sender.ts`, `traceManifest.ts`,
+ *  `oauthClient.ts`). */
 export const SENT: readonly string[] = [
-  'Usage counts — traces, turns, tool calls by tool name, tokens, files changed, lines added and removed',
-  'Model, agent and language names, and the outcome, with timestamps',
+  'Usage counts — traces, turns, tool calls by tool name, tokens, errors, files changed, one-shot edits, lines added and removed',
+  'Model, agent and language names, the outcome, whether a trace came from OTEL or logs, and whether you or an agent started it, with timestamps',
   'Hashed repository, branch, file and git-author ids — one-way, keyed by your own clone',
-  'Instruction-file line counts and how often sessions read each file',
+  'A hashed conversation id, so the traces of one conversation group together',
+  'Which instruction files (CLAUDE.md, AGENTS.md and the like) each repository has, with line counts, last-modified times and a hash that only shows whether they changed',
   'Loop and error categories (never a message)',
-  'Which Advisor suggestions you applied or dismissed, with before/after averages',
-  'Your machine’s hostname and TraceRoost version, when you link it',
+  'A random id for each TraceRoost on your machine (the editor extension and the standalone server each have one)',
+  'Your machine’s hostname when you link it, and the TraceRoost version with every request',
 ]
 
 /** What never leaves the machine. There is no wire field that could hold it. */

@@ -18,7 +18,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { detectInstructionFiles, appendSuggestion, removeSuggestion } from '../src/instructionFiles'
+import { detectInstructionFiles, appendSuggestion, removeSuggestion, instructionTargetPath } from '../src/instructionFiles'
 import { computeBaseline } from '../src/instructionEffectiveness'
 import type { AppliedSuggestion } from '../src/database/instructionRepository'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
@@ -139,16 +139,18 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
   if (type === 'applyInstructionSuggestion') {
     const targetFile = m.targetFile
     const appliedText = str(m.appliedText)
-    // targetFile names an instruction file in the workspace (CLAUDE.md, AGENTS.md, …);
-    // `../../.bashrc` or an absolute path elsewhere must not become a write target.
-    if (!targetFile || typeof targetFile !== 'string' || !isStrictlyInside(workspace, targetFile)) {
-      return fail(400, `TraceRoost: Refusing to apply suggestion — ${String(targetFile)} is outside the workspace.`)
-    }
     if (!appliedText) return fail(400, 'appliedText is required')
     // Don't recreate a deleted repo's folder just to hold one instruction file.
     if (!folderExists(workspace)) return missingFolder(workspace)
+    // targetFile must be one of the instruction files detected for this workspace (CLAUDE.md,
+    // AGENTS.md, …) — not just any path inside it: appending to `.husky/pre-commit` or a
+    // `.git/hooks/*` file is code execution, and `../../.bashrc` is outside it altogether.
+    const targetPath = instructionTargetPath(workspace, targetFile)
+    if (!targetPath || typeof targetFile !== 'string' || !isStrictlyInside(workspace, targetFile)) {
+      return fail(400, `TraceRoost: Refusing to apply suggestion — ${String(targetFile)} is not an instruction file of this workspace.`)
+    }
     try {
-      appendSuggestion(path.resolve(workspace, targetFile), appliedText, id)
+      appendSuggestion(targetPath, appliedText, id)
       const nowMs = host.now?.() ?? Date.now()
       const sessions = host.sessions().filter(s => (s.workspace ?? '') === workspace)
       const baseline = computeBaseline(sessions, nowMs)
