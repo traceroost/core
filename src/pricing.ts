@@ -1,6 +1,6 @@
 // Pricing data for extension-host cost computation (cost_usd stored in sessions table).
 // Rate table is kept in sync with media/src/pricing.ts — update both when rates change.
-// PRICING_LAST_UPDATED: 2026-09-28
+// PRICING_LAST_UPDATED: 2026-10-11
 
 export interface ModelRates {
   inputPerMTok: number
@@ -97,6 +97,13 @@ const RATES: Record<string, ModelRates> = {
   'gpt-6-luna':         { inputPerMTok: 0.10,  cacheReadPerMTok: 0.01,   cacheWritePerMTok: 0.125, outputPerMTok: 0.50, contextWindowTokens: 256_000,
                           longContextThresholdTokens: 272_000,
                           inputAboveThresholdPerMTok: 0.20, cacheReadAboveThresholdPerMTok: 0.02, cacheWriteAboveThresholdPerMTok: 0.25, outputAboveThresholdPerMTok: 0.75 },
+  // gpt-6.1-sol: added 2026-10-11 — three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page,
+  // and the Codex CLI credits page: 50/2.5/250 credits ÷25). Same input/output/cache-write as gpt-6-sol but the
+  // cache-read rate is half (0.05x input rather than 0.1x). Context window not stated on any of the three pages,
+  // so left at 0 (unknown) rather than copying gpt-6-sol's.
+  'gpt-6.1-sol':        { inputPerMTok: 2.00,  cacheReadPerMTok: 0.10,   cacheWritePerMTok: 2.50, outputPerMTok: 10.00, contextWindowTokens: 0,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.20, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 15.00 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, but
   // not independently confirmed as reachable through Copilot or Codex CLI specifically (neither's own docs
   // mentioned them this pass). Added on this file's existing philosophy that a model which never appears in
@@ -116,6 +123,11 @@ const RATES: Record<string, ModelRates> = {
   'grok-4.6':           { inputPerMTok: 2.00,  cacheReadPerMTok: 0.50,   cacheWritePerMTok: 0, outputPerMTok: 6.00,  contextWindowTokens: 0,
                           longContextThresholdTokens: 200_000,
                           inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
+  // grok-4.7: added 2026-10-11 — new on the Copilot pricing page, same rate structure as grok-4.5/4.6 (also on
+  // OpenCode Zen's list at the same rates).
+  'grok-4.7':           { inputPerMTok: 2.00,  cacheReadPerMTok: 0.50,   cacheWritePerMTok: 0, outputPerMTok: 6.00,  contextWindowTokens: 0,
+                          longContextThresholdTokens: 200_000,
+                          inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
   'kimi-k3':            { inputPerMTok: 3.00,  cacheReadPerMTok: 0.30,   cacheWritePerMTok: 0, outputPerMTok: 15.00, contextWindowTokens: 0 },
   'kimi-k2.7-code':     { inputPerMTok: 0.95,  cacheReadPerMTok: 0.19,   cacheWritePerMTok: 0, outputPerMTok: 4.00,  contextWindowTokens: 0 },
   'mai-code-1-flash':   { inputPerMTok: 0.75,  cacheReadPerMTok: 0.075,  cacheWritePerMTok: 0, outputPerMTok: 4.50,  contextWindowTokens: 0 },
@@ -129,6 +141,15 @@ const RATES: Record<string, ModelRates> = {
   'claude-opus-4-1':    { inputPerMTok: 15.00, cacheReadPerMTok: 1.50,  cacheWritePerMTok: 18.75, outputPerMTok: 75.00, contextWindowTokens: 200_000 },
   'claude-haiku-3-5':   { inputPerMTok:  0.80, cacheReadPerMTok: 0.08,  cacheWritePerMTok:  1.00, outputPerMTok:  4.00, contextWindowTokens: 200_000 },
   'claude-haiku-4-5':   { inputPerMTok:  1.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok:  1.25, outputPerMTok:  5.00, contextWindowTokens: 200_000 },
+  // claude-haiku-5-5: added 2026-10-11 — confirmed on Anthropic's own pricing page and Copilot's. Unlike the rest of
+  // the 4.6+ lineup it is NOT flat across the window: Anthropic bills a request whose prompt (input + cache reads +
+  // cache writes) is over 100K tokens WHOLLY at 5x the base rates (0.50/0.05/0.625/2.50). calcCallCostWithRates can
+  // only model a marginal, per-category tier, so this is an approximation: it undercharges a request whose total
+  // prompt crosses 100K without any one category doing so (see PRICING_SOURCES.md, Known gaps). Context window isn't
+  // stated on the pricing page, so left at 0 (unknown).
+  'claude-haiku-5-5':   { inputPerMTok:  0.10, cacheReadPerMTok: 0.01,  cacheWritePerMTok:  0.125, outputPerMTok: 0.50, contextWindowTokens: 0,
+                          longContextThresholdTokens: 100_000,
+                          inputAboveThresholdPerMTok: 0.50, cacheReadAboveThresholdPerMTok: 0.05, cacheWriteAboveThresholdPerMTok: 0.625, outputAboveThresholdPerMTok: 2.50 },
   'claude-sonnet-4':    { inputPerMTok:  3.00, cacheReadPerMTok: 0.30,  cacheWritePerMTok:  3.75, outputPerMTok: 15.00, contextWindowTokens: 1_000_000,
                           longContextThresholdTokens: 200_000,
                           inputAboveThresholdPerMTok: 6.00, outputAboveThresholdPerMTok: 22.50, cacheReadAboveThresholdPerMTok: 0.60, cacheWriteAboveThresholdPerMTok: 7.50 },
@@ -150,9 +171,10 @@ const RATES: Record<string, ModelRates> = {
   // computed value.
   'claude-opus-5-5':    { inputPerMTok:  4.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok:  5.00, outputPerMTok: 20.00, contextWindowTokens: 1_000_000 },
   // claude-sonnet-5-5: added 2026-09-28 — new, confirmed on both Anthropic's own pricing page and Copilot's
-  // model list. Identical rate to Sonnet 5 (including the standard 0.1x cache-hit multiplier) — same pattern
-  // as Sonnet 4/4.6 sharing a rate. No fast mode (only Opus 5.5/5/4.8 support it).
-  'claude-sonnet-5-5':  { inputPerMTok:  2.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok:  2.50, outputPerMTok: 10.00, contextWindowTokens: 1_000_000 },
+  // model list. Same input/cache-write/output as Sonnet 5, but corrected 2026-10-11: the cache-hit rate is $0.10
+  // (0.05x base input, like Opus 5.5's), not Sonnet 5's $0.20 — both Anthropic's and Copilot's pages say so.
+  // No fast mode (only Opus 5.5/5/4.8 support it).
+  'claude-sonnet-5-5':  { inputPerMTok:  2.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok:  2.50, outputPerMTok: 10.00, contextWindowTokens: 1_000_000 },
   // fast mode for Opus 4.6 was removed 2026-06-29 — requests now run at standard speed/rates despite the -fast suffix.
   'claude-opus-4-6-fast':{ inputPerMTok:  5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok:  6.25, outputPerMTok:  25.00, contextWindowTokens: 1_000_000 },
   // fast mode for Opus 4.7 is confirmed removed as of this refresh (2026-08-07) — Anthropic's docs now state
@@ -224,6 +246,12 @@ const RATES: Record<string, ModelRates> = {
   'longcat-2.5-preview-free':    { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
   'mimo-v2.6-flash-free':        { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
   'jev-1.13-free':               { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  // Added 2026-10-11 — new free/evaluation models on the Zen docs this pass; slugs guessed from the display name
+  // (a wrong guess falls back to ~$? rather than mis-pricing). ling-3.1-flash-free supersedes ling-3.0-*-free,
+  // kept below for historical sessions.
+  'exo-free':                    { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'step-5-preview-free':         { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'ling-3.1-flash-free':         { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
 }
 
 // Exported so callers that build a model ID by appending their own suffix (e.g.

@@ -180,6 +180,48 @@ suite('pricing', () => {
     assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
   })
 
+  test('claude-sonnet-5-5 reads cache at $0.10 (0.05x), unlike claude-sonnet-5 at $0.20', () => {
+    assert.strictEqual(lookupRates('claude-sonnet-5-5')!.cacheReadPerMTok, 0.10)
+    assert.strictEqual(lookupRates('claude-sonnet-5')!.cacheReadPerMTok, 0.20)
+    // 1M input + 1M cache-read + 1M output = 2.00 + 0.10 + 10.00
+    const cost = calcTokenCostUsd(1_000_000, 1_000_000, 0, 1_000_000, 'claude-sonnet-5-5')
+    assert.ok(Math.abs(cost - 12.10) < 0.001, `Expected ~$12.10, got $${cost}`)
+  })
+
+  test('claude-haiku-5-5 is priced, resolves from a dotted ID, and has a 100K tier', () => {
+    const rates = lookupRates('claude-haiku-5.5')
+    assert.notStrictEqual(rates, null, 'claude-haiku-5.5 should normalize to claude-haiku-5-5')
+    assert.deepStrictEqual(
+      [rates!.inputPerMTok, rates!.cacheReadPerMTok, rates!.cacheWritePerMTok, rates!.outputPerMTok],
+      [0.10, 0.01, 0.125, 0.50],
+    )
+    // Under the threshold: flat. 1M of each category = 0.10 + 0.01 + 0.125 + 0.50
+    const flat = calcTokenCostUsd(90_000, 0, 0, 0, 'claude-haiku-5-5')
+    assert.ok(Math.abs(flat - 0.009) < 0.00001, `Expected $0.009, got $${flat}`)
+    // Past 100K input in one call, the excess is at 0.50 (the shared math is marginal — see the
+    // claude-haiku-5-5 comment in RATES and PRICING_SOURCES.md for why that is an approximation).
+    const tiered = calcTokenCostUsd(150_000, 0, 0, 0, 'claude-haiku-5-5')
+    const expected = (100_000 / 1_000_000) * 0.10 + (50_000 / 1_000_000) * 0.50
+    assert.ok(Math.abs(tiered - expected) < 0.00001, `Expected $${expected}, got $${tiered}`)
+  })
+
+  test('gpt-6.1-sol reads cache at half of gpt-6-sol, with the same 272K tier shape', () => {
+    assert.strictEqual(lookupRates('gpt-6.1-sol')!.cacheReadPerMTok, 0.10)
+    assert.strictEqual(lookupRates('gpt-6-sol')!.cacheReadPerMTok, 0.20)
+    // 372K input: first 272K at $2, next 100K at $4 (2x)
+    const cost = calcTokenCostUsd(372_000, 0, 0, 0, 'gpt-6.1-sol')
+    const expected = (272_000 / 1_000_000) * 2.00 + (100_000 / 1_000_000) * 4.00
+    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  })
+
+  test('grok-4.7 matches grok-4.6, and the 2026-10-11 free Zen models resolve at $0', () => {
+    assert.deepStrictEqual(lookupRates('grok-4.7'), lookupRates('grok-4.6'))
+    for (const id of ['exo-free', 'step-5-preview-free', 'ling-3.1-flash-free']) {
+      assert.strictEqual(calcTokenCostUsd(1_000_000, 1_000_000, 0, 1_000_000, id), 0, id)
+      assert.notStrictEqual(lookupRates(id), null, `${id} should be a known (free) model`)
+    }
+  })
+
   test('calcTokenCostUsd applies the surcharge to cache-read tokens for grok-4.5', () => {
     // grok-4.5 has no cache-write pricing (0), so this also exercises the cacheWrite fallback path.
     // 300K cache-read: first 200K at $0.50, next 100K at $1.00 (2x)
