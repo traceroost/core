@@ -593,6 +593,7 @@ export class LogReader {
   ): LogSessionResult | null {
     let workspace = ''
     let claudeSessionId = ''
+    let gitBranch = ''
     let model = ''
     let firstTimestamp = openingTimestamp ?? ''
     let lastTimestamp = ''
@@ -723,6 +724,8 @@ export class LogReader {
       if (ts) { if (!firstTimestamp) firstTimestamp = ts; lastTimestamp = ts }
       if (entry['cwd'] && !workspace) workspace = entry['cwd'] as string
       if (typeof entry['sessionId'] === 'string' && entry['sessionId']) claudeSessionId = entry['sessionId'] as string
+      // The branch checked out when this turn ran (Claude Code writes it on every line).
+      if (!gitBranch) gitBranch = recordedBranch(entry['gitBranch'])
 
       if (entry['type'] === 'user') {
         const content = (entry['message'] as Record<string, unknown>)?.['content']
@@ -793,6 +796,7 @@ export class LogReader {
     // Claude Code's own session id — equal to the file name for a main transcript. Shared with
     // its OTEL spans' session.id, which is how claudeTurnJoin.ts finds this transcript.
     if (claudeSessionId) card.claudeSessionId = claudeSessionId
+    if (gitBranch) card.gitBranch = gitBranch
     card.sourceRank = turns > 0 ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
     const hits = dedupeHits(limitHits)
     return { workspace, card, ...(hits.length > 0 ? { limitHits: hits } : {}) }
@@ -928,7 +932,7 @@ export class LogReader {
 
     const baseSessionId = path.basename(filePath, '.jsonl')
     const parsed = lines.map(parseLogLine)
-    const { id: rolloutId, cwd: fileWorkspace } = codexSessionMeta(parsed)
+    const { id: rolloutId, cwd: fileWorkspace, branch: fileBranch } = codexSessionMeta(parsed)
     const conversationId = rolloutId || baseSessionId
     const results: LogSessionResult[] = []
     let runningTotalTokenUsage: Record<string, number> | undefined
@@ -949,6 +953,8 @@ export class LogReader {
       const card = segment.result.card
       // The rollout's own id — Codex's thread id, the conversation id its OTEL card carries too.
       card.conversationId = conversationId
+      // The branch the rollout recorded when the session started.
+      if (fileBranch) card.gitBranch = fileBranch
       if (!turn.turnId) card.derived = true
       results.push(segment.result)
     }
@@ -2190,15 +2196,27 @@ function defaultLineTimestampMs(entry: Record<string, unknown>): number | null {
 
 /** The rollout's own session id (session_meta payload.id — Codex's thread id, the conversation
  *  id its OTEL spans carry as thread.id) and the cwd it recorded. */
-function codexSessionMeta(parsed: unknown[]): { id: string; cwd: string } {
+function codexSessionMeta(parsed: unknown[]): { id: string; cwd: string; branch: string } {
   for (const e of parsed) {
     if (e === undefined) continue
     const entry = e as Record<string, unknown>
     if (entry['type'] !== 'session_meta') continue
     const payload = entry['payload'] as Record<string, unknown> | undefined
-    return { id: typeof payload?.['id'] === 'string' ? payload['id'] : '', cwd: payload?.['cwd'] ? String(payload['cwd']) : '' }
+    const git = payload?.['git'] as Record<string, unknown> | undefined
+    return {
+      id: typeof payload?.['id'] === 'string' ? payload['id'] : '',
+      cwd: payload?.['cwd'] ? String(payload['cwd']) : '',
+      branch: recordedBranch(git?.['branch']),
+    }
   }
-  return { id: '', cwd: '' }
+  return { id: '', cwd: '', branch: '' }
+}
+
+/** A branch name an agent recorded, or '' — a detached HEAD (`HEAD`) names no branch. */
+function recordedBranch(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const b = value.trim()
+  return b && b !== 'HEAD' && b.length <= 255 ? b : ''
 }
 
 function codexTurnIdOf(entry: Record<string, unknown>, opening: boolean): string {

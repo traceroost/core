@@ -5,6 +5,14 @@ import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON } from '../signalIcons'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
+// How many signals there are, from the catalog itself so the overview can't drift from it.
+// README, package.json and walkthrough/loops.md state the same count in words;
+// src/test/signalCount.test.ts fails if any of them disagrees with SIGNAL_FORMULAS.
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven',
+  'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty']
+const SIGNAL_COUNT = Object.keys(SIGNAL_FORMULAS).length
+const SIGNAL_COUNT_WORD = NUMBER_WORDS[SIGNAL_COUNT] ?? String(SIGNAL_COUNT)
+
 const TERMS: [string, string][] = [
   ['Agent',                  'The AI coding assistant (e.g. GitHub Copilot, Claude Code, Codex) that receives your prompt, reasons about the task, and decides which tools to use. It manages the workflow, breaks down tasks, and may call the underlying LLM multiple times per trace to complete a single request. The agent is the orchestrator; the LLM is the engine it drives.'],
   ['Avg Input/Call',         'Average number of input tokens sent to the language model per LLM call. Lower means leaner prompts. Under 10K is lean; 10-30K is normal; 30K+ suggests large instruction files, verbose tool definitions, or accumulated context bloat.'],
@@ -233,7 +241,7 @@ function OverviewSection() {
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
         <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, and your trace data never leaves your machine. Docker is the least capable option: it receives OTEL only — no local log files, no agent auto-configuration, no git outcomes — so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database and Cursor CLI's transcript files — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
-        <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects sixteen signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt — see <a href="#help-signals">Signals</a> below for the full catalog.</p>
+        <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects {SIGNAL_COUNT_WORD} signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt — see <a href="#help-signals">Signals</a> below for the full catalog.</p>
       </div>
     </div>
   )
@@ -284,7 +292,7 @@ chmod +x scripts/configure-agents.sh
 .\\scripts\\configure-agents.ps1 -Agent claude
 .\\scripts\\configure-agents.ps1 -Agent codex
 .\\scripts\\configure-agents.ps1 -Agent copilot`}</pre>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 0">Prefer not to run the script? Use <strong>Configure OTEL</strong> in Settings to re-apply it manually. Check the server terminal or TraceRoost Output channel for configuration messages. If the server itself isn't running, data has nowhere to go — see <a href="#help-config">Run as a Background Service</a> below to keep it running automatically.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 0">Prefer not to run the script? Use <strong>Configure OTEL</strong> in Settings to re-apply it manually. Check the server terminal or TraceRoost Output channel for configuration messages. If the server itself isn't running, data has nowhere to go — see <a href="#help-background-service">Run as a Background Service</a> below to keep it running automatically.</p>
     </div>
   ) : (
     <div style="margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--warning,#ffb74d);border-radius:4px;padding:10px 14px">
@@ -376,6 +384,7 @@ export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
       <h4 style={h4Style}>Codex</h4>
       <p style={mutedP}>The CLI and VS Code extension both read the same file. Add an <code style={codeStyle}>[otel]</code> section:</p>
       {pathNote('~/.codex/config.toml', '%USERPROFILE%\\.codex\\config.toml')}
+      <p style="font-size:11px;color:var(--muted);margin:0 0 6px">If you set <code style={codeStyle}>CODEX_HOME</code>, the file is <code style={codeStyle}>$CODEX_HOME/config.toml</code> instead.</p>
       <pre style={preStyle}>{`[otel]
 log_user_prompt = true
 exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = "json" } }
@@ -392,7 +401,7 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
   )
 
   const backgroundServiceNote = standalone ? (
-    <div style="margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--accent,#42a5f5);border-radius:4px;padding:10px 14px">
+    <div id="help-background-service" style="scroll-margin-top:44px;margin-bottom:20px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--accent,#42a5f5);border-radius:4px;padding:10px 14px">
       <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:var(--foreground)">Run as a Background Service</p>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
         If TraceRoost isn't running, incoming OTEL data has nowhere to go and is lost — agents don't queue
@@ -622,7 +631,7 @@ function SignalsSection() {
   return (
     <div class="help-section" id="help-signals">
       <h3 class="help-heading">{HELP_SECTIONS.signals.heading}</h3>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-loop-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work. They appear in the Insights panel (inside the <strong>Overview</strong> sub-tab of each trace) with warning or critical severity. The <strong>OTEL</strong>/<strong>Log</strong> badge on each one below shows what a trace actually needs to capture for it to fire — most need live OpenTelemetry, since a reconstructed log-only trace usually lacks the tool-result detail these read; the note under each badge names the one log source (if any) that's the exception. See <a href="#help-badges">Badges</a> for what a Log-sourced trace is missing more generally.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work. They appear in the Insights panel (inside the <strong>Overview</strong> sub-tab of each trace) with warning or critical severity. The <strong>OTEL</strong>/<strong>Log</strong> badge on each one below shows what a trace actually needs to capture for it to fire — most need live OpenTelemetry, since a reconstructed log-only trace usually lacks the tool-result detail these read; the note under each badge names the one log source (if any) that's the exception. See <a href="#help-badges">Badges</a> for what a Log-sourced trace is missing more generally.</p>
       <div class="glossary">
           <LoopBlock id="help-tool-deadlock" title="Tool Call Deadlock" signalType="exact_tool_repeat"
             why={formulaHtml(SIGNAL_FORMULAS.exact_tool_repeat.bullets)}
@@ -1009,7 +1018,7 @@ function SettingsSection() {
         <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Automations watch live traces and produce a correction prompt when a trace crosses a threshold. TraceRoost never sends that prompt to the agent itself; it reaches you one of three ways:</p>
         <ul style="font-size:12px;color:var(--muted);margin:0 0 8px;padding-left:18px;line-height:1.7">
           <li><strong style="color:var(--fg)">Notification</strong> (default): a VS Code notification, or an in-page one in standalone mode, with a <strong>Copy Prompt</strong> button — paste the prompt into the agent yourself.</li>
-          <li><strong style="color:var(--fg)">Prompts file</strong>: with an automation's <strong>Write prompts file</strong> toggle on, the prompt is appended to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> in the workspace root instead. Nothing feeds that file to the agent — it helps only if you, or an instruction in CLAUDE.md/AGENTS.md, tell the agent to check it.</li>
+          <li><strong style="color:var(--fg)">Prompts file</strong>: with an automation's <strong>Write prompts file</strong> toggle on, the prompt is appended to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> instead — in the workspace root in the VS Code-family extension, or in TraceRoost's data directory (<code style={codeStyle}>~/.traceroost</code> unless you set <code style={codeStyle}>DATA_DIR</code> / <code style={codeStyle}>--data-dir</code>) for the standalone server. Nothing feeds that file to the agent — it helps only if you, or an instruction in CLAUDE.md/AGENTS.md, tell the agent to check it.</li>
           <li><strong style="color:var(--fg)">MCP</strong>: an agent can poll <code style={codeStyle}>check_automation_triggers</code> itself (see <a href="#help-mcp">MCP</a>). That tool always uses the default thresholds, because the per-agent settings made here live only in the dashboard's browser storage.</li>
         </ul>
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">For notifications and the prompts file, each automation can be turned on per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI) with its own thresholds. All four are off by default. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>
@@ -1028,7 +1037,7 @@ function SettingsSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Turn Limit Wrap-up</dt>
-            <dd class="glossary-def" style="display:block">Fires when a trace reaches the agent-specific turn threshold. Sends a prompt asking the agent to summarize progress, merge check-in details, and work toward a clean stopping point before hitting the model's hard turn limit. Defaults: 80 / 150 / 250 turns.</dd>
+            <dd class="glossary-def" style="display:block">Fires when a trace reaches the agent-specific turn threshold. Sends a prompt asking the agent to summarize progress, list what remains, and work toward a clean stopping point before hitting the model's hard turn limit. Defaults: 80 / 150 / 250 turns.</dd>
           </div>
         </div>
 
@@ -1201,7 +1210,7 @@ function ExportSection() {
     <div class="help-section" id="help-export">
       <h3 class="help-heading">{HELP_SECTIONS.export.heading}</h3>
       <div class="help-overview-body">
-        <p>The Export tab downloads traces as JSON, CSV, or Markdown. Exports follow the filter bar's time range, agent, language, prompt text, repo, source and From filters.</p>
+        <p>The Export tab saves traces as JSON, CSV, or Markdown — in the VS Code-family extension as a file in your workspace root (in the extension's storage folder when no folder is open), opened in an editor tab; in the standalone dashboard as a browser download, built from the traces the server holds in memory. Exports follow the filter bar's time range, agent, language, prompt text, repo, source and From filters.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Full export</dt>

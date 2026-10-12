@@ -169,7 +169,7 @@
           {
             "id": "traceroost.loopDetection",
             "title": "Detect Loops and Inefficiencies",
-            "description": "The Traces tab flags seventeen stuck-agent and waste signals per trace — tool-call deadlocks, error spirals, context accumulation, avoidable cache misses, and more. The Advisor tab analyzes patterns across traces to generate specific suggestions for improving your agent instruction file.",
+            "description": "The Traces tab flags sixteen stuck-agent and waste signals per trace — tool-call deadlocks, error spirals, context accumulation, avoidable cache misses, and more. The Advisor tab analyzes patterns across traces to generate specific suggestions for improving your agent instruction file.",
             "media": {
               "markdown": "walkthrough/loops.md"
             }

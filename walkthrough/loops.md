@@ -1,4 +1,4 @@
-The **Traces** tab continuously scans your traces for seventeen stuck-agent and waste signals — the five most common are below (the Help tab's Signals section lists them all). Expand any trace and open the **Overview** sub-tab to see Insights:
+The **Traces** tab continuously scans your traces for sixteen stuck-agent and waste signals — the five most common are below (the Help tab's Signals section lists them all). Expand any trace and open the **Overview** sub-tab to see Insights:
 
 | Signal | What it detects |
 | --- | --- |

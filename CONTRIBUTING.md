@@ -23,7 +23,7 @@ Open an issue at <https://github.com/traceroost/core/issues> and use the bug rep
 
 - The agent you were using (Copilot, Claude Code, Codex, OpenCode, Cursor CLI)
 - Whether you're using the VS Code extension or standalone mode
-- The TraceRoost version (visible in the Traces tab footer)
+- The TraceRoost version (shown at the bottom-left of the Traces tab, or run `traceroost --version`)
 - Relevant output from the **TraceRoost** output channel (*View → Output → TraceRoost*)
 
 ## Development setup
@@ -124,9 +124,9 @@ for what each job proves and the commands.
 
 **Commit format:** [Conventional Commits](https://www.conventionalcommits.org/) — `type(scope): imperative subject`. Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`. Keep each commit a single logical unit.
 
-**Merging:** PRs are squash-merged into `main` so the history stays one-line-per-change readable.
+**Merging:** PRs are merged into `main` with a merge commit (no squash), so each PR's own commits stay in the history; `git log --first-parent main` reads one line per merged PR.
 
-**Changelog and releases:** a user-facing PR adds its bullets under `## [Unreleased]` in `CHANGELOG.md` (`### Added` / `### Fixed` / `### Changed`, bold lead-in, PR number in parens — see the existing entries). **Never bump `version` in `package.json` in a feature PR.** The bump and the dated `## [X.Y.Z]` heading are written at release time by a release commit on `main`, which is then tagged `vX.Y.Z` — the release and Docker workflows refuse a tag that doesn't match `package.json`'s version. The whole procedure is [`runbooks/RELEASING.md`](runbooks/RELEASING.md).
+**Changelog and releases:** a user-facing PR adds its bullets under `## [Unreleased]` in `CHANGELOG.md` (`### Added` / `### Fixed` / `### Changed`, bold lead-in, PR number in parens — see the existing entries). A change that only affects TraceRoost Cloud (the full edition) goes under `### TraceRoost Cloud (full edition only)` instead, at the end of the section: `scripts/prepare-edition.mjs core` removes that sub-heading's block from the changelog the core VSIX and npm package ship. **Never bump `version` in `package.json` in a feature PR.** The bump and the dated `## [X.Y.Z]` heading are written at release time by a release commit on `main`, which is then tagged `vX.Y.Z` — the release workflow (and the Docker workflow it calls) refuses a tag that doesn't match `package.json`'s version. The whole procedure is [`runbooks/RELEASING.md`](runbooks/RELEASING.md).
 
 ## Submitting a pull request
 

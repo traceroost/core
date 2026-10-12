@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://traceroost.cloud/schema/rollup.v1.json",
+  "$id": "https://traceroost.com/api/ingest/schema",
   "title": "TraceRoost rollup, version 1",
   "description": "The complete wire format between a linked machine and the TraceRoost Cloud ingest endpoint. This is the source of truth: the open-source client emits it and the server enforces it. Every string is a hash, a uuid, an enum, or an ISO 8601 timestamp — there is no free-text field, so source code cannot pass through. The root describes one rollup (POST /api/ingest); $defs/trace_manifest describes one manifest chunk (POST /api/ingest/manifest). See docs/decisions/0003-what-we-can-and-cannot-see.md.",
   "type": "object",

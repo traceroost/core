@@ -5,7 +5,7 @@ import { DatabaseReader, type DailyStatRow, type LifetimeStats, type SearchQuery
 import { DatabaseWriter } from './database/writer'
 import { summarizeSpans } from './spanSummarizer'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
-import { sourceRankOf } from './traceIdentity'
+import { sourceRankOf, type SourceExtent } from './traceIdentity'
 
 export type { DailyStatRow, LifetimeStats, SearchQuery, BurnRate, Projection, TraceSendStats }
 
@@ -152,6 +152,11 @@ export class SessionRepository {
 
   localHorizonMs(): number | null {
     return this.reader.localHorizonMs()
+  }
+
+  /** Each source's oldest and newest trace start (DatabaseReader.sourceExtents). */
+  sourceExtents(): Map<string, SourceExtent> {
+    return this.reader.sourceExtents()
   }
 
   /** Every trace held that started in [fromMs, toMs], synthesized rows included (DatabaseReader). */

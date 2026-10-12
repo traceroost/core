@@ -117,11 +117,14 @@ function printUsage(): void {
 
 Commands:
   install [--ui-port N] [--otlp-port N] [--mcp-port N] [--bind-host H] [--data-dir DIR]
+          [--retention-days N]
                     Install and start the background service (macOS: launchd,
                     Linux: systemd --user, Windows: Scheduled Task at logon).
                     Fetches the latest traceroost from npm first, so a
                     re-install also upgrades; if that download fails it says so
                     and installs on the version already present.
+                    --retention-days N keeps N days of log-sourced traces
+                    (default 90; 0 keeps everything).
   uninstall         Stop and remove the background service.
   start             Start the installed service.
   stop              Stop the installed service.
@@ -135,7 +138,7 @@ Commands:
 
 If TraceRoost isn't running, incoming OTEL data has nowhere to go and is lost —
 agents don't queue or retry failed exports. Running as a background service
-avoids gaps in your session history from forgetting to start it, closing the
+avoids gaps in your trace history from forgetting to start it, closing the
 terminal, or a reboot.`)
 }
 

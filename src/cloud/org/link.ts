@@ -23,6 +23,7 @@ import {
   type TokenResponse,
 } from './oauthClient'
 import { loadCredentials, saveCredentials, clearCredentials } from './credentials'
+import { clearForwardNotice } from '../forward/forwardState'
 import { freshCredentials } from './tokenRefresh'
 import { ForwardQueue } from '../forward/queue'
 import { orgEndpoint } from './config'
@@ -71,10 +72,12 @@ export async function refreshOrgNameIfStale(log?: (m: string) => void): Promise<
     role: self.role,
     perDeveloperVisibility: self.perDeveloperVisibility,
     email: self.email || creds.email,
+    teammateVisibilitySummary: self.teammateVisibilitySummary ?? creds.teammateVisibilitySummary,
   }
   if (
     next.orgName === creds.orgName && next.role === creds.role &&
-    next.perDeveloperVisibility === creds.perDeveloperVisibility && next.email === creds.email
+    next.perDeveloperVisibility === creds.perDeveloperVisibility && next.email === creds.email &&
+    next.teammateVisibilitySummary === creds.teammateVisibilitySummary
   ) return false
   saveCredentials(next)
   return true
@@ -98,12 +101,15 @@ async function persistFromTokens(tokens: TokenResponse): Promise<LinkResult> {
     email: self?.email || undefined,
     role: self?.role ?? 'developer',
     perDeveloperVisibility: self?.perDeveloperVisibility ?? false,
+    ...(self?.teammateVisibilitySummary ? { teammateVisibilitySummary: self.teammateVisibilitySummary } : {}),
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
     accessTokenExpiresAt: Date.now() + tokens.expiresInSeconds * 1000,
     linkedAt: new Date().toISOString(),
   }
   saveCredentials(creds)
+  // A "re-link this machine" notice (sender.ts) is answered.
+  clearForwardNotice()
   return { orgId: creds.orgId, orgName: creds.orgName, memberId: creds.memberId, role: creds.role }
 }
 
@@ -168,6 +174,10 @@ export interface DeviceLinkOptions {
   timeoutMs?: number
   /** Injectable for tests. */
   sleep?: (ms: number) => Promise<void>
+  /** Called when the approval is held back for now — the org has no machine slot left (the
+   *  cloud's `error_description`). Polling continues: the code stays pending, so it links as soon
+   *  as the org upgrades or frees a machine. Called again only when the message changes. */
+  onBlocked?: (message: string) => void
 }
 
 export async function linkViaDevice(opts: DeviceLinkOptions): Promise<LinkResult> {
@@ -184,15 +194,20 @@ export async function linkViaDevice(opts: DeviceLinkOptions): Promise<LinkResult
 
   const deadline = Date.now() + (opts.timeoutMs ?? start.expiresInSeconds * 1000)
   let intervalMs = start.intervalSeconds * 1000
+  let blocked: string | null = null
   while (Date.now() < deadline) {
     await sleep(intervalMs)
     const result = await pollDeviceFlow(start.deviceCode)
     if (result.status === 'authorized') return await persistFromTokens(result.tokens)
-    if (result.status === 'denied') throw new Error('the link request was denied in the browser')
-    if (result.status === 'expired') throw new Error('the device code expired before it was approved')
+    if (result.status === 'denied') throw new Error(result.message ?? 'the link request was denied in the browser')
+    if (result.status === 'expired') throw new Error(blocked ? `the device code expired before the org had a free machine slot — ${blocked}` : 'the device code expired before it was approved')
     if (result.status === 'slow_down') intervalMs += 5_000
+    if (result.status === 'blocked') {
+      if (result.message !== blocked) opts.onBlocked?.(result.message)
+      blocked = result.message
+    }
   }
-  throw new Error('timed out waiting for the device code to be approved')
+  throw new Error(blocked ?? 'timed out waiting for the device code to be approved')
 }
 
 export interface LeaveResult {

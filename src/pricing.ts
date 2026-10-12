@@ -1,6 +1,6 @@
 // Pricing data for extension-host cost computation (cost_usd stored in sessions table).
 // Rate table is kept in sync with media/src/pricing.ts — update both when rates change.
-// PRICING_LAST_UPDATED: 2026-09-28
+// PRICING_LAST_UPDATED: 2026-10-11
 
 export interface ModelRates {
   inputPerMTok: number
@@ -8,10 +8,11 @@ export interface ModelRates {
   cacheWritePerMTok: number
   outputPerMTok: number
   contextWindowTokens: number   // max context window for Projection estimates; 0 = unknown
-  // Optional tiered "long context" surcharge, applied per API call above longContextThresholdTokens.
-  // When absent, flat rates apply regardless of call size. Threshold is per-model (confirmed values
-  // vary — 200K for some models, 272K for others — see PRICING_SOURCES.md); defaults to 200K if the
-  // above-threshold rates are set but the threshold itself isn't (kept for claude-sonnet-4 parity).
+  // Optional "long context" tier: a call whose whole prompt (input + cache read + cache write) is over
+  // longContextThresholdTokens is billed entirely — output included — at the *AboveThreshold rates
+  // (see longContextRates). When absent, flat rates apply regardless of call size. Threshold is
+  // per-model (100K, 200K or 272K — see PRICING_SOURCES.md); defaults to 200K if the above-threshold
+  // rates are set but the threshold itself isn't (kept for claude-sonnet-4 parity).
   longContextThresholdTokens?: number
   inputAboveThresholdPerMTok?: number
   outputAboveThresholdPerMTok?: number
@@ -129,6 +130,12 @@ const RATES: Record<string, ModelRates> = {
   'claude-opus-4-1':    { inputPerMTok: 15.00, cacheReadPerMTok: 1.50,  cacheWritePerMTok: 18.75, outputPerMTok: 75.00, contextWindowTokens: 200_000 },
   'claude-haiku-3-5':   { inputPerMTok:  0.80, cacheReadPerMTok: 0.08,  cacheWritePerMTok:  1.00, outputPerMTok:  4.00, contextWindowTokens: 200_000 },
   'claude-haiku-4-5':   { inputPerMTok:  1.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok:  1.25, outputPerMTok:  5.00, contextWindowTokens: 200_000 },
+  // claude-haiku-5-5: added 2026-10-11 — Anthropic's pricing page prices it by prompt length: a call whose
+  // prompt (input + cache reads + cache writes) is over 100,000 tokens pays $0.50/$0.05/$0.625/$2.50 for
+  // the whole call instead of $0.10/$0.01/$0.125/$0.50. The only Claude 4.6+ model with a long-context tier.
+  'claude-haiku-5-5':   { inputPerMTok:  0.10, cacheReadPerMTok: 0.01,  cacheWritePerMTok: 0.125, outputPerMTok:  0.50, contextWindowTokens: 1_000_000,
+                          longContextThresholdTokens: 100_000,
+                          inputAboveThresholdPerMTok: 0.50, cacheReadAboveThresholdPerMTok: 0.05, cacheWriteAboveThresholdPerMTok: 0.625, outputAboveThresholdPerMTok: 2.50 },
   'claude-sonnet-4':    { inputPerMTok:  3.00, cacheReadPerMTok: 0.30,  cacheWritePerMTok:  3.75, outputPerMTok: 15.00, contextWindowTokens: 1_000_000,
                           longContextThresholdTokens: 200_000,
                           inputAboveThresholdPerMTok: 6.00, outputAboveThresholdPerMTok: 22.50, cacheReadAboveThresholdPerMTok: 0.60, cacheWriteAboveThresholdPerMTok: 7.50 },
@@ -149,10 +156,10 @@ const RATES: Record<string, ModelRates> = {
   // is 0.05x base input ($0.20/MTok) rather than the usual 0.1x — Anthropic's own stated exception, not a
   // computed value.
   'claude-opus-5-5':    { inputPerMTok:  4.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok:  5.00, outputPerMTok: 20.00, contextWindowTokens: 1_000_000 },
-  // claude-sonnet-5-5: added 2026-09-28 — new, confirmed on both Anthropic's own pricing page and Copilot's
-  // model list. Identical rate to Sonnet 5 (including the standard 0.1x cache-hit multiplier) — same pattern
-  // as Sonnet 4/4.6 sharing a rate. No fast mode (only Opus 5.5/5/4.8 support it).
-  'claude-sonnet-5-5':  { inputPerMTok:  2.00, cacheReadPerMTok: 0.20,  cacheWritePerMTok:  2.50, outputPerMTok: 10.00, contextWindowTokens: 1_000_000 },
+  // claude-sonnet-5-5: added 2026-09-28. Same input/output/cache-write rate as Sonnet 5, but cache hits are
+  // 0.05x base input ($0.10/MTok), like Opus 5.5 — corrected 2026-10-11 from $0.20 (Anthropic's pricing
+  // page, footnote 2). No fast mode (only Opus 5.5/5/4.8 support it).
+  'claude-sonnet-5-5':  { inputPerMTok:  2.00, cacheReadPerMTok: 0.10,  cacheWritePerMTok:  2.50, outputPerMTok: 10.00, contextWindowTokens: 1_000_000 },
   // fast mode for Opus 4.6 was removed 2026-06-29 — requests now run at standard speed/rates despite the -fast suffix.
   'claude-opus-4-6-fast':{ inputPerMTok:  5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok:  6.25, outputPerMTok:  25.00, contextWindowTokens: 1_000_000 },
   // fast mode for Opus 4.7 is confirmed removed as of this refresh (2026-08-07) — Anthropic's docs now state
@@ -337,19 +344,55 @@ export function lookupRates(modelId: string): ModelRates | null {
 }
 
 // ── Cost math ────────────────────────────────────────────────────────────────
-// Everything from tieredCost through calcSessionCostUsd is copied byte-for-byte into
+// Everything from longContextRates through calcSessionCostUsd is copied byte-for-byte into
 // media/src/pricing.ts — the webview can't import this file (media/tsconfig.json's rootDir), so
 // both carry it and src/test/media/pricing.test.ts fails if the two copies drift. Edit both together.
 
-// Applies two-tier pricing: tokens up to the threshold at baseRate, remainder at aboveRate.
-function tieredCost(tokens: number, threshold: number, baseRatePerMTok: number, aboveRatePerMTok: number): number {
-  if (tokens <= threshold) return (tokens / 1_000_000) * baseRatePerMTok
-  return (threshold / 1_000_000) * baseRatePerMTok
-       + ((tokens - threshold) / 1_000_000) * aboveRatePerMTok
+// Long-context tier: the rates a call is billed at once its prompt is over the model's threshold.
+// Every vendor that publishes such a tier prices the WHOLE request at the higher rates — input,
+// cache reads, cache writes and output — not just the tokens past the threshold, and decides it on
+// the call's whole prompt (uncached input + cache reads + cache writes); output never counts
+// toward the threshold:
+//   - Anthropic: "A request's prompt length counts all of its input tokens, including cache reads
+//     and cache writes. Each request is priced on its own: a request over the threshold pays the
+//     higher prices even when part of its prompt is a cache hit" (Claude Haiku 5.5, > 100K; the
+//     same rule Claude Sonnet 4's 1M-context beta used above 200K input tokens) —
+//     https://platform.claude.com/docs/en/about-claude/pricing#long-context-pricing
+//   - OpenAI: "prompts with >272K input tokens are priced at 2x input and 1.5x output for the full
+//     session" (cached input is part of input tokens) —
+//     https://developers.openai.com/api/docs/models/gpt-5.5
+//   - Google: Gemini Pro "prompts > 200k tokens" rows price the request's input, output and context
+//     caching at the higher rate (cached tokens are part of the prompt) —
+//     https://ai.google.dev/gemini-api/docs/pricing
+// A missing per-category above-threshold rate (e.g. cache write on a model with no cache-write
+// pricing) keeps that category's flat rate. Threshold defaults to 200K if the above-threshold rates
+// are set without one (kept for claude-sonnet-4 parity — every model added since sets it).
+function longContextRates(rates: ModelRates): ModelRates {
+  return {
+    ...rates,
+    inputPerMTok: rates.inputAboveThresholdPerMTok ?? rates.inputPerMTok,
+    cacheReadPerMTok: rates.cacheReadAboveThresholdPerMTok ?? rates.cacheReadPerMTok,
+    cacheWritePerMTok: rates.cacheWriteAboveThresholdPerMTok ?? rates.cacheWritePerMTok,
+    outputPerMTok: rates.outputAboveThresholdPerMTok ?? rates.outputPerMTok,
+  }
+}
+
+/** Whether ONE call's prompt (uncached input + cache reads + cache writes) is over the model's
+ *  long-context threshold — strictly over, as every vendor words it ("over 100,000", ">272K"). */
+export function isLongContextCall(
+  inputTokens: number,
+  cacheReadTokens: number,
+  cacheWriteTokens: number,
+  rates: ModelRates,
+): boolean {
+  if (rates.inputAboveThresholdPerMTok === undefined) return false
+  const threshold = rates.longContextThresholdTokens ?? 200_000
+  return inputTokens + cacheReadTokens + cacheWriteTokens > threshold
 }
 
 // Prices ONE API call. The long-context tier is a per-call surcharge, so it is only ever applied
-// here — never to a sum of several calls (see calcAggregateCostWithRates).
+// here — never to a sum of several calls (see calcAggregateCostWithRates). `inputTokens` is the
+// uncached input only; cache reads and writes are passed separately.
 export function calcCallCostWithRates(
   inputTokens: number,
   cacheReadTokens: number,
@@ -357,18 +400,8 @@ export function calcCallCostWithRates(
   outputTokens: number,
   rates: ModelRates,
 ): number {
-  if (rates.inputAboveThresholdPerMTok !== undefined) {
-    // Threshold defaults to 200K if above-threshold rates are set without an explicit threshold
-    // (kept for claude-sonnet-4 parity — every model added since has set this explicitly).
-    // Missing per-category above-threshold rates (e.g. cache write on a model with no cache-write
-    // pricing at all) fall back to that category's flat rate, i.e. no surcharge for that category.
-    const threshold = rates.longContextThresholdTokens ?? 200_000
-    return tieredCost(inputTokens,     threshold, rates.inputPerMTok,      rates.inputAboveThresholdPerMTok)
-         + tieredCost(cacheReadTokens,  threshold, rates.cacheReadPerMTok,  rates.cacheReadAboveThresholdPerMTok ?? rates.cacheReadPerMTok)
-         + tieredCost(cacheWriteTokens, threshold, rates.cacheWritePerMTok, rates.cacheWriteAboveThresholdPerMTok ?? rates.cacheWritePerMTok)
-         + tieredCost(outputTokens,     threshold, rates.outputPerMTok,     rates.outputAboveThresholdPerMTok ?? rates.outputPerMTok)
-  }
-  return calcAggregateCostWithRates(inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens, rates)
+  const billed = isLongContextCall(inputTokens, cacheReadTokens, cacheWriteTokens, rates) ? longContextRates(rates) : rates
+  return calcAggregateCostWithRates(inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens, billed)
 }
 
 // Prices a token total that may span MANY API calls (a whole session, a day, a projection) at the

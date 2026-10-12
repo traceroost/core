@@ -19,7 +19,7 @@ Two things it does that a usage dashboard doesn't:
 - **Catches agents that are stuck.** Sixteen named signals — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, avoidable cache misses, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--signals)
 - **Tells you what to fix in your instructions file.** The Advisor reads across traces and suggests concrete additions to your CLAUDE.md or AGENTS.md — including hot files the agent rediscovers from scratch on every run. [More →](#features)
 
-**Quick start:**
+**Quick start** (requires Node.js 24+):
 
 The recommended way to run TraceRoost is as a background service — it starts automatically and keeps running without a terminal open, so incoming OTEL data from your agents is never silently lost:
 
@@ -78,11 +78,11 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 
 ## Features
 
-- **OpenTelemetry collection** — Built-in OTEL receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; auto-configured on first activation
+- **OpenTelemetry collection** — Built-in OTEL receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; auto-configured on every activation (and every standalone server start)
 - **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, and Cursor CLI, and OpenCode's SQLite database — backfilling history when OTEL isn't configured (VS Code-family IDEs and native process only)
 - **Traces Table** — Drill into any trace: expand a row to see a full span waterfall, turn-to-tool flow graph, tool distribution chart, and modified files — all without leaving the trace list. Filter by agent, language, repo, git outcome, data source, initiator, time range or text; the agent pills and language list offer only what your traces contain, and changing the sort returns to page 1
 - **Files Changed** — The Files sub-tab tracks every file created or modified by a trace, organized with inline before/after diffs. A git-outcome banner then classifies each file as Merged (reached the trunk branch), Committed, or still Uncommitted by comparing against local git history after the fact — answers "did this trace's changes actually survive?" The same verdict drives the Traces table's **Out** column and Outcome filter (VS Code extension and native process; not available in Docker mode — same host git-repo access limitation as log file ingestion)
-- **Language & Change Size** — Each trace gets a primary (and, when it touched more than one, secondary) programming language from a fixed list — TypeScript, JavaScript, Python, Go, Rust, Java, C#, C/C++, Ruby, PHP, Swift, Kotlin, Dart, Shell, SQL, HTML, CSS, Other code, or No code — derived from the extensions of the files the agent read and changed (each distinct file counted once; Vue/Svelte components count as TypeScript when the trace touched TypeScript, else JavaScript; docs, config, lockfiles and data files ignored). Alongside it, the agent's own change size: files changed and lines added/removed by its edit and write tool calls (agent-authored edits, not git stats; every file counts here, code or not). Shown as the Traces table's **Lang** and **Changes** columns and in the expanded trace, filterable with the **Language** filter, broken down in Analytics, and included in exports. Traces stored before this existed show "—"
+- **Language & Change Size** — Each trace gets a primary (and, when it touched more than one, secondary) programming language from a fixed list — TypeScript, JavaScript, Python, Go, Rust, Java, C#, C/C++, Ruby, PHP, Swift, Kotlin, Dart, Shell, SQL, HTML and CSS, plus Other code (e.g. PowerShell, Scala, Lua) — derived from the extensions of the files the agent read and changed (each distinct file counted once; Vue/Svelte components count as TypeScript when the trace touched TypeScript, else JavaScript). A trace that touched no code file is named by the kind of file it did touch instead: Docs, Config (including lockfiles), Data or Assets; No code means it touched only files of no recognised kind, and No files means it read or changed no file at all (shown blank in the Lang column). Alongside it, the agent's own change size: files changed and lines added/removed by its edit and write tool calls (agent-authored edits, not git stats; every file counts here, code or not). Shown as the Traces table's **Lang** and **Changes** columns and in the expanded trace, filterable with the **Language** filter, broken down in Analytics, and included in exports. Traces stored before this existed show "—"
 - **One-shot / Retry Rate** — Tracks what fraction of edited files reached their final state in a single edit pass vs. needed retries, per trace (Files sub-tab) and aggregated per-agent in Analytics — a proxy for correction effort
 - **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, lines changed, and top tools for Copilot, Claude, Codex, OpenCode, and Cursor CLI), a by-language table (files and lines changed by the agent, then traces, cost, tokens and lines +/− per primary language), plan limits, outcome & token spend over time (tokens stacked by merged / committed / uncommitted), code changes over time (lines added/removed and files changed by the agent's own edits — not git stats; traces without line data are left out and counted in a note), estimated cost with a daily total overlay, token usage per trace, and context growth
 - **Advisor** — A "How to spend less" card ranking the biggest savings, plus project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Suggestions are worked out per repo and Apply appends them to the instruction file you pick (CLAUDE.md, .github/copilot-instructions.md, AGENTS.md for Codex/OpenCode/Cursor CLI, or a `.cursor/rules/traceroost.mdc` Cursor rule): in VS Code for the open folder, in standalone/npx mode for every repo in your traces, grouped by repo.
@@ -91,7 +91,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and sixteen signals with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for context-window size, turns, errors, active time, zero cache use, repeat tool calls, plan-limit windows, and estimated daily cost — per-agent or shared
 - **Automated Prompts** — The gear-icon Settings panel's Automation section configures threshold-based automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up) that trigger a correction prompt when a trace crosses a limit — delivered as a notification or written to a file for agent consumption; agents can also poll for them via the MCP server's `check_automation_triggers` tool
-- **Export** — Export filtered traces as JSON, CSV, or Markdown (full or redacted); respects the active agent, language, source, time range, and text filters
+- **Export** — Export filtered traces as JSON, CSV, or Markdown (full or redacted); respects the active time range, agent, language, prompt text, repo, source, and From (initiator) filters. The extension writes the file to your workspace root; the standalone dashboard downloads it in your browser
 - **Import** — Import traces from a previous TraceRoost JSON export; drag-drop or file-pick, shows a preview with trace count by source and date range, imports with live progress and automatic deduplication (existing traces are skipped)
 - **MCP Server** — Exposes your own trace history to Claude Code (or any MCP-compatible agent) so it can query its recent work, cost, and recurring file/loop patterns before starting a task, instead of you checking the dashboard yourself. Runs by default on port `4316`; register it with `claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp` (the in-app Help tab's MCP section has the full setup and tool list)
 - **Make a suggestion** — The header's suggestion icon opens TraceRoost's public suggestion page in your browser; the link carries only the TraceRoost version and the current tab's name, never your traces or workspace
@@ -104,7 +104,7 @@ TraceRoost collects data from two independent sources per agent. Each trace row 
 
 ### OpenTelemetry traces (primary source)
 
-The VS Code extension runs a built-in OTEL HTTP receiver on port `4318` and auto-configures each agent on first activation. The native process and Docker modes also expose the same receiver. OTEL data is the richest source: real-time span timing, time-to-first-token, per-tool latency, loop detection signals, file diff content, and streaming speed. Traces from OTEL show an **OTEL** badge.
+The VS Code extension runs a built-in OTEL HTTP receiver on port `4318` and auto-configures each agent on every activation. The native process and Docker modes also expose the same receiver. OTEL data is the richest source: real-time span timing, time-to-first-token, per-tool latency, loop detection signals, file diff content, and streaming speed. Traces from OTEL show an **OTEL** badge.
 
 See [Manual Configuration](#manual-configuration) for the specific settings each agent needs. OTEL is the only data source available in Docker mode.
 
@@ -125,11 +125,11 @@ Copilot Chat traces are scanned across all installed VS Code-family IDEs automat
 
 Loading is incremental and runs in the background, sorted newest-first so recent traces appear immediately. A 30-second poll picks up new traces as they complete.
 
-Non-default locations: `CLAUDE_CONFIG_DIR` (Claude Code), `CODEX_HOME` (Codex) and `OPENCODE_DATA_DIR` (OpenCode) are honored, each as a comma-separated list of directories.
+Non-default locations: `CLAUDE_CONFIG_DIR` (Claude Code), `CODEX_HOME` (Codex) and `OPENCODE_DATA_DIR` (OpenCode) are honored, each as a comma-separated list of directories. Without them, OpenCode's database is looked for under `$XDG_DATA_HOME/opencode` when `XDG_DATA_HOME` is set (else `~/.local/share/opencode`), Cursor CLI's transcripts also under `$XDG_CONFIG_HOME/cursor/projects`, and on Windows Codex's sessions also under `%LOCALAPPDATA%\Codex\sessions` and `%APPDATA%\Codex\sessions`.
 
 To disable log ingestion: set `traceRoost.enableLogIngestion` to `false` in VS Code settings (or use the toggle in the gear-icon Settings panel).
 
-**Clear All Data** (Settings) only deletes TraceRoost' own stored copy — it never touches these source log files, and log-sourced traces will simply be re-read on the next scan. TraceRoost has no way to delete the log files themselves; do that directly at the paths above if you want them gone.
+**Clear All Data** (Settings) only deletes TraceRoost's own stored copy — it never touches these source log files, and log-sourced traces will simply be re-read on the next scan. TraceRoost has no way to delete the log files themselves; do that directly at the paths above if you want them gone.
 
 ### What each agent gives you, source by source
 
@@ -210,7 +210,12 @@ All figures are estimates — not your actual bill. Rates are sourced from each 
 
 ### Export
 
-The **Export** tab writes trace summary files to your workspace root, in your choice of three formats:
+The **Export** tab saves trace summaries in your choice of three formats. Where the file goes depends on how you run TraceRoost:
+
+- **VS Code extension** — written to your workspace root (or, with no folder open, to the extension's global storage folder) and opened in an editor tab.
+- **Standalone server** (`npx`, the background service, Docker) — downloaded by your browser.
+
+The formats:
 
 - **JSON** (default) — one structured record per trace: prompt text, agent and model, timing, token and cache counts, tool-call counts, files read and changed, loop signals, language (primary and secondary), and change size (files changed, lines added/removed). This is the only format the **Import** tab reads back in.
 - **CSV** — one row per trace, with array/object fields (models, files, tool counts, loop signals) flattened into semicolon-joined cells. Built for dropping into a spreadsheet.
@@ -218,7 +223,7 @@ The **Export** tab writes trace summary files to your workspace root, in your ch
 
 Each format is available both as the full export and as a redacted export (prompt text and file paths replaced with `[redacted]`) — filenames follow `export_sessions_<timestamp>.<ext>` (or `export_redacted_sessions_<timestamp>.<ext>` for the redacted version), with `<ext>` matching the format chosen (`json`, `csv`, or `md`).
 
-Exports draw from the full SQLite trace history, not just the active window, so all past traces are included regardless of when they ran.
+An export contains the traces that match the dashboard's current filters — time range, agent, language, prompt text, repo, source (OTEL / Log) and From (User / Agent). In the extension it draws from the full SQLite trace history, not just the active window, so every matching past trace is included. The standalone dashboard builds the file in the browser from the traces it has loaded, so it holds the matching traces in the server's in-memory history.
 
 > **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export from this tab, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export OTEL Data` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
 
@@ -263,7 +268,7 @@ The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categori
 | **Cache TTL Expiry** | A cache miss followed a gap longer than the cache's TTL | Turns spaced further apart than the cache lives |
 | **Poor Cache Utilization** | Little of the trace's context came from cache | Something invalidating the cached prefix every turn |
 | **Budget Overrun** | Trace cost exceeded the cap set in `TRACEROOST_BUDGET_CAP_USD` (off unless set) | A loop or retry pattern driving cost, or an under-sized cap |
-| **Model Tier Mismatch** | A premium model ran a long, read-only, low-output stretch with no edits | Read/search work that a cheaper model could do |
+| **Model Tier Mismatch** | A premium model ran a read-only, low-output stretch of 3+ tool calls with no edits | Read/search work that a cheaper model could do |
 
 Each signal includes a specific recommended action and a **Copy** button that copies the recommendation prompt to your clipboard so you can paste it into your agent. Use the **Ignore** button to dismiss signals that represent intentional behavior. The in-app Help tab's Signals section has each signal's exact trigger thresholds and which data source (OTEL or logs) it needs.
 
@@ -271,7 +276,7 @@ Each signal includes a specific recommended action and a **Copy** button that co
 
 ### Local (OTEL and log files)
 
-The fastest way to get started — run directly on your machine with no install required. Because it runs natively it has full access to your local log files.
+The fastest way to get started — run directly on your machine with no install required. Because it runs natively it has full access to your local log files. Requires Node.js 24+.
 
 ```bash
 # One-off — the @latest tag forces a fresh fetch (see note below)
@@ -309,14 +314,15 @@ Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install fro
 
 ### Docker (OTEL only)
 
-> **Docker is the least capable way to run TraceRoost — prefer the [background service](#local-otel-and-log-files) or the [VS Code extension](#vs-code-extension-otel-and-log-files).** The container is isolated from your host, so:
+> **Docker is the least capable way to run TraceRoost — prefer the [background service](#background-service-macos--windows--linux) or the [VS Code extension](#vs-code-extension-otel-and-log-files).** The container is isolated from your host, so:
 >
 > - **No log file ingestion** — it receives OTEL traces only, with no log-file backfill of past history or of sessions sent while it wasn't running.
 > - **No agent auto-configuration** — auto-config writes to the *container's* filesystem, not your host's agent configs. Run the [setup scripts](#configuring-agents-for-local--docker) or follow [Manual Configuration](#manual-configuration).
 > - **No git outcomes** — it can't see your local git repos.
 
 ```bash
-# Ephemeral — data cleared on container stop (always pulls latest)
+# No volume — data lives in the container: it survives `docker stop`/`start`, but is lost
+# when the container is removed, and a new container generates a new access token (always pulls latest)
 docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost
 
 # Persistent — data survives restarts (macOS/Linux)
@@ -449,6 +455,7 @@ The CLI and VS Code extension both read the same file. Add an `[otel]` section:
 
 - **macOS/Linux:** `~/.codex/config.toml`
 - **Windows:** `%USERPROFILE%\.codex\config.toml`
+- **`CODEX_HOME` set:** `$CODEX_HOME/config.toml`
 
 ```toml
 [otel]
@@ -652,16 +659,22 @@ identifiers — it's a plain request for the public package's latest version. Se
 - **Docker** — stop and remove the container (`docker rm -f <container>`) and, if you like, the
   image (`docker rmi traceroost/traceroost`).
 
-**Remove its data:** delete `~/.traceroost` (or wherever you pointed `DATA_DIR` /
-`--data-dir`) — the standalone server's trace database, its `config.json` (ports, access token)
-and logs. Automation prompts files (`traceroost-prompts-*.md`) live in your workspace root or the
-server's working directory if you turned them on.
+**Remove its data:** delete `~/.traceroost` — the standalone server's `config.json` (ports, access
+token) always lives there, even when you pointed `DATA_DIR` / `--data-dir` somewhere else. If you
+did, delete that data directory too: it holds the trace database, the service's logs
+(`<data dir>/logs`) and, if you turned them on, the standalone server's automation prompts files
+(`traceroost-prompts-*.md`). The VS Code extension writes its prompts files to your workspace root
+instead.
 
 **Remove what auto-configuration wrote into your agents** (skip this if you turned
-auto-configuration off). TraceRoost only ever added or updated these keys; everything else in the
-files is yours. When it changed a file that already existed, it first saved the original once as
-`<file>.traceroost.bak` next to it — restoring that undoes everything TraceRoost changed (and
-anything you changed since).
+auto-configuration off). TraceRoost added or updated the keys below. In Claude Code's
+`settings.json` it also *removed* four older keys from `"env"` — `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`,
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_SEMCONV_STABILITY_OPT_IN` and
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` — and a `Stop` hook that earlier versions
+installed (one that printed `~/.traceroost/pending-prompt.txt`). Everything else in the files is
+yours. When it changed a file that already existed, it first saved the original once as
+`<file>.traceroost.bak` next to it — restoring that undoes everything TraceRoost changed, removed
+keys and hook included (and also anything you changed since).
 
 | Agent | File | What to remove |
 | --- | --- | --- |
@@ -689,7 +702,7 @@ When **Write prompts file** is enabled for an automation rule, each trigger appe
 | OpenCode | `traceroost-prompts-opencode.md` |
 | Cursor CLI | `traceroost-prompts-cursor.md` |
 
-In the VS Code extension, files are written to the workspace root. In local mode, files are written to the directory where the server is running.
+In the VS Code extension, files are written to the workspace root. The standalone server (`npx`, the background service, Docker) writes them to its data directory — `~/.traceroost` unless you set `DATA_DIR` / `--data-dir` (in Docker, `/data`).
 
 Each entry uses this format:
 

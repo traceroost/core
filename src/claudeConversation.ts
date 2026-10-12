@@ -35,6 +35,8 @@ export function mergeCardsByKey(otelCards: SessionSummaryCard[], logCards: Itera
     const extra: Partial<SessionSummaryCard> = {}
     if (!winner.conversationId && loser.conversationId) extra.conversationId = loser.conversationId
     if (winner.subagentCount === undefined && loser.subagentCount !== undefined) extra.subagentCount = loser.subagentCount
+    // The transcript recorded the branch; an OTEL card for the same turn doesn't carry one.
+    if (!winner.gitBranch && loser.gitBranch) extra.gitBranch = loser.gitBranch
     byKey.set(log.sessionId, Object.keys(extra).length > 0 ? { ...winner, ...extra } : winner)
   }
   return [...byKey.values(), ...merged]
