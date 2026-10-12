@@ -4,6 +4,8 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-10-11
+
 > **Your local trace history is rebuilt once on the first start after upgrading.** Traces now get one stable key per agent turn, so the VS Code extension and the npx/service server drop their stored traces and read every agent log file again from scratch (instruction suggestions, plan-limit readings and settings are kept). A large history takes a few minutes to fill back in. Traces that only ever reached TraceRoost over OTEL, or whose log file the agent has since deleted, may not come back — export them first if you need them (#288, #296)
 
 ### Added
