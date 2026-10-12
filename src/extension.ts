@@ -31,6 +31,8 @@ import { startBackgroundReconciliation, type BackgroundWatcher } from './reconci
 import { KeyedDebouncer } from './reconcile/keyedDebouncer'
 import { createSessionForwarder } from './sessionForwarder'
 import { matchesTraceId } from './traceIdentity'
+import { TraceHorizon } from './traceHorizon'
+import { HistoryReadiness } from './historyReadiness'
 import { decidePipeline } from './ownerGate'
 
 let collector: OtlpCollector | undefined
@@ -66,10 +68,9 @@ const ownsPipeline = () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoost
 const forwardChangedSession: typeof forwardChangedSessionUngated = (card) => {
   if (ownsPipeline()) forwardChangedSessionUngated(card)
 }
-// The trace manifest (stable trace identity) lists what the database holds, so it must not go
-// out while the database is still filling: false until the startup log load has been written,
-// and again while "clear all data" re-ingests.
-let traceStoreReady = false
+// What the manifest may claim the database holds in full (src/traceHorizon.ts) — moved forward
+// by "clear all data". Set once the global storage dir is known.
+let traceHorizon: TraceHorizon | undefined
 
 // ── Cross-window sync ────────────────────────────────────────────────────────
 
@@ -92,6 +93,15 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
   }
 }
 
+const SETUP_HELP_BUTTON = 'Open Setup Help'
+
+/** Opens the dashboard on Help → Setup (Manual Configuration lists every agent's settings). */
+function openSetupHelp(): void {
+  void vscode.commands.executeCommand('traceRoost.openDashboard')
+  // Same delay the deep-link handlers use, so a panel opened just now has its webview listening.
+  setTimeout(() => DashboardPanel.switchToTab('help', 'help-config'), 250)
+}
+
 // ── Activate ─────────────────────────────────────────────────────────────────
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -101,18 +111,18 @@ export async function activate(context: vscode.ExtensionContext) {
   outputChannel.appendLine(`TraceRoost activating… (v${context.extension.packageJSON.version})`)
 
   // ── Duplicate-install guard ─────────────────────────────────────────────────
-  // During the AgentLens → TraceRoost transition the same build ships under two
-  // marketplace ids: `traceroost.traceroost` (the new listing) and
-  // `agentlens.agentlens-dashboard` (the old listing, so existing users keep
-  // updating). If both are installed they'd register the same commands, the same
-  // `traceroost` view container, and two collectors fighting over the OTLP/MCP
-  // ports. The old copy stands down; the new one keeps running and asks the user
-  // to remove the duplicate.
+  // The published listing (`agentlens.agentlens-dashboard`) and a local build
+  // (`traceroost.traceroost` — package.json's id, unpublished until the extension-id
+  // cutover) would register the same commands, the same `traceroost` view container,
+  // and two collectors fighting over the OTLP/MCP ports. The local build stands down
+  // and the published copy asks the user to remove the local one — see
+  // handleDuplicateInstall below.
   if (await handleDuplicateInstall(context)) { return }
 
   // This host's trace store — its cloud host id lives beside the database, so the extension and
   // the standalone server (one shared link) each reconcile only their own traces.
   cloud.setHostStore(context.globalStorageUri.fsPath)
+  traceHorizon = new TraceHorizon(context.globalStorageUri.fsPath)
 
   // ── Database ────────────────────────────────────────────────────────────────
   try {
@@ -297,23 +307,22 @@ export async function activate(context: vscode.ExtensionContext) {
       ])
     : [{ changed: false }, { changed: false }, { changed: false }]
 
-  if (copilotResult.error) {
-    outputChannel.appendLine(`Auto-configure Copilot failed: ${copilotResult.error}`)
-    vscode.window.showWarningMessage(
-      `TraceRoost: Could not auto-configure Copilot OTel. Manually set github.copilot.chat.otel.enabled=true and otlpEndpoint to http://localhost:${port}`
-    )
-  }
-  if (claudeResult.error) {
-    outputChannel.appendLine(`Auto-configure Claude Code failed: ${claudeResult.error}`)
-    vscode.window.showWarningMessage(
-      `TraceRoost: Could not auto-configure Claude Code. Manually add CLAUDE_CODE_ENABLE_TELEMETRY=1 and OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:${port} to ~/.claude/settings.json env block.`
-    )
-  }
-  if (codexResult.error) {
-    outputChannel.appendLine(`Auto-configure Codex failed: ${codexResult.error}`)
-    vscode.window.showWarningMessage(
-      `TraceRoost: Could not auto-configure Codex. Manually add [otel] exporter = { otlp-http = { endpoint = "http://localhost:${port}" } } to ~/.codex/config.toml`
-    )
+  // A failed auto-config points at the complete manual settings (Help → Setup) instead of a
+  // partial snippet — each agent needs several keys (Claude Code: eight env vars; Codex: both
+  // exporters with protocol = "json"), which don't fit in a toast.
+  const codexConfigPath = path.join(process.env.CODEX_HOME || '~/.codex', 'config.toml')
+  const failures: Array<[string, ConfigResult, string]> = [
+    ['Copilot', copilotResult, 'your VS Code user settings'],
+    ['Claude Code', claudeResult, '~/.claude/settings.json'],
+    ['Codex', codexResult, codexConfigPath],
+  ]
+  for (const [agent, result, file] of failures) {
+    if (!result.error) continue
+    outputChannel.appendLine(`Auto-configure ${agent} failed: ${result.error}`)
+    void vscode.window.showWarningMessage(
+      `TraceRoost: Could not auto-configure ${agent} OTEL in ${file} (details in the TraceRoost output channel). Help → Setup lists every setting to add by hand.`,
+      SETUP_HELP_BUTTON,
+    ).then(choice => { if (choice === SETUP_HELP_BUTTON) openSetupHelp() })
   }
 
   // A user endpoint left alone on purpose (it points at their own collector) — log why.
@@ -344,7 +353,25 @@ export async function activate(context: vscode.ExtensionContext) {
   // ownership over from a window that closed. Idempotent: started at most once per window.
   let ownerPipelineStarted = false
   let logReader: LogReader | undefined
-  let startBatchedLoad: ((onAllDone?: () => void) => void) | undefined
+  let startBatchedLoad: ((onAllDone?: (ok: boolean) => void) => void) | undefined
+  // The trace manifest's readiness gate (src/historyReadiness.ts): opened only once a load
+  // completed and was written, for the store as it is now; a failed load is retried with backoff.
+  let afterHistoryLoad: (() => void) | undefined
+  const historyReadiness = new HistoryReadiness({
+    log: (m) => outputChannel?.appendLine(m),
+    run: () => new Promise((resolve, reject) => {
+      if (!startBatchedLoad) { resolve('done'); return }
+      startBatchedLoad(ok => {
+        const after = afterHistoryLoad
+        afterHistoryLoad = undefined
+        after?.()
+        if (!ok) { reject(new Error('could not list the local trace logs')); return }
+        if (!writer) { resolve('done'); return }
+        writer.drain().then(() => resolve('done'), reject)
+      })
+    }),
+  })
+  context.subscriptions.push({ dispose: () => historyReadiness.dispose() })
   const startOwnerPipeline = () => {
     if (ownerPipelineStarted || !traceRoostDb || !writer) return
     ownerPipelineStarted = true
@@ -516,16 +543,17 @@ export async function activate(context: vscode.ExtensionContext) {
       //
       // Both groups use setTimeout(fn, 0) rather than setImmediate so the host can
       // drain its own message queue between batches.
-      startBatchedLoad = (onAllDone?: () => void) => {
+      startBatchedLoad = (onAllDone?: (ok: boolean) => void) => {
         let allFiles: ReturnType<typeof lr.collectFileMeta>
         try {
           allFiles = lr.collectFileMeta()
         } catch (err) {
+          // Not "no history" — the caller keeps the store not-ready and retries (markReadyAfterLoad).
           outputChannel!.appendLine(`[TraceRoost] Log ingestion collect error: ${err}`)
-          onAllDone?.()
+          onAllDone?.(false)
           return
         }
-        if (allFiles.length === 0) { onAllDone?.(); return }
+        if (allFiles.length === 0) { onAllDone?.(true); return }
 
         const AGENT_KEY_LABEL: Record<string, string> = {
           claude:              'Claude Code',
@@ -645,14 +673,14 @@ export async function activate(context: vscode.ExtensionContext) {
                 .join(', ')
               outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
             }
-            onAllDone?.()
+            onAllDone?.(true)
           })
         })
       }
 
       // Defer off the activation stack so activation itself completes instantly.
       setImmediate(() => {
-        startBatchedLoad!(() => { void writer!.drain().then(() => { traceStoreReady = true }) })
+        void historyReadiness.load()
         pollClaudePlanUsage()
       })
       logReaderTimer = setInterval(runLogScan, 30_000)
@@ -660,7 +688,7 @@ export async function activate(context: vscode.ExtensionContext) {
       outputChannel!.appendLine('TraceRoost: log ingestion enabled — scanning local trace logs')
     }
 
-    if (!logReader) traceStoreReady = true // nothing to load from logs
+    if (!logReader) historyReadiness.markReady() // nothing to load from logs
   }
 
   const pipeline = decidePipeline({
@@ -860,17 +888,22 @@ export async function activate(context: vscode.ExtensionContext) {
       // Refresh both panels to show the cleared state before re-ingestion starts.
       provider.refresh()
       if (repository) DashboardPanel.setRepository(repository)
+      // Everything before now is gone from the database for good: the trace manifest never again
+      // claims a day before the clear (it would list only what re-reading the logs brings back).
+      traceHorizon?.raiseFloor(Date.now())
       if (logReader && startBatchedLoad) {
-        traceStoreReady = false
+        historyReadiness.invalidate()
         logReader.clearFileState()
         // 5 s delay so the cleared state is visible before log sessions flow back in.
         // When all files are loaded, do a final refresh so the dashboard reflects
         // the fully re-ingested state.
-        setTimeout(() => startBatchedLoad!(() => {
-          provider.refresh()
-          if (repository) DashboardPanel.setRepository(repository)
-          void writer?.drain().then(() => { traceStoreReady = true })
-        }), 5000)
+        setTimeout(() => {
+          afterHistoryLoad = () => {
+            provider.refresh()
+            if (repository) DashboardPanel.setRepository(repository)
+          }
+          void historyReadiness.load()
+        }, 5000)
       }
       writeLastWriteSignal(context.globalStorageUri)
     })
@@ -928,7 +961,25 @@ export async function activate(context: vscode.ExtensionContext) {
   // ── Cloud: forwarding scheduler ───────────────────────────────────────────────
   // No timer runs unless an org is linked; `syncToLinkState` starts/stops it after link/leave.
   forwardScheduler = cloud.startForwardScheduler({
-    notify: (message, kind) => {
+    notify: (message, kind, action) => {
+      // Only the full edition ever passes an action (the core bridge sends nothing); the literal
+      // edition check drops the Cloud command reference from the core bundle.
+      if (process.env.TRACEROOST_EDITION !== 'core' && action === 'relink') {
+        // The machine unlinked itself (its credential was rejected for good): one click links it
+        // again — the same consent + browser flow as the command palette's "Link".
+        void vscode.window.showWarningMessage(message, 'Re-link').then(choice => {
+          if (choice === 'Re-link') void vscode.commands.executeCommand('traceRoost.orgLink')
+        })
+        DashboardPanel.pushOrgStatus()
+        return
+      }
+      if (process.env.TRACEROOST_EDITION !== 'core' && action === 'update') {
+        void vscode.window.showWarningMessage(message, 'Open Extensions').then(choice => {
+          if (choice === 'Open Extensions') void vscode.commands.executeCommand('workbench.view.extensions')
+        })
+        DashboardPanel.pushOrgStatus()
+        return
+      }
       if (kind === 'warning') vscode.window.showWarningMessage(message)
       else vscode.window.showInformationMessage(message)
     },
@@ -942,8 +993,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Only the window that owns the database sends it (see TraceRoostDb), once it is loaded.
     traceManifest: {
       isWriter: () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoostDb.loadError,
-      isReady: () => traceStoreReady && !!repository,
-      localHorizonMs: () => repository?.localHorizonMs() ?? null,
+      isReady: () => historyReadiness.isReady() && !!repository,
+      localHorizonMs: () => (repository ? (traceHorizon ?? new TraceHorizon(null)).horizonMs(repository.sourceExtents()) : null),
       listTraceKeys: (fromMs, toMs) => repository?.listTraceKeys(fromMs, toMs) ?? [],
       countTraces: (fromMs, toMs) => repository?.countTraces(fromMs, toMs) ?? 1,
     },
@@ -956,7 +1007,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const linkWatcher = cloud.startLinkWatcher({
     allLocalSessions: () => repository?.listSessions({ limit: Infinity }) ?? [],
     isWriter: () => !!traceRoostDb && traceRoostDb.isOwner && !traceRoostDb.loadError,
-    isReady: () => traceStoreReady && !!repository,
+    isReady: () => historyReadiness.isReady() && !!repository,
     log: (msg) => outputChannel?.appendLine(msg),
     onLinkStateChange: () => DashboardPanel.pushOrgStatus(),
   })
@@ -1263,57 +1314,62 @@ async function notifySetupRequired(
 
 // ── Duplicate-install guard ───────────────────────────────────────────────────
 
-const SIBLING_ID: Record<string, string> = {
-  'traceroost.traceroost': 'agentlens.agentlens-dashboard',
-  'agentlens.agentlens-dashboard': 'traceroost.traceroost',
-}
+// The one published listing is `agentlens.agentlens-dashboard` (vsce-identity.json, stamped in by
+// release.yml). `traceroost.traceroost` is package.json's own id — what an F5 run or a locally
+// packed VSIX gets — and is NOT published until the extension-id cutover (runbooks/RELEASING.md).
+// So the published copy is always the one to keep; revisit this when the cutover publishes the new id.
+const PUBLISHED_ID = 'agentlens.agentlens-dashboard'
+const LOCAL_BUILD_ID = 'traceroost.traceroost'
 
 /**
- * Returns true when this activation should bail out — i.e. this is the old
- * `agentlens.agentlens-dashboard` copy and the new `traceroost.traceroost` is
- * also installed. When it's the other way round (we're the new one, the old one
- * is also present) we run normally but nudge the user once to uninstall the old
- * listing.
+ * Returns true when this activation should bail out. Both ids register the same commands, the same
+ * `traceroost` view container and the same OTLP/MCP ports, so only one may run:
+ * - we are the published copy and a local build is also installed → keep running, and tell the
+ *   user once to uninstall the local build;
+ * - we are a local build and the published copy is installed → stand down, unless we were launched
+ *   from source (F5 — `.vscode/launch.json` disables the published copy in that window).
+ * Never tells anyone to uninstall the published listing.
  */
 async function handleDuplicateInstall(context: vscode.ExtensionContext): Promise<boolean> {
   const selfId = context.extension.id.toLowerCase()
-  const siblingId = SIBLING_ID[selfId]
+  const siblingId = selfId === PUBLISHED_ID ? LOCAL_BUILD_ID : selfId === LOCAL_BUILD_ID ? PUBLISHED_ID : undefined
   if (!siblingId || !vscode.extensions.getExtension(siblingId)) { return false }
 
-  const showOldExtension = () =>
-    void vscode.commands.executeCommand(
-      'workbench.extensions.search', '@installed agentlens.agentlens-dashboard',
-    )
-
-  if (selfId === 'agentlens.agentlens-dashboard') {
+  if (selfId === PUBLISHED_ID) {
     outputChannel?.appendLine(
-      'Standing down: traceroost.traceroost is installed and handles everything. ' +
-      'This listing (agentlens.agentlens-dashboard) can be uninstalled.',
+      `A local build of TraceRoost (${LOCAL_BUILD_ID}) is also installed. This Marketplace copy ` +
+      `(${PUBLISHED_ID}) keeps running; the local build stands down. Uninstall the local build to remove the duplicate.`,
     )
     const notifiedKey = 'traceRoost.duplicateNotice'
     if (!context.globalState.get<boolean>(notifiedKey)) {
       void context.globalState.update(notifiedKey, true)
-      void vscode.window.showInformationMessage(
-        'AgentLens and TraceRoost are the same extension. TraceRoost is now active — ' +
-        'you can uninstall "AgentLens" (agentlens.agentlens-dashboard).',
-        'Show Extension',
-      ).then(pick => { if (pick === 'Show Extension') { showOldExtension() } })
+      void vscode.window.showWarningMessage(
+        `TraceRoost is installed twice: from the Marketplace (${PUBLISHED_ID}) and as a local build ` +
+        `(${LOCAL_BUILD_ID}, e.g. a VSIX you installed by hand). Keep the Marketplace one — ` +
+        `uninstall the local build (${LOCAL_BUILD_ID}) to avoid duplicate views and port conflicts.`,
+        'Show Local Build',
+      ).then(pick => {
+        if (pick === 'Show Local Build') {
+          void vscode.commands.executeCommand('workbench.extensions.search', `@installed ${LOCAL_BUILD_ID}`)
+        }
+      })
     }
-    return true
+    return false
   }
 
-  // We are traceroost.traceroost and the old listing is also installed.
-  const notifiedKey = 'traceRoost.duplicateNotice'
-  if (!context.globalState.get<boolean>(notifiedKey)) {
-    void context.globalState.update(notifiedKey, true)
-    void vscode.window.showWarningMessage(
-      'Both TraceRoost and the older AgentLens extension are installed — they are the same ' +
-      'extension. Uninstall "AgentLens" (agentlens.agentlens-dashboard) to avoid duplicate ' +
-      'views and port conflicts.',
-      'Show Extension',
-    ).then(pick => { if (pick === 'Show Extension') { showOldExtension() } })
+  // We are the local build and the published copy is installed.
+  if (context.extensionMode === vscode.ExtensionMode.Development) {
+    outputChannel?.appendLine(
+      `Running from source although the Marketplace copy (${PUBLISHED_ID}) is installed — disable it in ` +
+      'this window (launch.json passes --disable-extension) to avoid port conflicts.',
+    )
+    return false
   }
-  return false
+  outputChannel?.appendLine(
+    `Standing down: the Marketplace copy of TraceRoost (${PUBLISHED_ID}) is installed and handles ` +
+    `everything. This local build (${LOCAL_BUILD_ID}) can be uninstalled.`,
+  )
+  return true
 }
 
 // ── Deactivate ────────────────────────────────────────────────────────────────

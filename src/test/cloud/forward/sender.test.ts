@@ -2,7 +2,8 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { drainQueue } from '../../../cloud/forward/sender'
+import { decodeBody } from './decodeBody'
+import { drainQueue, resetServerCapabilities, UPGRADE_PAUSE_MS } from '../../../cloud/forward/sender'
 import { ForwardQueue } from '../../../cloud/forward/queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { readForwardState } from '../../../cloud/forward/forwardState'
@@ -37,7 +38,7 @@ const realFetch = globalThis.fetch
 
 /** Parses a batch request's body and reads back its `items`, in request order. */
 function batchItems(init?: RequestInit): RollupPayload[] {
-  return (JSON.parse(String(init?.body)) as { items: RollupPayload[] }).items
+  return (JSON.parse(decodeBody(init?.body, init?.headers)) as { items: RollupPayload[] }).items
 }
 
 /** A 200 response from `/api/ingest/batch` carrying one result per item, computed positionally. */
@@ -50,6 +51,7 @@ suite('forward/sender', () => {
   setup(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-sender-'))
     setCredentialStore(memStore(CREDS))
+    resetServerCapabilities()
   })
   teardown(() => {
     globalThis.fetch = realFetch
@@ -66,6 +68,72 @@ suite('forward/sender', () => {
     if (url.endsWith('/oauth/token')) return new Response('', { status: 200 })
     if (url.endsWith('/api/ingest/batch')) return batchOk(batchItems(init), () => ({ status: 202 }))
     return new Response('', { status: 202 }) // single-item fallback route
+  })
+
+  const enqueueMany = (n: number) => {
+    const q = new ForwardQueue(home)
+    for (let i = 0; i < n; i++) q.enqueue(payload(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`))
+  }
+
+  test('a batch over 1 KiB is gzipped; a small one is sent plain', async () => {
+    const seen: Array<string | null> = []
+    stubFetch((_url, init) => {
+      seen.push(new Headers(init?.headers).get('content-encoding'))
+      return batchOk(batchItems(init), () => ({ status: 202 }))
+    })
+    enqueueMany(10)
+    assert.strictEqual((await drainQueue({ baseHome: home })).sent, 10)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(seen, ['gzip', null])
+  })
+
+  test('a cloud that predates gzip ("invalid JSON") gets plain JSON, loses nothing, and is not retried with gzip', async () => {
+    const seen: Array<string | null> = []
+    stubFetch((_url, init) => {
+      const enc = new Headers(init?.headers).get('content-encoding')
+      seen.push(enc)
+      if (enc === 'gzip') return new Response(JSON.stringify({ error: 'invalid JSON' }), { status: 400 })
+      return batchOk(batchItems(init), () => ({ status: 202 }))
+    })
+    enqueueMany(10)
+    assert.strictEqual((await drainQueue({ baseHome: home })).sent, 10)
+    enqueueMany(10)
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(seen, ['gzip', null, null])
+  })
+
+  test('learns the advertised batch limits and uses them on the next drain; an old cloud stays at 25', async () => {
+    const sizes: number[] = []
+    const advertise = (limits?: object) => stubFetch((_url, init) => {
+      const items = batchItems(init)
+      sizes.push(items.length)
+      return new Response(JSON.stringify({ results: items.map(() => ({ status: 202 })), limits }), { status: 200 })
+    })
+    advertise() // old cloud: no `limits`
+    enqueueMany(60)
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(sizes, [25, 25, 10])
+    sizes.length = 0
+    resetServerCapabilities()
+    advertise({ max_items: 50, max_bytes: 1024 * 1024 })
+    enqueueMany(1)
+    await drainQueue({ baseHome: home }) // teaches the limits; the next drain uses them
+    sizes.length = 0
+    enqueueMany(60)
+    await drainQueue({ baseHome: home })
+    assert.deepStrictEqual(sizes, [50, 10])
+  })
+
+  test('reports each batch request’s size, wire size and latency', async () => {
+    stubFetch((_url, init) => batchOk(batchItems(init), () => ({ status: 202 })))
+    enqueueMany(10)
+    const stats: Array<{ items: number; rawBytes: number; wireBytes: number; status: number }> = []
+    await drainQueue({ baseHome: home, onBatchRequest: st => stats.push(st) })
+    assert.strictEqual(stats.length, 1)
+    assert.strictEqual(stats[0].items, 10)
+    assert.strictEqual(stats[0].status, 200)
+    assert.ok(stats[0].wireBytes > 0 && stats[0].wireBytes < stats[0].rawBytes, 'gzip shrank the body')
   })
 
   test('no org linked → stops immediately, makes no request', async () => {
@@ -171,7 +239,7 @@ suite('forward/sender', () => {
 
   test('a single-record 413 is recorded dropped too; a later accepted revision of the session clears it', async () => {
     new ForwardQueue(home).enqueue(payload(ID1))
-    stubFetch(() => new Response('', { status: 413 }))
+    stubFetch(() => new Response(JSON.stringify({ error: 'payload too large' }), { status: 413 }))
     await drainQueue({ baseHome: home })
     assert.strictEqual(new DroppedLedger(home).isDropped(scopedKey(CREDS.installId!, `session:${ID1}`)), true)
     // A trimmed revision goes through: the key is delivered now, no longer dropped.
@@ -282,7 +350,7 @@ suite('forward/sender', () => {
       const items = batchItems(init)
       requests.push(items.map(p => p.session!.session_id))
       // ID2 alone is "too large"; any batch containing it is too.
-      if (items.some(p => p.session!.session_id === ID2)) return new Response('', { status: 413 })
+      if (items.some(p => p.session!.session_id === ID2)) return new Response(JSON.stringify({ error: 'payload too large' }), { status: 413 })
       return batchOk(items, () => ({ status: 202 }))
     })
     const res = await drainQueue({ baseHome: home })
@@ -295,7 +363,7 @@ suite('forward/sender', () => {
 
   test('413 on the single-item fallback route → dropped, not retried', async () => {
     new ForwardQueue(home).enqueue(payload(ID1))
-    stubFetch((url) => url.endsWith('/api/ingest/batch') ? new Response('', { status: 404 }) : new Response('', { status: 413 }))
+    stubFetch((url) => url.endsWith('/api/ingest/batch') ? new Response('', { status: 404 }) : new Response(JSON.stringify({ error: 'payload too large' }), { status: 413 }))
     const res = await drainQueue({ baseHome: home })
     assert.strictEqual(res.droppedInvalid, 1)
     assert.strictEqual(new ForwardQueue(home).depth(), 0)
@@ -320,17 +388,119 @@ suite('forward/sender', () => {
     assert.strictEqual(readForwardState(home).paused, true)
   })
 
-  test('403 → forwarding stops, credential and queue cleared, one notice', async () => {
+  test('403 {error:"install revoked"} → forwarding stops, credential and queue cleared, one notice with a re-link action, a persistent notice', async () => {
     const store = memStore(CREDS)
     setCredentialStore(store)
     new ForwardQueue(home).enqueue(payload(ID1))
-    const notices: string[] = []
-    stubFetch(() => new Response('', { status: 403 }))
-    const res = await drainQueue({ baseHome: home, notify: (m) => notices.push(m) })
+    const notices: Array<{ m: string; action?: string }> = []
+    stubFetch(() => new Response(JSON.stringify({ error: 'install revoked' }), { status: 403 }))
+    const res = await drainQueue({ baseHome: home, notify: (m, _k, action) => notices.push({ m, action }) })
     assert.strictEqual(res.stopped, 'membership-revoked')
     assert.strictEqual(store.load(), null)
     assert.strictEqual(new ForwardQueue(home).depth(), 0)
     assert.strictEqual(notices.length, 1)
+    assert.strictEqual(notices[0].action, 'relink')
+    assert.strictEqual(readForwardState(home).notice?.kind, 'relink')
+  })
+
+  for (const [label, res] of [
+    ['an HTML page (a proxy or WAF)', () => new Response('<html>Forbidden</html>', { status: 403, headers: { 'Content-Type': 'text/html' } })],
+    ['empty', () => new Response('', { status: 403 })],
+    ['JSON without a recognised cloud error', () => new Response(JSON.stringify({ error: 'blocked by policy' }), { status: 403 })],
+  ] as const) {
+    test(`403 with ${label} body → transient: credential and queue kept, backed off`, async () => {
+      const store = memStore(CREDS)
+      setCredentialStore(store)
+      new ForwardQueue(home).enqueue(payload(ID1))
+      const notices: string[] = []
+      stubFetch(() => res())
+      const out = await drainQueue({ baseHome: home, notify: (m) => notices.push(m) })
+      assert.strictEqual(out.stopped, 'offline')
+      assert.notStrictEqual(store.load(), null)
+      assert.strictEqual(new ForwardQueue(home).depth(), 1)
+      assert.strictEqual(new ForwardQueue(home).list()[0].attempts, 1)
+      assert.strictEqual(notices.length, 0)
+    })
+  }
+
+  test('400 or 413 without the cloud\'s own error body (an intermediary) → kept and backed off, never dropped', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    stubFetch((url) => url.endsWith('/api/ingest/batch') ? new Response('', { status: 404 }) : new Response('<html>Bad Request</html>', { status: 400 }))
+    let res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.droppedInvalid, 0)
+    assert.strictEqual(new ForwardQueue(home).depth(), 1)
+    stubFetch((url) => url.endsWith('/api/ingest/batch') ? new Response('', { status: 404 }) : new Response('', { status: 413 }))
+    res = await drainQueue({ baseHome: home, force: true })
+    assert.strictEqual(res.droppedInvalid, 0)
+    assert.strictEqual(new ForwardQueue(home).depth(), 1)
+    assert.strictEqual(new DroppedLedger(home).isDropped(scopedKey(CREDS.installId!, `session:${ID1}`)), false)
+    // The cloud's own schema rejection still drops it.
+    stubFetch((url) => url.endsWith('/api/ingest/batch') ? new Response('', { status: 404 }) : new Response(JSON.stringify({ error: 'schema validation failed', details: [] }), { status: 400 }))
+    res = await drainQueue({ baseHome: home, force: true })
+    assert.strictEqual(res.droppedInvalid, 1)
+    assert.strictEqual(new ForwardQueue(home).depth(), 0)
+  })
+
+  test('426 client_upgrade_required → paused, queue kept, one "update" notice; a newer version or a later success lifts it', async () => {
+    const store = memStore(CREDS)
+    setCredentialStore(store)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    const notices: Array<{ m: string; action?: string }> = []
+    stubFetch(() => new Response(JSON.stringify({ error: 'client_upgrade_required' }), { status: 426 }))
+    let res = await drainQueue({ baseHome: home, notify: (m, _k, action) => notices.push({ m, action }) })
+    assert.strictEqual(res.stopped, 'upgrade-required')
+    assert.strictEqual(new ForwardQueue(home).depth(), 1)
+    assert.notStrictEqual(store.load(), null)
+    assert.deepStrictEqual(notices.map(n => n.action), ['update'])
+    assert.match(notices[0].m, /Update TraceRoost to keep sending to TraceRoost Cloud/)
+    assert.strictEqual(readForwardState(home).notice?.kind, 'upgrade')
+    // Paused: the next drain sends nothing and says nothing more.
+    let calls = 0
+    stubFetch((_u, init) => { calls++; return batchOk(batchItems(init), () => ({ status: 202 })) })
+    res = await drainQueue({ baseHome: home, notify: (m, _k, action) => notices.push({ m, action }) })
+    assert.strictEqual(res.stopped, 'upgrade-required')
+    assert.strictEqual(calls, 0)
+    assert.strictEqual(notices.length, 1)
+    // After the pause, a send that goes through clears the notice.
+    res = await drainQueue({ baseHome: home, now: () => Date.now() + UPGRADE_PAUSE_MS + 1000 })
+    assert.strictEqual(res.sent, 1)
+    assert.strictEqual(readForwardState(home).notice, null)
+  })
+
+  test('a per-item 426 in a batch reply keeps that item queued and raises the update notice', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    new ForwardQueue(home).enqueue(payload(ID2))
+    stubFetch((_u, init) => batchOk(batchItems(init), p => p.session!.session_id === ID1 ? { status: 202 } : { status: 426, error: 'client_upgrade_required' }))
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.stopped, 'upgrade-required')
+    assert.strictEqual(res.sent, 1)
+    assert.deepStrictEqual(new ForwardQueue(home).list().map(i => i.payload.session!.session_id), [ID2])
+    assert.strictEqual(readForwardState(home).notice?.kind, 'upgrade')
+    assert.strictEqual(readForwardState(home).paused, true, 'the success in the same drain does not lift the pause')
+  })
+
+  test('a 426 without the cloud\'s error code is transient, not an upgrade notice', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    stubFetch(() => new Response('', { status: 426 }))
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.stopped, 'offline')
+    assert.strictEqual(readForwardState(home).notice, null)
+  })
+
+  test('a gzipped single-item send answered "invalid gzip body" is re-sent as plain JSON', async () => {
+    const big = { ...payload(ID1), padding: 'x'.repeat(2048) } as unknown as RollupPayload
+    new ForwardQueue(home).enqueue(big)
+    const encodings: Array<string | null> = []
+    stubFetch((url, init) => {
+      if (url.endsWith('/api/ingest/batch')) return new Response('', { status: 404 })
+      const enc = new Headers(init?.headers).get('content-encoding')
+      encodings.push(enc)
+      return enc === 'gzip' ? new Response(JSON.stringify({ error: 'invalid gzip body' }), { status: 400 }) : new Response('', { status: 202 })
+    })
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.sent, 1)
+    assert.strictEqual(res.droppedInvalid, 0)
+    assert.deepStrictEqual(encodings, ['gzip', null])
   })
 
   test('429 → paused per Retry-After, queue kept', async () => {

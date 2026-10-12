@@ -1,4 +1,5 @@
 import * as assert from 'assert'
+import { setRevisionClockForTests, REVISION_EPOCH_MS } from '../database/traceRevisionRepository'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -51,6 +52,10 @@ function commitAll(message: string, isoDate: string): void {
 const LONG_AGO = new Date(Date.now() - 10 * 60_000).toISOString()
 
 suite('reconciliationService', () => {
+  // Revisions are floored by wall-clock seconds (traceRevisionRepository.ts); pinned to the epoch
+  // here so these read as the bare counter they test.
+  suiteSetup(() => setRevisionClockForTests(() => REVISION_EPOCH_MS))
+  suiteTeardown(() => setRevisionClockForTests(undefined))
   setup(() => {
     repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-reconcile-'))
     git(['init', '-q', '-b', 'main'])

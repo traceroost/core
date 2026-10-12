@@ -55,12 +55,15 @@ USER traceroost
 # volume, so the token survives container re-creation instead of changing (and 401-ing every
 # configured agent) on each `docker run`. BIND_HOST=0.0.0.0 makes that token mandatory on all
 # three ports; see README → Docker for how to read it and hand it to agents.
+# TRACEROOST_DOCKER=1 tells the dashboard's update notice to suggest `docker pull` and a re-run
+# rather than `service install`, which can't work inside the container.
 ENV OTLP_PORT=4318 \
     UI_PORT=3000 \
     MCP_PORT=4316 \
     DATA_DIR=/data \
     HOME=/data \
-    BIND_HOST=0.0.0.0
+    BIND_HOST=0.0.0.0 \
+    TRACEROOST_DOCKER=1
 
 EXPOSE 4318 3000 4316
 

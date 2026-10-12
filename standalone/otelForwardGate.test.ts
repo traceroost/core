@@ -16,6 +16,17 @@ suite('OtelForwardGate', () => {
     assert.strictEqual(gate.shouldForward(card('t', 100), 2000), false)    // same content already sent
   })
 
+  test('a shape is marked forwarded only once its forward resolved; a failed one is offered again', () => {
+    const gate = new OtelForwardGate(IDLE)
+    gate.shouldForward(card('t', 100), 0)
+    assert.strictEqual(gate.shouldForward(card('t', 100), 1000), true)
+    assert.strictEqual(gate.shouldForward(card('t', 100), 1100), false, 'not offered twice while in flight')
+    gate.settle(card('t', 100), false)
+    assert.strictEqual(gate.shouldForward(card('t', 100), 1200), true, 'the failed forward is retried')
+    gate.settle(card('t', 100), true)
+    assert.strictEqual(gate.shouldForward(card('t', 100), 5000), false)
+  })
+
   test('a growing trace is not forwarded until it settles', () => {
     const gate = new OtelForwardGate(IDLE)
     assert.strictEqual(gate.shouldForward(card('t', 100), 0), false)

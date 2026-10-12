@@ -56,6 +56,24 @@ suite('org/hostIdentity', () => {
     fs.rmSync(home, { recursive: true, force: true })
   })
 
+  test('without hard links (EPERM/ENOTSUP/EXDEV…), the id is published with an exclusive create — one winner, every caller gets it', () => {
+    const nodeFs = require('fs') as typeof fs
+    const realLink = nodeFs.linkSync
+    for (const code of ['EPERM', 'ENOTSUP', 'EXDEV']) {
+      const dir = path.join(serverStore, code)
+      nodeFs.linkSync = (() => { throw Object.assign(new Error(code), { code }) }) as typeof fs.linkSync
+      try {
+        const first = loadOrCreateHostId(dir)
+        assert.match(first, /^[0-9a-f-]{36}$/)
+        assert.strictEqual(loadOrCreateHostId(dir), first, 'the second caller reads the first one\'s id')
+        assert.strictEqual(fs.readFileSync(path.join(dir, HOST_ID_FILE), 'utf-8').trim(), first)
+        assert.deepStrictEqual(fs.readdirSync(dir).filter(f => f.endsWith('.tmp')), [], 'no temp file left behind')
+      } finally {
+        nodeFs.linkSync = realLink
+      }
+    }
+  })
+
   test('generated once per store and stable across restarts', () => {
     const first = loadOrCreateHostId(serverStore)
     assert.match(first, UUID_RE)

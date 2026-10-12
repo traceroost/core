@@ -24,8 +24,10 @@ interface GateEntry {
   /** Content fingerprint last seen, and when it was first seen in this shape. */
   content: string
   seenAt: number
-  /** Fingerprint last forwarded, if any. */
+  /** Fingerprint last forwarded, if any — set only once that forward resolved (`settle`). */
   forwarded?: string
+  /** Fingerprint of a forward still in flight — not offered again meanwhile. */
+  pending?: string
 }
 
 function fingerprint(card: OtelGateCard): string {
@@ -37,18 +39,30 @@ export class OtelForwardGate {
 
   constructor(private readonly idleMs: number) {}
 
-  /** True when `card` should be forwarded now: idle for `idleMs` in a shape not yet forwarded. */
+  /** True when `card` should be forwarded now: idle for `idleMs` in a shape not yet forwarded
+   *  (nor being forwarded). The caller reports how that went with `settle` — only a forward that
+   *  resolved marks the shape forwarded; a failed one is offered again on a later tick. */
   shouldForward(card: OtelGateCard, now: number): boolean {
     const content = fingerprint(card)
     const prev = this.entries.get(card.traceId)
     if (!prev || prev.content !== content) {
-      this.entries.set(card.traceId, { content, seenAt: now, forwarded: prev?.forwarded })
+      this.entries.set(card.traceId, { content, seenAt: now, forwarded: prev?.forwarded, pending: prev?.pending })
       return false
     }
     if (now - prev.seenAt < this.idleMs) return false
-    if (prev.forwarded === content) return false
-    prev.forwarded = content
+    if (prev.forwarded === content || prev.pending === content) return false
+    prev.pending = content
     return true
+  }
+
+  /** The forward `shouldForward` offered for `card` finished: `ok` marks that shape forwarded;
+   *  otherwise it is offered again on a later tick. */
+  settle(card: OtelGateCard, ok: boolean): void {
+    const entry = this.entries.get(card.traceId)
+    if (!entry) return
+    const content = fingerprint(card)
+    if (entry.pending === content) entry.pending = undefined
+    if (ok) entry.forwarded = content
   }
 
   /** Drops every trace not in `liveTraceIds` — called on the retention tick so a months-long

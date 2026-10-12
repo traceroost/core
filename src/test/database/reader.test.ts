@@ -145,6 +145,35 @@ suite('DatabaseReader', () => {
     db.close()
   })
 
+  test('sourceExtents: each source\'s oldest and newest start; localHorizonMs is the latest of the oldest', async () => {
+    const db = await openDb()
+    await seedDb(db, [
+      makeCard({ sessionId: 'codex-old', source: 'codex', startTime: '2024-04-01T00:00:00.000Z' }),
+      makeCard({ sessionId: 'codex-new', source: 'codex', startTime: '2024-06-01T00:00:00.000Z' }),
+      makeCard({ sessionId: 'claude-1', source: 'claude_code', startTime: '2024-05-10T00:00:00.000Z' }),
+    ])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const ext = reader.sourceExtents()
+    assert.deepStrictEqual(ext.get('codex'), { oldestMs: Date.parse('2024-04-01T00:00:00.000Z'), newestMs: Date.parse('2024-06-01T00:00:00.000Z') })
+    assert.deepStrictEqual(ext.get('claude_code'), { oldestMs: Date.parse('2024-05-10T00:00:00.000Z'), newestMs: Date.parse('2024-05-10T00:00:00.000Z') })
+    // Claude's history only reaches back to May 10 — nothing before it is claimed complete.
+    assert.strictEqual(reader.localHorizonMs(), Date.parse('2024-05-10T00:00:00.000Z'))
+    db.close()
+  })
+
+  test('git_branch round-trips, and a higher-rank card without one (OTEL) keeps the transcript\'s', async () => {
+    const db = await openDb()
+    await seedDb(db, [makeCard({ sessionId: 'k1', source: 'claude_code', dataSource: 'log', sourceRank: 2, gitBranch: 'feature/y' })])
+    await seedDb(db, [makeCard({ sessionId: 'k1', source: 'claude_code', dataSource: 'otel', sourceRank: 3 })])
+    await seedDb(db, [makeCard({ sessionId: 'k2', source: 'copilot' })])
+    const reader = new DatabaseReader(db, makeStorageUri())
+    const byId = new Map(reader.listSessions().map(c => [c.sessionId, c]))
+    assert.strictEqual(byId.get('k1')?.dataSource, 'otel')
+    assert.strictEqual(byId.get('k1')?.gitBranch, 'feature/y')
+    assert.strictEqual(byId.get('k2')?.gitBranch, undefined)
+    db.close()
+  })
+
   test('listSessions with since filter excludes old rows', async () => {
     const db = await openDb()
     await seedDb(db, [

@@ -21,6 +21,7 @@ import type { OrgCredentials } from '../../../cloud/org/config'
 import type { RollupPayload, TraceManifestChunk } from '../../../cloud/forward/schema'
 import type { TraceManifestSource } from '../../../cloudBridge'
 import { toUuid } from '../../../traceIdentity'
+import { decodeBody } from './decodeBody'
 
 interface FakeCloudState {
   rows: Map<string, { startedAt: number; rank: number; host: string }>
@@ -33,9 +34,10 @@ interface FakeCloudState {
 
 function startFakeCloud(state: FakeCloudState): Promise<http.Server> {
   const server = http.createServer((req, res) => {
-    let raw = ''
-    req.on('data', c => { raw += c })
+    const chunks: Buffer[] = []
+    req.on('data', c => { chunks.push(c) })
     req.on('end', () => {
+      const raw = decodeBody(Buffer.concat(chunks), req.headers as Record<string, string>)
       const send = (status: number, body: unknown) => {
         res.writeHead(status, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(body))

@@ -12,7 +12,7 @@ import { lookupRates as hostLookupRates, calcSessionCostUsd as hostCalcSessionCo
 // same behavior here since nothing else does, and the whole point of "kept in sync by hand" is
 // that the two copies can silently drift without a comment noticing.
 //
-// The cost math itself (tieredCost through calcSessionCostUsd) is a byte-for-byte copy of
+// The cost math itself (longContextRates through calcSessionCostUsd) is a byte-for-byte copy of
 // src/pricing.ts's — the suite at the bottom of this file fails if the two drift, or if the
 // long-context tier fields for any model differ between the two RATES tables.
 
@@ -83,7 +83,7 @@ suite('media/pricing — parity with src/pricing.ts', () => {
   const repoRoot = path.resolve(__dirname, '../../../../..')
   const costBlock = (file: string, endMarker: string | null): string => {
     const text = fs.readFileSync(path.join(repoRoot, file), 'utf8')
-    const start = text.indexOf('// Applies two-tier pricing')
+    const start = text.indexOf('// Long-context tier: the rates a call is billed at')
     const end = endMarker === null ? text.length : text.indexOf(endMarker)
     assert.ok(start !== -1 && end > start, `cost block not found in ${file}`)
     return text.slice(start, end).trim()

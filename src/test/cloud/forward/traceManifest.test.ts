@@ -7,7 +7,7 @@ import {
   manifestStatePath, SETTLING_RETRY_MS,
   DAY_MS, MANIFEST_SETTLE_MS, MANIFEST_MAX_AGE_MS, MANIFEST_MAX_KEYS, MANIFEST_HOURLY_BUDGET,
 } from '../../../cloud/forward/traceManifest'
-import { ForwardQueue } from '../../../cloud/forward/queue'
+import { ForwardQueue, STUCK_ATTEMPTS_THRESHOLD } from '../../../cloud/forward/queue'
 import { DroppedLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { drainQueue } from '../../../cloud/forward/sender'
 import { SchemaValidator } from '../../../cloud/forward/jsonSchemaValidate'
@@ -15,7 +15,8 @@ import { setCredentialStore, type CredentialStore } from '../../../cloud/org/cre
 import type { OrgCredentials } from '../../../cloud/org/config'
 import type { RollupPayload, TraceManifestChunk } from '../../../cloud/forward/schema'
 import type { TraceManifestSource } from '../../../cloudBridge'
-import { toUuid } from '../../../traceIdentity'
+import { toUuid, sourceExtentsOf, traceKeysInWindow, countTracesInWindow } from '../../../traceIdentity'
+import { TraceHorizon } from '../../../traceHorizon'
 
 const CREDS: OrgCredentials = {
   endpoint: 'https://traceroost.com',
@@ -279,6 +280,73 @@ suite('forward/traceManifest — sending', () => {
     const cloud = installFakeCloud()
     new ForwardQueue(home).enqueue(payload(toUuid('a')))
     assert.strictEqual((await sync(threeDays(), { fullSweep: true })).skipped, 'queue-not-drained')
+    assert.strictEqual(cloud.manifests.length, 0)
+  })
+
+  test('a rollup stuck in the queue (≥ STUCK_ATTEMPTS_THRESHOLD failures) skips only its own day — never blocks the rest, never retires it', async () => {
+    const cloud = installFakeCloud()
+    const q = new ForwardQueue(home)
+    q.enqueue(payload(toUuid('b')))
+    for (let i = 0; i < STUCK_ATTEMPTS_THRESHOLD; i++) q.recordFailure(`session:${toUuid('b')}`, 'HTTP 500')
+    const res = await sync(threeDays(), { fullSweep: true })
+    assert.strictEqual(res.skipped, undefined)
+    assert.strictEqual(res.chunks, 2, 'day 1 (holding the stuck key) is skipped; days 0 and 2 go')
+    assert.ok(cloud.manifests.every(m => !m.keys.includes(toUuid('b')) && !m.keys.includes(toUuid('c'))))
+    // A not-yet-stuck item still gates the whole run.
+    q.enqueue(payload(toUuid('a')))
+    assert.strictEqual((await sync(threeDays(), { fullSweep: true })).skipped, 'queue-not-drained')
+  })
+
+  test('a window the cloud clamped short at the newer end is not recorded ok: re-sent once settled', async () => {
+    const cloud = installFakeCloud()
+    // The cloud's clock runs 5 minutes behind ours: today's chunk is reconciled only up to there.
+    cloud.manifestReply = (c) => ({
+      status: 200,
+      body: { retired: 0, missing: 0, gated: null, skipped_recent: 0, window: { from: c.window.from, to: new Date(Date.parse(c.window.to) - (c.keys.includes(toUuid('d')) ? 5 * 60_000 : 0)).toISOString() } },
+    })
+    const res = await sync(threeDays(), { fullSweep: true })
+    assert.strictEqual(res.chunks, 3)
+    assert.strictEqual(res.settling, 1)
+    const raw = JSON.parse(fs.readFileSync(manifestStatePath(HOST_A, home), 'utf-8')) as { days: Record<string, { status: string }> }
+    assert.deepStrictEqual(Object.values(raw.days).map(d => d.status).sort(), ['ok', 'ok', 'settling'])
+    // A cut at the older end only (past the cloud's 60 days) still counts as reconciled.
+    cloud.manifestReply = (c) => ({ status: 200, body: { retired: 0, missing: 0, gated: null, skipped_recent: 0, window: { from: new Date(Date.parse(c.window.from) + 60_000).toISOString(), to: c.window.to } } })
+    clock += SETTLING_RETRY_MS
+    cloud.manifests = []
+    const again = await sync(threeDays())
+    assert.strictEqual(again.chunks, 1)
+    assert.strictEqual(again.settling, 0)
+  })
+
+  test('evidence horizon: a source that aged out, evicted spans and a clear keep every earlier day out of the manifest', async () => {
+    const cloud = installFakeCloud()
+    const horizon = new TraceHorizon(null, now)
+    const cards = [
+      { sessionId: 'codex-old', startTime: new Date(at(5)).toISOString(), source: 'codex' },
+      { sessionId: 'codex-new', startTime: new Date(at(0, 8)).toISOString(), source: 'codex' },
+      { sessionId: 'claude-1', startTime: new Date(at(2)).toISOString(), source: 'claude_code' },
+    ]
+    const src: TraceManifestSource = {
+      isWriter: () => true, isReady: () => true,
+      localHorizonMs: () => horizon.horizonMs(sourceExtentsOf(cards)),
+      listTraceKeys: (from, to) => traceKeysInWindow(cards, from, to),
+      countTraces: (from, to) => countTracesInWindow(cards, from, to),
+    }
+    // Claude's transcripts only reach back 2 days: days 5..3 (Codex only) are never described.
+    await sync(src, { fullSweep: true })
+    assert.deepStrictEqual(cloud.manifests.map(m => m.window.from.slice(0, 10)), ['2026-10-04', '2026-10-03', '2026-10-02'])
+    assert.strictEqual(cloud.manifests[2].window.from, new Date(at(2)).toISOString(), 'the oldest day starts at the horizon itself')
+    // OTEL spans evicted up to day 1, 10:00: the window starts past them.
+    cloud.manifests = []
+    horizon.raiseFloor(at(1, 10) + 1)
+    await sync(src, { fullSweep: true, hostId: HOST_B })
+    assert.deepStrictEqual(cloud.manifests.map(m => m.window.from), [new Date(Date.UTC(2026, 9, 4)).toISOString(), new Date(at(1, 10) + 1).toISOString()])
+    // "Clear all data": nothing before the clear is ever described again — not even the re-read
+    // traces from earlier days.
+    cloud.manifests = []
+    horizon.raiseFloor(clock)
+    const res = await sync(src, { fullSweep: true, hostId: '0c0c0c0c-3333-4333-8333-cccccccccccc' })
+    assert.strictEqual(res.skipped, 'nothing-held')
     assert.strictEqual(cloud.manifests.length, 0)
   })
 

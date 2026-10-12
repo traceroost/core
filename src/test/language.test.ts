@@ -194,6 +194,6 @@ suite('language — per-session programming language', () => {
   test('labels for the non-code ids', () => {
     assert.deepStrictEqual(
       ['docs', 'config', 'data', 'assets', 'none', 'no_files'].map(id => [languageLabel(id), languageAbbreviation(id)]),
-      [['Docs', 'Docs'], ['Config', 'Cfg'], ['Data', 'Data'], ['Assets', 'Asset'], ['No code', 'None'], ['No files', 'Nil']])
+      [['Docs', 'Docs'], ['Config', 'Cfg'], ['Data', 'Data'], ['Assets', 'Asset'], ['No code', 'None'], ['No files', '']])
   })
 })

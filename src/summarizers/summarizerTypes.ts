@@ -9,6 +9,11 @@ export interface SessionSummaryCard {
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
   conversationId?: string
+  /** The git branch the agent recorded for this turn when it ran (Claude Code transcript lines'
+   *  `gitBranch`, a Codex rollout's `session_meta.git.branch`) — captured then, not read from the
+   *  repo's current HEAD later. Undefined when the source records none. Local only: TraceRoost
+   *  Cloud gets just a keyed hash of it (`branch_hash`). */
+  gitBranch?: string
   /** Claude Code's own session id (its OTEL `session.id`, and the `sessionId` field of every
    *  transcript line) when known — how an OTEL interaction finds its transcript turn
    *  (claudeTurnJoin.ts). */

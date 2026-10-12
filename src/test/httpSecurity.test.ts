@@ -2,6 +2,7 @@ import * as assert from 'assert'
 import {
   isLoopbackHost, isAllowedHostHeader, isAuthorized, extractToken, extractCookieToken,
   authCookieHeader, AUTH_COOKIE_NAME, isAllowedOrigin, isAllowedOtlpContentType, isWildcardHost,
+  isSameOriginRequest, isJsonContentType,
 } from '../httpSecurity'
 
 function req(opts: { host?: string; authorization?: string; url?: string; cookie?: string }) {
@@ -93,6 +94,60 @@ suite('httpSecurity', () => {
     })
   })
 
+  suite('isSameOriginRequest', () => {
+    test('allows the dashboard calling back to the server that served it', () => {
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://localhost:3000', host: 'localhost:3000' }), true)
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://127.0.0.1:3000', host: '127.0.0.1:3000', 'sec-fetch-site': 'same-origin' }), true)
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://[::1]:3000', host: '[::1]:3000' }), true)
+      // LAN / Docker mode: the page's origin is the LAN address the browser used.
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://192.168.1.20:3000', host: '192.168.1.20:3000' }), true)
+      // Default port: browsers omit it from Origin; a Host that spells it out is the same origin.
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://localhost', host: 'localhost:80' }), true)
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://LOCALHOST:3000', host: 'localhost:3000' }), true)
+    })
+
+    test('allows a non-browser client that sends neither Origin nor Sec-Fetch-Site', () => {
+      assert.strictEqual(isSameOriginRequest({ host: 'localhost:3000' }), true)
+    })
+
+    test('refuses a page served on another localhost port (the loopback allowance isAllowedOrigin makes)', () => {
+      assert.strictEqual(isAllowedOrigin('http://localhost:8080', 'localhost:3000'), true, 'precondition: the old check let this through')
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://localhost:8080', host: 'localhost:3000' }), false)
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://127.0.0.1:3000', host: 'localhost:3000' }), false)
+      assert.strictEqual(isSameOriginRequest({ origin: 'https://localhost:3000', host: 'localhost:3000' }), true)
+    })
+
+    test('refuses when the browser says the request is not same-origin, even without Origin', () => {
+      assert.strictEqual(isSameOriginRequest({ host: 'localhost:3000', 'sec-fetch-site': 'same-site' }), false)
+      assert.strictEqual(isSameOriginRequest({ host: 'localhost:3000', 'sec-fetch-site': 'cross-site' }), false)
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://localhost:3000', host: 'localhost:3000', 'sec-fetch-site': 'same-site' }), false)
+    })
+
+    test('refuses foreign sites, opaque and non-http origins, webviews, and a missing Host', () => {
+      assert.strictEqual(isSameOriginRequest({ origin: 'https://evil.example', host: 'localhost:3000' }), false)
+      assert.strictEqual(isSameOriginRequest({ origin: 'null', host: 'localhost:3000' }), false)
+      assert.strictEqual(isSameOriginRequest({ origin: 'vscode-webview://1abc2def', host: 'localhost:3000' }), false)
+      assert.strictEqual(isSameOriginRequest({ origin: 'file://', host: 'localhost:3000' }), false)
+      assert.strictEqual(isSameOriginRequest({ origin: 'http://localhost:3000' }), false)
+    })
+  })
+
+  suite('isJsonContentType', () => {
+    test('accepts application/json with or without parameters', () => {
+      assert.strictEqual(isJsonContentType('application/json'), true)
+      assert.strictEqual(isJsonContentType('Application/JSON; charset=utf-8'), true)
+    })
+
+    test('refuses the preflight-free types, a smuggled parameter, and a missing header', () => {
+      assert.strictEqual(isJsonContentType('text/plain'), false)
+      assert.strictEqual(isJsonContentType('text/plain; x=application/json'), false)
+      assert.strictEqual(isJsonContentType('application/x-www-form-urlencoded'), false)
+      assert.strictEqual(isJsonContentType('multipart/form-data; boundary=x'), false)
+      assert.strictEqual(isJsonContentType(undefined), false)
+      assert.strictEqual(isJsonContentType(''), false)
+    })
+  })
+
   suite('isAllowedOtlpContentType', () => {
     test('allows JSON and protobuf (with parameters) and a missing header', () => {
       assert.strictEqual(isAllowedOtlpContentType('application/json'), true)
@@ -101,7 +156,13 @@ suite('httpSecurity', () => {
       assert.strictEqual(isAllowedOtlpContentType(undefined), true)
     })
 
+    test('refuses a missing header from a browser page (bodyless/binary fetch needs no preflight)', () => {
+      assert.strictEqual(isAllowedOtlpContentType(undefined, 'http://localhost:8080'), false)
+      assert.strictEqual(isAllowedOtlpContentType('application/json', 'http://localhost:8080'), true)
+    })
+
     test('rejects the CORS-simple types a web page can send without a preflight', () => {
+      assert.strictEqual(isAllowedOtlpContentType('text/plain; x=application/json'), false)
       assert.strictEqual(isAllowedOtlpContentType('text/plain'), false)
       assert.strictEqual(isAllowedOtlpContentType('text/plain;charset=UTF-8'), false)
       assert.strictEqual(isAllowedOtlpContentType('application/x-www-form-urlencoded'), false)

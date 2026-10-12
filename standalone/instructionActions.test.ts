@@ -60,10 +60,10 @@ suite('standalone instruction actions', () => {
   })
 
   test('apply refuses a target outside the workspace and writes nothing', () => {
-    for (const targetFile of ['../outside.md', path.join(dir, 'outside.md'), '.', '', 42]) {
+    for (const targetFile of ['../outside.md', path.join(dir, 'outside.md'), '.', '', 42, undefined]) {
       const r = handleInstructionMessage(apply({ targetFile }), host())
       assert.strictEqual(r.status, 400, String(targetFile))
-      assert.match(r.error ?? '', /outside the workspace/)
+      assert.match(r.error ?? '', /not an instruction file of this workspace/)
       assert.deepStrictEqual(r.messages, [])
     }
     assert.strictEqual(fs.existsSync(path.join(dir, 'outside.md')), false)
@@ -125,6 +125,40 @@ suite('standalone instruction actions', () => {
       [{ type: 'dismissedSuggestions', workspace: ws, ids: [] }])
     assert.deepStrictEqual(handleInstructionMessage({ type: 'getDismissedSuggestions', workspace: other }, h).messages,
       [{ type: 'dismissedSuggestions', workspace: other, ids: ['loop:x'] }])
+  })
+
+  test('apply refuses any file in the workspace that is not a detected instruction file', () => {
+    fs.mkdirSync(path.join(ws, '.husky'))
+    fs.writeFileSync(path.join(ws, '.husky', 'pre-commit'), '#!/bin/sh\n')
+    const targets = [
+      '.husky/pre-commit', '.git/hooks/pre-commit', 'package.json', 'README.md', 'src/CLAUDE.md',
+      '.cursor/rules/other.mdc', path.join(ws, '.husky', 'pre-commit'), './CLAUDE.md',
+      // .claude/CLAUDE.md is an instruction file only when it exists (detection then reports it).
+      '.claude/CLAUDE.md',
+    ]
+    for (const targetFile of targets) {
+      const r = handleInstructionMessage(apply({ targetFile }), host())
+      assert.strictEqual(r.status, 400, targetFile)
+      assert.match(r.error ?? '', /not an instruction file of this workspace/)
+    }
+    assert.strictEqual(fs.readFileSync(path.join(ws, '.husky', 'pre-commit'), 'utf8'), '#!/bin/sh\n')
+    assert.strictEqual(fs.existsSync(path.join(ws, 'package.json')), false)
+    assert.deepStrictEqual(loadInstructionState(stateFile).applied, [])
+  })
+
+  test('apply accepts every detected instruction file, including a Windows-style separator', () => {
+    for (const targetFile of ['CLAUDE.md', 'AGENTS.md', '.github/copilot-instructions.md', '.cursor/rules/traceroost.mdc', '.github\\copilot-instructions.md']) {
+      const r = handleInstructionMessage(apply({ targetFile, id: `x:${targetFile}` }), host())
+      assert.strictEqual(r.status, 200, targetFile)
+    }
+    assert.ok(fs.existsSync(path.join(ws, '.github', 'copilot-instructions.md')))
+    assert.ok(fs.existsSync(path.join(ws, '.cursor', 'rules', 'traceroost.mdc')))
+    // The alternate location counts once it exists — detection reports it instead of CLAUDE.md.
+    fs.rmSync(path.join(ws, 'CLAUDE.md'))
+    fs.mkdirSync(path.join(ws, '.claude'))
+    fs.writeFileSync(path.join(ws, '.claude', 'CLAUDE.md'), '# rules\n')
+    assert.strictEqual(handleInstructionMessage(apply({ targetFile: '.claude/CLAUDE.md', id: 'alt' }), host()).status, 200)
+    assert.match(fs.readFileSync(path.join(ws, '.claude', 'CLAUDE.md'), 'utf8'), /id:alt -->/)
   })
 
   test('a recorded workspace whose folder is gone lists no files and refuses apply/remove', () => {

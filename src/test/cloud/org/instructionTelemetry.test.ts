@@ -76,7 +76,7 @@ suite('org/instructionTelemetry', () => {
     assert.strictEqual(await buildInstructionRollup(plain, [], EMPTY_LEDGER), null)
   })
 
-  test('reports instruction files, hot-file footprints and suggestion events — hashed, never prose or paths', async () => {
+  test('reports instruction files only — hashed, never prose or paths; no footprints or suggestion events', async () => {
     const sessions = [0, 1, 2, 3, 4].map(i => card(i, repo))
     const surfaced = generateSuggestions(sessions, fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8'))
     assert.ok(surfaced.length > 0, 'fixture should produce at least one Advisor suggestion')
@@ -103,27 +103,9 @@ suite('org/instructionTelemetry', () => {
     assert.ok(claude?.last_modified)
     assert.deepStrictEqual(files.filter(f => !f.present).map(f => f.kind).sort(), ['agents_md', 'copilot_instructions', 'other'] /* the Cursor rule has no wire kind of its own */)
 
-    const footprints = payload.file_footprints ?? []
-    assert.strictEqual(footprints.length, 2, 'the hot file and the deleted one; the 3-char basename is skipped')
-    const hot = footprints.find(f => f.token_size === 1000)
-    assert.ok(hot, 'token size estimated from the file on disk (4000 bytes / 4)')
-    assert.strictEqual(hot.sessions_read, 5)
-    assert.strictEqual(hot.sessions_total, 5)
-    assert.strictEqual(hot.early_reads, 5)
-    assert.strictEqual(hot.covered_by_instructions, false)
-    assert.ok(footprints.some(f => f.token_size === 0), 'a file that is gone has no size')
-
-    const events = payload.suggestion_events ?? []
-    const count = (a: string) => events.filter(e => e.action === a).length
-    assert.strictEqual(count('surfaced'), surfaced.length)
-    assert.strictEqual(count('applied'), 2, 'an applied id with neither a live nor a remembered card is dropped')
-    assert.strictEqual(count('dismissed'), 1)
-    assert.strictEqual(count('reverted'), 1)
-    const retired = events.find(e => e.action === 'applied' && e.priority === 'low')
-    assert.strictEqual(retired?.category, 'behavior')
-    assert.ok(retired?.baseline, 'applied events carry the pre-apply baseline')
-    const dismissed = events.find(e => e.action === 'dismissed')
-    assert.deepStrictEqual([dismissed?.category, dismissed?.priority], ['context', 'medium'], 'unknown cards get neutral defaults')
+    // Read footprints and Advisor suggestion events are no longer sent (the cloud dropped them).
+    assert.strictEqual(payload.file_footprints, undefined)
+    assert.strictEqual(payload.suggestion_events, undefined)
 
     const wire = JSON.stringify(payload)
     for (const leak of [SECRET_PROSE, 'engine.ts', repo, surfaced[0].id, surfaced[0].suggestedText]) {
@@ -131,7 +113,7 @@ suite('org/instructionTelemetry', () => {
     }
   })
 
-  test('sessions from other workspaces are ignored, and footprints need three sessions', async () => {
+  test('only instruction_files is built, however many sessions there are', async () => {
     const payload = await buildInstructionRollup(repo, [card(0, repo), card(1, repo), card(2, '/elsewhere')], EMPTY_LEDGER)
     assert.ok(payload)
     assert.strictEqual(payload.file_footprints, undefined)

@@ -18,7 +18,7 @@
  */
 
 import * as crypto from 'crypto'
-import type { IncomingMessage } from 'http'
+import type { IncomingHttpHeaders, IncomingMessage } from 'http'
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
 
@@ -74,6 +74,55 @@ export function isAllowedOrigin(origin: string | string[] | undefined, hostHeade
   return isLoopbackHost(url.hostname.replace(/^\[|\]$/g, ''))
 }
 
+/** The media type of a Content-Type header, lowercased, parameters dropped (`text/plain;
+ *  x=application/json` is `text/plain` — which is also how a browser decides whether a request is
+ *  "simple" and needs no CORS preflight). */
+function mediaTypeOf(contentType: string): string {
+  return contentType.split(';')[0].trim().toLowerCase()
+}
+
+/**
+ * The standalone dashboard's state-changing routes (POST /api/instructions/apply, /api/clear,
+ * /api/org, /action, …) are called by exactly one page: the dashboard the same server served. So a
+ * browser request to them must be same-origin — Origin's host:port equal to the Host header — not
+ * merely from "somewhere on this machine": a page served by any other local dev server
+ * (http://localhost:8080) is a different origin, and isAllowedOrigin's loopback allowance would
+ * let it drive these routes. `Sec-Fetch-Site`, when the browser sends it, must say `same-origin`
+ * too (a page on another localhost port is `same-site`, not `same-origin`).
+ *
+ * A request with neither header isn't from a browser page (curl, the demo/e2e scripts) — a web page
+ * can't make a browser drop Origin from a POST — so it is let through, as before; the bearer token
+ * (REQUIRE_TOKEN_EVERYWHERE) still gates it whenever the server is reachable from other machines.
+ * A VS Code webview never calls these routes (it talks to the extension host by postMessage), so
+ * `vscode-webview:` isn't accepted here.
+ */
+export function isSameOriginRequest(headers: Pick<IncomingHttpHeaders, 'origin' | 'host' | 'sec-fetch-site'>): boolean {
+  const site = headers['sec-fetch-site']
+  if (site !== undefined && site !== 'same-origin') return false
+  const origin = headers.origin
+  if (origin === undefined) return true
+  if (typeof origin !== 'string' || !headers.host) return false
+  let originUrl: URL
+  let hostUrl: URL
+  try {
+    originUrl = new URL(origin) // throws on the opaque "null" origin
+    if (originUrl.protocol !== 'http:' && originUrl.protocol !== 'https:') return false
+    // Normalised through URL the same way as Origin, so `localhost:80` and `localhost` compare equal.
+    hostUrl = new URL(`${originUrl.protocol}//${headers.host}`)
+  } catch { return false }
+  return originUrl.host === hostUrl.host
+}
+
+/**
+ * Bodies of the dashboard's state-changing routes are JSON, and requiring the header to say so
+ * means a cross-origin page can't send one without a CORS preflight — which this server never
+ * answers with an Access-Control-Allow-Origin, so it fails. A missing Content-Type is refused too:
+ * a `fetch()` with a binary body sends none, and is still a "simple" request.
+ */
+export function isJsonContentType(contentType: string | undefined): boolean {
+  return contentType !== undefined && mediaTypeOf(contentType) === 'application/json'
+}
+
 const OTLP_CONTENT_TYPES = new Set([
   'application/json', 'application/x-protobuf', 'application/protobuf', 'application/octet-stream',
 ])
@@ -82,12 +131,13 @@ const OTLP_CONTENT_TYPES = new Set([
  * OTLP/HTTP bodies are JSON or protobuf. Anything else — above all `text/plain`,
  * `application/x-www-form-urlencoded` and `multipart/form-data`, the "simple" types a web page
  * can POST cross-origin without a CORS preflight — is refused. A missing Content-Type is let
- * through for plain HTTP clients; a browser sending one also sends Origin (see isAllowedOrigin).
+ * through for plain HTTP clients (no Origin), but not from a browser page: `fetch()` with a binary
+ * body sends no Content-Type and needs no preflight, and isAllowedOrigin lets any loopback origin
+ * (a page on another local dev server) through — so with an Origin, the header is required.
  */
-export function isAllowedOtlpContentType(contentType: string | undefined): boolean {
-  if (contentType === undefined) return true
-  const mediaType = contentType.split(';')[0].trim().toLowerCase()
-  return OTLP_CONTENT_TYPES.has(mediaType)
+export function isAllowedOtlpContentType(contentType: string | undefined, origin?: string | string[]): boolean {
+  if (contentType === undefined) return origin === undefined
+  return OTLP_CONTENT_TYPES.has(mediaTypeOf(contentType))
 }
 
 export const AUTH_COOKIE_NAME = 'traceroost_token'
