@@ -1,4 +1,5 @@
 import * as assert from 'assert'
+import { setRevisionClockForTests, REVISION_EPOCH_MS } from '../../../database/traceRevisionRepository'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -55,6 +56,10 @@ const realHome = process.env.HOME
 const realUserProfile = process.env.USERPROFILE
 
 suite('cloud/forward/contentChangeForward', () => {
+  // Revisions are floored by wall-clock seconds (traceRevisionRepository.ts); pinned to the epoch
+  // here so these read as the bare counter they test.
+  suiteSetup(() => setRevisionClockForTests(() => REVISION_EPOCH_MS))
+  suiteTeardown(() => setRevisionClockForTests(undefined))
   let home: string
   let service: ReconciliationService
 
@@ -88,6 +93,31 @@ suite('cloud/forward/contentChangeForward', () => {
     const queued = new ForwardQueue().list()
     assert.strictEqual(queued.length, 1)
     assert.strictEqual(queued[0].payload.session?.revision, 1)
+  })
+
+  test('two forwards of one key run in call order: the newer content always ends up with the newer revision', async () => {
+    // Fired back to back, without awaiting — the builds (git) used to interleave, so the older
+    // snapshot could finish last and win.
+    const older = maybeForwardOnContentChange(service, makeCard('s1', { durationMs: 1000 }))
+    const newer = maybeForwardOnContentChange(service, makeCard('s1', { durationMs: 5000 }))
+    const newest = maybeForwardOnContentChange(service, makeCard('s1', { durationMs: 9000 }))
+    await Promise.all([older, newer, newest])
+    const queued = new ForwardQueue().list()
+    assert.strictEqual(queued.length, 1)
+    assert.strictEqual(queued[0].payload.session?.duration_ms, 9000)
+    // Re-sending the same newest content is no change: the queued one is the recorded one.
+    assert.deepStrictEqual(await maybeForwardOnContentChange(service, makeCard('s1', { durationMs: 9000 })), { enqueued: false, reason: 'duplicate' })
+  })
+
+  test('a failed enqueue does not record the content as sent — the next pass forwards it again', async () => {
+    // The queue file's directory is a file: the enqueue fails (disk-full-like), nothing queued.
+    fs.writeFileSync(path.join(home, '.traceroost'), 'not a directory')
+    const failed = await maybeForwardOnContentChange(service, makeCard('s1'))
+    assert.strictEqual(failed.enqueued, false)
+    fs.rmSync(path.join(home, '.traceroost'))
+    const retried = await maybeForwardOnContentChange(service, makeCard('s1'))
+    assert.strictEqual(retried.enqueued, true)
+    assert.strictEqual(new ForwardQueue().depth(), 1)
   })
 
   test('re-checking the identical card is not a change — skipped, queue untouched', async () => {

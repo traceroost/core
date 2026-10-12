@@ -22,8 +22,8 @@ permissions:
 # when that isn't set. Until TraceRoost Cloud launches every tagged release is `core`: the VSIX, the
 # npm package and the Docker image carry no org-link/upload code at all.
 # To ship `full` at launch: set the repository variable TRACEROOST_RELEASE_EDITION=full
-# (Settings → Secrets and variables → Actions → Variables) — docker.yml reads the same variable —
-# or change the `'core'` fallback below (and in docker.yml) to `'full'`.
+# (Settings → Secrets and variables → Actions → Variables), or change the `'core'` fallback below
+# (and in the `docker` job's `with:`, which can't read `env`) to `'full'`.
 env:
   EDITION: ${{ github.event_name == 'workflow_dispatch' && inputs.edition || vars.TRACEROOST_RELEASE_EDITION || 'core' }}
 
@@ -52,7 +52,7 @@ jobs:
           version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -82,12 +82,12 @@ jobs:
       # this commit and workflow run — later checked with:
       #   gh attestation verify privacy-certificate.json --repo <owner>/<repo>
       - name: Attest certificate provenance
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: privacy-certificate.json
 
       - name: Upload privacy certificate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: privacy-certificate
           path: privacy-certificate.json
@@ -106,7 +106,7 @@ jobs:
           version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -138,7 +138,7 @@ jobs:
         run: pnpm run test:unit
 
       - name: Download privacy certificate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: privacy-certificate
 
@@ -188,14 +188,14 @@ jobs:
         run: node scripts/check-edition.mjs "$EDITION"
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vsix-package
           path: '*.vsix'
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             *.vsix
@@ -215,12 +215,12 @@ jobs:
 
     steps:
       - name: Download VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: vsix-package
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
 
@@ -270,7 +270,7 @@ jobs:
           version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -298,3 +298,18 @@ jobs:
         # short-lived publish credential — no NPM_TOKEN secret required.
         # NODE_AUTH_TOKEN must not be set; npm falls back to OIDC when it is absent.
         run: npm publish --access public --provenance
+
+  # The Docker image (traceroost/traceroost + ghcr.io) — only from a tag, and only after `package`
+  # has passed (lint, type check, unit tests, the privacy scan via its own `needs`, and the edition
+  # check), so a failing release never pushes `:latest`. docker.yml has no tag trigger of its own.
+  docker:
+    needs: package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      # `env` isn't available here — the same rule as EDITION above.
+      edition: ${{ vars.TRACEROOST_RELEASE_EDITION || 'core' }}
+    secrets: inherit

@@ -39,7 +39,7 @@ export class OtlpCollector {
         this.log(req.method ?? '?', req.url ?? '/', 403, 0, 'cross-origin request refused')
         res.writeHead(403); res.end(); return
       }
-      if (req.method === 'POST' && !isAllowedOtlpContentType(req.headers['content-type'])) {
+      if (req.method === 'POST' && !isAllowedOtlpContentType(req.headers['content-type'], req.headers.origin)) {
         this.log('POST', req.url ?? '/', 415, 0, `unsupported Content-Type ${req.headers['content-type']}`)
         res.writeHead(415); res.end(); return
       }

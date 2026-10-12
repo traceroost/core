@@ -153,6 +153,14 @@ export function suggestionHash(ctx: RepoKeyContext, id: string): string {
   return hmac(ctx.key, `suggestion:${id}`)
 }
 
+/** Hashes an instruction file's content for `content_hash` — keyed like every other hash here, so
+ *  a common file (a stock CLAUDE.md or AGENTS.md template) can't be recognised by hashing likely
+ *  candidates. Same key for every clone of the repo in the org, so the cloud's "did this change"
+ *  comparison works across members. Prefixed so it can never equal another hash kind. */
+export function instructionContentHash(ctx: RepoKeyContext, content: string): string {
+  return hmac(ctx.key, `instruction-content:${content}`)
+}
+
 /** Fingerprint carried on every record so the service can flag a member whose history was
  *  rewritten (different root SHA → every hash differs) as a warning rather than showing two
  *  ghost copies of the same file. */

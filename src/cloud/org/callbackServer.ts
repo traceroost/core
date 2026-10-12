@@ -163,12 +163,15 @@ export async function startCallbackServer(opts: {
       return
     }
     const error = url.searchParams.get('error')
+    // RFC 6749 §4.1.2.1: the human-readable reason, when the server gives one (the free tier's
+    // machine cap answers `access_denied` with its message here).
+    const description = url.searchParams.get('error_description')?.trim().slice(0, 500) || null
     const code = url.searchParams.get('code')
     if (error || !code) {
       // Nothing further to wait for — respond immediately, same as always.
       res.writeHead(400, { 'Content-Type': 'text/html' })
-      res.end(errorHtml(error ? `Authorization server returned "${error}".` : undefined))
-      deliverError(new Error(error ? `authorization server returned "${error}"` : 'callback missing authorization code'))
+      res.end(errorHtml(description ?? (error ? `Authorization server returned "${error}".` : undefined)))
+      deliverError(new Error(description ?? (error ? `authorization server returned "${error}"` : 'callback missing authorization code')))
       return
     }
     pendingRes = res

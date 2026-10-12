@@ -43,6 +43,13 @@ and revert independently if a source turns out to have been misread.
 6. Run `tsc --noEmit` (both configs), `eslint src media/src`, and `mocha` to confirm nothing broke.
 7. If a rate or model can't be confirmed from a source, add it to that section's "Known gaps"
    instead of guessing.
+8. Update TraceRoost Cloud in the same sitting. Cloud prices every org's rollups from its own
+   `central_default_rates` table, so a refresh that lands only here makes the same trace cost
+   different amounts locally and in Cloud, and leaves a new model unpriced ($0) there. In a
+   traceroost/cloud checkout next to this one, follow its `runbooks/refresh-model-pricing.md`:
+   `pnpm rates:from-core` diffs this file's `RATES` against Cloud's migrations and drafts the
+   migration. Open the core PR and the Cloud PR together, linking each other, and merge them back to
+   back. That runbook copies steps 1–7 above; this file stays the authority on them.
 
 ---
 
@@ -61,12 +68,20 @@ Copilot uses token-based AI Credits billing only.
 - Per-model token rates: `inputPerMTok`, `cacheReadPerMTok`, `cacheWritePerMTok`, `outputPerMTok` (USD per 1M tokens)
 - List of included models (effectively $0 — look for models with no token rate listed)
 - Per-model "long context" surcharge tiers for some models — 2x input/cache-read/cache-write, 1.5x
-  output above a per-model token-per-call threshold (272K for GPT-5.4/5.5/5.6-Sol/5.6-Terra/6-Astra/
+  output for a call whose prompt is over a per-model threshold (272K for GPT-5.4/5.5/5.6-Sol/5.6-Terra/6-Astra/
   6-Sol/**6-Luna**, 200K for GPT-5.6-Luna/Gemini 3.1 Pro/Grok 4.5). **GPT-6 Luna's threshold (272K) is
   higher than its GPT-5.6-Luna predecessor's (200K)** — confirmed by asking about each model
   individually rather than assuming the "Luna tier is always 200K" pattern carried over; don't
   assume it without re-checking on a future refresh either. Modeled in `RATES` via `longContextThresholdTokens` +
   the `*AboveThresholdPerMTok` fields, identically in `src/pricing.ts` and `media/src/pricing.ts`.
+  **The whole call is billed at the higher rates** — input, cache reads, cache writes and output —
+  once its prompt (uncached input + cache reads + cache writes; output never counts) is over the
+  threshold, not just the tokens past it. That is every vendor's published rule: OpenAI ("prompts
+  with >272K input tokens are priced at 2x input and 1.5x output for the full session",
+  developers.openai.com/api/docs/models/gpt-5.5), Google (the Gemini Pro "prompts > 200k tokens"
+  rows, ai.google.dev/gemini-api/docs/pricing), Anthropic (below). Before 2026-10-11 the code billed
+  only each category's excess over the threshold, at the higher rate, and nothing for a call whose
+  categories were each under it however large the prompt.
   The tier is only ever applied to a single API call's tokens: a session's cost is the sum of its
   LLM calls priced one by one (`calcSessionCostUsd`, shared by the extension host and the webview)
   whenever the timeline has per-call token counts. Only a session with no per-call data falls back
@@ -139,7 +154,7 @@ aiCredits = cost / 0.01
   Copilot's model pricing page and Anthropic's own pricing page (exact match on both). Opus 5.5 is
   priced *below* Opus 5 ($4.00/$5.00/$8.00/$0.20¹/$20.00 vs Opus 5's $5.00/$6.25/$10.00/$0.50/$25.00)
   despite the higher version number — Anthropic's page confirms this isn't a typo, it's a distinct,
-  cheaper model. Sonnet 5.5 shares Sonnet 5's exact rate. See the Claude section below for the fast-mode
+  cheaper model. Sonnet 5.5 shares Sonnet 5's input/output/cache-write rate, but its cache hits are 0.05x ($0.10, footnote 2 on Anthropic's page — corrected 2026-10-11 from $0.20). See the Claude section below for the fast-mode
   entry and the cache-hit-rate exception (¹0.05x base input on Opus 5.5, vs the usual 0.1x).
 - **`claude-sonnet-5-5` corrected 2026-10-11**: its cache-read rate is $0.10 (0.05x base input, the
   same exception as Opus 5.5), not $0.20 — the 2026-09-28 pass added it at Sonnet 5's rate on the
@@ -149,19 +164,10 @@ aiCredits = cost / 0.01
   `gpt-6.1-sol` is three-way confirmed (this page, OpenAI's API page, Codex credits 50/2.5/250 ÷ 25);
   same shape as `gpt-6-sol` (cache-write 1.25x input, long-context tier above 272K) except the
   cache-read rate is half. `claude-haiku-5-5` is confirmed here and on Anthropic's page; it is the
-  one Claude model priced by prompt length (see the Claude section). `grok-4.7` matches
+  one Claude model with a long-context tier (billed on the whole call; see the Claude section). `grok-4.7` matches
   `grok-4.5`/`4.6` exactly (also on OpenCode Zen's list at the same rates); slug guessed from the
-  display name. Context windows for `gpt-6.1-sol` and `claude-haiku-5-5` aren't on any pricing page
-  and are left at 0 (unknown) in `src/pricing.ts`.
-- **`claude-haiku-5-5` is only approximated.** Anthropic bills a request whose prompt (input + cache
-  reads + cache writes) is over 100K tokens *wholly* at the higher rates. `calcCallCostWithRates`
-  applies a marginal, per-category tier instead (tokens past 100K in a category at the higher rate), so
-  it undercharges a request whose combined prompt passes 100K without any single category doing so
-  (e.g. 60K input + 60K cache-read) and charges the base rate for the first 100K of a category that does
-  cross. Fixing it means a whole-request tier in the shared cost math (both copies of it, see the
-  header above `tieredCost`) — not done in a rates refresh. The other long-context models (GPT-5.x/6,
-  Grok, Sonnet 4) have the same shape of approximation; Anthropic is the only vendor that states the
-  whole-request rule in its own words.
+  display name. `gpt-6.1-sol`'s context window isn't on any pricing page and is left at 0 (unknown)
+  in `src/pricing.ts`.
 - **Partly re-checked 2026-10-11**: this page's current tables list only `gemini-3.7-flash` and
   `gemini-3.8-flash` for Google and no longer show `raptor-mini`, `goldeneye`, `gemini-2.5-pro`,
   `gemini-3-flash`, `gemini-3-pro`, `gemini-3.1-pro`, `gemini-3.5-flash` or `gemini-3.6-flash`.
@@ -219,13 +225,12 @@ On `claude_code.llm_request` spans (per-API-call):
 | `claude-opus-4-7`                                                        | $5.00  | $6.25              | $10.00             | $0.50      | $25.00  |
 | `claude-opus-4-6`                                                        | $5.00  | $6.25              | $10.00             | $0.50      | $25.00  |
 | `claude-opus-4-5`                                                        | $5.00  | $6.25              | $10.00             | $0.50      | $25.00  |
-| `claude-sonnet-5-5` (added 2026-09-28; cache read corrected 2026-10-11 — 0.05x input, no fast mode) | $2.00  | $2.50              | $4.00              | $0.10      | $10.00  |
+| `claude-sonnet-5-5` (added 2026-09-28 — 0.05x cache-hit multiplier, corrected 2026-10-11; no fast mode) | $2.00  | $2.50              | $4.00              | $0.10      | $10.00  |
 | `claude-sonnet-5` (standard — see note below)                           | $2.00  | $2.50              | $4.00              | $0.20      | $10.00  |
 | `claude-sonnet-4-6`                                                      | $3.00  | $3.75              | $6.00              | $0.30      | $15.00  |
 | `claude-sonnet-4-5`                                                      | $3.00  | $3.75              | $6.00              | $0.30      | $15.00  |
 | `claude-sonnet-4`                                                        | $3.00  | $3.75              | $6.00              | $0.30      | $15.00  |
-| `claude-haiku-5-5` (added 2026-10-11 — prompts up to 100K tokens)         | $0.10  | $0.125             | $0.20              | $0.01      | $0.50   |
-| `claude-haiku-5-5` (prompts over 100K tokens — billed on the whole request, cache reads and writes included in the prompt length) | $0.50  | $0.625             | $1.00              | $0.05      | $2.50   |
+| `claude-haiku-5-5` (added 2026-10-11 — prompts ≤100K; over 100K the whole call is $0.50/$0.625/$1.00/$0.05/$2.50) | $0.10  | $0.125             | $0.20              | $0.01      | $0.50   |
 | `claude-haiku-4-5`                                                       | $1.00  | $1.25              | $2.00              | $0.10      | $5.00   |
 | `claude-fable-5`                                                         | $10.00 | $12.50             | $20.00             | $1.00      | $50.00  |
 | `claude-mythos-5` (limited availability, see anthropic.com/glasswing)   | $10.00 | $12.50             | $20.00             | $1.00      | $50.00  |
@@ -251,16 +256,25 @@ support fast mode — requests with `speed: "fast"` run at standard speed and bi
 rate, so its `-fast` entry is set equal to the standard rate rather than a multiplied one. Sonnet
 5.5 (like every other Sonnet) doesn't support fast mode at all, so it has no `-fast` entry.
 
-**Tiered pricing — `claude-sonnet-4` only:**
+**Tiered pricing — `claude-sonnet-4` and `claude-haiku-5-5`:**
 
-`claude-sonnet-4` has a two-tier rate structure where per-token rates increase once a single API call exceeds 200K tokens for a given token category. The tier is applied per-category (input, output, cache read, cache write each evaluated against the 200K threshold independently):
+Anthropic's rule (https://platform.claude.com/docs/en/about-claude/pricing#long-context-pricing): "A
+request's prompt length counts all of its input tokens, including cache reads and cache writes. Each
+request is priced on its own: a request over the threshold pays the higher prices even when part of
+its prompt is a cache hit." So a call whose input + cache read + cache write is over the threshold
+is billed — every category, output included — at the higher row. Claude 4.6 and later (except Haiku
+5.5) have no tier: the full 1M context is at standard pricing.
 
-| Token category | ≤200K rate | >200K rate |
-| -------------- | ---------- | ---------- |
-| Input          | $3.00/MTok | $6.00/MTok |
-| Output         | $15.00/MTok| $22.50/MTok|
-| Cache write    | $3.75/MTok | $7.50/MTok |
-| Cache read     | $0.30/MTok | $0.60/MTok |
+| Token category | `claude-sonnet-4` ≤200K | >200K (1M-context beta) | `claude-haiku-5-5` ≤100K | >100K |
+| -------------- | ----------- | ----------- | ------------ | ------------ |
+| Input          | $3.00/MTok  | $6.00/MTok  | $0.10/MTok   | $0.50/MTok   |
+| Output         | $15.00/MTok | $22.50/MTok | $0.50/MTok   | $2.50/MTok   |
+| Cache write    | $3.75/MTok  | $7.50/MTok  | $0.125/MTok  | $0.625/MTok  |
+| Cache read     | $0.30/MTok  | $0.60/MTok  | $0.01/MTok   | $0.05/MTok   |
+
+Sonnet 4 is retired on the Claude API and its 1M-context tier is no longer on the pricing page; the
+rates above are the ones it carried while it was (same whole-request rule), kept for historical
+sessions and Bedrock/Google Cloud.
 
 The threshold applies per API call, not cumulatively across a session. `calcSessionCostUsd` (the same code in `src/pricing.ts` and `media/src/pricing.ts`) prices each LLM call in the timeline on its own — tier included — and sums them. When a session has no per-call token data, its aggregate totals are priced at flat rates without the tier (a slight underestimate for sessions that really did make >200K calls, rather than the large overestimate of tiering the cumulative total).
 

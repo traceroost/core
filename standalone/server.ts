@@ -42,13 +42,18 @@ import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaus
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud, type TraceManifestSource } from '../src/cloudBridge'
 import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
-import { traceKeysInWindow, localHorizonOf, countTracesInWindow, hasSettledKey } from '../src/traceIdentity'
+import { traceKeysInWindow, sourceExtentsOf, countTracesInWindow, hasSettledKey } from '../src/traceIdentity'
+import { TraceHorizon, evictionFloorMs } from '../src/traceHorizon'
+import { HistoryReadiness } from '../src/historyReadiness'
+import { isSameOrInsideWorkspace } from '../src/workspacePath'
 import { resolveGithubUrl } from '../src/repoRemote'
 import {
-  isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isLoopbackHost,
+  isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isJsonContentType, isLoopbackHost,
+  isSameOriginRequest,
   extractCookieToken, authCookieHeader,
 } from '../src/httpSecurity'
 import { SseSessionSync, type SyncSummary } from './sseSessionSync'
+import { resolveStaticFile } from './pathGuard'
 import { autoConfigLogLines } from './autoConfigLog'
 import { promptsFileFor, IMPORT_SOURCES } from './promptsFile'
 import { handleInstructionMessage, loadInstructionState, saveInstructionState, MAX_INSTRUCTION_BODY_BYTES, type InstructionHost, type InstructionResult } from './instructionActions'
@@ -214,6 +219,10 @@ dataDirLock.startHeartbeat(holder => {
 // This host's trace store — its cloud host id lives in the data dir, so this server and the
 // editor extension (one shared link) each reconcile only their own traces.
 cloud.setHostStore(DATA_DIR)
+// What the trace manifest may claim this store holds in full (src/traceHorizon.ts): moved past
+// evicted spans, a spans.json reset and "Clear all data" below.
+const traceHorizon = new TraceHorizon(DATA_DIR)
+const onSpansEvicted = (evicted: Span[]) => traceHorizon.raiseFloor(evictionFloorMs(evicted))
 
 // ── Span store with file persistence ─────────────────────────────────────────
 //
@@ -240,7 +249,7 @@ function rebuildSpanIndex(): void {
 }
 /** pruneSpans() over the store, keeping the index in step. Returns how many were dropped. */
 function pruneSpanStore(): number {
-  const dropped = pruneSpans(spans, MAX_SPANS)
+  const dropped = pruneSpans(spans, MAX_SPANS, onSpansEvicted)
   if (dropped > 0) rebuildSpanIndex()
   return dropped
 }
@@ -254,6 +263,7 @@ try {
     if (size > MAX_LOADABLE_BYTES) {
       const backupFile = `${DATA_FILE}.bak`
       fs.renameSync(DATA_FILE, backupFile)
+      traceHorizon.raiseFloor(Date.now())
       console.warn(`[TraceRoost] ${DATA_FILE} was ${(size / 1024 / 1024).toFixed(0)}MB — too large to load safely. Moved it to ${backupFile} and starting fresh.`)
     } else {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8')
@@ -264,11 +274,12 @@ try {
         // A torn file (a crash mid-write in a build that saved in place): move it aside instead of
         // letting the first save overwrite it — every OTEL span ever received is in there.
         const aside = quarantineCorruptFile(DATA_FILE)
+        traceHorizon.raiseFloor(Date.now())
         console.warn(`[TraceRoost] ${DATA_FILE} could not be parsed (${e instanceof Error ? e.message : String(e)})${aside ? ` — moved it to ${aside}` : ''}; starting with no stored spans.`)
         parsed = []
       }
       spans = Array.isArray(parsed) ? parsed as Span[] : []
-      const dropped = pruneSpans(spans, MAX_SPANS)
+      const dropped = pruneSpans(spans, MAX_SPANS, onSpansEvicted)
       console.log(`[TraceRoost] Loaded ${spans.length} spans from ${DATA_FILE}${dropped ? ` (dropped ${dropped} oldest to respect the ${MAX_SPANS}-span cap)` : ''}`)
     }
   }
@@ -291,7 +302,7 @@ function saveSpansNow(): boolean {
     if (e instanceof RangeError && spans.length > 1) {
       const keep = Math.floor(spans.length / 2)
       const dropped = spans.length - keep
-      spans.splice(0, dropped)
+      onSpansEvicted(spans.splice(0, dropped))
       rebuildSpanIndex()
       dataVersion++
       console.warn(`[TraceRoost] Save failed (spans array too large to serialize) — dropped oldest ${dropped} spans and retrying`)
@@ -329,9 +340,6 @@ function addSpan(span: Span) {
 // Indexed by sessionId; OTEL-derived sessions (from spans) take precedence —
 // when the same session ID appears in both, the OTEL version is used.
 let logSessions: Map<string, SessionSummaryCard> = new Map()
-/** False until the historical log pass has filled `logSessions`, and again while "clear all data"
- *  re-reads — the trace manifest waits for it (see traceManifestSource). */
-let traceStoreReady = false
 
 /** The one way a card enters `logSessions` — bumps `dataVersion` and drops any cached serialized
  *  form of the card (see `strippedCardJson`), in case a producer ever hands back the same object
@@ -520,13 +528,15 @@ function checkStaleOtelSessions() {
     // With reconciliation, the content-hash gate sends it as a newer revision of a key the log
     // card may already have delivered (and never over a higher-rank snapshot); without it, the
     // ledger-gated first send.
-    if (reconciliationService) {
-      void cloud.forwardOnContentChange(reconciliationService, card, m => console.log(m))
-        .then(r => { if (r.enqueued) cloud.drainUploadsSoon() }, forwardFailed('OTEL trace forward'))
-    } else {
-      void cloud.enqueueSession(card, m => console.log(m))
-        .then(r => { if (r.enqueued) cloud.drainUploadsSoon() }, forwardFailed('OTEL trace forward'))
-    }
+    // The gate marks this shape forwarded only once the forward resolved (settle): one that
+    // errored, or found the machine unlinked meanwhile, is offered again on a later tick.
+    const forward = reconciliationService
+      ? cloud.forwardOnContentChange(reconciliationService, card, m => console.log(m))
+      : cloud.enqueueSession(card, m => console.log(m))
+    void forward.then(r => {
+      otelForwardGate.settle(card, r.enqueued || (r.reason !== 'error' && r.reason !== 'not-linked'))
+      if (r.enqueued) cloud.drainUploadsSoon()
+    }, e => { otelForwardGate.settle(card, false); forwardFailed('OTEL trace forward')(e) })
   }
 }
 
@@ -699,14 +709,13 @@ async function startLogIngestion() {
 
   console.log(`[TraceRoost] Log ingestion enabled — scanning local trace logs (keeping ${SESSION_RETENTION_DAYS} days)`)
   try {
-    await runHistoricalPass()
+    await historyReadiness.load()
   } finally {
     // Only now start the poll and watcher: runLogScan() racing the initial pass would see every
     // not-yet-parsed file as "changed" and parse it (and enqueue it) a second time. Files that
     // change or appear during the pass are still caught — parseFile() records the state it read,
     // so scan() sees anything newer on its first run.
     setInterval(runLogScan, 5_000)
-    traceStoreReady = true
     // Cloud: catch sessions that never got a matching transcript file at all — see the doc
     // comment on checkStaleOtelSessions for why this needs its own idle-based check rather
     // than firing from the same per-file-change trigger runLogScan uses.
@@ -723,13 +732,19 @@ async function startLogIngestion() {
  *  out of the way until it's done. */
 let historicalPassRunning = false
 
+/** The trace manifest's "store is complete" gate (src/historyReadiness.ts): opened only by a
+ *  historical pass that completed for the store as it is now; a failed pass is retried. */
+const historyReadiness = new HistoryReadiness({ run: () => runHistoricalPass(), log: (m) => console.warn(m) })
+
 /** ingestHistoricalLogs() with the bookkeeping both callers need: the in-flight flag and clearing
- *  the progress banner even if the pass bailed out early. */
-async function runHistoricalPass(): Promise<void> {
-  if (historicalPassRunning) return
+ *  the progress banner even if the pass bailed out early. 'busy' when a pass was already running.
+ *  Throws when the pass could not read the history. */
+async function runHistoricalPass(): Promise<'done' | 'busy'> {
+  if (historicalPassRunning) return 'busy'
   historicalPassRunning = true
   try {
     await ingestHistoricalLogs()
+    return 'done'
   } finally {
     historicalPassRunning = false
     if (logIngestProgress) {
@@ -750,6 +765,9 @@ const INGEST_SLICE_MS = 30
 async function ingestHistoricalLogs(): Promise<void> {
   const countByKey = new Map<string, number>()
   const retentionCutoff = retentionCutoffMs(SESSION_RETENTION_DAYS)
+  // A file that fails to parse below holds traces this pass can't list — keep the trace manifest
+  // off everything up to its last write until a later pass reads it (src/traceHorizon.ts).
+  traceHorizon.resetTransientFloor()
 
   // OpenCode: one DB file = many sessions, handled separately.
   const ocResults = logReader.scanOpenCode()
@@ -778,7 +796,10 @@ async function ingestHistoricalLogs(): Promise<void> {
     const all = logReader.collectFileMeta()
     files = retentionCutoff > 0 ? all.filter(f => f.mtimeMs >= retentionCutoff) : all
     skipped = retentionCutoff > 0 ? all.filter(f => f.mtimeMs < retentionCutoff) : []
-  } catch { return }
+  } catch (e) {
+    // Not "no history": the store stays not-ready and the pass is retried (historyReadiness).
+    throw new Error(`could not list the local trace logs: ${e instanceof Error ? e.message : String(e)}`)
+  }
   files = files.filter(f => f.agentKey !== 'opencode')  // already handled above
   if (skipped.length > 0) {
     const seed: Record<string, { bytesRead: number; mtimeMs: number }> = {}
@@ -828,7 +849,10 @@ async function ingestHistoricalLogs(): Promise<void> {
         void cloud.enqueueSession(result.card, m => console.log(m))
           .then(r => { if (r.enqueued) cloud.drainUploadsSoon() }, forwardFailed('Trace forward'))
       }
-    } catch { /* skip bad file */ }
+    } catch {
+      // Skip a bad file — but its traces are missing from the store until it parses.
+      traceHorizon.raiseTransientFloor(file.mtimeMs + 1)
+    }
   }
   retireLogSessions()
   // Cards read from a recently-modified file can still start before the cutoff (an old transcript
@@ -1422,7 +1446,10 @@ const SSE_CLIENT_ID = /^[A-Za-z0-9_-]{1,64}$/
  *  Settings.tsx's no-host path) — the extension's traceRoost.clearSessions: drop OTEL spans and the
  *  log-session cache, then re-read the local log files so log-sourced traces come back. */
 function clearAllData(): void {
-  traceStoreReady = false // see traceManifestSource
+  historyReadiness.invalidate() // see traceManifestSource
+  // Everything before now is gone from this store for good: the trace manifest never again
+  // claims a day before the clear (it would list only what re-reading the logs brings back).
+  traceHorizon.raiseFloor(Date.now())
   spans = []
   rebuildSpanIndex()
   logSessions.clear()
@@ -1433,11 +1460,7 @@ function clearAllData(): void {
   // Re-ingest on a later turn, after the caller's response is sent, so the client sees the cleared
   // state first. The same sliced, retention-aware pass as startup (with its progress banner and
   // ledger-gated enqueue) — not a synchronous scan() of the whole history on the event loop.
-  setImmediate(() => {
-    void runHistoricalPass()
-      .catch(e => console.warn('[TraceRoost] Re-reading local logs after clearing data failed:', e))
-      .finally(() => { traceStoreReady = true })
-  })
+  setImmediate(() => { void historyReadiness.load() })
 }
 
 // ── Instructions tab routes (polyfill → standalone/instructionActions.ts) ─────
@@ -1547,10 +1570,20 @@ const uiServer = http.createServer((req, res) => {
     }
   }
   // No CORS: the dashboard is same-origin, and on loopback (no token) a wildcard
-  // Access-Control-Allow-Origin let any website read every session off /api/*. State-changing
-  // requests from a foreign page (e.g. POST /action clearAll) are refused outright.
-  if (req.method !== 'GET' && req.method !== 'HEAD' && !isAllowedOrigin(req.headers.origin, req.headers.host)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+  // Access-Control-Allow-Origin let any website read every session off /api/*. Every
+  // state-changing route here (/api/instructions/*, /api/clear, /api/org, /action, /api/import,
+  // …) is called only by this server's own page, so a browser request must be same-origin — not
+  // just "loopback": a page on another local port could otherwise append to files in a recorded
+  // workspace, clear all data or leave the org — and must say `Content-Type: application/json`,
+  // so a foreign page can't slip a "simple" text/plain or bodyless POST past CORS without a
+  // preflight (which this server never grants).
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    if (!isSameOriginRequest(req.headers)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+    }
+    if (!isJsonContentType(req.headers['content-type'])) {
+      res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type — send Content-Type: application/json'); return
+    }
   }
 
   if (url === '/events') {
@@ -1680,7 +1713,7 @@ const uiServer = http.createServer((req, res) => {
       return
     }
     const sessions = (buildSessionSummary()?.sessions ?? [])
-      .filter(s => (s.workspace ?? '') === workspace || s.workspace?.startsWith(workspace))
+      .filter(s => isSameOrInsideWorkspace(s.workspace, workspace))
     const { readAllInstructionContent } = require('../src/instructionFiles') as typeof import('../src/instructionFiles')
     const existingText = readAllInstructionContent(workspace)
     const suggestions = generateSuggestions(sessions, existingText)
@@ -1760,15 +1793,20 @@ const uiServer = http.createServer((req, res) => {
 
   if (req.method === 'GET' && url === '/api/version-check') {
     const result = getCachedVersionCheck(PACKAGE_VERSION)
-    // No signal distinguishes a Docker container from a bare npx run, so both get the same
-    // generic recommendation — only an OS-native background service (which sets this env var,
-    // see src/serviceConfig.ts's generators) gets the more precise `service update`.
+    // Three ways to be running, three different update commands: an OS-native background service
+    // (src/serviceConfig.ts's generators set TRACEROOST_SERVICE=1) updates in place; the Docker
+    // image (its Dockerfile sets TRACEROOST_DOCKER=1) needs a new image and a re-created
+    // container; anything else (npx, a global install) is pointed at the background service.
     const isService = process.env.TRACEROOST_SERVICE === '1'
+    const isDocker = !isService && process.env.TRACEROOST_DOCKER === '1'
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       ...result,
       isService,
-      recommendedCommand: isService ? 'traceroost service update' : 'npx traceroost@latest service install',
+      isDocker,
+      recommendedCommand: isService
+        ? 'traceroost service update'
+        : isDocker ? 'docker pull traceroost/traceroost' : 'npx traceroost@latest service install',
     }))
     return
   }
@@ -2006,10 +2044,11 @@ const uiServer = http.createServer((req, res) => {
     return
   }
 
-  const filePath = path.join(mediaDir, url)
-  const ext = path.extname(filePath)
-  const mime = MIME[ext]
-  if (mime && fs.existsSync(filePath) && filePath.startsWith(mediaDir)) {
+  // Never outside media/ — see resolveStaticFile for the sibling-prefix escape a `startsWith`
+  // check allowed.
+  const filePath = resolveStaticFile(mediaDir, url)
+  const mime = filePath ? MIME[path.extname(filePath)] : undefined
+  if (filePath && mime && fs.existsSync(filePath)) {
     res.writeHead(200, { 'Content-Type': mime })
     fs.createReadStream(filePath).pipe(res)
     return
@@ -2043,7 +2082,7 @@ const otlpServer = http.createServer((req, res) => {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
   }
   if (req.method !== 'POST') { res.writeHead(200); res.end(); return }
-  if (!isAllowedOtlpContentType(req.headers['content-type'])) {
+  if (!isAllowedOtlpContentType(req.headers['content-type'], req.headers.origin)) {
     res.writeHead(415, { 'Content-Type': 'text/plain' }); res.end('Unsupported Media Type'); return
   }
   const chunks: Buffer[] = []
@@ -2188,13 +2227,22 @@ async function startUiServer(): Promise<void> {
   startLogIngestion()
 
   // Cloud: forwarding scheduler. No timer runs unless an org is linked.
-  cloud.startForwardScheduler({ log: (msg) => console.log(msg), onDrainStart: pushOrgStatusToClients, onDrainComplete: pushOrgStatusToClients, traceManifest: traceManifestSource })
+  // `notify`: the standalone has no toast — the message goes to the log, and the notice the sender
+  // persists (a re-link after the credential was rejected for good, an update the cloud requires)
+  // reaches every open dashboard through the org status it pushes (the Org panel's banner).
+  cloud.startForwardScheduler({
+    log: (msg) => console.log(msg),
+    notify: (message, kind) => { (kind === 'warning' ? console.warn : console.log)(`[TraceRoost] ${message}`); pushOrgStatusToClients() },
+    onDrainStart: pushOrgStatusToClients,
+    onDrainComplete: pushOrgStatusToClients,
+    traceManifest: traceManifestSource,
+  })
   // A link made outside this server (`traceroost org link`, another process on this data dir)
   // would otherwise go unnoticed until a restart: no forwarding timer, and no history queued.
   cloud.startLinkWatcher({
     allLocalSessions: () => buildSessionSummary()?.sessions ?? [],
     isWriter: () => dataDirLock.isOurs(),
-    isReady: () => traceStoreReady,
+    isReady: () => historyReadiness.isReady(),
     log: (msg) => console.log(msg),
     onLinkStateChange: pushOrgStatusToClients,
   })
@@ -2206,11 +2254,11 @@ async function startUiServer(): Promise<void> {
 // The trace manifest (stable trace identity, src/cloud/forward/traceManifest.ts) states which trace
 // keys this install holds — so only while this process is the data dir's writer, and only once the
 // historical log pass has finished (and not while "clear all data" re-reads): a manifest built
-// from a half-loaded store would retire every trace not read yet (traceStoreReady, above).
+// from a half-loaded store would retire every trace not read yet (historyReadiness, above).
 const traceManifestSource: TraceManifestSource = {
   isWriter: () => dataDirLock.isOurs(),
-  isReady: () => traceStoreReady,
-  localHorizonMs: () => localHorizonOf(buildSessionSummary()?.sessions ?? []),
+  isReady: () => historyReadiness.isReady(),
+  localHorizonMs: () => traceHorizon.horizonMs(sourceExtentsOf(buildSessionSummary()?.sessions ?? [])),
   listTraceKeys: (fromMs, toMs) => traceKeysInWindow(buildSessionSummary()?.sessions ?? [], fromMs, toMs),
   countTraces: (fromMs, toMs) => countTracesInWindow(buildSessionSummary()?.sessions ?? [], fromMs, toMs),
 }

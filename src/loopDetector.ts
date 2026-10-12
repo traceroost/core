@@ -364,11 +364,11 @@ export const SIGNAL_FORMULAS: Record<
   },
   model_tier_mismatch: {
     bullets: [
-      'No file was edited this session, 90%+ of tool calls are read-only (grep/search/glob/list/read), the model\'s input rate is $3+/M tokens, and average output per LLM call is under 300 tokens → warning',
+      'No file was edited this session, 3+ tool calls were made and 90%+ of them are read-only (grep/search/glob/list/read), the model\'s input rate is $3+/M tokens, and average output per LLM call is under 300 tokens → warning',
       'No critical tier — this is a cost-optimization tip, not a malfunction',
     ],
     caveat: 'Experimental — every cutoff here (the 90% read-only share, the $3/M input-rate line, the 300-token output ceiling) is not yet tuned on real sessions.',
-    short: 'A premium-tier model ran a long, read-only, low-output stretch.',
+    short: 'A premium-tier model ran a read-only, low-output stretch of 3+ tool calls.',
     tip: 'Route read/search-heavy turns to a smaller model.',
     dataSource: 'both',
     dataSourceNote:

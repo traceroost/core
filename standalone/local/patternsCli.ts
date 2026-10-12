@@ -17,6 +17,7 @@ import { resolveRepoArg, type RepoHashResolver } from './repoResolve'
 import { detectLoopSignals, PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from '../../src/loopDetector'
 import type { LoopSignalType } from '../../src/types'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
+import { commandUsage, isCloudEdition } from '../cliArgs'
 
 function valueAfter(args: string[], flag: string): string | undefined {
   const i = args.indexOf(flag)
@@ -66,7 +67,7 @@ export function groupedSignals(sessions: SessionSummaryCard[]): SignalGroup[] {
 export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard[], resolveHash?: RepoHashResolver): Promise<number> {
   const repoArg = (valueAfter(args, '--repo') ?? '').trim()
   if (!repoArg) {
-    console.log('Usage: traceroost patterns --repo <hash|name>')
+    console.log(`Usage: ${commandUsage('patterns', isCloudEdition())}`)
     return 1
   }
 

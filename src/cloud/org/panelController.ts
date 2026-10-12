@@ -172,8 +172,11 @@ export async function handleOrgMessage(msg: OrgMessage, deps: OrgPanelDeps): Pro
 
     case 'orgLinkDevice': {
       try {
+        let prompt: { userCode: string; verificationUri: string; verificationUriComplete?: string } | undefined
         await linkViaDevice({
-          onPrompt: (info) => deps.post({ type: 'orgDevicePrompt', ...info }),
+          onPrompt: (info) => { prompt = info; deps.post({ type: 'orgDevicePrompt', ...info }) },
+          // Approved but held back (no machine slot): say why and keep waiting on the same code.
+          onBlocked: (message) => { if (prompt) deps.post({ type: 'orgDevicePrompt', ...prompt, blocked: message }) },
         })
         syncForwardSchedulerToLinkState()
         syncPricingToLinkState()

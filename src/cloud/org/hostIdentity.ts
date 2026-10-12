@@ -39,7 +39,8 @@ function readHostId(file: string): string | null {
 
 /** The host id kept in `storeDir`, generating and persisting one on first use. Safe against
  *  another process sharing the store doing the same at the same moment: the file is published
- *  with an exclusive link, so exactly one id wins and both return it. */
+ *  with an exclusive link (or, without hard links, an exclusive create), so exactly one id wins
+ *  and both return it. */
 export function loadOrCreateHostId(storeDir: string): string {
   const file = path.join(storeDir, HOST_ID_FILE)
   const existing = readHostId(file)
@@ -52,7 +53,11 @@ export function loadOrCreateHostId(storeDir: string): string {
     fs.linkSync(tmp, file)
     return id
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+    const code = (err as NodeJS.ErrnoException).code
+    // A filesystem without hard links (some network, FUSE and container mounts; FAT/exFAT):
+    // publish with an exclusive create instead — still exactly one winner.
+    if (code !== undefined && NO_HARD_LINKS.has(code)) return createExclusive(file, id)
+    if (code !== 'EEXIST') throw err
     // Someone else published first — theirs wins. An unreadable/corrupt file is replaced: a new
     // id only means rows sent under the old one are never retired by a manifest (the safe side).
     const winner = readHostId(file)
@@ -62,6 +67,29 @@ export function loadOrCreateHostId(storeDir: string): string {
   } finally {
     try { fs.rmSync(tmp, { force: true }) } catch { /* already moved or gone */ }
   }
+}
+
+/** What `linkSync` throws where hard links aren't supported. */
+const NO_HARD_LINKS = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'ENOSYS', 'EMLINK', 'EACCES'])
+
+/** `loadOrCreateHostId`'s fallback publish: an exclusive (`wx`) create of the file itself. The
+ *  loser of a race reads the winner's id — retrying briefly, since an exclusive create is visible
+ *  before its content is written. */
+function createExclusive(file: string, id: string): string {
+  try {
+    fs.writeFileSync(file, id + '\n', { flag: 'wx', mode: 0o600 })
+    return id
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+  }
+  for (let i = 0; i < 50; i++) {
+    const winner = readHostId(file)
+    if (winner) return winner
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+  }
+  // Still unreadable (a corrupt file): replace it, as the hard-link path does.
+  fs.writeFileSync(file, id + '\n', { mode: 0o600 })
+  return id
 }
 
 let hostStoreDir: string | undefined

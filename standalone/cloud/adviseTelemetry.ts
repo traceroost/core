@@ -1,8 +1,8 @@
 /**
  * The cloud step of `traceroost advise --apply` (standalone/local/adviseCli.ts's `afterApply`):
  * record the apply in the CLI's suggestion ledger (`~/.traceroost/instruction-ledger.json`) and —
- * only when an org is linked — queue a `SuggestionEvent` for it (AL 08). The ledger's only reader
- * is that instruction telemetry, so both halves live here, beside the rest of the linking code.
+ * only when an org is linked — queue the repo's updated instruction-file state (AL 08). Suggestion
+ * events are no longer sent (org/instructionTelemetry.ts); the ledger stays local.
  */
 
 import { recordApplied, readLedger } from '../../src/cloud/org/suggestionLedgerStore'
@@ -15,6 +15,6 @@ export const recordAppliedAndEmit: AfterApplyHook = async (workspace, card, sess
   const enqueued = await maybeEnqueueInstructionTelemetry(workspace, sessions, readLedger(workspace))
   if (enqueued) {
     drainForwardQueueSoon()
-    console.log('  A suggestion event (id hashed, no prose) was queued for your org.')
+    console.log('  The updated instruction-file state (hashed, no text) was queued for your org.')
   }
 }

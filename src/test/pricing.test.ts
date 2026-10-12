@@ -107,11 +107,11 @@ suite('pricing', () => {
     assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
   })
 
-  test('calcTokenCostUsd applies the surcharge for gpt-6-astra above its 272K threshold', () => {
-    // 372K input: first 272K at $10, next 100K at $20 (2x)
-    const cost = calcTokenCostUsd(372_000, 0, 0, 0, 'gpt-6-astra')
-    const expected = (272_000 / 1_000_000) * 10.00 + (100_000 / 1_000_000) * 20.00
-    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  test('calcTokenCostUsd bills a gpt-6-astra call over 272K entirely at the long-context rate', () => {
+    // 372K input + 10K output: every token at the long rate ($20 input, $75 output), not just the
+    // 100K past the threshold.  0.372 × 20 + 0.01 × 75 = 7.44 + 0.75 = 8.19
+    const cost = calcTokenCostUsd(372_000, 0, 0, 10_000, 'gpt-6-astra')
+    assert.ok(Math.abs(cost - 8.19) < 1e-9, `Expected $8.19, got $${cost}`)
   })
 
   test('calcTokenCostUsd prices claude-fable-5-1 with the 0.025x cache-read rate', () => {
@@ -127,24 +127,37 @@ suite('pricing', () => {
   })
 
   test('calcTokenCostUsd uses flat rate for claude-sonnet-4 under threshold', () => {
-    // 100K input + 50K output — all below 200K, so same as flat rate
+    // 100K input + 50K output — prompt under 200K, so flat rates
     const cost = calcTokenCostUsd(100_000, 0, 0, 50_000, 'claude-sonnet-4')
     const expected = (100_000 / 1_000_000) * 3.00 + (50_000 / 1_000_000) * 15.00
     assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
   })
 
-  test('calcTokenCostUsd applies tiered rate for claude-sonnet-4 above 200K input', () => {
-    // 300K input, 0 output: first 200K at $3, next 100K at $6
-    const cost = calcTokenCostUsd(300_000, 0, 0, 0, 'claude-sonnet-4')
-    const expected = (200_000 / 1_000_000) * 3.00 + (100_000 / 1_000_000) * 6.00
-    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  test('claude-sonnet-4: a prompt over 200K counting cache reads and writes bills the whole call, output included, at the premium', () => {
+    // 20K uncached + 150K cache read + 40K cache write = 210K prompt > 200K. No category is over
+    // 200K on its own (the old per-category rule billed this flat), but Anthropic counts the whole
+    // prompt: 0.02 × $6 + 0.15 × $0.60 + 0.04 × $7.50 + 0.008 × $22.50 = 0.12 + 0.09 + 0.30 + 0.18 = 0.69
+    const cost = calcTokenCostUsd(20_000, 150_000, 40_000, 8_000, 'claude-sonnet-4')
+    assert.ok(Math.abs(cost - 0.69) < 1e-9, `Expected $0.69, got $${cost}`)
   })
 
-  test('calcTokenCostUsd tiered output for claude-sonnet-4', () => {
-    // 0 input, 250K output: first 200K at $15, next 50K at $22.50
-    const cost = calcTokenCostUsd(0, 0, 0, 250_000, 'claude-sonnet-4')
-    const expected = (200_000 / 1_000_000) * 15.00 + (50_000 / 1_000_000) * 22.50
-    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  test('claude-sonnet-4: exactly 200K is not over the threshold; output never counts toward it', () => {
+    // 200K prompt + 250K output: flat.  0.2 × 3 + 0.25 × 15 = 0.60 + 3.75
+    assert.ok(Math.abs(calcTokenCostUsd(200_000, 0, 0, 250_000, 'claude-sonnet-4') - 4.35) < 1e-9)
+    // One more prompt token: everything at the premium.  0.200001 × 6 + 0.25 × 22.5
+    assert.ok(Math.abs(calcTokenCostUsd(200_001, 0, 0, 250_000, 'claude-sonnet-4') - (1.200006 + 5.625)) < 1e-9)
+  })
+
+  test('claude-haiku-5-5: priced by prompt length over 100K, cache hits included', () => {
+    // 5K uncached + 90K cache read = 95K: base rates.  0.005 × 0.10 + 0.09 × 0.01 + 0.002 × 0.50
+    assert.ok(Math.abs(calcTokenCostUsd(5_000, 90_000, 0, 2_000, 'claude-haiku-5-5') - (0.0005 + 0.0009 + 0.001)) < 1e-12)
+    // 5K uncached + 96K cache read = 101K: the whole call at the >100K row.
+    // 0.005 × 0.50 + 0.096 × 0.05 + 0.002 × 2.50 = 0.0025 + 0.0048 + 0.005 = 0.0123
+    assert.ok(Math.abs(calcTokenCostUsd(5_000, 96_000, 0, 2_000, 'claude-haiku-5-5') - 0.0123) < 1e-12)
+  })
+
+  test('claude-sonnet-5-5 reads cache at 0.05x base input', () => {
+    assert.strictEqual(lookupRates('claude-sonnet-5.5')!.cacheReadPerMTok, 0.10)
   })
 
   test('calcTokenCostUsd flat rate for claude-sonnet-4-5 (no tiered rates)', () => {
@@ -160,11 +173,17 @@ suite('pricing', () => {
     assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
   })
 
-  test('calcTokenCostUsd applies the surcharge for gpt-5.4 above its 272K threshold', () => {
-    // 372K input: first 272K at $2.50, next 100K at $5.00 (2x)
-    const cost = calcTokenCostUsd(372_000, 0, 0, 0, 'gpt-5.4')
-    const expected = (272_000 / 1_000_000) * 2.50 + (100_000 / 1_000_000) * 5.00
-    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  test('gpt-5.4: input + cached input over 272K bills input, cached input and output at 2x/2x/1.5x', () => {
+    // 72K uncached + 250K cached = 322K prompt > 272K; 4K output.
+    // 0.072 × $5 + 0.25 × $0.50 + 0.004 × $22.50 = 0.36 + 0.125 + 0.09 = 0.575
+    // (The old per-category rule billed all of this flat: 0.18 + 0.0625 + 0.06 = 0.3025.)
+    const cost = calcTokenCostUsd(72_000, 250_000, 0, 4_000, 'gpt-5.4')
+    assert.ok(Math.abs(cost - 0.575) < 1e-9, `Expected $0.575, got $${cost}`)
+  })
+
+  test('gpt-5.4: exactly 272K is still the short-context rate', () => {
+    const cost = calcTokenCostUsd(272_000, 0, 0, 0, 'gpt-5.4')
+    assert.ok(Math.abs(cost - 0.68) < 1e-9, `Expected $0.68, got $${cost}`)
   })
 
   test('calcTokenCostUsd uses flat rate for gpt-5.6-luna under its 200K threshold', () => {
@@ -173,44 +192,19 @@ suite('pricing', () => {
     assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
   })
 
-  test('calcTokenCostUsd applies the surcharge for gpt-5.6-luna above its 200K threshold (lower than the rest of the 5.6 family)', () => {
-    // 250K input: first 200K at $0.20, next 50K at $0.40 (2x)
-    const cost = calcTokenCostUsd(250_000, 0, 0, 0, 'gpt-5.6-luna')
-    const expected = (200_000 / 1_000_000) * 0.20 + (50_000 / 1_000_000) * 0.40
-    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  test('gpt-5.6-luna: over its 200K threshold (lower than the rest of the 5.6 family) every category, cache write included, is at the long rate', () => {
+    // 100K uncached + 80K cache read + 30K cache write = 210K > 200K; 10K output.
+    // 0.1 × 0.40 + 0.08 × 0.04 + 0.03 × 0.50 + 0.01 × 1.80 = 0.04 + 0.0032 + 0.015 + 0.018 = 0.0762
+    const cost = calcTokenCostUsd(100_000, 80_000, 30_000, 10_000, 'gpt-5.6-luna')
+    assert.ok(Math.abs(cost - 0.0762) < 1e-12, `Expected $0.0762, got $${cost}`)
   })
 
-  test('claude-sonnet-5-5 reads cache at $0.10 (0.05x), unlike claude-sonnet-5 at $0.20', () => {
-    assert.strictEqual(lookupRates('claude-sonnet-5-5')!.cacheReadPerMTok, 0.10)
-    assert.strictEqual(lookupRates('claude-sonnet-5')!.cacheReadPerMTok, 0.20)
-    // 1M input + 1M cache-read + 1M output = 2.00 + 0.10 + 10.00
-    const cost = calcTokenCostUsd(1_000_000, 1_000_000, 0, 1_000_000, 'claude-sonnet-5-5')
-    assert.ok(Math.abs(cost - 12.10) < 0.001, `Expected ~$12.10, got $${cost}`)
-  })
-
-  test('claude-haiku-5-5 is priced, resolves from a dotted ID, and has a 100K tier', () => {
-    const rates = lookupRates('claude-haiku-5.5')
-    assert.notStrictEqual(rates, null, 'claude-haiku-5.5 should normalize to claude-haiku-5-5')
-    assert.deepStrictEqual(
-      [rates!.inputPerMTok, rates!.cacheReadPerMTok, rates!.cacheWritePerMTok, rates!.outputPerMTok],
-      [0.10, 0.01, 0.125, 0.50],
-    )
-    // Under the threshold: flat. 1M of each category = 0.10 + 0.01 + 0.125 + 0.50
-    const flat = calcTokenCostUsd(90_000, 0, 0, 0, 'claude-haiku-5-5')
-    assert.ok(Math.abs(flat - 0.009) < 0.00001, `Expected $0.009, got $${flat}`)
-    // Past 100K input in one call, the excess is at 0.50 (the shared math is marginal — see the
-    // claude-haiku-5-5 comment in RATES and PRICING_SOURCES.md for why that is an approximation).
-    const tiered = calcTokenCostUsd(150_000, 0, 0, 0, 'claude-haiku-5-5')
-    const expected = (100_000 / 1_000_000) * 0.10 + (50_000 / 1_000_000) * 0.50
-    assert.ok(Math.abs(tiered - expected) < 0.00001, `Expected $${expected}, got $${tiered}`)
-  })
-
-  test('gpt-6.1-sol reads cache at half of gpt-6-sol, with the same 272K tier shape', () => {
+  test('gpt-6.1-sol reads cache at half of gpt-6-sol, with the same 272K whole-call tier', () => {
     assert.strictEqual(lookupRates('gpt-6.1-sol')!.cacheReadPerMTok, 0.10)
     assert.strictEqual(lookupRates('gpt-6-sol')!.cacheReadPerMTok, 0.20)
-    // 372K input: first 272K at $2, next 100K at $4 (2x)
+    // 372K input is over the 272K threshold, so the whole call is billed at the long rate ($4)
     const cost = calcTokenCostUsd(372_000, 0, 0, 0, 'gpt-6.1-sol')
-    const expected = (272_000 / 1_000_000) * 2.00 + (100_000 / 1_000_000) * 4.00
+    const expected = (372_000 / 1_000_000) * 4.00
     assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
   })
 
@@ -222,12 +216,17 @@ suite('pricing', () => {
     }
   })
 
-  test('calcTokenCostUsd applies the surcharge to cache-read tokens for grok-4.5', () => {
-    // grok-4.5 has no cache-write pricing (0), so this also exercises the cacheWrite fallback path.
-    // 300K cache-read: first 200K at $0.50, next 100K at $1.00 (2x)
+  test('grok-4.5: a missing above-threshold rate keeps the flat rate for that category', () => {
+    // grok-4.5 has no cache-write pricing (0, no above-threshold rate), so the cache write stays $0.
+    // 300K cache read + 50K cache write = 350K > 200K: 0.3 × $1.00 + 0.05 × $0 = 0.30
     const cost = calcTokenCostUsd(0, 300_000, 50_000, 0, 'grok-4.5')
-    const expectedCacheRead = (200_000 / 1_000_000) * 0.50 + (100_000 / 1_000_000) * 1.00
-    assert.ok(Math.abs(cost - expectedCacheRead) < 0.0001, `Expected $${expectedCacheRead}, got $${cost}`)
+    assert.ok(Math.abs(cost - 0.30) < 1e-9, `Expected $0.30, got $${cost}`)
+  })
+
+  test('gemini-3.1-pro: a prompt over 200K bills input, cache reads and output at the >200K row', () => {
+    // 150K uncached + 60K cache read = 210K; 5K output.  0.15 × 4 + 0.06 × 0.40 + 0.005 × 18
+    const cost = calcTokenCostUsd(150_000, 60_000, 0, 5_000, 'gemini-3.1-pro')
+    assert.ok(Math.abs(cost - (0.60 + 0.024 + 0.09)) < 1e-9, `got $${cost}`)
   })
 
   // ── dot-vs-hyphen model IDs (GH #231) ──────────────────────────────────────
@@ -377,13 +376,24 @@ suite('pricing — session cost (per-call long-context tier)', () => {
     assert.ok(calcTokenCostUsd(50_000, 1_000_000, 0, 10_000, 'gpt-5.4') > expected + 0.1)
   })
 
-  test('a single call above the threshold still gets the tier', () => {
+  test('a single call above the threshold still gets the tier, on all of its tokens', () => {
     const session = {
       model: 'gpt-5.4', inputTokens: 300_000, cacheReadTokens: 0, cacheCreateTokens: 0, outputTokens: 0,
       timeline: [call(300_000, 0, 0)],
     }
-    // 272K × $2.50 + 28K × $5.00
-    assert.ok(Math.abs(calcSessionCostUsd(session) - (0.68 + 0.14)) < 1e-9)
+    // 300K × $5.00 — the whole call, not just the 28K past 272K
+    assert.ok(Math.abs(calcSessionCostUsd(session) - 1.50) < 1e-9)
+  })
+
+  test('a timeline with one call over and one under prices each by its own prompt', () => {
+    const session = {
+      model: 'gpt-5.4', inputTokens: 0, cacheReadTokens: 0, cacheCreateTokens: 0, outputTokens: 0,
+      // 22K uncached + 260K cached = 282K (long); 10K uncached + 200K cached = 210K (short)
+      timeline: [call(22_000, 260_000, 2_000), call(10_000, 200_000, 2_000)],
+    }
+    // long:  0.022 × 5 + 0.26 × 0.50 + 0.002 × 22.5 = 0.11 + 0.13 + 0.045 = 0.285
+    // short: 0.01 × 2.5 + 0.2 × 0.25 + 0.002 × 15    = 0.025 + 0.05 + 0.03 = 0.105
+    assert.ok(Math.abs(calcSessionCostUsd(session) - 0.39) < 1e-9, `got ${calcSessionCostUsd(session)}`)
   })
 
   test('without per-call token data it falls back to flat aggregate pricing (no tier)', () => {

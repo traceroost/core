@@ -42,6 +42,10 @@ async function runLink(args: string[]): Promise<number> {
           console.log(`and enter the code:  ${userCode}\n`)
           console.log('Waiting for approval…')
         },
+        onBlocked: (message) => {
+          console.log(`\n${message}`)
+          console.log('Still waiting — this same code links as soon as the org has a free machine slot (upgrade, or unlink another machine). Press Ctrl+C to stop.')
+        },
       })
       console.log(`\n✓ Linked to ${result.orgName} as ${result.role}.`)
       return 0
@@ -55,7 +59,7 @@ async function runLink(args: string[]): Promise<number> {
     })
     console.log(`\n✓ Linked to ${result.orgName} as ${result.role}.`)
     const after = getOrgStatus()
-    console.log(whoSeesWhat(after.perDeveloperVisibility ?? false, result.orgName))
+    console.log(after.teammateVisibilitySummary ?? whoSeesWhat(after.perDeveloperVisibility ?? false, result.orgName))
     return 0
   } catch (err) {
     console.error(`\n✗ Link failed: ${(err as Error).message}`)
@@ -67,6 +71,7 @@ async function runLink(args: string[]): Promise<number> {
 function runStatus(): number {
   const status = getOrgStatus(getQueueStats())
   if (!status.linked) {
+    if (status.notice) console.log(`⚠ ${status.notice.message}`)
     console.log('Not linked. TraceRoost is working locally and sending nothing anywhere.')
     console.log('Run `traceroost org link` to join an org.')
     return 0

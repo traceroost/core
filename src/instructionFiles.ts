@@ -74,6 +74,21 @@ export function detectInstructionFiles(workspaceRoot: string): InstructionFileSt
   })
 }
 
+/**
+ * The absolute path Apply may write for `targetFile`, or null when `targetFile` isn't one of the
+ * instruction files detectInstructionFiles reports for this workspace (matched by `relativePath`,
+ * which is what the Instructions tab's file picker sends). "Inside the workspace" is not enough:
+ * `.husky/pre-commit`, `package.json` or `.git/hooks/*` are all inside it, and appending text to
+ * any of those is code execution. Only CLAUDE.md, AGENTS.md, .github/copilot-instructions.md and
+ * TraceRoost's Cursor rule (or the alternate location detection found) are ever write targets.
+ */
+export function instructionTargetPath(workspaceRoot: string, targetFile: unknown): string | null {
+  if (typeof targetFile !== 'string' || targetFile === '') return null
+  const wanted = targetFile.replace(/\\/g, '/')
+  const match = detectInstructionFiles(workspaceRoot).find(f => f.relativePath === wanted)
+  return match ? match.filePath : null
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
