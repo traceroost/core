@@ -103,6 +103,12 @@ export const RATES: Record<string, ModelRates> = {
   'gpt-6-luna':          { inputPerMTok: 0.10,  cacheReadPerMTok: 0.01,   cacheWritePerMTok: 0.125, outputPerMTok: 0.50,
                            longContextThresholdTokens: 272_000,
                            inputAboveThresholdPerMTok: 0.20, cacheReadAboveThresholdPerMTok: 0.02, cacheWriteAboveThresholdPerMTok: 0.25, outputAboveThresholdPerMTok: 0.75 },
+  // gpt-6.1-sol: added 2026-10-11 — three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page,
+  // and the Codex CLI credits page: 50/2.5/250 credits ÷25). Same rates as gpt-6-sol except the cache-read rate,
+  // which is half (0.05x input rather than 0.1x).
+  'gpt-6.1-sol':         { inputPerMTok: 2.00,  cacheReadPerMTok: 0.10,   cacheWritePerMTok: 2.50, outputPerMTok: 10.00,
+                           longContextThresholdTokens: 272_000,
+                           inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.20, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 15.00 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, not
   // independently confirmed as reachable through Copilot specifically this pass.
   'gpt-4.1-nano':        { inputPerMTok: 0.10,  cacheReadPerMTok: 0.025,  cacheWritePerMTok: 0, outputPerMTok: 0.40 },
@@ -210,6 +216,10 @@ export const RATES: Record<string, ModelRates> = {
   'grok-4.6':         { inputPerMTok: 2.00, cacheReadPerMTok: 0.50,  cacheWritePerMTok: 0, outputPerMTok: 6.00,
                         longContextThresholdTokens: 200_000,
                         inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
+  // grok-4.7: added 2026-10-11 — new on the Copilot pricing page, same rate as grok-4.5/4.6.
+  'grok-4.7':         { inputPerMTok: 2.00, cacheReadPerMTok: 0.50,  cacheWritePerMTok: 0, outputPerMTok: 6.00,
+                        longContextThresholdTokens: 200_000,
+                        inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
   'kimi-k3':          { inputPerMTok: 3.00, cacheReadPerMTok: 0.30,  cacheWritePerMTok: 0, outputPerMTok: 15.00 },
   // ── OpenCode Zen  https://opencode.ai/docs/zen/ ────────────────────────────
   // big-pickle: OpenCode's stealth model, free during limited evaluation period.
@@ -238,6 +248,11 @@ export const RATES: Record<string, ModelRates> = {
   'longcat-2.5-preview-free':    { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
   'mimo-v2.6-flash-free':        { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
   'jev-1.13-free':               { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  // Added 2026-10-11 — new free/evaluation models on the Zen docs this pass; slugs guessed from the display name
+  // (a wrong guess falls back to ~$? rather than mis-pricing). ling-3.1-flash-free supersedes ling-3.0-*-free.
+  'exo-free':                    { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  'step-5-preview-free':         { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
+  'ling-3.1-flash-free':         { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0 },
 }
 
 // ── UI display grouping ──────────────────────────────────────────────────────────
@@ -255,7 +270,7 @@ export interface PricingSection {
 export const PRICING_SECTIONS: PricingSection[] = [
   {
     label: 'OpenAI (GPT / Codex family)',
-    verified: '2026-09-28',
+    verified: '2026-10-11',
     sources: [
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
       { label: 'OpenAI API pricing', url: 'https://developers.openai.com/api/docs/pricing' },
@@ -266,12 +281,12 @@ export const PRICING_SECTIONS: PricingSection[] = [
       'gpt-5.1', 'gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1-codex-max',
       'gpt-5.2', 'gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
       'gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-5.6-cyber',
-      'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'codex-mini-latest',
+      'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6.1-sol', 'codex-mini-latest',
     ],
   },
   {
     label: 'Anthropic (Claude)',
-    verified: '2026-09-28',
+    verified: '2026-10-11',
     sources: [
       { label: 'Anthropic API pricing', url: 'https://platform.claude.com/docs/en/about-claude/pricing' },
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
@@ -286,7 +301,7 @@ export const PRICING_SECTIONS: PricingSection[] = [
   },
   {
     label: 'Google (Gemini)',
-    verified: '2026-09-28',
+    verified: '2026-10-11',
     sources: [
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
     ],
@@ -294,15 +309,15 @@ export const PRICING_SECTIONS: PricingSection[] = [
   },
   {
     label: 'Fine-tuned & other Copilot-marketplace models',
-    verified: '2026-09-28',
+    verified: '2026-10-11',
     sources: [
       { label: 'Copilot model pricing', url: 'https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing' },
     ],
-    modelKeys: ['raptor-mini', 'goldeneye', 'mai-code-1-flash', 'mai-code-1.1-flash', 'kimi-k2.7-code', 'grok-4.5', 'grok-4.6', 'kimi-k3'],
+    modelKeys: ['raptor-mini', 'goldeneye', 'mai-code-1-flash', 'mai-code-1.1-flash', 'kimi-k2.7-code', 'grok-4.5', 'grok-4.6', 'grok-4.7', 'kimi-k3'],
   },
   {
     label: 'OpenCode Zen (free evaluation models)',
-    verified: '2026-09-28',
+    verified: '2026-10-11',
     sources: [
       { label: 'OpenCode Zen docs', url: 'https://opencode.ai/docs/zen/' },
     ],
@@ -311,6 +326,7 @@ export const PRICING_SECTIONS: PricingSection[] = [
       'laguna-s-2.1-free', 'ling-3.0-tiny-free', 'ling-3.0-flash-fin-free', 'nemotron-3-ultra-free',
       'nemotron-3.5-lightning-free', 'muse-spark-1.2-contributor-free', 'muse-spark-1.3-contributor-free',
       'space-bunny-free', 'longcat-2.5-preview-free', 'mimo-v2.6-flash-free', 'jev-1.13-free',
+      'exo-free', 'step-5-preview-free', 'ling-3.1-flash-free',
     ],
   },
 ]

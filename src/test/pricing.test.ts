@@ -199,6 +199,23 @@ suite('pricing', () => {
     assert.ok(Math.abs(cost - 0.0762) < 1e-12, `Expected $0.0762, got $${cost}`)
   })
 
+  test('gpt-6.1-sol reads cache at half of gpt-6-sol, with the same 272K whole-call tier', () => {
+    assert.strictEqual(lookupRates('gpt-6.1-sol')!.cacheReadPerMTok, 0.10)
+    assert.strictEqual(lookupRates('gpt-6-sol')!.cacheReadPerMTok, 0.20)
+    // 372K input is over the 272K threshold, so the whole call is billed at the long rate ($4)
+    const cost = calcTokenCostUsd(372_000, 0, 0, 0, 'gpt-6.1-sol')
+    const expected = (372_000 / 1_000_000) * 4.00
+    assert.ok(Math.abs(cost - expected) < 0.0001, `Expected $${expected}, got $${cost}`)
+  })
+
+  test('grok-4.7 matches grok-4.6, and the 2026-10-11 free Zen models resolve at $0', () => {
+    assert.deepStrictEqual(lookupRates('grok-4.7'), lookupRates('grok-4.6'))
+    for (const id of ['exo-free', 'step-5-preview-free', 'ling-3.1-flash-free']) {
+      assert.strictEqual(calcTokenCostUsd(1_000_000, 1_000_000, 0, 1_000_000, id), 0, id)
+      assert.notStrictEqual(lookupRates(id), null, `${id} should be a known (free) model`)
+    }
+  })
+
   test('grok-4.5: a missing above-threshold rate keeps the flat rate for that category', () => {
     // grok-4.5 has no cache-write pricing (0, no above-threshold rate), so the cache write stays $0.
     // 300K cache read + 50K cache write = 350K > 200K: 0.3 × $1.00 + 0.05 × $0 = 0.30

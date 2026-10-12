@@ -98,6 +98,13 @@ const RATES: Record<string, ModelRates> = {
   'gpt-6-luna':         { inputPerMTok: 0.10,  cacheReadPerMTok: 0.01,   cacheWritePerMTok: 0.125, outputPerMTok: 0.50, contextWindowTokens: 256_000,
                           longContextThresholdTokens: 272_000,
                           inputAboveThresholdPerMTok: 0.20, cacheReadAboveThresholdPerMTok: 0.02, cacheWriteAboveThresholdPerMTok: 0.25, outputAboveThresholdPerMTok: 0.75 },
+  // gpt-6.1-sol: added 2026-10-11 — three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page,
+  // and the Codex CLI credits page: 50/2.5/250 credits ÷25). Same input/output/cache-write as gpt-6-sol but the
+  // cache-read rate is half (0.05x input rather than 0.1x). Context window not stated on any of the three pages,
+  // so left at 0 (unknown) rather than copying gpt-6-sol's.
+  'gpt-6.1-sol':        { inputPerMTok: 2.00,  cacheReadPerMTok: 0.10,   cacheWritePerMTok: 2.50, outputPerMTok: 10.00, contextWindowTokens: 0,
+                          longContextThresholdTokens: 272_000,
+                          inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 0.20, cacheWriteAboveThresholdPerMTok: 5.00, outputAboveThresholdPerMTok: 15.00 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, but
   // not independently confirmed as reachable through Copilot or Codex CLI specifically (neither's own docs
   // mentioned them this pass). Added on this file's existing philosophy that a model which never appears in
@@ -115,6 +122,11 @@ const RATES: Record<string, ModelRates> = {
                           inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
   // grok-4.6: added 2026-08-26 — new on the Copilot pricing page, same rate structure as grok-4.5.
   'grok-4.6':           { inputPerMTok: 2.00,  cacheReadPerMTok: 0.50,   cacheWritePerMTok: 0, outputPerMTok: 6.00,  contextWindowTokens: 0,
+                          longContextThresholdTokens: 200_000,
+                          inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
+  // grok-4.7: added 2026-10-11 — new on the Copilot pricing page, same rate structure as grok-4.5/4.6 (also on
+  // OpenCode Zen's list at the same rates).
+  'grok-4.7':           { inputPerMTok: 2.00,  cacheReadPerMTok: 0.50,   cacheWritePerMTok: 0, outputPerMTok: 6.00,  contextWindowTokens: 0,
                           longContextThresholdTokens: 200_000,
                           inputAboveThresholdPerMTok: 4.00, cacheReadAboveThresholdPerMTok: 1.00, outputAboveThresholdPerMTok: 12.00 },
   'kimi-k3':            { inputPerMTok: 3.00,  cacheReadPerMTok: 0.30,   cacheWritePerMTok: 0, outputPerMTok: 15.00, contextWindowTokens: 0 },
@@ -231,6 +243,12 @@ const RATES: Record<string, ModelRates> = {
   'longcat-2.5-preview-free':    { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
   'mimo-v2.6-flash-free':        { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
   'jev-1.13-free':               { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  // Added 2026-10-11 — new free/evaluation models on the Zen docs this pass; slugs guessed from the display name
+  // (a wrong guess falls back to ~$? rather than mis-pricing). ling-3.1-flash-free supersedes ling-3.0-*-free,
+  // kept below for historical sessions.
+  'exo-free':                    { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'step-5-preview-free':         { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  'ling-3.1-flash-free':         { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
 }
 
 // Exported so callers that build a model ID by appending their own suffix (e.g.
