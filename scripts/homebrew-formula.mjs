@@ -33,7 +33,8 @@ function usage() {
   process.exit(2)
 }
 
-async function fetchWithRetry(url, attempts = 10) {
+// npm can take several minutes to serve a fresh publish (5+ seen for 0.19.1), so wait up to ~15.
+async function fetchWithRetry(url, attempts = 60) {
   for (let i = 1; ; i++) {
     const res = await fetch(url)
     if (res.ok) return res
