@@ -12,6 +12,10 @@ import {
 import { readResolvedPorts } from '../../src/portResolver'
 import { waitForServiceHealth } from './health'
 import { isPathInsideDir } from './globalInstall'
+import {
+  brewExecutable, describeBrewFailure, detectHomebrewInstall, readHomebrewVersion, stableNodePath,
+  type HomebrewInstall,
+} from './homebrew'
 import * as macos from './macos'
 import * as linux from './linux'
 import * as windows from './windows'
@@ -101,6 +105,17 @@ function resolveInstallProgram(config: ServiceConfig): ServiceProgram {
   if (shouldBlockRepeatedBootstrap(process.env)) {
     return buildProgram(config)
   }
+  // A Homebrew install: upgrade through brew (never npm — that would leave a second copy behind)
+  // and point the service at the keg-independent `opt` paths so a later `brew upgrade` doesn't
+  // leave the service definition naming a deleted keg.
+  const brew = runningHomebrewInstall()
+  if (brew) {
+    ensureLatestHomebrewInstall(brew)
+    if (fs.existsSync(brew.stableCliPath)) {
+      return { nodePath: stableNodePath(process.execPath), cliPath: brew.stableCliPath, config }
+    }
+    return buildProgram(config)
+  }
   if (!isRunningFromGlobalInstall()) {
     return buildProgram(config)
   }
@@ -120,17 +135,18 @@ Commands:
           [--retention-days N]
                     Install and start the background service (macOS: launchd,
                     Linux: systemd --user, Windows: Scheduled Task at logon).
-                    Fetches the latest traceroost from npm first, so a
-                    re-install also upgrades; if that download fails it says so
-                    and installs on the version already present.
+                    Fetches the latest traceroost first (from npm, or with
+                    'brew upgrade' for a Homebrew install), so a re-install
+                    also upgrades; if that fails it says so and installs on
+                    the version already present.
                     --retention-days N keeps N days of log-sourced traces
                     (default 90; 0 keeps everything).
   uninstall         Stop and remove the background service.
   start             Start the installed service.
   stop              Stop the installed service.
   restart           Restart the installed service.
-  update            Install the latest traceroost from npm and restart
-                    the service on it. Installing a background service does NOT
+  update            Install the latest traceroost (npm, or 'brew upgrade' for a
+                    Homebrew install) and restart the service on it. Installing a background service does NOT
                     otherwise auto-update; it keeps running whatever version was
                     installed until you run this (or re-run 'install').
   status            Check whether the service is running and reachable.
@@ -208,6 +224,40 @@ function ensureLatestGlobalInstall(): GlobalInstallOutcome | null {
     return fallback ? { version: fallback, previousVersion, downloaded: false } : null
   }
   const version = readGlobalVersion()
+  if (previousVersion && version && previousVersion !== version) {
+    console.log(`[TraceRoost] Updated v${previousVersion} → v${version}.`)
+  } else if (version) {
+    console.log(`[TraceRoost] Up to date (v${version}).`)
+  }
+  return { version, previousVersion, downloaded: true }
+}
+
+/** The Homebrew install the running copy belongs to, if it is one (`brew install
+ *  traceroost/tap/traceroost`). */
+function runningHomebrewInstall(): HomebrewInstall | undefined {
+  return detectHomebrewInstall(process.argv[1] ?? '', SELF_PACKAGE_NAME)
+}
+
+/** `brew upgrade <formula>` — the Homebrew counterpart of ensureLatestGlobalInstall, with the
+ *  same contract: a failure (offline, brew missing) is reported and the version already installed
+ *  is kept, so `service install` still goes ahead on it. */
+function ensureLatestHomebrewInstall(install: HomebrewInstall): GlobalInstallOutcome | null {
+  const previousVersion = readHomebrewVersion(install)
+  console.log(`[TraceRoost] Installed with Homebrew — fetching the latest ${install.formula}:`)
+  console.log(`  brew upgrade ${install.formula}`)
+  try {
+    execFileSync(brewExecutable(install.prefix), ['upgrade', install.formula], { stdio: 'inherit' })
+  } catch (e) {
+    const fallback = readHomebrewVersion(install)
+    console.error(
+      `[TraceRoost] Couldn't upgrade with Homebrew: ${describeBrewFailure(e)}. ` +
+      (fallback
+        ? `Keeping the version already installed (v${fallback}) — run \`traceroost service update\` later to retry.`
+        : 'Nothing is installed to fall back on.'),
+    )
+    return fallback ? { version: fallback, previousVersion, downloaded: false } : null
+  }
+  const version = readHomebrewVersion(install)
   if (previousVersion && version && previousVersion !== version) {
     console.log(`[TraceRoost] Updated v${previousVersion} → v${version}.`)
   } else if (version) {
@@ -369,7 +419,8 @@ export async function runServiceCli(args: string[]): Promise<number> {
       return 0
     case 'update': {
       console.log(`[TraceRoost] Service update${readRunningVersion() ? ` — currently v${readRunningVersion()}` : ''}`)
-      const outcome = ensureLatestGlobalInstall()
+      const brew = runningHomebrewInstall()
+      const outcome = brew ? ensureLatestHomebrewInstall(brew) : ensureLatestGlobalInstall()
       if (!outcome || !outcome.downloaded) {
         // ensureLatestGlobalInstall already printed why; the service keeps running its current
         // version, so this is a failed update rather than a broken service.

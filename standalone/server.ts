@@ -37,6 +37,7 @@ import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
+import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
@@ -1793,12 +1794,16 @@ const uiServer = http.createServer((req, res) => {
 
   if (req.method === 'GET' && url === '/api/version-check') {
     const result = getCachedVersionCheck(PACKAGE_VERSION)
-    // Three ways to be running, three different update commands: an OS-native background service
-    // (src/serviceConfig.ts's generators set TRACEROOST_SERVICE=1) updates in place; the Docker
-    // image (its Dockerfile sets TRACEROOST_DOCKER=1) needs a new image and a re-created
-    // container; anything else (npx, a global install) is pointed at the background service.
+    // Four ways to be running, four different update commands: an OS-native background service
+    // (src/serviceConfig.ts's generators set TRACEROOST_SERVICE=1) updates in place (through npm or
+    // brew, whichever installed it); the Docker image (its Dockerfile sets TRACEROOST_DOCKER=1)
+    // needs a new image and a re-created container; a Homebrew install run by hand is pointed at
+    // the service, which upgrades through brew; anything else (npx, a global install) is pointed
+    // at the background service through npx.
     const isService = process.env.TRACEROOST_SERVICE === '1'
     const isDocker = !isService && process.env.TRACEROOST_DOCKER === '1'
+    const isHomebrew = !isService && !isDocker &&
+      detectHomebrewInstall(process.argv[1] ?? '', readPackageManifest(__dirname).name ?? 'traceroost') !== undefined
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       ...result,
@@ -1806,7 +1811,8 @@ const uiServer = http.createServer((req, res) => {
       isDocker,
       recommendedCommand: isService
         ? 'traceroost service update'
-        : isDocker ? 'docker pull traceroost/traceroost' : 'npx traceroost@latest service install',
+        : isDocker ? 'docker pull traceroost/traceroost'
+          : isHomebrew ? 'traceroost service install' : 'npx traceroost@latest service install',
     }))
     return
   }

@@ -14,6 +14,7 @@ accumulated since the last one. Check what's landed since the last tag before as
 | --- | --- | --- | --- |
 | npm | `traceroost` | `package.json` `name` | none (OIDC trusted publishing) |
 | Docker | `traceroost/traceroost` + `ghcr.io/traceroost/core` | `docker.yml`, called by `release.yml`'s `docker` job | `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` (Docker Hub); `GITHUB_TOKEN` (ghcr) |
+| Homebrew | `traceroost/tap/traceroost` (formula `Formula/traceroost.rb` in `traceroost/homebrew-tap`) | `release.yml`'s `publish-homebrew` job, after `publish-npm`: `scripts/homebrew-formula.mjs` writes the formula from the tarball npm serves | `HOMEBREW_TAP_TOKEN` (the job is skipped, with a notice, until it exists) |
 | VS Code Marketplace + Open VSX | **`agentlens.agentlens-dashboard`** | `vsce-identity.json` — the `package` job patches `name`/`publisher` into `package.json` for the VSIX build only | `VSCE_PAT` / `OVSX_PAT` (the existing AgentLens publisher tokens) |
 
 **Why the extension keeps the old id:** the marketplace id is sticky infrastructure users never
@@ -29,6 +30,7 @@ every installed AgentLens extension updates in place — no reinstall, no "both 
 | npm `traceroost` | npmjs.com → package `traceroost` → Settings → Trusted Publisher: GitHub Actions, repository `traceroost/core`, workflow `release.yml` (takes a few minutes to propagate) |
 | Docker Hub `traceroost/traceroost` | create the repo under the `traceroost` account; add `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` repo secrets |
 | VS Code / Open VSX | nothing new — `VSCE_PAT` / `OVSX_PAT` already exist for publisher `agentlens` |
+| Homebrew tap | create the public repo `traceroost/homebrew-tap` (the `homebrew-` prefix is what makes `brew install traceroost/tap/traceroost` work) with an empty `Formula/` directory; add a fine-grained token with **Contents: read and write on that repo only** as this repo's `HOMEBREW_TAP_TOKEN` secret. To seed it before the next release: `node scripts/homebrew-formula.mjs <current version> --out Formula/traceroost.rb` in the tap checkout, commit, push |
 
 `TR_VSCE_PAT` / `TR_OVSX_PAT` are **not used** right now. They exist for the eventual extension
 cutover (below).
@@ -215,5 +217,21 @@ When the TraceRoost brand is established and you want the marketplace URL to say
 - `gh run list --workflow=release.yml --limit 1` — shows `completed` / `success`, and the
   `package` job's "Check the … edition bundles" step names the edition you meant to ship.
 - If the marketplace/npm publish steps matter for this release (they usually do), spot-check
-  `publish-vsce`, `publish-npm` and `docker` job logs specifically — `package` succeeding only means the VSIX
+  `publish-vsce`, `publish-npm`, `publish-homebrew` and `docker` job logs specifically — `package` succeeding only means the VSIX
   built, not that it published anywhere.
+
+## Homebrew
+
+`brew install traceroost/tap/traceroost` installs the same npm tarball, with Homebrew's `node`.
+After that, everything works as it does for an npm install, through `traceroost` on the PATH:
+`traceroost service install` writes the same launchd / systemd service, and `service install` /
+`service update` upgrade with `brew upgrade traceroost` instead of `npm install -g`
+(`standalone/service/homebrew.ts`). The service points at Homebrew's version-less `opt` paths
+(`<prefix>/opt/traceroost/…`, `<prefix>/opt/node/bin/node`), so a `brew upgrade` never leaves it
+naming a deleted keg. The formula has no `service do` block on purpose: `brew services` would be a
+second manager running a second copy on the same ports.
+
+To check a formula before a release reaches the tap: `node scripts/homebrew-formula.mjs <version>
+--out /tmp/traceroost.rb`, then `brew install --formula /tmp/traceroost.rb` on a Mac, then `brew
+test traceroost` and `traceroost service install`.
+
