@@ -107,6 +107,22 @@ export function readHomebrewVersion(install: HomebrewInstall): string | undefine
   }
 }
 
+/** The name to hand `brew upgrade`: tap-qualified (`traceroost/tap/traceroost`) when the keg's
+ *  install receipt names its tap, since a bare `traceroost` is ambiguous — and refused — as soon as
+ *  a second tap also has a formula by that name; the bare formula name when it doesn't. */
+export function brewFormulaRef(install: HomebrewInstall): string {
+  try {
+    const receipt = JSON.parse(
+      fs.readFileSync(path.join(install.prefix, 'opt', install.formula, 'INSTALL_RECEIPT.json'), 'utf-8'),
+    ) as { source?: { tap?: unknown } }
+    const tap = receipt.source?.tap
+    if (typeof tap === 'string' && /^[\w.-]+\/[\w.-]+$/.test(tap) && tap !== 'homebrew/core') {
+      return `${tap}/${install.formula}`
+    }
+  } catch { /* no receipt, or not JSON: the bare name */ }
+  return install.formula
+}
+
 /** Condenses whatever `child_process` threw when `brew upgrade` failed into one short clause. */
 export function describeBrewFailure(err: unknown): string {
   const e = (err ?? {}) as { code?: string; status?: number; message?: string }

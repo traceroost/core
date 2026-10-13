@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { brewExecutable, describeBrewFailure, detectHomebrewInstall, findHomebrewCopy, homebrewPrefixes, readHomebrewVersion, stableNodePath } from './homebrew'
+import { brewExecutable, brewFormulaRef, describeBrewFailure, detectHomebrewInstall, findHomebrewCopy, homebrewPrefixes, readHomebrewVersion, stableNodePath } from './homebrew'
 
 suite('homebrew', () => {
   let prefix: string
@@ -109,5 +109,18 @@ suite('homebrew', () => {
   test('HOMEBREW_PREFIX is searched first, then the standard prefixes, without duplicates', () => {
     assert.deepStrictEqual(homebrewPrefixes({ HOMEBREW_PREFIX: '/opt/homebrew' }), ['/opt/homebrew', '/usr/local', '/home/linuxbrew/.linuxbrew'])
     assert.deepStrictEqual(homebrewPrefixes({ HOMEBREW_PREFIX: '/custom' })[0], '/custom')
+  })
+
+  test('brew upgrade gets the tap-qualified name from the install receipt', function () {
+    if (process.platform === 'win32') this.skip()
+    const { cli } = makeKeg('0.19.1')
+    const install = detectHomebrewInstall(cli, 'traceroost')
+    assert.ok(install)
+    assert.strictEqual(brewFormulaRef(install), 'traceroost', 'no receipt: the bare name')
+    const receipt = path.join(prefix, 'Cellar', 'traceroost', '0.19.1', 'INSTALL_RECEIPT.json')
+    fs.writeFileSync(receipt, JSON.stringify({ source: { tap: 'traceroost/tap' } }))
+    assert.strictEqual(brewFormulaRef(install), 'traceroost/tap/traceroost')
+    fs.writeFileSync(receipt, JSON.stringify({ source: { tap: 'x; rm -rf /' } }))
+    assert.strictEqual(brewFormulaRef(install), 'traceroost', 'an odd tap name is ignored')
   })
 })

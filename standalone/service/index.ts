@@ -15,7 +15,7 @@ import { isLoopbackHost } from '../../src/httpSecurity'
 import { openInBrowser, shouldAutoOpen } from '../openBrowser'
 import { isPathInsideDir } from './globalInstall'
 import {
-  brewExecutable, describeBrewFailure, detectHomebrewInstall, findHomebrewCopy, homebrewPrefixes,
+  brewExecutable, brewFormulaRef, describeBrewFailure, detectHomebrewInstall, findHomebrewCopy, homebrewPrefixes,
   readHomebrewVersion, stableNodePath,
   type HomebrewInstall,
 } from './homebrew'
@@ -252,10 +252,11 @@ function runningHomebrewInstall(): HomebrewInstall | undefined {
  *  is kept, so `service install` still goes ahead on it. */
 function ensureLatestHomebrewInstall(install: HomebrewInstall): GlobalInstallOutcome | null {
   const previousVersion = readHomebrewVersion(install)
+  const ref = brewFormulaRef(install)
   console.log(`[TraceRoost] Installed with Homebrew — fetching the latest ${install.formula}:`)
-  console.log(`  brew upgrade ${install.formula}`)
+  console.log(`  brew upgrade ${ref}`)
   try {
-    execFileSync(brewExecutable(install.prefix), ['upgrade', install.formula], { stdio: 'inherit' })
+    execFileSync(brewExecutable(install.prefix), ['upgrade', ref], { stdio: 'inherit' })
   } catch (e) {
     const fallback = readHomebrewVersion(install)
     console.error(
