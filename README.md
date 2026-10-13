@@ -596,6 +596,10 @@ traceroost service install     # runs `brew upgrade traceroost` first, then inst
 traceroost service update      # `brew upgrade traceroost`, then restarts the service on it
 ```
 
+Already installed with `npm install -g`? Run `npm uninstall -g traceroost` first, or after
+`brew install`, so only one copy is left; then `traceroost service install` re-points the
+service at the Homebrew copy.
+
 The service points at Homebrew's version-independent paths (`$(brew --prefix)/opt/traceroost`
 and `$(brew --prefix)/opt/node`), so a plain `brew upgrade` never breaks it; run
 `traceroost service restart` afterwards to switch the running service to the new version.
