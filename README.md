@@ -27,6 +27,13 @@ The recommended way to run TraceRoost is as a background service — it starts a
 npx traceroost@latest service install
 ```
 
+Or with Homebrew (macOS or Linux; brings its own Node.js):
+
+```bash
+brew install traceroost/tap/traceroost
+traceroost service install
+```
+
 Open <http://localhost:3000> — that's it. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or manage it later (`traceroost service status`, `service stop`, `service uninstall`, etc.).
 
 Just want a quick look first? Run it directly in a terminal instead — closing the terminal stops it, and if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry:
@@ -285,6 +292,10 @@ bunx traceroost@latest
 
 # Or install globally and run by command name
 npm install -g traceroost@latest
+traceroost
+
+# Or with Homebrew (macOS or Linux) — installs Node.js too
+brew install traceroost/tap/traceroost
 traceroost
 ```
 
@@ -576,6 +587,19 @@ Since `npx` always runs from a temporary cache with no stable path to launch fro
 `service install` under `npx` installs `traceroost` globally first (equivalent to
 `npm install -g traceroost@latest`) so the service definition has something fixed to
 point at.
+
+**Installed with Homebrew?** The same commands work, through `brew` instead of npm:
+
+```bash
+brew install traceroost/tap/traceroost
+traceroost service install     # runs `brew upgrade traceroost` first, then installs the service
+traceroost service update      # `brew upgrade traceroost`, then restarts the service on it
+```
+
+The service points at Homebrew's version-independent paths (`$(brew --prefix)/opt/traceroost`
+and `$(brew --prefix)/opt/node`), so a plain `brew upgrade` never breaks it; run
+`traceroost service restart` afterwards to switch the running service to the new version.
+TraceRoost manages its own service, so don't also start it with `brew services`.
 
 ### Docker (OTEL only)
 

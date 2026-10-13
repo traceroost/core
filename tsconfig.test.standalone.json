@@ -28,6 +28,8 @@
     "standalone/service/health.test.ts",
     "standalone/service/globalInstall.ts",
     "standalone/service/globalInstall.test.ts",
+    "standalone/service/homebrew.ts",
+    "standalone/service/homebrew.test.ts",
     "standalone/autoConfigLog.ts",
     "standalone/autoConfigLog.test.ts",
     "standalone/promptsFile.ts",
