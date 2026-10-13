@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // TraceRoost standalone server — run with: npx traceroost@latest  |  bunx traceroost@latest  |  node standalone/cli.js
 // (use the @latest tag — a bare `npx traceroost` re-runs npx's cached copy without checking npm for a newer release)
+// Or installed with Homebrew: brew install traceroost/tap/traceroost, then `traceroost`
 // `traceroost service <install|uninstall|start|stop|restart|status|logs|update>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
 // `traceroost org <link|status|verify|leave> [--device]` links this machine to an org (Cloud, AL 01) —

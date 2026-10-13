@@ -4,6 +4,20 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+## [0.19.1] — 2026-10-13
+
+### Added
+
+- **Install with Homebrew** — `brew install traceroost/tap/traceroost`, then `traceroost service install` (macOS or Linux; Homebrew brings its own Node.js). For a Homebrew install, `service install` and `service update` upgrade with `brew upgrade traceroost` instead of npm, and the service runs from Homebrew's version-independent paths, so upgrading TraceRoost or Node with brew doesn't break it. A copy installed earlier with `npm install -g` is replaced on link; remove it with `npm uninstall -g traceroost` (#313, #314)
+- **`traceroost service install` opens the dashboard** in your browser once the service answers. Skip it with `--no-open` or `TRACEROOST_NO_OPEN=1`; it never opens over SSH or without a display (#314)
+
+### Fixed
+
+- **The dashboard URL no longer carries `?token=` on 127.0.0.1** — `service install` and `service status` printed the access token even though the default loopback bind doesn't need it; it's still included when the server is reachable from your network (#314)
+- **The background service no longer tries to open a browser every time it starts**, including at each login (#314)
+
+---
+
 ## [0.19.0] — 2026-10-11
 
 > **Your local trace history is rebuilt once on the first start after upgrading.** Traces now get one stable key per agent turn, so the VS Code extension and the npx/service server drop their stored traces and read every agent log file again from scratch (instruction suggestions, plan-limit readings and settings are kept). A large history takes a few minutes to fill back in. Traces that only ever reached TraceRoost over OTEL, or whose log file the agent has since deleted, may not come back — export them first if you need them (#288, #296)

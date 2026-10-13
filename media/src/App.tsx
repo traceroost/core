@@ -396,7 +396,7 @@ function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
           )}
           {!info.isService && !info.isDocker && (
             <div style="font-size:11px;color:var(--muted)">
-              Or for a quick one-off look: <code>npx traceroost@latest</code> · Docker: <code>docker pull traceroost/traceroost</code> and re-run your <code>docker run</code> command.
+              Or for a quick one-off look: <code>npx traceroost@latest</code> · Homebrew: <code>brew upgrade traceroost</code> · Docker: <code>docker pull traceroost/traceroost</code> and re-run your <code>docker run</code> command.
             </div>
           )}
         </div>
@@ -949,7 +949,7 @@ function CollectorConflictBanner() {
             <strong>Not receiving OTel</strong> — the background service already holds port <code>{port}</code>.
             <ul style="margin:2px 0 0;padding-left:16px">
               <li>New sessions here come from log files only (no prompt/tool content).</li>
-              <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command).</li>
+              <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command), or with Homebrew: <code>brew install traceroost/tap/traceroost</code> then <code>traceroost service install</code>.</li>
               <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension {extensionId}</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
             </ul>
           </>

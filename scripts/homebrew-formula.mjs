@@ -3,6 +3,11 @@
 //
 //   node scripts/homebrew-formula.mjs 0.19.0                    print Formula/traceroost.rb
 //   node scripts/homebrew-formula.mjs 0.19.0 --out <file>       write it to <file>
+//   node scripts/homebrew-formula.mjs --tarball <file.tgz> [--out <file>]
+//                                                               a formula for a local `npm pack`
+//                                                               tarball (file:// URL), to try a
+//                                                               build before it is published —
+//                                                               scripts/homebrew-local.sh uses it
 //
 // The formula installs the exact tarball npm serves (its sha256 is computed here from the
 // download, so the formula can only ever install what was published), with Homebrew's own `node`.
@@ -19,11 +24,12 @@
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import path from 'node:path'
 
 const PACKAGE = 'traceroost'
 
 function usage() {
-  console.error('usage: node scripts/homebrew-formula.mjs <version> [--out <file>]')
+  console.error('usage: node scripts/homebrew-formula.mjs <version> [--out <file>]\n       node scripts/homebrew-formula.mjs --tarball <file.tgz> [--out <file>]')
   process.exit(2)
 }
 
@@ -90,11 +96,32 @@ end
 }
 
 async function main() {
-  const [version, ...rest] = process.argv.slice(2)
-  if (!version || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) usage()
-  const outAt = rest.indexOf('--out')
-  const out = outAt >= 0 ? rest[outAt + 1] : undefined
+  const argv = process.argv.slice(2)
+  const outAt = argv.indexOf('--out')
+  const out = outAt >= 0 ? argv[outAt + 1] : undefined
   if (outAt >= 0 && !out) usage()
+
+  const tarAt = argv.indexOf('--tarball')
+  if (tarAt >= 0) {
+    const file = argv[tarAt + 1]
+    if (!file || !fs.existsSync(file)) usage()
+    const abs = path.resolve(file)
+    const m = path.basename(abs).match(/^traceroost-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\.tgz$/)
+    if (!m) throw new Error(`expected an npm pack tarball named traceroost-<version>.tgz, got ${path.basename(abs)}`)
+    const sha256 = crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex')
+    const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+    const text = formula({ version: m[1], url: `file://${abs}`, sha256, license: brewLicense(pkg.license) })
+    if (out) {
+      fs.writeFileSync(out, text)
+      console.error(`Wrote ${out} (local ${path.basename(abs)}, sha256 ${sha256})`)
+    } else {
+      process.stdout.write(text)
+    }
+    return
+  }
+
+  const version = argv[0]
+  if (!version || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) usage()
 
   const meta = await (await fetchWithRetry(`https://registry.npmjs.org/${PACKAGE}/${version}`)).json()
   const url = meta.dist?.tarball
