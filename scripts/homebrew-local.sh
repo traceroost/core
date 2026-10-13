@@ -5,7 +5,7 @@
 #   scripts/homebrew-local.sh            # the core edition — what releases ship today
 #   scripts/homebrew-local.sh full       # the full edition
 #
-# It builds the npm package exactly as `npm publish` would (prepare-edition + package:<edition>),
+# It builds the npm package as `npm publish` would (prepare-edition, the production bundles),
 # packs it, writes a formula for that tarball with scripts/homebrew-formula.mjs --tarball, and
 # installs it from a local tap, traceroost/local, replacing any traceroost already installed with
 # Homebrew. Then try it: `traceroost --version`, `brew test traceroost`, `traceroost service
@@ -19,8 +19,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 EDITION="${1:-core}"
 case "$EDITION" in
-  core) BUILD=package:core ;;
-  full) BUILD=package ;;
+  core|full) ;;
   *) echo "usage: scripts/homebrew-local.sh [core|full]" >&2; exit 2 ;;
 esac
 command -v brew >/dev/null || { echo "Homebrew isn't installed (brew not on PATH)." >&2; exit 1; }
@@ -30,7 +29,10 @@ if command -v pnpm >/dev/null; then PNPM=(pnpm); else PNPM=(npx -y pnpm@10); fi
 
 node scripts/prepare-edition.mjs "$EDITION"
 trap 'node scripts/prepare-edition.mjs restore >/dev/null' EXIT
-"${PNPM[@]}" run "$BUILD"
+# The bundles npm publish would ship (package:<edition> minus its lint and type check, which call
+# `pnpm` by name and CI runs anyway).
+node esbuild.js --production --edition="$EDITION"
+node scripts/check-edition.mjs "$EDITION"
 
 OUT="$(mktemp -d)"
 npm pack --pack-destination "$OUT" >/dev/null
