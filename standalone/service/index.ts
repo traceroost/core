@@ -11,6 +11,8 @@ import {
 } from '../../src/serviceConfig'
 import { readResolvedPorts } from '../../src/portResolver'
 import { waitForServiceHealth } from './health'
+import { isLoopbackHost } from '../../src/httpSecurity'
+import { openInBrowser, shouldAutoOpen } from '../openBrowser'
 import { isPathInsideDir } from './globalInstall'
 import {
   brewExecutable, describeBrewFailure, detectHomebrewInstall, readHomebrewVersion, stableNodePath,
@@ -64,9 +66,13 @@ function safeIsInstalled(platformService: PlatformService): boolean {
   try { return platformService.isInstalled() } catch { return false }
 }
 
+/** The dashboard's address. The access token is only part of it when the server is reachable
+ *  beyond this machine (a non-loopback bind host), the one case the server requires it; on the
+ *  default 127.0.0.1 it would only be noise to copy around (standalone/server.ts does the same). */
 function dashboardUrl(config: ServiceConfig): string {
   const host = isIPv6(config.bindHost) ? `[${config.bindHost}]` : config.bindHost
-  return `http://${host}:${config.uiPort}` + (config.authToken ? `/?token=${config.authToken}` : '')
+  const needsToken = !!config.authToken && !isLoopbackHost(config.bindHost)
+  return `http://${host}:${config.uiPort}` + (needsToken ? `/?token=${config.authToken}` : '')
 }
 
 function getPlatformService(): PlatformService {
@@ -132,7 +138,7 @@ function printUsage(): void {
 
 Commands:
   install [--ui-port N] [--otlp-port N] [--mcp-port N] [--bind-host H] [--data-dir DIR]
-          [--retention-days N]
+          [--retention-days N] [--no-open]
                     Install and start the background service (macOS: launchd,
                     Linux: systemd --user, Windows: Scheduled Task at logon).
                     Fetches the latest traceroost first (from npm, or with
@@ -140,7 +146,9 @@ Commands:
                     also upgrades; if that fails it says so and installs on
                     the version already present.
                     --retention-days N keeps N days of log-sourced traces
-                    (default 90; 0 keeps everything).
+                    (default 90; 0 keeps everything). Opens the dashboard in
+                    your browser once it answers, unless --no-open is given
+                    (or TRACEROOST_NO_OPEN=1, or there's no local display).
   uninstall         Stop and remove the background service.
   start             Start the installed service.
   stop              Stop the installed service.
@@ -395,8 +403,11 @@ export async function runServiceCli(args: string[]): Promise<number> {
       const healthy = await waitForServiceHealth(config.uiPort, config.bindHost, 15_000)
       const fresh = readServiceConfig()  // re-read: the server persists the auth token on first start
       if (healthy) {
-        console.log(`[TraceRoost] Background service is running${version ? ` (v${version})` : ''}. Open the dashboard at:`)
-        console.log(`  ${dashboardUrl(fresh)}`)
+        const url = dashboardUrl(fresh)
+        const open = shouldAutoOpen({ args: rest, env: process.env, stdoutIsTty: process.stdout.isTTY === true })
+        console.log(`[TraceRoost] Background service is running${version ? ` (v${version})` : ''}. ${open ? 'Opening the dashboard in your browser:' : 'Open the dashboard at:'}`)
+        console.log(`  ${url}`)
+        if (open) { openInBrowser(url) }
         console.log('[TraceRoost] It starts at login and restarts if it crashes. `traceroost service status` re-prints this URL; `traceroost service uninstall` removes it (your data in ~/.traceroost stays).')
       } else {
         console.log(`[TraceRoost] Service registered, but it hasn't answered a health check on port ${config.uiPort} yet.`)

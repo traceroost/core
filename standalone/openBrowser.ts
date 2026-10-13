@@ -29,3 +29,24 @@ export function openInBrowser(url: string, onError?: (err: Error) => void): void
     onError?.(err instanceof Error ? err : new Error(String(err)))
   }
 }
+
+/** Whether a one-off command (`traceroost service install`) should open the dashboard for you.
+ *  Not when asked not to (`--no-open`, or `TRACEROOST_NO_OPEN=1`); not when nobody is at a
+ *  terminal to see it (stdout not a TTY: CI, a pipe, a script); not over SSH, where the browser
+ *  would open on the far machine or nowhere; and on Linux only with a graphical session to open
+ *  it in. */
+export function shouldAutoOpen(opts: {
+  args: string[]
+  env: NodeJS.ProcessEnv
+  stdoutIsTty: boolean
+  platform?: NodeJS.Platform
+}): boolean {
+  const { args, env, stdoutIsTty } = opts
+  const platform = opts.platform ?? process.platform
+  if (args.includes('--no-open')) return false
+  if (env.TRACEROOST_NO_OPEN === '1' || env.TRACEROOST_NO_OPEN === 'true') return false
+  if (!stdoutIsTty) return false
+  if (env.SSH_CONNECTION || env.SSH_TTY) return false
+  if (platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY) return false
+  return true
+}
