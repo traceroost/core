@@ -1,0 +1,19 @@
+{
+  "name": "traceroost-desktop",
+  "private": true,
+  "version": "0.19.1",
+  "description": "TraceRoost desktop shell \u2014 Electron app and menu bar/tray icon around the standalone collector and dashboard",
+  "license": "Apache-2.0",
+  "main": "out/main.js",
+  "scripts": {
+    "check-types": "tsc -p tsconfig.json",
+    "stage": "node scripts/stage-resources.mjs",
+    "bundle": "node esbuild.mjs",
+    "build": "pnpm run check-types && pnpm run bundle && pnpm run stage",
+    "start": "pnpm run build && electron .",
+    "runtime-check": "ELECTRON_RUN_AS_NODE=1 electron -e \"console.log(process.versions.node)\""
+  },
+  "devDependencies": {
+    "electron": "44.7.1"
+  }
+}

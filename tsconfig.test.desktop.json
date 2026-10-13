@@ -1,0 +1,40 @@
+{
+  "//": "Compiles the desktop shell's unit tests (desktop/src/*.test.ts). Only the modules that do not import `electron` are listed: the Electron-facing ones (main.ts, window.ts, tray.ts) are type-checked by desktop/tsconfig.json against the real Electron types, which are not installed at the repo root. See desktop/README.md.",
+  "compilerOptions": {
+    "module": "Node16",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "sourceMap": true,
+    "rootDir": ".",
+    "outDir": "out/test-desktop",
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node", "mocha"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "standalone/dataDirLock.ts",
+    "desktop/src/backoff.ts",
+    "desktop/src/backoff.test.ts",
+    "desktop/src/collector.ts",
+    "desktop/src/collector.test.ts",
+    "desktop/src/dashboardUrl.ts",
+    "desktop/src/dashboardUrl.test.ts",
+    "desktop/src/handshake.ts",
+    "desktop/src/handshake.test.ts",
+    "desktop/src/logs.ts",
+    "desktop/src/logs.test.ts",
+    "desktop/src/mode.ts",
+    "desktop/src/mode.test.ts",
+    "desktop/src/navigation.ts",
+    "desktop/src/navigation.test.ts",
+    "desktop/src/resources.ts",
+    "desktop/src/stagedCollector.test.ts",
+    "desktop/src/resources.test.ts",
+    "desktop/src/trayMenu.ts",
+    "desktop/src/trayMenu.test.ts"
+  ]
+}

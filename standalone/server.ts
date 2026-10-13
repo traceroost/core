@@ -195,12 +195,16 @@ if (process.env.TRACEROOST_SERVICE === '1') {
 // logging the refusal each time, and waiting means it takes over as soon as the ad-hoc run stops.
 const dataDirLock: DataDirLock = (() => {
   const isService = process.env.TRACEROOST_SERVICE === '1'
-  let first = tryAcquireDataDirLock(DATA_DIR, { service: isService })
+  // `version` is recorded so another TraceRoost process reading this lock can judge
+  // compatibility before attaching to this one rather than starting a second collector
+  // (desktop/src/handshake.ts). 'unknown' is left out entirely -- absent means unknown.
+  const lockVersion = PACKAGE_VERSION === 'unknown' ? undefined : PACKAGE_VERSION
+  let first = tryAcquireDataDirLock(DATA_DIR, { service: isService, version: lockVersion })
   if (!first.ok && isService) {
     console.error(`${describeLockHolder(DATA_DIR, first.holder)}\n[TraceRoost] Running as the background service — waiting for the data directory to free up.`)
     while (!first.ok) {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000)
-      first = tryAcquireDataDirLock(DATA_DIR, { service: true })
+      first = tryAcquireDataDirLock(DATA_DIR, { service: true, version: lockVersion })
     }
     console.log('[TraceRoost] Data directory is free — starting.')
   }
