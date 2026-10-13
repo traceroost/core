@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { brewExecutable, describeBrewFailure, detectHomebrewInstall, readHomebrewVersion, stableNodePath } from './homebrew'
+import { brewExecutable, describeBrewFailure, detectHomebrewInstall, findHomebrewCopy, homebrewPrefixes, readHomebrewVersion, stableNodePath } from './homebrew'
 
 suite('homebrew', () => {
   let prefix: string
@@ -95,5 +95,19 @@ suite('homebrew', () => {
     assert.strictEqual(brewExecutable('/opt/homebrew'), path.join('/opt/homebrew', 'bin', 'brew'))
     assert.strictEqual(describeBrewFailure({ code: 'ENOENT' }), 'brew was not found')
     assert.strictEqual(describeBrewFailure({ status: 1 }), 'brew exited with code 1 — see its output above')
+  })
+
+  test('finds an installed Homebrew copy through its opt link, for npx to hand off to', function () {
+    if (process.platform === 'win32') this.skip()
+    assert.strictEqual(findHomebrewCopy('traceroost', [prefix]), undefined)
+    makeKeg('0.19.1')
+    const found = findHomebrewCopy('traceroost', [path.join(prefix, 'missing'), prefix])
+    assert.ok(found)
+    assert.strictEqual(found.stableCliPath, optCli())
+  })
+
+  test('HOMEBREW_PREFIX is searched first, then the standard prefixes, without duplicates', () => {
+    assert.deepStrictEqual(homebrewPrefixes({ HOMEBREW_PREFIX: '/opt/homebrew' }), ['/opt/homebrew', '/usr/local', '/home/linuxbrew/.linuxbrew'])
+    assert.deepStrictEqual(homebrewPrefixes({ HOMEBREW_PREFIX: '/custom' })[0], '/custom')
   })
 })

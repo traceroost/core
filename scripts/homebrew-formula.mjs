@@ -63,8 +63,9 @@ class Traceroost < Formula
 ${license ? `  license ${license}\n` : ''}
   depends_on "node"
 
-  # With Homebrew's node, \`npm install -g traceroost\` puts its own bin/traceroost link in the same
-  # prefix. Without this, \`brew link\` refuses to replace it and the npm copy keeps shadowing ours.
+  # With Homebrew's node, an earlier \`npm install -g traceroost\` owns bin/traceroost in the same
+  # prefix; take it over so switching from npm needs no manual step (\`traceroost service install\`
+  # then moves the background service onto this copy).
   link_overwrite "bin/traceroost"
 
   def install
@@ -74,10 +75,8 @@ ${license ? `  license ${license}\n` : ''}
 
   def caveats
     <<~EOS
-      Installed with npm before? Remove that copy so only one is left:
-        npm uninstall -g traceroost
-
-      Run TraceRoost in the background (starts at login, restarts if it crashes):
+      Run TraceRoost in the background (starts at login, restarts if it crashes;
+      if you had it from npm before, this moves the service onto this copy):
         traceroost service install
 
       Upgrade later, service included:

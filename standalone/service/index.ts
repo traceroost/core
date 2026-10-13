@@ -15,7 +15,8 @@ import { isLoopbackHost } from '../../src/httpSecurity'
 import { openInBrowser, shouldAutoOpen } from '../openBrowser'
 import { isPathInsideDir } from './globalInstall'
 import {
-  brewExecutable, describeBrewFailure, detectHomebrewInstall, readHomebrewVersion, stableNodePath,
+  brewExecutable, describeBrewFailure, detectHomebrewInstall, findHomebrewCopy, homebrewPrefixes,
+  readHomebrewVersion, stableNodePath,
   type HomebrewInstall,
 } from './homebrew'
 import * as macos from './macos'
@@ -106,20 +107,20 @@ function isRunningFromGlobalInstall(): boolean {
  *  that copy — so a stale global install is upgraded on re-install rather than pinned. A dev
  *  checkout or other non-standard location is pointed at exactly the running copy, untouched. */
 function resolveInstallProgram(config: ServiceConfig): ServiceProgram {
-  // Freshly re-invoked by bootstrapGlobalInstall after an npx run — it already installed @latest
-  // and is pointing us at that copy via argv[1]; don't run a second npm install.
-  if (shouldBlockRepeatedBootstrap(process.env)) {
-    return buildProgram(config)
-  }
-  // A Homebrew install: upgrade through brew (never npm — that would leave a second copy behind)
-  // and point the service at the keg-independent `opt` paths so a later `brew upgrade` doesn't
-  // leave the service definition naming a deleted keg.
+  // A Homebrew install (run directly, or handed off to by an npx run): upgrade through brew (never
+  // npm — that would leave a second copy behind) and point the service at the keg-independent
+  // `opt` paths so a later `brew upgrade` doesn't leave the service definition naming a deleted keg.
   const brew = runningHomebrewInstall()
   if (brew) {
     ensureLatestHomebrewInstall(brew)
     if (fs.existsSync(brew.stableCliPath)) {
       return { nodePath: stableNodePath(process.execPath), cliPath: brew.stableCliPath, config }
     }
+    return buildProgram(config)
+  }
+  // Freshly re-invoked by bootstrapGlobalInstall after an npx run — it already installed @latest
+  // and is pointing us at that copy via argv[1]; don't run a second npm install.
+  if (shouldBlockRepeatedBootstrap(process.env)) {
     return buildProgram(config)
   }
   if (!isRunningFromGlobalInstall()) {
@@ -320,6 +321,24 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
   return 0
 }
 
+/** `npx traceroost@latest service install` on a machine that already has TraceRoost from Homebrew:
+ *  run that copy's `service install` (which upgrades it with brew) instead of installing a second
+ *  copy with npm — npm's global bin link would collide with Homebrew's `bin/traceroost`. */
+function handOffToHomebrew(install: HomebrewInstall, remainingArgs: string[]): number {
+  console.log('[TraceRoost] TraceRoost is installed with Homebrew — using that copy (it upgrades with brew, not npm).')
+  const brewNode = path.join(install.prefix, 'opt', 'node', 'bin', 'node')
+  const node = fs.existsSync(brewNode) ? brewNode : process.execPath
+  try {
+    execFileSync(node, [install.stableCliPath, 'service', 'install', ...remainingArgs], {
+      stdio: 'inherit', env: childEnvForReexec(process.env),
+    })
+  } catch (e) {
+    const status = (e as { status?: number }).status
+    return typeof status === 'number' ? status : 1
+  }
+  return 0
+}
+
 function readFileOrNull(filePath: string): Buffer | null {
   try { return fs.readFileSync(filePath) } catch { return null }
 }
@@ -350,7 +369,8 @@ export async function runServiceCli(args: string[]): Promise<number> {
   }
 
   if (subcommand === 'install' && isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) {
-    return bootstrapGlobalInstall(rest)
+    const brew = findHomebrewCopy(SELF_PACKAGE_NAME, homebrewPrefixes(process.env))
+    return brew ? handOffToHomebrew(brew, rest) : bootstrapGlobalInstall(rest)
   }
 
   let platformService: PlatformService

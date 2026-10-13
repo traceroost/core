@@ -61,6 +61,25 @@ export function detectHomebrewInstall(cliPath: string, packageName: string): Hom
   }
 }
 
+/** Where Homebrew is usually installed, `HOMEBREW_PREFIX` (set by `brew shellenv`) first. */
+export function homebrewPrefixes(env: NodeJS.ProcessEnv): string[] {
+  const all = [env.HOMEBREW_PREFIX, '/opt/homebrew', '/usr/local', '/home/linuxbrew/.linuxbrew']
+  return [...new Set(all.filter((p): p is string => typeof p === 'string' && p.length > 0))]
+}
+
+/** A Homebrew-installed copy of `packageName` under any of `prefixes`, found through its `opt`
+ *  link — what `npx traceroost@latest service install` hands off to instead of installing a second
+ *  copy with npm (which would also collide with Homebrew's `bin/traceroost`). */
+export function findHomebrewCopy(packageName: string, prefixes: string[]): HomebrewInstall | undefined {
+  for (const prefix of prefixes) {
+    const cli = path.join(prefix, 'opt', packageName, 'libexec', 'lib', 'node_modules', packageName, 'standalone', 'cli.js')
+    if (!fs.existsSync(cli)) continue
+    const install = detectHomebrewInstall(cli, packageName)
+    if (install) return install
+  }
+  return undefined
+}
+
 /** The Node binary a Homebrew-installed service should run. When `execPath` is Homebrew's own
  *  versioned `node` (`<prefix>/Cellar/node[@N]/<version>/bin/node`), the matching
  *  `<prefix>/opt/node[@N]/bin/node` if it exists; otherwise `execPath` unchanged (nvm, a system

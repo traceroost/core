@@ -8,7 +8,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Added
 
-- **Install with Homebrew** — `brew install traceroost/tap/traceroost`, then `traceroost service install` (macOS or Linux; Homebrew brings its own Node.js). For a Homebrew install, `service install` and `service update` upgrade with `brew upgrade traceroost` instead of npm, and the service runs from Homebrew's version-independent paths, so upgrading TraceRoost or Node with brew doesn't break it. A copy installed earlier with `npm install -g` is replaced on link; remove it with `npm uninstall -g traceroost` (#313, #314)
+- **Install with Homebrew** — `brew install traceroost/tap/traceroost`, then `traceroost service install` (macOS or Linux; Homebrew brings its own Node.js). For a Homebrew install, `service install` and `service update` upgrade with `brew upgrade traceroost` instead of npm, and the service runs from Homebrew's version-independent paths, so upgrading TraceRoost or Node with brew doesn't break it. Switching is automatic either way: the Homebrew copy takes over the `traceroost` command from an earlier npm install, and `npx traceroost@latest service install` uses an installed Homebrew copy instead of adding a second one (#313, #314)
 - **`traceroost service install` opens the dashboard** in your browser once the service answers. Skip it with `--no-open` or `TRACEROOST_NO_OPEN=1`; it never opens over SSH or without a display (#314)
 
 ### Fixed

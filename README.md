@@ -601,9 +601,10 @@ traceroost service install     # runs `brew upgrade traceroost` first, then inst
 traceroost service update      # `brew upgrade traceroost`, then restarts the service on it
 ```
 
-Already installed with `npm install -g`? Run `npm uninstall -g traceroost` first, or after
-`brew install`, so only one copy is left; then `traceroost service install` re-points the
-service at the Homebrew copy.
+Switching from npm is automatic: the Homebrew copy takes over the `traceroost` command, and
+`traceroost service install` moves the background service onto it. The other way round,
+`npx traceroost@latest service install` on a machine that has the Homebrew copy uses that copy
+instead of installing a second one.
 
 The service points at Homebrew's version-independent paths (`$(brew --prefix)/opt/traceroost`
 and `$(brew --prefix)/opt/node`), so a plain `brew upgrade` never breaks it; run
@@ -688,7 +689,8 @@ identifiers — it's a plain request for the public package's latest version. Se
   `code --uninstall-extension agentlens.agentlens-dashboard`.
 - **Background service** — `traceroost service uninstall` removes the launchd / systemd / Scheduled
   Task definition (your data is left alone). `service install` under `npx` also installed
-  `traceroost` globally; remove that with `npm uninstall -g traceroost`.
+  `traceroost` globally; remove that with `npm uninstall -g traceroost` (or, for a Homebrew
+  install, `brew uninstall traceroost`).
 - **Docker** — stop and remove the container (`docker rm -f <container>`) and, if you like, the
   image (`docker rmi traceroost/traceroost`).
 
