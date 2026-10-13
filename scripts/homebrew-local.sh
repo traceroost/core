@@ -24,10 +24,13 @@ case "$EDITION" in
   *) echo "usage: scripts/homebrew-local.sh [core|full]" >&2; exit 2 ;;
 esac
 command -v brew >/dev/null || { echo "Homebrew isn't installed (brew not on PATH)." >&2; exit 1; }
+# pnpm is this repo's package manager; borrow it through npx when it isn't installed.
+if command -v pnpm >/dev/null; then PNPM=(pnpm); else PNPM=(npx -y pnpm@10); fi
+"${PNPM[@]}" install --frozen-lockfile
 
 node scripts/prepare-edition.mjs "$EDITION"
 trap 'node scripts/prepare-edition.mjs restore >/dev/null' EXIT
-pnpm run "$BUILD"
+"${PNPM[@]}" run "$BUILD"
 
 OUT="$(mktemp -d)"
 npm pack --pack-destination "$OUT" >/dev/null
