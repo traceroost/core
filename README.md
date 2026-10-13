@@ -557,6 +557,11 @@ traceroost service update      # upgrade to the latest version and restart on it
 traceroost service uninstall   # remove it (your data in ~/.traceroost is untouched)
 ```
 
+Once the service answers, `service install` opens the dashboard in your browser (skip it with
+`--no-open` or `TRACEROOST_NO_OPEN=1`; it never opens over SSH or without a display). The service
+itself never opens a browser, so nothing pops up at login. On the default `127.0.0.1` the
+dashboard URL has no token: none is needed on loopback.
+
 `service install` fetches the latest `traceroost` from npm before it writes the service
 definition, so re-running it is also how you upgrade. If that download can't happen (offline, npm
 registry unreachable), it prints a clear notice that the new version couldn't be downloaded and
@@ -595,6 +600,11 @@ brew install traceroost/tap/traceroost
 traceroost service install     # runs `brew upgrade traceroost` first, then installs the service
 traceroost service update      # `brew upgrade traceroost`, then restarts the service on it
 ```
+
+Switching from npm is automatic: the Homebrew copy takes over the `traceroost` command, and
+`traceroost service install` moves the background service onto it. The other way round,
+`npx traceroost@latest service install` on a machine that has the Homebrew copy uses that copy
+instead of installing a second one.
 
 The service points at Homebrew's version-independent paths (`$(brew --prefix)/opt/traceroost`
 and `$(brew --prefix)/opt/node`), so a plain `brew upgrade` never breaks it; run
@@ -679,7 +689,8 @@ identifiers — it's a plain request for the public package's latest version. Se
   `code --uninstall-extension agentlens.agentlens-dashboard`.
 - **Background service** — `traceroost service uninstall` removes the launchd / systemd / Scheduled
   Task definition (your data is left alone). `service install` under `npx` also installed
-  `traceroost` globally; remove that with `npm uninstall -g traceroost`.
+  `traceroost` globally; remove that with `npm uninstall -g traceroost` (or, for a Homebrew
+  install, `brew uninstall traceroost`).
 - **Docker** — stop and remove the container (`docker rm -f <container>`) and, if you like, the
   image (`docker rmi traceroost/traceroost`).
 

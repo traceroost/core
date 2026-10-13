@@ -272,7 +272,8 @@ export async function activate(context: vscode.ExtensionContext) {
           `  - Run TraceRoost one way per machine — background service, VS Code extension, or Docker. ` +
           `Recommended: the background service — it starts at login and keeps capturing OTel even when ` +
           `VS Code is closed, so nothing gets missed. Install with \`npx traceroost@latest service install\` ` +
-          `(macOS/Linux/Windows all use the same command).\n` +
+          `(macOS/Linux/Windows all use the same command), or with Homebrew: ` +
+          `\`brew install traceroost/tap/traceroost\` then \`traceroost service install\`.\n` +
           `  - The service already holds this port, so: keep it and uninstall this extension ` +
           `(\`code --uninstall-extension ${context.extension.id}\`), then reload — or, to use VS Code instead, ` +
           `stop the service with \`traceroost service stop\`.`

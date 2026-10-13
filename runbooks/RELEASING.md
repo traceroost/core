@@ -231,7 +231,11 @@ After that, everything works as it does for an npm install, through `traceroost`
 naming a deleted keg. The formula has no `service do` block on purpose: `brew services` would be a
 second manager running a second copy on the same ports.
 
-To check a formula before a release reaches the tap: `node scripts/homebrew-formula.mjs <version>
---out /tmp/traceroost.rb`, then `brew install --formula /tmp/traceroost.rb` on a Mac, then `brew
-test traceroost` and `traceroost service install`.
+**Try a change with Homebrew before releasing it** (on a Mac or Linux box with Homebrew, from a
+checkout of the branch): `scripts/homebrew-local.sh`. It builds the core edition exactly as `npm
+publish` would, packs it, writes a formula for that tarball (`homebrew-formula.mjs --tarball`)
+into a local tap, `traceroost/local`, and installs it in place of any Homebrew copy. Then
+`brew test traceroost/local/traceroost` and `traceroost service install`. Back to the published
+formula: `brew uninstall traceroost && brew untap traceroost/local && brew install
+traceroost/tap/traceroost`.
 

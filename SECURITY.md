@@ -9,7 +9,7 @@ Please report security issues privately — **not** in a public issue, discussio
 - **Or email:** [support@traceroost.com](mailto:support@traceroost.com).
 
 Include what you found, the TraceRoost version (shown at the bottom-left of the Traces tab, or run `traceroost --version`),
-how it runs (VS Code extension, `npx traceroost`, background service,
+how it runs (VS Code extension, `npx traceroost`, Homebrew, background service,
 Docker), your OS, and the steps to reproduce. Please check it still reproduces on the latest release.
 
 ## In scope

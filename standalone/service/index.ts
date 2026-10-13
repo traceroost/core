@@ -11,9 +11,12 @@ import {
 } from '../../src/serviceConfig'
 import { readResolvedPorts } from '../../src/portResolver'
 import { waitForServiceHealth } from './health'
+import { isLoopbackHost } from '../../src/httpSecurity'
+import { openInBrowser, shouldAutoOpen } from '../openBrowser'
 import { isPathInsideDir } from './globalInstall'
 import {
-  brewExecutable, describeBrewFailure, detectHomebrewInstall, readHomebrewVersion, stableNodePath,
+  brewExecutable, brewFormulaRef, describeBrewFailure, detectHomebrewInstall, findHomebrewCopy, homebrewPrefixes,
+  readHomebrewVersion, stableNodePath,
   type HomebrewInstall,
 } from './homebrew'
 import * as macos from './macos'
@@ -64,9 +67,13 @@ function safeIsInstalled(platformService: PlatformService): boolean {
   try { return platformService.isInstalled() } catch { return false }
 }
 
+/** The dashboard's address. The access token is only part of it when the server is reachable
+ *  beyond this machine (a non-loopback bind host), the one case the server requires it; on the
+ *  default 127.0.0.1 it would only be noise to copy around (standalone/server.ts does the same). */
 function dashboardUrl(config: ServiceConfig): string {
   const host = isIPv6(config.bindHost) ? `[${config.bindHost}]` : config.bindHost
-  return `http://${host}:${config.uiPort}` + (config.authToken ? `/?token=${config.authToken}` : '')
+  const needsToken = !!config.authToken && !isLoopbackHost(config.bindHost)
+  return `http://${host}:${config.uiPort}` + (needsToken ? `/?token=${config.authToken}` : '')
 }
 
 function getPlatformService(): PlatformService {
@@ -100,20 +107,20 @@ function isRunningFromGlobalInstall(): boolean {
  *  that copy — so a stale global install is upgraded on re-install rather than pinned. A dev
  *  checkout or other non-standard location is pointed at exactly the running copy, untouched. */
 function resolveInstallProgram(config: ServiceConfig): ServiceProgram {
-  // Freshly re-invoked by bootstrapGlobalInstall after an npx run — it already installed @latest
-  // and is pointing us at that copy via argv[1]; don't run a second npm install.
-  if (shouldBlockRepeatedBootstrap(process.env)) {
-    return buildProgram(config)
-  }
-  // A Homebrew install: upgrade through brew (never npm — that would leave a second copy behind)
-  // and point the service at the keg-independent `opt` paths so a later `brew upgrade` doesn't
-  // leave the service definition naming a deleted keg.
+  // A Homebrew install (run directly, or handed off to by an npx run): upgrade through brew (never
+  // npm — that would leave a second copy behind) and point the service at the keg-independent
+  // `opt` paths so a later `brew upgrade` doesn't leave the service definition naming a deleted keg.
   const brew = runningHomebrewInstall()
   if (brew) {
     ensureLatestHomebrewInstall(brew)
     if (fs.existsSync(brew.stableCliPath)) {
       return { nodePath: stableNodePath(process.execPath), cliPath: brew.stableCliPath, config }
     }
+    return buildProgram(config)
+  }
+  // Freshly re-invoked by bootstrapGlobalInstall after an npx run — it already installed @latest
+  // and is pointing us at that copy via argv[1]; don't run a second npm install.
+  if (shouldBlockRepeatedBootstrap(process.env)) {
     return buildProgram(config)
   }
   if (!isRunningFromGlobalInstall()) {
@@ -132,7 +139,7 @@ function printUsage(): void {
 
 Commands:
   install [--ui-port N] [--otlp-port N] [--mcp-port N] [--bind-host H] [--data-dir DIR]
-          [--retention-days N]
+          [--retention-days N] [--no-open]
                     Install and start the background service (macOS: launchd,
                     Linux: systemd --user, Windows: Scheduled Task at logon).
                     Fetches the latest traceroost first (from npm, or with
@@ -140,7 +147,9 @@ Commands:
                     also upgrades; if that fails it says so and installs on
                     the version already present.
                     --retention-days N keeps N days of log-sourced traces
-                    (default 90; 0 keeps everything).
+                    (default 90; 0 keeps everything). Opens the dashboard in
+                    your browser once it answers, unless --no-open is given
+                    (or TRACEROOST_NO_OPEN=1, or there's no local display).
   uninstall         Stop and remove the background service.
   start             Start the installed service.
   stop              Stop the installed service.
@@ -243,10 +252,11 @@ function runningHomebrewInstall(): HomebrewInstall | undefined {
  *  is kept, so `service install` still goes ahead on it. */
 function ensureLatestHomebrewInstall(install: HomebrewInstall): GlobalInstallOutcome | null {
   const previousVersion = readHomebrewVersion(install)
+  const ref = brewFormulaRef(install)
   console.log(`[TraceRoost] Installed with Homebrew — fetching the latest ${install.formula}:`)
-  console.log(`  brew upgrade ${install.formula}`)
+  console.log(`  brew upgrade ${ref}`)
   try {
-    execFileSync(brewExecutable(install.prefix), ['upgrade', install.formula], { stdio: 'inherit' })
+    execFileSync(brewExecutable(install.prefix), ['upgrade', ref], { stdio: 'inherit' })
   } catch (e) {
     const fallback = readHomebrewVersion(install)
     console.error(
@@ -312,6 +322,24 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
   return 0
 }
 
+/** `npx traceroost@latest service install` on a machine that already has TraceRoost from Homebrew:
+ *  run that copy's `service install` (which upgrades it with brew) instead of installing a second
+ *  copy with npm — npm's global bin link would collide with Homebrew's `bin/traceroost`. */
+function handOffToHomebrew(install: HomebrewInstall, remainingArgs: string[]): number {
+  console.log('[TraceRoost] TraceRoost is installed with Homebrew — using that copy (it upgrades with brew, not npm).')
+  const brewNode = path.join(install.prefix, 'opt', 'node', 'bin', 'node')
+  const node = fs.existsSync(brewNode) ? brewNode : process.execPath
+  try {
+    execFileSync(node, [install.stableCliPath, 'service', 'install', ...remainingArgs], {
+      stdio: 'inherit', env: childEnvForReexec(process.env),
+    })
+  } catch (e) {
+    const status = (e as { status?: number }).status
+    return typeof status === 'number' ? status : 1
+  }
+  return 0
+}
+
 function readFileOrNull(filePath: string): Buffer | null {
   try { return fs.readFileSync(filePath) } catch { return null }
 }
@@ -342,7 +370,8 @@ export async function runServiceCli(args: string[]): Promise<number> {
   }
 
   if (subcommand === 'install' && isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) {
-    return bootstrapGlobalInstall(rest)
+    const brew = findHomebrewCopy(SELF_PACKAGE_NAME, homebrewPrefixes(process.env))
+    return brew ? handOffToHomebrew(brew, rest) : bootstrapGlobalInstall(rest)
   }
 
   let platformService: PlatformService
@@ -395,8 +424,11 @@ export async function runServiceCli(args: string[]): Promise<number> {
       const healthy = await waitForServiceHealth(config.uiPort, config.bindHost, 15_000)
       const fresh = readServiceConfig()  // re-read: the server persists the auth token on first start
       if (healthy) {
-        console.log(`[TraceRoost] Background service is running${version ? ` (v${version})` : ''}. Open the dashboard at:`)
-        console.log(`  ${dashboardUrl(fresh)}`)
+        const url = dashboardUrl(fresh)
+        const open = shouldAutoOpen({ args: rest, env: process.env, stdoutIsTty: process.stdout.isTTY === true })
+        console.log(`[TraceRoost] Background service is running${version ? ` (v${version})` : ''}. ${open ? 'Opening the dashboard in your browser:' : 'Open the dashboard at:'}`)
+        console.log(`  ${url}`)
+        if (open) { openInBrowser(url) }
         console.log('[TraceRoost] It starts at login and restarts if it crashes. `traceroost service status` re-prints this URL; `traceroost service uninstall` removes it (your data in ~/.traceroost stays).')
       } else {
         console.log(`[TraceRoost] Service registered, but it hasn't answered a health check on port ${config.uiPort} yet.`)

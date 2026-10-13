@@ -2227,7 +2227,11 @@ async function startUiServer(): Promise<void> {
   // Auto-open browser — includes the access token so the browser gets its auth cookie on
   // first load when the token is actually required; the printed URL above is the fallback if
   // auto-open fails or you're opening on another device.
-  openInBrowser(url, () => console.log(`\nOpen ${printable} in your browser\n`))
+  // Never from the background service: it starts at every login, and a browser tab popping open
+  // each time is noise. `traceroost service install` opens it once instead.
+  if (process.env.TRACEROOST_SERVICE !== '1') {
+    openInBrowser(url, () => console.log(`\nOpen ${printable} in your browser\n`))
+  }
 
   // Start log ingestion after the server is ready
   startLogIngestion()
