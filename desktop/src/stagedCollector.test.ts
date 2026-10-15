@@ -27,7 +27,11 @@ import { OwnedCollector } from './collector'
 
 const DESKTOP_DIR = path.join(__dirname, '..', '..', '..', '..', 'desktop')
 const STAGED = path.join(DESKTOP_DIR, 'resources', 'collector', 'standalone', 'server.js')
-const ELECTRON = path.join(DESKTOP_DIR, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron')
+/** Electron's binary inside the npm package, per platform — the same thing `electron .` runs. */
+const ELECTRON = path.join(DESKTOP_DIR, 'node_modules', 'electron', 'dist',
+  ...(process.platform === 'darwin' ? ['Electron.app', 'Contents', 'MacOS', 'Electron']
+    : process.platform === 'win32' ? ['electron.exe']
+    : ['electron']))
 
 /** High, fixed ports: the collector scans upward from a busy port, and a test must not land on
  *  (or push itself off) the developer's real collector on 3000/4318/4316. */

@@ -15,6 +15,13 @@
  * its configured port when one is taken (`src/portResolver.ts`), so the configured port and the
  * live port are different questions — the plan calls a shell that confused the two a "silent port
  * change", and reading the writer's own record is what prevents it.
+ *
+ * Shutdown is not a signal. The child's stdin is held open as a pipe and the stop request is
+ * closing it (`TRACEROOST_SHUTDOWN_ON_STDIN_END=1` tells the collector to treat EOF that way). One
+ * channel on every platform, because Windows has no SIGTERM — `child.kill()` there is
+ * TerminateProcess, which runs no handler — and a shutdown path that only Unix exercised would be
+ * the one that lost data on the platform that never ran it. Signals are kept for the last resort
+ * only: a child that ignores the request is killed outright after the graceful window.
  */
 
 import { type ChildProcess, spawn } from 'child_process'
@@ -47,7 +54,6 @@ export interface CollectorOptions {
   log: (line: string) => void
   /** Where the collector's stdout/stderr go. */
   logStream?: () => fs.WriteStream | undefined
-  platform?: NodeJS.Platform
 }
 
 /** How long to wait for the child to claim the lock with bound ports before calling the start a
@@ -56,7 +62,7 @@ const READY_TIMEOUT_MS = 30_000
 const READY_POLL_MS = 150
 
 /** After asking the collector to shut down, how long to let it flush before it is killed outright.
- *  Its SIGTERM handler saves spans.json and the outcomes cache and then exits, which is fast — but
+ *  Its shutdown handler saves spans.json and the outcomes cache and then exits, which is fast — but
  *  a large store on a slow disk should not be cut off mid-write. */
 const GRACEFUL_STOP_MS = 10_000
 
@@ -69,11 +75,8 @@ export class OwnedCollector {
   /** Set while a deliberate stop is in flight, so the exit handler does not treat it as a crash. */
   private stopping = false
   private readonly listeners = new Set<(state: CollectorState) => void>()
-  private readonly platform: NodeJS.Platform
 
-  constructor(private readonly opts: CollectorOptions) {
-    this.platform = opts.platform ?? process.platform
-  }
+  constructor(private readonly opts: CollectorOptions) {}
 
   current(): CollectorState { return this.state }
 
@@ -121,8 +124,11 @@ export class OwnedCollector {
         // on. An app-owned collector is neither of those things, and claiming to be would let
         // `service stop` reach into this app's child.
         TRACEROOST_SERVICE: undefined,
+        // The shutdown channel: the collector treats EOF on its stdin as a request to flush and
+        // exit, and stdin is a pipe (below) that stays open until stop() closes it.
+        TRACEROOST_SHUTDOWN_ON_STDIN_END: '1',
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     })
     this.child = child
@@ -229,15 +235,15 @@ export class OwnedCollector {
   /**
    * Asks the collector to shut down and waits for it to flush.
    *
-   * On POSIX this is SIGTERM, which the collector handles: it saves spans.json and the outcomes
-   * cache, releases the data-dir lock from its 'exit' handler, and exits 0. A child that has not
-   * gone within GRACEFUL_STOP_MS is killed — at that point it is wedged, and the stores are atomic
-   * per write (`src/fsAtomic.ts`), so what is on disk is consistent either way.
-   *
-   * Windows has no SIGTERM: `child.kill()` there is TerminateProcess, which runs no handler and so
-   * loses whatever had not been saved. Rather than pretend otherwise, owned mode is refused on
-   * win32 (see main.ts) until the Windows feature adds a cooperative shutdown channel — its own
-   * plan names this as the work. Attached mode is unaffected: it never stops anything.
+   * The request is closing the child's stdin. The collector (started with
+   * `TRACEROOST_SHUTDOWN_ON_STDIN_END=1`) treats that EOF exactly as it treats SIGTERM: it saves
+   * spans.json and the outcomes cache, releases the data-dir lock from its 'exit' handler, and
+   * exits 0. That works on Windows, where no signal would; and because it is the only request path,
+   * the Unix tests exercise the same code Windows runs. A child that has not gone within
+   * GRACEFUL_STOP_MS is killed — at that point it is wedged, and the stores are atomic per write
+   * (`src/fsAtomic.ts`), so what is on disk is consistent either way. `kill()` with no signal is
+   * SIGTERM on Unix and TerminateProcess on Windows, and here either is fine: this is the step after
+   * cooperation failed. SIGKILL follows on Unix for a child that caught even that.
    */
   async stop(): Promise<void> {
     this.clearRestartTimer()
@@ -245,16 +251,17 @@ export class OwnedCollector {
     if (!child) { this.setState({ status: 'stopped' }); return }
     this.stopping = true
     const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
-    if (this.platform === 'win32') {
-      throw new Error('Stopping an app-owned collector is not supported on Windows in this build — see .staged-features/windows-desktop-tray-app.md')
-    }
     this.opts.log(`[desktop] asking the collector (pid ${child.pid ?? '?'}) to shut down`)
-    child.kill('SIGTERM')
+    requestShutdown(child)
     const flushed = await Promise.race([exited.then(() => true), delay(GRACEFUL_STOP_MS).then(() => false)])
     if (!flushed) {
       this.opts.log('[desktop] the collector did not exit in time — killing it')
-      child.kill('SIGKILL')
-      await Promise.race([exited, delay(2_000)])
+      child.kill()
+      const terminated = await Promise.race([exited.then(() => true), delay(2_000).then(() => false)])
+      if (!terminated && process.platform !== 'win32') {
+        child.kill('SIGKILL')
+        await Promise.race([exited, delay(2_000)])
+      }
     }
     this.child = undefined
     this.setState({ status: 'stopped' })
@@ -268,6 +275,16 @@ export class OwnedCollector {
 
   /** True while a child is alive — used by the quit path to decide whether to flush. */
   isOwning(): boolean { return this.child !== undefined }
+}
+
+/** Closes the child's stdin — the cooperative stop request. Ending a pipe the other side has
+ *  already closed raises EPIPE asynchronously; that only means the child is already gone, which is
+ *  the outcome being asked for, so the error is swallowed rather than surfaced as a failed stop. */
+function requestShutdown(child: ChildProcess): void {
+  const stdin = child.stdin
+  if (!stdin || stdin.destroyed) return
+  stdin.on('error', () => { /* already closed on the far side */ })
+  stdin.end()
 }
 
 function readLockInfo(lockPath: string): DataDirLockInfo | undefined {

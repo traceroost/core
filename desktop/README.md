@@ -151,10 +151,10 @@ Stages 3–4 of the plan, which need credentials and hardware rather than code:
 
 Smaller, genuinely open items:
 
-- **Owned mode is refused on Windows.** `child.kill()` there is `TerminateProcess`: no handler
-  runs, so an owned collector would lose whatever it had not flushed. The shell says so and points
-  at the Windows feature, whose plan covers adding a cooperative shutdown channel. Attached mode is
-  unaffected.
+- **Windows owned mode is implemented but unverified on Windows.** The stop request is closing the
+  collector's stdin (`TRACEROOST_SHUTDOWN_ON_STDIN_END=1`, see `collector.ts`), not a signal, so
+  it works where `child.kill()` is `TerminateProcess`. The tests exercise that path on every
+  platform; a real Windows run is the Windows feature's Stage 1 gate and has not happened yet.
 - **Unverified on this machine, needing a GUI session:** clicking the window's close button
   (close-to-menu-bar), Dock reopen, the Launch at Login toggle actually registering a login item,
   sleep/wake, and how the template icon looks in a light vs dark menu bar. The code paths exist and

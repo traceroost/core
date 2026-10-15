@@ -11,10 +11,15 @@ import { OwnedCollector, type CollectorState } from './collector'
  * restart, graceful stop — and keeps them fast. `desktop/test/staged-collector.test.ts` runs the
  * real thing.
  *
+ * It honours the same shutdown contract as the real collector: with TRACEROOST_SHUTDOWN_ON_STDIN_END=1
+ * set by the supervisor, EOF on stdin means flush and exit. It records *which* request reached it
+ * (`flushed` holds "stdin" or "signal"), so the tests can prove the supervisor used the channel
+ * that works on Windows rather than the signal that does not.
+ *
  * Behaviour is driven by env vars so one script covers every case:
- *   STUB_PORTS=0      claim the lock but never bind ports (never becomes ready)
- *   STUB_EXIT_AFTER=n exit non-zero n ms after starting (a crash)
- *   STUB_IGNORE_TERM=1 ignore SIGTERM, so the supervisor has to kill it
+ *   STUB_PORTS=0        claim the lock but never bind ports (never becomes ready)
+ *   STUB_EXIT_AFTER=n   exit non-zero n ms after starting (a crash)
+ *   STUB_IGNORE_STOP=1  ignore the shutdown request (and SIGTERM), so the supervisor has to kill it
  */
 const STUB = `
 const fs = require('fs'), path = require('path')
@@ -23,12 +28,18 @@ fs.mkdirSync(dataDir, { recursive: true })
 const lock = { pid: process.pid, hostname: require('os').hostname(), startedAt: new Date().toISOString(), service: false, token: 'stub', version: '0.19.1' }
 if (process.env.STUB_PORTS !== '0') Object.assign(lock, { uiPort: 31990, otlpPort: 31991, mcpPort: 31992 })
 fs.writeFileSync(path.join(dataDir, '${LOCK_FILENAME}'), JSON.stringify(lock))
-if (process.env.STUB_IGNORE_TERM === '1') {
-  // An explicit no-op handler is what makes it wedged: with no handler at all, Node's default
-  // SIGTERM action would terminate it immediately and nothing would be tested.
+const flushAndExit = how => { fs.writeFileSync(path.join(dataDir, 'flushed'), how); process.exit(0) }
+if (process.env.STUB_IGNORE_STOP === '1') {
+  // Wedged: stdin is consumed but EOF is ignored, and SIGTERM gets an explicit no-op handler —
+  // with no handler at all, Node's default action would terminate it and nothing would be tested.
+  process.stdin.resume()
   process.on('SIGTERM', () => {})
 } else {
-  process.on('SIGTERM', () => { fs.writeFileSync(path.join(dataDir, 'flushed'), 'yes'); process.exit(0) })
+  if (process.env.TRACEROOST_SHUTDOWN_ON_STDIN_END === '1') {
+    process.stdin.on('end', () => flushAndExit('stdin'))
+    process.stdin.resume()
+  }
+  process.on('SIGTERM', () => flushAndExit('signal'))
 }
 if (process.env.STUB_EXIT_AFTER) setTimeout(() => { console.error('stub crash'); process.exit(3) }, Number(process.env.STUB_EXIT_AFTER))
 setInterval(() => {}, 1000)
@@ -62,7 +73,6 @@ suite('collector — supervised child', () => {
       dataDir,
       env,
       log: line => lines.push(line),
-      platform: 'darwin',
     })
     return collector
   }
@@ -96,9 +106,20 @@ suite('collector — supervised child', () => {
     const c = make()
     await c.start()
     await c.stop()
-    assert.strictEqual(fs.readFileSync(path.join(dataDir, 'flushed'), 'utf-8'), 'yes')
+    assert.ok(fs.existsSync(path.join(dataDir, 'flushed')), 'the child should have run its flush handler')
     assert.strictEqual(c.current().status, 'stopped')
     assert.strictEqual(c.isOwning(), false)
+  })
+
+  test('the stop request is the stdin channel, not a signal — so it works where SIGTERM does not', async () => {
+    // Windows has no SIGTERM; child.kill() there is TerminateProcess and runs no handler. The
+    // supervisor must therefore ask over stdin on every platform, and the stub records which
+    // request actually reached it.
+    const c = make()
+    await c.start()
+    await c.stop()
+    assert.strictEqual(fs.readFileSync(path.join(dataDir, 'flushed'), 'utf-8'), 'stdin')
+    assert.ok(!lines.some(l => l.includes('killing it')), lines.join('\n'))
   })
 
   test('a deliberate stop is not mistaken for a crash, so nothing is restarted behind it', async () => {
@@ -112,7 +133,7 @@ suite('collector — supervised child', () => {
 
   test('a wedged child that ignores the shutdown request is killed rather than hung on', async function () {
     this.timeout(20_000)
-    const c = make({ STUB_IGNORE_TERM: '1' })
+    const c = make({ STUB_IGNORE_STOP: '1' })
     await c.start()
     const started = Date.now()
     await c.stop()

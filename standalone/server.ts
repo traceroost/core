@@ -2282,7 +2282,12 @@ void startUiServer()
 
 // ── Graceful shutdown — flush data before exit ────────────────────────────────
 
+let shuttingDown = false
 function shutdown() {
+  // Idempotent: a supervisor may close stdin and the OS may deliver a signal for the same stop,
+  // and the second request must not re-enter the saves while the first is mid-exit.
+  if (shuttingDown) return
+  shuttingDown = true
   if (saveTimer) clearTimeout(saveTimer)
   // Only while this is still the data dir's writer (see dataDirLock above); the lock itself is
   // released by its 'exit' handler, after these saves.
@@ -2296,6 +2301,26 @@ function shutdown() {
 }
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
+
+// Cooperative shutdown over stdin, for a supervisor that cannot deliver SIGTERM. Windows has no
+// such signal: `child.kill()` there is TerminateProcess, which runs no handler, so a supervised
+// collector would lose whatever it had not saved. A supervisor that sets this variable keeps our
+// stdin open as a pipe and *closes its end* to ask us to stop — EOF here is the request, and the
+// same flush-and-exit runs as for SIGTERM. The pipe also closes if the supervisor dies without
+// asking, so an orphaned collector flushes and leaves rather than running on with no one to stop it.
+// Opt-in, never default: an unsupervised run's stdin may be closed from the start (a service, a
+// `< /dev/null` redirect, the Scheduled Task's cmd.exe), and that must not stop the collector.
+if (process.env.TRACEROOST_SHUTDOWN_ON_STDIN_END === '1') {
+  const stdinEnded = (why: string) => {
+    if (shuttingDown) return
+    console.log(`[TraceRoost] ${why} — shutting down`)
+    shutdown()
+  }
+  process.stdin.on('end', () => stdinEnded('stdin was closed by the supervising process'))
+  process.stdin.on('close', () => stdinEnded('stdin was closed by the supervising process'))
+  process.stdin.on('error', (e) => stdinEnded(`stdin failed (${e instanceof Error ? e.message : String(e)})`))
+  process.stdin.resume()
+}
 
 // ── Last-resort error handlers ───────────────────────────────────────────────
 //

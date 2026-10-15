@@ -128,13 +128,6 @@ async function settleOwnership(): Promise<void> {
     return
   }
   if (resolved.mode === 'own') {
-    // Owned mode needs a shutdown that flushes, and on Windows there is no such signal (see
-    // OwnedCollector.stop). Refusing here is better than owning a collector this build cannot
-    // stop cleanly; the Windows feature's own plan covers adding one.
-    if (process.platform === 'win32') {
-      setMode({ mode: 'blocked', detail: 'Running an app-owned collector is not supported on Windows in this build. Start the collector with `traceroost service install` and reopen this app to attach to it.' })
-      return
-    }
     setMode(resolved)
     await startOwnedCollector()
     return
@@ -329,10 +322,10 @@ function showAbout(): void {
 
 // ── Quit ─────────────────────────────────────────────────────────────────────
 //
-// In owned mode, quitting means flushing: the collector's SIGTERM handler writes spans.json and
-// the outcomes cache before exiting, and `before-quit` is where there is still time to wait for
-// it. In attached mode there is nothing of ours to stop and the other collector is left alone —
-// the window and the menu bar item go away and collection carries on.
+// In owned mode, quitting means flushing: closing the collector's stdin runs its shutdown handler,
+// which writes spans.json and the outcomes cache before exiting, and `before-quit` is where there
+// is still time to wait for it. In attached mode there is nothing of ours to stop and the other
+// collector is left alone — the window and the menu bar item go away and collection carries on.
 app.on('before-quit', event => {
   if (quitting) return
   if (!collector?.isOwning()) {
