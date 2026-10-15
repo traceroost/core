@@ -30,6 +30,7 @@ pnpm run demo -- --scenario story                # 10-trace petstore build-out (
 | `--agents` | comma-separated: `claude`, `codex`, `copilot` | all three | invalid names are ignored; an empty/invalid list falls back to all three |
 | `--speed` | multiplier | `1` | e.g. `--speed 5` runs 5x faster |
 | `--port` | port number | `4318` | must match the collector's OTLP port |
+| `--token` | bearer token | `$TRACEROOST_TOKEN` | only for a server bound beyond loopback (the Docker image), whose OTLP port requires it — `/data/.traceroost/config.json`'s `authToken` |
 
 **Scenarios** (each runs once per requested agent, except `compaction`):
 
