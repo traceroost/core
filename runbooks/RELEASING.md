@@ -239,3 +239,20 @@ into a local tap, `traceroost/local`, and installs it in place of any Homebrew c
 formula: `brew uninstall traceroost && brew untap traceroost/local && brew install
 traceroost/tap/traceroost`.
 
+## Desktop app (macOS)
+
+**Not part of a tag release yet.** The macOS desktop app under `desktop/` (see `desktop/README.md`)
+is built on every relevant pull request by `.github/workflows/desktop-macos.yml`: both architectures,
+verified and smoke-tested, uploaded as a build artifact with `SHA256SUMS` and third-party notices —
+but published nowhere. It ships the same core-edition collector the npm tarball does, built from the
+same tree, so its version is `package.json`'s version automatically; a release bump needs no change
+in `desktop/`.
+
+What keeps it out of the release: it is ad-hoc signed until the Apple Developer Program credentials
+exist, and an ad-hoc signed download is refused by Gatekeeper. Once the secrets are in place
+(`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` —
+the workflow documents each), the same build is signed and notarized with no code change, and the
+remaining work is a release job that attaches the artifacts of a `v*` tag build to the GitHub
+release, plus the validation that matters: a downloaded, quarantined DMG opening cleanly on a fresh
+macOS user account. Do that before announcing it as an install method.
+
