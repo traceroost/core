@@ -3,10 +3,11 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { decodeBody } from './decodeBody'
-import { drainQueue, resetServerCapabilities, UPGRADE_PAUSE_MS } from '../../../cloud/forward/sender'
+import { drainQueue, resetServerCapabilities, UPGRADE_PAUSE_MS, UPGRADE_MESSAGE } from '../../../cloud/forward/sender'
 import { ForwardQueue } from '../../../cloud/forward/queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
-import { readForwardState } from '../../../cloud/forward/forwardState'
+import { readForwardState, writeForwardState } from '../../../cloud/forward/forwardState'
+import { clientVersion } from '../../../cloud/org/oauthClient'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
 import type { RollupPayload } from '../../../cloud/forward/schema'
@@ -465,6 +466,91 @@ suite('forward/sender', () => {
     res = await drainQueue({ baseHome: home, now: () => Date.now() + UPGRADE_PAUSE_MS + 1000 })
     assert.strictEqual(res.sent, 1)
     assert.strictEqual(readForwardState(home).notice, null)
+  })
+
+  /** The forward state a 426 leaves behind, as written by the version that was refused — with the
+   *  6 h pause nowhere near over. */
+  const pausedByOldVersion = (version?: string) => writeForwardState({
+    paused: true, pausedUntil: Date.now() + UPGRADE_PAUSE_MS - 60_000,
+    lastError: 'TraceRoost update required',
+    notice: { kind: 'upgrade', message: UPGRADE_MESSAGE, at: new Date().toISOString(), ...(version ? { version } : {}) },
+  }, home)
+
+  test('an upgrade pause raised for another version is lifted at once: the first drain after an update sends', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    pausedByOldVersion('0.0.0-old')
+    const notices: string[] = []
+    stubAllOk()
+    const res = await drainQueue({ baseHome: home, notify: m => notices.push(m) })
+    assert.strictEqual(res.stopped, null)
+    assert.strictEqual(res.sent, 1)
+    assert.strictEqual(new ForwardQueue(home).depth(), 0)
+    const st = readForwardState(home)
+    assert.strictEqual(st.paused, false)
+    assert.strictEqual(st.pausedUntil, null)
+    assert.strictEqual(st.notice, null)
+    assert.deepStrictEqual(notices, [], 'nothing to tell the developer — the update did its job')
+  })
+
+  test('an upgrade notice with no version (written before notices were stamped) is stale too: cleared, and the drain tries once', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    pausedByOldVersion(undefined)
+    stubAllOk()
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.stopped, null)
+    assert.strictEqual(res.sent, 1)
+    assert.strictEqual(readForwardState(home).paused, false)
+    assert.strictEqual(readForwardState(home).notice, null)
+  })
+
+  test('an upgrade pause for the running version holds: no request, no second notice, until the pause is over', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    pausedByOldVersion(clientVersion())
+    const notices: string[] = []
+    let calls = 0
+    stubFetch((_u, init) => { calls++; return batchOk(batchItems(init), () => ({ status: 202 })) })
+    const res = await drainQueue({ baseHome: home, notify: m => notices.push(m) })
+    assert.strictEqual(res.stopped, 'upgrade-required')
+    assert.strictEqual(calls, 0)
+    assert.deepStrictEqual(notices, [])
+    assert.strictEqual(readForwardState(home).paused, true)
+    assert.strictEqual(new ForwardQueue(home).depth(), 1)
+  })
+
+  test('after an update the cloud may still refuse: re-paused with a notice for the running version, told once more', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    pausedByOldVersion('0.0.0-old')
+    const notices: Array<{ m: string; action?: string }> = []
+    let calls = 0
+    stubFetch(() => { calls++; return new Response(JSON.stringify({ error: 'client_upgrade_required' }), { status: 426 }) })
+    let res = await drainQueue({ baseHome: home, notify: (m, _k, action) => notices.push({ m, action }) })
+    assert.strictEqual(res.stopped, 'upgrade-required')
+    assert.strictEqual(calls, 1, 'the stale pause was lifted and the new version tried')
+    let st = readForwardState(home)
+    assert.strictEqual(st.paused, true)
+    assert.ok((st.pausedUntil ?? 0) > Date.now())
+    assert.strictEqual(st.notice?.kind, 'upgrade')
+    assert.strictEqual(st.notice?.version, clientVersion(), 'the notice is for the version that was just refused')
+    assert.deepStrictEqual(notices.map(n => n.action), ['update'], 'the old notice is stale and hidden, so the developer is told about this version')
+    assert.strictEqual(new ForwardQueue(home).depth(), 1, 'nothing dropped')
+    // That notice is current now: the pause holds, nothing more is tried or said.
+    res = await drainQueue({ baseHome: home, notify: (m, _k, action) => notices.push({ m, action }) })
+    assert.strictEqual(res.stopped, 'upgrade-required')
+    assert.strictEqual(calls, 1)
+    assert.strictEqual(notices.length, 1)
+    st = readForwardState(home)
+    assert.strictEqual(st.paused, true)
+  })
+
+  test('a rate-limit pause (no upgrade notice) is untouched by the stale-notice lift', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    writeForwardState({ paused: true, pausedUntil: Date.now() + 60_000, notice: null }, home)
+    let calls = 0
+    stubFetch((_u, init) => { calls++; return batchOk(batchItems(init), () => ({ status: 202 })) })
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.stopped, 'rate-limited')
+    assert.strictEqual(calls, 0)
+    assert.strictEqual(readForwardState(home).paused, true)
   })
 
   test('a per-item 426 in a batch reply keeps that item queued and raises the update notice', async () => {
