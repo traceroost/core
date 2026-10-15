@@ -98,7 +98,9 @@ suite('staged collector — the packaged article, end to end', () => {
   teardown(async () => {
     try { await collector?.stop() } catch { /* already gone */ }
     collector = undefined
-    fs.rmSync(home, { recursive: true, force: true })
+    // Windows can still report EPERM/EBUSY on a tree whose last handle the just-exited process
+    // has not quite released (seen on windows-11-arm in CI); rmSync retries those for a moment.
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
   })
 
   async function startStaged(): Promise<ReturnType<OwnedCollector['start']>> {

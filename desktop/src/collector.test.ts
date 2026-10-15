@@ -63,7 +63,8 @@ suite('collector — supervised child', () => {
   teardown(async () => {
     try { await collector?.stop() } catch { /* already gone */ }
     collector = undefined
-    fs.rmSync(dir, { recursive: true, force: true })
+    // Retries cover Windows reporting EPERM/EBUSY on files a just-exited child has not released.
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
   })
 
   function make(env: Record<string, string | undefined> = {}): OwnedCollector {

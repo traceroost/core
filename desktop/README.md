@@ -1,11 +1,13 @@
-# TraceRoost desktop shell (macOS)
+# TraceRoost desktop shell
 
-An Electron shell that runs the existing standalone collector and dashboard as a normal macOS app
-with a menu bar icon — no terminal, no separately installed Node.
+An Electron shell that runs the existing standalone collector and dashboard as a normal desktop app
+with a menu bar icon (macOS) or a system tray icon (Windows) — no terminal, no separately installed
+Node.
 
-**Status: Stages 1–2 of [`.staged-features/macos-desktop-menu-bar-app.md`](../.staged-features/macos-desktop-menu-bar-app.md).**
+**Status: macOS Stages 1–2 of [`.staged-features/macos-desktop-menu-bar-app.md`](../.staged-features/macos-desktop-menu-bar-app.md);
+Windows Stage 1 of [`windows-desktop-tray-app.md`](../.staged-features/windows-desktop-tray-app.md) in progress.**
 The app runs from a checkout and its lifecycle is complete and tested. It is **not** signed,
-notarized, packaged as a DMG, or self-updating — that is Stages 3–4, and
+notarized, packaged as a DMG or installer, or self-updating — that is Stages 3–4 of each plan, and
 [what is not done](#what-is-not-done-yet) says exactly where the line falls.
 
 Nothing here changes the npm, VSIX, Docker or Homebrew builds. It consumes their output.
@@ -16,8 +18,13 @@ Nothing here changes the npm, VSIX, Docker or Homebrew builds. It consumes their
 cd desktop
 npm install          # Electron only; deliberately not in the repo's pnpm workspace
 pnpm run build       # type-check, bundle the main process, stage the collector
-pnpm start           # or: ./node_modules/.bin/electron .
+pnpm start           # or: ./node_modules/.bin/electron .   (electron.cmd . on Windows)
 ```
+
+Same commands on macOS and Windows. If `node_modules/electron/dist/` is missing afterwards (npm
+skipped the postinstall download), run `node node_modules/electron/install.js`, then
+`pnpm run runtime-check` prints the bundled Node version and fails if it is below the collector's
+`engines.node`.
 
 `pnpm run build` does three things: type-checks `src/` against the Electron types, bundles the main
 process to `out/main.js` with esbuild, and runs [`scripts/stage-resources.mjs`](scripts/stage-resources.mjs),
@@ -114,7 +121,11 @@ never duplicates or rewrites.
 ## Tests
 
 Desktop tests run with the rest of the repo's suite — `pnpm run test:unit` at the root — and are
-compiled by [`tsconfig.test.desktop.json`](../tsconfig.test.desktop.json).
+compiled by [`tsconfig.test.desktop.json`](../tsconfig.test.desktop.json). `pnpm run test:desktop`
+runs just them. In CI the `desktop` job of `.github/workflows/windows-e2e.yml` builds the shell and
+runs them on Windows x64, Windows ARM64, macOS and Linux with `TRACEROOST_DESKTOP_REQUIRE_STAGED=1`,
+which turns the integration suite's skip (below) into a failure — there, a skip would hide exactly
+what the job exists to catch.
 
 - **Unit** (`src/*.test.ts`): the attach decision table, version compatibility, restart backoff,
   mode resolution, navigation rules, tray labelling and enablement, log rotation, URL/token
@@ -127,9 +138,10 @@ compiled by [`tsconfig.test.desktop.json`](../tsconfig.test.desktop.json).
   absent, so a checkout that has not run `pnpm run build` here needs no 300 MB download to run the
   repo's suite.
 
-These tests redirect `HOME` to a temporary directory. The collector **auto-configures the agents it
-finds at startup**, writing OTEL endpoints into `~/.claude/settings.json`, `~/.codex/config.toml`
-and VS Code's settings. Running one against the real `HOME` points a developer's live agents at a
+These tests redirect `HOME` — and, because `os.homedir()` reads it on Windows, `USERPROFILE`, plus
+`APPDATA` and `LOCALAPPDATA` — to a temporary directory. The collector **auto-configures the agents
+it finds at startup**, writing OTEL endpoints into `~/.claude/settings.json`, `~/.codex/config.toml`
+and VS Code's settings. Running one against the real profile points a developer's live agents at a
 test port that is about to disappear. `stagedCollector.test.ts` asserts the redirection holds; keep
 it that way in anything added here.
 
@@ -151,10 +163,19 @@ Stages 3–4 of the plan, which need credentials and hardware rather than code:
 
 Smaller, genuinely open items:
 
-- **Windows owned mode is implemented but unverified on Windows.** The stop request is closing the
-  collector's stdin (`TRACEROOST_SHUTDOWN_ON_STDIN_END=1`, see `collector.ts`), not a signal, so
-  it works where `child.kill()` is `TerminateProcess`. The tests exercise that path on every
-  platform; a real Windows run is the Windows feature's Stage 1 gate and has not happened yet.
+- **Windows: what is and is not proven.** The stop request is closing the collector's stdin
+  (`TRACEROOST_SHUTDOWN_ON_STDIN_END=1`, see `collector.ts`), not a signal, so owned mode works
+  where `child.kill()` is `TerminateProcess`; the tray swaps between white and black ICOs with the
+  taskbar's appearance (`trayIcon.ts`); Launch at Login uses a marker argument because Windows has
+  no `wasOpenedAtLogin`. **Proven in CI on Windows 11 x64 and ARM64** (`windows-latest`,
+  `windows-11-arm`): Electron 44.7.1 installs, the shell builds, the core-edition collector stages
+  and runs on Electron's Node 24, binds its ports, serves the dashboard, resolves `sql.js` with its
+  WASM, and stops cleanly over stdin, releasing the lock. That is the supported-matrix record for
+  Stage 1; both architectures are in scope. Nothing has been *packaged* for Windows yet.
+  Not yet done from the Windows plan's Stage 1: attaching to and handing off from a Scheduled Task
+  collector has only the generic lock-and-probe handshake behind it (no explicit handoff flow);
+  non-ASCII profile paths, log rotation under Windows file locking, and Explorer-restart/sleep
+  behaviour have not been exercised; no human has seen the tray in a Windows session.
 - **Unverified on this machine, needing a GUI session:** clicking the window's close button
   (close-to-menu-bar), Dock reopen, the Launch at Login toggle actually registering a login item,
   sleep/wake, and how the template icon looks in a light vs dark menu bar. The code paths exist and
