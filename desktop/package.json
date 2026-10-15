@@ -11,7 +11,7 @@
     "bundle": "node esbuild.mjs",
     "build": "pnpm run check-types && pnpm run bundle && pnpm run stage",
     "start": "pnpm run build && electron .",
-    "runtime-check": "ELECTRON_RUN_AS_NODE=1 electron -e \"console.log(process.versions.node)\""
+    "runtime-check": "node scripts/runtime-check.mjs"
   },
   "devDependencies": {
     "electron": "44.7.1"

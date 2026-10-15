@@ -9,6 +9,8 @@ name: E2E
 #                     service install/status/uninstall → package both VSIXes and install them into
 #                     a fresh VS Code
 #   configure-scripts scripts/configure-*.ps1 under pwsh (and Windows PowerShell 5.1 on Windows)
+#   desktop           the Electron desktop shell: build, stage the collector, run the supervisor
+#                     tests and the real staged collector on Electron's bundled Node
 #   real-agents       Claude Code + Codex CLIs against the extension — nightly / manual / release
 #                     only (spends API credits); skips with a notice when the secrets are missing
 #
@@ -199,6 +201,52 @@ jobs:
 
       - name: Run scripts/configure-*.ps1 (pwsh everywhere; also Windows PowerShell 5.1 on Windows)
         run: node tests/e2e/configure-scripts.mjs
+
+  desktop:
+    name: desktop shell (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # desktop/ is deliberately outside the pnpm workspace (desktop/README.md): Electron is its only
+      # dependency, and its postinstall downloads the platform binary this job exists to test on.
+      - name: Install Electron
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build the desktop shell and stage the core-edition collector
+        working-directory: desktop
+        run: pnpm run build
+
+      - name: Electron's bundled Node satisfies the collector's engine requirement
+        working-directory: desktop
+        run: pnpm run runtime-check
+
+      # The staged-collector suite skips when nothing is staged so the repo's unit run never needs
+      # the Electron download; here a skip would hide exactly the failure this job is for.
+      - name: Desktop tests — the supervisor against a stub, then the real collector on Electron's Node
+        env:
+          TRACEROOST_DESKTOP_REQUIRE_STAGED: '1'
+        run: pnpm run test:desktop
 
   real-agents:
     name: real agents (${{ matrix.os }})

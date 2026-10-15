@@ -168,9 +168,13 @@ async function startOwnedCollector(): Promise<void> {
  * `wasOpenedAtLogin` is what remains, and it is the better signal anyway — it reports what
  * actually happened rather than what was requested.)
  *
+ * Windows has no `wasOpenedAtLogin`: the login entry is a registry Run value with a command line,
+ * so the shell registers itself with a marker argument and looks for it here instead.
+ *
  * Also cleared around a tray-driven Start/Restart, so a background restart does not steal focus.
  */
-let showWindowWhenReady = !app.getLoginItemSettings().wasOpenedAtLogin
+const LAUNCHED_AT_LOGIN_ARG = '--launched-at-login'
+let showWindowWhenReady = !(app.getLoginItemSettings().wasOpenedAtLogin || process.argv.includes(LAUNCHED_AT_LOGIN_ARG))
 
 // ── Window ───────────────────────────────────────────────────────────────────
 
@@ -192,6 +196,9 @@ function openWindowFor(uiPort: number): void {
       if (process.platform === 'darwin') app.dock?.hide()
       log.write('[desktop] window closed — collection continues in the menu bar')
     },
+    // Windows wants an ICO for a crisp taskbar/title-bar icon at every DPI; Linux takes the PNG.
+    iconPath: process.platform === 'darwin' ? undefined
+      : path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
   })
   win.on('closed', () => { win = undefined })
   if (process.platform === 'darwin') void app.dock?.show()
@@ -301,8 +308,9 @@ function confirmAttach(): void {
 function toggleLaunchAtLogin(): void {
   const next = !app.getLoginItemSettings().openAtLogin
   // There is no "open hidden" option any more (removed in Electron 34). Coming up without a
-  // window is handled at startup instead, from `wasOpenedAtLogin` — see showWindowWhenReady.
-  app.setLoginItemSettings({ openAtLogin: next })
+  // window is handled at startup instead, from `wasOpenedAtLogin` on macOS and the marker
+  // argument on Windows — see showWindowWhenReady. `args` is Windows-only and ignored elsewhere.
+  app.setLoginItemSettings({ openAtLogin: next, args: [LAUNCHED_AT_LOGIN_ARG] })
   log.write(`[desktop] launch at login ${next ? 'enabled' : 'disabled'}`)
   refreshTray()
 }

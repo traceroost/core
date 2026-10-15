@@ -283,6 +283,7 @@
     "clean-tests": "node -e \"for (const d of ['out/test', 'out/test-media', 'out/test-standalone', 'out/test-desktop']) require('fs').rmSync(d, { recursive: true, force: true })\"",
     "test:unit": "pnpm run clean-tests && pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && pnpm run compile-tests:desktop && mocha",
     "test:coverage": "pnpm run clean-tests && pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && pnpm run compile-tests:desktop && c8 mocha --reporter dot",
+    "test:desktop": "pnpm run compile-tests:desktop && mocha --no-config --require src/test/setup.js --ui tdd --timeout 10000 \"out/test-desktop/desktop/src/*.test.js\"",
     "test:ux": "playwright test",
     "test:ux:report": "playwright show-report"
   },

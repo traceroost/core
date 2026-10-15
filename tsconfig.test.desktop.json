@@ -34,6 +34,8 @@
     "desktop/src/resources.ts",
     "desktop/src/stagedCollector.test.ts",
     "desktop/src/resources.test.ts",
+    "desktop/src/trayIcon.ts",
+    "desktop/src/trayIcon.test.ts",
     "desktop/src/trayMenu.ts",
     "desktop/src/trayMenu.test.ts"
   ]

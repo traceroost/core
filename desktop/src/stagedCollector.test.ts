@@ -59,10 +59,35 @@ suite('staged collector — the packaged article, end to end', () => {
 
   suiteSetup(function () {
     if (!fs.existsSync(STAGED) || !fs.existsSync(ELECTRON)) {
-      // Nothing staged to test. `cd desktop && pnpm install && pnpm run build` sets it up.
+      // Nothing staged to test. `cd desktop && npm install && pnpm run build` sets it up. CI sets
+      // the variable so that a missing stage fails there instead of passing silently — a skip
+      // looks exactly like success in a green run, and this suite is what the desktop job is for.
+      const missing = `${fs.existsSync(STAGED) ? '' : `${STAGED} `}${fs.existsSync(ELECTRON) ? '' : ELECTRON}`.trim()
+      if (process.env.TRACEROOST_DESKTOP_REQUIRE_STAGED === '1') {
+        throw new Error(`the staged collector suite cannot run: missing ${missing}`)
+      }
       this.skip()
     }
   })
+
+  /**
+   * The child's environment. The collector finds agents and their settings through `os.homedir()`
+   * and, on Windows, `%APPDATA%` / `%LOCALAPPDATA%` (src/logReader.ts, src/autoConfigNode.ts);
+   * `os.homedir()` reads HOME on Unix but USERPROFILE on Windows, so redirecting HOME alone would
+   * leave a Windows run writing OTEL endpoints into the real profile. Every one of them is pointed
+   * into the temporary home.
+   */
+  function collectorEnv(): Record<string, string> {
+    return {
+      HOME: home,
+      USERPROFILE: home,
+      APPDATA: path.join(home, 'AppData', 'Roaming'),
+      LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+      UI_PORT: String(UI_PORT),
+      OTLP_PORT: String(OTLP_PORT),
+      MCP_PORT: String(MCP_PORT),
+    }
+  }
 
   setup(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-desktop-home-'))
@@ -81,12 +106,7 @@ suite('staged collector — the packaged article, end to end', () => {
       serverScript: STAGED,
       execPath: ELECTRON,
       dataDir,
-      env: {
-        HOME: home,
-        UI_PORT: String(UI_PORT),
-        OTLP_PORT: String(OTLP_PORT),
-        MCP_PORT: String(MCP_PORT),
-      },
+      env: collectorEnv(),
       log: line => lines.push(line),
     })
     return collector.start()
@@ -153,7 +173,7 @@ suite('staged collector — the packaged article, end to end', () => {
     this.timeout(90_000)
     const c = new OwnedCollector({
       serverScript: STAGED, execPath: ELECTRON, dataDir,
-      env: { HOME: home, UI_PORT: String(UI_PORT), OTLP_PORT: String(OTLP_PORT), MCP_PORT: String(MCP_PORT) },
+      env: collectorEnv(),
       log: line => lines.push(line),
     })
     collector = c

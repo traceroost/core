@@ -27,6 +27,9 @@ export interface DashboardWindowOptions {
   /** Called when the user closes the window. Collection keeps running; the app stays in the menu
    *  bar. The shell hides the window rather than destroying it so reopening is instant. */
   onCloseRequested: () => void
+  /** The window's own icon (title bar, taskbar, Alt-Tab) on Windows and Linux. macOS takes the
+   *  app icon from the bundle and ignores this, so it is left unset there. */
+  iconPath?: string
 }
 
 export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWindow {
@@ -38,6 +41,7 @@ export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWind
     show: false,
     title: 'TraceRoost',
     backgroundColor: '#1e1e1e',
+    ...(opts.iconPath === undefined ? {} : { icon: opts.iconPath }),
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
