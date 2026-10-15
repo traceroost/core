@@ -24,9 +24,6 @@ COPY packages/styles/ ./packages/styles/
 ARG EDITION=core
 RUN node esbuild.js --production --edition=$EDITION \
  && node scripts/check-edition.mjs $EDITION --skip-manifest
-# sql.js is bundled into server.js, but it locates its .wasm via require.resolve('sql.js') at
-# runtime — ship a real (symlink-free) copy of the package so that lookup works in the image.
-RUN mkdir -p /app/runtime_modules && cp -rL node_modules/sql.js /app/runtime_modules/sql.js
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:24-alpine
@@ -43,7 +40,9 @@ COPY --from=builder --chown=traceroost:traceroost /app/media/dashboard.js   ./me
 COPY --from=builder --chown=traceroost:traceroost /app/media/dashboard.css  ./media/dashboard.css
 COPY --from=builder --chown=traceroost:traceroost /app/media/sidebar.js     ./media/sidebar.js
 COPY --from=builder --chown=traceroost:traceroost /app/media/mascot.png     ./media/mascot.png
-COPY --from=builder --chown=traceroost:traceroost /app/runtime_modules/     ./node_modules/
+# sql.js is bundled into server.js; its .wasm is loaded from dist/ next to it, where esbuild put the
+# copy from the very sql.js the bundle was built with (standalone/sqlWasm.ts) — no node_modules.
+COPY --from=builder --chown=traceroost:traceroost /app/dist/sql-wasm.wasm   ./dist/sql-wasm.wasm
 COPY --from=builder --chown=traceroost:traceroost /app/package.json        ./package.json
 
 RUN mkdir -p /data && chown traceroost:traceroost /data
