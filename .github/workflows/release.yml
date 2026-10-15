@@ -362,4 +362,8 @@ jobs:
     with:
       # `env` isn't available here — the same rule as EDITION above.
       edition: ${{ vars.TRACEROOST_RELEASE_EDITION || 'core' }}
-    secrets: inherit
+    # Only what docker.yml declares — not `inherit`, which would also hand it VSCE_PAT, OVSX_PAT
+    # and HOMEBREW_TAP_TOKEN.
+    secrets:
+      TR_DOCKERHUB_USERNAME: ${{ secrets.TR_DOCKERHUB_USERNAME }}
+      TR_DOCKERHUB_TOKEN: ${{ secrets.TR_DOCKERHUB_TOKEN }}
