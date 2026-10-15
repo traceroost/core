@@ -6,7 +6,18 @@ suite('openBrowser', () => {
     const url = 'http://localhost:3000/?token=abc"; rm -rf ~ #'
     assert.deepStrictEqual(browserCommand(url, 'darwin'), { file: 'open', args: [url] })
     assert.deepStrictEqual(browserCommand(url, 'linux'), { file: 'xdg-open', args: [url] })
-    assert.deepStrictEqual(browserCommand(url, 'win32'), { file: 'cmd', args: ['/c', 'start', '', url] })
+    assert.deepStrictEqual(browserCommand(url, 'win32'), { file: 'rundll32', args: ['url.dll,FileProtocolHandler', url] })
+  })
+
+  test('on Windows the URL never goes through cmd.exe, which would cut it at the first & and expand %', () => {
+    // An OAuth authorize URL: `&`-separated params, percent-encoded redirect_uri and state.
+    const url = 'https://traceroost.com/oauth/authorize?client_id=traceroost-cli&redirect_uri=http%3A%2F%2F127.0.0.1%3A51234%2Fcallback&state=a%26b%3Dc&code_challenge=xyz'
+    const { file, args } = browserCommand(url, 'win32')
+    assert.notStrictEqual(file, 'cmd')
+    assert.strictEqual(file, 'rundll32')
+    assert.deepStrictEqual(args, ['url.dll,FileProtocolHandler', url])
+    // Nothing in the argv needs quoting, so libuv passes it verbatim and no `&`/`%` is re-parsed.
+    assert.ok(args.every(a => !/[\s"]/.test(a)))
   })
 
   test('service install opens the dashboard only for someone at a local, interactive terminal', () => {
