@@ -84,6 +84,13 @@ const MARKERS = [
  *  traceroost.com URL or endpoint still fails. */
 const PUBLIC_LINKS = ['https://stage.traceroost.com/suggest', 'https://traceroost.com/suggest']
 
+/** Likewise the bare public-site host as a string literal — `"traceroost.com"` with both quotes —
+ *  which the desktop shell's external-link allowlist carries (desktop/src/navigation.ts) so that
+ *  the suggest page above can open in the system browser. The quotes keep this exact: a Cloud
+ *  hostname such as `"stage.traceroost.com"` or any URL containing the host still matches the
+ *  marker, because neither has a quote immediately before `traceroost.com`. */
+const PUBLIC_HOST_LITERALS = ['"traceroost.com"']
+
 /** Manifest entries that must not appear in a core package.json. */
 function manifestProblems(pkg) {
   const problems = []
@@ -116,7 +123,7 @@ for (const rel of BUNDLES) {
     failed = true
     continue
   }
-  const text = PUBLIC_LINKS.reduce((t, link) => t.split(link).join(''), fs.readFileSync(file, 'utf8'))
+  const text = [...PUBLIC_LINKS, ...PUBLIC_HOST_LITERALS].reduce((t, link) => t.split(link).join(''), fs.readFileSync(file, 'utf8'))
   const hits = MARKERS.map(m => [m, text.split(m).length - 1]).filter(([, n]) => n > 0)
   report.push({ rel, bytes: text.length, hits })
   if (edition === 'core' && hits.length > 0) {

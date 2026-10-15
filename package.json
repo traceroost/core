@@ -278,7 +278,7 @@
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "check-types": "tsc --noEmit && tsc --noEmit -p media/tsconfig.json && tsc --noEmit -p standalone/tsconfig.json && tsc --noEmit -p tsconfig.test.desktop.json",
-    "lint": "eslint src media/src",
+    "lint": "eslint src media/src desktop/src",
     "test": "vscode-test",
     "clean-tests": "node -e \"for (const d of ['out/test', 'out/test-media', 'out/test-standalone', 'out/test-desktop']) require('fs').rmSync(d, { recursive: true, force: true })\"",
     "test:unit": "pnpm run clean-tests && pnpm run compile-tests && pnpm run compile-tests:media && pnpm run compile-tests:standalone && pnpm run compile-tests:desktop && mocha",

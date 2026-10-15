@@ -179,6 +179,17 @@ async function startOwnedCollector(): Promise<void> {
  */
 let showWindowWhenReady = !app.getLoginItemSettings().wasOpenedAtLogin
 
+// ── Tray assets ──────────────────────────────────────────────────────────────
+//
+// In development the template icons are read straight from desktop/build. Packaged, that
+// directory is electron-builder's buildResources (the app icon source and the entitlements) and
+// is deliberately left out of the app, so the two PNGs travel as extraResources instead —
+// electron-builder.cjs puts them at <Resources>/tray, and scripts/afterPack.cjs checks
+// they arrived.
+const trayAssetDir = app.isPackaged
+  ? path.join(process.resourcesPath, 'tray')
+  : path.join(__dirname, '..', 'build')
+
 // ── Window ───────────────────────────────────────────────────────────────────
 
 function openWindowFor(uiPort: number): void {
@@ -259,7 +270,7 @@ app.whenReady().then(async () => {
     { role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]))
 
-  tray = createTray(path.join(__dirname, '..', 'build'), {
+  tray = createTray(trayAssetDir, {
     'open-dashboard': () => openDashboard(),
     start: () => { showWindowWhenReady = false; void startOwnedCollector() },
     stop: () => { void collector?.stop().catch(e => log.write(`[desktop] stop failed: ${String(e)}`)) },
@@ -325,6 +336,21 @@ function showAbout(): void {
     `Git ${gitAvailable ? 'available' : 'not found — commit outcomes unavailable'}`,
   ]
   dialog.showMessageBox({ type: 'info', message: 'TraceRoost', detail: lines.join('\n'), buttons: ['OK'] }).catch(() => { /* dismissed */ })
+}
+
+// ── Signals ──────────────────────────────────────────────────────────────────
+//
+// SIGTERM and SIGINT become an ordinary Quit. Without this, Node's default for either is an
+// immediate exit that skips `before-quit` — the collector child would be orphaned, still holding
+// the data-dir lock and still writing, which is exactly the second-writer situation the ownership
+// handshake exists to prevent. With it, `kill <pid>`, Ctrl-C on `electron .`, and a supervisor's
+// stop all take the same flush-then-exit path as ⌘Q. (macOS logout and the Dock's Quit send an
+// Apple Event, which Electron already routes through app.quit().)
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    log.write(`[desktop] received ${signal} — quitting`)
+    app.quit()
+  })
 }
 
 // ── Quit ─────────────────────────────────────────────────────────────────────

@@ -2,10 +2,10 @@ import typescriptEslint from "typescript-eslint";
 
 export default typescriptEslint.config(
   {
-    ignores: ["dist/**", "out/**", "media/dashboard.js", "media/dist-check/**", "esbuild.js"],
+    ignores: ["dist/**", "out/**", "media/dashboard.js", "media/dist-check/**", "esbuild.js", "desktop/out/**", "desktop/dist/**", "desktop/resources/**", "desktop/node_modules/**"],
   },
   {
-    files: ["src/**/*.ts", "media/src/**/*.ts", "media/src/**/*.tsx"],
+    files: ["src/**/*.ts", "media/src/**/*.ts", "media/src/**/*.tsx", "desktop/src/**/*.ts"],
     extends: typescriptEslint.configs.recommended,
     languageOptions: {
       parser: typescriptEslint.parser,
@@ -40,7 +40,7 @@ export default typescriptEslint.config(
     // Editions (CONTRIBUTING.md → Editions): non-cloud code reaches TraceRoost Cloud only through
     // the seams, so the core build can leave every cloud/ directory out. Type-only imports are
     // erased and stay allowed. (esbuild.js enforces the same thing for real in a core build.)
-    files: ["src/**/*.ts", "media/src/**/*.ts", "media/src/**/*.tsx"],
+    files: ["src/**/*.ts", "media/src/**/*.ts", "media/src/**/*.tsx", "desktop/src/**/*.ts"],
     ignores: ["src/cloud/**", "src/test/**", "media/src/cloud/**", "src/cloudBridge.ts", "media/src/orgPanel.ts"],
     rules: {
       "@typescript-eslint/no-restricted-imports": ["error", {
