@@ -1,0 +1,187 @@
+/**
+ * Smoke test for the *packaged* app: launches the built TraceRoost.app the way the Finder would,
+ * and checks that it comes up as an app-owned collector, serves its dashboard, and quits cleanly.
+ *
+ *   node scripts/smoke-packaged.mjs [path/to/TraceRoost.app]
+ *
+ * Defaults to the build for this machine's architecture under dist/. Exit code 0 means every
+ * check passed; anything else prints what failed along with the app's output and desktop.log.
+ *
+ * This is the check the unit and integration tests cannot do: they run the staged tree out of the
+ * build directory on the development Electron binary. Only the packaged bundle proves that
+ * resources.ts's packaged path is right, that the asar holds what main.js needs, that
+ * extraResources landed where they should, and that the (ad-hoc or real) signature lets the
+ * binary launch at all on Apple Silicon.
+ *
+ * Isolation, as in src/stagedCollector.test.ts: HOME is a temporary directory, because the
+ * collector auto-configures the agents it finds and must not point a developer's live agents at a
+ * port that is about to disappear. The data dir is inside that HOME, and the ports are fixed and
+ * high so the test neither lands on nor pushes aside a real collector on 3000/4318/4316.
+ *
+ * Quitting is a SIGTERM to the app, which main.ts turns into app.quit() — the same path as ⌘Q —
+ * so the collector gets its graceful stop and the lock is released. A lock left behind, or a
+ * collector still alive after the app has gone, is a failure: that is the orphaned-writer case the
+ * ownership design exists to prevent.
+ */
+
+import { spawn } from 'child_process'
+import * as fs from 'fs'
+import * as http from 'http'
+import * as os from 'os'
+import * as path from 'path'
+import { fileURLToPath } from 'url'
+
+const desktopDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+const UI_PORT = 31800
+const OTLP_PORT = 31818
+const MCP_PORT = 31816
+const READY_TIMEOUT_MS = 90_000
+const QUIT_TIMEOUT_MS = 20_000
+
+const appPath = path.resolve(process.argv[2] ?? path.join(desktopDir, 'dist', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'TraceRoost.app'))
+const binary = path.join(appPath, 'Contents', 'MacOS', 'TraceRoost')
+if (!fs.existsSync(binary)) {
+  console.error(`smoke: ${binary} does not exist — run \`pnpm run pack\` (or pass the .app path)`)
+  process.exit(2)
+}
+const shippedVersion = JSON.parse(fs.readFileSync(path.join(appPath, 'Contents', 'Resources', 'collector', 'package.json'), 'utf8')).version
+
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-smoke-home-'))
+const dataDir = path.join(home, '.traceroost')
+const lockPath = path.join(dataDir, 'server.lock')
+const logPath = path.join(dataDir, 'desktop.log')
+const output = []
+const failures = []
+const check = (ok, what) => { (ok ? passes : failures).push(what); console.log(`${ok ? '  ✔' : '  ✘'} ${what}`) }
+const passes = []
+
+// The app must start as an *app*. A shell inside VS Code's extension host (or any Electron host)
+// carries ELECTRON_RUN_AS_NODE=1, and an Electron binary launched with that set is plain Node: with
+// no script it exits 0 in a few milliseconds, which looks exactly like a broken bundle.
+const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env
+const app = spawn(binary, [], {
+  env: {
+    ...inherited,
+    HOME: home,
+    DATA_DIR: dataDir,
+    UI_PORT: String(UI_PORT),
+    OTLP_PORT: String(OTLP_PORT),
+    MCP_PORT: String(MCP_PORT),
+    // No network from a smoke test: the npm version check is the collector's one outbound call.
+    TRACEROOST_NO_UPDATE_CHECK: '1',
+  },
+  stdio: ['ignore', 'pipe', 'pipe'],
+})
+app.stdout.on('data', c => output.push(c.toString()))
+app.stderr.on('data', c => output.push(c.toString()))
+let exit
+const exited = new Promise(resolve => app.once('exit', (code, signal) => { exit = { code, signal }; resolve() }))
+
+console.log(`smoke: launched ${path.relative(process.cwd(), appPath)} (pid ${app.pid}) with HOME=${home}`)
+
+try {
+  // ── Ready: the collector's own lock names a live pid with bound ports ──
+  const held = await waitFor(() => {
+    const lock = readJson(lockPath)
+    return lock && typeof lock.pid === 'number' && lock.uiPort !== undefined && lock.otlpPort !== undefined ? lock : undefined
+  }, READY_TIMEOUT_MS, 'the collector to claim the data dir lock with bound ports')
+  check(held !== undefined, 'collector claimed the data dir and bound its ports')
+  if (!held) throw new Error('not ready')
+  check(held.uiPort === UI_PORT && held.otlpPort === OTLP_PORT && held.mcpPort === MCP_PORT, `bound the configured ports (${UI_PORT}/${OTLP_PORT}/${MCP_PORT})`)
+  check(held.version === shippedVersion, `lock records the shipped version ${shippedVersion} (got ${held.version})`)
+  check(held.service === false, 'an app-owned collector does not claim to be the background service')
+  check(held.pid !== app.pid, 'the collector is a separate process from the app')
+
+  // ── Serving ──
+  const health = await get(`http://127.0.0.1:${UI_PORT}/health`)
+  check(health.status === 200 && JSON.parse(health.body).status === 'ok', '/health answers ok')
+  const probe = await get(`http://127.0.0.1:${OTLP_PORT}/traceroost/standalone`)
+  const identity = probe.status === 200 ? JSON.parse(probe.body) : {}
+  check(identity.traceroost === true && identity.kind === 'standalone', 'identity probe names a standalone TraceRoost collector')
+  const page = await get(`http://127.0.0.1:${UI_PORT}/`)
+  check(page.status === 200 && /<!DOCTYPE html>/i.test(page.body), 'dashboard page serves')
+  const asset = await get(`http://127.0.0.1:${UI_PORT}/dashboard.js`)
+  check(asset.status === 200 && asset.body.length > 100_000, `dashboard.js serves from the packaged media tree (${asset.body.length} bytes)`)
+  const summary = await get(`http://127.0.0.1:${UI_PORT}/api/summary`)
+  check(summary.status === 200 && Array.isArray(JSON.parse(summary.body).sessions), '/api/summary answers')
+
+  // ── The shell's own account of itself ──
+  const log = await waitFor(() => {
+    const text = readText(logPath)
+    return text && /\[desktop\] mode: own/.test(text) ? text : undefined
+  }, 15_000, 'desktop.log to record owned mode')
+  check(log !== undefined, 'desktop.log records owned mode')
+  check(!/cannot start|startup failed/.test(log ?? ''), 'desktop.log has no startup failure')
+
+  // ── Agent configuration stayed inside the redirected HOME ──
+  const realClaude = path.join(os.homedir(), '.claude', 'settings.json')
+  const realText = readText(realClaude) ?? ''
+  check(!realText.includes(String(OTLP_PORT)), 'the real ~/.claude/settings.json was not pointed at the test port')
+
+  // ── Quit: SIGTERM → app.quit() → collector flushed, lock released ──
+  const collectorPid = held.pid
+  app.kill('SIGTERM')
+  const quit = await Promise.race([exited.then(() => true), delay(QUIT_TIMEOUT_MS).then(() => false)])
+  check(quit, `app exited within ${QUIT_TIMEOUT_MS / 1000}s of SIGTERM`)
+  if (quit) check(exit.code === 0, `app exited 0 (code ${exit.code}, signal ${exit.signal})`)
+  // The collector releases the lock from its own exit handler; give it a moment past the app's exit.
+  const released = await waitFor(() => (fs.existsSync(lockPath) ? undefined : true), 5_000, 'the lock to be released', { appMayHaveExited: true })
+  check(released === true, 'data dir lock released')
+  check(!pidAlive(collectorPid), `collector (pid ${collectorPid}) is gone`)
+  const finalLog = readText(logPath) ?? ''
+  check(/quitting — stopping and flushing the collector first/.test(finalLog), 'quit went through the owned-collector flush path')
+  check(!/killing it/.test(finalLog), 'the collector did not need to be force-killed')
+} catch (err) {
+  failures.push(err instanceof Error ? err.message : String(err))
+} finally {
+  if (exit === undefined) {
+    app.kill('SIGKILL')
+    await Promise.race([exited, delay(3_000)])
+  }
+  // Belt and braces: never leave the smoke collector running on a developer's machine.
+  const lock = readJson(lockPath)
+  if (lock && pidAlive(lock.pid)) { try { process.kill(lock.pid, 'SIGKILL') } catch { /* gone */ } }
+}
+
+if (failures.length > 0) {
+  console.error(`\nsmoke: ${failures.length} check(s) failed, ${passes.length} passed`)
+  for (const f of failures) console.error(`  ✘ ${f}`)
+  if (exit !== undefined) console.error(`  (app exit: code ${exit.code}, signal ${exit.signal})`)
+  console.error('\n── app output ──\n' + output.join('').trim())
+  console.error('\n── desktop.log ──\n' + (readText(logPath) ?? '(none)').trim())
+  fs.rmSync(home, { recursive: true, force: true })
+  process.exit(1)
+}
+fs.rmSync(home, { recursive: true, force: true })
+console.log(`\nsmoke: all ${passes.length} checks passed`)
+
+// ── helpers ──
+
+function readJson(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return undefined } }
+function readText(p) { try { return fs.readFileSync(p, 'utf8') } catch { return undefined } }
+function pidAlive(pid) { try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' } }
+function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
+
+async function waitFor(probe, timeoutMs, what, { appMayHaveExited = false } = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (exit !== undefined && !appMayHaveExited) { failures.push(`the app exited early (code ${exit.code}, signal ${exit.signal}) while waiting for ${what}`); return undefined }
+    const value = probe()
+    if (value !== undefined) return value
+    await delay(200)
+  }
+  failures.push(`timed out after ${timeoutMs / 1000}s waiting for ${what}`)
+  return undefined
+}
+
+function get(url, timeoutMs = 5_000) {
+  return new Promise(resolve => {
+    const req = http.get(url, res => {
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString() }))
+    })
+    req.on('error', err => resolve({ status: 0, body: String(err) }))
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')))
+  })
+}
