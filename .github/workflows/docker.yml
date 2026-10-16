@@ -11,6 +11,14 @@ on:
         description: 'Edition to build — core or full (release.yml passes the edition it released)'
         type: string
         required: true
+    # The only secrets this workflow needs — release.yml passes exactly these, never
+    # `secrets: inherit`, so the marketplace and Homebrew tap tokens stay out of the Docker job.
+    # The ghcr.io login uses the automatic GITHUB_TOKEN, which isn't part of this list.
+    secrets:
+      TR_DOCKERHUB_USERNAME:
+        required: true
+      TR_DOCKERHUB_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       edition:
