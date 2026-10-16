@@ -20,6 +20,7 @@ import { ForwardQueue } from '../forward/queue'
 import { assertValidRollupPayload } from '../forward/validate'
 import { buildPayloadForCard, type PayloadBuildCache } from './payloadPreview'
 import { loadCredentials } from './credentials'
+import { enqueueInstructionStateAfterSession } from './instructionTelemetry'
 import type { EnqueueResult } from './enqueueSession'
 import type { ReconciliationService } from '../../reconcile/reconciliationService'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
@@ -83,6 +84,8 @@ async function forwardNow(
     const added = new ForwardQueue(undefined, undefined, log).enqueue(built.payload)
     if (!added) return { enqueued: false, reason: 'duplicate' }
     plan.commit()
+    // Same as enqueueSession.ts: the repo's instruction-file state rides along with its traces.
+    await enqueueInstructionStateAfterSession(card.workspace || card.projectPath, log)
     return { enqueued: true }
   } catch (err) {
     log?.(`[TraceRoost] Could not forward session on content change: ${(err as Error).message}`)

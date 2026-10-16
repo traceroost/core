@@ -10,6 +10,7 @@ import { DeliveryLedger, scopedKey } from '../forward/deliveryLedger'
 import { toUuid } from '../forward/buildSessionRollup'
 import { loadCredentials } from './credentials'
 import { buildPayloadForCard, type PayloadBuildCache } from './payloadPreview'
+import { enqueueInstructionStateAfterSession } from './instructionTelemetry'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 import { hasSettledKey } from '../../traceIdentity'
 
@@ -65,6 +66,10 @@ export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: st
   try {
     const built = await buildPayloadForCard(card, cache, revision)
     const added = new ForwardQueue(undefined, undefined, log).enqueue(built.payload)
+    // The cloud learns the repo's instruction-file state alongside its traces (best-effort; an
+    // unchanged, already-delivered state is skipped inside). Awaited so a caller that drains the
+    // queue right after this sees both items queued.
+    if (added) await enqueueInstructionStateAfterSession(card.workspace || card.projectPath, log)
     return added ? { enqueued: true } : { enqueued: false, reason: 'duplicate' }
   } catch (err) {
     log?.(`[TraceRoost] Could not enqueue session for forwarding: ${(err as Error).message}`)

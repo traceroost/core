@@ -2,6 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { execFileSync } from 'child_process'
 import { maybeEnqueueSession } from '../../../cloud/org/enqueueSession'
 import { setCredentialStore } from '../../../cloud/org/credentials'
 import type { CredentialStore } from '../../../cloud/org/credentials'
@@ -105,5 +106,65 @@ suite('org/enqueueSession', () => {
     await maybeEnqueueSession(makeCard('s1'))
     const res = await maybeEnqueueSession(makeCard('s1'))
     assert.deepStrictEqual(res, { enqueued: false, reason: 'duplicate' })
+  })
+
+  suite('instruction-file state rides along with a forwarded session', () => {
+    let repo: string
+
+    function git(args: string[]): void {
+      execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
+    }
+
+    setup(() => {
+      repo = path.join(home, 'repo')
+      fs.mkdirSync(repo, { recursive: true })
+      git(['init', '-q'])
+      git(['config', 'user.email', 't@example.com'])
+      git(['config', 'user.name', 'T'])
+      fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '# Rules\nRun the tests.\n')
+      git(['add', '-A'])
+      git(['commit', '-qm', 'root'])
+    })
+
+    const keys = () => new ForwardQueue().list().map(i => i.key).sort()
+
+    test('a session from a repo queues the repo\'s instruction-file state beside it', async () => {
+      const res = await maybeEnqueueSession(makeCard('s1', { workspace: repo }))
+      assert.strictEqual(res.enqueued, true)
+      const k = keys()
+      assert.strictEqual(k.length, 2, `expected the session and one instructions item, got ${k.join(', ')}`)
+      assert.ok(k.some(x => x.startsWith('session:')))
+      assert.ok(k.some(x => x.startsWith('instructions:')))
+    })
+
+    test('a second session from the same repo adds only itself while the state is still queued', async () => {
+      await maybeEnqueueSession(makeCard('s1', { workspace: repo }))
+      await maybeEnqueueSession(makeCard('s2', { workspace: repo }))
+      assert.strictEqual(keys().filter(x => x.startsWith('instructions:')).length, 1)
+      assert.strictEqual(keys().filter(x => x.startsWith('session:')).length, 2)
+    })
+
+    test('once the state is delivered, later sessions do not re-send it; a changed file does', async () => {
+      await maybeEnqueueSession(makeCard('s1', { workspace: repo }))
+      const queue = new ForwardQueue()
+      const instr = queue.list().find(i => i.key.startsWith('instructions:'))!
+      queue.remove(queue.list().map(i => i.key))
+      new DeliveryLedger().markDelivered(scopedKey('install-1', instr.key))
+
+      await maybeEnqueueSession(makeCard('s2', { workspace: repo }))
+      assert.deepStrictEqual(keys().filter(x => x.startsWith('instructions:')), [], 'unchanged, delivered state is not queued again')
+
+      fs.appendFileSync(path.join(repo, 'CLAUDE.md'), 'Never force-push.\n')
+      await maybeEnqueueSession(makeCard('s3', { workspace: repo }))
+      const again = keys().filter(x => x.startsWith('instructions:'))
+      assert.strictEqual(again.length, 1)
+      assert.notStrictEqual(again[0], instr.key, 'the changed file is a new state')
+    })
+
+    test('a session whose workspace is not a repo queues only itself', async () => {
+      const res = await maybeEnqueueSession(makeCard('s1'))
+      assert.strictEqual(res.enqueued, true)
+      assert.deepStrictEqual(keys().filter(x => x.startsWith('instructions:')), [])
+    })
   })
 })

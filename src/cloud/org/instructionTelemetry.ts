@@ -8,6 +8,11 @@
  * both, and data it doesn't use shouldn't leave the machine. `suggestedText`, `evidence` and
  * `title` never did.
  *
+ * When it is sent: whenever a session from the repo is forwarded (every host, every source —
+ * `enqueueInstructionStateAfterSession`), and after an apply/dismiss/remove. Until 2026-10 it
+ * went only on apply/dismiss (and from the editor extension on live OTEL), so a cloud org with
+ * thousands of log-scanned traces held no instruction-file state at all.
+ *
  * Lives in `src/cloud/org/`, not `src/cloud/forward/` — this is where `SessionSummaryCard` is read.
  */
 
@@ -19,7 +24,8 @@ import { buildInstructionFileState } from '../forward/buildInstructionTelemetry'
 import type { InstructionFileKind, RollupPayload } from '../forward/schema'
 import { SCHEMA_VERSION } from '../forward/schema'
 import { repoKeyFingerprint } from '../../repoKey'
-import { ForwardQueue } from '../forward/queue'
+import { ForwardQueue, itemKey } from '../forward/queue'
+import { DeliveryLedger, scopedKey } from '../forward/deliveryLedger'
 import { loadCredentials } from './credentials'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
@@ -87,14 +93,46 @@ export async function buildInstructionRollup(
 /**
  * Builds the instruction rollup for `workspace` and appends it to the forwarding queue — a hard
  * no-op unless an org is linked.
+ *
+ * Called from every path that forwards a session (`enqueueSession.ts`, `contentChangeForward.ts`
+ * — see `enqueueInstructionStateAfterSession`) as well as after an apply/dismiss, so the cloud
+ * learns a repo's instruction-file state whenever it learns about a trace from that repo, not
+ * only when a suggestion is applied. That makes the delivery check below load-bearing: the queue
+ * keys an instruction payload on its state (`instructions:<fp>:<digest>`), so an unchanged state
+ * the linked install has already delivered is skipped here without being queued — otherwise every
+ * forwarded session would re-send the same few hundred bytes for the cloud to compare and discard.
+ * A changed file has a new digest and goes out once.
  */
 export async function maybeEnqueueInstructionTelemetry(
   workspace: string,
   sessions: SessionSummaryCard[],
   ledger: SuggestionLedger,
 ): Promise<boolean> {
-  if (!loadCredentials()) return false
+  const creds = loadCredentials()
+  if (!creds) return false
   const payload = await buildInstructionRollup(workspace, sessions, ledger)
   if (!payload || !payload.instruction_files) return false
+  if (creds.installId && new DeliveryLedger().isDelivered(scopedKey(creds.installId, itemKey(payload)))) {
+    return false
+  }
   return new ForwardQueue().enqueue(payload)
+}
+
+/**
+ * The session-forward hook: a session from `workspace` was just queued, so queue the repo's
+ * current instruction-file state too. Best-effort and never throws — a
+ * failure here (an unreadable file, a git error) must not turn a forwarded session into a
+ * forwarding error. Returns whether anything was queued, for tests and logs.
+ */
+export async function enqueueInstructionStateAfterSession(
+  workspace: string | undefined,
+  log?: (m: string) => void,
+): Promise<boolean> {
+  if (!workspace) return false
+  try {
+    return await maybeEnqueueInstructionTelemetry(workspace, [], EMPTY_LEDGER)
+  } catch (err) {
+    log?.(`[TraceRoost] Could not queue instruction-file state: ${(err as Error).message}`)
+    return false
+  }
 }
