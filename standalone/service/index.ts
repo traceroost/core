@@ -4,7 +4,7 @@ import * as path from 'path'
 import { isIPv6 } from 'net'
 import { execFileSync, spawn } from 'child_process'
 import {
-  parseServiceInstallFlags, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
+  parseServiceInstallFlags, describeKeptSettings, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
   shouldBlockRepeatedBootstrap, childEnvForReexec, readPackageManifest,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure, npmInvocation,
   type ServiceConfig, type ServiceProgram,
@@ -386,17 +386,17 @@ export async function runServiceCli(args: string[]): Promise<number> {
     case 'install': {
       const version = readRunningVersion()
       console.log(`[TraceRoost] Service install${version ? ` — v${version}` : ''}`)
-      const config = parseServiceInstallFlags(rest)
-      // Carry the existing access token across a reinstall so bookmarked dashboard URLs keep working
-      // — parseServiceInstallFlags starts from a blank token and the server would otherwise mint a
-      // fresh one on next start.
-      const existingToken = readServiceConfig().authToken
-      if (existingToken) { config.authToken = existingToken }
+      // Start from what's already in config.json — ports, data dir, bind host, retention, access
+      // token, install id — so a reinstall or upgrade changes only what its flags name. With no
+      // config.json yet, readServiceConfig returns the defaults.
+      const config = parseServiceInstallFlags(rest, readServiceConfig())
       const program = resolveInstallProgram(config)
 
       if (safeIsInstalled(platformService)) {
-        console.log('[TraceRoost] An existing background service was found — replacing it (ports/data-dir updated, access token kept).')
+        console.log('[TraceRoost] An existing background service was found — replacing it (your settings are kept; flags given here override them).')
       }
+      const kept = describeKeptSettings(config, rest)
+      if (kept.length > 0) { console.log(`[TraceRoost] Kept from ~/.traceroost/config.json: ${kept.join(', ')}.`) }
       // config.json has to be on disk before install() — the service's server reads it (and
       // persists the token into it) as soon as it starts — so remember what was there to put back
       // if registration fails, rather than leaving the new ports/data-dir behind.

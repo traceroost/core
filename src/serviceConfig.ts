@@ -206,9 +206,13 @@ const FLAG_TO_KEY: Record<string, keyof ServiceConfig> = {
   '--retention-days': 'sessionRetentionDays',
 }
 
-/** Parses `--ui-port 3000 --data-dir /custom/path` style flags on top of the defaults. */
-export function parseServiceInstallFlags(args: string[]): ServiceConfig {
-  const config = defaultServiceConfig()
+/** Parses `--ui-port 3000 --data-dir /custom/path` style flags on top of `base` — the defaults
+ *  unless given. `service install` passes the existing config.json (readServiceConfig), so a
+ *  reinstall or upgrade changes only the settings named on its command line: building from the
+ *  defaults silently reset a custom port, data dir, bind host or retention on every re-run, and
+ *  re-running `service install` is how the README tells people to upgrade. */
+export function parseServiceInstallFlags(args: string[], base: ServiceConfig = defaultServiceConfig()): ServiceConfig {
+  const config = { ...base }
   for (let i = 0; i < args.length; i++) {
     const key = FLAG_TO_KEY[args[i]]
     if (!key) { continue }
@@ -223,6 +227,61 @@ export function parseServiceInstallFlags(args: string[]): ServiceConfig {
     }
   }
   return config
+}
+
+const KEPT_SETTING_LABELS: Partial<Record<keyof ServiceConfig, string>> = {
+  uiPort: 'dashboard port',
+  otlpPort: 'OTLP port',
+  mcpPort: 'MCP port',
+  bindHost: 'bind host',
+  dataDir: 'data dir',
+  sessionRetentionDays: 'retention (days)',
+}
+
+/** The settings a reinstall carried over from config.json rather than took from `args` — only
+ *  those that differ from the defaults, since a default kept is no news. For the "kept: …" line
+ *  `service install` prints, e.g. `dashboard port 3100, data dir ~/x`. */
+export function describeKeptSettings(config: ServiceConfig, args: string[], baseHome?: string): string[] {
+  const defaults = defaultServiceConfig(baseHome)
+  const passed = new Set(args.map(a => FLAG_TO_KEY[a]).filter(Boolean))
+  const kept: string[] = []
+  for (const key of Object.values(FLAG_TO_KEY)) {
+    if (passed.has(key) || config[key] === defaults[key]) continue
+    kept.push(`${KEPT_SETTING_LABELS[key] ?? key} ${String(config[key])}`)
+  }
+  return kept
+}
+
+// ── Effective ports ──────────────────────────────────────────────────────────
+
+export interface ConfiguredPorts {
+  ui: number
+  otlp: number
+  mcp: number
+  /** True when UI_PORT in the environment decided `ui` — the dashboard's port setting can't
+   *  override that, so it says so instead of saving a value the next start would ignore. */
+  uiFromEnv: boolean
+}
+
+/** The ports a standalone server should listen on. config.json decides, except that UI_PORT /
+ *  OTLP_PORT / MCP_PORT set in the environment win for a manual run (`UI_PORT=3100 npx traceroost`,
+ *  Docker's ENV). The background service (`TRACEROOST_SERVICE=1`) ignores them: its definition no
+ *  longer sets them, and one written by an older version carries the values config.json held at
+ *  install time — which would otherwise undo a port changed later in Settings on the next restart. */
+export function configuredPorts(env: NodeJS.ProcessEnv, config: ServiceConfig): ConfiguredPorts {
+  const honorEnv = env.TRACEROOST_SERVICE !== '1'
+  const fromEnv = (value: string | undefined): number | undefined => {
+    if (!honorEnv || value === undefined) return undefined
+    const n = parseInt(value, 10)
+    return Number.isNaN(n) ? undefined : n
+  }
+  const envUi = fromEnv(env.UI_PORT)
+  return {
+    ui: envUi ?? config.uiPort,
+    otlp: fromEnv(env.OTLP_PORT) ?? config.otlpPort,
+    mcp: fromEnv(env.MCP_PORT) ?? config.mcpPort,
+    uiFromEnv: envUi !== undefined,
+  }
 }
 
 // ── npx-vs-global-install detection ──────────────────────────────────────────
@@ -319,6 +378,11 @@ export function couldNotDownloadMessage(reason: string, fallbackVersion: string 
 }
 
 // ── Service-definition generators (pure string builders) ────────────────────
+//
+// No port goes into a service definition: the server reads its ports from config.json (see
+// configuredPorts), so the dashboard's port setting needs no service re-registration and a
+// definition can never disagree with the config. BIND_HOST and DATA_DIR still go in — the data
+// dir decides where config-adjacent state lives, and neither is changed from the dashboard.
 
 export interface ServiceProgram {
   nodePath: string
@@ -364,9 +428,6 @@ export function generateLaunchdPlist({ nodePath, cliPath, config }: ServiceProgr
   <true/>
   <key>EnvironmentVariables</key>
   <dict>
-${envEntry('UI_PORT', String(config.uiPort))}
-${envEntry('OTLP_PORT', String(config.otlpPort))}
-${envEntry('MCP_PORT', String(config.mcpPort))}
 ${envEntry('BIND_HOST', config.bindHost)}
 ${envEntry('DATA_DIR', config.dataDir)}
 ${envEntry('TRACEROOST_SERVICE', '1')}
@@ -425,9 +486,6 @@ After=network.target
 Type=simple
 ExecStart=${systemdQuote(nodePath, 'node path', { execArg: true })} ${systemdQuote(cliPath, 'cli path', { execArg: true })}
 Restart=on-failure
-${env('UI_PORT', String(config.uiPort))}
-${env('OTLP_PORT', String(config.otlpPort))}
-${env('MCP_PORT', String(config.mcpPort))}
 ${env('BIND_HOST', config.bindHost)}
 ${env('DATA_DIR', config.dataDir)}
 ${env('TRACEROOST_SERVICE', '1')}
@@ -460,9 +518,6 @@ function cmdQuoted(value: string, what: string): string {
 export function generateWindowsWrapperScript({ nodePath, cliPath, config }: ServiceProgram): string {
   const logPath = cmdQuoted(serviceLogPath(config), 'log path')
   return `@echo off
-set "UI_PORT=${config.uiPort}"
-set "OTLP_PORT=${config.otlpPort}"
-set "MCP_PORT=${config.mcpPort}"
 set "BIND_HOST=${cmdQuoted(config.bindHost, 'bind host')}"
 set "DATA_DIR=${cmdQuoted(config.dataDir, 'data dir')}"
 set "TRACEROOST_SERVICE=1"

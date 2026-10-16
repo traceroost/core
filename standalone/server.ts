@@ -35,7 +35,7 @@ import { generateSuggestions } from '../src/instructionAdvisor'
 import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
-import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
+import { readServiceConfig, writeServiceConfig, configuredPorts, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
@@ -91,9 +91,12 @@ const fileConfig = ensureInstallId(ensureAuthToken(readServiceConfig(undefined, 
  *  in ~/.traceroost/config.json, default 90 like the editor's `traceRoost.sessionRetentionDays`. */
 const SESSION_RETENTION_DAYS = Number.isFinite(fileConfig.sessionRetentionDays) ? fileConfig.sessionRetentionDays : 90
 
-const OTLP_PORT  = parseInt(process.env.OTLP_PORT  ?? String(fileConfig.otlpPort))
-const UI_PORT    = parseInt(process.env.UI_PORT    ?? String(fileConfig.uiPort))
-const MCP_PORT   = parseInt(process.env.MCP_PORT   ?? String(fileConfig.mcpPort))
+// config.json decides the ports; env vars win for a manual run but not for the background service
+// (configuredPorts in src/serviceConfig.ts explains why).
+const startupPorts = configuredPorts(process.env, fileConfig)
+const OTLP_PORT  = startupPorts.otlp
+const UI_PORT    = startupPorts.ui
+const MCP_PORT   = startupPorts.mcp
 const BIND_HOST  = process.env.BIND_HOST ?? fileConfig.bindHost
 const AUTH_TOKEN = fileConfig.authToken
 // Escape hatch for anything that starts this server without wanting it to touch the real
