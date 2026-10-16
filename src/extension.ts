@@ -224,15 +224,11 @@ export async function activate(context: vscode.ExtensionContext) {
       writer.enqueue(card, workspace)
       // Cloud: re-forward the session when its rollup content changed (sessionForwarder.ts). A
       // hard no-op unless an org is linked; the network send happens later, on a timer.
+      // The repo's instruction-file state rides along with every forwarded session (every host,
+      // every source — src/cloud/org/instructionTelemetry.ts's enqueueInstructionStateAfterSession),
+      // so the per-OTLP-payload enqueueInstructionTelemetry call that used to sit here — with its
+      // listSessions() argument re-summarizing the live window on every payload — is gone.
       forwardChangedSession({ ...card, workspace: card.workspace || workspace })
-      // isLinked() first: enqueueInstructionTelemetry is a no-op without an org, but its
-      // listSessions() argument (every stored session, plus a re-summarize of the live window —
-      // hundreds of ms on a large history) was built for it on every live OTLP payload anyway.
-      if (workspace && cloud.isLinked()) {
-        void cloud.enqueueInstructionTelemetry(workspace, repository!.listSessions())
-          .then(enq => { if (enq) forwardScheduler?.drainSoon() })
-          .catch(() => { /* best-effort */ })
-      }
       return true
     }
     context.subscriptions.push(
