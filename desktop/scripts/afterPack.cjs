@@ -1,13 +1,17 @@
 /**
- * electron-builder `afterPack` hook: verifies the packed .app before it is signed or wrapped in a
- * DMG. Everything here fails the build, because each is a mistake that produces a perfectly
+ * electron-builder `afterPack` hook: verifies the packed app — the macOS .app before it is signed or
+ * wrapped in a DMG, the Linux directory before it becomes a .deb or an AppImage. Everything here fails the build, because each is a mistake that produces a perfectly
  * normal-looking artifact that then does nothing (or the wrong thing) when launched:
  *
  *  - the staged collector is where src/resources.ts will look for it, with the dashboard assets,
  *    the manifest and sql.js's WASM at the depths standalone/server.js expects;
  *  - the tray icons and the license files made it in as extraResources;
  *  - the collector's version is the version on the box — the staged package.json, the repo's
- *    package.json and the app's Info.plist all agree;
+ *    package.json and the app's own version all agree;
+ *  - Linux: the executable and the `chrome-sandbox` helper are there (the .deb's post-install
+ *    makes the helper setuid where the kernel has no user namespaces; without it the app cannot
+ *    start sandboxed there). The AppArmor profile is added after this hook, by the .deb target, so
+ *    it is checked against the built package instead (scripts/check-deb.sh);
  *  - the collector the app ships passes the repo's **core-edition** check (no TraceRoost Cloud
  *    markers), run against the bundle actually inside the .app rather than the build tree, and so
  *    does the main-process bundle that was packed into the asar;
@@ -28,13 +32,19 @@ const repoRoot = path.join(desktopDir, '..')
 
 /** @param {import('app-builder-lib').AfterPackContext} context */
 module.exports = async function afterPack(context) {
-  if (context.electronPlatformName !== 'darwin') return
+  const platform = context.electronPlatformName
+  if (platform !== 'darwin' && platform !== 'linux') return
 
   const archName = Arch[context.arch]
-  const appName = `${context.packager.appInfo.productFilename}.app`
-  const appPath = path.join(context.appOutDir, appName)
-  const resources = path.join(appPath, 'Contents', 'Resources')
+  const isMac = platform === 'darwin'
+  const appName = isMac ? `${context.packager.appInfo.productFilename}.app` : path.basename(context.appOutDir)
+  const appPath = isMac ? path.join(context.appOutDir, appName) : context.appOutDir
+  const resources = isMac ? path.join(appPath, 'Contents', 'Resources') : path.join(appPath, 'resources')
+  const resourcesLabel = isMac ? 'Contents/Resources' : 'resources'
   const collector = path.join(resources, 'collector')
+  const binary = isMac
+    ? path.join(appPath, 'Contents', 'MacOS', context.packager.appInfo.productFilename)
+    : path.join(appPath, context.packager.executableName)
   const problems = []
 
   // ── Layout ──
@@ -47,15 +57,20 @@ module.exports = async function afterPack(context) {
     'collector/node_modules/sql.js/package.json',
     'collector/node_modules/sql.js/dist/sql-wasm.js',
     'collector/node_modules/sql.js/dist/sql-wasm.wasm',
-    'tray/trayTemplate.png',
-    'tray/trayTemplate@2x.png',
+    ...(isMac
+      ? ['tray/trayTemplate.png', 'tray/trayTemplate@2x.png']
+      : ['tray/trayLinux.png', 'tray/trayLinux@2x.png', 'tray/iconLinux.png']),
     'LICENSE',
     'THIRD_PARTY_NOTICES.md',
     'LICENSE.electron.txt',
     'LICENSES.chromium.html',
     'app.asar',
   ]) {
-    if (!fs.existsSync(path.join(resources, rel))) problems.push(`missing from Contents/Resources: ${rel}`)
+    if (!fs.existsSync(path.join(resources, rel))) problems.push(`missing from ${resourcesLabel}: ${rel}`)
+  }
+  if (!isMac) {
+    if (!fs.existsSync(binary)) problems.push(`the executable ${path.basename(binary)} is missing`)
+    if (!fs.existsSync(path.join(appPath, 'chrome-sandbox'))) problems.push('chrome-sandbox is missing — the app could not start sandboxed on a kernel without user namespaces')
   }
 
   // ── Versions ──
@@ -84,8 +99,7 @@ module.exports = async function afterPack(context) {
   checkEdition(desktopDir, ['out/main.js'])
 
   // ── The runtime inside the box ──
-  if (archName === process.arch || archName === 'universal') {
-    const binary = path.join(appPath, 'Contents', 'MacOS', context.packager.appInfo.productFilename)
+  if (process.platform === platform && (archName === process.arch || archName === 'universal')) {
     const r = spawnSync(binary, ['-p', 'process.versions.node'], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       encoding: 'utf8',
@@ -102,7 +116,7 @@ module.exports = async function afterPack(context) {
       console.log(`  • afterPack: ${archName} app runs the collector on Node ${nodeVersion}`)
     }
   } else {
-    console.log(`  • afterPack: ${archName} build on a ${process.arch} host — skipped running the packaged runtime`)
+    console.log(`  • afterPack: ${platform}-${archName} build on a ${process.platform}-${process.arch} host — skipped running the packaged runtime`)
   }
 
   if (problems.length > 0) {

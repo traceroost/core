@@ -27,6 +27,10 @@ export interface DashboardWindowOptions {
   /** Called when the user closes the window. Collection keeps running; the app stays in the menu
    *  bar. The shell hides the window rather than destroying it so reopening is instant. */
   onCloseRequested: () => void
+  /** The window icon. Linux needs one (it otherwise falls back to Electron's); macOS ignores it. */
+  iconPath?: string
+  /** Come up minimised rather than in front — a Linux login launch with no tray to sit in. */
+  startMinimized?: boolean
 }
 
 export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWindow {
@@ -38,6 +42,7 @@ export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWind
     show: false,
     title: 'TraceRoost',
     backgroundColor: '#1e1e1e',
+    ...(opts.iconPath ? { icon: opts.iconPath } : {}),
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
@@ -54,7 +59,16 @@ export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWind
 
   hardenWebContents(win.webContents, opts.origin, opts.log)
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    if (opts.startMinimized) {
+      // showInactive then minimize: the window exists in the task switcher / dock without taking
+      // focus from whatever the user opened at login.
+      win.showInactive()
+      win.minimize()
+    } else {
+      win.show()
+    }
+  })
 
   // Close keeps the app alive in the menu bar (the plan's close-to-menu-bar requirement) — except
   // while quitting, when the close has to be allowed through for the app to exit at all.

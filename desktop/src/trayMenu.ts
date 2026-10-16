@@ -28,6 +28,7 @@ export type MenuItemId =
   | 'attach'
   | 'open-logs'
   | 'launch-at-login'
+  | 'applications-menu'
   | 'about'
   | 'quit'
 
@@ -83,8 +84,11 @@ export function buildMenuModel(input: {
   collector: CollectorState
   launchAtLogin: boolean
   version: string
+  /** Running from an AppImage: whether its applications-menu entry exists. Undefined everywhere
+   *  else, and the item is then absent — a .deb or a macOS app is in the launcher by installation. */
+  inApplicationsMenu?: boolean
 }): MenuModel {
-  const { shell, collector, launchAtLogin, version } = input
+  const { shell, collector, launchAtLogin, version, inApplicationsMenu } = input
   const owned = shell.mode === 'own'
   const attached = shell.mode === 'attach'
 
@@ -140,6 +144,17 @@ export function buildMenuModel(input: {
       checked: launchAtLogin,
       accessibilityLabel: 'Launch at Login. Off by default; turning it on opens TraceRoost when you log in.',
     },
+  )
+  if (inApplicationsMenu !== undefined) {
+    items.push({
+      id: 'applications-menu',
+      label: 'Show in Applications Menu',
+      enabled: true,
+      checked: inApplicationsMenu,
+      accessibilityLabel: 'Show in Applications Menu. Adds or removes a launcher entry for this AppImage.',
+    })
+  }
+  items.push(
     { separator: true },
     { id: 'about', label: `TraceRoost ${version}`, enabled: true },
     { id: 'quit', label: owned ? 'Quit TraceRoost' : 'Quit TraceRoost (leaves the collector running)', enabled: true },

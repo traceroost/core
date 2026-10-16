@@ -157,3 +157,13 @@ suite('trayMenu — invariants across every mode', () => {
     }
   })
 })
+
+suite('trayMenu — AppImage launcher entry', () => {
+  test('only an AppImage gets the item, and it reflects whether the entry exists', () => {
+    assert.strictEqual(item(model({ mode: 'own' }, RUNNING), 'applications-menu'), undefined)
+    const on = buildMenuModel({ shell: { mode: 'own' }, collector: RUNNING, launchAtLogin: false, version: '0.19.1', inApplicationsMenu: true })
+    assert.strictEqual(item(on, 'applications-menu')?.checked, true)
+    const off = buildMenuModel({ shell: { mode: 'own' }, collector: RUNNING, launchAtLogin: false, version: '0.19.1', inApplicationsMenu: false })
+    assert.strictEqual(item(off, 'applications-menu')?.checked, false)
+  })
+})

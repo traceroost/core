@@ -6,6 +6,10 @@
  * state. Shipping a coloured icon instead is the usual way a menu bar app ends up invisible on one
  * of the two appearances.
  *
+ * Linux recolours nothing either, and its panels are dark on some desktops and light on others,
+ * so there the icon is the glyph on its teal tile (`trayLinux.png`), legible on both. Whether a
+ * Linux panel shows the icon at all is a separate question — see trayHost.ts.
+ *
  * The menu's contents come from trayMenu.ts; this file is the Electron binding and the click
  * handlers, so that the labelling rules stay testable on their own.
  */
@@ -21,27 +25,34 @@ export interface TrayController {
   destroy: () => void
 }
 
-/** `assetDir` holds trayTemplate.png / trayTemplate@2x.png. */
+/** `assetDir` holds trayTemplate.png / trayTemplate@2x.png (macOS) and trayLinux.png /
+ *  trayLinux@2x.png (Linux). */
 export function createTray(assetDir: string, handlers: TrayHandlers): TrayController {
-  const image = nativeImage.createFromPath(path.join(assetDir, 'trayTemplate.png'))
+  const isLinux = process.platform === 'linux'
+  const image = nativeImage.createFromPath(path.join(assetDir, isLinux ? 'trayLinux.png' : 'trayTemplate.png'))
   // Marks it as a template so macOS, not us, decides the colour for the current menu bar.
-  image.setTemplateImage(true)
+  if (!isLinux) image.setTemplateImage(true)
   const tray = new Tray(image)
 
   const update = (model: MenuModel) => {
     tray.setToolTip(model.tooltip)
-    const template: MenuItemConstructorOptions[] = model.items.map(item => {
-      if ('separator' in item) return { type: 'separator' }
-      return {
-        label: item.label,
-        enabled: item.enabled,
-        ...(item.checked === undefined ? {} : { type: 'checkbox' as const, checked: item.checked }),
-        ...(item.accessibilityLabel === undefined ? {} : { accessibilityLabel: item.accessibilityLabel }),
-        click: item.isStatus ? undefined : handlers[item.id],
-      }
-    })
-    tray.setContextMenu(Menu.buildFromTemplate(template))
+    tray.setContextMenu(Menu.buildFromTemplate(menuTemplate(model, handlers)))
   }
 
   return { update, destroy: () => tray.destroy() }
+}
+
+/** The model as Electron menu items. Shared by the tray and, on Linux, the window's own menu bar —
+ *  which is where the app's controls live when the desktop has no tray to put them in. */
+export function menuTemplate(model: MenuModel, handlers: TrayHandlers): MenuItemConstructorOptions[] {
+  return model.items.map(item => {
+    if ('separator' in item) return { type: 'separator' }
+    return {
+      label: item.label,
+      enabled: item.enabled,
+      ...(item.checked === undefined ? {} : { type: 'checkbox' as const, checked: item.checked }),
+      ...(item.accessibilityLabel === undefined ? {} : { accessibilityLabel: item.accessibilityLabel }),
+      click: item.isStatus ? undefined : handlers[item.id],
+    }
+  })
 }

@@ -1,7 +1,11 @@
-# TraceRoost desktop shell (macOS)
+# TraceRoost desktop shell (macOS, Linux)
 
-An Electron shell that runs the existing standalone collector and dashboard as a normal macOS app
-with a menu bar icon — no terminal, no separately installed Node.
+An Electron shell that runs the existing standalone collector and dashboard as a normal desktop
+app with a menu bar / tray icon — no terminal, no separately installed Node.
+
+**Linux** (a .deb and an AppImage, x64 and arm64) is Stages 1–3 of
+[`.staged-features/linux-desktop-app.md`](../.staged-features/linux-desktop-app.md), plus Stage 4's
+packaging CI; see [Linux](#linux). The rest of this section is about macOS.
 
 **Status: Stages 1–2 of [`.staged-features/macos-desktop-menu-bar-app.md`](../.staged-features/macos-desktop-menu-bar-app.md)
 are done, and Stage 3 is done up to the point that needs an Apple Developer Program membership.**
@@ -128,6 +132,175 @@ maps repository secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY_P
 `APPLE_API_KEY_ID` and `APPLE_API_ISSUER` onto those variables. Until they exist the job builds
 ad-hoc, exactly as a developer's machine does. The membership itself is **US$99/year**
 ([Apple](https://developer.apple.com/programs/whats-included/)).
+
+## Linux
+
+```sh
+cd desktop
+pnpm run pack:linux        # x64 + arm64: dist/TraceRoost-<v>-linux-{amd64,arm64}.deb,
+                           #              dist/TraceRoost-<v>-linux-{x86_64,arm64}.AppImage, SHA256SUMS
+pnpm run pack:linux:host   # this machine's architecture only
+```
+
+Both build on Linux natively (what CI does) or cross-build from macOS — electron-builder fetches
+the Linux Electron, fpm and the AppImage tools itself. A cross-build skips only afterPack's
+"run the packaged Electron as Node" check. Each format uses its own architecture names, as the
+download chooser lists them: `amd64`/`arm64` for the .deb, `x86_64`/`arm64` for the AppImage.
+
+### Installing
+
+- **.deb** (Debian 12, Ubuntu 22.04 and 24.04, and their derivatives):
+  `sudo apt install ./TraceRoost-<version>-linux-amd64.deb`. It installs to `/opt/TraceRoost`,
+  links `/usr/bin/traceroost-desktop` (not `traceroost`, which is the npm/Homebrew CLI), adds a
+  launcher entry and hicolor icons at every standard size, and depends only on distribution
+  packages — never on `nodejs`.
+- **AppImage** (any mainstream x64 or arm64 distribution): `chmod +x TraceRoost-*.AppImage` and
+  run it. No root and no install step. It uses the static AppImage runtime, so no `libfuse2` is
+  needed (`fusermount` from fuse or fuse3 is, as for any AppImage; without FUSE at all,
+  `./TraceRoost-*.AppImage --appimage-extract-and-run` works). On first run it *offers* to add
+  itself to the applications menu and does nothing unless you say yes — **TraceRoost → Show in
+  Applications Menu** changes your answer later.
+
+Both use the same `~/.traceroost` data directory, `config.json` and `desktop.log` as every other
+TraceRoost (no move to XDG directories), so existing data appears as is. The app's own settings —
+answers to the questions below — are in `~/.config/TraceRoost/desktop-prefs.json`.
+
+### The sandbox, and why the AppImage refuses to start on Ubuntu 23.10+
+
+The dashboard window renders content captured from coding agents, so its renderer always runs in
+Chromium's sandbox. **There is no way to turn that off**: started with `--no-sandbox`, the app shows
+why and exits ([`src/sandbox.ts`](src/sandbox.ts)). The sandbox needs unprivileged user namespaces,
+or a setuid-root `chrome-sandbox` helper:
+
+| System | .deb | AppImage |
+| --- | --- | --- |
+| Ubuntu 23.10+ (namespaces restricted by AppArmor) | the package installs `/etc/apparmor.d/traceroost-desktop`, granting `userns` to `/opt/TraceRoost/traceroost-desktop` only | **refuses to start** — it cannot install a profile |
+| namespaces available (Fedora, Arch, openSUSE, Debian, Ubuntu ≤ 23.04) | namespace sandbox | namespace sandbox |
+| namespaces disabled (`kernel.unprivileged_userns_clone=0`, some hardened kernels) | setuid `chrome-sandbox` | refuses to start (its mount is `nosuid`) |
+
+The AppImage refusal is deliberate. electron-builder's AppImage launcher responds to restricted
+namespaces by adding `--no-sandbox`; the app refuses that rather than run untrusted content
+unsandboxed, and the dialog says to install the .deb. A hand-written profile for the AppImage
+does not help, because the launcher decides by running `/usr/bin/unshare`, which that profile
+does not cover.
+
+The .deb's post-install is electron-builder's own, with one fix
+([`build/linux/after-install.tpl`](build/linux/after-install.tpl)): upstream decides whether the
+helper needs to be setuid by testing namespaces *as root*, which always passes, so on exactly the
+systems that needed the helper the app aborted at launch. It now tests as an unprivileged user,
+and in a way Ubuntu's restriction cannot pass (create the namespace *and use it*).
+
+### Tray, or no tray
+
+Electron's tray on Linux is a StatusNotifierItem. KDE Plasma, Cinnamon, XFCE, MATE, Budgie and
+Ubuntu's GNOME (with its bundled AppIndicator extension) show it. **Stock GNOME on Fedora and
+Debian does not.** The app asks the session bus whether a `StatusNotifierWatcher` is present
+([`src/trayHost.ts`](src/trayHost.ts)), and checks again each time the window is closed. If it
+cannot tell, it assumes there is no tray:
+
+| | tray | no tray |
+| --- | --- | --- |
+| close the window | hides it; collection continues behind the tray icon | asks: **Quit and Stop Collecting**, **Keep Running Minimised** or Cancel, with "Remember my choice". If nothing of ours is collecting (attached to another collector, or stopped), it just quits |
+| Launch at Login | starts with no window | starts with a minimised window — the only sign it is running |
+| a collector needing confirmation, or a blocked start | shown in the tray menu | asked or explained in a dialog straight away |
+
+Wherever the tray is, the same controls are also in the window's **TraceRoost** menu (Start /
+Stop / Restart, Open Logs, Launch at Login, Show in Applications Menu, About, Quit). Without a
+tray, that menu is the only place they live. The tray icon is the glyph on its teal tile
+(`build/trayLinux.png`), legible on both dark and light panels; the macOS template glyph would
+vanish on a dark one.
+
+### Launch at Login, and the systemd user service
+
+**Launch at Login** writes `~/.config/autostart/traceroost-desktop.desktop` (honouring
+`$XDG_CONFIG_HOME`) when you turn it on and deletes it when you turn it off
+([`src/autostart.ts`](src/autostart.ts)). It starts *this app*, never a collector. It points at the
+app's current path, which matters for an AppImage: moving the file and running it once repoints
+the entry, and `TryExec` makes the session skip it silently if the file is gone. A file there that
+TraceRoost did not write is never edited or removed.
+
+`traceroost service install` (npm or Homebrew) runs the collector as a **systemd user unit**,
+`~/.config/systemd/user/traceroost.service`. The app never creates, edits, stops or disables it,
+and it never starts a second collector beside it ([`src/systemdUnit.ts`](src/systemdUnit.ts)):
+
+- **Service running** → the app attaches, exactly as on macOS: no Start/Stop/Restart, and Quit
+  leaves the service running.
+- **Service enabled, app opened at login** → both start as the session comes up. The app waits
+  (up to a minute) for the service to claim the data directory, then attaches, instead of racing
+  it for the lock.
+- **Service enabled but stopped, app opened by hand** → the documented handoff (below): the app
+  takes the data directory.
+- **Turning on Launch at Login with the service enabled** → the app says the service already
+  starts collection at login, and that it will attach to it.
+
+Handoff is the same as on macOS, with `systemctl --user` in place of launchd. To go from the app
+to the service, quit the app, then `traceroost service install`. To go from the service to the
+app, `traceroost service stop` (or `uninstall`), then open the app. The app will not stop the
+service for you.
+
+### Verifying a download
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+minisign -Vm SHA256SUMS -P <public key>      # once releases are signed — see below
+```
+
+`SHA256SUMS` is the Linux integrity story: there is no package signature until an APT repository
+exists (the plan's Stage 5). CI signs it with minisign when the `MINISIGN_SECRET_KEY` and
+`MINISIGN_PASSWORD` secrets exist (`minisign -G` makes the pair). **No key exists yet**: the
+public key goes here and in the release notes when one is made.
+
+### Uninstalling
+
+- **.deb**: `sudo apt remove traceroost-desktop` removes the app, `/usr/bin/traceroost-desktop`,
+  the launcher entry and the AppArmor profile. `apt purge` does the same — there is no
+  system-wide configuration to purge.
+- **AppImage**: delete the file, and, if you added them, `~/.local/share/applications/traceroost-appimage.desktop`
+  and `~/.local/share/icons/hicolor/512x512/apps/traceroost-appimage.png` (or untick **Show in
+  Applications Menu** first).
+
+Either way, turn off **Launch at Login** first (or delete
+`~/.config/autostart/traceroost-desktop.desktop`). **Your data is kept**: package removal never
+touches a home directory, so `~/.traceroost` and any `traceroost service` stay as they were.
+Delete `~/.traceroost` yourself if you want the data gone, and `~/.config/TraceRoost` for the
+app's own settings and Chromium state.
+
+### Testing the packages
+
+Two scripts check the plan's gates on a clean system. Run each as root in a throwaway container or
+VM:
+
+- [`scripts/check-deb.sh`](scripts/check-deb.sh) covers install, upgrade from an older version,
+  the layout and icons, dependency resolution (`ldd` finds every library), the bundled Node, the
+  smoke test as an unprivileged user, attaching to a collector the app did not start (and leaving
+  it running), remove, reinstall, purge, and that no maintainer script touches a home directory.
+- [`scripts/check-appimage.sh`](scripts/check-appimage.sh) runs the smoke test sandboxed where
+  namespaces are usable. Where they are restricted, it checks that the app refuses: no collector,
+  no renderer.
+
+```sh
+docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined --cap-add SYS_ADMIN \
+  -v "$PWD:/desktop:ro" ubuntu:24.04 /desktop/scripts/check-deb.sh /desktop/dist/TraceRoost-<v>-linux-arm64.deb
+```
+
+The container options are needed because Docker's default seccomp policy refuses the namespaces
+Chromium's sandbox creates, on any host. The smoke test itself runs on the app's own Electron as
+Node, which also proves the machine needs no Node.
+
+**CI**: [`desktop-linux.yml`](../.github/workflows/desktop-linux.yml) builds both formats natively
+on x64 and arm64 runners. It runs `check-deb.sh` on ubuntu:22.04, ubuntu:24.04 and debian:12, and
+directly on the Ubuntu 24.04 runner, where the AppArmor profile must load and be what lets the
+sandbox start. It runs `check-appimage.sh` on the runner with namespaces restricted (must refuse)
+and unrestricted (must run), and on Fedora, openSUSE Tumbleweed and Arch.
+
+### Supported matrix (what has actually been run)
+
+| | Result | Where |
+| --- | --- | --- |
+| .deb on Ubuntu 24.04, 22.04, Debian 12 — arm64 | 37/37 `check-deb.sh` checks | containers on an arm64 Ubuntu 24.04 kernel with the namespace restriction on, so the setuid-helper path ran (AppArmor cannot load a profile from inside a container) |
+| AppImage on Ubuntu 24.04, Fedora 42, openSUSE Tumbleweed — arm64 | refuses as designed: no collector, no renderer; dialog verified by screenshot | same kernel, restriction on |
+| x64 (both formats); AppImage running sandboxed; .deb with its AppArmor profile loaded; Arch | built, not run here | `desktop-linux.yml` — **not yet run** |
+| a real desktop session: tray on GNOME (Ubuntu and stock), KDE Plasma, XFCE; Wayland and X11; window restore and single-instance focus | **not run** | needs VMs with a desktop; the logic is unit-tested and the no-tray path ran under Xvfb |
 
 ## How it fits together
 
@@ -287,6 +460,20 @@ signature state, and uploads the DMGs, zips, `SHA256SUMS` and `THIRD_PARTY_NOTIC
 artifact for 14 days. It publishes nothing: that waits for signing.
 
 ## What is not done yet
+
+Linux, beyond the [matrix](#supported-matrix-what-has-actually-been-run) above:
+
+- **Real desktop sessions.** The tray (GNOME stock and Ubuntu, KDE Plasma, XFCE; Wayland and
+  X11), the close question, the minimised login launch, the AppImage menu entry and Launch at
+  Login have been unit-tested and run under Xvfb, but never in a real desktop.
+- **A minisign key** for `SHA256SUMS`, and a release job publishing the artifacts. The Linux rows
+  in the download chooser wait for both.
+- **Updates.** The AppImage could self-update (electron-updater supports it) and the .deb would
+  show a notice. Both follow the shared update rules, which macOS has not built yet either.
+- **arm64 downloads** wait for the arm64 CI legs to pass.
+- **Stage 5** (an APT repository, Flatpak, Snap) is not started.
+
+macOS:
 
 Needs the Apple Developer Program membership and the secrets above:
 

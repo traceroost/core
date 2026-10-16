@@ -1,0 +1,212 @@
+name: Desktop (Linux)
+
+# Builds the Linux desktop app (desktop/) as a .deb and an AppImage for x64 and arm64, natively on
+# each architecture, and checks them against the Linux plan's Stage 1–3 gates:
+#
+#   deb       install → upgrade → smoke as an unprivileged user → attach to an outside collector →
+#             remove → reinstall → purge, on clean ubuntu:22.04, ubuntu:24.04 and debian:12
+#             containers, and directly on the Ubuntu 24.04 runner — a real VM with AppArmor and its
+#             unprivileged-user-namespace restriction on, so the AppArmor profile is installed,
+#             loaded, and is what lets the sandbox start.
+#   appimage  with the restriction on, the AppImage must refuse to start (it cannot install a
+#             profile, and the app never runs unsandboxed); with it off, it must run sandboxed and
+#             pass the smoke test on the runner and on Fedora, openSUSE Tumbleweed and Arch.
+#
+# This is a CI build, not a release: artifacts are uploaded for 14 days and published nowhere.
+# SHA256SUMS is signed with minisign when the MINISIGN_SECRET_KEY secret exists (README.md →
+# "Linux" → "Verifying a download"); until then it is unsigned.
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'standalone/**'
+      - 'src/**'
+      - 'media/**'
+      - 'scripts/check-edition.mjs'
+      - 'esbuild.js'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop-linux.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-linux.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    # Native on each architecture, so afterPack can run the packaged Electron as Node (the bundled
+    # runtime check) rather than skip it as a cross-build must.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install repo dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      # Type-check, release bundle, stage the core-edition collector, notices; then the .deb and
+      # AppImage for this architecture (afterPack verifies the unpacked app: layout, versions, core
+      # edition, chrome-sandbox, bundled Node), then SHA256SUMS.
+      - name: Build and package
+        working-directory: desktop
+        run: pnpm run build:release && npx electron-builder --linux --${{ matrix.arch }} && pnpm run checksums
+
+      # The staged-tree integration suite, on this runner's own Electron.
+      - name: Staged collector integration tests
+        run: |
+          sudo apt-get install -y -qq xvfb >/dev/null
+          pnpm run compile-tests:desktop && xvfb-run -a npx mocha --grep "staged collector" --color
+
+      - name: Sign SHA256SUMS
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        if: env.MINISIGN_SECRET_KEY != ''
+        working-directory: desktop/dist
+        run: |
+          sudo apt-get install -y -qq minisign >/dev/null
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+          printf '%s\n' "$MINISIGN_PASSWORD" | minisign -S -s "$RUNNER_TEMP/minisign.key" -m SHA256SUMS -t "TraceRoost desktop $(node -p "require('../../package.json').version") linux-${{ matrix.arch }}"
+          rm -f "$RUNNER_TEMP/minisign.key"
+
+      - name: Package report
+        working-directory: desktop/dist
+        run: |
+          ls -la TraceRoost-* SHA256SUMS*
+          dpkg-deb -I TraceRoost-*.deb
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: traceroost-desktop-linux-${{ matrix.arch }}
+          path: |
+            desktop/dist/TraceRoost-*.deb
+            desktop/dist/TraceRoost-*.AppImage
+            desktop/dist/SHA256SUMS*
+            desktop/resources/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+          retention-days: 14
+
+  deb:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+        target: ['host', 'ubuntu:22.04', 'ubuntu:24.04', 'debian:12']
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: desktop/scripts
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: traceroost-desktop-linux-${{ matrix.arch }}
+          path: dist
+
+      # Ubuntu 24.04's default: unprivileged user namespaces only for binaries with an AppArmor
+      # profile granting them. Set explicitly so the host leg proves the .deb's profile is what
+      # makes the sandbox work, whatever the runner image ships with.
+      - name: Restrict unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+
+      - name: Install, upgrade, run, attach, remove, purge — on the runner
+        if: matrix.target == 'host'
+        env:
+          HOMES_TO_WATCH: /home/tester /root
+        run: |
+          sudo -E desktop/scripts/check-deb.sh "$(ls "$PWD"/dist/TraceRoost-*.deb)"
+          # On a real Ubuntu 24.04 the profile must have been loaded, which is why the helper is not
+          # setuid: the namespace sandbox works for this binary and only this binary.
+          sudo apt-get install -y -qq "$(ls "$PWD"/dist/TraceRoost-*.deb)" >/dev/null
+          test -f /etc/apparmor.d/traceroost-desktop
+          sudo aa-status | grep -q traceroost-desktop
+          test "$(stat -c %a /opt/TraceRoost/chrome-sandbox)" = 755
+
+      - name: Install, upgrade, run, attach, remove, purge — in ${{ matrix.target }}
+        if: matrix.target != 'host'
+        run: |
+          docker run --rm \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined --cap-add SYS_ADMIN \
+            -v "$PWD/desktop:/desktop:ro" -v "$PWD/dist:/dist:ro" \
+            ${{ matrix.target }} /desktop/scripts/check-deb.sh "/dist/$(cd dist && ls TraceRoost-*.deb)"
+
+  appimage:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+        target: ['host', 'fedora:42', 'opensuse/tumbleweed', 'archlinux:latest']
+        exclude:
+          # Arch Linux publishes no official arm64 image.
+          - arch: arm64
+            target: 'archlinux:latest'
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: desktop/scripts
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: traceroost-desktop-linux-${{ matrix.arch }}
+          path: dist
+
+      # Restricted (Ubuntu 23.10+'s default): the AppImage cannot get a sandbox and must refuse.
+      - name: Refuses without a sandbox (namespaces restricted)
+        if: matrix.target == 'host'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          sudo desktop/scripts/check-appimage.sh "$(ls "$PWD"/dist/TraceRoost-*.AppImage)" | tee /tmp/restricted.log
+          grep -q 'must refuse' /tmp/restricted.log
+
+      # Unrestricted (Fedora, Arch, openSUSE, Debian, or Ubuntu with the restriction lifted): the
+      # AppImage must run sandboxed. Containers share the runner's kernel, hence the sysctl.
+      - name: Runs sandboxed (namespaces available)
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          if [ "${{ matrix.target }}" = host ]; then
+            sudo desktop/scripts/check-appimage.sh "$(ls "$PWD"/dist/TraceRoost-*.AppImage)" | tee /tmp/run.log
+          else
+            docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+              -v "$PWD/desktop:/desktop:ro" -v "$PWD/dist:/dist:ro" \
+              ${{ matrix.target }} /desktop/scripts/check-appimage.sh "/dist/$(cd dist && ls TraceRoost-*.AppImage)" | tee /tmp/run.log
+          fi
+          grep -q 'must run sandboxed' /tmp/run.log

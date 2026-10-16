@@ -35,6 +35,15 @@
     "desktop/src/stagedCollector.test.ts",
     "desktop/src/resources.test.ts",
     "desktop/src/trayMenu.ts",
-    "desktop/src/trayMenu.test.ts"
+    "desktop/src/trayMenu.test.ts",
+    "desktop/src/appImageLauncher.ts",
+    "desktop/src/autostart.ts",
+    "desktop/src/closeBehavior.ts",
+    "desktop/src/desktopEntry.ts",
+    "desktop/src/linux.test.ts",
+    "desktop/src/prefs.ts",
+    "desktop/src/sandbox.ts",
+    "desktop/src/systemdUnit.ts",
+    "desktop/src/trayHost.ts"
   ]
 }

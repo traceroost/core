@@ -1,10 +1,13 @@
 /**
- * Smoke test for the *packaged* app: launches the built TraceRoost.app the way the Finder would,
- * and checks that it comes up as an app-owned collector, serves its dashboard, and quits cleanly.
+ * Smoke test for the *packaged* app: launches the built app the way the desktop would, and checks
+ * that it comes up as an app-owned collector, serves its dashboard, and quits cleanly.
  *
- *   node scripts/smoke-packaged.mjs [path/to/TraceRoost.app]
+ *   node scripts/smoke-packaged.mjs [path/to/TraceRoost.app]                 # macOS
+ *   node scripts/smoke-packaged.mjs [path/to/traceroost-desktop | *.AppImage] # Linux
  *
- * Defaults to the build for this machine's architecture under dist/. Exit code 0 means every
+ * Defaults to the build for this machine's architecture under dist/ (the .app on macOS, the
+ * unpacked directory's executable on Linux). On Linux, pass /opt/TraceRoost/traceroost-desktop to
+ * test an installed .deb, or an .AppImage. Linux needs a display: run it under `xvfb-run -a`. Exit code 0 means every
  * check passed; anything else prints what failed along with the app's output and desktop.log.
  *
  * This is the check the unit and integration tests cannot do: they run the staged tree out of the
@@ -38,13 +41,27 @@ const MCP_PORT = 31816
 const READY_TIMEOUT_MS = 90_000
 const QUIT_TIMEOUT_MS = 20_000
 
-const appPath = path.resolve(process.argv[2] ?? path.join(desktopDir, 'dist', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'TraceRoost.app'))
-const binary = path.join(appPath, 'Contents', 'MacOS', 'TraceRoost')
+const isLinux = process.platform === 'linux'
+const appPath = path.resolve(process.argv[2] ?? (isLinux
+  ? path.join(desktopDir, 'dist', process.arch === 'arm64' ? 'linux-arm64-unpacked' : 'linux-unpacked', 'traceroost-desktop')
+  : path.join(desktopDir, 'dist', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'TraceRoost.app')))
+const isAppImage = appPath.endsWith('.AppImage')
+const binary = isLinux ? appPath : path.join(appPath, 'Contents', 'MacOS', 'TraceRoost')
 if (!fs.existsSync(binary)) {
-  console.error(`smoke: ${binary} does not exist — run \`pnpm run pack\` (or pass the .app path)`)
+  console.error(`smoke: ${binary} does not exist — run \`pnpm run pack\` / \`pnpm run pack:linux\` (or pass the path)`)
   process.exit(2)
 }
-const shippedVersion = JSON.parse(fs.readFileSync(path.join(appPath, 'Contents', 'Resources', 'collector', 'package.json'), 'utf8')).version
+if (isLinux && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+  console.error('smoke: no display — run this under `xvfb-run -a` (or in a desktop session)')
+  process.exit(2)
+}
+// The version the app ships: read from its staged collector, except inside an AppImage (a
+// compressed image, not a directory), where the build's own version is the expectation.
+const shippedVersion = isAppImage
+  ? JSON.parse(fs.readFileSync(path.join(desktopDir, '..', 'package.json'), 'utf8')).version
+  : JSON.parse(fs.readFileSync(isLinux
+    ? path.join(path.dirname(fs.realpathSync(binary)), 'resources', 'collector', 'package.json')
+    : path.join(appPath, 'Contents', 'Resources', 'collector', 'package.json'), 'utf8')).version
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-smoke-home-'))
 const dataDir = path.join(home, '.traceroost')
@@ -63,6 +80,11 @@ const app = spawn(binary, [], {
   env: {
     ...inherited,
     HOME: home,
+    // Linux keeps Electron's own state (and the app's prefs) under XDG_CONFIG_HOME, and the
+    // autostart / launcher entries under XDG_CONFIG_HOME / XDG_DATA_HOME: all inside the fake HOME.
+    XDG_CONFIG_HOME: path.join(home, '.config'),
+    XDG_DATA_HOME: path.join(home, '.local', 'share'),
+    XDG_CACHE_HOME: path.join(home, '.cache'),
     DATA_DIR: dataDir,
     UI_PORT: String(UI_PORT),
     OTLP_PORT: String(OTLP_PORT),
@@ -131,6 +153,14 @@ try {
   const finalLog = readText(logPath) ?? ''
   check(/quitting — stopping and flushing the collector first/.test(finalLog), 'quit went through the owned-collector flush path')
   check(!/killing it/.test(finalLog), 'the collector did not need to be force-killed')
+
+  if (isLinux) {
+    // What the shell decided about this desktop, and that it ran sandboxed — the app refuses
+    // otherwise, so reaching owned mode at all already proves it; the log line says how.
+    check(/\[desktop\] tray: (available|unavailable)/.test(finalLog), `desktop.log records the tray check (${(/\[desktop\] tray: [^\n]*/.exec(finalLog) ?? ['none'])[0]})`)
+    check(!/refusing to start/.test(finalLog), 'the app did not refuse to start for want of a sandbox')
+    check(!fs.existsSync(path.join(home, '.config', 'autostart')), 'nothing was added to autostart without being asked')
+  }
 } catch (err) {
   failures.push(err instanceof Error ? err.message : String(err))
 } finally {
