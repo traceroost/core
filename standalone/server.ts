@@ -40,7 +40,8 @@ import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
 import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
-import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
+import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, OTLP_GRPC_PORT, type ResolvedPorts } from '../src/portResolver'
+import { DEFAULT_DASHBOARD_PORT, dashboardPortLock, dashboardPortLockReason, validateDashboardPort, moveDashboard, type DashboardPortState } from './dashboardPort'
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud, type TraceManifestSource } from '../src/cloudBridge'
 import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
@@ -136,6 +137,7 @@ function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, boun
   resolvedPorts[kind] = bound
   if (bound !== requested) {
     console.log(`[TraceRoost] Port ${requested} (${kind.toUpperCase()}) was in use — using ${bound} instead.`)
+    if (kind === 'ui') console.log('[TraceRoost] To keep the dashboard on a fixed port, set one in Settings → Dashboard port.')
   }
   if (resolvedPorts.ui !== undefined && resolvedPorts.otlp !== undefined && resolvedPorts.mcp !== undefined) {
     const record: ResolvedPorts = {
@@ -487,7 +489,7 @@ const mcpServerReady: Promise<number> = startMcpHttpServer({
     const summary = buildSessionSummary()
     return summary?.sessions ?? []
   },
-}, MCP_PORT, BIND_HOST, AUTH_TOKEN)
+}, MCP_PORT, BIND_HOST, AUTH_TOKEN, undefined, [UI_PORT, OTLP_PORT, OTLP_GRPC_PORT])
   .then(server => {
     const bound = (server.address() as { port: number }).port
     recordResolvedPort('mcp', MCP_PORT, bound)
@@ -1546,7 +1548,7 @@ function emitInstructionTelemetry(workspace: string): void {
     .catch(() => { /* telemetry is best-effort */ })
 }
 
-const uiServer = http.createServer((req, res) => {
+function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
   if (!isAllowedHostHeader(req.headers.host, BIND_HOST)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
   }
@@ -1562,7 +1564,7 @@ const uiServer = http.createServer((req, res) => {
   if (REQUIRE_TOKEN_EVERYWHERE) {
     if (!isAuthorized(req, AUTH_TOKEN)) {
       res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': UNAUTHORIZED_PAGE_CSP })
-      res.end(unauthorizedHtml(UI_PORT))
+      res.end(unauthorizedHtml(resolvedPorts.ui ?? UI_PORT))
       return
     }
     // First request authenticated via ?token= or an Authorization header rather than an existing
@@ -1766,6 +1768,11 @@ const uiServer = http.createServer((req, res) => {
         const body = JSON.parse(raw.toString('utf-8')) as { type?: string }
         if (body.type === 'clearAll') {
           clearAllData()
+        } else if (body.type === 'setDashboardPort') {
+          const result = await setDashboardPort((body as { port?: unknown }).port)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(result))
+          return
         } else if (body.type === 'reconfigureOtel') {
           if (AUTOCONFIG_DISABLED) {
             res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -1797,6 +1804,12 @@ const uiServer = http.createServer((req, res) => {
   if (req.method === 'GET' && url === '/api/summary') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(strippedJsonOf(derivedViews()))
+    return
+  }
+
+  if (req.method === 'GET' && url === '/api/dashboard-port') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(dashboardPortState()))
     return
   }
 
@@ -2069,7 +2082,76 @@ const uiServer = http.createServer((req, res) => {
   }
 
   res.writeHead(404); res.end('Not found')
-})
+}
+
+const uiServer = http.createServer(handleUiRequest)
+/** The listener serving the dashboard now. Starts as `uiServer`; a Settings → Dashboard port move
+ *  (setDashboardPort below) replaces it with a new listener sharing handleUiRequest. */
+let activeUiServer = uiServer
+
+// ── Settings → Dashboard port ─────────────────────────────────────────────────
+//
+// Moves the running dashboard to another port without a restart (standalone/dashboardPort.ts).
+// config.json's uiPort is what the next start uses — the background service reads it from there
+// (configuredPorts), so nothing about the service definition changes.
+
+/** config.json's uiPort as of startup or the last move. */
+let configuredUiPort = fileConfig.uiPort
+let dashboardMoveInFlight = false
+
+function dashboardPortState(): DashboardPortState {
+  const lockedBy = dashboardPortLock({
+    uiFromEnv: startupPorts.uiFromEnv,
+    docker: process.env.TRACEROOST_DOCKER === '1',
+    requireToken: REQUIRE_TOKEN_EVERYWHERE,
+  })
+  return {
+    port: resolvedPorts.ui ?? UI_PORT,
+    configured: startupPorts.uiFromEnv ? UI_PORT : configuredUiPort,
+    defaultPort: DEFAULT_DASHBOARD_PORT,
+    lockedBy,
+    lockedReason: lockedBy ? dashboardPortLockReason(lockedBy) : undefined,
+    reserved: [...new Set([resolvedPorts.otlp ?? OTLP_PORT, resolvedPorts.mcp ?? MCP_PORT, OTLP_PORT, MCP_PORT, OTLP_GRPC_PORT])],
+  }
+}
+
+function persistUiPort(port: number): void {
+  writeServiceConfig({ ...readServiceConfig(), uiPort: port })
+  configuredUiPort = port
+}
+
+async function setDashboardPort(value: unknown): Promise<{ ok: true; port: number } | { ok: false; error: string }> {
+  const state = dashboardPortState()
+  if (state.lockedBy) return { ok: false, error: dashboardPortLockReason(state.lockedBy) }
+  if (dashboardMoveInFlight) return { ok: false, error: 'A port change is already in progress.' }
+  const checked = validateDashboardPort(value, state)
+  if (!checked.ok) return checked
+  if (!checked.rebind) {
+    // Already listening there after a startup fallback — saving it is all that's left.
+    try { persistUiPort(checked.port) } catch (e) {
+      return { ok: false, error: `Couldn't save the port to ~/.traceroost/config.json: ${(e as Error).message}` }
+    }
+    console.log(`[TraceRoost] Dashboard port set to ${checked.port} (Settings → Dashboard port).`)
+    return { ok: true, port: checked.port }
+  }
+  dashboardMoveInFlight = true
+  try {
+    const moved = await moveDashboard({
+      port: checked.port,
+      host: BIND_HOST,
+      current: activeUiServer,
+      createServer: () => http.createServer(handleUiRequest),
+      persist: persistUiPort,
+    })
+    if (!moved.ok) return moved
+    activeUiServer = moved.server
+    recordResolvedPort('ui', checked.port, checked.port)
+    console.log(`[TraceRoost] Dashboard moved to http://localhost:${checked.port} (Settings → Dashboard port).`)
+    return { ok: true, port: checked.port }
+  } finally {
+    dashboardMoveInFlight = false
+  }
+}
 
 // ── OTLP server ───────────────────────────────────────────────────────────────
 
@@ -2158,7 +2240,7 @@ const otlpServer = http.createServer((req, res) => {
 async function startOtlpServer(): Promise<void> {
   let bound: number
   try {
-    bound = await listenWithFallback(otlpServer, OTLP_PORT, BIND_HOST)
+    bound = await listenWithFallback(otlpServer, OTLP_PORT, BIND_HOST, { avoid: [UI_PORT, MCP_PORT, OTLP_GRPC_PORT] })
   } catch (err) {
     console.error(`[TraceRoost] ${err instanceof PortScanExhaustedError ? err.message : `OTLP server error: ${err}`}`)
     process.exit(1)
@@ -2212,7 +2294,7 @@ async function startOtlpServer(): Promise<void> {
 async function startUiServer(): Promise<void> {
   let bound: number
   try {
-    bound = await listenWithFallback(uiServer, UI_PORT, BIND_HOST)
+    bound = await listenWithFallback(uiServer, UI_PORT, BIND_HOST, { avoid: [OTLP_PORT, MCP_PORT, OTLP_GRPC_PORT] })
   } catch (err) {
     console.error(`[TraceRoost] ${err instanceof PortScanExhaustedError ? err.message : `UI server error: ${err}`}`)
     process.exit(1)

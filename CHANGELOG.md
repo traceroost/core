@@ -4,6 +4,15 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Settings → Dashboard port** — move the standalone dashboard off port 3000 (the default for Next.js, Rails, Express and many other dev servers) from the gear panel. It moves without a restart, the page follows it with your theme and other preferences, and **Reset to 3000** moves it back. Agents aren't affected: the OTLP and MCP ports don't change. Help and the README have a "My dev server needs port 3000" section, and `service install` / `service status` say how to move while the dashboard is on 3000
+
+### Fixed
+
+- **Re-running `traceroost service install` (or upgrading with it) keeps your settings** — it rebuilt `~/.traceroost/config.json` from the defaults, so a custom dashboard, OTLP or MCP port, bind host, data directory or retention reset on every re-run. A flag now changes only its own setting, and the command prints what it kept. The background service reads its ports from `config.json` only, so a service definition written by an older version can't override a port changed later
+- **A busy port can no longer push one TraceRoost server onto another's port** — the fallback scan steps over the OTLP, MCP and OTLP/gRPC (4317) ports
+
 ## [0.19.2] — 2026-10-15
 
 ### Fixed

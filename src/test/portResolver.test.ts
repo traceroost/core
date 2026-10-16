@@ -74,6 +74,38 @@ suite('portResolver', () => {
       }
     })
 
+    test('steps over the ports in `avoid` while scanning', async () => {
+      const blocker = http.createServer()
+      await listenPlain(blocker, 0, '127.0.0.1')
+      const takenPort = (blocker.address() as { port: number }).port
+
+      // The port the scan would otherwise take is free — `avoid` alone has to skip it.
+      const wouldTake = await nextBindablePort(takenPort, '127.0.0.1')
+      const expected = await nextBindablePort(wouldTake, '127.0.0.1')
+      const server = http.createServer()
+      try {
+        const bound = await listenWithFallback(server, takenPort, '127.0.0.1', { avoid: [wouldTake] })
+        assert.strictEqual(bound, expected)
+      } finally {
+        await close(server)
+        await close(blocker)
+      }
+    })
+
+    test('still tries the preferred port when it is listed in `avoid`', async () => {
+      const probe = http.createServer()
+      await listenPlain(probe, 0, '127.0.0.1')
+      const freePort = (probe.address() as { port: number }).port
+      await close(probe)
+
+      const server = http.createServer()
+      try {
+        assert.strictEqual(await listenWithFallback(server, freePort, '127.0.0.1', { avoid: [freePort] }), freePort)
+      } finally {
+        await close(server)
+      }
+    })
+
     test('calls onFallback with the requested and bound ports only when they differ', async () => {
       const blocker = http.createServer()
       await listenPlain(blocker, 0, '127.0.0.1')
