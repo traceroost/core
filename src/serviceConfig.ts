@@ -18,7 +18,10 @@ export interface ServiceConfig {
   mcpPort: number
   bindHost: string
   dataDir: string
-  /** Bearer token guarding the UI/OTLP/MCP servers. Empty until `ensureAuthToken` generates
+  /** Bearer token for the UI/OTLP/MCP servers — checked only when `bindHost` is not loopback
+   *  (Docker, LAN); on the default 127.0.0.1 bind no request needs it and the dashboard sets no
+   *  cookie (`REQUIRE_TOKEN_EVERYWHERE` in standalone/server.ts). Generated anyway, so switching
+   *  to a non-loopback bind never runs unauthenticated. Empty until `ensureAuthToken` generates
    *  and persists one on first run — kept out of `defaultServiceConfig` so that function stays
    *  pure and deterministic for tests. */
   authToken: string
@@ -77,8 +80,8 @@ export function readServiceConfig(baseHome?: string, log?: (msg: string) => void
     return { ...defaults, ...parsed }
   } catch {
     // A torn config.json would otherwise be silently replaced — along with its access token, which
-    // every configured agent and bookmarked dashboard URL still carries — the moment ensureAuthToken
-    // mints a new one. Keep the evidence aside and start from defaults.
+    // every agent and bookmarked dashboard URL configured for a non-loopback (Docker/LAN) bind still
+    // carries — the moment ensureAuthToken mints a new one. Keep the evidence aside and start from defaults.
     const aside = quarantineCorruptFile(configPath)
     log?.(`[TraceRoost] ${configPath} could not be parsed${aside ? ` — moved it to ${aside}` : ''}; using default settings (a new access token will be generated).`)
     return defaults
@@ -101,7 +104,8 @@ export function generateAuthToken(): string {
 
 /** Returns `config` unchanged if it already has an auth token; otherwise generates one,
  *  persists it to disk immediately (so a restart reuses the same token instead of
- *  invalidating every open browser tab / configured agent), and returns the updated config.
+ *  invalidating every open browser tab / configured agent on a non-loopback bind — loopback
+ *  never checks it), and returns the updated config.
  *  Called once at server startup — not from `readServiceConfig` itself — so that function can
  *  stay a pure read with no side effects. */
 export function ensureAuthToken(config: ServiceConfig, baseHome?: string): ServiceConfig {
