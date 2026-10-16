@@ -37,6 +37,7 @@ import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
 import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
+import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, type ResolvedPorts } from '../src/portResolver'
@@ -636,14 +637,18 @@ function setupLogWatcher() {
 }
 
 async function startLogIngestion() {
-  // Initialize sql.js so we can read the OpenCode SQLite DB.
+  // Initialize sql.js so we can read the OpenCode SQLite DB. The .wasm comes from this package's
+  // dist/, never from a consumer's node_modules — see sqlWasm.ts for why that matters.
   try {
-    const sqlJsDir = path.dirname(require.resolve('sql.js'))
+    const sqlJsDir = sqlWasmDir()
+    if (!sqlJsDir) throw new Error('sql-wasm.wasm not found')
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const initSqlJs = require('sql.js') as (cfg: { locateFile: (f: string) => string }) => Promise<OpenCodeSqlFactory>
     const sqlFactory = await initSqlJs({ locateFile: (f: string) => path.join(sqlJsDir, f) })
     logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory })
-  } catch { /* no sql.js — no OpenCode database reads */ }
+  } catch (err) {
+    console.warn(`[TraceRoost] sql.js unavailable — OpenCode database reads are off: ${err instanceof Error ? err.message : String(err)}`)
+  }
 
   // Git-outcome caching — a separate small sqlite file, see standalone/db/outcomesDb.ts.
   try {
