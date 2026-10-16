@@ -142,6 +142,9 @@ export function isAllowedOtlpContentType(contentType: string | undefined, origin
 
 export const AUTH_COOKIE_NAME = 'traceroost_token'
 
+/** Set only when the server requires the token (BIND_HOST not loopback — Docker, LAN): on the
+ *  default 127.0.0.1 bind the auth block is skipped and no cookie is ever set. Browsers scope
+ *  cookies by host, not port, so this cookie reaches every port on the host it was set for. */
 export function authCookieHeader(token: string): string {
   return `${AUTH_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`
 }
