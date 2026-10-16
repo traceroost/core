@@ -184,9 +184,18 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   // `finish()` degrades to "sent but not locally recorded as delivered" in that case (see there).
   const installId = creds.installId
 
-  const state = readForwardState(deps.baseHome)
-  const upgradeNotice = state.notice?.kind === 'upgrade' && (!state.notice.version || state.notice.version === clientVersion())
-  if (upgradeNotice && state.paused && state.pausedUntil !== null && state.pausedUntil > now()) {
+  let state = readForwardState(deps.baseHome)
+  // An upgrade notice raised for another version is stale: TraceRoost has been updated since (or
+  // the notice predates version stamping), so the 426 pause that came with it is lifted here and
+  // now, not waited out — this drain tries the new version. If the cloud still refuses it,
+  // `upgradeRequired()` re-pauses with a notice for *this* version and tells the developer again
+  // (the old notice is already hidden as stale — forwardState.ts `currentForwardNotice`).
+  if (state.notice?.kind === 'upgrade' && state.notice.version !== clientVersion()) {
+    const lifted = { paused: false, pausedUntil: null, notice: null }
+    writeForwardState(lifted, deps.baseHome)
+    state = { ...state, ...lifted }
+  }
+  if (state.notice?.kind === 'upgrade' && state.paused && state.pausedUntil !== null && state.pausedUntil > now()) {
     return { ...empty, stopped: 'upgrade-required' }
   }
   if (state.paused && state.pausedUntil !== null && state.pausedUntil > now()) {
