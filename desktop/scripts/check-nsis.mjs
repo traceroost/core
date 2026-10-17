@@ -58,8 +58,8 @@ console.log(`check-nsis: ${path.basename(installer)} on ${os.release()} ${proces
 
 // ── Install ──
 console.log('\n── silent install ──')
-const installed = spawnSync(installer, ['/S'], { stdio: 'inherit', timeout: 180_000 })
-check(installed.status === 0, `installer /S exited 0 (got ${installed.status})`)
+const installed = runInstaller(installer, ['/S'])
+check(installed.status === 0, `installer /S exited 0 (got ${installed.status}, ${installed.seconds}s)`)
 check(await waitFor(() => fs.existsSync(exe), 60_000), `installed per-user at ${exe}`)
 check(!installDir.toLowerCase().startsWith((process.env.ProgramFiles ?? 'C:\\Program Files').toLowerCase()), 'not under Program Files')
 for (const rel of ['resources/app.asar', 'resources/collector/standalone/server.js', 'resources/collector/node_modules/sql.js/dist/sql-wasm.wasm', 'resources/tray/trayWindows.ico', 'resources/LICENSE', 'resources/THIRD_PARTY_NOTICES.md']) {
@@ -110,8 +110,8 @@ if (held) {
   check((await post(`http://127.0.0.1:${OTLP_PORT}/v1/traces`, oneSpanTrace(traceId))) === 200, 'a span is accepted just before the upgrade')
   // The installer inherits this environment, so the `--quit` it launches reaches this instance —
   // as it does for a user, whose installer runs in the same session as the app.
-  const upgrade = spawnSync(installer, ['/S'], { env, stdio: 'inherit', timeout: 180_000 })
-  check(upgrade.status === 0, `reinstall /S over the running app exited 0 (got ${upgrade.status})`)
+  const upgrade = runInstaller(installer, ['/S'], env)
+  check(upgrade.status === 0, `reinstall /S over the running app exited 0 (got ${upgrade.status}, ${upgrade.seconds}s)`)
   const quit = await Promise.race([appExited.then(() => true), delay(30_000).then(() => false)])
   check(quit, 'the running app was closed by the installer')
   if (quit) check(appExit === 0, `…and exited 0 — it quit, it was not killed (code ${appExit})`)
@@ -133,8 +133,8 @@ if (leftover && pidAlive(leftover.pid)) { try { process.kill(leftover.pid) } cat
 console.log('\n── silent uninstall ──')
 // The uninstaller copies itself to %TEMP% and re-runs from there, so its own exit is not the end of
 // the work: wait for the files to go.
-const removed = spawnSync(uninstaller, ['/S'], { stdio: 'inherit', timeout: 180_000 })
-check(removed.status === 0, `uninstaller /S exited 0 (got ${removed.status})`)
+const removed = runInstaller(uninstaller, ['/S'])
+check(removed.status === 0, `uninstaller /S exited 0 (got ${removed.status}, ${removed.seconds}s)`)
 check(await waitFor(() => !fs.existsSync(exe), 90_000), 'the app is removed')
 check(await waitFor(() => !fs.existsSync(shortcut), 30_000), 'the Start Menu shortcut is removed')
 check(await waitFor(() => uninstallEntry() === undefined, 30_000), 'the Uninstall entry is removed')
@@ -149,6 +149,25 @@ if (failures.length > 0) {
 console.log(`\ncheck-nsis: all ${passes.length} checks passed`)
 
 // ── helpers ──
+
+/**
+ * Runs an NSIS installer or uninstaller and waits for it. A silent NSIS run that hangs is almost
+ * always a dialog with no silent default, so on a timeout the window titles of every process that
+ * could be involved are printed before it is killed — the title says which dialog it was.
+ */
+function runInstaller(file, args, env = process.env) {
+  const started = Date.now()
+  const r = spawnSync(file, args, { env, stdio: 'inherit', timeout: 300_000 })
+  const seconds = Math.round((Date.now() - started) / 1000)
+  if (r.status === null) {
+    console.log(`  … ${path.basename(file)} did not finish in ${seconds}s (${r.error?.message ?? r.signal}); what was running:`)
+    const t = spawnSync('tasklist', ['/v', '/fo', 'csv'], { encoding: 'utf8' })
+    for (const line of (t.stdout ?? '').split('\n')) {
+      if (/TraceRoost|traceroost|powershell|pwsh|Un_A|Au_|cmd\.exe|tasklist|taskkill/i.test(line)) console.log(`    ${line.trim()}`)
+    }
+  }
+  return { status: r.status, seconds }
+}
 
 /** The HKCU Uninstall subkey whose DisplayName is TraceRoost, or undefined. */
 function uninstallEntry() {
