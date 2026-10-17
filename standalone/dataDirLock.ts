@@ -41,6 +41,11 @@ export interface DataDirLockInfo {
   uiPort?: number
   otlpPort?: number
   mcpPort?: number
+  /** The holder's package version. Absent from locks written by releases before this field
+   *  existed, so a reader treats "missing" as "unknown version", never as "incompatible" --
+   *  see desktop/src/handshake.ts, which uses it to decide whether the desktop shell may attach
+   *  to an already-running collector instead of starting its own. */
+  version?: string
   /** Random per-acquisition id, so a holder can tell its own lock from a successor's. */
   token: string
 }
@@ -79,7 +84,7 @@ export type AcquireResult =
  * One attempt to become the data dir's writer: creates the lock, or takes over a stale one, or
  * reports who holds it. Never waits. Creates `dataDir` if it doesn't exist yet.
  */
-export function tryAcquireDataDirLock(dataDir: string, opts: { service?: boolean } = {}, env: LockEnv = defaultLockEnv()): AcquireResult {
+export function tryAcquireDataDirLock(dataDir: string, opts: { service?: boolean; version?: string } = {}, env: LockEnv = defaultLockEnv()): AcquireResult {
   // Owner-only when this creates it: the dir holds every recorded prompt and tool output
   // (spans.json) beside the credential files. An existing dir's mode is left alone.
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })
@@ -87,6 +92,7 @@ export function tryAcquireDataDirLock(dataDir: string, opts: { service?: boolean
   const info: DataDirLockInfo = {
     pid: env.pid, hostname: env.hostname, startedAt: new Date(env.now()).toISOString(),
     service: opts.service === true, token: crypto.randomBytes(8).toString('hex'),
+    ...(opts.version === undefined ? {} : { version: opts.version }),
   }
   // Bounded: each pass either creates the lock, reports a live holder, or removes one stale lock.
   for (let attempt = 0; attempt < 5; attempt++) {

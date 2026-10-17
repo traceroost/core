@@ -367,3 +367,28 @@ jobs:
     secrets:
       TR_DOCKERHUB_USERNAME: ${{ secrets.TR_DOCKERHUB_USERNAME }}
       TR_DOCKERHUB_TOKEN: ${{ secrets.TR_DOCKERHUB_TOKEN }}
+
+  # The desktop apps (.github/workflows/desktop-release.yml) — only from a tag, only after `package`
+  # has passed and created the GitHub release they attach to. Independent of the other publish jobs
+  # in both directions. Linux is attached on every release; macOS once it is notarized; the edition
+  # gate and the TRACEROOST_DESKTOP_PLATFORMS switch live in desktop-release.yml.
+  desktop:
+    needs: package
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      # `env` isn't available here — the same rule as EDITION above.
+      edition: ${{ vars.TRACEROOST_RELEASE_EDITION || 'core' }}
+    # Only what desktop-release.yml declares, as for docker above.
+    secrets:
+      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+      MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}

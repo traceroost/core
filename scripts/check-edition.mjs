@@ -2,6 +2,7 @@
 // Verifies a built edition — run after `node esbuild.js [--production] --edition=<edition>`.
 //
 //   node scripts/check-edition.mjs core [--package <package.json>] [--skip-manifest]
+//                                  [--tree <dir>] [--bundles <a.js,b.js>]
 //     Fails if any shipped bundle contains a TraceRoost Cloud (org link + upload) marker — a cloud
 //     module path, a Cloud endpoint or hostname, a forwarding-queue/link identifier — or if the
 //     package manifest (default: ./package.json; pass the core-prepared one from
@@ -14,6 +15,11 @@
 //     actually looking at something (a marker list that silently matched nothing would pass core
 //     builds forever).
 //
+//     `--tree` checks a staged copy of the build somewhere else, and `--bundles` the subset of
+//     files that copy actually ships — together they let a packaging step verify its own output
+//     against this one marker list instead of keeping a second copy of it (the desktop app's
+//     `desktop/scripts/stage-resources.mjs` does exactly that).
+//
 // The build itself already refuses to bundle a cloud module in the core edition (esbuild.js's
 // coreEditionPlugin); this is the independent, after-the-fact check on what actually shipped.
 
@@ -21,7 +27,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
 const edition = args[0]
 if (edition !== 'core' && edition !== 'full') {
@@ -30,16 +36,26 @@ if (edition !== 'core' && edition !== 'full') {
 }
 const skipManifest = args.includes('--skip-manifest')
 const pkgArgIndex = args.indexOf('--package')
-const packagePath = path.resolve(root, pkgArgIndex >= 0 ? args[pkgArgIndex + 1] : 'package.json')
+const packagePath = path.resolve(repoRoot, pkgArgIndex >= 0 ? args[pkgArgIndex + 1] : 'package.json')
 
-/** Everything the VSIX, the npm tarball and the Docker image execute. */
-const BUNDLES = [
+/** Where the bundles being checked live. The repo's own build output by default; `--tree` points at
+ *  a staged copy instead (an app bundle's resources, say). */
+const treeArgIndex = args.indexOf('--tree')
+const root = treeArgIndex >= 0 ? path.resolve(repoRoot, args[treeArgIndex + 1]) : repoRoot
+const bundlesArgIndex = args.indexOf('--bundles')
+
+/** Everything the VSIX, the npm tarball and the Docker image execute. Overridden by `--bundles`
+ *  for a staged tree that ships only some of them. */
+const DEFAULT_BUNDLES = [
   'dist/extension.js',
   'standalone/server.js',
   'standalone/cli.js',
   'media/dashboard.js',
   'media/sidebar.js',
 ]
+const BUNDLES = bundlesArgIndex >= 0
+  ? args[bundlesArgIndex + 1].split(',').map(b => b.trim()).filter(Boolean)
+  : DEFAULT_BUNDLES
 
 /** Strings that only TraceRoost Cloud code carries. Each is a plain substring (case-sensitive). */
 const MARKERS = [
@@ -67,6 +83,13 @@ const MARKERS = [
  *  in a release build, stage otherwise. Removed verbatim before the marker scan, so any other
  *  traceroost.com URL or endpoint still fails. */
 const PUBLIC_LINKS = ['https://stage.traceroost.com/suggest', 'https://traceroost.com/suggest']
+
+/** Likewise the bare public-site host as a string literal — `"traceroost.com"` with both quotes —
+ *  which the desktop shell's external-link allowlist carries (desktop/src/navigation.ts) so that
+ *  the suggest page above can open in the system browser. The quotes keep this exact: a Cloud
+ *  hostname such as `"stage.traceroost.com"` or any URL containing the host still matches the
+ *  marker, because neither has a quote immediately before `traceroost.com`. */
+const PUBLIC_HOST_LITERALS = ['"traceroost.com"']
 
 /** Manifest entries that must not appear in a core package.json. */
 function manifestProblems(pkg) {
@@ -100,7 +123,7 @@ for (const rel of BUNDLES) {
     failed = true
     continue
   }
-  const text = PUBLIC_LINKS.reduce((t, link) => t.split(link).join(''), fs.readFileSync(file, 'utf8'))
+  const text = [...PUBLIC_LINKS, ...PUBLIC_HOST_LITERALS].reduce((t, link) => t.split(link).join(''), fs.readFileSync(file, 'utf8'))
   const hits = MARKERS.map(m => [m, text.split(m).length - 1]).filter(([, n]) => n > 0)
   report.push({ rel, bytes: text.length, hits })
   if (edition === 'core' && hits.length > 0) {
