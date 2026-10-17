@@ -353,6 +353,7 @@ function BellButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
+        title={count > 0 ? `Alerts — ${count} triggered` : 'Alerts'}
         aria-label={count > 0 ? `Alerts (${count})` : 'Alerts'}
         aria-expanded={open}
         onClick={() => { bellOpen.value = !bellOpen.value }}
@@ -429,6 +430,7 @@ function GearButton() {
   return (
     <button
       class={'icon-btn' + (active ? ' active' : '')}
+      title="Settings"
       aria-label="Settings"
       aria-expanded={active}
       onClick={() => { configOpen.value = !configOpen.value }}
@@ -441,6 +443,7 @@ function HelpButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
+      title="Help"
       aria-label="Help"
       aria-pressed={isActive}
       onClick={() => { activeTab.value = 'help' }}
@@ -466,6 +469,7 @@ function PricingButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
+      title="Pricing"
       aria-label="Pricing"
       aria-pressed={isActive}
       onClick={() => { activeTab.value = 'pricing' }}

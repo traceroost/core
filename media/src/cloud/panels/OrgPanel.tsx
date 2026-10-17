@@ -135,6 +135,13 @@ const DOT_COLOR: Record<OrgIndicator, string> = {
   degraded: '#f14c4c',
 }
 
+const INDICATOR_LABEL: Record<OrgIndicator, string> = {
+  unlinked: 'not linked',
+  reporting: 'synced',
+  queued: 'queued',
+  degraded: 'paused',
+}
+
 export function requestOrgStatus(): void {
   vscode?.postMessage({ type: 'getOrgStatus' })
 }
@@ -203,6 +210,7 @@ export function OrgButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (active ? ' active' : '')}
+        title={`TraceRoost Cloud — ${indicator === 'reporting' && sending ? 'sending' : INDICATOR_LABEL[indicator]}`}
         aria-label="TraceRoost Cloud org"
         aria-expanded={active}
         onClick={() => { orgOpen.value = !orgOpen.value; if (orgOpen.value) requestOrgStatus() }}
