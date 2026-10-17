@@ -1,0 +1,47 @@
+import * as assert from 'assert'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
+import { parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer } from '../agentSetupConsent'
+import { readServiceConfig, writeServiceConfig, defaultServiceConfig } from '../serviceConfig'
+
+suite('agentSetupConsent', () => {
+  let home: string
+  setup(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'tr-consent-')) })
+  teardown(() => { fs.rmSync(home, { recursive: true, force: true }) })
+
+  test('unanswered until the user answers, then remembered', () => {
+    assert.strictEqual(readAgentSetupAnswer(home), undefined)
+    writeAgentSetupAnswer('no', home)
+    assert.strictEqual(readAgentSetupAnswer(home), 'no')
+    writeAgentSetupAnswer('yes', home)
+    assert.strictEqual(readAgentSetupAnswer(home), 'yes')
+  })
+
+  test('recording an answer keeps the rest of config.json, the access token above all', () => {
+    writeServiceConfig({ ...defaultServiceConfig(home), authToken: 'tok', uiPort: 3100 }, home)
+    writeAgentSetupAnswer('yes', home)
+    const config = readServiceConfig(home)
+    assert.strictEqual(config.authToken, 'tok')
+    assert.strictEqual(config.uiPort, 3100)
+  })
+
+  test('a hand-edited value that is neither yes nor no reads as unanswered', () => {
+    writeServiceConfig({ ...defaultServiceConfig(home), agentSetup: 'maybe' as 'yes' }, home)
+    assert.strictEqual(readAgentSetupAnswer(home), undefined)
+  })
+
+  test('only y or yes is a yes', () => {
+    for (const yes of ['y', 'Y', 'yes', ' YES ']) assert.strictEqual(parseYesNo(yes), 'yes', yes)
+    for (const no of ['', 'n', 'no', 'yep', 'sure']) assert.strictEqual(parseYesNo(no), 'no', no)
+  })
+
+  test('the dashboard shows the same words as VS Code and the terminal', () => {
+    const root = path.resolve(__dirname, '../../..')
+    const body = (file: string) => {
+      const text = fs.readFileSync(path.join(root, file), 'utf-8')
+      return text.slice(text.indexOf('/** The question'))
+    }
+    assert.strictEqual(body('media/src/agentSetupText.ts'), body('src/agentSetupText.ts'))
+  })
+})

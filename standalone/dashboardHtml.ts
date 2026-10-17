@@ -13,6 +13,8 @@ export interface DashboardHtmlVars {
   packageVersion: string
   /** `JSON.stringify` of the server's collectorConflict (or `null`). */
   collectorConflictJson: string
+  /** Whether the dashboard should ask to set up the coding agents (AgentSetupBanner). */
+  agentSetupPending: boolean
   /** `JSON.stringify` of the historical-ingest progress (or `null`). */
   logIngestJson: string
   /** sseSync's revision the inlined sessions are at. */
@@ -249,6 +251,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
     window.__INITIAL_SESSION_SUMMARY__ = ${v.sessionSummaryJson};
     window.__INITIAL_SESSION_REV__ = ${v.sessionRev};
     window.__INITIAL_COLLECTOR_CONFLICT__ = ${v.collectorConflictJson};
+    window.__INITIAL_AGENT_SETUP_PENDING__ = ${v.agentSetupPending ? 'true' : 'false'};
     window.__INITIAL_LOG_INGEST__ = ${v.logIngestJson};
     window.__STANDALONE__ = true;
     window.__VERSION__ = ${JSON.stringify(v.packageVersion)};

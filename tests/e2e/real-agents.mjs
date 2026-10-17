@@ -25,7 +25,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import {
   REPO_ROOT, IS_WIN, notice, log, assert, assertEqual, waitFor, freePorts, getJson, postJson, request, mcpCall,
-  makeTempHome, makeGitRepo, git, startProcess, stepRunner, sleep, rmrf,
+  makeTempHome, answerAgentSetupYes, makeGitRepo, git, startProcess, stepRunner, sleep, rmrf,
 } from './lib.mjs'
 
 const argv = process.argv.slice(2)
@@ -114,6 +114,7 @@ function runAgentCli(agent, repo, env) {
 async function standaloneStage() {
   const { step, summary } = stepRunner()
   const t = makeTempHome('agents-standalone')
+  answerAgentSetupYes(t.home)
   const [ui, otlp, mcp] = await freePorts(3)
   const env = { ...t.env, UI_PORT: String(ui), OTLP_PORT: String(otlp), MCP_PORT: String(mcp) }
   const srv = startProcess('traceroost', process.execPath, [path.join(REPO_ROOT, 'standalone', 'cli.js')], { env })

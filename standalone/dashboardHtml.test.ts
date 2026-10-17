@@ -7,6 +7,7 @@ function vars(nonce: string): DashboardHtmlVars {
     nonce,
     packageVersion: '1.2.3',
     collectorConflictJson: 'null',
+    agentSetupPending: false,
     logIngestJson: JSON.stringify({ done: 1, total: 2 }),
     sessionRev: 7,
     sessionSummaryJson: JSON.stringify({ sessions: [], efficiency: {}, backgroundSpans: [] }),

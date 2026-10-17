@@ -55,7 +55,7 @@ const EXPLAIN_FLAGS = ['--explain-payload', '--dry-run']
 export type TopLevelAction = 'server' | 'help' | 'version' | 'explain' | 'unknown-flag' | 'subcommand'
 
 /** What an argument list means once no subcommand matched. Only an empty list starts the server —
- *  an unknown or mistyped flag must not, since starting the server also auto-configures agents. */
+ *  an unknown or mistyped flag must not, since starting the server may also set agents up (or ask to). */
 export function topLevelAction(args: string[]): TopLevelAction {
   const first = args[0]
   if (first === undefined) return 'server'

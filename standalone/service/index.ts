@@ -1,4 +1,6 @@
 import * as fs from 'fs'
+import * as readline from 'node:readline/promises'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, parseYesNo, type AgentSetupAnswer } from '../../src/agentSetupConsent'
 import * as os from 'os'
 import * as path from 'path'
 import { isIPv6 } from 'net'
@@ -361,6 +363,21 @@ function printLogs(program: ServiceProgram, platformService: PlatformService, fo
   spawn(tailCmd, tailArgs, { stdio: 'inherit' })
 }
 
+/** Asks the agent-setup question when there is someone to answer it, or returns undefined (the
+ *  dashboard asks instead). TRACEROOST_NO_AUTOCONFIG=1 never asks. */
+async function askAgentSetupInTerminal(): Promise<AgentSetupAnswer | undefined> {
+  if (process.env.TRACEROOST_NO_AUTOCONFIG === '1' || !process.stdin.isTTY || !process.stdout.isTTY) return undefined
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    const input = await rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\nSet up agents? [y/N] `)
+    return parseYesNo(input)
+  } catch {
+    return undefined  // Ctrl-D: unanswered
+  } finally {
+    rl.close()
+  }
+}
+
 export async function runServiceCli(args: string[]): Promise<number> {
   const [subcommand, ...rest] = args
 
@@ -390,8 +407,12 @@ export async function runServiceCli(args: string[]): Promise<number> {
       // Carry the existing access token across a reinstall so bookmarked dashboard URLs keep working
       // — parseServiceInstallFlags starts from a blank token and the server would otherwise mint a
       // fresh one on next start.
-      const existingToken = readServiceConfig().authToken
-      if (existingToken) { config.authToken = existingToken }
+      const existing = readServiceConfig()
+      if (existing.authToken) { config.authToken = existing.authToken }
+      // The agent-setup answer (src/agentSetupConsent.ts) survives a reinstall too. Unanswered and
+      // in a terminal: ask now, since the service itself has no terminal and could only ask in the
+      // dashboard.
+      config.agentSetup = existing.agentSetup ?? await askAgentSetupInTerminal()
       const program = resolveInstallProgram(config)
 
       if (safeIsInstalled(platformService)) {

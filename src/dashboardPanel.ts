@@ -6,6 +6,7 @@ import { InstructionRepository } from './database/instructionRepository'
 import { detectInstructionFiles, appendSuggestion, removeSuggestion, instructionTargetPath } from './instructionFiles'
 import { computeBaseline } from './instructionEffectiveness'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex } from './autoConfig'
+import { writeAgentSetupAnswer } from './agentSetupConsent'
 import { serializeExport, exportFileExtension, type ExportFormat } from './exportFormats'
 import { classifySessionOutcome, onRunningGitCommandsChanged, type GitOutcome } from './gitOutcome'
 import { onActionLogChanged, getActionLogHistory } from './actionLog'
@@ -262,6 +263,9 @@ export class DashboardPanel {
         if (!isDeclaredSettingUpdate(this.context.extension.packageJSON, msg.key, msg.value)) { return }
         void vscode.workspace.getConfiguration('traceRoost').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
       } else if (msg.type === 'reconfigureOtel') {
+        // Pressing Configure OTEL is the user's yes (src/agentSetupConsent.ts) — remembered, so
+        // later activations keep the agents pointed at this port.
+        writeAgentSetupAnswer('yes')
         const port = vscode.workspace.getConfiguration('traceRoost').get<number>('otlpPort', 4318)
         const [copilot, claudeCode, codex] = await Promise.all([
           autoConfigureCopilot(port),

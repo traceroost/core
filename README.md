@@ -85,7 +85,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 
 ## Features
 
-- **OpenTelemetry collection** — Built-in OTEL receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; auto-configured on every activation (and every standalone server start)
+- **OpenTelemetry collection** — Built-in OTEL receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; TraceRoost asks once before setting your agents up, then keeps them pointed at it
 - **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, and Cursor CLI, and OpenCode's SQLite database — backfilling history when OTEL isn't configured (VS Code-family IDEs and native process only)
 - **Traces Table** — Drill into any trace: expand a row to see a full span waterfall, turn-to-tool flow graph, tool distribution chart, and modified files — all without leaving the trace list. Filter by agent, language, repo, git outcome, data source, initiator, time range or text; the agent pills and language list offer only what your traces contain, and changing the sort returns to page 1
 - **Files Changed** — The Files sub-tab tracks every file created or modified by a trace, organized with inline before/after diffs. A git-outcome banner then classifies each file as Merged (reached the trunk branch), Committed, or still Uncommitted by comparing against local git history after the fact — answers "did this trace's changes actually survive?" The same verdict drives the Traces table's **Out** column and Outcome filter (VS Code extension and native process; not available in Docker mode — same host git-repo access limitation as log file ingestion)
@@ -111,7 +111,7 @@ TraceRoost collects data from two independent sources per agent. Each trace row 
 
 ### OpenTelemetry traces (primary source)
 
-The VS Code extension runs a built-in OTEL HTTP receiver on port `4318` and auto-configures each agent on every activation. The native process and Docker modes also expose the same receiver. OTEL data is the richest source: real-time span timing, time-to-first-token, per-tool latency, loop detection signals, file diff content, and streaming speed. Traces from OTEL show an **OTEL** badge.
+The VS Code extension runs a built-in OTEL HTTP receiver on port `4318` and, once you say yes, configures each agent to send to it. The native process and Docker modes also expose the same receiver. OTEL data is the richest source: real-time span timing, time-to-first-token, per-tool latency, loop detection signals, file diff content, and streaming speed. Traces from OTEL show an **OTEL** badge.
 
 See [Manual Configuration](#manual-configuration) for the specific settings each agent needs. OTEL is the only data source available in Docker mode.
 
@@ -320,7 +320,7 @@ Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install fro
 
 1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)**
 2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
-3. TraceRoost auto-configures OTEL telemetry for Copilot, Claude Code, and Codex — restart any running agents to start streaming traces
+3. TraceRoost asks whether to set up Copilot, Claude Code, and Codex — choose **Set up agents**, then restart any running agents to start streaming traces
 4. Past trace history loads automatically from local log files — no extra setup needed
 
 ### Docker (OTEL only)
@@ -399,11 +399,13 @@ Trace history stored under the old `~/.agentlens` directory is not migrated auto
 
 ## Manual Configuration
 
-The VS Code extension and the standalone (`npx`) server both auto-configure Copilot, Claude Code, and Codex on every startup, so you shouldn't need any of this by default. It's here for when you do:
+The VS Code extension and the standalone (`npx`) server both offer to set up Copilot, Claude Code, and Codex, so you shouldn't need any of this by default. It's here for when you do:
 
+- **It asks first, once** — before TraceRoost changes any agent's settings, it asks: a notification in VS Code, a yes/no question in the terminal (`traceroost`, `traceroost service install`), or a banner in the dashboard when it runs as a background service. Saying yes lets it edit `~/.claude/settings.json`, `~/.codex/config.toml` and your editors' Copilot settings so the agents send their activity — including prompts and tool output — to TraceRoost on this computer. The answer is kept in `~/.traceroost/config.json` (`agentSetup`) and shared by every TraceRoost on the machine; **Configure OTEL** in Settings counts as a yes.
+- **It never takes over your own collector** — a settings file that already sends OpenTelemetry somewhere other than localhost is left exactly as it is.
 - **It's idempotent and quiet** — only rewrites a config file when something's actually missing or different, and only notifies (once, in a VS Code notification and the Output panel) when it changes something. Disable it entirely with the `traceRoost.autoConfigureAgents` setting.
 - **Changed an agent's OTEL settings by hand?** Use the **Configure OTEL** button in the Settings panel (gear icon) to reapply TraceRoost's values immediately, instead of waiting for the next restart.
-- **Docker doesn't auto-configure your host agents** — the same code runs, but it writes to the *container's* filesystem. Use the setup scripts below, or the manual steps per agent.
+- **Docker doesn't set up your host agents** — inside the container it could only reach the container's own files, so it doesn't offer. Use the setup scripts below, or the manual steps per agent.
 - Replace `4318` below with your custom port if you changed `traceRoost.otlpPort`.
 
 ### GitHub Copilot
@@ -774,7 +776,7 @@ The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Mac
 | `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver |
 | `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTEL span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
 | `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI. Disable if you only want OTEL data. |
-| `traceRoost.autoConfigureAgents` | `true` | Automatically write OTEL telemetry settings into Claude Code's, Codex's, and Copilot's own configuration on every activation. Disabling leaves your agents' configuration untouched — use the **Configure OTEL** button in Settings for a one-off manual apply, or configure OTEL manually (see [Manual Configuration](#manual-configuration)). |
+| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep their OTEL settings pointed at TraceRoost on every activation. Disabling leaves your agents' configuration untouched — use the **Configure OTEL** button in Settings for a one-off manual apply, or configure OTEL manually (see [Manual Configuration](#manual-configuration)). |
 | `traceRoost.enableMcpServer` | `true` | Start the TraceRoost MCP server so Claude Code and other MCP-compatible agents can query your trace history. |
 | `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (when `traceRoost.enableMcpServer` is true) |
 | `traceRoost.sessionRetentionDays` | `90` | How many days to keep trace history in the local database (pruned on activation and every 24 hours) |

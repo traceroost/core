@@ -34,6 +34,9 @@ export interface ServiceConfig {
    *  setting (same default). Transcript files last modified before the cutoff are not read, and
    *  traces that started before it are dropped on the daily tick. */
   sessionRetentionDays: number
+  /** Whether TraceRoost may set up the coding agents' telemetry (src/agentSetupConsent.ts) —
+   *  absent until the user answers. Shared by the VS Code extension and the standalone server. */
+  agentSetup?: 'yes' | 'no'
 }
 
 /** Default for `sessionRetentionDays` — matches the editor setting's default in package.json. */
@@ -197,7 +200,7 @@ export function readPackageManifest(fromDir: string): { name?: string; version?:
 
 // ── CLI flag parsing ─────────────────────────────────────────────────────────
 
-const FLAG_TO_KEY: Record<string, keyof ServiceConfig> = {
+const FLAG_TO_KEY: Record<string, Exclude<keyof ServiceConfig, 'agentSetup'>> = {
   '--ui-port':   'uiPort',
   '--otlp-port': 'otlpPort',
   '--mcp-port':  'mcpPort',

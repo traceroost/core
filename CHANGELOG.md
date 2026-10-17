@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **TraceRoost asks before setting up your agents** — it used to edit Claude Code's, Codex's and Copilot's settings on first start. Now it asks once, in plain words, what it will change (their settings files) and what that turns on (sending each run, including prompts and tool output, to TraceRoost on this computer): a notification in VS Code, a yes/no question when `traceroost` or `traceroost service install` runs in a terminal, or a banner in the dashboard for the background service. The answer is shared by every TraceRoost on the machine (`agentSetup` in `~/.traceroost/config.json`); **Configure OTEL** in Settings counts as a yes. Docker no longer touches agent settings at all — there it could only reach the container's own files
+
 ### Fixed
 
 - **Auto-configure no longer turns on prompt logging for your own collector** — when `~/.claude/settings.json`, `~/.codex/config.toml` or an editor's Copilot settings already export OpenTelemetry to a collector that isn't TraceRoost (a company or hosted one), TraceRoost left that endpoint alone but still switched on prompt and tool-content capture (`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_CONTENT`, Codex `log_user_prompt`) or Copilot's telemetry itself, so that content started reaching your collector. Such a file is now left untouched entirely, with a warning saying why

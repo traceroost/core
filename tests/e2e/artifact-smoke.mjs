@@ -24,7 +24,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   REPO_ROOT, IS_WIN, assert, assertEqual, log, notice, waitFor, freePorts, getJson, postJson, request, mcpCall,
-  makeTempHome, makeGitRepo, claudeFixture, writeClaudeTranscript, commitFixtureChange, startProcess, run, tryRun,
+  makeTempHome, answerAgentSetupYes, makeGitRepo, claudeFixture, writeClaudeTranscript, commitFixtureChange, startProcess, run, tryRun,
   stepRunner, SkipError, rmrf, sleep,
 } from './lib.mjs'
 
@@ -91,6 +91,7 @@ function traceroost(inst, args, env) {
 
 async function serverRoundTrip(inst, edition) {
   const home = makeTempHome(`smoke-${edition}`)
+  answerAgentSetupYes(home.home)
   const repo = makeGitRepo(home.home)
   const fx = claudeFixture({ repo })
   commitFixtureChange(repo, fx)

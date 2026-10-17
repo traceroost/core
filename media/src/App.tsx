@@ -14,7 +14,7 @@ import {
   sessionSortKey, sessionSortDir, sessionsPage,
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  collectorConflict, type CollectorConflict, logIngestProgress,
+  collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending,
   getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp,
 } from './state'
 import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
@@ -37,6 +37,7 @@ import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, Sessio
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
 import { suggestionUrl } from './suggest'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION } from './agentSetupText'
 
 /** The REPO filter's empty state, shown as its placeholder and first list entry. */
 const REPO_ALL = 'All'
@@ -654,6 +655,7 @@ export function App() {
         enableLogIngestion?: boolean
         otlpPort?: number
         collectorConflict?: CollectorConflict
+        agentSetupPending?: boolean
         logIngest?: LogIngestProgress
         currentWorkspace?: string | null
         results?: OtelReconfigureResult
@@ -671,6 +673,7 @@ export function App() {
         if (msg.enableLogIngestion !== undefined) enableLogIngestion.value = msg.enableLogIngestion
         if (msg.otlpPort !== undefined) otlpPort.value = msg.otlpPort
         if (msg.collectorConflict !== undefined) collectorConflict.value = msg.collectorConflict
+        if (msg.agentSetupPending !== undefined) agentSetupPending.value = msg.agentSetupPending
         if (msg.currentWorkspace !== undefined) currentWorkspace.value = msg.currentWorkspace
         if (msg.summary?.toolCalls) toolCalls.value = msg.summary.toolCalls
         if (msg.sessionSummary !== undefined) {
@@ -888,6 +891,7 @@ export function App() {
       </div>
 
       <CollectorConflictBanner />
+      <AgentSetupBanner />
       <OrgNoticeBanner />
       <LogIngestBanner />
       {showFilterBars && <TimeRangePicker />}
@@ -978,6 +982,37 @@ function CollectorConflictBanner() {
         onClick={() => setDismissedKey(key)}
         style="background:none;border:none;color:inherit;opacity:0.7;cursor:pointer;font-size:13px;line-height:1;padding:1px 2px;flex-shrink:0"
       >✕</button>
+    </div>
+  )
+}
+
+// Asks once, on the background/npx service, whether TraceRoost may set up the user's coding agents
+// (src/agentSetupConsent.ts); VS Code asks with a notification instead. The answer is stored by the
+// server and shared with every other TraceRoost host on the machine.
+function AgentSetupBanner() {
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
+  if (!agentSetupPending.value) return null
+  const answer = (choice: 'yes' | 'no') => {
+    setBusy(true)
+    setFailed(false)
+    fetch('/action', { method: 'POST', body: JSON.stringify({ type: 'agentSetup', answer: choice }),
+      headers: { 'Content-Type': 'application/json' } })
+      .then(r => { if (!r.ok) throw new Error(String(r.status)); agentSetupPending.value = false })
+      .catch(() => setFailed(true))
+      .finally(() => setBusy(false))
+  }
+  return (
+    <div class="collector-conflict-banner" role="region" aria-label="Set up your coding agents">
+      <div style="flex:1">
+        <strong>{AGENT_SETUP_QUESTION}</strong>
+        <div style="margin-top:2px">{AGENT_SETUP_EXPLANATION}</div>
+        {failed && <div style="margin-top:4px">That didn't go through — try again, or use Configure OTEL in Settings.</div>}
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('yes')}>Set up agents</button>
+          <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('no')}>Not now</button>
+        </div>
+      </div>
     </div>
   )
 }

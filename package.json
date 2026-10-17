@@ -142,7 +142,7 @@
           {
             "id": "traceroost.autoConfig",
             "title": "Agents Are Ready",
-            "description": "Unless auto-configuration is turned off (traceRoost.autoConfigureAgents), TraceRoost configured your agents to send telemetry to the local collector. Restart any running agents to start collecting traces. Past trace history is already loading from local log files — no restart needed to see it.",
+            "description": "Once you choose Set up agents, TraceRoost configures your agents to send telemetry to the local collector. Restart any running agents to start collecting traces. Past trace history is already loading from local log files — no restart needed to see it.",
             "media": {
               "markdown": "walkthrough/agents.md"
             }
@@ -188,7 +188,7 @@
         "traceRoost.autoConfigureAgents": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically write OTEL telemetry settings into Claude Code's (~/.claude/settings.json), Codex's (~/.codex/config.toml), and GitHub Copilot's own configuration so they send trace data to TraceRoost. Runs on every activation but only rewrites a file when something's actually missing, so it's silent after the first successful run (shows a notification only when it changes something). Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab's Setup section), or rely on traceRoost.enableLogIngestion alone. Codex and Copilot CLI traces have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
+          "description": "Offer to set up Claude Code (~/.claude/settings.json), Codex (~/.codex/config.toml) and GitHub Copilot to send their activity — including prompts and tool output — to TraceRoost on this computer. TraceRoost asks once before changing anything (the answer is shared with the background service); after a yes it keeps them pointed here on every activation, rewriting a file only when a setting is missing or differs. A file that already sends to a different collector is never changed. Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab's Setup section), or rely on traceRoost.enableLogIngestion alone. Codex and Copilot CLI traces have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
         },
         "traceRoost.enableOtelIngestion": {
           "type": "boolean",
