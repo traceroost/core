@@ -129,6 +129,9 @@ export class OwnedCollector {
         // asks for a flushed shutdown on every OS, and the only way on Windows, which has no
         // SIGTERM. It also makes the collector flush and exit if this app dies without asking.
         [OWNER_CHANNEL_ENV]: OWNER_CHANNEL_IPC,
+        // The app shows the dashboard in its own window; the collector must not also open a
+        // browser tab on every start, as it does when run from a terminal.
+        TRACEROOST_NO_OPEN: '1',
       },
       // The fourth entry is the IPC channel: a pipe only this process and the child hold — no
       // port, no token, nothing a web page or another user could reach.

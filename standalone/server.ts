@@ -2323,8 +2323,10 @@ async function startUiServer(): Promise<void> {
   // first load when the token is actually required; the printed URL above is the fallback if
   // auto-open fails or you're opening on another device.
   // Never from the background service: it starts at every login, and a browser tab popping open
-  // each time is noise. `traceroost service install` opens it once instead.
-  if (process.env.TRACEROOST_SERVICE !== '1') {
+  // each time is noise. `traceroost service install` opens it once instead. Nor when asked not to
+  // (TRACEROOST_NO_OPEN=1): the desktop app shows the dashboard in its own window.
+  const noOpen = process.env.TRACEROOST_NO_OPEN === '1' || process.env.TRACEROOST_NO_OPEN === 'true'
+  if (process.env.TRACEROOST_SERVICE !== '1' && !noOpen) {
     openInBrowser(url, () => console.log(`\nOpen ${printable} in your browser\n`))
   }
 
