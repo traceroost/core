@@ -97,8 +97,10 @@ Open the DMG and drag TraceRoost to Applications, or unzip the zip. Then:
   quarantine flag and opens normally.
 - **A signed and notarized build** opens like any other app.
 
-Check a download against the published `SHA256SUMS` with `shasum -a 256 -c SHA256SUMS` in the
-directory holding the files.
+Check a download against the release's `TraceRoost-desktop-<v>-SHA256SUMS` with
+`shasum -a 256 -c TraceRoost-desktop-<v>-SHA256SUMS --ignore-missing` in the directory holding the
+files. (A local `pnpm run pack` writes a plain `dist/SHA256SUMS`.) Releases attach the macOS files
+only once they are notarized; see [Releases](#releases).
 
 On first launch the app decides who owns the data directory (below), starts a collector if nothing
 else does, and opens the dashboard. It uses the same `~/.traceroost` data directory and
@@ -241,11 +243,11 @@ service for you.
 ### Verifying a download
 
 ```sh
-sha256sum -c SHA256SUMS --ignore-missing
-minisign -Vm SHA256SUMS -P <public key>      # once releases are signed — see below
+sha256sum -c TraceRoost-desktop-<v>-SHA256SUMS --ignore-missing
+minisign -Vm TraceRoost-desktop-<v>-SHA256SUMS -P <public key>      # once releases are signed — see below
 ```
 
-`SHA256SUMS` is the Linux integrity story: there is no package signature until an APT repository
+The checksums file is the Linux integrity story: there is no package signature until an APT repository
 exists (the plan's Stage 5). CI signs it with minisign when the `MINISIGN_SECRET_KEY` and
 `MINISIGN_PASSWORD` secrets exist (`minisign -G` makes the pair). **No key exists yet**: the
 public key goes here and in the release notes when one is made.
@@ -457,7 +459,31 @@ that touches the desktop, collector, dashboard or build inputs (and on `main` fo
 changes). On an Apple Silicon runner it builds and packs both architectures (afterPack verifying
 each), smoke-tests the arm64 app, runs the staged-collector integration suite, prints the
 signature state, and uploads the DMGs, zips, `SHA256SUMS` and `THIRD_PARTY_NOTICES.md` as a build
-artifact for 14 days. It publishes nothing: that waits for signing.
+artifact for 14 days. [`desktop-linux.yml`](../.github/workflows/desktop-linux.yml) does the same
+for the .deb and AppImage on native x64 and arm64 runners, then installs and runs them across the
+distro matrix.
+
+## Releases
+
+A `v*` tag's `release.yml` run calls [`desktop-release.yml`](../.github/workflows/desktop-release.yml)
+(its `desktop` job) once `package` has passed and created the GitHub release. That calls both
+workflows above, waits for their jobs, re-verifies each artifact against the SHA256SUMS its build
+wrote (`scripts/release-assets.mjs`, tested by `src/releaseAssets.test.ts`), and attaches the
+installers, one `TraceRoost-desktop-<v>-SHA256SUMS` and build-provenance attestations. The version is
+the repo's `package.json` version, which `package` has checked against the tag.
+
+| Platform | Attached to a release when |
+| --- | --- |
+| Linux (.deb, AppImage; x64, arm64) | always, once the build and install matrix pass |
+| macOS (DMG, zip; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is built and tested on every release and left off it |
+| Windows | not built for releases (paused) |
+
+Platforms are independent: if one platform's build fails, the others are still attached. The
+repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default `linux,macos`) switches a platform off
+without a code change, and a non-`core` release edition skips desktop entirely. A desktop failure
+never blocks the VSIX, npm or Docker publish. Files already on a release are never replaced; a re-run
+uploads only what is missing and fails on a same-named file with different bytes. A pull request
+that changes `desktop-release.yml` or the assembly script runs everything except attest and upload.
 
 ## What is not done yet
 
@@ -466,8 +492,8 @@ Linux, beyond the [matrix](#supported-matrix-what-has-actually-been-run) above:
 - **Real desktop sessions.** The tray (GNOME stock and Ubuntu, KDE Plasma, XFCE; Wayland and
   X11), the close question, the minimised login launch, the AppImage menu entry and Launch at
   Login have been unit-tested and run under Xvfb, but never in a real desktop.
-- **A minisign key** for `SHA256SUMS`, and a release job publishing the artifacts. The Linux rows
-  in the download chooser wait for both.
+- **A minisign key** for the release checksums. Releases attach the Linux installers without one
+  (with SHA256 checksums only); the Linux rows in the download chooser wait for it.
 - **Updates.** The AppImage could self-update (electron-updater supports it) and the .deb would
   show a notice. Both follow the shared update rules, which macOS has not built yet either.
 - **arm64 downloads** wait for the arm64 CI legs to pass.

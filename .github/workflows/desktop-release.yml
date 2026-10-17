@@ -1,0 +1,211 @@
+name: Desktop release
+
+# Attaches the desktop app's installers to a `v*` tag's GitHub release. release.yml calls it (its
+# `desktop` job) after `package` has passed and created the release, the way it calls docker.yml.
+# It is a separate job, so a desktop failure never holds back the VSIX, npm package or Docker image.
+#
+# It publishes nothing new: it calls desktop-macos.yml and desktop-linux.yml (the builds every
+# desktop pull request runs), waits for their jobs (packaging, smoke tests, and the Linux
+# install/sandbox matrix), then re-verifies each artifact against the SHA256SUMS its build wrote and
+# uploads them (desktop/scripts/release-assets.mjs). Its version is package.json's, which `package`
+# has already checked against the tag; the desktop app has no version of its own.
+#
+# What gets attached:
+#   edition    desktop is core-only. Any other release edition skips desktop with a notice.
+#   platforms  the repository variable TRACEROOST_DESKTOP_PLATFORMS (default `linux,macos`). Remove a
+#              platform there to stop releasing it without touching this file.
+#   macOS      additionally only when desktop-macos.yml reports the build notarized, i.e. once the
+#              Apple Developer Program secrets exist. Until then it is built and tested on every
+#              release and left off it, with a notice.
+#   failures   platforms are independent: if one platform's build fails, the others are still
+#              attached and the failed one is a notice (plus its red job).
+#
+# One `TraceRoost-desktop-<v>-SHA256SUMS` covers exactly the attached files; it is signed with
+# minisign (`.minisig` beside it) when MINISIGN_SECRET_KEY / MINISIGN_PASSWORD exist. Every attached
+# file gets a build-provenance attestation (`gh attestation verify <file> --repo <this repo>`).
+# Assets already on the release are never replaced: a re-run uploads what is missing and fails if a
+# file of the same name with different bytes is already there.
+#
+# A pull request that changes this workflow or the assembly script, and a manual run, do everything
+# except attest and upload, so the release path is exercised before a tag depends on it.
+
+on:
+  workflow_call:
+    inputs:
+      edition:
+        description: The release edition (release.yml's EDITION); desktop builds only for `core`
+        type: string
+        default: core
+    secrets:
+      MAC_CSC_LINK:
+        required: false
+      MAC_CSC_KEY_PASSWORD:
+        required: false
+      APPLE_API_KEY_P8:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
+      MINISIGN_SECRET_KEY:
+        required: false
+      MINISIGN_PASSWORD:
+        required: false
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-release.yml'
+      - 'desktop/scripts/release-assets.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.gate.outputs.build }}
+      platforms: ${{ steps.gate.outputs.platforms }}
+    steps:
+      - id: gate
+        env:
+          EDITION: ${{ inputs.edition || 'core' }}
+          PLATFORMS: ${{ vars.TRACEROOST_DESKTOP_PLATFORMS || 'linux,macos' }}
+        run: |
+          if [ "$EDITION" != core ]; then
+            echo "::notice::Release edition is '$EDITION'; the desktop app is core-only, so no desktop files are built or attached."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "platforms=,$PLATFORMS," >> "$GITHUB_OUTPUT"
+          echo "Desktop platforms enabled: $PLATFORMS"
+
+  macos:
+    needs: gate
+    if: needs.gate.outputs.build == 'true' && contains(needs.gate.outputs.platforms, ',macos,')
+    uses: ./.github/workflows/desktop-macos.yml
+    secrets: inherit
+
+  linux:
+    needs: gate
+    if: needs.gate.outputs.build == 'true' && contains(needs.gate.outputs.platforms, ',linux,')
+    uses: ./.github/workflows/desktop-linux.yml
+    secrets: inherit
+
+  publish:
+    needs: [gate, macos, linux]
+    if: >-
+      !cancelled() && needs.gate.outputs.build == 'true' &&
+      (needs.macos.result == 'success' || needs.linux.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      IS_RELEASE: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+      MACOS_RESULT: ${{ needs.macos.result }}
+      LINUX_RESULT: ${{ needs.linux.result }}
+      NOTARIZED: ${{ needs.macos.outputs.notarized }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            desktop/scripts
+            package.json
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Which platforms to attach
+        id: plan
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          platforms=""
+          if [ "$LINUX_RESULT" = success ]; then platforms="linux"
+          elif [ "$LINUX_RESULT" != skipped ]; then echo "::warning::The Linux desktop build did not pass ($LINUX_RESULT); Linux is not attached."; fi
+          if [ "$MACOS_RESULT" = success ] && [ "$NOTARIZED" = true ]; then platforms="${platforms:+$platforms,}macos"
+          elif [ "$MACOS_RESULT" = success ]; then echo "::notice::macOS was built and tested but is not notarized (no Apple Developer secrets yet); it is not attached."
+          elif [ "$MACOS_RESULT" != skipped ]; then echo "::warning::The macOS desktop build did not pass ($MACOS_RESULT); macOS is not attached."; fi
+          echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
+          if [ -z "$platforms" ]; then echo "::notice::No desktop platform to attach to this release."; fi
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.plan.outputs.platforms != ''
+        with:
+          pattern: traceroost-desktop-*
+          path: artifacts
+
+      - name: Verify and assemble the release files
+        if: steps.plan.outputs.platforms != ''
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          PLATFORMS: ${{ steps.plan.outputs.platforms }}
+        run: node desktop/scripts/release-assets.mjs --in artifacts --out release --version "$VERSION" --platforms "$PLATFORMS"
+
+      - name: Sign the checksums
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        if: steps.plan.outputs.platforms != '' && env.MINISIGN_SECRET_KEY != ''
+        working-directory: release
+        run: |
+          sudo apt-get install -y -qq minisign >/dev/null
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+          printf '%s\n' "$MINISIGN_PASSWORD" | minisign -S -s "$RUNNER_TEMP/minisign.key" \
+            -m "TraceRoost-desktop-$VERSION-SHA256SUMS" -t "TraceRoost desktop $VERSION"
+          rm -f "$RUNNER_TEMP/minisign.key"
+
+      - name: Summary
+        if: steps.plan.outputs.platforms != ''
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          {
+            echo "### Desktop $VERSION"
+            if [ "$IS_RELEASE" = true ]; then echo "Attaching to release \`$GITHUB_REF_NAME\`:"; else echo "Dry run — would attach:"; fi
+            echo
+            for f in release/*; do echo "- \`$(basename "$f")\` ($(du -h "$f" | cut -f1))"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+
+      - name: Build provenance
+        if: steps.plan.outputs.platforms != '' && env.IS_RELEASE == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/TraceRoost-*
+
+      # release.yml's `package` job created the release before calling this workflow.
+      - name: Attach to the GitHub release (never replacing a shipped file)
+        if: steps.plan.outputs.platforms != '' && env.IS_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          upload=()
+          fail=0
+          mkdir -p "$RUNNER_TEMP/existing"
+          for f in release/*; do
+            name="$(basename "$f")"
+            if grep -qxF "$name" <<<"$existing"; then
+              gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" -p "$name" -D "$RUNNER_TEMP/existing" --clobber
+              if cmp -s "$f" "$RUNNER_TEMP/existing/$name"; then
+                echo "$name is already attached, unchanged"
+              else
+                echo "::error::$name is already on $GITHUB_REF_NAME with different contents; not replacing a shipped file. Delete that asset by hand if replacing it is really intended."
+                fail=1
+              fi
+            else
+              upload+=("$f")
+            fi
+          done
+          if [ "${#upload[@]}" -gt 0 ]; then
+            gh release upload "$GITHUB_REF_NAME" "${upload[@]}" --repo "$GITHUB_REPOSITORY"
+          fi
+          exit "$fail"

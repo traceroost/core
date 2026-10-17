@@ -3,11 +3,11 @@ name: Desktop (macOS)
 # Builds the macOS desktop app (desktop/) for both architectures, verifies the packed bundle,
 # smoke-tests the one that matches the runner, and uploads the DMG/zip/checksums as build artifacts.
 #
-# This is a CI build, not a release. The artifacts it produces are **not** published anywhere:
-# until the Apple Developer Program secrets below exist they are ad-hoc signed, and an ad-hoc
-# signed download is refused by Gatekeeper (right-click → Open gets past it; see desktop/README.md).
-# Once signing and notarization are in place, a release job can promote these same steps — the
-# build is identical either way, which is the point of running it on every change now.
+# On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
+# runs it through desktop-release.yml (`workflow_call`), which attaches the macOS files to the
+# GitHub release **only if `notarized` comes out true** — until the Apple Developer Program secrets
+# below exist the app is ad-hoc signed, and Gatekeeper refuses an ad-hoc signed download
+# (right-click → Open gets past it; see desktop/README.md). The build is identical either way.
 #
 # Signing and notarization are switched on by secrets alone (desktop/electron-builder.cjs
 # reads the environment; nothing here branches on it):
@@ -40,12 +40,19 @@ on:
       - 'desktop/**'
       - '.github/workflows/desktop-macos.yml'
   workflow_dispatch:
+  workflow_call:
+    outputs:
+      notarized:
+        description: "'true' when both apps are Developer ID signed and carry a stapled notarization ticket"
+        value: ${{ jobs.package.outputs.notarized }}
 
 permissions:
   contents: read
 
+# github.workflow is the caller's name under workflow_call, so a release's run of this workflow and
+# a pull request's run of it never cancel each other.
 concurrency:
-  group: desktop-macos-${{ github.ref }}
+  group: desktop-macos-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -56,6 +63,8 @@ jobs:
     # which is not the same as validating it on an Intel Mac.
     runs-on: macos-15
     timeout-minutes: 45
+    outputs:
+      notarized: ${{ steps.notarization.outputs.notarized }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -122,6 +131,25 @@ jobs:
       # Windows CI legs because they have no Electron; here it has one.
       - name: Staged collector integration tests
         run: pnpm run compile-tests:desktop && npx mocha --grep "staged collector" --color
+
+      # With the notarization key configured, a build that is not actually signed and stapled is a
+      # failure, not a silent ad-hoc fallback. Without it, `notarized=false` keeps the macOS files out
+      # of a release (desktop-release.yml).
+      - name: Notarization check
+        id: notarization
+        working-directory: desktop
+        run: |
+          if [ -z "${APPLE_API_KEY:-}" ]; then
+            echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release will not attach it"
+            echo "notarized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for app in dist/mac*/TraceRoost.app; do
+            echo "== $app"
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+          done
+          echo "notarized=true" >> "$GITHUB_OUTPUT"
 
       - name: Signature report
         working-directory: desktop

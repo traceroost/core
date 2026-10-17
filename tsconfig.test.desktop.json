@@ -36,6 +36,7 @@
     "desktop/src/resources.test.ts",
     "desktop/src/trayMenu.ts",
     "desktop/src/trayMenu.test.ts",
+    "desktop/src/releaseAssets.test.ts",
     "desktop/src/appImageLauncher.ts",
     "desktop/src/autostart.ts",
     "desktop/src/closeBehavior.ts",

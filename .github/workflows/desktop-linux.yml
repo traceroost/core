@@ -12,8 +12,9 @@ name: Desktop (Linux)
 #             profile, and the app never runs unsandboxed); with it off, it must run sandboxed and
 #             pass the smoke test on the runner and on Fedora, openSUSE Tumbleweed and Arch.
 #
-# This is a CI build, not a release: artifacts are uploaded for 14 days and published nowhere.
-# SHA256SUMS is signed with minisign when the MINISIGN_SECRET_KEY secret exists (README.md →
+# On its own this is a CI build: artifacts are uploaded for 14 days and published nowhere. A `v*`
+# tag runs it through desktop-release.yml (`workflow_call`), which attaches the installers to the
+# GitHub release once every job here has passed. SHA256SUMS is signed with minisign when the MINISIGN_SECRET_KEY secret exists (README.md →
 # "Linux" → "Verifying a download"); until then it is unsigned.
 
 on:
@@ -34,12 +35,15 @@ on:
       - 'desktop/**'
       - '.github/workflows/desktop-linux.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
+# github.workflow is the caller's name under workflow_call, so a release's run of this workflow and
+# a pull request's run of it never cancel each other.
 concurrency:
-  group: desktop-linux-${{ github.ref }}
+  group: desktop-linux-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
