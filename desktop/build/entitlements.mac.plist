@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the TraceRoost desktop app. The minimum Electron needs and
+  nothing more:
+
+    allow-jit                            V8 compiles JavaScript to machine code at run time.
+    allow-unsigned-executable-memory     Electron still requires this alongside allow-jit for the
+                                         renderer and for Node (and the collector runs on this
+                                         same binary as Node — ELECTRON_RUN_AS_NODE).
+
+  Deliberately absent:
+    disable-library-validation           only needed for unsigned native modules; the app has none.
+    allow-dyld-environment-variables     ELECTRON_RUN_AS_NODE is read by Electron itself, not dyld.
+    device / network-client entitlements those belong to the App Sandbox, which this app does not
+                                         opt into (it reads ~/.traceroost and agents' config files).
+    automation.apple-events              the app sends no Apple Events.
+
+  Used as both `entitlements` and `entitlementsInherit` (electron-builder.cjs), so the
+  helper processes carry the same minimal set.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+  </dict>
+</plist>

@@ -1,0 +1,179 @@
+name: Desktop (macOS)
+
+# Builds the macOS desktop app (desktop/) for both architectures, verifies the packed bundle,
+# smoke-tests the one that matches the runner, and uploads the DMG/zip/checksums as build artifacts.
+#
+# On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
+# runs it through desktop-release.yml (`workflow_call`), which attaches the macOS files to the
+# GitHub release **only if `notarized` comes out true** — until the Apple Developer Program secrets
+# below exist the app is ad-hoc signed, and Gatekeeper refuses an ad-hoc signed download
+# (right-click → Open gets past it; see desktop/README.md). The build is identical either way.
+#
+# Signing and notarization are switched on by secrets alone (desktop/electron-builder.cjs
+# reads the environment; nothing here branches on it):
+#
+#   MAC_CSC_LINK             base64 of the Developer ID Application .p12   → CSC_LINK
+#   MAC_CSC_KEY_PASSWORD     its password                                   → CSC_KEY_PASSWORD
+#   APPLE_API_KEY_P8         contents of the App Store Connect API .p8 key  → written to a file,
+#                                                                              its path → APPLE_API_KEY
+#   APPLE_API_KEY_ID         the key's id                                   → APPLE_API_KEY_ID
+#   APPLE_API_ISSUER         the issuer id                                  → APPLE_API_ISSUER
+#
+# An empty secret expands to an empty string, which the config treats as absent — so a repo
+# without them builds exactly as a developer's machine without them does.
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'standalone/**'
+      - 'src/**'
+      - 'media/**'
+      - 'scripts/check-edition.mjs'
+      - 'esbuild.js'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop-macos.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-macos.yml'
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      notarized:
+        description: "'true' when both apps are Developer ID signed and carry a stapled notarization ticket"
+        value: ${{ jobs.package.outputs.notarized }}
+
+permissions:
+  contents: read
+
+# github.workflow is the caller's name under workflow_call, so a release's run of this workflow and
+# a pull request's run of it never cancel each other.
+concurrency:
+  group: desktop-macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    # Apple Silicon runner. The x64 app is cross-built on it (electron-builder downloads the x64
+    # Electron; the app has no native modules), so both artifacts come out of one job. Only the
+    # arm64 app is launched for the smoke test — running the x64 one here would go through Rosetta,
+    # which is not the same as validating it on an Intel Mac.
+    runs-on: macos-15
+    timeout-minutes: 45
+    outputs:
+      notarized: ${{ steps.notarization.outputs.notarized }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install repo dependencies
+        run: pnpm install --frozen-lockfile
+
+      # desktop/ is deliberately outside the pnpm workspace (its README says why); it has its own
+      # npm lockfile pinning Electron and electron-builder.
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      # npm on the runner no longer runs Electron's postinstall, which leaves node_modules/electron/
+      # dist/ without the binary and without LICENSES.chromium.html (electron-builder.cjs copies it,
+      # afterPack requires it). install.js is the postinstall itself and is a no-op when it already ran.
+      - name: Download the Electron binary
+        working-directory: desktop
+        run: node node_modules/electron/install.js && test -f node_modules/electron/dist/LICENSES.chromium.html
+
+      # Only runs when the notarization key secret exists; otherwise APPLE_API_KEY stays unset and
+      # the config leaves notarization off. (The `secrets` context cannot be read in a step's `if`,
+      # hence the detour through `env`.)
+      - name: Write the App Store Connect API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        if: env.APPLE_API_KEY_P8 != ''
+        run: |
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      # Type-checks, bundles the main process (release build), stages the core-edition collector,
+      # writes the third-party notices, packs arm64 + x64 (afterPack verifies each .app: layout,
+      # versions, core edition, bundled Node), and writes SHA256SUMS.
+      - name: Build and package
+        working-directory: desktop
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          # No keychain search on a runner: either CSC_LINK provides the identity or the config
+          # ad-hoc signs. (The same variable is harmless on a developer's machine.)
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # electron-builder skips *all* signing on a pull-request build (it sees GITHUB_BASE_REF)
+          # unless told otherwise, and that would include the ad-hoc signature Apple Silicon needs
+          # to launch the app for the smoke test. The warning this silences is about leaking a
+          # signing certificate to fork PRs; GitHub never exposes repository secrets to a fork's
+          # workflow run, so a fork PR here can only ever produce an ad-hoc build.
+          CSC_FOR_PULL_REQUEST: 'true'
+        run: pnpm run pack
+
+      # Launch the packaged arm64 app with HOME redirected: owned mode, bound ports, identity probe,
+      # dashboard served, SIGTERM → flushed collector and released lock.
+      - name: Smoke test the packaged app
+        working-directory: desktop
+        run: pnpm run smoke
+
+      # The staged-tree integration suite (src/stagedCollector.test.ts) is skipped on the Ubuntu and
+      # Windows CI legs because they have no Electron; here it has one.
+      - name: Staged collector integration tests
+        run: pnpm run compile-tests:desktop && npx mocha --grep "staged collector" --color
+
+      # With the notarization key configured, a build that is not actually signed and stapled is a
+      # failure, not a silent ad-hoc fallback. Without it, `notarized=false` keeps the macOS files out
+      # of a release (desktop-release.yml).
+      - name: Notarization check
+        id: notarization
+        working-directory: desktop
+        run: |
+          if [ -z "${APPLE_API_KEY:-}" ]; then
+            echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release will not attach it"
+            echo "notarized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for app in dist/mac*/TraceRoost.app; do
+            echo "== $app"
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+          done
+          echo "notarized=true" >> "$GITHUB_OUTPUT"
+
+      - name: Signature report
+        working-directory: desktop
+        run: |
+          for app in dist/mac*/TraceRoost.app; do
+            echo "== $app"
+            codesign --display --verbose=2 "$app" 2>&1 | grep -E 'Identifier|Authority|Signature|TeamIdentifier|flags' || true
+          done
+          cat dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: traceroost-desktop-macos
+          path: |
+            desktop/dist/TraceRoost-*.dmg
+            desktop/dist/TraceRoost-*.zip
+            desktop/dist/SHA256SUMS
+            desktop/resources/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+          retention-days: 14
