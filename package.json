@@ -246,7 +246,8 @@
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
-    "NOTICE.md"
+    "NOTICE.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "prepare": "node -e \"try{if(!process.env.CI&&require('fs').existsSync('.git'))require('child_process').execFileSync('git',['config','core.hooksPath','.githooks'],{stdio:'ignore'})}catch{}\"",

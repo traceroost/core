@@ -44,6 +44,8 @@ COPY --from=builder --chown=traceroost:traceroost /app/media/mascot.png     ./me
 # copy from the very sql.js the bundle was built with (standalone/sqlWasm.ts) — no node_modules.
 COPY --from=builder --chown=traceroost:traceroost /app/dist/sql-wasm.wasm   ./dist/sql-wasm.wasm
 COPY --from=builder --chown=traceroost:traceroost /app/package.json        ./package.json
+# The licenses: TraceRoost's own and those of the packages bundled into server.js.
+COPY --chown=traceroost:traceroost LICENSE NOTICE.md THIRD_PARTY_NOTICES.md ./
 
 RUN mkdir -p /data && chown traceroost:traceroost /data
 VOLUME ["/data"]

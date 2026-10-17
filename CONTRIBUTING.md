@@ -17,6 +17,11 @@ funds the project's continued development. See [NOTICE.md](NOTICE.md) for the ex
 against contributions — PRs there are welcome too — but new work in that zone ships under BSL,
 not MIT, so if you're unsure which license your change would land under, open an issue first.
 
+Adding, removing or upgrading a dependency that ends up in a bundle changes what TraceRoost
+redistributes: run `node scripts/third-party-notices.mjs` and commit the updated
+`THIRD_PARTY_NOTICES.md` (CI fails until you do). Only packages under permissive licenses (MIT,
+ISC, BSD, Apache-2.0) can be bundled.
+
 ## Reporting bugs
 
 Open an issue at <https://github.com/traceroost/core/issues> and use the bug report template. Include:

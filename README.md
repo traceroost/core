@@ -789,6 +789,9 @@ MIT, except the `src/cloud/`, `src/test/cloud/`, `media/src/cloud/`, and
 `standalone/cloud/` directories (the org/cloud client — Business Source
 License 1.1) — see [NOTICE.md](NOTICE.md).
 
+The open source packages bundled into TraceRoost, with their licenses, are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Disclaimer
 
 TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); OpenAI, LLC (Codex CLI); Anysphere, Inc. (Cursor / Cursor CLI); or the OpenCode project (OpenCode). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products only through their telemetry interfaces and the log files and databases they write locally on your machine.

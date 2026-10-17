@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Third-party notices ship with every build** — `THIRD_PARTY_NOTICES.md` carries the copyright and license text of each open source package bundled into TraceRoost (the MCP SDK, ajv, zod, preact, sql.js and the rest), in the npm package, the VS Code extension and the Docker image. It is generated from the bundler's own record of what it included, and CI fails if it falls out of date
+
 ## [0.19.2] — 2026-10-15
 
 ### Fixed
