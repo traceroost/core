@@ -63,6 +63,14 @@ for (const name of [
   if (process.env[name] === '') delete process.env[name]
 }
 
+// The NSIS installer carries the app as a 7z archive and unpacks it with the Nsis7z plugin, whose
+// 7-Zip is older than the ARM64 branch filter. Current 7-Zip applies that filter to arm64 PE files
+// by itself, so an arm64 installer installed every file *except* the .exe and .dlls — Nsis7z could
+// not decode them, and the install still "succeeded" (seen on the windows-11-arm runner). Forcing
+// the x86 BCJ filter, which Nsis7z has always understood, is lossless for any input; it only
+// affects how well arm64 code compresses. A value set in the environment still wins.
+if (!process.env.ELECTRON_BUILDER_7Z_FILTER) process.env.ELECTRON_BUILDER_7Z_FILTER = 'BCJ'
+
 const hasDeveloperId = Boolean(process.env.CSC_LINK || process.env.CSC_NAME)
 const hasNotaryCredentials =
   Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER) ||
