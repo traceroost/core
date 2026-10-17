@@ -63,11 +63,79 @@ const REQUEST_TIMEOUT_MS = 15_000
 export class TokenRefreshError extends Error {
   /** `upgradeRequired`: the cloud answered 426 `client_upgrade_required` — this TraceRoost
    *  version is too old; nothing is wrong with the credential (not permanent). */
-  /** `unanswered`: no definite answer from the cloud (a gateway error or a body that isn't the
-   *  cloud's) — the token may or may not have been rotated server-side. */
+  /** `unanswered`: the request may have reached the cloud but no definite answer came back (a
+   *  timeout, a reset, a gateway error or a body that isn't the cloud's) — the token may or may
+   *  not have been rotated server-side. Never set when no connection was made (offline, DNS,
+   *  refused): see `isUnansweredPresentation`. */
   constructor(message: string, public readonly permanent: boolean, public readonly upgradeRequired = false, public readonly unanswered = false) {
     super(message)
   }
+}
+
+/** Error codes (on a thrown error or anywhere down its `cause` chain — Node's fetch throws
+ *  `TypeError('fetch failed')` with the socket/DNS error as `cause`) that mean no connection to
+ *  the server was ever made, so the request — and the refresh token in it — never left this
+ *  machine: DNS failed, the connection was refused, there is no route or no network, or the TCP
+ *  connect itself timed out (undici's `UND_ERR_CONNECT_TIMEOUT`). `UND_ERR_PRX_TLS` is the TLS
+ *  handshake to a proxy failing, before anything is forwarded. */
+const NEVER_CONNECTED_CODES = new Set([
+  'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'EADDRNOTAVAIL',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_PRX_TLS',
+])
+/** undici's message when an HTTPS proxy refuses the CONNECT tunnel (a 403/407 from the proxy) —
+ *  the request was never forwarded to the server. */
+const PROXY_TUNNEL_REFUSED = /^Proxy response \(\d{3}\) !== 200 when HTTP Tunneling/
+
+function neverConnected(err: unknown, depth: number): boolean {
+  if (depth > 8 || !err || typeof err !== 'object') return false
+  const e = err as { code?: unknown; message?: unknown; cause?: unknown; errors?: unknown }
+  if (typeof e.code === 'string' && NEVER_CONNECTED_CODES.has(e.code)) return true
+  if (typeof e.message === 'string' && PROXY_TUNNEL_REFUSED.test(e.message)) return true
+  // Happy-eyeballs connects fail with an AggregateError of one error per address tried: none of
+  // them connected only if every one of them says so.
+  if (Array.isArray(e.errors) && e.errors.length > 0 && e.errors.every(x => neverConnected(x, depth + 1))) return true
+  return neverConnected(e.cause, depth + 1)
+}
+
+/** How a refresh request ended without tokens: it threw (`thrown`), or the server — or something
+ *  in front of it — answered `status` with `oauthError` as the body's `error` field (absent when
+ *  the body wasn't the cloud's OAuth JSON). */
+export type RefreshFailure =
+  | { thrown: unknown }
+  | { status: number; oauthError: unknown }
+
+/**
+ * Whether a failed refresh is an *unanswered presentation*: the refresh token may have reached the
+ * cloud — which may then have rotated it — but no definite answer came back. Those are counted
+ * (`tokenRefresh.ts`, `MAX_UNANSWERED_PRESENTATIONS`), because the cloud honours a replay of the
+ * just-rotated token only once.
+ *
+ * - Unanswered: a timeout or abort (we can't tell whether it connected first, so it counts), a
+ *   connection reset or close after connecting, any other thrown error, and an HTTP error whose
+ *   body has no OAuth `error` code (a gateway's 502/503/504 page — the cloud itself always
+ *   answers with one).
+ * - Not unanswered: no connection was ever made (`NEVER_CONNECTED_CODES` anywhere in the cause
+ *   chain, or a refused proxy tunnel); a 407 from an HTTP proxy (it refused before forwarding);
+ *   and the cloud's own OAuth error, which is a definite answer.
+ *
+ * This is the one place this is decided — an offline laptop must never use up its replay.
+ */
+export function isUnansweredPresentation(failure: RefreshFailure): boolean {
+  if ('thrown' in failure) return !neverConnected(failure.thrown, 0)
+  if (typeof failure.oauthError === 'string') return false
+  return failure.status !== 407
+}
+
+function describeThrown(err: unknown): string {
+  const parts: string[] = []
+  let cur: unknown = err
+  for (let i = 0; i < 4 && cur && typeof cur === 'object'; i++) {
+    const e = cur as { message?: unknown; code?: unknown; cause?: unknown }
+    const bit = typeof e.code === 'string' ? `${String(e.message ?? '')} (${e.code})` : String(e.message ?? '')
+    if (bit.trim()) parts.push(bit.trim())
+    cur = e.cause
+  }
+  return parts.join(': ') || String(err)
 }
 
 async function postForm(url: string, body: Record<string, string>): Promise<Response> {
@@ -181,11 +249,18 @@ export async function exchangeCode(opts: {
 
 /** Refresh an access token. Used by AL 04's sender on a 401. */
 export async function refreshTokens(refreshToken: string, endpoint = orgEndpoint()): Promise<TokenResponse> {
-  const res = await postForm(tokenUrl(endpoint), {
-    grant_type: 'refresh_token',
-    client_id: OAUTH_CLIENT_ID,
-    refresh_token: refreshToken,
-  })
+  let res: Response
+  try {
+    res = await postForm(tokenUrl(endpoint), {
+      grant_type: 'refresh_token',
+      client_id: OAUTH_CLIENT_ID,
+      refresh_token: refreshToken,
+    })
+  } catch (err) {
+    // A network failure: whether it counts against the token depends on whether the request could
+    // have reached the cloud at all (offline, DNS, refused — it couldn't).
+    throw new TokenRefreshError(`token refresh failed: ${describeThrown(err)}`, false, false, isUnansweredPresentation({ thrown: err }))
+  }
   const raw = (await res.json().catch(() => ({}))) as RawTokenBody
   if (!res.ok) {
     if (res.status === 426 && raw.error === 'client_upgrade_required') {
@@ -194,7 +269,7 @@ export async function refreshTokens(refreshToken: string, endpoint = orgEndpoint
     const permanent = isPermanentRefreshError(raw.error)
     // The cloud always answers with an OAuth `error` code (a database failure is `server_error`, a
     // definite "nothing rotated"); a bare 5xx is a gateway's, and says nothing about the token.
-    throw new TokenRefreshError(`token refresh failed: ${raw.error ?? `HTTP ${res.status}`}`, permanent, false, typeof raw.error !== 'string')
+    throw new TokenRefreshError(`token refresh failed: ${raw.error ?? `HTTP ${res.status}`}`, permanent, false, isUnansweredPresentation({ status: res.status, oauthError: raw.error }))
   }
   return parseTokenBody(raw)
 }

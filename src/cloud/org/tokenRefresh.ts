@@ -40,6 +40,19 @@ export interface RefreshOptions {
 export const MAX_UNANSWERED_PRESENTATIONS = 2
 
 /**
+ * The refresh token was already presented `MAX_UNANSWERED_PRESENTATIONS` times without an answer,
+ * so it is never sent again. Not `permanent`: that is a local inference, not the cloud's
+ * `invalid_grant` — the cloud may well still hold this machine's install. The sender
+ * (`sender.ts`, `holdForRelink`) therefore asks for a re-link but keeps the queued traces, where a
+ * permanent error drops them.
+ */
+export class RefreshReplayExhaustedError extends TokenRefreshError {
+  constructor() {
+    super('token refresh failed: this refresh token was already presented twice without an answer — re-link this machine', false)
+  }
+}
+
+/**
  * Rotates `stale`'s tokens and saves the result, under the credential file's lock. Returns the
  * credential to use from now on — which is another host's already-rotated one, untouched, if the
  * file no longer holds `stale`'s refresh token by the time the lock is held.
@@ -50,7 +63,8 @@ export const MAX_UNANSWERED_PRESENTATIONS = 2
  * a lost race, not a dead credential, and its tokens are returned instead. The same refresh token
  * is never sent again after an `invalid_grant`, and never more than `MAX_UNANSWERED_PRESENTATIONS`
  * times without an answer (counted in the credential file, so every host sees it) — re-sending a
- * replayed token would revoke the install. If the credential was removed (the machine left the
+ * replayed token would revoke the install. Past that cap it throws `RefreshReplayExhaustedError`
+ * (not permanent) without presenting the token. If the credential was removed (the machine left the
  * org meanwhile), throws a non-permanent error — there's nothing left here to clear.
  */
 export async function refreshCredentials(stale: OrgCredentials, now: () => number = Date.now, opts: RefreshOptions = {}): Promise<OrgCredentials> {
@@ -60,7 +74,7 @@ export async function refreshCredentials(stale: OrgCredentials, now: () => numbe
     if (!current) throw new TokenRefreshError('token refresh skipped: this machine is no longer linked', false)
     if (current.refreshToken !== stale.refreshToken) return current
     if ((current.unansweredRefreshes ?? 0) >= MAX_UNANSWERED_PRESENTATIONS) {
-      throw new TokenRefreshError('token refresh failed: this refresh token was already presented twice without an answer', true)
+      throw new RefreshReplayExhaustedError()
     }
     let t
     try {
@@ -70,6 +84,9 @@ export async function refreshCredentials(stale: OrgCredentials, now: () => numbe
       if (after && after.refreshToken !== current.refreshToken) return after
       if (!(err instanceof TokenRefreshError) || err.unanswered) {
         // No definite answer — the server may have rotated it. Counted, so the replay happens once.
+        // A request that never left the machine (offline, DNS, refused) is not `unanswered`
+        // (oauthClient.ts `isUnansweredPresentation`) and is not counted: an offline laptop keeps
+        // its replay however many drains fail while it is away.
         if (after) saveCredentials({ ...after, unansweredRefreshes: (after.unansweredRefreshes ?? 0) + 1 })
         throw err
       }
