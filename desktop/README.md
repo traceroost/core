@@ -1,11 +1,13 @@
-# TraceRoost desktop shell (macOS, Linux)
+# TraceRoost desktop shell (macOS, Linux, Windows)
 
 An Electron shell that runs the existing standalone collector and dashboard as a normal desktop
 app with a menu bar / tray icon — no terminal, no separately installed Node.
 
 **Linux** (a .deb and an AppImage, x64 and arm64) is Stages 1–3 of
 [`.staged-features/linux-desktop-app.md`](../.staged-features/linux-desktop-app.md), plus Stage 4's
-packaging CI; see [Linux](#linux). The rest of this section is about macOS.
+packaging CI; see [Linux](#linux). **Windows** (an NSIS installer and a portable zip, x64 and
+arm64, built and tested natively on each) is in [Windows](#windows). The rest of this section is
+about macOS.
 
 **Status: Stages 1–2 of [`.staged-features/macos-desktop-menu-bar-app.md`](../.staged-features/macos-desktop-menu-bar-app.md)
 are done, and Stage 3 is done up to the point that needs an Apple Developer Program membership.**
@@ -83,7 +85,11 @@ built `.app` the way the Finder would — with `HOME` redirected, so the collect
 auto-configuration cannot touch your real `~/.claude/settings.json` — and checks: the collector
 claims the data dir with the configured ports and the shipped version, `/health`, the identity
 probe, the dashboard page and a real asset serve, `desktop.log` records owned mode, and a SIGTERM
-to the app flushes the collector, releases the lock and exits 0 with no orphan left behind.
+to the app (`traceroost-desktop --quit` on Windows) stops the collector over the [owner
+channel](#stopping-the-collector-the-owner-channel), releases the lock and exits 0 with no orphan
+left behind. It proves the flush rather than assuming it: a span is sent just before quitting,
+inside the collector's one-second save debounce, and must be in `spans.json` afterwards, saved by
+the collector's own shutdown.
 
 ### Installing
 
@@ -304,6 +310,117 @@ and unrestricted (must run), and on Fedora, openSUSE Tumbleweed and Arch.
 | x64 (both formats); AppImage running sandboxed; .deb with its AppArmor profile loaded; Arch | built, not run here | `desktop-linux.yml` — **not yet run** |
 | a real desktop session: tray on GNOME (Ubuntu and stock), KDE Plasma, XFCE; Wayland and X11; window restore and single-instance focus | **not run** | needs VMs with a desktop; the logic is unit-tested and the no-tray path ran under Xvfb |
 
+## Windows
+
+```powershell
+cd desktop
+pnpm run pack:win        # x64 + arm64: dist\TraceRoost-<v>-win-{x64,arm64}.exe (installer) and .zip (portable), SHA256SUMS
+pnpm run pack:win:host   # this machine's architecture only
+pnpm run smoke           # the packaged app for this architecture, end to end
+node scripts/check-nsis.mjs dist\TraceRoost-<v>-win-x64.exe   # install, run, upgrade over the running app, uninstall
+```
+
+`pack:win` runs electron-builder once per architecture (given both at once, NSIS would build one
+installer carrying both apps). CI builds each natively — x64 on `windows-latest`, arm64 on
+`windows-11-arm` — so afterPack runs the packaged Electron as Node and the smoke test and installer
+checks run the real binaries. A cross-build from Linux works with Wine (electron-builder runs the
+NSIS stub under it to extract the uninstaller; 32-bit Wine is needed) and skips only the runtime
+check; the zip alone needs no Wine.
+
+What the installed app looks like, beside the macOS table above:
+
+| In `%LOCALAPPDATA%\Programs\traceroost-desktop` | What |
+| --- | --- |
+| `traceroost-desktop.exe` | the app — not `traceroost.exe`, which is the npm CLI's name and may be on PATH beside it |
+| `resources\app.asar`, `resources\collector\`, `LICENSE`… | as on macOS |
+| `resources\tray\trayWindows.ico` | the notification-area icon: the glyph on its teal tile, 16–64 px, legible on dark and light taskbars |
+| `Uninstall traceroost-desktop.exe` | the uninstaller |
+
+Icons are made by [`scripts/make-icons.mjs`](scripts/make-icons.mjs) from the committed tile PNGs
+(`node scripts/make-icons.mjs --ico` runs that step alone, on any OS): `build/icon.ico` (app,
+installer and uninstaller, 16–256) and `build/trayWindows.ico`.
+
+### Installing
+
+- **Installer** (`TraceRoost-<v>-win-x64.exe`, or `-win-arm64.exe` on Windows on Arm): installs
+  **for the current user** by default — into `%LOCALAPPDATA%\Programs\traceroost-desktop`, with no
+  administrator rights and no UAC prompt — adds **Start Menu → TraceRoost** and an entry in
+  **Settings → Apps**, and opens the app when it finishes. "Anyone who uses this computer" is offered
+  as the second choice and does elevate. A silent install is `TraceRoost-<v>-win-x64.exe /S`
+  (per-user).
+- **Portable** (`TraceRoost-<v>-win-x64.zip`): unzip anywhere and run `traceroost-desktop.exe`. No
+  shortcut, no uninstaller entry.
+
+Requires Windows 10 or 11. Like every TraceRoost it uses `%USERPROFILE%\.traceroost` for data,
+`config.json` and `desktop.log`, so existing data appears as is; the app's own settings and
+Chromium state are in `%APPDATA%\TraceRoost`. It sits in the notification area: a left click opens
+the dashboard, a right click shows the menu, and closing the window leaves collection running
+there (the same controls are also in the window's **TraceRoost** menu). **Launch at Login** is a
+value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; it starts the app with no window.
+
+**SmartScreen.** Until a code-signing certificate is configured (below) the installer, the app and
+the uninstaller are unsigned, and the first run of a *downloaded* copy shows "Windows protected your
+PC". Click **More info → Run anyway**; Windows remembers the choice for that file. Releases attach
+unsigned Windows builds only when the maintainers opt in, and name them
+`TraceRoost-<v>-win-<arch>-unsigned.exe` / `.zip` so that is never a surprise (see
+[Releases](#releases)). Check a download against the release's `TraceRoost-desktop-<v>-SHA256SUMS`:
+
+```powershell
+(Get-FileHash -Algorithm SHA256 .\TraceRoost-<v>-win-x64.exe).Hash.ToLower()   # compare with its line in the SHA256SUMS file
+```
+
+**Upgrading** is running a newer installer. It asks a running TraceRoost to quit first
+(`traceroost-desktop --quit`, from [`build/installer.nsh`](build/installer.nsh)), which stops its
+collector over the owner channel and waits for the flush, before it replaces any file.
+electron-builder's own fallback — `Stop-Process`, which is TerminateProcess and would lose unsaved
+spans — only runs if the app is still there 30 seconds later.
+
+**The background service.** `traceroost service install` (npm) runs the collector as a Scheduled
+Task. The app never creates, changes or stops it: with the service running, the app attaches to it
+(Quit leaves it running), exactly as on macOS and Linux. To hand off from the app to the service,
+quit the app, then `traceroost service install`; the other way, `traceroost service stop` (or
+`uninstall`), then open the app.
+
+### Signing
+
+[`electron-builder.cjs`](electron-builder.cjs) reads the environment; nothing else branches on it:
+
+| Environment | Effect |
+| --- | --- |
+| nothing | **unsigned**. Runs; SmartScreen warns on a downloaded copy until it builds reputation |
+| `WIN_CSC_LINK` (base64 or path of a code-signing `.pfx`) + `WIN_CSC_KEY_PASSWORD` | the executables, installer and uninstaller signed with signtool and timestamped |
+| `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`, `AZURE_TRUSTED_SIGNING_PUBLISHER` (the certificate's subject CN) + `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | the same, through [Azure Trusted Signing](https://learn.microsoft.com/azure/trusted-signing/) (takes precedence over a .pfx) |
+
+CI ([`.github/workflows/desktop-windows.yml`](../.github/workflows/desktop-windows.yml)) maps
+repository secrets of the same names onto those variables, and once they exist it fails a build
+whose executables do not carry a valid Authenticode signature rather than shipping it unsigned.
+New OV/EV certificates are issued on hardware tokens or cloud HSMs and can no longer be exported
+as a `.pfx`, so for a new setup Azure Trusted Signing (a service principal with the *Trusted
+Signing Certificate Profile Signer* role) is the practical route.
+
+### Uninstalling
+
+**Settings → Apps → TraceRoost → Uninstall** (or `Uninstall traceroost-desktop.exe`, `/S` for
+silent). It asks a running TraceRoost to quit first, as an upgrade does, then removes the app, the
+Start Menu shortcut and the Apps entry. Turn off **Launch at Login** first, or remove the
+`TraceRoost` value under `HKCU\…\Run` afterwards. **Your data is kept**: `%USERPROFILE%\.traceroost`
+and any `traceroost service` are untouched; delete `.traceroost` yourself if you want the data
+gone, and `%APPDATA%\TraceRoost` for the app's own settings. For the portable zip, quit the app and
+delete the folder.
+
+### What CI proves
+
+[`desktop-windows.yml`](../.github/workflows/desktop-windows.yml), on x64 and arm64: afterPack's
+checks; the staged-collector suite on the runner's Electron (including the flushed stop over the
+owner channel); the packaged smoke test; and
+[`scripts/check-nsis.mjs`](scripts/check-nsis.mjs) — silent per-user install (files, Start Menu
+shortcut, Uninstall entry, nothing under Program Files), the smoke test of the *installed* app,
+a reinstall over the running app that must quit it through `--quit` with its spans saved (not kill
+it), and a silent uninstall that removes the app, shortcut and entry and keeps the data directory.
+Not covered by CI: a human looking at the tray icon and menu on a real desktop, SmartScreen on a
+downloaded copy, the "for all users" install, log-off/shutdown with the app running, and a
+non-ASCII user profile path.
+
 ## How it fits together
 
 ```
@@ -387,6 +504,30 @@ The app never installs, removes or rewrites a background service. `traceroost se
   collector, so enabling it alongside the service does not create a second writer — the app
   simply attaches at login.
 
+### Stopping the collector: the owner channel
+
+The collector is stopped the same way on every OS: the app sends it one message,
+`{ type: 'traceroost:shutdown' }`, over the Node IPC channel it was spawned with, and the collector
+runs exactly what its SIGTERM handler runs — save `spans.json` and the outcomes cache, release the
+data-dir lock, exit 0 ([`standalone/ownerChannel.ts`](../standalone/ownerChannel.ts),
+[`src/collector.ts`](src/collector.ts)). The app waits up to 10 seconds for that, and only then
+kills it. This exists because Windows has no SIGTERM — `child.kill()` there is TerminateProcess,
+which runs no handler, and is why owned mode used to be refused on Windows — but one path everywhere
+is simpler than two, and SIGTERM and Ctrl-C still work on the collector exactly as before.
+
+Why a pipe and not an HTTP endpoint: the channel is a pipe the app creates and only its child
+inherits (a socketpair on macOS and Linux; on Windows a single-instance named pipe that is already
+connected when the child starts). There is nothing to connect to, so no web page — whatever its
+origin, whatever reaches 127.0.0.1 — and no other local user or process can send the request, and
+there is no token to keep away from the dashboard page. The collector opens the channel only when
+the app asks for it (`TRACEROOST_OWNER_CHANNEL=ipc`) *and* it really has one; `npx traceroost`, the
+background services and Docker have neither and are unchanged. Any other message is ignored.
+
+If the channel closes without a request — the app crashed, or was ended from Task Manager — the
+collector treats that as the request: it flushes and exits rather than outliving its owner with
+the data dir locked. On Windows, the app also asks for the flush when the session ends (log off,
+shut down), since Windows ends both processes then without a Quit.
+
 ### What the renderer can do
 
 Nothing. The window is sandboxed, context-isolated, has no Node integration and **no preload
@@ -446,7 +587,12 @@ linted by the repo's `pnpm run lint`, with the same rules and the same cloud-imp
   releases the dir. **Skipped** (not failed) when `resources/collector` or the Electron binary is
   absent, so a checkout that has not run `pnpm run build` here needs no 300 MB download to run the
   repo's suite.
-- **Packaged** (`pnpm run smoke`, above): the built `.app`, launched and quit.
+- **Owner channel** ([`standalone/ownerChannel.test.ts`](../standalone/ownerChannel.test.ts)): only
+  the exact shutdown message is honoured, only when asked for and with a real channel, once; and a
+  real child process flushes and exits 0 on the request and on the channel closing — on every OS
+  in the repo's CI, Windows included.
+- **Packaged** (`pnpm run smoke`, above): the built app, launched and quit, with the flush proved;
+  on Windows also `scripts/check-nsis.mjs` (install, upgrade over a running app, uninstall).
 
 These tests redirect `HOME` to a temporary directory. The collector **auto-configures the agents it
 finds at startup**, writing OTEL endpoints into `~/.claude/settings.json`, `~/.codex/config.toml`
@@ -461,12 +607,13 @@ each), smoke-tests the arm64 app, runs the staged-collector integration suite, p
 signature state, and uploads the DMGs, zips, `SHA256SUMS` and `THIRD_PARTY_NOTICES.md` as a build
 artifact for 14 days. [`desktop-linux.yml`](../.github/workflows/desktop-linux.yml) does the same
 for the .deb and AppImage on native x64 and arm64 runners, then installs and runs them across the
-distro matrix.
+distro matrix, and [`desktop-windows.yml`](../.github/workflows/desktop-windows.yml) for the NSIS
+installer and zip on native x64 and arm64 Windows runners (see [Windows](#windows)).
 
 ## Releases
 
 A `v*` tag's `release.yml` run calls [`desktop-release.yml`](../.github/workflows/desktop-release.yml)
-(its `desktop` job) once `package` has passed and created the GitHub release. That calls both
+(its `desktop` job) once `package` has passed and created the GitHub release. That calls the three
 workflows above, waits for their jobs, re-verifies each artifact against the SHA256SUMS its build
 wrote (`scripts/release-assets.mjs`, tested by `src/releaseAssets.test.ts`), and attaches the
 installers, one `TraceRoost-desktop-<v>-SHA256SUMS` and build-provenance attestations. The version is
@@ -475,12 +622,20 @@ the repo's `package.json` version, which `package` has checked against the tag.
 | Platform | Attached to a release when |
 | --- | --- |
 | Linux (.deb, AppImage; x64, arm64) | always, once the build and install matrix pass |
-| macOS (DMG, zip; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is built and tested on every release and left off it |
-| Windows | not built for releases (paused) |
+| macOS (DMG, zip; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is built and tested on every release and left off it — or attached as `*-unsigned` (below) |
+| Windows (NSIS installer .exe, portable .zip; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Trusted Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then it is built and tested on every release and left off it — or attached as `*-unsigned` (below) |
+
+**Unsigned test builds.** With the repository variable `TRACEROOST_DESKTOP_ATTACH_UNSIGNED=true`, a
+release also attaches the ad-hoc signed (not notarized) macOS build and the unsigned Windows build,
+as `TraceRoost-<v>-mac-<arch>-unsigned.{dmg,zip}` and `TraceRoost-<v>-win-<arch>-unsigned.{exe,zip}`
+— the same bytes CI tested, in the same SHA256SUMS, with attestations — and adds a section to the
+release notes on opening them (Gatekeeper: right-click → Open; SmartScreen: More info → Run anyway).
+Unset, the default, nothing unsigned is attached. A platform is attached signed or unsigned, never
+both, and a later signed build of the same version cannot collide with an unsigned one by name.
 
 Platforms are independent: if one platform's build fails, the others are still attached. The
-repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default `linux,macos`) switches a platform off
-without a code change, and a non-`core` release edition skips desktop entirely. A desktop failure
+repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default `linux,macos,windows`) switches a
+platform off without a code change, and a non-`core` release edition skips desktop entirely. A desktop failure
 never blocks the VSIX, npm or Docker publish. Files already on a release are never replaced; a re-run
 uploads only what is missing and fails on a same-named file with different bytes. A pull request
 that changes `desktop-release.yml` or the assembly script runs everything except attest and upload.
@@ -525,10 +680,10 @@ Stage 4, not started:
 
 Smaller, genuinely open items:
 
-- **Owned mode is refused on Windows.** `child.kill()` there is `TerminateProcess`: no handler
-  runs, so an owned collector would lose whatever it had not flushed. The shell says so and points
-  at the Windows feature, whose plan covers adding a cooperative shutdown channel. Attached mode is
-  unaffected.
+- **Windows, beyond CI** ([what CI proves](#what-ci-proves)): code signing (needs a certificate
+  or an Azure Trusted Signing account — the wiring is done), a human check of the tray icon, menu
+  and close-to-tray on a real desktop, SmartScreen on a downloaded copy, the all-users install,
+  log-off with the app running, automatic updates, and winget/Microsoft Store listings.
 - **Unverified in a GUI session:** clicking the window's close button (close-to-menu-bar), Dock
   reopen, the Launch at Login toggle actually registering a login item, sleep/wake, and how the
   template icon looks in a light vs dark menu bar. The code paths exist and the equivalent

@@ -1,5 +1,6 @@
 /**
- * electron-builder configuration for the macOS app and the Linux .deb and AppImage.
+ * electron-builder configuration for the macOS app, the Linux .deb and AppImage, and the Windows
+ * NSIS installer and portable zip.
  *
  * A .cjs file rather than YAML because two decisions here depend on the environment, and spelling
  * them out as code is clearer than a config that silently means different things on different
@@ -27,6 +28,11 @@
  * README.md → "Signing and notarization" and .github/workflows/desktop-macos.yml — not a code
  * change. Everything else here is the same on both paths.
  *
+ * Windows signing is the same kind of switch (see `windowsSigning` below): a code-signing
+ * certificate (`WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`) or Azure Trusted Signing (`AZURE_*`) signs
+ * the executables, the installer and the uninstaller; with neither, the build is unsigned and
+ * SmartScreen warns on first run ("More info → Run anyway").
+ *
  * Linux needs no credentials at all: its integrity story is the published, signed SHA256SUMS (see
  * README.md → "Linux"), not a package signature. Two Linux choices are load-bearing and explained
  * where they are made below: the AppImage toolset (no FUSE2, and no `--no-sandbox` in its desktop
@@ -49,6 +55,10 @@ for (const name of [
   'CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_NAME',
   'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER',
   'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID',
+  'WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD',
+  'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET',
+  'AZURE_TRUSTED_SIGNING_ENDPOINT', 'AZURE_TRUSTED_SIGNING_ACCOUNT', 'AZURE_TRUSTED_SIGNING_PROFILE',
+  'AZURE_TRUSTED_SIGNING_PUBLISHER',
 ]) {
   if (process.env[name] === '') delete process.env[name]
 }
@@ -58,8 +68,30 @@ const hasNotaryCredentials =
   Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER) ||
   Boolean(process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID)
 
+/**
+ * Windows signing, from the environment alone, in this order:
+ *
+ *  1. Azure Trusted Signing — `AZURE_TRUSTED_SIGNING_ENDPOINT`, `_ACCOUNT`, `_PROFILE` and
+ *     `_PUBLISHER` (the certificate's subject CN) name the profile; `AZURE_TENANT_ID`,
+ *     `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` are the service principal electron-builder's
+ *     `Invoke-TrustedSigning` authenticates with. Windows hosts only.
+ *  2. A code-signing certificate — `WIN_CSC_LINK` (base64 or path of a .pfx/.p12) and
+ *     `WIN_CSC_KEY_PASSWORD`, which electron-builder reads itself and hands to signtool.
+ *  3. Neither — unsigned. Every Windows build until the owner has one of the above.
+ */
+const azureSigning = ['ENDPOINT', 'ACCOUNT', 'PROFILE', 'PUBLISHER'].every(k => process.env[`AZURE_TRUSTED_SIGNING_${k}`]) &&
+  ['AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET'].every(k => process.env[k])
+const certificateSigning = Boolean(process.env.WIN_CSC_LINK)
+const windowsSigning = azureSigning ? 'azure' : certificateSigning ? 'certificate' : 'none'
+
+if (process.platform === 'win32') {
+  console.log(windowsSigning === 'none'
+    ? 'electron-builder.config: no Windows signing credentials (WIN_CSC_LINK, or AZURE_TRUSTED_SIGNING_*) — unsigned; SmartScreen will warn on first run'
+    : `electron-builder.config: Windows signing with ${windowsSigning === 'azure' ? 'Azure Trusted Signing' : 'the WIN_CSC_LINK certificate'}`)
+}
+
 if (process.platform !== 'darwin') {
-  // Linux (and any cross-build) needs none of the Apple credentials below.
+  // Linux, Windows (and any cross-build) need none of the Apple credentials below.
 } else if (!hasDeveloperId) {
   console.log('electron-builder.config: no Developer ID in the environment (CSC_LINK / CSC_NAME) — ad-hoc signing; the result will not pass Gatekeeper when downloaded')
 } else if (!hasNotaryCredentials) {
@@ -232,6 +264,67 @@ module.exports = {
     executableArgs: [],
   },
 
+  win: {
+    // Notification-area icon (the multi-size tile .ico), read at run time by src/tray.ts from
+    // <resources>/tray via main.ts's trayAssetDir. In development it is read from build/.
+    extraResources: [
+      { from: 'build/trayWindows.ico', to: 'tray/trayWindows.ico' },
+    ],
+    // Architectures come from the command line (`--x64` / `--arm64`), one per run: an NSIS build
+    // given both would wrap them in one installer carrying both apps, and the downloads are one
+    // file per architecture, as on macOS and Linux. See package.json's `pack:win`.
+    target: ['nsis', 'zip'],
+    // `${ext}` is exe for the installer and zip for the portable build.
+    artifactName: 'TraceRoost-${version}-win-${arch}.${ext}',
+    // traceroost-desktop.exe, not traceroost.exe: `traceroost` is the npm CLI, which may well be on
+    // PATH beside it. (The installer adds nothing to PATH either way.)
+    executableName: 'traceroost-desktop',
+    // The app, installer and uninstaller icon: the tile, 16…256 (scripts/make-icons.mjs).
+    icon: 'build/icon.ico',
+    // A per-user app: it never asks for elevation itself.
+    requestedExecutionLevel: 'asInvoker',
+    legalTrademarks: 'TraceRoost',
+    // Signing: see `windowsSigning` above. With a certificate, electron-builder reads
+    // WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD itself; Azure needs its profile spelled out here.
+    ...(azureSigning ? {
+      azureSignOptions: {
+        publisherName: process.env.AZURE_TRUSTED_SIGNING_PUBLISHER,
+        endpoint: process.env.AZURE_TRUSTED_SIGNING_ENDPOINT,
+        codeSigningAccountName: process.env.AZURE_TRUSTED_SIGNING_ACCOUNT,
+        certificateProfileName: process.env.AZURE_TRUSTED_SIGNING_PROFILE,
+      },
+    } : {}),
+    // Unsigned: do not even try. (electron-builder would otherwise look for signtool on a
+    // Windows host and sign nothing, which is the same result with more noise.)
+    signExecutable: windowsSigning !== 'none',
+  },
+
+  nsis: {
+    // An assisted installer that installs for the current user by default — into
+    // %LOCALAPPDATA%\Programs\TraceRoost, no administrator rights — and offers "for all users"
+    // (which does elevate) only as the second choice. A silent install (`/S`) is per-user.
+    oneClick: false,
+    perMachine: false,
+    allowElevation: true,
+    allowToChangeInstallationDirectory: true,
+    // Start Menu → TraceRoost. No desktop shortcut: the app lives in the notification area.
+    createStartMenuShortcut: true,
+    createDesktopShortcut: false,
+    shortcutName: 'TraceRoost',
+    uninstallDisplayName: 'TraceRoost',
+    // Opens the app when the (interactive) installer finishes.
+    runAfterFinish: true,
+    // The uninstaller removes the app and its shortcuts. It never touches %USERPROFILE%\.traceroost
+    // (spans, config, desktop.log) or Electron's own state in %APPDATA%\TraceRoost — the same
+    // promise as the .deb's purge. README.md → Windows → Uninstalling.
+    deleteAppDataOnUninstall: false,
+    // build/installer.nsh — picked up from buildResources by that name — asks a running
+    // TraceRoost to quit (and flush its collector) before the installer or uninstaller replaces or
+    // removes its files.
+    installerIcon: 'build/icon.ico',
+    uninstallerIcon: 'build/icon.ico',
+  },
+
   toolsets: {
     // The static type-2 runtime: no libfuse2 needed on the host (it was dropped from Ubuntu 22.04+
     // and Fedora's defaults), and electron-builder then leaves `--no-sandbox` out of the AppImage's
@@ -247,3 +340,4 @@ module.exports = {
 
   afterPack,
 }
+

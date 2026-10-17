@@ -6,6 +6,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Added
 
+- **The desktop app for Windows (x64 and arm64)** — an NSIS installer that installs for your user only (no administrator rights; Start Menu shortcut and uninstaller) and a portable zip, with a notification-area icon. It runs and supervises its own collector as on macOS and Linux: quitting it — or an installer upgrading or removing it — stops the collector with a cooperative shutdown request over a private pipe, so unsaved spans are flushed first (Windows has no SIGTERM, so this was why the app refused to own a collector there). Builds are unsigned until a code-signing certificate is configured; SmartScreen warns on first run (**More info → Run anyway**). Releases can now also attach unsigned macOS and Windows test builds, named `*-unsigned`, when the maintainers switch that on
 - **Settings → Dashboard port** — move the standalone dashboard off port 3000 (the default for Next.js, Rails, Express and many other dev servers) from the gear panel. It moves without a restart, the page follows it with your theme and other preferences, and **Reset to 3000** moves it back. Agents aren't affected: the OTLP and MCP ports don't change. Help and the README have a "My dev server needs port 3000" section, and `service install` / `service status` say how to move while the dashboard is on 3000
 
 ### Fixed

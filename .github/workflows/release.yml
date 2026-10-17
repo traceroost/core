@@ -370,8 +370,9 @@ jobs:
 
   # The desktop apps (.github/workflows/desktop-release.yml) — only from a tag, only after `package`
   # has passed and created the GitHub release they attach to. Independent of the other publish jobs
-  # in both directions. Linux is attached on every release; macOS once it is notarized; the edition
-  # gate and the TRACEROOST_DESKTOP_PLATFORMS switch live in desktop-release.yml.
+  # in both directions. Linux is attached on every release; macOS once it is notarized; Windows once
+  # it is signed (or either unsigned, named so, with TRACEROOST_DESKTOP_ATTACH_UNSIGNED=true); the
+  # edition gate and the TRACEROOST_DESKTOP_PLATFORMS switch live in desktop-release.yml.
   desktop:
     needs: package
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -390,5 +391,14 @@ jobs:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+      AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+      AZURE_TRUSTED_SIGNING_PUBLISHER: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER }}
       MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
       MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}

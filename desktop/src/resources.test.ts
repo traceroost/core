@@ -27,7 +27,7 @@ suite('resources — runtime check', () => {
 suite('resources — staged tree', () => {
   let dir: string
   setup(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-desktop-res-')) })
-  teardown(() => fs.rmSync(dir, { recursive: true, force: true }))
+  teardown(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }))
 
   /** `manifest: 'none'` stages the tree without a package.json at all. */
   function stage(root: string, manifest: unknown | 'none' = { name: 'traceroost', version: '0.19.1' }) {

@@ -323,6 +323,18 @@ Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install fro
 3. TraceRoost auto-configures OTEL telemetry for Copilot, Claude Code, and Codex — restart any running agents to start streaming traces
 4. Past trace history loads automatically from local log files — no extra setup needed
 
+### Desktop app (macOS, Linux, Windows)
+
+The same local collector and dashboard as a normal desktop app with a menu bar / tray icon — no terminal and no Node.js to install. Download it from the [latest release](https://github.com/traceroost/core/releases/latest):
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| Linux (x64, arm64) | `TraceRoost-<version>-linux-amd64.deb` / `-arm64.deb`, or the `.AppImage` | `sudo apt install ./TraceRoost-*.deb` |
+| Windows 10/11 (x64, arm64) | `TraceRoost-<version>-win-x64.exe` / `-win-arm64.exe` (installer), or the `.zip` (portable) | installs for your user only, no administrator needed. Until the builds are code-signed they are named `*-unsigned` and SmartScreen warns on first run: **More info → Run anyway** |
+| macOS 12+ (Apple Silicon, Intel) | `TraceRoost-<version>-mac-arm64.dmg` / `-mac-x64.dmg` | attached once notarized; a pre-notarization test build is named `*-unsigned` and opens with right-click → **Open** |
+
+It uses the same `~/.traceroost` data and settings as `npx traceroost` and the background service, and uses a running background service instead of starting a second collector. Check a download with the release's `TraceRoost-desktop-<version>-SHA256SUMS`. Details, including uninstalling: [desktop/README.md](desktop/README.md).
+
 ### Docker (OTEL only)
 
 > **Docker is the least capable way to run TraceRoost — prefer the [background service](#background-service-macos--windows--linux) or the [VS Code extension](#vs-code-extension-otel-and-log-files).** The container is isolated from your host, so:

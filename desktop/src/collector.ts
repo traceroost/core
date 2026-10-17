@@ -21,6 +21,7 @@ import { type ChildProcess, spawn } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import { LOCK_FILENAME, type DataDirLockInfo } from '../../standalone/dataDirLock'
+import { OWNER_CHANNEL_ENV, OWNER_CHANNEL_IPC, SHUTDOWN_REQUEST } from '../../standalone/ownerChannel'
 import { countsAsCrashLoop, restartDelayMs, shouldKeepRestarting } from './backoff'
 
 export type CollectorState =
@@ -56,9 +57,12 @@ const READY_TIMEOUT_MS = 30_000
 const READY_POLL_MS = 150
 
 /** After asking the collector to shut down, how long to let it flush before it is killed outright.
- *  Its SIGTERM handler saves spans.json and the outcomes cache and then exits, which is fast — but
- *  a large store on a slow disk should not be cut off mid-write. */
+ *  Its shutdown saves spans.json and the outcomes cache and then exits, which is fast — but a large
+ *  store on a slow disk should not be cut off mid-write. */
 const GRACEFUL_STOP_MS = 10_000
+
+/** How the shutdown was asked for, for the log and the tests. */
+export type ShutdownChannel = 'ipc' | 'SIGTERM' | 'none'
 
 export class OwnedCollector {
   private child: ChildProcess | undefined
@@ -121,8 +125,16 @@ export class OwnedCollector {
         // on. An app-owned collector is neither of those things, and claiming to be would let
         // `service stop` reach into this app's child.
         TRACEROOST_SERVICE: undefined,
+        // Opens the owner channel (standalone/ownerChannel.ts): the IPC pipe below is how stop()
+        // asks for a flushed shutdown on every OS, and the only way on Windows, which has no
+        // SIGTERM. It also makes the collector flush and exit if this app dies without asking.
+        [OWNER_CHANNEL_ENV]: OWNER_CHANNEL_IPC,
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // The fourth entry is the IPC channel: a pipe only this process and the child hold — no
+      // port, no token, nothing a web page or another user could reach.
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      // The channel carries one message; JSON is plenty, and the default.
+      serialization: 'json',
       windowsHide: true,
     })
     this.child = child
@@ -231,28 +243,29 @@ export class OwnedCollector {
   /**
    * Asks the collector to shut down and waits for it to flush.
    *
-   * On POSIX this is SIGTERM, which the collector handles: it saves spans.json and the outcomes
-   * cache, releases the data-dir lock from its 'exit' handler, and exits 0. A child that has not
-   * gone within GRACEFUL_STOP_MS is killed — at that point it is wedged, and the stores are atomic
-   * per write (`src/fsAtomic.ts`), so what is on disk is consistent either way.
+   * The request is the owner channel's shutdown message over the IPC pipe, on every OS: the
+   * collector runs exactly what its SIGTERM handler runs — saves spans.json and the outcomes cache,
+   * releases the data-dir lock from its 'exit' handler, exits 0. One path everywhere, because
+   * Windows has no SIGTERM at all: `child.kill()` there is TerminateProcess, which runs no handler.
+   * If the channel is already gone (it should not be — the collector exits when it closes), POSIX
+   * falls back to SIGTERM.
    *
-   * Windows has no SIGTERM: `child.kill()` there is TerminateProcess, which runs no handler and so
-   * loses whatever had not been saved. Rather than pretend otherwise, owned mode is refused on
-   * win32 (see main.ts) until the Windows feature adds a cooperative shutdown channel — its own
-   * plan names this as the work. Attached mode is unaffected: it never stops anything.
+   * A child that has not gone within GRACEFUL_STOP_MS is killed — at that point it is wedged, and
+   * the stores are atomic per write (`src/fsAtomic.ts`), so what is on disk is consistent either
+   * way. Attached mode never gets here: it stops nothing.
    */
   async stop(): Promise<void> {
     this.clearRestartTimer()
     const child = this.child
     if (!child) { this.setState({ status: 'stopped' }); return }
     this.stopping = true
-    const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
-    if (this.platform === 'win32') {
-      throw new Error('Stopping an app-owned collector is not supported on Windows in this build — see .staged-features/windows-desktop-tray-app.md')
-    }
-    this.opts.log(`[desktop] asking the collector (pid ${child.pid ?? '?'}) to shut down`)
-    child.kill('SIGTERM')
-    const flushed = await Promise.race([exited.then(() => true), delay(GRACEFUL_STOP_MS).then(() => false)])
+    const exited = new Promise<void>(resolve => {
+      if (child.exitCode !== null || child.signalCode !== null) resolve()
+      else child.once('exit', () => resolve())
+    })
+    const via = this.requestShutdown(child)
+    this.opts.log(`[desktop] asking the collector (pid ${child.pid ?? '?'}) to shut down${via === 'none' ? ' — no channel left to ask on' : ` (${via === 'ipc' ? 'owner channel' : 'SIGTERM'})`}`)
+    const flushed = via !== 'none' && await Promise.race([exited.then(() => true), delay(GRACEFUL_STOP_MS).then(() => false)])
     if (!flushed) {
       this.opts.log('[desktop] the collector did not exit in time — killing it')
       child.kill('SIGKILL')
@@ -260,6 +273,38 @@ export class OwnedCollector {
     }
     this.child = undefined
     this.setState({ status: 'stopped' })
+  }
+
+  /**
+   * Sends the shutdown request and returns without waiting — for a Windows session end, when the
+   * system will terminate this process (and the collector) whether or not anyone waits. The exit
+   * that follows is recorded as a deliberate stop, not a crash to restart.
+   */
+  requestStopNow(): void {
+    const child = this.child
+    if (!child) return
+    this.clearRestartTimer()
+    this.stopping = true
+    this.requestShutdown(child)
+  }
+
+  /** Sends the shutdown request. Returns how it was sent, or 'none' when it could not be. */
+  private requestShutdown(child: ChildProcess): ShutdownChannel {
+    if (child.connected) {
+      try {
+        child.send(SHUTDOWN_REQUEST, err => {
+          if (err) this.opts.log(`[desktop] the shutdown request could not be delivered: ${err.message}`)
+        })
+        return 'ipc'
+      } catch (err) {
+        this.opts.log(`[desktop] the shutdown request could not be sent: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    if (this.platform !== 'win32') {
+      child.kill('SIGTERM')
+      return 'SIGTERM'
+    }
+    return 'none'
   }
 
   async restart(): Promise<CollectorState> {

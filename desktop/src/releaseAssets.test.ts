@@ -13,7 +13,10 @@ const V = '1.2.3'
 const MAC = ['arm64', 'x64'].flatMap(arch => ['dmg', 'zip'].map(ext => `TraceRoost-${V}-mac-${arch}.${ext}`))
 const LINUX_X64 = [`TraceRoost-${V}-linux-amd64.deb`, `TraceRoost-${V}-linux-x86_64.AppImage`]
 const LINUX_ARM64 = [`TraceRoost-${V}-linux-arm64.deb`, `TraceRoost-${V}-linux-arm64.AppImage`]
+const WIN_X64 = [`TraceRoost-${V}-win-x64.exe`, `TraceRoost-${V}-win-x64.zip`]
+const WIN_ARM64 = [`TraceRoost-${V}-win-arm64.exe`, `TraceRoost-${V}-win-arm64.zip`]
 const SUMS = `TraceRoost-desktop-${V}-SHA256SUMS`
+const unsigned = (name: string) => name.replace(/(\.[^.]+)$/, '-unsigned$1')
 
 suite('release-assets — attaching desktop builds to a release', () => {
   let dir: string
@@ -41,6 +44,8 @@ suite('release-assets — attaching desktop builds to a release', () => {
     artifact('traceroost-desktop-macos', MAC)
     artifact('traceroost-desktop-linux-x64', LINUX_X64)
     artifact('traceroost-desktop-linux-arm64', LINUX_ARM64)
+    artifact('traceroost-desktop-windows-x64', WIN_X64)
+    artifact('traceroost-desktop-windows-arm64', WIN_ARM64)
   }
 
   function run(platforms = 'linux', ...extra: string[]) {
@@ -52,19 +57,70 @@ suite('release-assets — attaching desktop builds to a release', () => {
     return fs.existsSync(outDir) ? fs.readdirSync(outDir).sort() : []
   }
 
-  test('Linux alone: the (unnotarized) macOS files are verified and left out', () => {
+  test('Linux alone: the (unnotarized) macOS and (unsigned) Windows files are verified and left out', () => {
     allArtifacts()
     const r = run()
     assert.strictEqual(r.status, 0, r.err)
     assert.deepStrictEqual(released(), [...LINUX_X64, ...LINUX_ARM64, SUMS].sort())
     assert.match(r.out, /not attached \(platform not released\): .*mac-arm64\.dmg/)
+    assert.match(r.out, /not attached \(platform not released\): .*win-x64\.exe/)
   })
 
-  test('both platforms: every installer is attached', () => {
+  test('every platform: every installer is attached', () => {
     allArtifacts()
-    const r = run('linux,macos')
+    const r = run('linux,macos,windows')
     assert.strictEqual(r.status, 0, r.err)
-    assert.deepStrictEqual(released(), [...MAC, ...LINUX_X64, ...LINUX_ARM64, SUMS].sort())
+    assert.deepStrictEqual(released(), [...MAC, ...LINUX_X64, ...LINUX_ARM64, ...WIN_X64, ...WIN_ARM64, SUMS].sort())
+  })
+
+  test('Windows: the NSIS installer and the portable zip, for x64 and arm64', () => {
+    artifact('traceroost-desktop-windows-x64', WIN_X64)
+    artifact('traceroost-desktop-windows-arm64', WIN_ARM64)
+    const r = run('windows')
+    assert.strictEqual(r.status, 0, r.err)
+    assert.deepStrictEqual(released(), [...WIN_X64, ...WIN_ARM64, SUMS].sort())
+  })
+
+  test('Windows without its arm64 build fails rather than publishing half of it', () => {
+    artifact('traceroost-desktop-windows-x64', WIN_X64)
+    const r = run('windows')
+    assert.notStrictEqual(r.status, 0)
+    assert.match(r.err, /missing from the build artifacts: .*win-arm64\.exe/)
+  })
+
+  test('unsigned on purpose: attached under a name that says so, with checksums of those names', () => {
+    allArtifacts()
+    const r = run('linux,macos-unsigned,windows-unsigned')
+    assert.strictEqual(r.status, 0, r.err)
+    const unsignedFiles = [...MAC, ...WIN_X64, ...WIN_ARM64].map(unsigned)
+    assert.deepStrictEqual(released(), [...LINUX_X64, ...LINUX_ARM64, ...unsignedFiles, SUMS].sort())
+    assert.ok(released().includes(`TraceRoost-${V}-mac-arm64-unsigned.dmg`))
+    assert.ok(released().includes(`TraceRoost-${V}-win-x64-unsigned.exe`))
+    // Same bytes as built, and the combined SHA256SUMS lists the attached names.
+    const lines = fs.readFileSync(path.join(outDir, SUMS), 'utf8').trim().split('\n')
+    assert.deepStrictEqual(lines.map(l => l.split('  ')[1]), [...LINUX_X64, ...LINUX_ARM64, ...unsignedFiles].sort())
+    for (const line of lines) {
+      const [hash, name] = line.split('  ')
+      assert.strictEqual(crypto.createHash('sha256').update(fs.readFileSync(path.join(outDir, name))).digest('hex'), hash, name)
+    }
+    assert.strictEqual(fs.readFileSync(path.join(outDir, unsigned(WIN_X64[0])), 'utf8'), WIN_X64[0])
+    assert.match(r.out, /mac-arm64-unsigned\.dmg {3}\(unsigned\)/)
+  })
+
+  test('a platform cannot be attached both signed and unsigned', () => {
+    allArtifacts()
+    const r = run('windows,windows-unsigned')
+    assert.notStrictEqual(r.status, 0)
+    assert.match(r.err, /named both signed and unsigned/)
+  })
+
+  test('a tampered unsigned build still fails its checksum', () => {
+    allArtifacts()
+    fs.appendFileSync(path.join(inDir, 'traceroost-desktop-windows-arm64', WIN_ARM64[1]), 'tampered')
+    const r = run('windows-unsigned')
+    assert.notStrictEqual(r.status, 0)
+    assert.match(r.err, /does not match its checksum/)
+    assert.deepStrictEqual(released(), [])
   })
 
   test('the combined SHA256SUMS covers exactly the attached files and verifies them', () => {
@@ -118,11 +174,13 @@ suite('release-assets — attaching desktop builds to a release', () => {
     assert.match(r.err, /names no platform/)
   })
 
-  test('an unknown platform (windows, for now) is refused', () => {
+  test('an unknown platform is refused (and Linux has no unsigned variant)', () => {
     allArtifacts()
-    const r = run('linux,windows')
-    assert.notStrictEqual(r.status, 0)
-    assert.match(r.err, /unknown platform windows/)
+    for (const platform of ['linux,win', 'linux-unsigned']) {
+      const r = run(platform)
+      assert.notStrictEqual(r.status, 0, platform)
+      assert.match(r.err, /unknown platform/)
+    }
   })
 
   test('installers built for another version (tag and package.json disagree) fail', () => {

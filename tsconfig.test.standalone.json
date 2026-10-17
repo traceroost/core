@@ -46,6 +46,8 @@
     "standalone/requestBody.test.ts",
     "standalone/dataDirLock.ts",
     "standalone/dataDirLock.test.ts",
+    "standalone/ownerChannel.ts",
+    "standalone/ownerChannel.test.ts",
     "standalone/versionCheck.ts",
     "standalone/versionCheck.test.ts",
     "standalone/cliArgs.ts",

@@ -17,6 +17,9 @@
  *  - on Linux, it never runs unsandboxed (sandbox.ts), never leaves collection running behind a
  *    tray icon the desktop cannot show (trayHost.ts, closeBehavior.ts), and never races an
  *    enabled `traceroost service install` systemd unit for the data dir (systemdUnit.ts).
+ *  - it never stops its collector with a signal it cannot be sure is handled: the stop request is
+ *    the owner channel's message (collector.ts, standalone/ownerChannel.ts), which is what makes
+ *    owned mode possible on Windows, where `kill` is TerminateProcess.
  */
 
 import { app, dialog, Menu, powerMonitor, shell } from 'electron'
@@ -42,6 +45,7 @@ import { PrefsStore } from './prefs'
 import { sandboxRefusal } from './sandbox'
 import { decideWhenDirIsFree, isEnabled as isUnitEnabled, readUnitState } from './systemdUnit'
 import { detectTrayHost, type TrayHost } from './trayHost'
+import { isQuitRequest, windowsLoginItem } from './windows'
 import * as fs from 'fs'
 import type { BrowserWindow, MenuItemConstructorOptions } from 'electron'
 
@@ -50,9 +54,16 @@ import type { BrowserWindow, MenuItemConstructorOptions } from 'electron'
 // Taken before anything else. A second launch must not get as far as the handshake, let alone
 // spawning a collector that the first instance's lock would refuse — it should simply surface the
 // window that already exists.
-if (!app.requestSingleInstanceLock()) {
+//
+// `--quit` (windows.ts) is a message to the instance that already exists, never a launch of its
+// own: with no instance running there is nothing to quit, so it exits either way.
+if (!app.requestSingleInstanceLock() || isQuitRequest(process.argv)) {
   app.exit(0)
 }
+
+// Windows groups taskbar entries and notifications by this id; the installer's Start Menu
+// shortcut carries the same one (electron-builder sets it from appId).
+if (process.platform === 'win32') app.setAppUserModelId('com.traceroost.desktop')
 
 // ── Sandbox ──────────────────────────────────────────────────────────────────
 //
@@ -80,12 +91,17 @@ let quitting = false
 let gitAvailable = true
 const startedAt = Date.now()
 const isLinux = process.platform === 'linux'
+const isWindows = process.platform === 'win32'
+/** Linux and Windows put the app's controls in the window's own menu bar too (macOS has the
+ *  global menu bar and the menu bar item). */
+const hasWindowMenuBar = process.platform !== 'darwin'
 /** Linux only: whether the desktop can show the tray icon. Unknown until checked at startup, and
  *  re-checked on each window close. Always true elsewhere. */
 let trayHost: TrayHost = isLinux ? { available: false, reason: 'not checked yet' } : { available: true, via: 'platform' }
 const prefs = new PrefsStore(app.getPath('userData'))
 
-/** Started by the login launch: macOS reports it; Linux's autostart entry passes the marker. */
+/** Started by the login launch: macOS reports it; Linux's autostart entry and the Windows Run key
+ *  pass the marker. */
 const launchedAtLogin = app.getLoginItemSettings().wasOpenedAtLogin || process.argv.includes(LAUNCHED_AT_LOGIN_ARG)
 
 // ── Login launch ─────────────────────────────────────────────────────────────
@@ -104,8 +120,15 @@ const linuxAutostart = isLinux
     )
   : undefined
 
+// Windows: the HKCU Run value, matched on this copy's path and the login marker (windows.ts).
+const windowsLoginItemFor = isWindows
+  ? windowsLoginItem(launchCommand({ execPath: process.execPath, isPackaged: app.isPackaged, appPath: app.getAppPath(), appImage: undefined }))
+  : undefined
+
 function launchAtLoginEnabled(): boolean {
-  return linuxAutostart ? linuxAutostart.isEnabled() : app.getLoginItemSettings().openAtLogin
+  if (linuxAutostart) return linuxAutostart.isEnabled()
+  if (windowsLoginItemFor) return app.getLoginItemSettings(windowsLoginItemFor).openAtLogin
+  return app.getLoginItemSettings().openAtLogin
 }
 
 // ── AppImage launcher entry ──────────────────────────────────────────────────
@@ -137,7 +160,7 @@ function collectorState(): CollectorState {
 }
 
 function refreshTray(): void {
-  if (!tray && !isLinux) return
+  if (!tray && !hasWindowMenuBar) return
   const launcher = appImageLauncherState()
   const model = buildMenuModel({
     shell: shellMode,
@@ -147,9 +170,9 @@ function refreshTray(): void {
     inApplicationsMenu: launcher === undefined ? undefined : launcher === 'current' || launcher === 'stale',
   })
   tray?.update(model)
-  // On Linux the same controls also live in the window's menu bar: on a desktop with no tray it is
-  // the only place they can be.
-  if (isLinux && trayHandlers) {
+  // On Linux (and Windows) the same controls also live in the window's menu bar: on a Linux desktop
+  // with no tray it is the only place they can be.
+  if (hasWindowMenuBar && trayHandlers) {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: '&TraceRoost', submenu: menuTemplate(model, trayHandlers) },
       { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
@@ -238,13 +261,8 @@ async function settleOwnership(): Promise<void> {
     }
   }
   if (resolved.mode === 'own') {
-    // Owned mode needs a shutdown that flushes, and on Windows there is no such signal (see
-    // OwnedCollector.stop). Refusing here is better than owning a collector this build cannot
-    // stop cleanly; the Windows feature's own plan covers adding one.
-    if (process.platform === 'win32') {
-      setMode({ mode: 'blocked', detail: 'Running an app-owned collector is not supported on Windows in this build. Start the collector with `traceroost service install` and reopen this app to attach to it.' })
-      return
-    }
+    // On every OS, Windows included: the stop request is the owner channel's message, which the
+    // collector honours with the same flush as SIGTERM (OwnedCollector.stop).
     setMode(resolved)
     await startOwnedCollector()
     return
@@ -325,6 +343,14 @@ function openWindowFor(uiPort: number): void {
   })
   startMinimized = false
   win.on('closed', () => { win = undefined })
+  // Windows log-off / shutdown: the system ends this session without a Quit, and terminates the
+  // collector (which has no window to be told through). Ask it to flush now; it saves in well under
+  // a second. Without the window this never fires — the collector then still flushes when this
+  // process goes and its owner channel closes, if Windows has not ended it first.
+  win.on('session-end', () => {
+    log.write('[desktop] Windows is ending the session — asking the collector to flush now')
+    collector?.requestStopNow()
+  })
   if (process.platform === 'darwin') void app.dock?.show()
 }
 
@@ -410,7 +436,14 @@ function detectGit(): void {
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
+  if (isQuitRequest(argv)) {
+    // From the installer/uninstaller (build/installer.nsh) or a user's `--quit`. Once only: a
+    // repeated Quit while the collector is flushing must not cut the flush short.
+    log.write('[desktop] a second launch asked this instance to quit')
+    if (!quitting) app.quit()
+    return
+  }
   log.write('[desktop] a second launch was folded into this instance')
   const port = currentUiPort()
   if (port !== undefined) openWindowFor(port)
@@ -436,7 +469,7 @@ app.whenReady().then(async () => {
   // No application menu beyond the standard edit menu would leave ⌘Q and copy/paste dead in the
   // dashboard window; the default template is built from Electron's own roles. (Linux gets its own
   // menu bar from refreshTray, with the app's controls in it.)
-  if (!isLinux) {
+  if (!hasWindowMenuBar) {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     ]))
@@ -533,6 +566,12 @@ async function toggleLaunchAtLogin(): Promise<void> {
       }
     }
     log.write(`[desktop] launch at login ${linuxAutostart.isEnabled() ? 'enabled' : 'disabled'} (${linuxAutostart.filePath})`)
+    refreshTray()
+    return
+  }
+  if (windowsLoginItemFor) {
+    app.setLoginItemSettings({ openAtLogin: next, ...windowsLoginItemFor })
+    log.write(`[desktop] launch at login ${next ? 'enabled' : 'disabled'} (HKCU Run: ${windowsLoginItemFor.path})`)
     refreshTray()
     return
   }

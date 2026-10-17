@@ -71,6 +71,7 @@ import { agentKeyLabel, agentKeyDir } from './agentLabels'
 import { generateCspNonce, dashboardCspHeader, UNAUTHORIZED_PAGE_CSP } from './dashboardCsp'
 import { renderDashboardHtml } from './dashboardHtml'
 import { knownWorkspace } from './instructionActions'
+import { installOwnerChannel } from './ownerChannel'
 
 // Development builds only: load `.env` from the current working directory, so `pnpm run local` can
 // point at a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell
@@ -2373,6 +2374,8 @@ void startUiServer()
 // ── Graceful shutdown — flush data before exit ────────────────────────────────
 
 function shutdown() {
+  if (shuttingDown) return
+  shuttingDown = true
   if (saveTimer) clearTimeout(saveTimer)
   // Only while this is still the data dir's writer (see dataDirLock above); the lock itself is
   // released by its 'exit' handler, after these saves.
@@ -2384,8 +2387,20 @@ function shutdown() {
   }
   process.exit(0)
 }
+let shuttingDown = false
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
+// The same shutdown, asked for over the IPC channel by an owner that spawned this process with one
+// (the desktop app) — the only cooperative request Windows has, since it has no SIGTERM. Inert for
+// every other way this server is started. See standalone/ownerChannel.ts.
+if (installOwnerChannel(process, reason => {
+  console.log(reason === 'requested'
+    ? '[TraceRoost] Shutdown requested by the app that started this collector'
+    : '[TraceRoost] The app that started this collector is gone — shutting down')
+  shutdown()
+})) {
+  console.log('[TraceRoost] Owner channel open: the app that started this collector can stop it')
+}
 
 // ── Last-resort error handlers ───────────────────────────────────────────────
 //
