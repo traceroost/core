@@ -4,6 +4,11 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Auto-configure no longer turns on prompt logging for your own collector** — when `~/.claude/settings.json`, `~/.codex/config.toml` or an editor's Copilot settings already export OpenTelemetry to a collector that isn't TraceRoost (a company or hosted one), TraceRoost left that endpoint alone but still switched on prompt and tool-content capture (`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_CONTENT`, Codex `log_user_prompt`) or Copilot's telemetry itself, so that content started reaching your collector. Such a file is now left untouched entirely, with a warning saying why
+- **Claude Code's `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is kept when it points at your own collector** — it was always removed as a leftover from older TraceRoost versions
+
 ### Added
 
 - **Third-party notices ship with every build** — `THIRD_PARTY_NOTICES.md` carries the copyright and license text of each open source package bundled into TraceRoost (the MCP SDK, ajv, zod, preact, sql.js and the rest), in the npm package, the VS Code extension and the Docker image. It is generated from the bundler's own record of what it included, and CI fails if it falls out of date

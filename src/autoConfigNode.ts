@@ -115,26 +115,26 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
       if (lines[i].trim().startsWith('[')) { sectionEnd = i; break }
     }
 
+    // An [otel] exporter the user aimed at a collector of their own makes the whole section
+    // theirs: nothing is changed, above all not `log_user_prompt` — turning that on next to their
+    // exporter would send prompt text to their collector because of TraceRoost.
+    for (let i = otelIdx + 1; i < sectionEnd; i++) {
+      const ep = /\bendpoint\s*=\s*["']([^"']+)["']/.exec(lines[i])?.[1]
+      if (ep !== undefined && !isLoopbackEndpoint(ep)) {
+        return { changed: false, warning: `[otel] in ${configPath} exports to ${ep}; left untouched (TraceRoost listens on ${endpoint})` }
+      }
+    }
+
     // Insert or update each required key within the [otel] section. A key may be spread over
     // several dotted lines (`exporter.otlp-http.endpoint = …`): the first becomes our line and the
     // rest are dropped, otherwise the result would define the key twice.
     // Iterate in reverse insertion order so splice indices stay valid.
     let changed = false
-    let warning: string | undefined
     for (const { key, line } of [...requiredOtelKeys].reverse()) {
       const re = keyLineRe(key)
       const matches: number[] = []
       for (let i = otelIdx + 1; i < sectionEnd; i++) {
         if (re.test(lines[i])) { matches.push(i) }
-      }
-      // Same rule as Claude Code's OTEL_EXPORTER_OTLP_ENDPOINT below: an exporter the user aimed
-      // at a collector of their own is theirs — only a loopback endpoint is ever taken back over.
-      const foreign = matches
-        .map(i => /\bendpoint\s*=\s*["']([^"']+)["']/.exec(lines[i])?.[1])
-        .find(ep => ep !== undefined && !isLoopbackEndpoint(ep))
-      if (foreign) {
-        warning = `[otel] ${key} in ${configPath} points at ${foreign}; left as is (TraceRoost listens on ${endpoint})`
-        continue
       }
       // An exporter line already aimed at this endpoint is left alone — it may carry extras we
       // don't write ourselves, e.g. the `headers = { "Authorization" = … }` a LAN/Docker setup needs.
@@ -157,10 +157,10 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
     }
 
     if (!changed) {
-      return warning ? { changed: false, warning } : { changed: false }
+      return { changed: false }
     }
     await writeConfigFile(configPath, lines.join('\n'), true)
-    return warning ? { changed: true, warning } : { changed: true }
+    return { changed: true }
   } catch (e) {
     return { changed: false, error: String(e) }
   }
@@ -244,15 +244,18 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
     }
 
     const existingEnv = (settings.env as Record<string, string>) ?? {}
+    // The user exports to a collector of their own: the file is theirs and nothing in it changes —
+    // above all not OTEL_LOG_USER_PROMPTS / OTEL_LOG_TOOL_CONTENT, which next to their endpoint
+    // would send prompt text and tool output to their collector because of TraceRoost.
+    for (const key of ['OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT']) {
+      const current = existingEnv[key]
+      if (typeof current === 'string' && current && !isLoopbackEndpoint(current)) {
+        return { changed: false, warning: `${key} in ${settingsPath} points at ${current}; left untouched (TraceRoost listens on http://localhost:${port})` }
+      }
+    }
     let changed = false
-    let warning: string | undefined
     for (const [key, value] of Object.entries(requiredEnv)) {
       const current = existingEnv[key]
-      if (key === 'OTEL_EXPORTER_OTLP_ENDPOINT' && current && !isLoopbackEndpoint(current)) {
-        // The user exports to a collector of their own — don't hijack it.
-        warning = `OTEL_EXPORTER_OTLP_ENDPOINT in ${settingsPath} points at ${current}; left as is (TraceRoost listens on http://localhost:${port})`
-        continue
-      }
       if (current !== value) {
         existingEnv[key] = value
         changed = true
@@ -268,13 +271,13 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
     if (removeLegacyStopHook(settings)) changed = true
 
     if (!changed) {
-      return { changed: false, warning }
+      return { changed: false }
     }
 
     settings.env = existingEnv
     await writeConfigFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', raw !== undefined)
 
-    return { changed: true, warning }
+    return { changed: true }
   } catch (e) {
     return { changed: false, error: String(e) }
   }
@@ -323,16 +326,17 @@ export async function autoConfigureCopilotStandalone(port: number): Promise<Conf
         settings = parsed as Record<string, unknown>
       }
 
+      // The user exports to a collector of their own: leave the file alone entirely, as for
+      // Claude Code — turning `otel.enabled` on next to their endpoint would start sending Copilot
+      // telemetry there because of TraceRoost.
+      const ownEndpoint = settings['github.copilot.chat.otel.otlpEndpoint']
+      if (typeof ownEndpoint === 'string' && ownEndpoint && !isLoopbackEndpoint(ownEndpoint)) {
+        results.push({ changed: false, warning: `github.copilot.chat.otel.otlpEndpoint in ${settingsPath} points at ${ownEndpoint}; left untouched (TraceRoost listens on http://localhost:${port})` })
+        continue
+      }
       let changed = false
-      let warning: string | undefined
       for (const [key, value] of Object.entries(required)) {
         const current = settings[key]
-        if (key === 'github.copilot.chat.otel.otlpEndpoint' && typeof current === 'string' && current
-          && !isLoopbackEndpoint(current)) {
-          // The user exports to a collector of their own — don't hijack it (as for Claude Code).
-          warning = `${key} in ${settingsPath} points at ${current}; left as is (TraceRoost listens on http://localhost:${port})`
-          continue
-        }
         if (current !== value) {
           text = applyEdits(text, modify(text, [key], value, {
             formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' },
@@ -341,11 +345,11 @@ export async function autoConfigureCopilotStandalone(port: number): Promise<Conf
         }
       }
 
-      if (!changed) { results.push(warning ? { changed: false, warning } : { changed: false }); continue }
+      if (!changed) { results.push({ changed: false }); continue }
 
       if (!text.endsWith('\n')) { text += '\n' }
       await writeConfigFile(settingsPath, text, raw !== undefined)
-      results.push(warning ? { changed: true, warning } : { changed: true })
+      results.push({ changed: true })
     } catch (e) {
       results.push({ changed: false, error: String(e) })
     }
