@@ -5,7 +5,7 @@ import * as path from 'path'
 import { execFileSync } from 'child_process'
 import {
   defaultServiceConfig, serviceConfigPath, readServiceConfig, writeServiceConfig,
-  serviceLogPath, parseServiceInstallFlags, isRunningFromNpx,
+  serviceLogPath, parseServiceInstallFlags, describeKeptSettings, configuredPorts, isRunningFromNpx,
   childEnvForReexec, shouldBlockRepeatedBootstrap, REEXEC_GUARD_ENV,
   generateLaunchdPlist, generateSystemdUnit, generateWindowsWrapperScript,
   launchdLabel, SYSTEMD_UNIT_NAME, WINDOWS_TASK_NAME,
@@ -192,6 +192,61 @@ suite('serviceConfig', () => {
       const config = parseServiceInstallFlags(['--ui-port'])
       assert.strictEqual(config.uiPort, 3000)
     })
+
+    // `service install` passes the existing config.json as the base: re-running it is how people
+    // upgrade, and building from the defaults reset every earlier choice on each re-run.
+    const existing = {
+      ...defaultServiceConfig('/home/u'),
+      uiPort: 3100, otlpPort: 4319, mcpPort: 4326, bindHost: '0.0.0.0', dataDir: '/data/tr',
+      sessionRetentionDays: 30, authToken: 'tok', installId: 'iid',
+    }
+
+    test('a reinstall with no flags keeps every existing setting', () => {
+      assert.deepStrictEqual(parseServiceInstallFlags([], existing), existing)
+    })
+
+    test('a flag overrides exactly its own setting on top of the existing config', () => {
+      const config = parseServiceInstallFlags(['--ui-port', '3200'], existing)
+      assert.deepStrictEqual(config, { ...existing, uiPort: 3200 })
+    })
+
+    test('does not mutate the base config', () => {
+      const base = { ...existing }
+      parseServiceInstallFlags(['--ui-port', '3200'], base)
+      assert.strictEqual(base.uiPort, 3100)
+    })
+  })
+
+  suite('describeKeptSettings', () => {
+    test('names the non-default settings a reinstall carried over, skipping the ones passed as flags', () => {
+      const config = { ...defaultServiceConfig('/home/u'), uiPort: 3100, otlpPort: 4319, sessionRetentionDays: 30 }
+      assert.deepStrictEqual(describeKeptSettings(config, ['--otlp-port', '4319'], '/home/u'), ['dashboard port 3100', 'retention (days) 30'])
+    })
+
+    test('says nothing when everything is at its default', () => {
+      assert.deepStrictEqual(describeKeptSettings(defaultServiceConfig('/home/u'), [], '/home/u'), [])
+    })
+  })
+
+  suite('configuredPorts', () => {
+    const config = { ...defaultServiceConfig('/home/u'), uiPort: 3100, otlpPort: 4319, mcpPort: 4326 }
+
+    test('uses config.json when nothing is set in the environment', () => {
+      assert.deepStrictEqual(configuredPorts({}, config), { ui: 3100, otlp: 4319, mcp: 4326, uiFromEnv: false })
+    })
+
+    test('env vars win for a manual run (npx, Docker)', () => {
+      assert.deepStrictEqual(configuredPorts({ UI_PORT: '3001', OTLP_PORT: '4320', MCP_PORT: '4327' }, config), { ui: 3001, otlp: 4320, mcp: 4327, uiFromEnv: true })
+    })
+
+    test('the background service ignores port env vars an older service definition still sets', () => {
+      const env = { TRACEROOST_SERVICE: '1', UI_PORT: '3000', OTLP_PORT: '4318', MCP_PORT: '4316' }
+      assert.deepStrictEqual(configuredPorts(env, config), { ui: 3100, otlp: 4319, mcp: 4326, uiFromEnv: false })
+    })
+
+    test('a non-numeric env value falls back to config.json instead of NaN', () => {
+      assert.deepStrictEqual(configuredPorts({ UI_PORT: 'abc' }, config), { ui: 3100, otlp: 4319, mcp: 4326, uiFromEnv: false })
+    })
   })
 
   suite('isRunningFromNpx', () => {
@@ -254,7 +309,8 @@ suite('serviceConfig', () => {
       assert.ok(plist.includes('<string>/usr/local/lib/node_modules/traceroost/standalone/cli.js</string>'))
       assert.ok(plist.includes('<key>RunAtLoad</key>'))
       assert.ok(plist.includes('<key>KeepAlive</key>'))
-      assert.ok(plist.includes('<string>3000</string>'))
+      // Ports come from config.json (configuredPorts), never the service definition.
+      assert.ok(!/UI_PORT|OTLP_PORT|MCP_PORT/.test(plist), plist)
       assert.ok(plist.includes('<key>TRACEROOST_SERVICE</key>\n    <string>1</string>'))
       assert.ok(plist.includes(serviceLogPath(program.config)))
     })
@@ -282,7 +338,8 @@ suite('serviceConfig', () => {
       const unit = generateSystemdUnit(program)
       assert.ok(unit.includes('ExecStart="/usr/bin/node" "/usr/lib/node_modules/traceroost/standalone/cli.js"'))
       assert.ok(unit.includes('Restart=on-failure'))
-      assert.ok(unit.includes('Environment="UI_PORT=3000"'))
+      assert.ok(!/UI_PORT|OTLP_PORT|MCP_PORT/.test(unit), unit)
+      assert.ok(unit.includes('Environment="BIND_HOST=127.0.0.1"'))
       assert.ok(unit.includes('Environment="TRACEROOST_SERVICE=1"'))
       assert.ok(unit.includes(`StandardOutput=append:${serviceLogPath(program.config)}`))
       assert.ok(unit.includes('WantedBy=default.target'))
@@ -312,7 +369,7 @@ suite('serviceConfig', () => {
         config: defaultServiceConfig('C:\\Users\\test'),
       }
       const script = generateWindowsWrapperScript(program)
-      assert.ok(script.includes('set "UI_PORT=3000"'))
+      assert.ok(!/UI_PORT|OTLP_PORT|MCP_PORT/.test(script), script)
       assert.ok(script.includes('set "TRACEROOST_SERVICE=1"'))
       assert.ok(script.includes('"C:\\Program Files\\nodejs\\node.exe"'))
       assert.ok(script.includes('>> "' + serviceLogPath(program.config) + '" 2>&1'))
