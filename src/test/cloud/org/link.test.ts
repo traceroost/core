@@ -4,11 +4,14 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { ForwardQueue } from '../../../cloud/forward/queue'
+import { readForwardState, writeForwardState } from '../../../cloud/forward/forwardState'
+import { orgEndpoint } from '../../../cloud/org/config'
 import { linkInteractive, leave, refreshOrgNameIfStale, resetRoleCheckForTests } from '../../../cloud/org/link'
 import { getOrgStatus } from '../../../cloud/org/status'
 import { setCredentialStore, loadCredentials } from '../../../cloud/org/credentials'
 import type { CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
+import type { RollupPayload } from '../../../cloud/forward/schema'
 
 function memoryStore(): CredentialStore {
   let cur: OrgCredentials | null = null
@@ -91,6 +94,45 @@ suite('org/link', () => {
       /state mismatch/,
     )
     assert.strictEqual(loadCredentials(), null)
+  })
+
+  /** Runs `fn` with the home directory (HOME / USERPROFILE — os.homedir()) pointed at a scratch
+   *  dir, since a link reads and writes the default-home queue and forward state. */
+  async function withScratchHome(fn: (home: string) => Promise<void>): Promise<void> {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-relink-'))
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }
+    process.env.HOME = home
+    process.env.USERPROFILE = home
+    try {
+      await fn(home)
+    } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+      fs.rmSync(home, { recursive: true, force: true })
+    }
+  }
+  const QUEUED: RollupPayload = { schema_version: '1', repo_key_fp: 'a'.repeat(64), session: { session_id: '11111111-1111-4111-8111-111111111111', agent: 'claude-code', started_at: '2026-03-01T00:00:00.000Z', duration_ms: 1, source_rank: 2, host_id: '0a0a0a0a-1111-4111-8111-aaaaaaaaaaaa' } }
+
+  test('a queue held through an unlink (no server word) survives a re-link to the same org as the same member', async () => {
+    await withScratchHome(async (home) => {
+      new ForwardQueue(home).enqueue(QUEUED)
+      writeForwardState({ notice: { kind: 'relink', message: 'm', at: new Date().toISOString(), heldQueueFor: { endpoint: orgEndpoint(), orgId: 'org-1', memberId: 'mem-1' } } }, home)
+      await linkInteractive({ openUrl: fakeBrowser(), timeoutMs: 2000 })
+      assert.strictEqual(new ForwardQueue(home).depth(), 1)
+      assert.strictEqual(readForwardState(home).notice, null)
+    })
+  })
+
+  test('a held queue is cleared when the re-link is to another org or as another member — it was hashed for its own', async () => {
+    for (const held of [{ orgId: 'org-other', memberId: 'mem-1' }, { orgId: 'org-1', memberId: 'mem-other' }]) {
+      setCredentialStore(memoryStore())
+      await withScratchHome(async (home) => {
+        new ForwardQueue(home).enqueue(QUEUED)
+        writeForwardState({ notice: { kind: 'relink', message: 'm', at: new Date().toISOString(), heldQueueFor: { endpoint: orgEndpoint(), ...held } } }, home)
+        await linkInteractive({ openUrl: fakeBrowser(), timeoutMs: 2000 })
+        assert.strictEqual(new ForwardQueue(home).depth(), 0, JSON.stringify(held))
+        assert.strictEqual(readForwardState(home).notice, null)
+      })
+    }
   })
 
   test('leave clears the credential and the org-salted queue, even when the server is unreachable', async () => {
