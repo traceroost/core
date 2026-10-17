@@ -58,7 +58,7 @@ import { loadCredentials } from '../org/credentials'
 import { currentHostId } from '../org/hostIdentity'
 import { manifestUrl, type OrgCredentials } from '../org/config'
 import { clientVersion, TokenRefreshError } from '../org/oauthClient'
-import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
+import { refreshCredentials, accessTokenExpiring, RefreshReplayExhaustedError } from '../org/tokenRefresh'
 import { ForwardQueue, STUCK_ATTEMPTS_THRESHOLD } from './queue'
 import { DroppedLedger } from './deliveryLedger'
 import { UPGRADE_PAUSE_MS } from './sender'
@@ -297,7 +297,8 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   let refreshed = false
   if (accessTokenExpiring(creds, now)) {
     try { creds = await refreshCredentials(creds, now); refreshed = true } catch (err) {
-      if (err instanceof TokenRefreshError && err.permanent) return { ...result, stopped: 'auth' }
+      // A refresh token out of unanswered replays is unusable too (the sender asks for a re-link).
+      if (err instanceof TokenRefreshError && (err.permanent || err instanceof RefreshReplayExhaustedError)) return { ...result, stopped: 'auth' }
     }
   }
 

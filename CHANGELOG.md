@@ -13,6 +13,12 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **Re-running `traceroost service install` (or upgrading with it) keeps your settings** — it rebuilt `~/.traceroost/config.json` from the defaults, so a custom dashboard, OTLP or MCP port, bind host, data directory or retention reset on every re-run. A flag now changes only its own setting, and the command prints what it kept. The background service reads its ports from `config.json` only, so a service definition written by an older version can't override a port changed later
 - **A busy port can no longer push one TraceRoost server onto another's port** — the fallback scan steps over the OTLP, MCP and OTLP/gRPC (4317) ports
 
+### TraceRoost Cloud (full edition only)
+
+These ship only in the full edition; released core builds contain no TraceRoost Cloud code. `scripts/prepare-edition.mjs core` removes this section from the packaged changelog.
+
+- **An offline machine no longer unlinks itself and drops its queue** — a token refresh that failed because there was no network (DNS failure, connection refused, no route, connect timeout, a proxy refusing the tunnel) counted as an unanswered presentation of the refresh token, so after a few offline drains with an expired access token the machine treated its credential as dead, unlinked and cleared every queued trace. Only a refresh that may have reached TraceRoost Cloud (a timeout or reset after connecting, a gateway error) is counted now, and running out of those replays — a local inference, not the cloud rejecting the token — asks you to re-link but keeps the queued traces, sending them after a re-link to the same org
+
 ## [0.19.2] — 2026-10-15
 
 ### Fixed

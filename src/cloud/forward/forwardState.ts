@@ -21,6 +21,20 @@ export interface ForwardNotice {
   at: string
   /** The client version the notice was raised for (`upgrade`). */
   version?: string
+  /** `relink` only: the queue was kept on unlink (the refresh token ran out of unanswered replays —
+   *  a local inference, not the cloud's word; sender.ts `holdForRelink`), hashed for this link.
+   *  The next link keeps it only for the same endpoint, org and member, and clears it otherwise
+   *  (link.ts `persistFromTokens`). */
+  heldQueueFor?: HeldQueueOwner
+}
+
+/** Who a kept queue was built for — its hashes are salted with `orgId` (`repoKey.ts`) and it
+ *  carries `memberId`'s author fingerprint, so it may only ever ship to the same org as the same
+ *  member. */
+export interface HeldQueueOwner {
+  endpoint: string
+  orgId: string
+  memberId: string
 }
 
 export interface PersistedState {
