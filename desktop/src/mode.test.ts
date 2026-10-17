@@ -53,6 +53,21 @@ suite('mode', () => {
     assert.match(describeMode(resolveMode({ ok: true, needsConfirmation: false, identity: identity({ service: false }) })), /pid 2000/)
   })
 
+  test('the confirm question names the pid when the collector is not the service', () => {
+    const resolved = resolveMode({
+      ok: true, needsConfirmation: true, unverified: 'version-unknown', identity: identity({ service: false, pid: 4242 }),
+    })
+    assert.ok(resolved.mode === 'confirm-attach')
+    assert.match(resolved.question, /pid 4242/)
+    assert.match(resolved.question, /started 2026-10-13T12:00:00\.000Z/)
+  })
+
+  test('every mode has a status line, and the transient ones do not claim collection', () => {
+    assert.match(describeMode({ mode: 'own' }), /Starting collection/)
+    assert.match(describeMode({ mode: 'confirm-attach', identity: identity(), question: 'q' }), /confirm/)
+    assert.match(describeMode({ mode: 'wait', detail: 'x', retryInMs: 1 }), /Waiting/)
+  })
+
   test('a blocked shell says it is not collecting, rather than implying it is', () => {
     assert.match(describeMode({ mode: 'blocked', detail: 'x' }), /Not collecting/)
   })

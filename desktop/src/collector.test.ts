@@ -135,6 +135,34 @@ suite('collector — supervised child', () => {
     await c.stop()
   })
 
+  test('a collector that keeps crashing is given up on, not restarted forever', async function () {
+    // Five quick crashes with the real backoff between them (1 + 2 + 4 + 8 s).
+    this.timeout(40_000)
+    const c = make({ STUB_EXIT_AFTER: '200' })
+    const failed = new Promise<CollectorState>(resolve => c.onStateChange(s => { if (s.status === 'failed') resolve(s) }))
+    await c.start()
+    const state = await failed
+    assert.ok(state.status === 'failed' && /exited unexpectedly/.test(state.lastError), JSON.stringify(state))
+    assert.ok(lines.some(l => l.includes('giving up after 5 consecutive failures')), lines.join('\n'))
+    // And it stays given up: no restart is scheduled behind the failure.
+    await new Promise(r => setTimeout(r, 1_500))
+    assert.strictEqual(c.current().status, 'failed')
+  })
+
+  test('on Windows, stopping an owned collector is refused rather than killing it unflushed', async () => {
+    collector = new OwnedCollector({
+      serverScript: script, execPath: process.execPath, dataDir, env: {}, log: line => lines.push(line), platform: 'win32',
+    })
+    const running = await collector.start()
+    try {
+      await assert.rejects(collector.stop(), /not supported on Windows/)
+      assert.ok(!fs.existsSync(path.join(dataDir, 'flushed')), 'the child was signalled anyway')
+    } finally {
+      if (running.status === 'running') process.kill(running.pid, 'SIGKILL')
+      collector = undefined
+    }
+  })
+
   test('the collector\'s own output is captured, so a failed start can be explained', async function () {
     this.timeout(20_000)
     const c = make({ STUB_EXIT_AFTER: '200' })

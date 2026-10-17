@@ -168,7 +168,9 @@ export class OwnedCollector {
     ])
 
     if (ready) {
-      this.consecutiveFailures = 0
+      // Not a reason to reset consecutiveFailures: a collector that binds its ports and crashes a
+      // moment later is still crash-looping. scheduleRestart resets it once a run lasted
+      // HEALTHY_UPTIME_MS; a manual start or restart resets it too.
       this.setState(ready)
       this.opts.log(`[desktop] collector ready — dashboard on port ${ready.uiPort}, OTLP ${ready.otlpPort}, MCP ${ready.mcpPort}`)
       return ready
