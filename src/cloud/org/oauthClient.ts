@@ -72,6 +72,19 @@ export class TokenRefreshError extends Error {
   }
 }
 
+/**
+ * The refresh token was already presented `MAX_UNANSWERED_PRESENTATIONS` times without an answer,
+ * so it is never sent again. Not `permanent`: that is a local inference, not the cloud's
+ * `invalid_grant` — the cloud may well still hold this machine's install. The sender
+ * (`sender.ts`, `holdForRelink`; thrown by `tokenRefresh.ts`) therefore asks for a re-link but keeps the queued traces, where a
+ * permanent error drops them.
+ */
+export class RefreshReplayExhaustedError extends TokenRefreshError {
+  constructor() {
+    super('token refresh failed: this refresh token was already presented twice without an answer — re-link this machine', false)
+  }
+}
+
 /** Error codes (on a thrown error or anywhere down its `cause` chain — Node's fetch throws
  *  `TypeError('fetch failed')` with the socket/DNS error as `cause`) that mean no connection to
  *  the server was ever made, so the request — and the refresh token in it — never left this

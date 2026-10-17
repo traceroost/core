@@ -17,7 +17,7 @@
  */
 
 import { credentialStore, loadCredentials, saveCredentials } from './credentials'
-import { refreshTokens, TokenRefreshError } from './oauthClient'
+import { refreshTokens, TokenRefreshError, RefreshReplayExhaustedError } from './oauthClient'
 import { withFileLockAsync } from '../forward/fileLock'
 import type { OrgCredentials } from './config'
 
@@ -39,18 +39,9 @@ export interface RefreshOptions {
  *  revokes the whole install. So: the original presentation plus one replay, never more. */
 export const MAX_UNANSWERED_PRESENTATIONS = 2
 
-/**
- * The refresh token was already presented `MAX_UNANSWERED_PRESENTATIONS` times without an answer,
- * so it is never sent again. Not `permanent`: that is a local inference, not the cloud's
- * `invalid_grant` — the cloud may well still hold this machine's install. The sender
- * (`sender.ts`, `holdForRelink`) therefore asks for a re-link but keeps the queued traces, where a
- * permanent error drops them.
- */
-export class RefreshReplayExhaustedError extends TokenRefreshError {
-  constructor() {
-    super('token refresh failed: this refresh token was already presented twice without an answer — re-link this machine', false)
-  }
-}
+// Defined beside TokenRefreshError in oauthClient.ts: credentials.ts ↔ tokenRefresh.ts is an
+// import cycle, and a subclass declared here could run before its base class exists in a bundle.
+export { RefreshReplayExhaustedError }
 
 /**
  * Rotates `stale`'s tokens and saves the result, under the credential file's lock. Returns the
