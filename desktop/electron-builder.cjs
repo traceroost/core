@@ -42,6 +42,17 @@ const path = require('path')
 const rootManifest = require('../package.json')
 const afterPack = require('./scripts/afterPack.cjs')
 
+// CI maps repository secrets onto these, and a secret that does not exist arrives as an empty
+// string. electron-builder reads them itself and resolves an empty CSC_LINK as a path (the cwd:
+// "desktop not a file"), so an empty value is removed here: absent and empty mean the same.
+for (const name of [
+  'CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_NAME',
+  'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER',
+  'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID',
+]) {
+  if (process.env[name] === '') delete process.env[name]
+}
+
 const hasDeveloperId = Boolean(process.env.CSC_LINK || process.env.CSC_NAME)
 const hasNotaryCredentials =
   Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER) ||

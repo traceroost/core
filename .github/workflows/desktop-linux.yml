@@ -148,7 +148,9 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: traceroost-desktop-linux-${{ matrix.arch }}
-          path: dist
+          # The artifact is rooted at desktop/ (it holds dist/ and resources/), so downloading to the
+          # workspace root puts the installers in ./dist, where the steps below look.
+          path: .
 
       # Ubuntu 24.04's default: unprivileged user namespaces only for binaries with an AppArmor
       # profile granting them. Set explicitly so the host leg proves the .deb's profile is what
@@ -198,7 +200,9 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: traceroost-desktop-linux-${{ matrix.arch }}
-          path: dist
+          # The artifact is rooted at desktop/ (it holds dist/ and resources/), so downloading to the
+          # workspace root puts the installers in ./dist, where the steps below look.
+          path: .
 
       # Restricted (Ubuntu 23.10+'s default): the AppImage cannot get a sandbox and must refuse.
       - name: Refuses without a sandbox (namespaces restricted)
