@@ -111,6 +111,9 @@ const appEnv = {
   // No network from a smoke test: the npm version check is the collector's one outbound call.
   TRACEROOST_NO_UPDATE_CHECK: '1',
 }
+// They must exist: Electron puts its single-instance lock in userData under APPDATA, and a launch
+// that cannot take the lock exits 0 at once, as a second instance would.
+if (isWindows) for (const dir of [appEnv.APPDATA, appEnv.LOCALAPPDATA]) fs.mkdirSync(dir, { recursive: true })
 const app = spawn(binary, [], {
   env: appEnv,
   stdio: ['ignore', 'pipe', 'pipe'],

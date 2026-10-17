@@ -57,7 +57,12 @@ import type { BrowserWindow, MenuItemConstructorOptions } from 'electron'
 //
 // `--quit` (windows.ts) is a message to the instance that already exists, never a launch of its
 // own: with no instance running there is nothing to quit, so it exits either way.
-if (!app.requestSingleInstanceLock() || isQuitRequest(process.argv)) {
+if (!app.requestSingleInstanceLock()) {
+  // Said on stderr: the desktop log is not open yet, and a launch that ends here otherwise leaves
+  // no trace of why.
+  if (!isQuitRequest(process.argv)) console.error('[desktop] another TraceRoost is running (or its single-instance lock in userData could not be taken) — handing over to it')
+  app.exit(0)
+} else if (isQuitRequest(process.argv)) {
   app.exit(0)
 }
 

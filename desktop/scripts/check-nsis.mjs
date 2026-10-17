@@ -94,6 +94,8 @@ const env = {
   MCP_PORT: String(MCP_PORT),
   TRACEROOST_NO_UPDATE_CHECK: '1',
 }
+// Electron keeps its single-instance lock under APPDATA; the directories have to exist.
+for (const dir of [env.APPDATA, env.LOCALAPPDATA]) fs.mkdirSync(dir, { recursive: true })
 const app = spawn(exe, [], { env, stdio: 'ignore' })
 let appExit
 const appExited = new Promise(resolve => app.once('exit', code => { appExit = code; resolve() }))
