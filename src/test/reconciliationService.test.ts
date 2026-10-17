@@ -65,7 +65,9 @@ suite('reconciliationService', () => {
   })
 
   teardown(() => {
-    fs.rmSync(repoDir, { recursive: true, force: true })
+    // Retried: on Windows a git child that outlived its test (a timeout) can still hold the repo
+    // open for a moment, and a bare rmSync fails with EPERM — failing the next test's hook too.
+    fs.rmSync(repoDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   })
 
   test('allocates revision 1 on first reconcile and reuses it on an unchanged re-check', async () => {
@@ -225,6 +227,8 @@ suite('reconciliationService', () => {
     assert.strictEqual(result.revision, null)
     assert.strictEqual(result.changed, false)
   })
+  // 60 reconciles, each several `git` child processes: ~2 s on Linux, and past mocha's 10 s default
+  // on a Windows runner, where every process spawn costs several times more.
   test('reconcileMany: results in input order, same outcomes as one-by-one, and a later commit still invalidates', async () => {
     const db = await openInMemoryDb()
     const service = new ReconciliationService(db)
@@ -256,5 +260,5 @@ suite('reconciliationService', () => {
       assert.strictEqual(r.changed, i % 5 === 4, r.sessionId)
       assert.strictEqual(service.getCachedOutcome(r.sessionId)?.overall, 'merged', r.sessionId)
     }
-  })
+  }).timeout(60_000)
 })
