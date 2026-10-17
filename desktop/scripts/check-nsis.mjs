@@ -60,7 +60,9 @@ console.log(`check-nsis: ${path.basename(installer)} on ${os.release()} ${proces
 console.log('\n── silent install ──')
 const installed = runInstaller(installer, ['/S'])
 check(installed.status === 0, `installer /S exited 0 (got ${installed.status}, ${installed.seconds}s)`)
-check(await waitFor(() => fs.existsSync(exe), 60_000), `installed per-user at ${exe}`)
+const exeArrived = await waitFor(() => fs.existsSync(exe), 60_000)
+check(exeArrived, `installed per-user at ${exe}`)
+if (!exeArrived) diagnoseMissingExe()
 check(!installDir.toLowerCase().startsWith((process.env.ProgramFiles ?? 'C:\\Program Files').toLowerCase()), 'not under Program Files')
 for (const rel of ['resources/app.asar', 'resources/collector/standalone/server.js', 'resources/collector/node_modules/sql.js/dist/sql-wasm.wasm', 'resources/tray/trayWindows.ico', 'resources/LICENSE', 'resources/THIRD_PARTY_NOTICES.md']) {
   check(fs.existsSync(path.join(installDir, rel)), `installed ${rel}`)
@@ -69,6 +71,12 @@ check(!fs.existsSync(path.join(installDir, 'traceroost.exe')), 'no traceroost.ex
 check(fs.existsSync(uninstaller), 'the uninstaller is installed')
 check(fs.existsSync(shortcut), 'Start Menu shortcut TraceRoost.lnk')
 check(uninstallEntry() !== undefined, `an Uninstall entry under ${UNINSTALL_KEY} names TraceRoost`)
+
+if (!fs.existsSync(exe)) {
+  console.error(`\ncheck-nsis: the install did not produce ${exe}; ${failures.length} check(s) failed, ${passes.length} passed`)
+  for (const f of failures) console.error(`  ✘ ${f}`)
+  process.exit(1)
+}
 
 // ── The installed app, end to end ──
 console.log('\n── smoke test of the installed app ──')
@@ -167,6 +175,16 @@ function runInstaller(file, args, env = process.env) {
     }
   }
   return { status: r.status, seconds }
+}
+
+/** Why an install finished without its executable: what did land, and whether Defender acted. */
+function diagnoseMissingExe() {
+  try { console.log(`    ${installDir}: ${fs.readdirSync(installDir).join(', ')}`) } catch (e) { console.log(`    ${installDir}: ${e.message}`) }
+  const ps = spawnSync('powershell', ['-NoProfile', '-Command',
+    'Get-MpThreatDetection | Select-Object -Last 5 | Format-List ThreatID,Resources,ActionSuccess,InitialDetectionTime; ' +
+    'Get-WinEvent -LogName "Microsoft-Windows-Windows Defender/Operational" -MaxEvents 10 -ErrorAction SilentlyContinue | Format-List TimeCreated,Id,Message'],
+  { encoding: 'utf8', timeout: 120_000 })
+  console.log((ps.stdout || ps.stderr || '(no Defender information)').split('\n').map(l => `    ${l}`).join('\n'))
 }
 
 /** The HKCU Uninstall subkey whose DisplayName is TraceRoost, or undefined. */
