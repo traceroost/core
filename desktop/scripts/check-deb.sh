@@ -101,8 +101,11 @@ else
 fi
 # setuid chrome-sandbox exactly when an unprivileged user cannot create a user namespace and use
 # it (Ubuntu 24.04's restriction without the profile loaded, Debian's unprivileged_userns_clone=0, a
-# container's seccomp policy) — the post-install's own test, repeated here.
-if setpriv --reuid=65534 --regid=65534 --clear-groups unshare --user --map-root-user --net true 2>/dev/null; then
+# container's seccomp policy) — the post-install's own rule, repeated here. A loaded profile counts
+# as namespaces available: it grants them to the app's binary, though not to the `unshare` probe.
+if grep -qs '^traceroost-desktop ' /sys/kernel/security/apparmor/profiles; then
+  check "chrome-sandbox is not setuid (the AppArmor profile grants user namespaces)" sh -c "[ \"\$(stat -c %a /opt/TraceRoost/chrome-sandbox)\" = 755 ]"
+elif setpriv --reuid=65534 --regid=65534 --clear-groups unshare --user --map-root-user --net true 2>/dev/null; then
   check "chrome-sandbox is not setuid (user namespaces available)" sh -c "[ \"\$(stat -c %a /opt/TraceRoost/chrome-sandbox)\" = 755 ]"
 else
   check "chrome-sandbox is setuid root (no user namespaces)" sh -c "[ \"\$(stat -c %a:%U /opt/TraceRoost/chrome-sandbox)\" = 4755:root ]"
