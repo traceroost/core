@@ -34,7 +34,7 @@ brew install traceroost/tap/traceroost
 traceroost service install
 ```
 
-Open <http://localhost:3000> — that's it. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or manage it later (`traceroost service status`, `service stop`, `service uninstall`, etc.).
+Open <http://localhost:3000> — that's it. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or manage it later (`traceroost service status`, `service stop`, `service uninstall`, etc.). Does a dev server of yours need port 3000? [Move the dashboard](#my-dev-server-needs-port-3000) in one step.
 
 Just want a quick look first? Run it directly in a terminal instead — closing the terminal stops it, and if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry:
 
@@ -490,7 +490,7 @@ Environment variables (the first five predate the `TRACEROOST_` prefix and keep 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OTLP_PORT` | `4318` | OTLP HTTP receiver port |
-| `UI_PORT` | `3000` | Dashboard port |
+| `UI_PORT` | `3000` | Dashboard port. While set, it overrides the port saved in Settings → Dashboard port (see [My dev server needs port 3000](#my-dev-server-needs-port-3000)) |
 | `MCP_PORT` | `4316` | MCP endpoint for Claude Code and other MCP-compatible agents |
 | `DATA_DIR` | `~/.traceroost` | Directory for persistent span data |
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
@@ -582,7 +582,8 @@ with no admin/root privileges required:
 
 Ports, bind host and data directory can be customized at install time (`--ui-port`, `--otlp-port`,
 `--mcp-port`, `--bind-host`, `--data-dir`), and are remembered across restarts in
-`~/.traceroost/config.json`:
+`~/.traceroost/config.json`. Re-running `service install` (or upgrading) keeps them: a flag changes
+only its own setting, and the command prints what it kept:
 
 ```bash
 traceroost service install --ui-port 3001 --otlp-port 4319 --data-dir ~/traceroost-data --retention-days 90
@@ -610,6 +611,22 @@ The service points at Homebrew's version-independent paths (`$(brew --prefix)/op
 and `$(brew --prefix)/opt/node`), so a plain `brew upgrade` never breaks it; run
 `traceroost service restart` afterwards to switch the running service to the new version.
 TraceRoost manages its own service, so don't also start it with `brew services`.
+
+### My dev server needs port 3000
+
+The standalone dashboard uses port 3000 by default, which is also the default for Next.js, Rails,
+Express and many other dev servers. To move TraceRoost off it:
+
+- **Settings → Dashboard port** (gear icon in the dashboard): enter a port and click **Change**. The
+  dashboard moves straight away, without a restart, and the page follows it with your preferences.
+  **Reset to 3000** moves it back.
+- **From a terminal:** `traceroost service install --ui-port 3100`. Only the port changes; every
+  other setting is kept.
+- **For a single run:** `UI_PORT=3100 npx traceroost@latest`.
+
+Agents aren't affected: they send to the OTLP port (4318) and use the MCP port (4316), which stay
+the same. Bookmarks to the old address stop working. In Docker the port is the `-p <port>:3000`
+mapping on `docker run`.
 
 ### Docker (OTEL only)
 

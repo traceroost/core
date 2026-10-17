@@ -30,6 +30,10 @@ export interface ResolvedPorts {
 /** How far past the requested port to scan before giving up. Matches the doc's "+1 through +20". */
 export const DEFAULT_SCAN_CAP = 20
 
+/** The OTLP/gRPC port. TraceRoost doesn't listen on it, but agents and local OpenTelemetry
+ *  collectors expect it next to 4318, so no TraceRoost server should fall back onto it. */
+export const OTLP_GRPC_PORT = 4317
+
 export function resolvedPortsPath(baseHome?: string): string {
   return path.join(defaultDataDir(baseHome), 'ports.json')
 }
@@ -81,17 +85,22 @@ export function isUnavailablePort(code: string | undefined, platform: NodeJS.Pla
  *
  * Resolves with the port actually bound. Throws `PortScanExhaustedError` if every candidate in the
  * scan range is taken, rather than hanging or scanning indefinitely.
+ *
+ * `avoid` lists ports the scan must step over — the other two TraceRoost servers' ports and 4317
+ * (OTLP/gRPC), so a busy dashboard port can't fall back onto the MCP or OTLP port and push that
+ * server off it in turn. `preferredPort` itself is always tried, even if listed.
  */
 export async function listenWithFallback(
   server: http.Server,
   preferredPort: number,
   host: string,
-  opts: { cap?: number; onFallback?: (requested: number, bound: number) => void; platform?: NodeJS.Platform } = {},
+  opts: { cap?: number; onFallback?: (requested: number, bound: number) => void; platform?: NodeJS.Platform; avoid?: readonly number[] } = {},
 ): Promise<number> {
   const cap = opts.cap ?? DEFAULT_SCAN_CAP
   const platform = opts.platform ?? process.platform
   for (let offset = 0; offset <= cap; offset++) {
     const candidate = preferredPort + offset
+    if (offset > 0 && opts.avoid?.includes(candidate)) continue
     const outcome = await new Promise<'bound' | 'retry'>((resolve, reject) => {
       const onError = (err: NodeJS.ErrnoException) => {
         server.removeListener('listening', onListening)

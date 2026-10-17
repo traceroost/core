@@ -60,6 +60,8 @@
     "standalone/revisionForwardBatcher.test.ts",
     "standalone/agentLabels.ts",
     "standalone/dashboardCsp.ts",
+    "standalone/dashboardPort.ts",
+    "standalone/dashboardPort.test.ts",
     "standalone/dashboardHtml.ts",
     "standalone/dashboardHtml.test.ts",
     "standalone/openBrowser.ts",

@@ -584,6 +584,7 @@ export async function startMcpHttpServer(
   bindHost = '127.0.0.1',
   authToken = '',
   onFallback?: (requested: number, bound: number) => void,
+  avoid?: readonly number[],
 ): Promise<http.Server> {
   // A Server per request (see handleMcpRequest) — creating one is ~0.1 ms.
   const newServer = () => createMcpServer(opts)
@@ -606,6 +607,6 @@ export async function startMcpHttpServer(
     }
     handleMcpRequest(newServer, req, res)
   })
-  await listenWithFallback(httpServer, port, bindHost, { onFallback })
+  await listenWithFallback(httpServer, port, bindHost, { onFallback, avoid })
   return httpServer
 }

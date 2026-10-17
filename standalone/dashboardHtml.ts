@@ -6,6 +6,7 @@
  * Content-Security-Policy contract: every `<script>` nonced, no inline event handlers — see
  * standalone/dashboardCsp.ts). tests/ux/serve.ts reads the `<style>` block out of this file.
  */
+import { carryImportScript } from './dashboardPort'
 
 export interface DashboardHtmlVars {
   /** Per-response CSP nonce (dashboardCsp.ts) — on every `<script>` tag, inline or `src=`. */
@@ -59,6 +60,10 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
     // properties it depends on. No entry (or "system") means no attribute: the prefers-color-scheme
     // media query in that block handles it instead. See media/src/state.ts's setThemePreference,
     // which is the only other writer of this key.
+    // First, though: after a Settings → Dashboard port move the page arrives with its preferences
+    // in the URL fragment (localStorage is per origin, so per port) — import them before the theme
+    // is read. See standalone/dashboardPort.ts.
+    ${carryImportScript()}
     (function () {
       try {
         var t = localStorage.getItem('traceroost-theme');
@@ -284,13 +289,18 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
     });
 
     var _toastTimer;
-    function showToast(msg) {
+    function showToast(msg, ms) {
       var el = document.getElementById('sa-toast');
       if (!el) { el = document.createElement('div'); el.id = 'sa-toast'; document.body.appendChild(el); }
       el.textContent = msg;
       el.classList.add('visible');
       clearTimeout(_toastTimer);
-      _toastTimer = setTimeout(function() { el.classList.remove('visible'); }, 3000);
+      _toastTimer = setTimeout(function() { el.classList.remove('visible'); }, ms || 3000);
+    }
+    if (typeof window.__DASHBOARD_MOVED_TO__ === 'number') {
+      window.addEventListener('load', function () {
+        showToast('Dashboard moved to port ' + window.__DASHBOARD_MOVED_TO__ + '. Update any bookmarks.', 8000);
+      });
     }
 
     // CSV/Markdown export helpers — mirrors src/exportFormats.ts. Kept as hand-written vanilla JS

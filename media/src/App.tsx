@@ -33,7 +33,7 @@ import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { receiveInstructionMessage } from './tabs/Instructions'
-import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
+import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSetting, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
 import { suggestionUrl } from './suggest'
@@ -132,6 +132,7 @@ function ConfigPanel() {
       <SessionsPageSizeControl />
       <IngestionToggles />
       <OtelReconfigureButton />
+      {window.__STANDALONE__ === true && <DashboardPortSetting />}
       <McpToggle />
       <CollapsibleSection title="Alerts">
         <Alerts />
