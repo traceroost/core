@@ -50,6 +50,12 @@ install the VSIX artifact from the latest `E2E` or `Release` run.
 3. **Org / Cloud linking (full edition).** Link to an org (`traceRoost.orgLink`) and confirm the
    browser sign-in opens the system browser (`vscode.env.openExternal`), the forwarding queue
    drains, and the Org panel's transport stats update.
+   That covers VS Code only. Outside VS Code — `traceroost link`, and Link in the npx/service
+   dashboard's Org panel — the browser is opened by `src/cloud/org/browser.ts` (`rundll32
+   url.dll,FileProtocolHandler <url>`), not `openExternal`. Run `traceroost link` from a full-edition
+   build and confirm the browser's address bar holds the whole authorize URL, `redirect_uri` and
+   `state` included, and sign-in finishes without pasting the URL by hand: the old `cmd /c start`
+   form cut it at the first `&` (#318), and CI only checks the argv, not what the browser receives.
 4. **Webview look and feel.** Cycle every dashboard tab (Traces, Analytics, Advisor, Export,
    Import) plus the Help and Pricing pages and the Settings and Org panels, toggle light/dark theme, resize, and try each copy-to-clipboard button (Windows clipboard
    permissions through a webview have been quirkier than macOS). CI only proves the panel opens
