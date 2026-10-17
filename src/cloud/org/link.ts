@@ -23,7 +23,7 @@ import {
   type TokenResponse,
 } from './oauthClient'
 import { loadCredentials, saveCredentials, clearCredentials } from './credentials'
-import { clearForwardNotice } from '../forward/forwardState'
+import { clearForwardNotice, currentForwardNotice } from '../forward/forwardState'
 import { freshCredentials } from './tokenRefresh'
 import { ForwardQueue } from '../forward/queue'
 import { orgEndpoint } from './config'
@@ -106,6 +106,14 @@ async function persistFromTokens(tokens: TokenResponse): Promise<LinkResult> {
     refreshToken: tokens.refreshToken,
     accessTokenExpiresAt: Date.now() + tokens.expiresInSeconds * 1000,
     linkedAt: new Date().toISOString(),
+  }
+  // A queue kept through an unlink (sender.ts `holdForRelink`) was hashed for the org it was built
+  // for: it ships only if this link is the same org, as the same member; otherwise it goes now,
+  // before this credential is saved and anything could send it. Nothing is lost locally either
+  // way — reconciliation re-enqueues whatever this new install hasn't received.
+  const held = currentForwardNotice()?.heldQueueFor
+  if (held && !(held.endpoint === creds.endpoint && held.orgId === creds.orgId && held.memberId === creds.memberId)) {
+    new ForwardQueue().clear()
   }
   saveCredentials(creds)
   // A "re-link this machine" notice (sender.ts) is answered.

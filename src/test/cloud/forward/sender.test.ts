@@ -3,10 +3,11 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { decodeBody } from './decodeBody'
-import { drainQueue, resetServerCapabilities, UPGRADE_PAUSE_MS, UPGRADE_MESSAGE } from '../../../cloud/forward/sender'
+import { drainQueue, resetServerCapabilities, UPGRADE_PAUSE_MS, UPGRADE_MESSAGE, RELINK_MESSAGE, RELINK_HELD_MESSAGE } from '../../../cloud/forward/sender'
 import { ForwardQueue } from '../../../cloud/forward/queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { readForwardState, writeForwardState } from '../../../cloud/forward/forwardState'
+import { MAX_UNANSWERED_PRESENTATIONS } from '../../../cloud/org/tokenRefresh'
 import { clientVersion } from '../../../cloud/org/oauthClient'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
@@ -288,6 +289,81 @@ suite('forward/sender', () => {
     // this machine links to next. Reconciliation re-enqueues after a re-link instead.
     assert.strictEqual(new ForwardQueue(home).depth(), 0)
     assert.strictEqual(res.remaining, 0)
+  })
+
+  test('invalid_grant is the server\'s word: unlinks and clears the queue, notice holds nothing back', async () => {
+    const store = memStore({ ...CREDS, unansweredRefreshes: 1 })
+    setCredentialStore(store)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    stubFetch((url) => url.endsWith('/oauth/token')
+      ? new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })
+      : new Response('', { status: 401 }))
+    const res = await drainQueue({ baseHome: home })
+    assert.strictEqual(res.stopped, 'auth-failed')
+    assert.strictEqual(store.load(), null)
+    assert.strictEqual(new ForwardQueue(home).depth(), 0)
+    const notice = readForwardState(home).notice
+    assert.strictEqual(notice?.kind, 'relink')
+    assert.strictEqual(notice?.message, RELINK_MESSAGE)
+    assert.strictEqual(notice?.heldQueueFor, undefined)
+  })
+
+  test('offline across many drains while the access token expires → never counted, never unlinked, queue kept', async () => {
+    const store = memStore({ ...CREDS, accessTokenExpiresAt: Date.now() - 60_000 })
+    setCredentialStore(store)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    new ForwardQueue(home).enqueue(payload(ID2))
+    let tokenCalls = 0
+    const notices: string[] = []
+    globalThis.fetch = (async (u: unknown) => {
+      if (String(u).endsWith('/oauth/token')) tokenCalls++
+      throw new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND traceroost.com'), { code: 'ENOTFOUND' }) })
+    }) as typeof fetch
+    for (let i = 0; i < 6; i++) {
+      const res = await drainQueue({ baseHome: home, force: true, notify: (m) => notices.push(m) })
+      assert.notStrictEqual(res.stopped, 'auth-failed', `drain ${i}`)
+      assert.strictEqual(store.load()?.unansweredRefreshes, undefined, `drain ${i}`)
+    }
+    assert.ok(tokenCalls >= 6, 'every drain still tried to refresh')
+    assert.strictEqual(store.load()?.refreshToken, 'refresh-1')
+    assert.strictEqual(new ForwardQueue(home).depth(), 2)
+    assert.strictEqual(readForwardState(home).notice, null)
+    assert.ok(!notices.some(m => /re-link/i.test(m)))
+  })
+
+  test('refresh timing out after connecting still counts; at the cap the machine asks for a re-link but keeps its queue', async () => {
+    const store = memStore({ ...CREDS, accessTokenExpiresAt: Date.now() - 60_000 })
+    setCredentialStore(store)
+    new ForwardQueue(home).enqueue(payload(ID1))
+    let tokenCalls = 0
+    stubFetch((url) => {
+      if (url.endsWith('/oauth/token')) { tokenCalls++; throw new DOMException('This operation was aborted', 'AbortError') }
+      return new Response('', { status: 401 })
+    })
+    const notices: Array<{ m: string; action?: string }> = []
+    const notify = (m: string, _k: string, action?: string) => notices.push({ m, action })
+    // Proactive refresh, then the 401's refresh: both timed out — two unanswered presentations.
+    let res = await drainQueue({ baseHome: home, force: true, notify })
+    assert.strictEqual(res.stopped, 'auth-failed')
+    assert.strictEqual(store.load()?.unansweredRefreshes, MAX_UNANSWERED_PRESENTATIONS)
+    assert.strictEqual(tokenCalls, 2)
+    // Next drain: the token is never presented a third time. The credential goes (it can't be
+    // used again) but the queue stays, marked with who it was built for.
+    res = await drainQueue({ baseHome: home, force: true, notify })
+    assert.strictEqual(res.stopped, 'auth-failed')
+    assert.strictEqual(tokenCalls, 2)
+    assert.strictEqual(store.load(), null)
+    assert.strictEqual(new ForwardQueue(home).depth(), 1)
+    assert.strictEqual(res.remaining, 1)
+    const notice = readForwardState(home).notice
+    assert.strictEqual(notice?.kind, 'relink')
+    assert.strictEqual(notice?.message, RELINK_HELD_MESSAGE)
+    assert.deepStrictEqual(notice?.heldQueueFor, { endpoint: CREDS.endpoint, orgId: CREDS.orgId, memberId: CREDS.memberId })
+    assert.deepStrictEqual(notices.at(-1), { m: RELINK_HELD_MESSAGE, action: 'relink' })
+    // And forwarding has stopped: nothing is sent while unlinked.
+    res = await drainQueue({ baseHome: home, force: true, notify })
+    assert.strictEqual(res.stopped, 'not-linked')
+    assert.strictEqual(new ForwardQueue(home).depth(), 1)
   })
 
   test('invalid_grant after another host already rotated the token → uses its tokens, stays linked', async () => {

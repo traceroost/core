@@ -3,8 +3,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { fileCredentialStore, setCredentialStore, loadCredentials } from '../../../cloud/org/credentials'
-import { refreshCredentials, freshCredentials, fetchWithFreshToken, INVALID_GRANT_RECHECK_MS } from '../../../cloud/org/tokenRefresh'
-import { TokenRefreshError, isPermanentRefreshError, versionFromPackageJson } from '../../../cloud/org/oauthClient'
+import { refreshCredentials, freshCredentials, fetchWithFreshToken, INVALID_GRANT_RECHECK_MS, MAX_UNANSWERED_PRESENTATIONS, RefreshReplayExhaustedError } from '../../../cloud/org/tokenRefresh'
+import { TokenRefreshError, isPermanentRefreshError, isUnansweredPresentation, versionFromPackageJson } from '../../../cloud/org/oauthClient'
 import type { OrgCredentials } from '../../../cloud/org/config'
 
 const CREDS: OrgCredentials = {
@@ -91,18 +91,88 @@ suite('org/tokenRefresh', () => {
     assert.deepStrictEqual(presented, ['refresh-9'])
   })
 
-  test('a refresh with no answer (response lost) may be replayed once — never a second time, which would revoke the install', async () => {
+  test('a refresh with no answer (timed out or reset after connecting) may be replayed once — never a second time, which would revoke the install', async () => {
     let calls = 0
-    globalThis.fetch = (async () => { calls++; throw new TypeError('fetch failed') }) as typeof fetch
-    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => !(e instanceof TokenRefreshError))
+    // Our own 15 s abort: the request may have reached the cloud and rotated the token.
+    globalThis.fetch = (async () => { calls++; throw new DOMException('This operation was aborted', 'AbortError') }) as typeof fetch
+    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && !e.permanent && e.unanswered)
     assert.strictEqual(loadCredentials()?.unansweredRefreshes, 1)
     // A gateway 504 with no cloud error code is just as unanswered.
     globalThis.fetch = (async () => { calls++; return new Response('<html>Gateway Timeout</html>', { status: 504 }) }) as typeof fetch
     await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && !e.permanent && e.unanswered)
-    assert.strictEqual(loadCredentials()?.unansweredRefreshes, 2)
-    // Third time: refused locally, without presenting the token again.
-    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && e.permanent)
+    assert.strictEqual(loadCredentials()?.unansweredRefreshes, MAX_UNANSWERED_PRESENTATIONS)
+    // Third time: refused locally, without presenting the token again — and not as a permanent
+    // (server-said) failure, since the cloud never rejected it.
+    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof RefreshReplayExhaustedError && !e.permanent)
     assert.strictEqual(calls, 2)
+  })
+
+  test('a connection reset after the request was sent counts as unanswered', async () => {
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) }) }) as typeof fetch
+    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && e.unanswered && /ECONNRESET/.test(e.message))
+    assert.strictEqual(loadCredentials()?.unansweredRefreshes, 1)
+  })
+
+  test('an offline machine never uses up its replay: failures that never connected are not counted, however many', async () => {
+    fileCredentialStore(home).save({ ...CREDS, unansweredRefreshes: 1 })
+    const offline = [
+      () => new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND traceroost.com'), { code: 'ENOTFOUND' }) }),
+      () => new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo EAI_AGAIN traceroost.com'), { code: 'EAI_AGAIN' }) }),
+      () => new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) }),
+      () => new TypeError('fetch failed', { cause: Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' }) }),
+      () => new TypeError('fetch failed', { cause: new AggregateError([
+        Object.assign(new Error('connect ENETUNREACH'), { code: 'ENETUNREACH' }),
+        Object.assign(new Error('connect EHOSTUNREACH'), { code: 'EHOSTUNREACH' }),
+      ]) }),
+    ]
+    let calls = 0
+    for (let round = 0; round < 3; round++) {
+      for (const make of offline) {
+        globalThis.fetch = (async () => { calls++; throw make() }) as typeof fetch
+        await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && !e.permanent && !e.unanswered)
+        assert.strictEqual(loadCredentials()?.unansweredRefreshes, 1)
+      }
+    }
+    // Every one of them actually tried (none was refused locally), and back online it just works.
+    assert.strictEqual(calls, offline.length * 3)
+    globalThis.fetch = (async () => new Response(tokenBody(2), { status: 200 })) as typeof fetch
+    assert.strictEqual((await refreshCredentials(CREDS)).refreshToken, 'refresh-2')
+    assert.strictEqual(loadCredentials()?.unansweredRefreshes, undefined)
+  })
+
+  test('a proxy that refuses before forwarding (407, refused tunnel) is not counted', async () => {
+    globalThis.fetch = (async () => new Response('Proxy Authentication Required', { status: 407 })) as typeof fetch
+    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && !e.unanswered)
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed', { cause: Object.assign(new Error('Proxy response (403) !== 200 when HTTP Tunneling'), { code: 'UND_ERR_ABORTED' }) }) }) as typeof fetch
+    await assert.rejects(refreshCredentials(CREDS), (e: unknown) => e instanceof TokenRefreshError && !e.unanswered)
+    assert.strictEqual(loadCredentials()?.unansweredRefreshes, undefined)
+  })
+
+  test('isUnansweredPresentation: counts only what may have reached the cloud without an answer', () => {
+    const coded = (code: string) => Object.assign(new Error(code), { code })
+    const fetchFailed = (cause: unknown) => new TypeError('fetch failed', { cause })
+    // Never connected — not counted, at any depth of the cause chain.
+    for (const code of ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'EADDRNOTAVAIL', 'UND_ERR_CONNECT_TIMEOUT']) {
+      assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(coded(code)) }), false, code)
+      assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(new Error('wrapped', { cause: coded(code) })) }), false, `nested ${code}`)
+    }
+    assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(new AggregateError([coded('ECONNREFUSED'), coded('ENETUNREACH')])) }), false)
+    assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(new Error('Proxy response (407) !== 200 when HTTP Tunneling')) }), false)
+    // May have reached it — counted.
+    assert.strictEqual(isUnansweredPresentation({ thrown: new DOMException('aborted', 'AbortError') }), true)
+    assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(coded('ECONNRESET')) }), true)
+    assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(coded('UND_ERR_SOCKET')) }), true)
+    assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(coded('UND_ERR_HEADERS_TIMEOUT')) }), true)
+    assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(undefined) }), true)
+    assert.strictEqual(isUnansweredPresentation({ thrown: 'something odd' }), true)
+    // An aggregate where one address did connect is not "never connected".
+    assert.strictEqual(isUnansweredPresentation({ thrown: fetchFailed(new AggregateError([coded('ECONNREFUSED'), coded('ECONNRESET')])) }), true)
+    // Responses: the cloud's OAuth error is an answer; a gateway page is not; a proxy's 407 never forwarded.
+    assert.strictEqual(isUnansweredPresentation({ status: 500, oauthError: 'server_error' }), false)
+    assert.strictEqual(isUnansweredPresentation({ status: 400, oauthError: 'invalid_grant' }), false)
+    assert.strictEqual(isUnansweredPresentation({ status: 502, oauthError: undefined }), true)
+    assert.strictEqual(isUnansweredPresentation({ status: 504, oauthError: undefined }), true)
+    assert.strictEqual(isUnansweredPresentation({ status: 407, oauthError: undefined }), false)
   })
 
   test('the cloud\'s server_error is a definite answer — not counted; a success clears the count', async () => {
