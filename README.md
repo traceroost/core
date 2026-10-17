@@ -10,7 +10,7 @@
 
 ![TraceRoost dashboard showing OTEL traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.a83a52c7ce2b.gif)
 
-Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. Your trace data never leaves your machine.
+Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. TraceRoost keeps your traces on your machine and uploads nothing unless you link it to TraceRoost Cloud.
 
 TraceRoost supports **Claude Code, Codex, GitHub Copilot, OpenCode, and Cursor CLI**. It receives **OpenTelemetry traces** from Claude Code, Codex, and GitHub Copilot in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** and Cursor CLI's transcript files — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
 
@@ -127,6 +127,7 @@ TraceRoost also reads the local log files that Claude Code, Codex, GitHub Copilo
 | **Copilot Chat** | `~/Library/Application Support/<IDE>/User/workspaceStorage/…/chatSessions/` | `%APPDATA%\<IDE>\User\workspaceStorage\…\chatSessions\` |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | `%APPDATA%\opencode\opencode.db` |
 | **Cursor CLI** (`cursor-agent`) | `~/.cursor/projects/<workspace>/agent-transcripts/<session>/<session>.jsonl` | `%APPDATA%\Cursor\projects\...` (unconfirmed) |
+| **Claude Code plan limits** | `~/.claude.json` — only `oauthAccount.accountUuid` and `cachedUsageUtilization` are read; the file's email and project history are not read or stored | `%USERPROFILE%\.claude.json` |
 
 Copilot Chat traces are scanned across all installed VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro. (That's Cursor *the IDE's* built-in Copilot Chat scanning — unrelated to the standalone Cursor CLI agent above, which TraceRoost ingests directly.)
 
@@ -498,7 +499,7 @@ Environment variables (the first five predate the `TRACEROOST_` prefix and keep 
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
 | `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
 | `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Configure OTEL** button reports that it's disabled) |
-| `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends no data) |
+| `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends nothing from your traces or settings) |
 | `TRACEROOST_BUDGET_CAP_USD` | unset | Per-trace dollar cap for the **Budget Overrun** signal; the signal is off until this is set (also read by the VS Code extension from its environment) |
 | `TRACEROOST_LOG_LEVEL` | `info` | Set to `debug` for routine per-tick detail — forwarding and trace-manifest counts, which are quiet at `info` (also read by the VS Code extension; its output goes to the TraceRoost output channel) |
 
@@ -679,8 +680,9 @@ TraceRoost is built in two editions from the same source:
 Your trace data stays on your machine. The one outbound request TraceRoost makes on its own is an
 update check: the standalone server (`npx traceroost`, the background service and Docker) asks
 `registry.npmjs.org` for the latest `traceroost` version at startup and every 8 hours, so the
-dashboard can tell you when a newer release is out. It sends no trace data, settings or
-identifiers — it's a plain request for the public package's latest version. Set
+dashboard can tell you when a newer release is out. It sends nothing from your traces or
+settings — it's a plain request for the public package's latest version, so npm sees only what
+any web request shows: your IP address and a generic Node.js user agent. Set
 `TRACEROOST_NO_UPDATE_CHECK=1` to turn it off.
 
 ## Uninstall
@@ -796,6 +798,6 @@ The open source packages bundled into TraceRoost, with their licenses, are liste
 
 ## Disclaimer
 
-TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); OpenAI, LLC (Codex CLI); Anysphere, Inc. (Cursor / Cursor CLI); or the OpenCode project (OpenCode). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products only through their telemetry interfaces and the log files and databases they write locally on your machine.
+TraceRoost is an independent project — MIT-licensed apart from its TraceRoost Cloud connector (see [License](#license)) — and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot, Visual Studio Code); Anthropic, PBC (Claude / Claude Code); OpenAI, LLC (Codex CLI); Anysphere, Inc. (Cursor / Cursor CLI); the OpenCode project (OpenCode); or the makers of the other editors named here (Windsurf, Kiro, Trae, VSCodium). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost works with these products through their telemetry settings (which it can set up for you, after asking), the log files, databases and caches they write locally on your machine, and the instruction files (CLAUDE.md, AGENTS.md and the like) you choose to apply suggestions to.
 
 **Third-party changes.** TraceRoost depends on log formats, telemetry, pricing, and plan-limit information controlled by third-party vendors, including Anthropic, OpenAI, GitHub/Microsoft, Cursor, and OpenCode. These vendors may change, deprecate, or remove their products, APIs, log formats, telemetry, pricing, or usage limits at any time, without notice. Such upstream changes are outside the control of TraceRoost and its maintainers, and may cause TraceRoost to show incomplete, inaccurate, or missing data, or to stop working in whole or in part. TraceRoost and its maintainers are not responsible or liable for any impact of those changes, including on costs, charges, rate limits, quotas, or decisions made based on data TraceRoost reports. TraceRoost is provided "as is", without warranty of any kind, as stated in its [license](#license).

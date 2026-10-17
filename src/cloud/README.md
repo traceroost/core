@@ -56,7 +56,7 @@ CONTRIBUTING.md → Editions). The directory is the
 unit the core build leaves out, and the unit covered by the different license
 below. The free/paid rule itself is unchanged — see
 CLOUD_ARCHITECTURE.md's two rules; nothing local is gated behind Cloud, and
-`attribution/` and `turnover/` are free forever.
+`attribution/` and `turnover/` are free (MIT).
 
 ## The license split
 

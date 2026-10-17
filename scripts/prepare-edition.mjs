@@ -6,7 +6,8 @@
 //   node scripts/prepare-edition.mjs restore   put the checked-in package.json back
 //   node scripts/prepare-edition.mjs core --out <file>   write the core manifest elsewhere instead
 //
-// The core manifest drops everything that only makes sense with TraceRoost Cloud built in:
+// The core manifest drops everything that only makes sense with TraceRoost Cloud built in, and
+// declares `license: MIT` (it carries no BSL code):
 //   - the Org commands (`traceRoost.org*`) from contributes.commands / menus / activationEvents
 //   - the BSL LICENSE files of the cloud directories from `files` (nothing from them is bundled),
 //     and every cloud directory from the VSIX via an appended .vscodeignore block
@@ -75,6 +76,8 @@ export function coreManifest(pkg) {
   }
   if (Array.isArray(out.activationEvents)) out.activationEvents = out.activationEvents.filter(e => !/traceRoost\.org/i.test(e))
   if (Array.isArray(out.files)) out.files = out.files.filter(f => !isCloudPath(f))
+  // No BSL code ships in this edition, so it is MIT alone (the full edition is MIT AND BUSL-1.1).
+  out.license = 'MIT'
   out.scripts = { ...out.scripts, 'vscode:prepublish': 'pnpm run package:core', prepublishOnly: 'pnpm run package:core' }
   return out
 }

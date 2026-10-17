@@ -233,6 +233,7 @@
     "dist/*.wasm",
     "standalone/cli.js",
     "standalone/server.js",
+    "src/cloud/LICENSE",
     "standalone/cloud/LICENSE",
     "media/*.js",
     "media/*.css",

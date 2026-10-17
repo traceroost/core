@@ -123,7 +123,7 @@ function InsightBlock({ id, title, why, steps, impact }: {
         <p style="margin:0 0 8px"><strong style="color:var(--fg)">Why it happens: </strong><span dangerouslySetInnerHTML={{ __html: why }} /></p>
         <p style="margin:0 0 4px"><strong style="color:var(--fg)">How to fix:</strong></p>
         <ol style="margin:0 0 8px;padding-left:20px;font-size:12px;line-height:1.7" dangerouslySetInnerHTML={{ __html: steps }} />
-        <p style="margin:0;font-size:11px;color:var(--muted)"><strong style="color:var(--fg);font-size:11px">Expected impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
+        <p style="margin:0;font-size:11px;color:var(--muted)"><strong style="color:var(--fg);font-size:11px">Illustrative impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
       </dd>
     </div>
   )
@@ -169,7 +169,7 @@ function LoopBlock({ id, title, signalType, why, caveat, example, steps, impact,
       <div style="padding-left:8px;font-size:11px;line-height:1.6">
         <p style="margin:0 0 3px"><strong style="color:var(--fg);font-size:11px">How to fix:</strong></p>
         <ol style="margin:0 0 6px;padding-left:18px;font-size:11px;line-height:1.7;color:var(--muted)" dangerouslySetInnerHTML={{ __html: steps }} />
-        <p style="margin:0;font-size:10px;color:var(--muted)"><strong style="color:var(--fg);font-size:10px">Expected impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
+        <p style="margin:0;font-size:10px;color:var(--muted)"><strong style="color:var(--fg);font-size:10px">Illustrative impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
       </div>
     </div>
   )
@@ -240,7 +240,7 @@ function OverviewSection() {
       </div>
       <h3 class="help-heading">{HELP_SECTIONS.overview.heading}</h3>
       <div class="help-overview-body">
-        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, and your trace data never leaves your machine. Docker is the least capable option: it receives OTEL only — no local log files, no agent auto-configuration, no git outcomes — so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database and Cursor CLI's transcript files — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
+        <p><strong>TraceRoost</strong> is a local observability tool that makes AI <a href="#gl-agent">agent</a> traces more transparent — see what's happening inside each run. Available as a VS Code-family IDE extension (VS Code, Cursor, Windsurf, VSCodium, Trae, Kiro), a local web app (npx), or Docker, and your traces stay on your machine. Docker is the least capable option: it receives OTEL only — no local log files, no agent auto-configuration, no git outcomes — so prefer the background service or the IDE extension. It captures <a href="#gl-otlp">OpenTelemetry</a> <a href="#gl-trace">traces</a> from GitHub Copilot, Claude Code, and Codex, and also reads <strong>local trace files and databases</strong> written automatically by each agent as a zero-config fallback — including OpenCode's local SQLite database and Cursor CLI's transcript files — so history loads even without OTEL configured. Both sources feed one unified dashboard and surface efficiency metrics, trace cost estimates, human-readable summaries, and actionable insights in real time.</p>
         <p style="font-size:13px;margin:10px 0 0"><strong>TraceRoost detects {SIGNAL_COUNT_WORD} signals</strong> indicating an agent is stuck, spiraling, or wasting tokens/cost, each with a ready-to-paste correction prompt — see <a href="#help-signals">Signals</a> below for the full catalog.</p>
       </div>
     </div>
@@ -588,7 +588,7 @@ function SessionsSection() {
           <InsightBlock id="help-files-repeated" title="Files Read Multiple Times"
             why="Agents re-read files when processing tasks in chunks, when the file path appears ambiguously in context, or when a previous read was so broad the model lost the relevant section."
             steps={`<li>Explicitly name key files upfront in your prompt.</li><li>Specify which file contains what: <em>"The schema is in db/schema.sql lines 1-40"</em>.</li><li>Ask for a "read plan" before execution.</li><li>If a file is read 4+ times, paste the relevant lines directly into your prompt.</li>`}
-            impact="Eliminating repeated reads of a 500-line file saves 2,000–5,000 input tokens per extra read."
+            impact="Eliminating repeated reads of a 500-line file can save 2,000–5,000 input tokens per extra read."
           />
           <InsightBlock id="help-high-turns" title="High Turn Count"
             why={`High turn counts happen when the agent discovers information iteratively. The prompt describes the <em>goal</em> but not the <em>location</em>; the task has implicit sub-tasks; or success criteria were not specified.`}
@@ -608,7 +608,7 @@ function SessionsSection() {
           <InsightBlock id="help-tool-failures" title="Tool Failures"
             why="Tool failures come from: (1) guessed file paths that don't exist, (2) unavailable commands, or (3) hallucinated APIs. Each failure adds error text to context."
             steps={`<li>Provide exact file paths in your prompt.</li><li>Tell the agent which package manager and runtime are available.</li><li>Verify files exist before prompting.</li>`}
-            impact="Each eliminated failure saves one full LLM recovery turn — roughly 30,000 wasted tokens per failure cascade."
+            impact="Each eliminated failure can save a full LLM recovery turn — often tens of thousands of tokens per failure cascade."
           />
           <InsightBlock id="help-large-results" title="Large Tool Results"
             why="When the agent reads entire large files or runs broad searches, results are appended to context in full. A 50KB file adds ~12,500 tokens to every subsequent call."
@@ -673,7 +673,7 @@ function SignalsSection() {
             dataSourceNote={SIGNAL_FORMULAS.runaway_steps.dataSourceNote}
             example={`"Fix the login bug" accumulated 90+ steps — the agent then noticed unrelated issues and updated 3 extra files.`}
             steps={`<li>Add explicit stopping conditions.</li><li>Avoid open-ended phrasing — name specific functions and files.</li><li>Specify scope: <em>"Only change files in src/auth/"</em>.</li><li>Monitor the context growth chart for steep rises.</li>`}
-            impact="A 5-step prompt vs. a 90-step trace saves 85 tool calls — a 5–20x token reduction."
+            impact="A 5-step prompt vs. a 90-step trace can save 85 tool calls — often a several-fold token reduction."
           />
           <LoopBlock id="help-context-accumulation" title="Infinite Loop — Context Accumulation" signalType="token_runaway"
             why={formulaHtml(SIGNAL_FORMULAS.token_runaway.bullets)}
@@ -691,7 +691,7 @@ function SignalsSection() {
             dataSourceNote={SIGNAL_FORMULAS.chronic_tool_failures.dataSourceNote}
             example="7 of 12 tool calls failed (58%): bash ×4 (command not found), read_file ×3 (path guessed incorrectly)."
             steps={`<li>Be explicit about file locations and the exact commands available.</li><li>State the package manager and runtime in use.</li><li>Verify paths and commands exist before prompting.</li>`}
-            impact="Each eliminated failure saves a full LLM recovery turn — roughly 30,000 wasted tokens per cascade."
+            impact="Each eliminated failure can save a full LLM recovery turn — often tens of thousands of tokens per cascade."
           />
           <LoopBlock id="help-context-flooding-risk" title="Context Flooding Risk" signalType="context_flooding_risk"
             why={formulaHtml(SIGNAL_FORMULAS.context_flooding_risk.bullets)}
@@ -1181,7 +1181,7 @@ function PrivacySection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Consistent within your org, meaningless outside it</dt>
-            <dd class="glossary-def" style="display:block">The same file hashes to the same token every time within your org, so patterns like "this file keeps churning" are visible without anyone learning the file's name. Because the org id is mixed into the key, the same file hashed by a different organization produces a completely unrelated token.</dd>
+            <dd class="glossary-def" style="display:block">The same file hashes to the same token every time within your org, so patterns like "this file keeps churning" are visible without the file's name being sent (a common or public file name can still be guessed and checked against its hash). Because the org id is mixed into the key, the same file hashed by a different organization produces a completely unrelated token.</dd>
           </div>
         </div>
       </div>
@@ -1195,7 +1195,7 @@ function NetworkSection() {
     <div class="help-section" id="help-network">
       <h3 class="help-heading">{HELP_SECTIONS.network.heading}</h3>
       <div class="help-overview-body">
-        <p>What goes over the network. Your trace data never leaves your machine{process.env.TRACEROOST_EDITION !== 'core' ? <> unless you link to <a href="#help-cloud">TraceRoost Cloud</a>, and then only what <a href="#help-privacy">Privacy</a> lists</> : null}. TraceRoost receives OTEL and reads agent logs locally; neither needs a connection.</p>
+        <p>What goes over the network. TraceRoost uploads none of your traces{process.env.TRACEROOST_EDITION !== 'core' ? <> unless you link to <a href="#help-cloud">TraceRoost Cloud</a>, and then only what <a href="#help-privacy">Privacy</a> lists</> : null}. TraceRoost receives OTEL and reads agent logs locally; neither needs a connection.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Update check (standalone only)</dt>

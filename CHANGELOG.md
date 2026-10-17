@@ -7,6 +7,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 ### Changed
 
 - **TraceRoost asks before setting up your agents** — it used to edit Claude Code's, Codex's and Copilot's settings on first start. Now it asks once, in plain words, what it will change (their settings files) and what that turns on (sending each run, including prompts and tool output, to TraceRoost on this computer): a notification in VS Code, a yes/no question when `traceroost` or `traceroost service install` runs in a terminal, or a banner in the dashboard for the background service. The answer is shared by every TraceRoost on the machine (`agentSetup` in `~/.traceroost/config.json`); **Configure OTEL** in Settings counts as a yes. Docker no longer touches agent settings at all — there it could only reach the container's own files
+- **The full edition ships the Business Source License text** — the npm package, the VS Code extension and the Docker image now carry `src/cloud/LICENSE` (in the image, `licenses/LICENSE-BSL-1.1`), which the BSL asks every copy to include; before, only a pointer to it shipped. The core edition, which contains no BSL code, now declares its license as `MIT` instead of `(MIT AND BUSL-1.1)`
 
 ### Fixed
 
