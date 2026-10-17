@@ -52,8 +52,13 @@ suite('collector — supervised child', () => {
   teardown(async () => {
     try { await collector?.stop() } catch { /* already gone */ }
     collector = undefined
-    fs.rmSync(dir, { recursive: true, force: true })
+    // Retries cover Windows reporting EPERM/EBUSY on files a just-exited child has not released.
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
   })
+
+  // Graceful stop is SIGTERM, which Windows does not have; this build refuses owned mode there
+  // (main.ts) and the test below checks the refusal. The Windows feature replaces the channel.
+  const posixOnly = process.platform === 'win32' ? test.skip : test
 
   function make(env: Record<string, string | undefined> = {}): OwnedCollector {
     collector = new OwnedCollector({
@@ -92,7 +97,7 @@ suite('collector — supervised child', () => {
     assert.match(env, /"service":false/)
   })
 
-  test('stop is graceful: the child gets the chance to flush before it goes', async () => {
+  posixOnly('stop is graceful: the child gets the chance to flush before it goes', async () => {
     const c = make()
     await c.start()
     await c.stop()
@@ -110,7 +115,7 @@ suite('collector — supervised child', () => {
     assert.ok(!lines.some(l => l.includes('restarting')), lines.join('\n'))
   })
 
-  test('a wedged child that ignores the shutdown request is killed rather than hung on', async function () {
+  posixOnly('a wedged child that ignores the shutdown request is killed rather than hung on', async function () {
     this.timeout(20_000)
     const c = make({ STUB_IGNORE_TERM: '1' })
     await c.start()
@@ -158,7 +163,14 @@ suite('collector — supervised child', () => {
       await assert.rejects(collector.stop(), /not supported on Windows/)
       assert.ok(!fs.existsSync(path.join(dataDir, 'flushed')), 'the child was signalled anyway')
     } finally {
-      if (running.status === 'running') process.kill(running.pid, 'SIGKILL')
+      if (running.status === 'running') {
+        try { process.kill(running.pid, 'SIGKILL') } catch { /* already gone */ }
+        // Let it actually exit before teardown removes its directory (Windows holds the files).
+        for (let i = 0; i < 50; i++) {
+          try { process.kill(running.pid, 0) } catch { break }
+          await new Promise(r => setTimeout(r, 100))
+        }
+      }
       collector = undefined
     }
   })

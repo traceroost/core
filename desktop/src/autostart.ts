@@ -57,12 +57,12 @@ export function launchCommand(opts: {
 }
 
 /** `$XDG_CONFIG_HOME/autostart`, defaulting to `~/.config/autostart` as the spec requires when the
- *  variable is unset or not absolute. */
+ *  variable is unset or not absolute. A Linux path whatever the host, hence `path.posix`. */
 export function autostartDir(env: { XDG_CONFIG_HOME?: string }, home: string): string {
-  const configHome = env.XDG_CONFIG_HOME && path.isAbsolute(env.XDG_CONFIG_HOME)
+  const configHome = env.XDG_CONFIG_HOME && path.posix.isAbsolute(env.XDG_CONFIG_HOME)
     ? env.XDG_CONFIG_HOME
-    : path.join(home, '.config')
-  return path.join(configHome, 'autostart')
+    : path.posix.join(home, '.config')
+  return path.posix.join(configHome, 'autostart')
 }
 
 export function renderAutostartEntry(command: LaunchCommand): string {

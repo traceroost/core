@@ -89,6 +89,13 @@ jobs:
         working-directory: desktop
         run: npm ci --no-audit --no-fund
 
+      # npm on the runner no longer runs Electron's postinstall, which leaves node_modules/electron/
+      # dist/ without the binary and without LICENSES.chromium.html (electron-builder.cjs copies it,
+      # afterPack requires it). install.js is the postinstall itself and is a no-op when it already ran.
+      - name: Download the Electron binary
+        working-directory: desktop
+        run: node node_modules/electron/install.js && test -f node_modules/electron/dist/LICENSES.chromium.html
+
       # Only runs when the notarization key secret exists; otherwise APPLE_API_KEY stays unset and
       # the config leaves notarization off. (The `secrets` context cannot be read in a step's `if`,
       # hence the detour through `env`.)

@@ -7,7 +7,7 @@ import { desktopLogPath, openDesktopLog, rotateIfNeeded } from './logs'
 suite('logs', () => {
   let dir: string
   setup(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-desktop-log-')) })
-  teardown(() => fs.rmSync(dir, { recursive: true, force: true }))
+  teardown(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }))
 
   test('the log sits in the data dir, beside the collector\'s own', () => {
     assert.strictEqual(desktopLogPath('/data/tr'), path.join('/data/tr', 'desktop.log'))
@@ -53,7 +53,9 @@ suite('logs', () => {
     await flushed
     const text = fs.readFileSync(log.filePath, 'utf-8')
     assert.match(text, /^\d{4}-\d{2}-\d{2}T[\d:.]+Z \[desktop\] hello$/m)
-    assert.strictEqual(fs.statSync(dataDir).mode & 0o777, 0o700)
+    // POSIX mode bits only: Windows has no such thing, Node reports a synthetic 0o666 there, and
+    // the profile directory's ACL is what keeps the data dir private.
+    if (process.platform !== 'win32') assert.strictEqual(fs.statSync(dataDir).mode & 0o777, 0o700)
   })
 
   test('a data dir that cannot be created does not stop the shell from running', () => {

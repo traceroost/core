@@ -31,12 +31,13 @@ export interface LauncherPaths {
 
 /** `$XDG_DATA_HOME`, defaulting to `~/.local/share`. */
 export function launcherPaths(env: { XDG_DATA_HOME?: string }, home: string): LauncherPaths {
-  const dataHome = env.XDG_DATA_HOME && path.isAbsolute(env.XDG_DATA_HOME)
+  // Linux paths whatever the host, hence `path.posix`.
+  const dataHome = env.XDG_DATA_HOME && path.posix.isAbsolute(env.XDG_DATA_HOME)
     ? env.XDG_DATA_HOME
-    : path.join(home, '.local', 'share')
+    : path.posix.join(home, '.local', 'share')
   return {
-    entry: path.join(dataHome, 'applications', `${LAUNCHER_ID}.desktop`),
-    icon: path.join(dataHome, 'icons', 'hicolor', '512x512', 'apps', `${LAUNCHER_ID}.png`),
+    entry: path.posix.join(dataHome, 'applications', `${LAUNCHER_ID}.desktop`),
+    icon: path.posix.join(dataHome, 'icons', 'hicolor', '512x512', 'apps', `${LAUNCHER_ID}.png`),
   }
 }
 
