@@ -4,6 +4,26 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+## [0.19.2] — 2026-10-15
+
+### Fixed
+
+- **`npm install traceroost` no longer breaks OpenCode reads and the outcomes cache** — the server loaded sql.js's `.wasm` from your own `node_modules`, where npm now resolves sql.js 1.15.0, whose wasm doesn't link against the 1.14.2 code bundled into TraceRoost (`LinkError` at startup, then OpenCode database reads and the git-outcome cache silently off). The wasm now comes from TraceRoost's own `dist/`, built from the same sql.js as the bundle, and a failure to load it is logged instead of swallowed (#319)
+- **Linking from Windows opens the full sign-in URL** — browser launches on Windows went through `cmd /c start`, which cut the URL at the first `&`, so the authorize page opened without `redirect_uri` and `state` and only the paste-the-URL fallback worked. URLs now open through the Windows URL handler as a single argument (#318)
+
+### Changed
+
+- **The npm package installs no dependencies** — everything it runs was already bundled, but `npm install traceroost` still pulled in the MCP SDK's express tree, so your own `npm audit` flagged `proxy-addr` (CVE-2026-90711) and `@modelcontextprotocol/sdk` (CVE-2026-104850). That tree is gone, and the bundled MCP SDK is updated to 1.32.1. The Docker image no longer carries a `node_modules` (#319)
+- **Release pipeline: the Docker job only receives the Docker Hub credentials** instead of every repository secret; no user-facing product change (#316)
+
+### TraceRoost Cloud (full edition only)
+
+These ship only in the full edition; released core builds contain no TraceRoost Cloud code. `scripts/prepare-edition.mjs core` removes this section from the packaged changelog.
+
+- **Updating past a "please update" refusal resumes forwarding at once** — after TraceRoost Cloud answered 426, forwarding stayed paused for up to 6 hours (reported as rate-limited) even once you'd updated. A pause raised for an older version is now lifted on the next send (#317)
+- **Each repo's instruction-file state is forwarded with its sessions**, from every host and source, and only when it has changed since the last delivery (#320)
+
+---
 ## [0.19.1] — 2026-10-13
 
 ### Added

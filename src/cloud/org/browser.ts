@@ -2,11 +2,15 @@
  * Opens a URL in the user's default browser. Two callers: the CLI (`child_process`) and the
  * VS Code extension (which passes its own opener so `vscode.env.openExternal` is used instead).
  *
- * No shell: the launcher gets the URL as an argument (`spawn` with an array), so quoting is never
- * a question — the authorize URL is built with the WHATWG URL API and the org view URL comes from
- * the credential file, but neither should ever be interpolated into a command line.
- * standalone/openBrowser.ts is the same logic for the server itself (the core edition can't
- * import from src/cloud/).
+ * No shell, and no launcher that re-parses its command line: `open`/`xdg-open` get the URL as one
+ * argv entry (`spawn` with an array), and on Windows so does rundll32's FileProtocolHandler. The
+ * obvious Windows form, `cmd /c start "" <url>`, is wrong for an OAuth URL even without a shell in
+ * between: cmd.exe parses its own command line, so an unquoted `&` in the query string ends the
+ * command (the browser opened on everything before the first `&`, minus redirect_uri and state),
+ * and quoting doesn't rescue `%`-escapes, which cmd expands even inside double quotes. The authorize
+ * URL is built with the WHATWG URL API and the org view URL comes from the credential file, but
+ * neither should ever be interpolated into a command line. standalone/openBrowser.ts is the same
+ * logic for the server itself (the core edition can't import from src/cloud/).
  */
 
 import { spawn } from 'child_process'
@@ -17,8 +21,9 @@ export type UrlOpener = (url: string) => void | Promise<void>
 /** The launcher and its arguments for `url` on `platform` — exported for tests. */
 export function browserCommand(url: string, platform: NodeJS.Platform = process.platform): { file: string; args: string[] } {
   if (platform === 'darwin') return { file: 'open', args: [url] }
-  // `start`'s first quoted argument is the window title — an empty one keeps the URL out of it.
-  if (platform === 'win32') return { file: 'cmd', args: ['/c', 'start', '', url] }
+  // Not `cmd /c start`: see the header. rundll32 hands the URL to the shell's URL handler as a
+  // single argument, so `&`, `%` and `=` survive untouched.
+  if (platform === 'win32') return { file: 'rundll32', args: ['url.dll,FileProtocolHandler', url] }
   return { file: 'xdg-open', args: [url] }
 }
 

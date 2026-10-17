@@ -11,6 +11,7 @@ import * as path from 'path'
 import { OUTCOMES_SCHEMA_SQL } from '../../src/database/schema'
 import { dropStaleTraceStore } from '../../src/database/traceStore'
 import { writeFileAtomic, quarantineCorruptFile } from '../../src/fsAtomic'
+import { sqlWasmDir } from '../sqlWasm'
 
 interface SqlDatabase {
   run(sql: string, params?: unknown[]): void
@@ -40,7 +41,9 @@ export interface OutcomesDb {
  *  turnover uncached, same as it already does today. */
 export async function openOutcomesDb(dataDir: string, log: (msg: string) => void = () => {}): Promise<OutcomesDb | null> {
   try {
-    const sqlJsDir = path.dirname(require.resolve('sql.js'))
+    // The .wasm from this package's dist/, never a consumer's node_modules — see sqlWasm.ts.
+    const sqlJsDir = sqlWasmDir()
+    if (!sqlJsDir) throw new Error('sql-wasm.wasm not found')
     const initSqlJs = require('sql.js') as InitSqlJs
     const SQL = await initSqlJs({ locateFile: (file: string) => path.join(sqlJsDir, file) })
 

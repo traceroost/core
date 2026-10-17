@@ -3,10 +3,11 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { buildInstructionRollup, maybeEnqueueInstructionTelemetry, EMPTY_LEDGER, type SuggestionLedger } from '../../../cloud/org/instructionTelemetry'
+import { buildInstructionRollup, maybeEnqueueInstructionTelemetry, enqueueInstructionStateAfterSession, EMPTY_LEDGER, type SuggestionLedger } from '../../../cloud/org/instructionTelemetry'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
 import { ForwardQueue } from '../../../cloud/forward/queue'
+import { DeliveryLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
 import { generateSuggestions } from '../../../instructionAdvisor'
 import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 
@@ -130,5 +131,35 @@ suite('org/instructionTelemetry', () => {
     assert.strictEqual(await maybeEnqueueInstructionTelemetry(repo, sessions, EMPTY_LEDGER), true)
     assert.strictEqual(new ForwardQueue().depth(), 1)
     assert.strictEqual(await maybeEnqueueInstructionTelemetry(path.join(tmp, 'nope'), sessions, EMPTY_LEDGER), false)
+  })
+
+  test('a state the linked install already delivered is not queued again; a changed file is', async () => {
+    // Simulate a drain: the queued item is sent and recorded delivered for this install.
+    assert.strictEqual(await maybeEnqueueInstructionTelemetry(repo, [], EMPTY_LEDGER), true)
+    const queue = new ForwardQueue()
+    const [item] = queue.list()
+    assert.ok(item.key.startsWith('instructions:'), `queued under an instructions key, got ${item.key}`)
+    queue.remove([item.key])
+    new DeliveryLedger().markDelivered(scopedKey('install-1', item.key))
+
+    // Unchanged state: skipped before it reaches the queue (this is what keeps the per-session
+    // hook from re-sending the same bytes with every forwarded trace).
+    assert.strictEqual(await maybeEnqueueInstructionTelemetry(repo, [], EMPTY_LEDGER), false)
+    assert.strictEqual(new ForwardQueue().depth(), 0)
+
+    // The file changes: a new digest, a new key, queued once.
+    fs.appendFileSync(path.join(repo, 'CLAUDE.md'), 'Always run the tests.\n')
+    assert.strictEqual(await maybeEnqueueInstructionTelemetry(repo, [], EMPTY_LEDGER), true)
+    const [changed] = new ForwardQueue().list()
+    assert.notStrictEqual(changed.key, item.key, 'a changed file is a different state')
+    assert.strictEqual(await maybeEnqueueInstructionTelemetry(repo, [], EMPTY_LEDGER), false, 'still queued → duplicate, not a second item')
+    assert.strictEqual(new ForwardQueue().depth(), 1)
+  })
+
+  test('the session-forward hook never throws and queues nothing for an unkeyable workspace', async () => {
+    assert.strictEqual(await enqueueInstructionStateAfterSession(undefined), false)
+    assert.strictEqual(await enqueueInstructionStateAfterSession(path.join(tmp, 'nope')), false)
+    assert.strictEqual(await enqueueInstructionStateAfterSession(repo), true)
+    assert.strictEqual(new ForwardQueue().depth(), 1)
   })
 })
