@@ -29,7 +29,11 @@ function aiCommit(msg: string, atMs: number): string {
   return git(['rev-parse', 'HEAD']).trim()
 }
 
-suite('turnover', () => {
+suite('turnover', function () {
+  // Every test here builds a git repo and runs `git blame`/`log` through child processes: well
+  // under a second on Linux, but a Windows runner's process spawns (and Defender scanning each new
+  // git.exe) can stretch one past mocha's 10 s default — as reconciliationService.test.ts found.
+  this.timeout(60_000)
   setup(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'al-turn-'))
     git(['init', '-q', '-b', 'main'])
@@ -39,7 +43,7 @@ suite('turnover', () => {
     git(['add', '-A'])
     git(['commit', '-m', 'seed'], T0 - 400 * 86_400_000) // repo is >90d old
   })
-  teardown(() => { fs.rmSync(repo, { recursive: true, force: true }) })
+  teardown(() => { fs.rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) })
 
   test('a cohort whose AI lines all survive → 0% turnover', async () => {
     writeLines('keep.txt', MIN_ATTRIBUTED_LINES + 50, 'keep')
