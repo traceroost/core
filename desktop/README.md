@@ -358,9 +358,9 @@ value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; it starts the 
 
 **SmartScreen.** Until a code-signing certificate is configured (below) the installer, the app and
 the uninstaller are unsigned, and the first run of a *downloaded* copy shows "Windows protected your
-PC". Click **More info → Run anyway**; Windows remembers the choice for that file. Releases attach
-unsigned Windows builds only when the maintainers opt in, and name them
-`TraceRoost-<v>-win-<arch>-unsigned.exe` so that is never a surprise (see
+PC". Click **More info → Run anyway**; Windows remembers the choice for that file. Until then releases
+attach the Windows builds as previews, named `TraceRoost-<v>-win-<arch>-preview.exe` so that is
+never a surprise (see
 [Releases](#releases)). Check a download against the release's `TraceRoost-desktop-<v>-SHA256SUMS`:
 
 ```powershell
@@ -623,16 +623,16 @@ the repo's `package.json` version, which `package` has checked against the tag.
 | Platform | Attached to a release when |
 | --- | --- |
 | Linux (.deb, AppImage; x64, arm64) | always, once the build and install matrix pass |
-| macOS (DMG; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is built and tested on every release and left off it — or attached as `*-unsigned` (below) |
-| Windows (NSIS installer .exe; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Trusted Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then it is built and tested on every release and left off it — or attached as `*-unsigned` (below) |
+| macOS (DMG; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is built and tested on every release and attached as a `*-preview` (below) |
+| Windows (NSIS installer .exe; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Trusted Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then it is built and tested on every release and attached as a `*-preview` (below) |
 
-**Unsigned test builds.** With the repository variable `TRACEROOST_DESKTOP_ATTACH_UNSIGNED=true`, a
-release also attaches the ad-hoc signed (not notarized) macOS build and the unsigned Windows build,
-as `TraceRoost-<v>-mac-<arch>-unsigned.dmg` and `TraceRoost-<v>-win-<arch>-unsigned.exe`
-— the same bytes CI tested, in the same SHA256SUMS, with attestations — and adds a section to the
-release notes on opening them (Gatekeeper: right-click → Open; SmartScreen: More info → Run anyway).
-Unset, the default, nothing unsigned is attached. A platform is attached signed or unsigned, never
-both, and a later signed build of the same version cannot collide with an unsigned one by name.
+**Preview builds.** Until a platform's signing secrets exist, a release attaches its ad-hoc signed
+(not notarized) macOS build or unsigned Windows build as a preview:
+`TraceRoost-<v>-mac-<arch>-preview.dmg` and `TraceRoost-<v>-win-<arch>-preview.exe`, labelled
+"(preview)" on the release page — the same bytes CI tested, in the same SHA256SUMS, with
+attestations — and adds a section to the release notes on opening them (Gatekeeper: right-click →
+Open; SmartScreen: More info → Run anyway). A platform is attached signed or as a preview, never
+both, and a later signed build of the same version cannot collide with a preview by name.
 
 Platforms are independent: if one platform's build fails, the others are still attached. The
 repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default `linux,macos,windows`) switches a
@@ -662,9 +662,6 @@ Needs the Apple Developer Program membership and the secrets above:
 - **Developer ID signing, notarization and stapling** — the code path exists and is exercised by
   the config, but nothing has been through it, and nothing here has been through Gatekeeper. The
   validation that matters is a *downloaded, quarantined* artifact opening on a fresh user account.
-- **A release job** that promotes the CI artifacts to a GitHub release once they are signed.
-  Deliberately not wired into `release.yml` until then: publishing an unsigned DMG would hand
-  users the right-click-to-open workaround as the installation experience.
 
 Stage 4, not started:
 

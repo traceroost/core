@@ -5,8 +5,9 @@ name: Desktop (macOS)
 #
 # On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
 # runs it through desktop-release.yml (`workflow_call`), which attaches the macOS files to the
-# GitHub release **only if `notarized` comes out true** — until the Apple Developer Program secrets
-# below exist the app is ad-hoc signed, and Gatekeeper refuses an ad-hoc signed download
+# GitHub release: under its plain name when `notarized` comes out true, otherwise as a `*-preview`
+# build labelled "(preview)" — until the Apple Developer Program secrets below exist the app is
+# ad-hoc signed, and Gatekeeper refuses an ad-hoc signed download
 # (right-click → Open gets past it; see desktop/README.md). The build is identical either way.
 #
 # Signing and notarization are switched on by secrets alone (desktop/electron-builder.cjs
@@ -148,14 +149,14 @@ jobs:
         run: pnpm run compile-tests:desktop && npx mocha --grep "staged collector" --color
 
       # With the notarization key configured, a build that is not actually signed and stapled is a
-      # failure, not a silent ad-hoc fallback. Without it, `notarized=false` keeps the macOS files out
-      # of a release (desktop-release.yml).
+      # failure, not a silent ad-hoc fallback. Without it, `notarized=false` attaches the macOS files
+      # to a release as a preview (desktop-release.yml).
       - name: Notarization check
         id: notarization
         working-directory: desktop
         run: |
           if [ -z "${APPLE_API_KEY:-}" ]; then
-            echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release will not attach it"
+            echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release attaches it as *-preview"
             echo "notarized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

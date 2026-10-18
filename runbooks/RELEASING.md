@@ -273,13 +273,13 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
   `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`,
   `AZURE_TRUSTED_SIGNING_PUBLISHER`); `desktop-windows.yml` documents them and fails a configured
   build whose executables are not validly signed. `release.yml` passes each by name.
-- **Unsigned test builds**: set the repository variable `TRACEROOST_DESKTOP_ATTACH_UNSIGNED` to
-  `true` to also attach a macOS build that is not notarized (ad-hoc signed) and a Windows build
-  that is not signed. They are attached as `TraceRoost-<v>-mac-<arch>-unsigned.{dmg,zip}` and
-  `TraceRoost-<v>-win-<arch>-unsigned.{exe,zip}`, covered by the same SHA256SUMS and attestations,
-  and the release notes get a section on getting past Gatekeeper (right-click → Open) and
-  SmartScreen (More info → Run anyway). Unset — the default — attaches only notarized macOS and
-  signed Windows builds, as before. Turn it off again once both signing accounts exist.
+- **Preview builds**: until the signing secrets exist, a macOS build that is not notarized
+  (ad-hoc signed) and a Windows build that is not signed are attached as previews:
+  `TraceRoost-<v>-mac-<arch>-preview.dmg` and `TraceRoost-<v>-win-<arch>-preview.exe`, labelled
+  "(preview)" on the release page, covered by the same SHA256SUMS and attestations, and the
+  release notes get a section on getting past Gatekeeper (right-click → Open) and SmartScreen
+  (More info → Run anyway). Once a platform's secrets exist, its signed build is attached under the
+  plain name instead — nothing to switch.
 - **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default
   `linux,macos,windows`) turns a platform off without a code change; a non-`core`
   `TRACEROOST_RELEASE_EDITION` skips desktop with a notice (the app is core-only).

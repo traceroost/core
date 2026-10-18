@@ -15,11 +15,12 @@
  * not signed (macOS: notarized; Windows: Authenticode) is left out. Files of a left-out platform that
  * are present are still verified, then not attached.
  *
- * `macos-unsigned` and `windows-unsigned` attach an unsigned build on purpose (the repository
- * variable TRACEROOST_DESKTOP_ATTACH_UNSIGNED): the same verified files, attached under a name that
- * says so — `TraceRoost-<v>-mac-arm64-unsigned.dmg`, `TraceRoost-<v>-win-x64-unsigned.exe` — so an
- * unsigned download is never mistaken for a signed one, and a later signed build of the same version
- * never collides with it. A platform is attached signed or unsigned, never both.
+ * `macos-preview` and `windows-preview` attach a build that is not yet signed (the workflow does
+ * this whenever a macOS build is not notarized or a Windows build is not Authenticode-signed): the
+ * same verified files, attached under a name that says so — `TraceRoost-<v>-mac-arm64-preview.dmg`,
+ * `TraceRoost-<v>-win-x64-preview.exe` — so a preview download is never mistaken for a signed one,
+ * and a later signed build of the same version never collides with it. A platform is attached
+ * signed or as a preview, never both.
  *
  * `--out` gets the installers plus one `TraceRoost-desktop-<v>-SHA256SUMS` covering exactly the
  * files attached — the file users check with `sha256sum -c` and the one minisign signs.
@@ -45,14 +46,14 @@ export function expectedAssets(version) {
   }
 }
 
-/** Platforms that may be attached unsigned, as `<platform>-unsigned`. */
-export const UNSIGNED_PLATFORMS = ['macos', 'windows']
-const UNSIGNED = '-unsigned'
+/** Platforms whose builds need signing, and so may be attached unsigned as `<platform>-preview`. */
+export const PREVIEW_PLATFORMS = ['macos', 'windows']
+const PREVIEW = '-preview'
 
-/** The name an unsigned build is attached under: `-unsigned` before the extension. */
-export function unsignedName(name) {
+/** The name a preview (not yet signed) build is attached under: `-preview` before the extension. */
+export function previewName(name) {
   const dot = name.lastIndexOf('.')
-  return `${name.slice(0, dot)}${UNSIGNED}${name.slice(dot)}`
+  return `${name.slice(0, dot)}${PREVIEW}${name.slice(dot)}`
 }
 
 export function checksumsName(version) {
@@ -74,7 +75,7 @@ function findChecksumFiles(dir) {
 }
 
 /**
- * Verifies and copies the release files; returns `{ attached, skipped }` (names). Throws on any
+ * Verifies and copies the release files; returns `{ attached, skipped, preview }` (names). Throws on any
  * checksum mismatch, missing installer, unexpected installer, or the same name in two artifacts.
  */
 export function assemble({ inDir, outDir, version, platforms }) {
@@ -82,12 +83,12 @@ export function assemble({ inDir, outDir, version, platforms }) {
     throw new Error(`release-assets: --version must be a semver version, got ${JSON.stringify(version)}`)
   }
   const expected = expectedAssets(version)
-  const knownPlatforms = [...Object.keys(expected), ...UNSIGNED_PLATFORMS.map(p => `${p}${UNSIGNED}`)]
+  const knownPlatforms = [...Object.keys(expected), ...PREVIEW_PLATFORMS.map(p => `${p}${PREVIEW}`)]
   const unknown = platforms.filter(p => !knownPlatforms.includes(p))
   if (unknown.length > 0) throw new Error(`release-assets: unknown platform ${unknown.join(', ')} (known: ${knownPlatforms.join(', ')})`)
   if (platforms.length === 0) throw new Error('release-assets: --platforms names no platform — nothing to attach')
-  const both = UNSIGNED_PLATFORMS.filter(p => platforms.includes(p) && platforms.includes(`${p}${UNSIGNED}`))
-  if (both.length > 0) throw new Error(`release-assets: ${both.join(', ')} named both signed and unsigned — a platform is attached one way or the other`)
+  const both = PREVIEW_PLATFORMS.filter(p => platforms.includes(p) && platforms.includes(`${p}${PREVIEW}`))
+  if (both.length > 0) throw new Error(`release-assets: ${both.join(', ')} named both signed and preview — a platform is attached one way or the other`)
   const sums = findChecksumFiles(inDir)
   if (sums.length === 0) throw new Error(`release-assets: no SHA256SUMS under ${inDir}`)
 
@@ -116,8 +117,8 @@ export function assemble({ inDir, outDir, version, platforms }) {
     throw new Error(`release-assets: unexpected files for ${version}: ${unexpected.join(', ')} (is package.json's version the tag's?)`)
   }
   /** source name (as built) → name attached */
-  const wanted = new Map(platforms.flatMap(p => p.endsWith(UNSIGNED)
-    ? expected[p.slice(0, -UNSIGNED.length)].map(name => [name, unsignedName(name)])
+  const wanted = new Map(platforms.flatMap(p => p.endsWith(PREVIEW)
+    ? expected[p.slice(0, -PREVIEW.length)].map(name => [name, previewName(name)])
     : expected[p].map(name => [name, name])))
   const missing = [...wanted.keys()].filter(name => !verified.has(name))
   if (missing.length > 0) throw new Error(`release-assets: missing from the build artifacts: ${missing.join(', ')}`)
@@ -130,9 +131,9 @@ export function assemble({ inDir, outDir, version, platforms }) {
     bySource.map(([source, as]) => `${verified.get(source).hash}  ${as}`).join('\n') + '\n',
   )
   const attached = bySource.map(([, as]) => as)
-  const unsigned = bySource.filter(([source, as]) => source !== as).map(([, as]) => as)
+  const preview = bySource.filter(([source, as]) => source !== as).map(([, as]) => as)
   const skipped = [...verified.keys()].filter(name => !wanted.has(name)).sort()
-  return { attached, skipped, unsigned }
+  return { attached, skipped, preview }
 }
 
 function parseArgs(argv) {
@@ -152,9 +153,9 @@ function parseArgs(argv) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = parseArgs(process.argv.slice(2))
-    const { attached, skipped, unsigned } = assemble(args)
+    const { attached, skipped, preview } = assemble(args)
     console.log(`attaching ${attached.length} files + ${checksumsName(args.version)}:`)
-    for (const name of attached) console.log(`  ${name}${unsigned.includes(name) ? '   (unsigned)' : ''}`)
+    for (const name of attached) console.log(`  ${name}${preview.includes(name) ? '   (preview)' : ''}`)
     if (skipped.length > 0) console.log(`verified but not attached (platform not released): ${skipped.join(', ')}`)
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err))

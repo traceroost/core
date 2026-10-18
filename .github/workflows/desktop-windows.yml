@@ -15,8 +15,8 @@ name: Desktop (Windows)
 #
 # On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
 # runs it through desktop-release.yml (`workflow_call`), which attaches the Windows files to the
-# GitHub release when `signed` comes out true — or, unsigned and named so, when the repository
-# variable TRACEROOST_DESKTOP_ATTACH_UNSIGNED is `true`.
+# GitHub release: under its plain name when `signed` comes out true, otherwise as a `*-preview`
+# build labelled "(preview)".
 #
 # Signing is switched on by secrets alone (desktop/electron-builder.cjs reads the environment):
 #
