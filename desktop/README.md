@@ -417,7 +417,11 @@ owner channel); the packaged smoke test; and
 shortcut, Uninstall entry, nothing under Program Files), the smoke test of the *installed* app,
 a reinstall over the running app that must quit it through `--quit` with its spans saved (not kill
 it), and a silent uninstall that removes the app, shortcut and entry and keeps the data directory.
-Not covered by CI: a human looking at the tray icon and menu on a real desktop, SmartScreen on a
+On the arm64 runner the installer (electron-builder's NSIS stub is x86, so it runs emulated) takes
+about four minutes for a fresh install; the arm64 payload is packed with the x86 BCJ 7z filter
+because the installer's 7-Zip plugin cannot decode the ARM64 filter current 7-Zip picks by default
+(it silently dropped every .exe and .dll — see `electron-builder.cjs`). Not covered by CI: a human
+looking at the tray icon and menu on a real desktop, SmartScreen on a
 downloaded copy, the "for all users" install, log-off/shutdown with the app running, and a
 non-ASCII user profile path.
 
