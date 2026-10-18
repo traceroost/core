@@ -482,14 +482,14 @@ function AgentOtelSection() {
           ))}
         </div>
         <p style="margin-top:14px;font-size:12px;color:var(--muted)">The practical effect: a trace's Waterfall sub-tab stays closest to the raw OTEL structure, while Insights, Signals, Flow, Analytics, the Advisor, Alerts, and Automation all use the normalized trace model so the agents can be compared side by side.</p>
-        <h4 style={subHeadStyle}>Log-only agents (no OTEL)</h4>
+        <h4 style={subHeadStyle}>Read from local history only</h4>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:6px">
             <dt class="glossary-term">OpenCode</dt>
             <dd class="glossary-def" style="display:block">
-              <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>Local SQLite database at <code style={codeStyle}>~/.local/share/opencode/opencode.db</code> (Linux/Mac) or <code style={codeStyle}>%APPDATA%\opencode\opencode.db</code> (Windows). No OTEL support. TraceRoost reads the database directly using WASM SQLite, merging the WAL file at read time. Override the path with the <code style={codeStyle}>OPENCODE_DATA_DIR</code> environment variable.</p>
+              <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>Local SQLite database at <code style={codeStyle}>~/.local/share/opencode/opencode.db</code> (Linux/Mac) or <code style={codeStyle}>%APPDATA%\opencode\opencode.db</code> (Windows). TraceRoost reads it rather than OpenCode's telemetry, whose OpenTelemetry export is still experimental. TraceRoost reads the database directly using WASM SQLite, merging the WAL file at read time. Override the path with the <code style={codeStyle}>OPENCODE_DATA_DIR</code> environment variable.</p>
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Session ID, workspace directory, model name, timestamps, all token counts (input, output, cache read/write), user request (last user message in the trace), tool call names and inputs/outputs, file paths accessed by tools, and a full per-turn timeline of LLM calls and tool calls.</p>
-              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>OTEL traces, time-to-first-token, per-tool execution timing, and streaming speed. Because the database records per-tool error status, most <a href="#help-signals">signals</a> still fire from it — the note under each signal says which don't. Traces show a <strong>Log</strong> badge and a blue info banner in the Overview sub-tab noting these limitations.</p>
+              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Live traces, time-to-first-token, per-tool execution timing, and streaming speed. Because the database records per-tool error status, most <a href="#help-signals">signals</a> still fire from it — the note under each signal says which don't. Traces show a <strong>Log</strong> badge and a blue info banner in the Overview sub-tab noting these limitations.</p>
             </dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:6px">
@@ -497,7 +497,7 @@ function AgentOtelSection() {
             <dd class="glossary-def" style="display:block">
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>The standalone terminal agent (<code style={codeStyle}>cursor-agent</code>) — not Cursor the IDE, whose built-in Copilot Chat is read like any other VS Code-family IDE's. One transcript per session at <code style={codeStyle}>~/.cursor/projects/&lt;workspace&gt;/agent-transcripts/&lt;id&gt;/&lt;id&gt;.jsonl</code>. No OTEL support.</p>
               <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Prompt, tool calls (names, arguments, file paths touched), and session-level success or failure. Start and end times come from the transcript file's own timestamps.</p>
-              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Token counts, model name, workspace path, per-turn timestamps, and per-tool error detail — none of these are stored anywhere by Cursor CLI, so its traces show no cost rather than a guessed one.</p>
+              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Token counts, model name, workspace path, per-turn timestamps, and per-tool error detail — none of these are stored anywhere by Cursor CLI, so its traces show no cost rather than a guessed one. Cursor's OpenTelemetry export (enterprise accounts, or third-party hooks) isn't read by TraceRoost yet.</p>
             </dd>
           </div>
         </div>

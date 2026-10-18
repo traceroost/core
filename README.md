@@ -188,7 +188,7 @@ OpenCode stores all trace data in a local SQLite database. TraceRoost reads this
 
 Each user message and the replies to it are one trace. Available from the database: trace ID, user prompt, model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names, inputs/outputs, and per-tool error status. Unlike every other log source, that per-tool error status means most signals can actually fire from OpenCode's database alone — it's the one log-only exception noted throughout the in-app Help tab's Signals section.
 
-Not available: time-to-first-token, per-tool execution timing, or streaming speed (no span timing data, since OpenCode has no OTEL path at all). Two signals still don't fire here — edit/revert cycles and hallucinated imports need before/after edit content only Claude Code (its own log, or OTEL) and Copilot (OTEL) capture; OpenCode's parser never records it. Traces show a **Log** badge and a blue info banner in the Overview tab noting the timing limitations.
+Not available: time-to-first-token, per-tool execution timing, or streaming speed (no span timing data: TraceRoost reads OpenCode's database, not its telemetry — OpenCode's OpenTelemetry export is experimental and not yet documented, so TraceRoost doesn't ingest it). Two signals still don't fire here — edit/revert cycles and hallucinated imports need before/after edit content only Claude Code (its own log, or OTEL) and Copilot (OTEL) capture; OpenCode's parser never records it. Traces show a **Log** badge and a blue info banner in the Overview tab noting the timing limitations.
 
 Override the default database location with the `OPENCODE_DATA_DIR` environment variable (comma-separated for multiple directories).
 
@@ -200,7 +200,7 @@ This is Cursor's standalone terminal agent (`cursor-agent`, installed via `curl 
 
 Each `user` line starts a trace. Available from logs: prompt, tool calls (names, arguments, file paths touched), the last turn's success/failure. Start/end times fall back to the transcript file's own filesystem timestamps, since the format has no per-turn timestamps.
 
-Not available, confirmed by direct inspection rather than assumed: **token/usage counts, model name, workspace path, and per-tool error detail** — none of these exist anywhere in Cursor CLI's local storage today. These show as an honest unpriced/unknown gap (matching every other unrecognized-model session) rather than a guessed number. No OTEL path exists for this agent, so there is no richer alternative source to fall back to — Cursor CLI traces always carry a **Log** badge.
+Not available, confirmed by direct inspection rather than assumed: **token/usage counts, model name, workspace path, and per-tool error detail** — none of these exist anywhere in Cursor CLI's local storage today. These show as an honest unpriced/unknown gap (matching every other unrecognized-model session) rather than a guessed number. Cursor's OpenTelemetry export is offered to enterprise accounts, and otherwise only through third-party hook scripts; TraceRoost doesn't ingest either yet, so Cursor CLI traces always carry a **Log** badge.
 
  All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
 
