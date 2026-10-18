@@ -13,10 +13,11 @@ import type { RollupPayload } from './schema'
 let cached: { validator: SchemaValidator; schema: unknown } | undefined
 
 /** Locates the committed schema. It ships at the package root in both the npm package and the
- *  VSIX; this walks up from `__dirname` (which differs by build) until it finds it. */
+ *  VSIX; this walks up from `__dirname` (which differs by build) until it finds it — five levels
+ *  is the standalone test build (`out/test-standalone/src/cloud/forward/`). */
 export function loadRollupSchema(): unknown {
   if (cached) return cached.schema
-  for (const rel of ['..', '../..', '../../..', '../../../..']) {
+  for (const rel of ['..', '../..', '../../..', '../../../..', '../../../../..']) {
     const candidate = path.join(__dirname, rel, 'schema', 'rollup.v1.json')
     try {
       const schema = JSON.parse(fs.readFileSync(candidate, 'utf-8'))

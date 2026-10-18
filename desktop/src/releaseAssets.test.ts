@@ -10,11 +10,11 @@ import * as path from 'path'
 // actions/download-artifact leaves them.
 const SCRIPT = path.join(__dirname, '..', '..', '..', '..', 'desktop', 'scripts', 'release-assets.mjs')
 const V = '1.2.3'
-const MAC = ['arm64', 'x64'].flatMap(arch => ['dmg', 'zip'].map(ext => `TraceRoost-${V}-mac-${arch}.${ext}`))
+const MAC = ['arm64', 'x64'].map(arch => `TraceRoost-${V}-mac-${arch}.dmg`)
 const LINUX_X64 = [`TraceRoost-${V}-linux-amd64.deb`, `TraceRoost-${V}-linux-x86_64.AppImage`]
 const LINUX_ARM64 = [`TraceRoost-${V}-linux-arm64.deb`, `TraceRoost-${V}-linux-arm64.AppImage`]
-const WIN_X64 = [`TraceRoost-${V}-win-x64.exe`, `TraceRoost-${V}-win-x64.zip`]
-const WIN_ARM64 = [`TraceRoost-${V}-win-arm64.exe`, `TraceRoost-${V}-win-arm64.zip`]
+const WIN_X64 = [`TraceRoost-${V}-win-x64.exe`]
+const WIN_ARM64 = [`TraceRoost-${V}-win-arm64.exe`]
 const SUMS = `TraceRoost-desktop-${V}-SHA256SUMS`
 const unsigned = (name: string) => name.replace(/(\.[^.]+)$/, '-unsigned$1')
 
@@ -73,7 +73,7 @@ suite('release-assets — attaching desktop builds to a release', () => {
     assert.deepStrictEqual(released(), [...MAC, ...LINUX_X64, ...LINUX_ARM64, ...WIN_X64, ...WIN_ARM64, SUMS].sort())
   })
 
-  test('Windows: the NSIS installer and the portable zip, for x64 and arm64', () => {
+  test('Windows: the NSIS installer, for x64 and arm64', () => {
     artifact('traceroost-desktop-windows-x64', WIN_X64)
     artifact('traceroost-desktop-windows-arm64', WIN_ARM64)
     const r = run('windows')
@@ -116,7 +116,7 @@ suite('release-assets — attaching desktop builds to a release', () => {
 
   test('a tampered unsigned build still fails its checksum', () => {
     allArtifacts()
-    fs.appendFileSync(path.join(inDir, 'traceroost-desktop-windows-arm64', WIN_ARM64[1]), 'tampered')
+    fs.appendFileSync(path.join(inDir, 'traceroost-desktop-windows-arm64', WIN_ARM64[0]), 'tampered')
     const r = run('windows-unsigned')
     assert.notStrictEqual(r.status, 0)
     assert.match(r.err, /does not match its checksum/)

@@ -9,20 +9,16 @@
  * The repository key is never printed, including here and in any verbose mode.
  */
 
-import { execFileSync } from 'child_process'
 import { loadAllSessions } from '../local/sessionLoader'
-import { classifySessionOutcome } from '../../src/gitOutcome'
 import { readServiceConfig, ensureInstallId } from '../../src/serviceConfig'
 import { loadCredentials } from '../../src/cloud/org/credentials'
 import { currentHostId, setHostStore, PREVIEW_HOST_ID } from '../../src/cloud/org/hostIdentity'
-import { deriveRepoKey } from '../../src/repoKey'
-import { sessionRollupPayload, type SessionRollupInput } from '../../src/cloud/forward/buildSessionRollup'
-import { assertValidRollupPayload } from '../../src/cloud/forward/validate'
+import { buildPayloadForCard, createPayloadBuildCache } from '../../src/cloud/org/payloadPreview'
 import { stableStringify } from '../../src/cloud/forward/preview'
 import { ForwardQueue } from '../../src/cloud/forward/queue'
 import { SENT, NEVER_SENT } from '../../src/cloud/org/privacy'
 import { previewManifestChunk } from '../../src/cloud/forward/traceManifest'
-import { sourceRankOf, traceKeysInWindow, localHorizonOf, countTracesInWindow } from '../../src/traceIdentity'
+import { traceKeysInWindow, localHorizonOf, countTracesInWindow } from '../../src/traceIdentity'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
 export interface ExplainOptions {
@@ -44,54 +40,36 @@ function selectSessions(all: SessionSummaryCard[], opts: ExplainOptions): Sessio
   return all.slice(0, 1) // --last (the default)
 }
 
-function currentBranch(workspace: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: workspace, encoding: 'utf-8', timeout: 5000 }).trim() || 'HEAD'
-  } catch {
-    return 'HEAD'
-  }
-}
-
 /** One line naming the per-session fields that are easiest to misread as content. */
 export const SESSION_FIELD_NOTE =
   'language / language_secondary are fixed ids from a 14-value list (derived locally from file extensions); ' +
   'files_changed / lines_added / lines_removed are counts only — no paths, no file content, and not git stats; ' +
   'host_id is a random id generated once for this host\'s own store, never derived from the machine.'
 
-function toInput(card: SessionSummaryCard): SessionRollupInput {
-  return {
-    sessionId: card.sessionId,
-    source: card.source,
-    models: card.models,
-    model: card.model,
-    startTime: card.startTime,
-    durationMs: card.durationMs,
-    totalLlmCalls: card.totalLlmCalls,
-    inputTokens: card.inputTokens,
-    outputTokens: card.outputTokens,
-    cacheReadTokens: card.cacheReadTokens,
-    cacheCreateTokens: card.cacheCreateTokens,
-    errors: card.errors,
-    toolCounts: card.toolCounts,
-    filesChanged: card.filesChanged,
-    filesWritten: card.filesWritten,
-    loopSignals: (card.loopSignals ?? []).map(s => ({ type: s.type, severity: s.severity })),
-    oneShotStats: card.oneShotStats,
-    llmModels: (card.timeline ?? []).filter(t => t.type === 'llm' && t.model).map(t => t.model as string),
-    dataSource: card.dataSource,
-    initiator: card.initiator,
-    language: card.language,
-    languageSecondary: card.languageSecondary,
-    filesChangedCount: card.filesChangedCount,
-    linesAdded: card.linesAdded,
-    linesRemoved: card.linesRemoved,
-    sourceRank: sourceRankOf(card),
+/**
+ * The per-session part of the output: one block per session, built by `buildPayloadForCard` — the
+ * very function the forwarder's enqueue paths call — so what this prints is what a forward sends,
+ * field for field. (It used to rebuild the payload here with its own copy of the card mapping and
+ * hash the repo's *current* HEAD as the branch, which the forwarder stopped doing: a session with
+ * no branch recorded at capture time is sent without `branch_hash`, and this printed one anyway.)
+ * A session whose workspace can't be keyed is still sent, without repo grouping — printed with a
+ * note saying so, never with a hash made up from this process's own working directory.
+ */
+export async function explainSessionBlocks(cards: SessionSummaryCard[]): Promise<string[]> {
+  const cache = createPayloadBuildCache()
+  const blocks: string[] = []
+  for (const card of cards) {
+    const built = await buildPayloadForCard(card, cache)
+    const note = built.ungroupedReason
+      ? `# ${card.sessionId}: no repository grouping — ${built.ungroupedReason} (sent without repo_hash / branch_hash, never as a fake hash)\n`
+      : ''
+    blocks.push(note + stableStringify(built.payload))
   }
+  return blocks
 }
 
 export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
   const creds = loadCredentials()
-  const orgId = creds?.orgId ?? 'unlinked-preview'
   const config = ensureInstallId(readServiceConfig())
   // The standalone server's own host id (its data dir, as server.ts resolves it); a placeholder
   // when unlinked, like the org salt — and then no host-id file is written.
@@ -138,23 +116,8 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
   console.log('# ' + SESSION_FIELD_NOTE)
   console.log('')
 
-  for (const card of selected) {
-    const workspace = card.workspace || card.projectPath || process.cwd()
-    const rk = await deriveRepoKey(workspace, orgId)
-    if (!rk.ok) {
-      console.log(`# ${card.sessionId}: cannot build — ${rk.reason} (reported to the service as "no repository grouping", never as a fake hash)`)
-      console.log('')
-      continue
-    }
-    const outcome = await classifySessionOutcome(workspace, card.filesChanged ?? [])
-    const payload = sessionRollupPayload(toInput(card), {
-      repoKey: rk.ctx,
-      branch: currentBranch(rk.ctx.root),
-      outcome: outcome?.overall,
-      hostId,
-    })
-    assertValidRollupPayload(payload)
-    console.log(stableStringify(payload))
+  for (const block of await explainSessionBlocks(selected)) {
+    console.log(block)
     console.log('')
   }
 

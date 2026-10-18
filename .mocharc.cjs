@@ -6,6 +6,7 @@ module.exports = {
     'out/test-standalone/standalone/local/*.test.js',
     'out/test-standalone/standalone/service/*.test.js',
     'out/test-standalone/standalone/db/*.test.js',
+    'out/test-standalone/standalone/cloud/*.test.js',
     'out/test-standalone/standalone/*.test.js',
     'out/test-desktop/desktop/src/*.test.js',
   ],
