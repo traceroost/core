@@ -143,9 +143,9 @@ console.log('\n── silent uninstall ──')
 // the work: wait for the files to go.
 const removed = runInstaller(uninstaller, ['/S'])
 check(removed.status === 0, `uninstaller /S exited 0 (got ${removed.status}, ${removed.seconds}s)`)
-check(await waitFor(() => !fs.existsSync(exe), 90_000), 'the app is removed')
-check(await waitFor(() => !fs.existsSync(shortcut), 30_000), 'the Start Menu shortcut is removed')
-check(await waitFor(() => uninstallEntry() === undefined, 30_000), 'the Uninstall entry is removed')
+check(await waitFor(() => !fs.existsSync(exe), 600_000), 'the app is removed')
+check(await waitFor(() => !fs.existsSync(shortcut), 120_000), 'the Start Menu shortcut is removed')
+check(await waitFor(() => uninstallEntry() === undefined, 120_000), 'the Uninstall entry is removed')
 check(fs.existsSync(path.join(dataDir, 'spans.json')), 'the user\'s data directory is kept')
 
 fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })
@@ -165,7 +165,9 @@ console.log(`\ncheck-nsis: all ${passes.length} checks passed`)
  */
 function runInstaller(file, args, env = process.env) {
   const started = Date.now()
-  const r = spawnSync(file, args, { env, stdio: 'inherit', timeout: 300_000 })
+  // Generous: on the windows-11-arm runner the x86 NSIS stub runs emulated and a fresh install
+  // takes about four minutes (an upgrade, which first runs the old uninstaller, longer).
+  const r = spawnSync(file, args, { env, stdio: 'inherit', timeout: 900_000 })
   const seconds = Math.round((Date.now() - started) / 1000)
   if (r.status === null) {
     console.log(`  … ${path.basename(file)} did not finish in ${seconds}s (${r.error?.message ?? r.signal}); what was running:`)

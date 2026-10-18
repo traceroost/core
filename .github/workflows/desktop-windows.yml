@@ -118,7 +118,9 @@ jobs:
           - arch: arm64
             runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # The arm64 runner runs the x86 NSIS stub emulated: install, upgrade and uninstall alone take
+    # ~15 minutes there.
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
