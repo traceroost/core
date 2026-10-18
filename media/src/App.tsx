@@ -37,7 +37,7 @@ import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, Sessio
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
 import { suggestionUrl } from './suggest'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION } from './agentSetupText'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
 
 /** The REPO filter's empty state, shown as its placeholder and first list entry. */
 const REPO_ALL = 'All'
@@ -992,6 +992,8 @@ function CollectorConflictBanner() {
 function AgentSetupBanner() {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  // "Not now" first shows what skipping costs; only "Skip setup" records the no.
+  const [confirmingSkip, setConfirmingSkip] = useState(false)
   if (!agentSetupPending.value) return null
   const answer = (choice: 'yes' | 'no') => {
     setBusy(true)
@@ -1005,12 +1007,14 @@ function AgentSetupBanner() {
   return (
     <div class="collector-conflict-banner" role="region" aria-label="Set up your coding agents">
       <div style="flex:1">
-        <strong>{AGENT_SETUP_QUESTION}</strong>
-        <div style="margin-top:2px">{AGENT_SETUP_EXPLANATION}</div>
+        <strong>{confirmingSkip ? AGENT_SETUP_SKIP_QUESTION : AGENT_SETUP_QUESTION}</strong>
+        <div style="margin-top:2px">{confirmingSkip ? AGENT_SETUP_SKIP_EXPLANATION : AGENT_SETUP_EXPLANATION}</div>
         {failed && <div style="margin-top:4px">That didn't go through — try again, or use Configure OTEL in Settings.</div>}
         <div style="display:flex;gap:8px;margin-top:6px">
           <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('yes')}>Set up agents</button>
-          <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('no')}>Not now</button>
+          {confirmingSkip
+            ? <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('no')}>Skip setup</button>
+            : <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => setConfirmingSkip(true)}>Not now</button>}
         </div>
       </div>
     </div>

@@ -7,7 +7,7 @@ import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult } from './autoConfig'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
 import { DatabaseReader, openReadonlySnapshot } from './database/reader'
@@ -97,6 +97,7 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
 const SETUP_HELP_BUTTON = 'Open Setup Help'
 const AGENT_SETUP_YES = 'Set up agents'
 const AGENT_SETUP_NO = 'Not now'
+const AGENT_SETUP_SKIP = 'Skip setup'
 
 /** Opens the dashboard on Help → Setup (Manual Configuration lists every agent's settings). */
 function openSetupHelp(): void {
@@ -351,8 +352,14 @@ export async function activate(context: vscode.ExtensionContext) {
         AGENT_SETUP_YES, AGENT_SETUP_NO,
       ).then(async choice => {
         if (choice === undefined) return
-        writeAgentSetupAnswer(choice === AGENT_SETUP_YES ? 'yes' : 'no')
-        if (choice === AGENT_SETUP_YES) await runAgentSetup()
+        // A no is asked once more, with what skipping costs, before it is recorded.
+        const confirmed = choice === AGENT_SETUP_YES ? AGENT_SETUP_YES : await vscode.window.showWarningMessage(
+          `TraceRoost: ${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`,
+          AGENT_SETUP_SKIP, AGENT_SETUP_YES,
+        )
+        if (confirmed === undefined) return
+        writeAgentSetupAnswer(confirmed === AGENT_SETUP_YES ? 'yes' : 'no')
+        if (confirmed === AGENT_SETUP_YES) await runAgentSetup()
       })
     }
   }

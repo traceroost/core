@@ -1,12 +1,12 @@
 import * as fs from 'fs'
 import * as readline from 'node:readline/promises'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, parseYesNo, type AgentSetupAnswer } from '../../src/agentSetupConsent'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, parseSkipConfirmation, parseYesNo, type AgentSetupAnswer } from '../../src/agentSetupConsent'
 import * as os from 'os'
 import * as path from 'path'
 import { isIPv6 } from 'net'
 import { execFileSync, spawn } from 'child_process'
 import {
-  parseServiceInstallFlags, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
+  reinstallConfig, isRunningFromNpx, writeServiceConfig, readServiceConfig, serviceConfigPath,
   shouldBlockRepeatedBootstrap, childEnvForReexec, readPackageManifest,
   describeNpmFailure, couldNotDownloadMessage, describeServiceManagerFailure, npmInvocation,
   type ServiceConfig, type ServiceProgram,
@@ -370,7 +370,10 @@ async function askAgentSetupInTerminal(): Promise<AgentSetupAnswer | undefined> 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   try {
     const input = await rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\nSet up agents? [y/N] `)
-    return parseYesNo(input)
+    if (parseYesNo(input) === 'yes') return 'yes'
+    // A no is asked once more, with what skipping costs; Enter keeps the no.
+    const again = await rl.question(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}\nSkip setup? [Y/n] `)
+    return parseSkipConfirmation(again)
   } catch {
     return undefined  // Ctrl-D: unanswered
   } finally {
@@ -403,16 +406,11 @@ export async function runServiceCli(args: string[]): Promise<number> {
     case 'install': {
       const version = readRunningVersion()
       console.log(`[TraceRoost] Service install${version ? ` — v${version}` : ''}`)
-      const config = parseServiceInstallFlags(rest)
-      // Carry the existing access token across a reinstall so bookmarked dashboard URLs keep working
-      // — parseServiceInstallFlags starts from a blank token and the server would otherwise mint a
-      // fresh one on next start.
-      const existing = readServiceConfig()
-      if (existing.authToken) { config.authToken = existing.authToken }
-      // The agent-setup answer (src/agentSetupConsent.ts) survives a reinstall too. Unanswered and
-      // in a terminal: ask now, since the service itself has no terminal and could only ask in the
-      // dashboard.
-      config.agentSetup = existing.agentSetup ?? await askAgentSetupInTerminal()
+      // Flags over the defaults, keeping what identifies this machine (src/serviceConfig.ts's
+      // reinstallConfig). An unanswered agent-setup question is asked now, in the terminal: the
+      // service itself has no terminal and could only ask in the dashboard.
+      const config = reinstallConfig(rest, readServiceConfig())
+      config.agentSetup ??= await askAgentSetupInTerminal()
       const program = resolveInstallProgram(config)
 
       if (safeIsInstalled(platformService)) {

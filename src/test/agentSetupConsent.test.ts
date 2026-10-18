@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer } from '../agentSetupConsent'
+import { parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer } from '../agentSetupConsent'
 import { readServiceConfig, writeServiceConfig, defaultServiceConfig } from '../serviceConfig'
 
 suite('agentSetupConsent', () => {
@@ -34,6 +34,11 @@ suite('agentSetupConsent', () => {
   test('only y or yes is a yes', () => {
     for (const yes of ['y', 'Y', 'yes', ' YES ']) assert.strictEqual(parseYesNo(yes), 'yes', yes)
     for (const no of ['', 'n', 'no', 'yep', 'sure']) assert.strictEqual(parseYesNo(no), 'no', no)
+  })
+
+  test('confirming a no: Enter or yes keeps it, only n or no takes it back', () => {
+    for (const keep of ['', 'y', 'Y', 'yes', 'whatever']) assert.strictEqual(parseSkipConfirmation(keep), 'no', keep)
+    for (const back of ['n', 'N', 'no', ' NO ']) assert.strictEqual(parseSkipConfirmation(back), 'yes', back)
   })
 
   test('the dashboard shows the same words as VS Code and the terminal', () => {

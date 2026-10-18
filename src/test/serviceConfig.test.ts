@@ -5,7 +5,7 @@ import * as path from 'path'
 import { execFileSync } from 'child_process'
 import {
   defaultServiceConfig, serviceConfigPath, readServiceConfig, writeServiceConfig,
-  serviceLogPath, parseServiceInstallFlags, isRunningFromNpx,
+  serviceLogPath, parseServiceInstallFlags, reinstallConfig, isRunningFromNpx,
   childEnvForReexec, shouldBlockRepeatedBootstrap, REEXEC_GUARD_ENV,
   generateLaunchdPlist, generateSystemdUnit, generateWindowsWrapperScript,
   launchdLabel, SYSTEMD_UNIT_NAME, WINDOWS_TASK_NAME,
@@ -151,6 +151,25 @@ suite('serviceConfig', () => {
     test('lives under dataDir/logs/service.log', () => {
       const config = defaultServiceConfig('/home/user')
       assert.strictEqual(serviceLogPath(config), path.join(config.dataDir, 'logs', 'service.log'))
+    })
+  })
+
+  suite('reinstallConfig', () => {
+    test('keeps the access token, the install id and the agent-setup answer; flags win for the rest', () => {
+      const existing = { ...defaultServiceConfig(), uiPort: 3100, authToken: 'tok', installId: 'id-1', agentSetup: 'no' as const }
+      const config = reinstallConfig(['--otlp-port', '4400'], existing)
+      assert.strictEqual(config.authToken, 'tok')
+      assert.strictEqual(config.installId, 'id-1', 'a reinstall must not mint a new install id')
+      assert.strictEqual(config.agentSetup, 'no')
+      assert.strictEqual(config.otlpPort, 4400)
+      assert.strictEqual(config.uiPort, 3000, 'ports not passed go back to the defaults, as before')
+    })
+
+    test('a first install starts with nothing to keep', () => {
+      const config = reinstallConfig([], defaultServiceConfig())
+      assert.strictEqual(config.authToken, '')
+      assert.strictEqual(config.installId, '')
+      assert.strictEqual(config.agentSetup, undefined)
     })
   })
 

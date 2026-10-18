@@ -14,7 +14,7 @@ import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer } from '../src/agentSetupConsent'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer } from '../src/agentSetupConsent'
 import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
 import { OtlpIngest } from '../src/otlpIngest'
@@ -2274,7 +2274,11 @@ function askAgentSetupInTerminal(port: number): void {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   agentSetupQuestion = rl
   rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\nSet up agents? [y/N] `, input => {
-    void answerAgentSetup(parseYesNo(input), port)
+    if (parseYesNo(input) === 'yes') { void answerAgentSetup('yes', port); return }
+    // A no is asked once more, with what skipping costs; Enter keeps the no.
+    rl.question(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}\nSkip setup? [Y/n] `, again => {
+      void answerAgentSetup(parseSkipConfirmation(again), port)
+    })
   })
   // readline swallows Ctrl-C while it waits; pass it on so the server still stops as usual.
   rl.on('SIGINT', () => { rl.close(); process.kill(process.pid, 'SIGINT') })

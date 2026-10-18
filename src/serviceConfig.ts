@@ -228,6 +228,18 @@ export function parseServiceInstallFlags(args: string[]): ServiceConfig {
   return config
 }
 
+/** The config `traceroost service install` writes: its flags over the defaults (so a reinstall
+ *  without `--ui-port` goes back to 3000), keeping what identifies this machine and its user's
+ *  choices — the access token (bookmarked dashboard URLs and configured agents carry it), the
+ *  install id (it keys the forwarding queue) and the agent-setup answer. */
+export function reinstallConfig(args: string[], existing: ServiceConfig): ServiceConfig {
+  const config = parseServiceInstallFlags(args)
+  if (existing.authToken) config.authToken = existing.authToken
+  if (existing.installId) config.installId = existing.installId
+  if (existing.agentSetup) config.agentSetup = existing.agentSetup
+  return config
+}
+
 // ── npx-vs-global-install detection ──────────────────────────────────────────
 
 /** True when the current process was launched via `npx`/`bunx` rather than a real
