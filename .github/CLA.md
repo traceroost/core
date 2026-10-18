@@ -1,10 +1,12 @@
 # TraceRoost Individual Contributor License Agreement
 
-Thank you for your interest in contributing to TraceRoost ("the Project"), maintained by Roger Reed
-("the Maintainer"). This is a short agreement covering the rights you grant when you contribute.
-It does not change your rights to use your own contribution however you like elsewhere — it only
-grants the Maintainer additional rights to use it, alongside the rights everyone already gets under
-the Project's MIT license.
+Thank you for your interest in contributing to TraceRoost ("the Project"), maintained by Roger Reed,
+doing business as TraceRoost ("the Maintainer"). "The Maintainer" includes their successors and
+assigns, and anyone to whom ownership of the Project is transferred — a company formed to run it,
+for example. This is a short agreement covering the rights you grant when you contribute. It does
+not change your rights to use your own contribution however you like elsewhere — it only grants
+the Maintainer additional rights to use it, alongside the rights everyone already gets under the
+Project's licenses (see [NOTICE.md](../NOTICE.md)).
 
 By commenting "I have read the CLA Document and I hereby sign the CLA" on a pull request, you agree
 to the terms below for that contribution and all future contributions you submit to this Project,
@@ -27,8 +29,9 @@ your Contribution, alone or as part of the Project, under any license terms the 
 This is the operative clause: it's what lets the Maintainer offer parts of the Project under a
 different license in the future (for example, a source-available license for a separately built
 team/enterprise product) without needing to track you down individually. Everything you contribute
-remains available to everyone under the Project's current MIT license as well — this grant adds
-rights, it doesn't take any away from how your own code can be used.
+remains available to everyone under the license that covers the part of the Project you contributed
+to — MIT, or the Business Source License 1.1 for the directories NOTICE.md lists — as well. This
+grant adds rights; it doesn't take any away from how your own code can be used.
 
 ## 3. Patent license
 
@@ -59,3 +62,9 @@ applicable law.
 
 You agree to notify the Maintainer if you become aware that any of the representations in Section 4
 are inaccurate for a Contribution you've already submitted.
+
+## 7. Transfer and governing law
+
+The Maintainer may assign or transfer the rights granted here, in whole or in part, without notice
+to you; they continue for the benefit of whoever holds them. This agreement is governed by the laws
+of the State of California, without regard to its conflict-of-law rules.

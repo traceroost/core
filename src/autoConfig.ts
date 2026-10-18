@@ -18,6 +18,14 @@ export async function autoConfigureCopilot(port: number): Promise<ConfigResult> 
       return { changed: false }
     }
 
+    // The user exports to a collector of their own: change nothing, before anything is touched —
+    // turning `otel.enabled` on next to their endpoint would start sending Copilot telemetry there
+    // because of TraceRoost (same rule as Claude Code and Codex in autoConfigNode.ts).
+    const existing = config.get<string>('github.copilot.chat.otel.otlpEndpoint')
+    if (typeof existing === 'string' && existing && !isLoopbackEndpoint(existing)) {
+      return { changed: false, warning: `github.copilot.chat.otel.otlpEndpoint points at ${existing}; left untouched (TraceRoost listens on ${endpoint})` }
+    }
+
     const otelEnabled = config.get<boolean>('github.copilot.chat.otel.enabled')
     if (!otelEnabled) {
       await config.update('github.copilot.chat.otel.enabled', true, vscode.ConfigurationTarget.Global)
@@ -30,12 +38,6 @@ export async function autoConfigureCopilot(port: number): Promise<ConfigResult> 
       changed = true
     }
 
-    const existing = config.get<string>('github.copilot.chat.otel.otlpEndpoint')
-    if (typeof existing === 'string' && existing && !isLoopbackEndpoint(existing)) {
-      // The user exports to a collector of their own — don't hijack it (same rule as Claude Code
-      // and Codex in autoConfigNode.ts).
-      return { changed, warning: `github.copilot.chat.otel.otlpEndpoint points at ${existing}; left as is (TraceRoost listens on ${endpoint})` }
-    }
     if (existing !== endpoint) {
       await config.update('github.copilot.chat.otel.otlpEndpoint', endpoint, vscode.ConfigurationTarget.Global)
       changed = true

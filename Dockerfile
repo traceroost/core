@@ -24,6 +24,8 @@ COPY packages/styles/ ./packages/styles/
 ARG EDITION=core
 RUN node esbuild.js --production --edition=$EDITION \
  && node scripts/check-edition.mjs $EDITION --skip-manifest
+# The full edition bundles BSL-licensed code, whose license must travel with every copy.
+RUN mkdir -p licenses && if [ "$EDITION" = full ]; then cp src/cloud/LICENSE licenses/LICENSE-BSL-1.1; fi
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:24-alpine
@@ -44,6 +46,9 @@ COPY --from=builder --chown=traceroost:traceroost /app/media/mascot.png     ./me
 # copy from the very sql.js the bundle was built with (standalone/sqlWasm.ts) — no node_modules.
 COPY --from=builder --chown=traceroost:traceroost /app/dist/sql-wasm.wasm   ./dist/sql-wasm.wasm
 COPY --from=builder --chown=traceroost:traceroost /app/package.json        ./package.json
+# The licenses: TraceRoost's own and those of the packages bundled into server.js.
+COPY --chown=traceroost:traceroost LICENSE NOTICE.md THIRD_PARTY_NOTICES.md ./
+COPY --from=builder --chown=traceroost:traceroost /app/licenses/ ./licenses/
 
 RUN mkdir -p /data && chown traceroost:traceroost /data
 VOLUME ["/data"]

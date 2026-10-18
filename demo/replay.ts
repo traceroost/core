@@ -15,6 +15,8 @@
  *   pnpm run demo -- --agents codex
  *   pnpm run demo -- --scenario loop --agents claude,codex
  *   pnpm run demo -- --speed 5
+ *   pnpm run demo -- --port 4400 --token <bearer>   a server bound beyond loopback (Docker), whose
+ *                                                   OTLP port requires its bearer token
  *   pnpm run demo -- --file /path/to/export_redacted_claude_main_20260522_152343.json
  *
  * Scenarios (each runs once per requested agent, except compaction):
@@ -48,6 +50,10 @@ function flag(name: string, fallback: string): string {
 }
 const SPEED    = parseFloat(flag('speed', '1')) || 1
 const PORT     = parseInt(flag('port', '4318')) || 4318
+// `--token <t>` (or TRACEROOST_TOKEN): the target server's bearer token. A loopback-bound server
+// (the default `pnpm run demo` target) accepts OTLP without one; a server bound beyond loopback —
+// the Docker image's BIND_HOST=0.0.0.0 — requires it on every port (src/httpSecurity.ts).
+const TOKEN    = flag('token', process.env.TRACEROOST_TOKEN ?? '')
 const SCENARIO = flag('scenario', 'all')
 const FIXTURE  = flag('fixture', '')
 const FILE     = flag('file', '')
@@ -201,9 +207,21 @@ function post(path: '/v1/traces' | '/v1/logs', body: object): Promise<void> {
     const req = http.request(
       {
         hostname: '127.0.0.1', port: PORT, method: 'POST', path,
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data),
+          ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+        },
       },
-      res => { res.resume(); res.on('end', resolve) }
+      res => {
+        res.resume()
+        // A refused send (a 401 for a missing token, above all) must fail the replay, not leave
+        // it reporting success with nothing ingested.
+        const status = res.statusCode ?? 0
+        res.on('end', () => status >= 200 && status < 300
+          ? resolve()
+          : reject(new Error(`POST ${path} → HTTP ${status}${status === 401 ? ' (pass the server\'s bearer token with --token)' : ''}`)))
+      }
     )
     req.on('error', reject)
     req.write(data); req.end()

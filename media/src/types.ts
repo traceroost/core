@@ -319,6 +319,7 @@ declare global {
     __INITIAL_SESSION_SUMMARY__?: FullSummary | null
     __INITIAL_SESSION_REV__?: number
     __INITIAL_COLLECTOR_CONFLICT__?: CollectorConflict
+    __INITIAL_AGENT_SETUP_PENDING__?: boolean
     __INITIAL_LOG_INGEST__?: LogIngestProgress
     __STANDALONE__?: boolean
     __VERSION__?: string

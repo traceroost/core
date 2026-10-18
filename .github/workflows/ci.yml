@@ -87,6 +87,12 @@ jobs:
       - name: Build production bundle
         run: pnpm run package
 
+      # Rebuilds the full edition with esbuild's metafile and compares the packages it bundled
+      # against the committed notices. Linux only: a CRLF checkout would differ byte for byte.
+      - name: Third-party notices are current
+        if: matrix.os == 'ubuntu-latest'
+        run: node scripts/third-party-notices.mjs --check
+
       # The full build must still carry every Cloud marker the core check looks for — otherwise a
       # stale marker list would let the core-edition job below pass on anything.
       - name: Check edition markers (full)

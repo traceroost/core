@@ -50,3 +50,17 @@ suite('prepare-edition core — CHANGELOG', () => {
     assert.strictEqual(coreChangelog(input), input)
   })
 })
+
+suite('prepare-edition core — manifest', () => {
+  test('declares MIT and ships no BSL license file, while the full manifest carries both', () => {
+    const code = `import { coreManifest } from ${JSON.stringify(scriptUrl)}
+import fs from 'node:fs'
+const pkg = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(root, 'package.json'))}, 'utf8'))
+process.stdout.write(JSON.stringify({ full: pkg, core: coreManifest(pkg) }))`
+    const { full, core } = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' }))
+    assert.strictEqual(full.license, '(MIT AND BUSL-1.1)')
+    assert.ok(full.files.includes('src/cloud/LICENSE'), 'the full edition must ship the BSL text')
+    assert.strictEqual(core.license, 'MIT')
+    assert.ok(!core.files.some((f: string) => /cloud/.test(f)), core.files.join(', '))
+  })
+})

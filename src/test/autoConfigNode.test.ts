@@ -114,16 +114,20 @@ suite('autoConfigNode', () => {
       )
     })
 
-    test('does not overwrite a user endpoint pointing at another collector', async () => {
-      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true })
-      fs.writeFileSync(settingsPath(), JSON.stringify({
-        env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com:4318' },
-      }))
-      const result = await autoConfigureClaudeCode(4318)
-      assert.match(result.warning ?? '', /otel\.example\.com/)
-      const written = JSON.parse(fs.readFileSync(settingsPath(), 'utf-8'))
-      assert.strictEqual(written.env.OTEL_EXPORTER_OTLP_ENDPOINT, 'https://otel.example.com:4318')
-    })
+    // Prompt and tool-content logging next to the user's own endpoint would send that content to
+    // their collector because of TraceRoost — so a file that exports elsewhere is not touched.
+    for (const key of ['OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT']) {
+      test(`leaves settings untouched when ${key} points at another collector`, async () => {
+        fs.mkdirSync(path.dirname(settingsPath()), { recursive: true })
+        const original = JSON.stringify({ env: { [key]: 'https://otel.example.com:4318', CLAUDE_CODE_ENABLE_TELEMETRY: '1' } })
+        fs.writeFileSync(settingsPath(), original)
+        const result = await autoConfigureClaudeCode(4318)
+        assert.strictEqual(result.changed, false)
+        assert.match(result.warning ?? '', /otel\.example\.com/)
+        assert.strictEqual(fs.readFileSync(settingsPath(), 'utf-8'), original)
+        assert.ok(!fs.existsSync(settingsPath() + '.traceroost.bak'))
+      })
+    }
 
     test('updates a loopback endpoint left by an earlier TraceRoost port', async () => {
       fs.mkdirSync(path.dirname(settingsPath()), { recursive: true })
@@ -157,16 +161,16 @@ suite('autoConfigNode', () => {
       assert.deepStrictEqual(await autoConfigureCopilotStandalone(4318), [{ changed: false }])
     })
 
-    test('does not overwrite an otlpEndpoint pointing at another collector', async function () {
+    test('leaves settings untouched when otlpEndpoint points at another collector', async function () {
       if (process.platform !== 'linux') { this.skip() }
       fs.mkdirSync(path.dirname(codeSettings()), { recursive: true })
-      fs.writeFileSync(codeSettings(), '{ "github.copilot.chat.otel.otlpEndpoint": "https://otel.example.com" }\n')
+      // Telemetry off, own collector configured: turning it on would send Copilot telemetry there.
+      const original = '{ "github.copilot.chat.otel.otlpEndpoint": "https://otel.example.com", "github.copilot.chat.otel.enabled": false }\n'
+      fs.writeFileSync(codeSettings(), original)
       const [result] = await autoConfigureCopilotStandalone(4318)
-      assert.strictEqual(result.changed, true)
+      assert.strictEqual(result.changed, false)
       assert.match(result.warning ?? '', /otel\.example\.com/)
-      const written = JSON.parse(fs.readFileSync(codeSettings(), 'utf-8'))
-      assert.strictEqual(written['github.copilot.chat.otel.otlpEndpoint'], 'https://otel.example.com')
-      assert.strictEqual(written['github.copilot.chat.otel.enabled'], true)
+      assert.strictEqual(fs.readFileSync(codeSettings(), 'utf-8'), original)
     })
 
     test('leaves a file it cannot parse untouched', async function () {
@@ -241,17 +245,16 @@ suite('autoConfigNode', () => {
       assert.ok(text.includes('trace_exporter = '))
     })
 
-    test('does not overwrite an exporter pointing at another collector', async () => {
+    test('leaves [otel] untouched when an exporter points at another collector', async () => {
       fs.mkdirSync(path.dirname(configPath()), { recursive: true })
       const own = 'exporter = { otlp-http = { endpoint = "https://otel.example.com/v1/logs", protocol = "binary" } }'
-      fs.writeFileSync(configPath(), `[otel]\n${own}\n`)
+      const original = `[otel]\n${own}\n`
+      fs.writeFileSync(configPath(), original)
       const result = await autoConfigureCodex(4318)
-      assert.strictEqual(result.changed, true)
-      assert.match(result.warning ?? '', /exporter .*otel\.example\.com/)
-      const text = fs.readFileSync(configPath(), 'utf-8')
-      assert.ok(text.includes(own), text)
-      assert.ok(text.includes('trace_exporter = { otlp-http = { endpoint = "http://localhost:4318"'), text)
-      assert.ok(text.includes('log_user_prompt = true'), text)
+      assert.strictEqual(result.changed, false)
+      assert.match(result.warning ?? '', /otel\.example\.com/)
+      // Above all, no `log_user_prompt = true` next to their exporter.
+      assert.strictEqual(fs.readFileSync(configPath(), 'utf-8'), original)
     })
 
     test('reports no change when already configured', async () => {

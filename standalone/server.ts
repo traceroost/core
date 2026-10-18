@@ -14,6 +14,8 @@ import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer } from '../src/agentSetupConsent'
+import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
 import { OtlpIngest } from '../src/otlpIngest'
 import { mergeCardsByKey } from '../src/claudeConversation'
@@ -116,6 +118,14 @@ const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
 // port-owner probe resolves — see CollectorConflict in media/src/types.ts for the shared shape
 // this mirrors, and CollectorConflictBanner in App.tsx for how it's rendered.
 let collectorConflict: { owner: 'plugin' | 'foreign'; port: number; boundPort: number } | null = null
+
+// True while the user hasn't said whether TraceRoost may set up their coding agents
+// (src/agentSetupConsent.ts) and this server has no terminal to ask in — the background service,
+// or a terminal-less start. Inlined into the page and broadcast over SSE; drives AgentSetupBanner
+// in App.tsx, whose buttons answer through POST /action { type: 'agentSetup' }. Never set in
+// Docker, where setting agents up would only edit the container's own files.
+let agentSetupPending = false
+const IS_DOCKER = process.env.TRACEROOST_DOCKER === '1' && process.env.TRACEROOST_SERVICE !== '1'
 
 // Turns the "BIND_HOST=0.0.0.0 ships with zero access control" footgun into a startup error:
 // once bindHost is exposed beyond loopback, a token must actually be in place (it always will
@@ -1388,6 +1398,7 @@ function getHtml(nonce: string): string {
     nonce,
     packageVersion: PACKAGE_VERSION,
     collectorConflictJson: JSON.stringify(collectorConflict),
+    agentSetupPending,
     logIngestJson: JSON.stringify(logIngestProgress),
     sessionRev,
     sessionSummaryJson,
@@ -1772,6 +1783,15 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
         const body = JSON.parse(raw.toString('utf-8')) as { type?: string }
         if (body.type === 'clearAll') {
           clearAllData()
+        } else if (body.type === 'agentSetup') {
+          const answer = (body as { answer?: unknown }).answer
+          if (AUTOCONFIG_DISABLED || IS_DOCKER || (answer !== 'yes' && answer !== 'no')) {
+            res.writeHead(400); res.end()
+            return
+          }
+          await answerAgentSetup(answer, resolvedPorts.otlp ?? OTLP_PORT)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
         } else if (body.type === 'setDashboardPort') {
           const result = await setDashboardPort((body as { port?: unknown }).port)
           res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -1782,6 +1802,11 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'Auto-configure is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
             return
+          }
+          // Pressing Configure OTEL is the user's yes (src/agentSetupConsent.ts).
+          if (!IS_DOCKER) {
+            writeAgentSetupAnswer('yes')
+            if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
           }
           const [claudeCode, codex, copilotResults] = await Promise.all([
             autoConfigureClaudeCode(resolvedPorts.otlp ?? OTLP_PORT),
@@ -2284,15 +2309,69 @@ async function startOtlpServer(): Promise<void> {
   // which may differ from it after a fallback.
   if (AUTOCONFIG_DISABLED) {
     console.log('[TraceRoost] Auto-configure disabled (TRACEROOST_NO_AUTOCONFIG=1) — agent config left untouched.')
-  } else {
-    Promise.all([
-      autoConfigureClaudeCode(bound),
-      autoConfigureCodex(bound),
-      autoConfigureCopilotStandalone(bound),
-    ]).then(([claudeResult, codexResult, copilotResults]) => {
-      for (const { level, text } of autoConfigLogLines(claudeResult, codexResult, copilotResults)) console[level](text)
-    }).catch(e => console.warn('[TraceRoost] Auto-configure error:', e))
+  } else if (!IS_DOCKER) {
+    // Only with the user's yes, asked once (src/agentSetupConsent.ts).
+    const answer = readAgentSetupAnswer()
+    if (answer === 'yes') {
+      void runAgentSetup(bound)
+    } else if (answer === undefined) {
+      if (process.env.TRACEROOST_SERVICE !== '1' && process.stdin.isTTY && process.stdout.isTTY) {
+        askAgentSetupInTerminal(bound)
+      } else {
+        agentSetupPending = true
+        broadcastSse({ type: 'update', agentSetupPending })
+      }
+    }
   }
+}
+
+/** Points the coding agents at this collector (only ever after a yes) and logs what changed. */
+async function runAgentSetup(port: number): Promise<void> {
+  try {
+    const [claudeResult, codexResult, copilotResults] = await Promise.all([
+      autoConfigureClaudeCode(port),
+      autoConfigureCodex(port),
+      autoConfigureCopilotStandalone(port),
+    ])
+    for (const { level, text } of autoConfigLogLines(claudeResult, codexResult, copilotResults)) console[level](text)
+  } catch (e) {
+    console.warn('[TraceRoost] Auto-configure error:', e)
+  }
+}
+
+// The terminal question while it waits — closed when the dashboard answers first.
+let agentSetupQuestion: readline.Interface | undefined
+
+/** Records the user's answer, from the terminal or the dashboard, and acts on it. */
+function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void> {
+  agentSetupQuestion?.close()
+  agentSetupQuestion = undefined
+  writeAgentSetupAnswer(answer)
+  agentSetupPending = false
+  broadcastSse({ type: 'update', agentSetupPending })
+  if (answer === 'no') {
+    console.log('[TraceRoost] Agents not set up — run Configure OTEL in Settings when you want to.')
+    return Promise.resolve()
+  }
+  return runAgentSetup(port)
+}
+
+/** `npx traceroost` in a terminal: ask there. No answer leaves the dashboard banner to ask. */
+function askAgentSetupInTerminal(port: number): void {
+  agentSetupPending = true
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  agentSetupQuestion = rl
+  rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\nSet up agents? [y/N] `, input => {
+    if (parseYesNo(input) === 'yes') { void answerAgentSetup('yes', port); return }
+    // A no is asked once more, with what skipping costs; Enter keeps the no.
+    rl.question(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}\nSkip setup? [Y/n] `, again => {
+      void answerAgentSetup(parseSkipConfirmation(again), port)
+    })
+  })
+  // readline swallows Ctrl-C while it waits; pass it on so the server still stops as usual.
+  rl.on('SIGINT', () => { rl.close(); process.kill(process.pid, 'SIGINT') })
+  // Ctrl-D, or the dashboard answered: nothing recorded here — the dashboard banner still asks.
+  rl.on('close', () => { if (agentSetupQuestion === rl) agentSetupQuestion = undefined })
 }
 
 async function startUiServer(): Promise<void> {
