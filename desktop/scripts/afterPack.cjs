@@ -1,8 +1,8 @@
 /**
  * electron-builder `afterPack` hook: verifies the packed app — the macOS .app before it is signed or
  * wrapped in a DMG, the Linux directory before it becomes a .deb or an AppImage, the Windows
- * directory before it is signed and wrapped in the NSIS installer and the zip. Everything here fails the build, because each is a mistake that produces a perfectly
- * normal-looking artifact that then does nothing (or the wrong thing) when launched:
+ * directory before it is signed and wrapped in the NSIS installer. Everything here fails the build,
+ * because each is a mistake that produces a perfectly normal-looking artifact that then does nothing (or the wrong thing) when launched:
  *
  *  - the staged collector is where src/resources.ts will look for it, with the dashboard assets,
  *    the manifest and sql.js's WASM at the depths standalone/server.js expects;
@@ -70,14 +70,24 @@ module.exports = async function afterPack(context) {
         : ['tray/trayLinux.png', 'tray/trayLinux@2x.png', 'tray/iconLinux.png']),
     'LICENSE',
     'THIRD_PARTY_NOTICES.md',
-    'LICENSE.electron.txt',
-    'LICENSES.chromium.html',
+    // Electron's licenses: copied into Resources on macOS (electron-builder.cjs); elsewhere the
+    // builder's own copies beside the executable, checked below.
+    ...(isMac ? ['LICENSE.electron.txt', 'LICENSES.chromium.html'] : []),
     'app.asar',
   ]) {
     if (!fs.existsSync(path.join(resources, rel))) problems.push(`missing from ${resourcesLabel}: ${rel}`)
   }
   if (!isMac) {
     if (!fs.existsSync(binary)) problems.push(`the executable ${path.basename(binary)} is missing`)
+    for (const rel of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) {
+      if (!fs.existsSync(path.join(appPath, rel))) problems.push(`missing beside the executable: ${rel}`)
+      // Shipped once: a second copy under resources is 20 MB in every download.
+      if (fs.existsSync(path.join(resources, rel))) problems.push(`${rel} is in resources as well as beside the executable`)
+    }
+    // electronLanguages: en-US only.
+    const locales = fs.existsSync(path.join(appPath, 'locales')) ? fs.readdirSync(path.join(appPath, 'locales')) : []
+    if (!locales.includes('en-US.pak')) problems.push('locales/en-US.pak is missing — Chromium will not start without it')
+    if (locales.length > 1) problems.push(`locales/ has ${locales.length} entries; expected only en-US.pak (electronLanguages)`)
   }
   if (platform === 'linux') {
     if (!fs.existsSync(path.join(appPath, 'chrome-sandbox'))) problems.push('chrome-sandbox is missing — the app could not start sandboxed on a kernel without user namespaces')

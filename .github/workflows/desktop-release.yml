@@ -283,10 +283,10 @@ jobs:
             echo "Files named \`*-unsigned\` are test builds, attached before the signing accounts exist. They are the builds CI tested, byte for byte (\`TraceRoost-desktop-*-SHA256SUMS\`), but your OS will warn before opening them:"
             echo
             if [[ ",$PLATFORMS," == *",macos-unsigned,"* ]]; then
-              echo "- **macOS** (\`TraceRoost-*-mac-*-unsigned.dmg\` / \`.zip\`): ad-hoc signed, not notarized. Gatekeeper refuses the first open; right-click the app → **Open**, then **Open** again (or \`xattr -d com.apple.quarantine /Applications/TraceRoost.app\`)."
+              echo "- **macOS** (\`TraceRoost-*-mac-*-unsigned.dmg\`): ad-hoc signed, not notarized. Gatekeeper refuses the first open; right-click the app → **Open**, then **Open** again (or \`xattr -d com.apple.quarantine /Applications/TraceRoost.app\`)."
             fi
             if [[ ",$PLATFORMS," == *",windows-unsigned,"* ]]; then
-              echo "- **Windows** (\`TraceRoost-*-win-*-unsigned.exe\` installer / \`.zip\` portable): not code-signed. SmartScreen shows \"Windows protected your PC\"; click **More info → Run anyway**."
+              echo "- **Windows** (\`TraceRoost-*-win-*-unsigned.exe\` installer): not code-signed. SmartScreen shows \"Windows protected your PC\"; click **More info → Run anyway**."
             fi
           } > "$RUNNER_TEMP/notes.md"
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"

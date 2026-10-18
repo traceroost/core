@@ -3,8 +3,8 @@
  *
  *   cd dist && shasum -a 256 -c SHA256SUMS
  *
- * Covers every DMG and zip (macOS), every .deb and AppImage (Linux) and every NSIS installer .exe and
- * portable zip (Windows) in dist/ — one of each per architecture. Run after `electron-builder`;
+ * Covers every DMG (macOS), every .deb and AppImage (Linux) and every NSIS installer .exe
+ * (Windows) in dist/ — one of each per architecture. Run after `electron-builder`;
  * `pnpm run pack`, `pack:linux` and `pack:win` do. (On Windows, check with
  * `Get-FileHash -Algorithm SHA256` — README.md → Windows.)
  *
@@ -19,10 +19,10 @@ import { fileURLToPath } from 'url'
 
 const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 const artifacts = fs.existsSync(dist)
-  ? fs.readdirSync(dist).filter(f => /^TraceRoost-.*\.(dmg|zip|deb|AppImage|exe)$/.test(f)).sort()
+  ? fs.readdirSync(dist).filter(f => /^TraceRoost-.*\.(dmg|deb|AppImage|exe)$/.test(f)).sort()
   : []
 if (artifacts.length === 0) {
-  throw new Error(`checksums: no TraceRoost-*.dmg / .zip / .deb / .AppImage / .exe in ${dist} — run electron-builder first`)
+  throw new Error(`checksums: no TraceRoost-*.dmg / .deb / .AppImage / .exe in ${dist} — run electron-builder first`)
 }
 
 const lines = artifacts.map(name => {

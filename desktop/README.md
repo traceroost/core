@@ -5,13 +5,13 @@ app with a menu bar / tray icon — no terminal, no separately installed Node.
 
 **Linux** (a .deb and an AppImage, x64 and arm64) is Stages 1–3 of
 [`.staged-features/linux-desktop-app.md`](../.staged-features/linux-desktop-app.md), plus Stage 4's
-packaging CI; see [Linux](#linux). **Windows** (an NSIS installer and a portable zip, x64 and
+packaging CI; see [Linux](#linux). **Windows** (a one-click NSIS installer, x64 and
 arm64, built and tested natively on each) is in [Windows](#windows). The rest of this section is
 about macOS.
 
 **Status: Stages 1–2 of [`.staged-features/macos-desktop-menu-bar-app.md`](../.staged-features/macos-desktop-menu-bar-app.md)
 are done, and Stage 3 is done up to the point that needs an Apple Developer Program membership.**
-The app builds as a `.app`, a DMG and a zip for arm64 and x64, verifies and smoke-tests itself,
+The app builds as a `.app` and a DMG for arm64 and x64, verifies and smoke-tests itself,
 ships its third-party notices and checksums, and is built in CI on every change. What it is **not**
 is signed with a Developer ID or notarized, so a *downloaded* copy is refused by Gatekeeper until
 the user right-clicks → Open. Signing and notarization are wired up and switch on when the
@@ -42,7 +42,7 @@ binary into plain Node. `env -u ELECTRON_RUN_AS_NODE ./node_modules/.bin/electro
 
 ```sh
 cd desktop
-pnpm run pack        # arm64 + x64: dist/TraceRoost-<version>-mac-{arm64,x64}.{dmg,zip} + SHA256SUMS
+pnpm run pack        # arm64 + x64: dist/TraceRoost-<version>-mac-{arm64,x64}.dmg + SHA256SUMS
 pnpm run pack:host   # this machine's architecture only — quicker while iterating
 pnpm run smoke       # launch the packaged app for this architecture and check it end to end
 ```
@@ -61,7 +61,7 @@ What goes into the `.app`:
 | `collector/` | the staged tree: `standalone/server.js`, `media/…`, `package.json`, `node_modules/sql.js/` |
 | `tray/` | the menu bar template icons |
 | `LICENSE`, `THIRD_PARTY_NOTICES.md` | this project's license; every bundled package's license and text |
-| `LICENSE.electron.txt`, `LICENSES.chromium.html` | Electron's own, and the Chromium/Node notices it carries |
+| `LICENSE.electron.txt`, `LICENSES.chromium.html` | Electron's own, and the Chromium/Node notices it carries (on Linux and Windows, electron-builder puts these beside the executable instead, and only there) |
 
 Two things in that layout are easy to lose and are checked for. `collector/node_modules/sql.js`
 must be a real directory because the collector `require.resolve`s it at run time for its WASM, and
@@ -93,7 +93,7 @@ the collector's own shutdown.
 
 ### Installing
 
-Open the DMG and drag TraceRoost to Applications, or unzip the zip. Then:
+Open the DMG and drag TraceRoost to Applications. Then:
 
 - **An unsigned build** (every build until the Apple credentials exist): the first open is refused
   with "cannot be opened because the developer cannot be verified" or "is damaged". That is
@@ -315,7 +315,7 @@ and unrestricted (must run), and on Fedora, openSUSE Tumbleweed and Arch.
 
 ```powershell
 cd desktop
-pnpm run pack:win        # x64 + arm64: dist\TraceRoost-<v>-win-{x64,arm64}.exe (installer) and .zip (portable), SHA256SUMS
+pnpm run pack:win        # x64 + arm64: dist\TraceRoost-<v>-win-{x64,arm64}.exe (installer), SHA256SUMS
 pnpm run pack:win:host   # this machine's architecture only
 pnpm run smoke           # the packaged app for this architecture, end to end
 node scripts/check-nsis.mjs dist\TraceRoost-<v>-win-x64.exe   # install, run, upgrade over the running app, uninstall
@@ -326,7 +326,7 @@ installer carrying both apps). CI builds each natively — x64 on `windows-lates
 `windows-11-arm` — so afterPack runs the packaged Electron as Node and the smoke test and installer
 checks run the real binaries. A cross-build from Linux works with Wine (electron-builder runs the
 NSIS stub under it to extract the uninstaller; 32-bit Wine is needed) and skips only the runtime
-check; the zip alone needs no Wine.
+check.
 
 What the installed app looks like, beside the macOS table above:
 
@@ -343,14 +343,11 @@ installer and uninstaller, 16–256) and `build/trayWindows.ico`.
 
 ### Installing
 
-- **Installer** (`TraceRoost-<v>-win-x64.exe`, or `-win-arm64.exe` on Windows on Arm): installs
-  **for the current user** by default — into `%LOCALAPPDATA%\Programs\traceroost-desktop`, with no
-  administrator rights and no UAC prompt — adds **Start Menu → TraceRoost** and an entry in
-  **Settings → Apps**, and opens the app when it finishes. "Anyone who uses this computer" is offered
-  as the second choice and does elevate. A silent install is `TraceRoost-<v>-win-x64.exe /S`
-  (per-user).
-- **Portable** (`TraceRoost-<v>-win-x64.zip`): unzip anywhere and run `traceroost-desktop.exe`. No
-  shortcut, no uninstaller entry.
+Double-click `TraceRoost-<v>-win-x64.exe` (or `-win-arm64.exe` on Windows on Arm). It is a
+one-click installer: no pages to step through, no administrator rights and no UAC prompt. It
+installs **for the current user** into `%LOCALAPPDATA%\Programs\traceroost-desktop`, adds
+**Start Menu → TraceRoost** and an entry in **Settings → Apps**, and opens the app. Running a newer
+installer upgrades in place. A silent install is `TraceRoost-<v>-win-x64.exe /S`.
 
 Requires Windows 10 or 11. Like every TraceRoost it uses `%USERPROFILE%\.traceroost` for data,
 `config.json` and `desktop.log`, so existing data appears as is; the app's own settings and
@@ -363,7 +360,7 @@ value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; it starts the 
 the uninstaller are unsigned, and the first run of a *downloaded* copy shows "Windows protected your
 PC". Click **More info → Run anyway**; Windows remembers the choice for that file. Releases attach
 unsigned Windows builds only when the maintainers opt in, and name them
-`TraceRoost-<v>-win-<arch>-unsigned.exe` / `.zip` so that is never a surprise (see
+`TraceRoost-<v>-win-<arch>-unsigned.exe` so that is never a surprise (see
 [Releases](#releases)). Check a download against the release's `TraceRoost-desktop-<v>-SHA256SUMS`:
 
 ```powershell
@@ -406,8 +403,7 @@ silent). It asks a running TraceRoost to quit first, as an upgrade does, then re
 Start Menu shortcut and the Apps entry. Turn off **Launch at Login** first, or remove the
 `TraceRoost` value under `HKCU\…\Run` afterwards. **Your data is kept**: `%USERPROFILE%\.traceroost`
 and any `traceroost service` are untouched; delete `.traceroost` yourself if you want the data
-gone, and `%APPDATA%\TraceRoost` for the app's own settings. For the portable zip, quit the app and
-delete the folder.
+gone, and `%APPDATA%\TraceRoost` for the app's own settings.
 
 ### What CI proves
 
@@ -423,7 +419,7 @@ about four minutes for a fresh install; the arm64 payload is packed with the x86
 because the installer's 7-Zip plugin cannot decode the ARM64 filter current 7-Zip picks by default
 (it silently dropped every .exe and .dll — see `electron-builder.cjs`). Not covered by CI: a human
 looking at the tray icon and menu on a real desktop, SmartScreen on a
-downloaded copy, the "for all users" install, log-off/shutdown with the app running, and a
+downloaded copy, log-off/shutdown with the app running, and a
 non-ASCII user profile path.
 
 ## How it fits together
@@ -609,11 +605,11 @@ redirection holds; keep it that way in anything added here.
 that touches the desktop, collector, dashboard or build inputs (and on `main` for `desktop/`
 changes). On an Apple Silicon runner it builds and packs both architectures (afterPack verifying
 each), smoke-tests the arm64 app, runs the staged-collector integration suite, prints the
-signature state, and uploads the DMGs, zips, `SHA256SUMS` and `THIRD_PARTY_NOTICES.md` as a build
+signature state, and uploads the DMGs, `SHA256SUMS` and `THIRD_PARTY_NOTICES.md` as a build
 artifact for 14 days. [`desktop-linux.yml`](../.github/workflows/desktop-linux.yml) does the same
 for the .deb and AppImage on native x64 and arm64 runners, then installs and runs them across the
 distro matrix, and [`desktop-windows.yml`](../.github/workflows/desktop-windows.yml) for the NSIS
-installer and zip on native x64 and arm64 Windows runners (see [Windows](#windows)).
+installer on native x64 and arm64 Windows runners (see [Windows](#windows)).
 
 ## Releases
 
@@ -627,12 +623,12 @@ the repo's `package.json` version, which `package` has checked against the tag.
 | Platform | Attached to a release when |
 | --- | --- |
 | Linux (.deb, AppImage; x64, arm64) | always, once the build and install matrix pass |
-| macOS (DMG, zip; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is built and tested on every release and left off it — or attached as `*-unsigned` (below) |
-| Windows (NSIS installer .exe, portable .zip; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Trusted Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then it is built and tested on every release and left off it — or attached as `*-unsigned` (below) |
+| macOS (DMG; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is built and tested on every release and left off it — or attached as `*-unsigned` (below) |
+| Windows (NSIS installer .exe; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Trusted Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then it is built and tested on every release and left off it — or attached as `*-unsigned` (below) |
 
 **Unsigned test builds.** With the repository variable `TRACEROOST_DESKTOP_ATTACH_UNSIGNED=true`, a
 release also attaches the ad-hoc signed (not notarized) macOS build and the unsigned Windows build,
-as `TraceRoost-<v>-mac-<arch>-unsigned.{dmg,zip}` and `TraceRoost-<v>-win-<arch>-unsigned.{exe,zip}`
+as `TraceRoost-<v>-mac-<arch>-unsigned.dmg` and `TraceRoost-<v>-win-<arch>-unsigned.exe`
 — the same bytes CI tested, in the same SHA256SUMS, with attestations — and adds a section to the
 release notes on opening them (Gatekeeper: right-click → Open; SmartScreen: More info → Run anyway).
 Unset, the default, nothing unsigned is attached. A platform is attached signed or unsigned, never

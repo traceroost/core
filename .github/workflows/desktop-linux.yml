@@ -82,7 +82,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # npm on the runner no longer runs Electron's postinstall, which leaves node_modules/electron/
-      # dist/ without the binary and without LICENSES.chromium.html (electron-builder.cjs copies it,
+      # dist/ without the binary and without LICENSES.chromium.html (electron-builder places it beside the executable,
       # afterPack requires it). install.js is the postinstall itself and is a no-op when it already ran.
       - name: Download the Electron binary
         working-directory: desktop

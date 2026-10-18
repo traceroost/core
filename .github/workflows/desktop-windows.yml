@@ -1,6 +1,6 @@
 name: Desktop (Windows)
 
-# Builds the Windows desktop app (desktop/) as an NSIS installer and a portable zip, for x64 and
+# Builds the Windows desktop app (desktop/) as a one-click NSIS installer, for x64 and
 # arm64, natively on each architecture, and checks it the way the macOS and Linux workflows check
 # theirs:
 #
@@ -147,13 +147,13 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # As on macOS and Linux: make sure Electron's own postinstall ran (the binary and
-      # LICENSES.chromium.html, which electron-builder.cjs copies and afterPack requires).
+      # LICENSES.chromium.html, which electron-builder places beside the executable and afterPack requires).
       - name: Download the Electron binary
         working-directory: desktop
         run: node node_modules/electron/install.js && test -f node_modules/electron/dist/LICENSES.chromium.html && test -f node_modules/electron/dist/electron.exe
 
       # Type-check, release bundle, stage the core-edition collector, notices; then the NSIS
-      # installer and the zip for this architecture (afterPack verifies the unpacked app), then
+      # installer for this architecture (afterPack verifies the unpacked app), then
       # SHA256SUMS.
       - name: Build and package
         working-directory: desktop
@@ -212,7 +212,6 @@ jobs:
           name: traceroost-desktop-windows-${{ matrix.arch }}
           path: |
             desktop/dist/TraceRoost-*.exe
-            desktop/dist/TraceRoost-*.zip
             desktop/dist/SHA256SUMS
             desktop/resources/THIRD_PARTY_NOTICES.md
           if-no-files-found: error
