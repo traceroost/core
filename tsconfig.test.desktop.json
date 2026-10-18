@@ -17,6 +17,7 @@
   },
   "include": [
     "standalone/dataDirLock.ts",
+    "standalone/ownerChannel.ts",
     "desktop/src/backoff.ts",
     "desktop/src/backoff.test.ts",
     "desktop/src/collector.ts",
@@ -45,6 +46,8 @@
     "desktop/src/prefs.ts",
     "desktop/src/sandbox.ts",
     "desktop/src/systemdUnit.ts",
-    "desktop/src/trayHost.ts"
+    "desktop/src/trayHost.ts",
+    "desktop/src/windows.ts",
+    "desktop/src/windows.test.ts"
   ]
 }

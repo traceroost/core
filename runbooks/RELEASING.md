@@ -246,8 +246,9 @@ the npm tarball does, built from the same tree, so its version is `package.json`
 automatically; a release bump needs no change in `desktop/`.
 
 The tag's `release.yml` run includes a `desktop` job (`.github/workflows/desktop-release.yml`)
-after `package`. It runs the macOS and Linux desktop workflows (the same builds every desktop pull
-request runs, smoke tests and the Linux install matrix included), then attaches the installers, a
+after `package`. It runs the macOS, Linux and Windows desktop workflows (the same builds every
+desktop pull request runs, smoke tests, the Linux install matrix and the Windows install/upgrade/
+uninstall check included), then attaches the installers, a
 `TraceRoost-desktop-<v>-SHA256SUMS` and provenance attestations to the release `package` created. It
 finishes well after the other publish jobs (the Linux distro matrix dominates), and a failure there
 does not affect the VSIX, npm or Docker publish. Re-running a failed desktop job is safe: files
@@ -265,11 +266,23 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
   the same build is signed and notarized with no code change and the next tag attaches it. Before
   announcing it as an install method, open a downloaded, quarantined DMG on a fresh macOS user
   account.
-- **Windows** is paused; the work is parked on the `desktop-windows-app` branch and nothing builds
-  it for a release.
-- **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default `linux,macos`)
-  turns a platform off without a code change; a non-`core` `TRACEROOST_RELEASE_EDITION` skips
-  desktop with a notice (the app is core-only).
+- **Windows** (NSIS installer and portable zip, x64 and arm64) is built and tested on every release
+  and **attached when Authenticode-signed**. Signing switches on from secrets, with no code change:
+  either a code-signing certificate (`WIN_CSC_LINK` = base64 .pfx, `WIN_CSC_KEY_PASSWORD`) or Azure
+  Trusted Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+  `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`,
+  `AZURE_TRUSTED_SIGNING_PUBLISHER`); `desktop-windows.yml` documents them and fails a configured
+  build whose executables are not validly signed. `release.yml` passes each by name.
+- **Unsigned test builds**: set the repository variable `TRACEROOST_DESKTOP_ATTACH_UNSIGNED` to
+  `true` to also attach a macOS build that is not notarized (ad-hoc signed) and a Windows build
+  that is not signed. They are attached as `TraceRoost-<v>-mac-<arch>-unsigned.{dmg,zip}` and
+  `TraceRoost-<v>-win-<arch>-unsigned.{exe,zip}`, covered by the same SHA256SUMS and attestations,
+  and the release notes get a section on getting past Gatekeeper (right-click → Open) and
+  SmartScreen (More info → Run anyway). Unset — the default — attaches only notarized macOS and
+  signed Windows builds, as before. Turn it off again once both signing accounts exist.
+- **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default
+  `linux,macos,windows`) turns a platform off without a code change; a non-`core`
+  `TRACEROOST_RELEASE_EDITION` skips desktop with a notice (the app is core-only).
 - **minisign**: with `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` set, the checksums file gets a
   `.minisig`. No key exists yet; publish the public key in `desktop/README.md` when one is made.
 

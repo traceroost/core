@@ -4,19 +4,31 @@ name: Desktop release
 # `desktop` job) after `package` has passed and created the release, the way it calls docker.yml.
 # It is a separate job, so a desktop failure never holds back the VSIX, npm package or Docker image.
 #
-# It publishes nothing new: it calls desktop-macos.yml and desktop-linux.yml (the builds every
-# desktop pull request runs), waits for their jobs (packaging, smoke tests, and the Linux
-# install/sandbox matrix), then re-verifies each artifact against the SHA256SUMS its build wrote and
+# It publishes nothing new: it calls desktop-macos.yml, desktop-linux.yml and desktop-windows.yml
+# (the builds every desktop pull request runs), waits for their jobs (packaging, smoke tests, the
+# Linux install/sandbox matrix and the Windows install/upgrade/uninstall checks), then re-verifies
+# each artifact against the SHA256SUMS its build wrote and
 # uploads them (desktop/scripts/release-assets.mjs). Its version is package.json's, which `package`
 # has already checked against the tag; the desktop app has no version of its own.
 #
 # What gets attached:
 #   edition    desktop is core-only. Any other release edition skips desktop with a notice.
-#   platforms  the repository variable TRACEROOST_DESKTOP_PLATFORMS (default `linux,macos`). Remove a
-#              platform there to stop releasing it without touching this file.
+#   platforms  the repository variable TRACEROOST_DESKTOP_PLATFORMS (default `linux,macos,windows`).
+#              Remove a platform there to stop releasing it without touching this file.
 #   macOS      additionally only when desktop-macos.yml reports the build notarized, i.e. once the
 #              Apple Developer Program secrets exist. Until then it is built and tested on every
-#              release and left off it, with a notice.
+#              release and left off it, with a notice — unless unsigned builds are opted in (below).
+#   Windows    additionally only when desktop-windows.yml reports the build Authenticode-signed
+#              (a WIN_CSC_LINK certificate or Azure Trusted Signing) — unless unsigned builds are
+#              opted in (below).
+#   unsigned   the repository variable TRACEROOST_DESKTOP_ATTACH_UNSIGNED=true attaches a macOS build
+#              that is not notarized (ad-hoc signed) and a Windows build that is not signed, so a
+#              release can be tested before the signing accounts exist. They are attached under
+#              names that say so (`TraceRoost-<v>-mac-arm64-unsigned.dmg`,
+#              `TraceRoost-<v>-win-x64-unsigned.exe`; desktop/scripts/release-assets.mjs) and the
+#              release notes get a section on opening them (Gatekeeper: right-click → Open;
+#              SmartScreen: More info → Run anyway). Unset (the default), only signed builds of
+#              those two platforms are attached, exactly as before.
 #   failures   platforms are independent: if one platform's build fails, the others are still
 #              attached and the failed one is a notice (plus its red job).
 #
@@ -47,6 +59,24 @@ on:
         required: false
       APPLE_API_ISSUER:
         required: false
+      WIN_CSC_LINK:
+        required: false
+      WIN_CSC_KEY_PASSWORD:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_CLIENT_SECRET:
+        required: false
+      AZURE_TRUSTED_SIGNING_ENDPOINT:
+        required: false
+      AZURE_TRUSTED_SIGNING_ACCOUNT:
+        required: false
+      AZURE_TRUSTED_SIGNING_PROFILE:
+        required: false
+      AZURE_TRUSTED_SIGNING_PUBLISHER:
+        required: false
       MINISIGN_SECRET_KEY:
         required: false
       MINISIGN_PASSWORD:
@@ -70,7 +100,7 @@ jobs:
       - id: gate
         env:
           EDITION: ${{ inputs.edition || 'core' }}
-          PLATFORMS: ${{ vars.TRACEROOST_DESKTOP_PLATFORMS || 'linux,macos' }}
+          PLATFORMS: ${{ vars.TRACEROOST_DESKTOP_PLATFORMS || 'linux,macos,windows' }}
         run: |
           if [ "$EDITION" != core ]; then
             echo "::notice::Release edition is '$EDITION'; the desktop app is core-only, so no desktop files are built or attached."
@@ -93,11 +123,27 @@ jobs:
     uses: ./.github/workflows/desktop-linux.yml
     secrets: inherit
 
+  windows:
+    needs: gate
+    if: needs.gate.outputs.build == 'true' && contains(needs.gate.outputs.platforms, ',windows,')
+    uses: ./.github/workflows/desktop-windows.yml
+    # Only the signing secrets, by name (desktop-windows.yml declares them).
+    secrets:
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+      AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+      AZURE_TRUSTED_SIGNING_PUBLISHER: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER }}
+
   publish:
-    needs: [gate, macos, linux]
+    needs: [gate, macos, linux, windows]
     if: >-
       !cancelled() && needs.gate.outputs.build == 'true' &&
-      (needs.macos.result == 'success' || needs.linux.result == 'success')
+      (needs.macos.result == 'success' || needs.linux.result == 'success' || needs.windows.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -108,7 +154,10 @@ jobs:
       IS_RELEASE: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
       MACOS_RESULT: ${{ needs.macos.result }}
       LINUX_RESULT: ${{ needs.linux.result }}
+      WINDOWS_RESULT: ${{ needs.windows.result }}
       NOTARIZED: ${{ needs.macos.outputs.notarized }}
+      WINDOWS_SIGNED: ${{ needs.windows.outputs.signed }}
+      ATTACH_UNSIGNED: ${{ vars.TRACEROOST_DESKTOP_ATTACH_UNSIGNED == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -130,8 +179,13 @@ jobs:
           if [ "$LINUX_RESULT" = success ]; then platforms="linux"
           elif [ "$LINUX_RESULT" != skipped ]; then echo "::warning::The Linux desktop build did not pass ($LINUX_RESULT); Linux is not attached."; fi
           if [ "$MACOS_RESULT" = success ] && [ "$NOTARIZED" = true ]; then platforms="${platforms:+$platforms,}macos"
+          elif [ "$MACOS_RESULT" = success ] && [ "$ATTACH_UNSIGNED" = true ]; then platforms="${platforms:+$platforms,}macos-unsigned"; echo "::notice::macOS is not notarized; attaching the ad-hoc signed build as *-unsigned (TRACEROOST_DESKTOP_ATTACH_UNSIGNED)."
           elif [ "$MACOS_RESULT" = success ]; then echo "::notice::macOS was built and tested but is not notarized (no Apple Developer secrets yet); it is not attached."
           elif [ "$MACOS_RESULT" != skipped ]; then echo "::warning::The macOS desktop build did not pass ($MACOS_RESULT); macOS is not attached."; fi
+          if [ "$WINDOWS_RESULT" = success ] && [ "$WINDOWS_SIGNED" = true ]; then platforms="${platforms:+$platforms,}windows"
+          elif [ "$WINDOWS_RESULT" = success ] && [ "$ATTACH_UNSIGNED" = true ]; then platforms="${platforms:+$platforms,}windows-unsigned"; echo "::notice::Windows is not signed; attaching the unsigned build as *-unsigned (TRACEROOST_DESKTOP_ATTACH_UNSIGNED)."
+          elif [ "$WINDOWS_RESULT" = success ]; then echo "::notice::Windows was built and tested but is not signed (no WIN_CSC_LINK / Azure Trusted Signing secrets yet); it is not attached. Set TRACEROOST_DESKTOP_ATTACH_UNSIGNED=true to attach it unsigned."
+          elif [ "$WINDOWS_RESULT" != skipped ]; then echo "::warning::The Windows desktop build did not pass ($WINDOWS_RESULT); Windows is not attached."; fi
           echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
           if [ -z "$platforms" ]; then echo "::notice::No desktop platform to attach to this release."; fi
 
@@ -209,3 +263,30 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "${upload[@]}" --repo "$GITHUB_REPOSITORY"
           fi
           exit "$fail"
+
+      # TRACEROOST_DESKTOP_ATTACH_UNSIGNED: say in the release notes which downloads are unsigned and
+      # how to open them. Added once (a re-run finds the marker and leaves the notes alone).
+      - name: Note unsigned downloads in the release notes
+        if: contains(steps.plan.outputs.platforms, '-unsigned') && env.IS_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORMS: ${{ steps.plan.outputs.platforms }}
+        run: |
+          marker='<!-- traceroost-desktop-unsigned -->'
+          body="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          if grep -qF "$marker" <<<"$body"; then echo "release notes already carry the unsigned note"; exit 0; fi
+          {
+            printf '%s\n\n' "$body"
+            echo "$marker"
+            echo "### Unsigned desktop downloads"
+            echo
+            echo "Files named \`*-unsigned\` are test builds, attached before the signing accounts exist. They are the builds CI tested, byte for byte (\`TraceRoost-desktop-*-SHA256SUMS\`), but your OS will warn before opening them:"
+            echo
+            if [[ ",$PLATFORMS," == *",macos-unsigned,"* ]]; then
+              echo "- **macOS** (\`TraceRoost-*-mac-*-unsigned.dmg\` / \`.zip\`): ad-hoc signed, not notarized. Gatekeeper refuses the first open; right-click the app → **Open**, then **Open** again (or \`xattr -d com.apple.quarantine /Applications/TraceRoost.app\`)."
+            fi
+            if [[ ",$PLATFORMS," == *",windows-unsigned,"* ]]; then
+              echo "- **Windows** (\`TraceRoost-*-win-*-unsigned.exe\` installer / \`.zip\` portable): not code-signed. SmartScreen shows \"Windows protected your PC\"; click **More info → Run anyway**."
+            fi
+          } > "$RUNNER_TEMP/notes.md"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"

@@ -14,7 +14,11 @@ import { OwnedCollector, type CollectorState } from './collector'
  * Behaviour is driven by env vars so one script covers every case:
  *   STUB_PORTS=0      claim the lock but never bind ports (never becomes ready)
  *   STUB_EXIT_AFTER=n exit non-zero n ms after starting (a crash)
- *   STUB_IGNORE_TERM=1 ignore SIGTERM, so the supervisor has to kill it
+ *   STUB_IGNORE_TERM=1 ignore the shutdown request and SIGTERM, so the supervisor has to kill it
+ *   STUB_DISCONNECT=1 close its end of the IPC channel at once, so only a signal can reach it
+ *
+ * Like the real collector (standalone/ownerChannel.ts), it honours the owner channel's shutdown
+ * message and SIGTERM alike, and writes which one it got to <dataDir>/flushed.
  */
 const STUB = `
 const fs = require('fs'), path = require('path')
@@ -23,13 +27,18 @@ fs.mkdirSync(dataDir, { recursive: true })
 const lock = { pid: process.pid, hostname: require('os').hostname(), startedAt: new Date().toISOString(), service: false, token: 'stub', version: '0.19.1' }
 if (process.env.STUB_PORTS !== '0') Object.assign(lock, { uiPort: 31990, otlpPort: 31991, mcpPort: 31992 })
 fs.writeFileSync(path.join(dataDir, '${LOCK_FILENAME}'), JSON.stringify(lock))
+fs.writeFileSync(path.join(dataDir, 'channel'), JSON.stringify({ env: process.env.TRACEROOST_OWNER_CHANNEL ?? null, ipc: typeof process.send === 'function', noOpen: process.env.TRACEROOST_NO_OPEN ?? null }))
+const flush = via => { fs.writeFileSync(path.join(dataDir, 'flushed'), via); process.exit(0) }
 if (process.env.STUB_IGNORE_TERM === '1') {
   // An explicit no-op handler is what makes it wedged: with no handler at all, Node's default
   // SIGTERM action would terminate it immediately and nothing would be tested.
   process.on('SIGTERM', () => {})
+  process.on('message', () => {})
 } else {
-  process.on('SIGTERM', () => { fs.writeFileSync(path.join(dataDir, 'flushed'), 'yes'); process.exit(0) })
+  process.on('SIGTERM', () => flush('SIGTERM'))
+  process.on('message', m => { if (m && m.type === 'traceroost:shutdown') flush('ipc') })
 }
+if (process.env.STUB_DISCONNECT === '1') process.disconnect()
 if (process.env.STUB_EXIT_AFTER) setTimeout(() => { console.error('stub crash'); process.exit(3) }, Number(process.env.STUB_EXIT_AFTER))
 setInterval(() => {}, 1000)
 `
@@ -56,18 +65,17 @@ suite('collector — supervised child', () => {
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
   })
 
-  // Graceful stop is SIGTERM, which Windows does not have; this build refuses owned mode there
-  // (main.ts) and the test below checks the refusal. The Windows feature replaces the channel.
+  // Only the SIGTERM fallback needs a POSIX host: Windows has no signal a handler can catch.
   const posixOnly = process.platform === 'win32' ? test.skip : test
 
-  function make(env: Record<string, string | undefined> = {}): OwnedCollector {
+  function make(env: Record<string, string | undefined> = {}, platform: NodeJS.Platform = 'darwin'): OwnedCollector {
     collector = new OwnedCollector({
       serverScript: script,
       execPath: process.execPath,
       dataDir,
       env,
       log: line => lines.push(line),
-      platform: 'darwin',
+      platform,
     })
     return collector
   }
@@ -97,13 +105,41 @@ suite('collector — supervised child', () => {
     assert.match(env, /"service":false/)
   })
 
-  posixOnly('stop is graceful: the child gets the chance to flush before it goes', async () => {
-    const c = make()
+  for (const platform of ['darwin', 'linux', 'win32'] as const) {
+    test(`stop is graceful on ${platform}: the shutdown request goes over the owner channel and the child flushes`, async () => {
+      const c = make({}, platform)
+      await c.start()
+      // The child was given the channel and told to use it — and told not to open a browser tab,
+      // since the app shows the dashboard in its own window.
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'channel'), 'utf-8')), { env: 'ipc', ipc: true, noOpen: '1' })
+      await c.stop()
+      assert.strictEqual(fs.readFileSync(path.join(dataDir, 'flushed'), 'utf-8'), 'ipc')
+      assert.strictEqual(c.current().status, 'stopped')
+      assert.strictEqual(c.isOwning(), false)
+      assert.ok(lines.some(l => l.includes('(owner channel)')), lines.join('\n'))
+      assert.ok(!lines.some(l => l.includes('killing it')), lines.join('\n'))
+    })
+  }
+
+  posixOnly('with the channel gone, POSIX falls back to SIGTERM and the child still flushes', async () => {
+    const c = make({ STUB_DISCONNECT: '1' })
     await c.start()
+    await new Promise(r => setTimeout(r, 300))
     await c.stop()
-    assert.strictEqual(fs.readFileSync(path.join(dataDir, 'flushed'), 'utf-8'), 'yes')
+    assert.strictEqual(fs.readFileSync(path.join(dataDir, 'flushed'), 'utf-8'), 'SIGTERM')
     assert.strictEqual(c.current().status, 'stopped')
-    assert.strictEqual(c.isOwning(), false)
+  })
+
+  test('with the channel gone on Windows, there is nothing to ask — it is killed at once rather than waited on', async () => {
+    const c = make({ STUB_DISCONNECT: '1' }, 'win32')
+    await c.start()
+    await new Promise(r => setTimeout(r, 300))
+    const started = Date.now()
+    await c.stop()
+    assert.ok(Date.now() - started < 5_000, 'should not have waited out the graceful window for a request never sent')
+    assert.strictEqual(c.current().status, 'stopped')
+    assert.ok(lines.some(l => l.includes('no channel left to ask on')), lines.join('\n'))
+    assert.ok(!fs.existsSync(path.join(dataDir, 'flushed')), 'nothing should have been signalled')
   })
 
   test('a deliberate stop is not mistaken for a crash, so nothing is restarted behind it', async () => {
@@ -115,7 +151,7 @@ suite('collector — supervised child', () => {
     assert.ok(!lines.some(l => l.includes('restarting')), lines.join('\n'))
   })
 
-  posixOnly('a wedged child that ignores the shutdown request is killed rather than hung on', async function () {
+  test('a wedged child that ignores the shutdown request is killed rather than hung on', async function () {
     this.timeout(20_000)
     const c = make({ STUB_IGNORE_TERM: '1' })
     await c.start()
@@ -152,27 +188,6 @@ suite('collector — supervised child', () => {
     // And it stays given up: no restart is scheduled behind the failure.
     await new Promise(r => setTimeout(r, 1_500))
     assert.strictEqual(c.current().status, 'failed')
-  })
-
-  test('on Windows, stopping an owned collector is refused rather than killing it unflushed', async () => {
-    collector = new OwnedCollector({
-      serverScript: script, execPath: process.execPath, dataDir, env: {}, log: line => lines.push(line), platform: 'win32',
-    })
-    const running = await collector.start()
-    try {
-      await assert.rejects(collector.stop(), /not supported on Windows/)
-      assert.ok(!fs.existsSync(path.join(dataDir, 'flushed')), 'the child was signalled anyway')
-    } finally {
-      if (running.status === 'running') {
-        try { process.kill(running.pid, 'SIGKILL') } catch { /* already gone */ }
-        // Let it actually exit before teardown removes its directory (Windows holds the files).
-        for (let i = 0; i < 50; i++) {
-          try { process.kill(running.pid, 0) } catch { break }
-          await new Promise(r => setTimeout(r, 100))
-        }
-      }
-      collector = undefined
-    }
   })
 
   test('the collector\'s own output is captured, so a failed start can be explained', async function () {

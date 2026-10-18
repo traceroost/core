@@ -2,7 +2,7 @@
   "name": "traceroost-desktop",
   "private": true,
   "version": "0.19.1",
-  "description": "TraceRoost desktop shell \u2014 Electron app and menu bar/tray icon around the standalone collector and dashboard (macOS, Linux)",
+  "description": "TraceRoost desktop shell \u2014 Electron app and menu bar/tray icon around the standalone collector and dashboard (macOS, Linux, Windows)",
   "license": "MIT",
   "main": "out/main.js",
   "desktopName": "traceroost-desktop.desktop",
@@ -19,6 +19,8 @@
     "pack:host": "pnpm run build:release && electron-builder --mac && pnpm run checksums",
     "pack:linux": "pnpm run build:release && electron-builder --linux --x64 --arm64 && pnpm run checksums",
     "pack:linux:host": "pnpm run build:release && electron-builder --linux && pnpm run checksums",
+    "pack:win": "pnpm run build:release && electron-builder --win --x64 && electron-builder --win --arm64 && pnpm run checksums",
+    "pack:win:host": "pnpm run build:release && electron-builder --win && pnpm run checksums",
     "checksums": "node scripts/checksums.mjs",
     "smoke": "node scripts/smoke-packaged.mjs",
     "runtime-check": "ELECTRON_RUN_AS_NODE=1 electron -e \"console.log(process.versions.node)\""

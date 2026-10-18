@@ -27,13 +27,46 @@ import { OwnedCollector } from './collector'
 
 const DESKTOP_DIR = path.join(__dirname, '..', '..', '..', '..', 'desktop')
 const STAGED = path.join(DESKTOP_DIR, 'resources', 'collector', 'standalone', 'server.js')
-const ELECTRON = path.join(DESKTOP_DIR, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron')
+const ELECTRON = path.join(DESKTOP_DIR, 'node_modules', 'electron', 'dist', ...(
+  process.platform === 'darwin' ? ['Electron.app', 'Contents', 'MacOS', 'Electron']
+    : process.platform === 'win32' ? ['electron.exe']
+      : ['electron']))
 
 /** High, fixed ports: the collector scans upward from a busy port, and a test must not land on
  *  (or push itself off) the developer's real collector on 3000/4318/4316. */
 const UI_PORT = 31700
 const OTLP_PORT = 31718
 const MCP_PORT = 31716
+
+function post(url: string, body: unknown): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body)
+    const req = http.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, res => {
+      res.resume()
+      res.on('end', () => resolve(res.statusCode ?? 0))
+    })
+    req.on('error', reject)
+    req.end(data)
+  })
+}
+
+/** One Claude Code interaction span, as an agent's OTLP/HTTP JSON exporter sends it. */
+function oneSpanTrace(traceId: string): unknown {
+  const nowNs = BigInt(Date.now()) * 1_000_000n
+  return {
+    resourceSpans: [{
+      resource: { attributes: [{ key: 'service.name', value: { stringValue: 'claude-code' } }, { key: 'session.id', value: { stringValue: `flush-${traceId}` } }] },
+      scopeSpans: [{
+        scope: { name: 'com.anthropic.claude_code' },
+        spans: [{
+          traceId, spanId: traceId.slice(0, 16), name: 'claude_code.interaction', kind: 1,
+          startTimeUnixNano: String(nowNs - 2_000_000_000n), endTimeUnixNano: String(nowNs),
+          attributes: [{ key: 'user_prompt', value: { stringValue: 'flush me' } }], status: { code: 0 },
+        }],
+      }],
+    }],
+  }
+}
 
 function get(url: string, timeoutMs = 5_000): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -45,6 +78,11 @@ function get(url: string, timeoutMs = 5_000): Promise<{ status: number; body: st
     req.on('error', reject)
     req.setTimeout(timeoutMs, () => { req.destroy(new Error(`timed out fetching ${url}`)) })
   })
+}
+
+/** HOME and its Windows equivalents, all pointing into the test's temporary home. */
+function isolatedHome(home: string): Record<string, string> {
+  return { HOME: home, USERPROFILE: home, APPDATA: path.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(home, 'AppData', 'Local') }
 }
 
 suite('staged collector — the packaged article, end to end', () => {
@@ -69,7 +107,9 @@ suite('staged collector — the packaged article, end to end', () => {
   teardown(async () => {
     try { await collector?.stop() } catch { /* already gone */ }
     collector = undefined
-    fs.rmSync(home, { recursive: true, force: true })
+    // Windows can still report EPERM/EBUSY on a tree whose last handle the just-exited collector
+    // has not quite released; rmSync retries those for a moment.
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
   })
 
   async function startStaged(): Promise<ReturnType<OwnedCollector['start']>> {
@@ -78,7 +118,8 @@ suite('staged collector — the packaged article, end to end', () => {
       execPath: ELECTRON,
       dataDir,
       env: {
-        HOME: home,
+        // Windows: os.homedir() is USERPROFILE, and VS Code's settings live under APPDATA.
+        ...isolatedHome(home),
         UI_PORT: String(UI_PORT),
         OTLP_PORT: String(OTLP_PORT),
         MCP_PORT: String(MCP_PORT),
@@ -149,7 +190,7 @@ suite('staged collector — the packaged article, end to end', () => {
     this.timeout(90_000)
     const c = new OwnedCollector({
       serverScript: STAGED, execPath: ELECTRON, dataDir,
-      env: { HOME: home, UI_PORT: String(UI_PORT), OTLP_PORT: String(OTLP_PORT), MCP_PORT: String(MCP_PORT) },
+      env: { ...isolatedHome(home), UI_PORT: String(UI_PORT), OTLP_PORT: String(OTLP_PORT), MCP_PORT: String(MCP_PORT) },
       log: line => lines.push(line),
     })
     collector = c
@@ -161,5 +202,31 @@ suite('staged collector — the packaged article, end to end', () => {
     // the next start look like a crashed holder's leftover rather than a clean slate.
     assert.ok(!fs.existsSync(path.join(dataDir, LOCK_FILENAME)), 'the data dir lock should have been released')
     assert.ok(!lines.some(l => l.includes('killing it')), 'should not have needed the forced kill')
+  })
+
+  test('stopping right after a span arrives flushes it: the owner channel runs the collector\'s own shutdown save', async function () {
+    this.timeout(90_000)
+    const out = path.join(home, 'collector.out')
+    const stream = fs.createWriteStream(out)
+    const c = new OwnedCollector({
+      serverScript: STAGED, execPath: ELECTRON, dataDir,
+      env: { ...isolatedHome(home), UI_PORT: String(UI_PORT), OTLP_PORT: String(OTLP_PORT), MCP_PORT: String(MCP_PORT), TRACEROOST_NO_UPDATE_CHECK: '1' },
+      log: line => lines.push(line),
+      logStream: () => stream,
+    })
+    collector = c
+    await c.start()
+    const traceId = [...Array(32)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
+    assert.strictEqual(await post(`http://127.0.0.1:${OTLP_PORT}/v1/traces`, oneSpanTrace(traceId)), 200)
+    // Straight away — inside the collector's one-second save debounce, so only the shutdown's own
+    // save can have put this span on disk.
+    await c.stop()
+    await new Promise<void>(resolve => stream.end(resolve))
+    const output = fs.readFileSync(out, 'utf-8')
+    assert.match(output, /Shutdown requested by the app that started this collector/)
+    assert.match(output, /Saved \d+ spans to /)
+    assert.ok(fs.readFileSync(path.join(dataDir, 'spans.json'), 'utf-8').includes(traceId), 'the span should be in spans.json')
+    assert.ok(!fs.existsSync(path.join(dataDir, LOCK_FILENAME)), 'the data dir lock should have been released')
+    assert.ok(!lines.some(l => l.includes('killing it')), lines.join('\n'))
   })
 })

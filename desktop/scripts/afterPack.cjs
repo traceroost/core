@@ -1,6 +1,7 @@
 /**
  * electron-builder `afterPack` hook: verifies the packed app — the macOS .app before it is signed or
- * wrapped in a DMG, the Linux directory before it becomes a .deb or an AppImage. Everything here fails the build, because each is a mistake that produces a perfectly
+ * wrapped in a DMG, the Linux directory before it becomes a .deb or an AppImage, the Windows
+ * directory before it is signed and wrapped in the NSIS installer and the zip. Everything here fails the build, because each is a mistake that produces a perfectly
  * normal-looking artifact that then does nothing (or the wrong thing) when launched:
  *
  *  - the staged collector is where src/resources.ts will look for it, with the dashboard assets,
@@ -12,6 +13,8 @@
  *    makes the helper setuid where the kernel has no user namespaces; without it the app cannot
  *    start sandboxed there). The AppArmor profile is added after this hook, by the .deb target, so
  *    it is checked against the built package instead (scripts/check-deb.sh);
+ *  - Windows: `traceroost-desktop.exe` is there (not `traceroost.exe`, which would shadow the npm
+ *    CLI), with the notification-area icon;
  *  - the collector the app ships passes the repo's **core-edition** check (no TraceRoost Cloud
  *    markers), run against the bundle actually inside the .app rather than the build tree, and so
  *    does the main-process bundle that was packed into the asar;
@@ -33,10 +36,11 @@ const repoRoot = path.join(desktopDir, '..')
 /** @param {import('app-builder-lib').AfterPackContext} context */
 module.exports = async function afterPack(context) {
   const platform = context.electronPlatformName
-  if (platform !== 'darwin' && platform !== 'linux') return
+  if (platform !== 'darwin' && platform !== 'linux' && platform !== 'win32') return
 
   const archName = Arch[context.arch]
   const isMac = platform === 'darwin'
+  const isWindows = platform === 'win32'
   const appName = isMac ? `${context.packager.appInfo.productFilename}.app` : path.basename(context.appOutDir)
   const appPath = isMac ? path.join(context.appOutDir, appName) : context.appOutDir
   const resources = isMac ? path.join(appPath, 'Contents', 'Resources') : path.join(appPath, 'resources')
@@ -44,7 +48,9 @@ module.exports = async function afterPack(context) {
   const collector = path.join(resources, 'collector')
   const binary = isMac
     ? path.join(appPath, 'Contents', 'MacOS', context.packager.appInfo.productFilename)
-    : path.join(appPath, context.packager.executableName)
+    : isWindows
+      ? path.join(appPath, `${context.packager.appInfo.productFilename}.exe`)
+      : path.join(appPath, context.packager.executableName)
   const problems = []
 
   // ── Layout ──
@@ -59,7 +65,9 @@ module.exports = async function afterPack(context) {
     'collector/node_modules/sql.js/dist/sql-wasm.wasm',
     ...(isMac
       ? ['tray/trayTemplate.png', 'tray/trayTemplate@2x.png']
-      : ['tray/trayLinux.png', 'tray/trayLinux@2x.png', 'tray/iconLinux.png']),
+      : isWindows
+        ? ['tray/trayWindows.ico']
+        : ['tray/trayLinux.png', 'tray/trayLinux@2x.png', 'tray/iconLinux.png']),
     'LICENSE',
     'THIRD_PARTY_NOTICES.md',
     'LICENSE.electron.txt',
@@ -70,7 +78,12 @@ module.exports = async function afterPack(context) {
   }
   if (!isMac) {
     if (!fs.existsSync(binary)) problems.push(`the executable ${path.basename(binary)} is missing`)
+  }
+  if (platform === 'linux') {
     if (!fs.existsSync(path.join(appPath, 'chrome-sandbox'))) problems.push('chrome-sandbox is missing — the app could not start sandboxed on a kernel without user namespaces')
+  }
+  if (isWindows && path.basename(binary).toLowerCase() !== 'traceroost-desktop.exe') {
+    problems.push(`the executable is ${path.basename(binary)}, expected traceroost-desktop.exe (traceroost.exe would shadow the npm CLI)`)
   }
 
   // ── Versions ──

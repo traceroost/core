@@ -1,0 +1,219 @@
+name: Desktop (Windows)
+
+# Builds the Windows desktop app (desktop/) as an NSIS installer and a portable zip, for x64 and
+# arm64, natively on each architecture, and checks it the way the macOS and Linux workflows check
+# theirs:
+#
+#   package   build:release, electron-builder (afterPack verifies the unpacked app: layout,
+#             versions, core edition, bundled Node), SHA256SUMS; the staged-collector integration
+#             suite on the runner's own Electron; the packaged smoke test (owned collector,
+#             /health, dashboard, then `traceroost-desktop --quit` → the collector is stopped over
+#             the owner channel and a span sent just before is flushed to disk); then
+#             scripts/check-nsis.mjs: silent per-user install, the smoke test on the *installed* app,
+#             a reinstall over the running app (which must quit it cooperatively, not kill it), and
+#             a silent uninstall that keeps the user's data.
+#
+# On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
+# runs it through desktop-release.yml (`workflow_call`), which attaches the Windows files to the
+# GitHub release when `signed` comes out true — or, unsigned and named so, when the repository
+# variable TRACEROOST_DESKTOP_ATTACH_UNSIGNED is `true`.
+#
+# Signing is switched on by secrets alone (desktop/electron-builder.cjs reads the environment):
+#
+#   WIN_CSC_LINK                    base64 of a code-signing .pfx            → WIN_CSC_LINK
+#   WIN_CSC_KEY_PASSWORD            its password                             → WIN_CSC_KEY_PASSWORD
+#   — or Azure Trusted Signing —
+#   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET   a service principal with the
+#                                   "Trusted Signing Certificate Profile Signer" role
+#   AZURE_TRUSTED_SIGNING_ENDPOINT, AZURE_TRUSTED_SIGNING_ACCOUNT, AZURE_TRUSTED_SIGNING_PROFILE,
+#   AZURE_TRUSTED_SIGNING_PUBLISHER the account, profile and the certificate's subject CN
+#
+# An empty secret expands to an empty string, which the config treats as absent. With signing
+# configured, a build whose executables are not validly Authenticode-signed is a failure, not a
+# silent unsigned fallback.
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'standalone/**'
+      - 'src/**'
+      - 'media/**'
+      - 'scripts/check-edition.mjs'
+      - 'esbuild.js'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop-windows.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-windows.yml'
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      signed:
+        description: "'true' when signing credentials were configured and every executable of both architectures carries a valid Authenticode signature"
+        value: ${{ jobs.signing.outputs.configured }}
+    secrets:
+      WIN_CSC_LINK:
+        required: false
+      WIN_CSC_KEY_PASSWORD:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_CLIENT_SECRET:
+        required: false
+      AZURE_TRUSTED_SIGNING_ENDPOINT:
+        required: false
+      AZURE_TRUSTED_SIGNING_ACCOUNT:
+        required: false
+      AZURE_TRUSTED_SIGNING_PROFILE:
+        required: false
+      AZURE_TRUSTED_SIGNING_PUBLISHER:
+        required: false
+
+permissions:
+  contents: read
+
+# github.workflow is the caller's name under workflow_call, so a release's run of this workflow and
+# a pull request's run of it never cancel each other.
+concurrency:
+  group: desktop-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Whether this run signs. Decided once, so both architectures agree and the `signed` output means
+  # "configured, and (because package passed) verified on every executable".
+  signing:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.decide.outputs.configured }}
+    steps:
+      - id: decide
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          if [ -n "$WIN_CSC_LINK" ] || { [ -n "$AZURE_TRUSTED_SIGNING_ENDPOINT" ] && [ -n "$AZURE_CLIENT_SECRET" ]; }; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Windows build is unsigned (no WIN_CSC_LINK or Azure Trusted Signing secrets); SmartScreen will warn on first run"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  package:
+    needs: signing
+    # Native on each architecture, so afterPack runs the packaged Electron as Node and the smoke
+    # test and installer checks run the real binaries.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    # The arm64 runner runs the x86 NSIS stub emulated: install, upgrade and uninstall alone take
+    # ~15 minutes there.
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install repo dependencies
+        run: pnpm install --frozen-lockfile
+
+      # desktop/ is deliberately outside the pnpm workspace; it has its own npm lockfile.
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      # As on macOS and Linux: make sure Electron's own postinstall ran (the binary and
+      # LICENSES.chromium.html, which electron-builder.cjs copies and afterPack requires).
+      - name: Download the Electron binary
+        working-directory: desktop
+        run: node node_modules/electron/install.js && test -f node_modules/electron/dist/LICENSES.chromium.html && test -f node_modules/electron/dist/electron.exe
+
+      # Type-check, release bundle, stage the core-edition collector, notices; then the NSIS
+      # installer and the zip for this architecture (afterPack verifies the unpacked app), then
+      # SHA256SUMS.
+      - name: Build and package
+        working-directory: desktop
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+          AZURE_TRUSTED_SIGNING_PUBLISHER: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER }}
+          # electron-builder skips signing on a pull-request build unless told otherwise. Secrets
+          # never reach a fork's run, so a fork PR here can only ever build unsigned.
+          CSC_FOR_PULL_REQUEST: 'true'
+        run: pnpm run build:release && npx electron-builder --win --${{ matrix.arch }} && pnpm run checksums
+
+      # The staged-tree integration suite, on this runner's own Electron — including the flushed
+      # stop over the owner channel.
+      - name: Staged collector integration tests
+        run: pnpm run compile-tests:desktop && npx mocha --grep "staged collector" --color
+
+      - name: Smoke test the packaged app
+        working-directory: desktop
+        run: pnpm run smoke
+
+      - name: Install, run, upgrade over the running app, uninstall
+        working-directory: desktop
+        run: node scripts/check-nsis.mjs "$(ls dist/TraceRoost-*-win-${{ matrix.arch }}.exe)"
+
+      - name: Signature check
+        working-directory: desktop
+        shell: pwsh
+        env:
+          SIGNING_CONFIGURED: ${{ needs.signing.outputs.configured }}
+        run: |
+          $files = @(Get-ChildItem dist\TraceRoost-*-win-${{ matrix.arch }}.exe) + @(Get-ChildItem dist\win*-unpacked\traceroost-desktop.exe)
+          $bad = 0
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            Write-Host "$($f.Name): $($sig.Status) $($sig.SignerCertificate.Subject)"
+            if ($env:SIGNING_CONFIGURED -eq 'true' -and $sig.Status -ne 'Valid') { $bad++ }
+          }
+          if ($bad -gt 0) { Write-Error "$bad executable(s) are not validly signed although signing is configured"; exit 1 }
+          if ($env:SIGNING_CONFIGURED -ne 'true') { Write-Host "::notice::Windows ${{ matrix.arch }} build is unsigned" }
+
+      - name: Package report
+        working-directory: desktop/dist
+        run: |
+          ls -la TraceRoost-* SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: traceroost-desktop-windows-${{ matrix.arch }}
+          path: |
+            desktop/dist/TraceRoost-*.exe
+            desktop/dist/TraceRoost-*.zip
+            desktop/dist/SHA256SUMS
+            desktop/resources/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+          retention-days: 14
