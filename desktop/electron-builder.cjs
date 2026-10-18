@@ -1,6 +1,7 @@
 /**
- * electron-builder configuration for the macOS app, the Linux .deb and AppImage, and the Windows
- * NSIS installer and portable zip.
+ * electron-builder configuration for the macOS DMG, the Linux .deb and AppImage, and the Windows
+ * NSIS installer — one install format per platform (two on Linux, where no one format fits every
+ * distribution), and no zip beside them: there is no auto-updater to consume one.
  *
  * A .cjs file rather than YAML because two decisions here depend on the environment, and spelling
  * them out as code is clearer than a config that silently means different things on different
@@ -142,26 +143,35 @@ module.exports = {
     // result, because the first build without this line produced a perfectly launchable app whose
     // commit-outcomes cache would quietly recompute everything forever.
     { from: 'resources/collector/node_modules/sql.js', to: 'collector/node_modules/sql.js' },
-    // What ships, legally: this project's license, the notices for everything bundled, and
-    // Electron's own two (its MIT license, and the Chromium/Node/third-party notices it carries).
-    // electron-builder does not place the latter two in a macOS bundle by itself.
+    // What ships, legally: this project's license and the notices for everything bundled.
+    // Electron's own two (its MIT license, and the 20 MB of Chromium/Node/third-party notices) are
+    // placed beside the executable by electron-builder on Linux and Windows, and copied into the
+    // bundle's Resources on macOS (below), where the builder does not place them — never both.
     { from: '../LICENSE', to: 'LICENSE' },
     { from: 'resources/THIRD_PARTY_NOTICES.md', to: 'THIRD_PARTY_NOTICES.md' },
-    { from: 'node_modules/electron/dist/LICENSE', to: 'LICENSE.electron.txt' },
-    { from: 'node_modules/electron/dist/LICENSES.chromium.html', to: 'LICENSES.chromium.html' },
   ],
+
+  // The UI is English only, so Chromium's other 54 locale packs (~8 MB unpacked) are dropped.
+  // en-US must stay: Chromium refuses to start without the locale it falls back to.
+  electronLanguages: ['en-US'],
+  // The smallest downloads the builder can make; it costs build time, not install time.
+  compression: 'maximum',
 
   mac: {
     // Menu bar icons, read at run time by src/tray.ts via main.ts's trayAssetDir.
     extraResources: [
       { from: 'build/trayTemplate.png', to: 'tray/trayTemplate.png' },
       { from: 'build/trayTemplate@2x.png', to: 'tray/trayTemplate@2x.png' },
+      // Electron's licenses — see the top-level extraResources.
+      { from: 'node_modules/electron/dist/LICENSE', to: 'LICENSE.electron.txt' },
+      { from: 'node_modules/electron/dist/LICENSES.chromium.html', to: 'LICENSES.chromium.html' },
     ],
     category: 'public.app-category.developer-tools',
     icon: 'build/icon.png',
     // Architectures come from the command line (`--arm64 --x64`, or none for the host's), so a
-    // developer's quick local build and CI's two-architecture build share this one config.
-    target: ['dmg', 'zip'],
+    // developer's quick local build and CI's two-architecture build share this one config. A DMG
+    // per architecture rather than one universal app, which would double every download.
+    target: ['dmg'],
     artifactName: 'TraceRoost-${version}-mac-${arch}.${ext}',
     darkModeSupport: true,
     minimumSystemVersion: '12.0',
@@ -281,8 +291,7 @@ module.exports = {
     // Architectures come from the command line (`--x64` / `--arm64`), one per run: an NSIS build
     // given both would wrap them in one installer carrying both apps, and the downloads are one
     // file per architecture, as on macOS and Linux. See package.json's `pack:win`.
-    target: ['nsis', 'zip'],
-    // `${ext}` is exe for the installer and zip for the portable build.
+    target: ['nsis'],
     artifactName: 'TraceRoost-${version}-win-${arch}.${ext}',
     // traceroost-desktop.exe, not traceroost.exe: `traceroost` is the npm CLI, which may well be on
     // PATH beside it. (The installer adds nothing to PATH either way.)
@@ -308,13 +317,11 @@ module.exports = {
   },
 
   nsis: {
-    // An assisted installer that installs for the current user by default — into
-    // %LOCALAPPDATA%\Programs\TraceRoost, no administrator rights — and offers "for all users"
-    // (which does elevate) only as the second choice. A silent install (`/S`) is per-user.
-    oneClick: false,
+    // One click: double-click the .exe and it installs for the current user — into
+    // %LOCALAPPDATA%\Programs\traceroost-desktop, no administrator rights, no pages to step
+    // through — and opens the app. A silent install (`/S`) does the same without the window.
+    oneClick: true,
     perMachine: false,
-    allowElevation: true,
-    allowToChangeInstallationDirectory: true,
     // Start Menu → TraceRoost. No desktop shortcut: the app lives in the notification area.
     createStartMenuShortcut: true,
     createDesktopShortcut: false,

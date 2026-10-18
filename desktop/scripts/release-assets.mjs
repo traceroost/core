@@ -33,15 +33,15 @@ import { fileURLToPath } from 'url'
 /** Every installer a release of `version` ships, by platform. Mirrors electron-builder.cjs's artifactName. */
 export function expectedAssets(version) {
   return {
-    macos: ['arm64', 'x64'].flatMap(arch => ['dmg', 'zip'].map(ext => `TraceRoost-${version}-mac-${arch}.${ext}`)),
+    macos: ['arm64', 'x64'].map(arch => `TraceRoost-${version}-mac-${arch}.dmg`),
     linux: [
       `TraceRoost-${version}-linux-amd64.deb`,
       `TraceRoost-${version}-linux-arm64.deb`,
       `TraceRoost-${version}-linux-x86_64.AppImage`,
       `TraceRoost-${version}-linux-arm64.AppImage`,
     ],
-    // The NSIS installer (.exe) and the portable zip.
-    windows: ['x64', 'arm64'].flatMap(arch => ['exe', 'zip'].map(ext => `TraceRoost-${version}-win-${arch}.${ext}`)),
+    // The NSIS installer.
+    windows: ['x64', 'arm64'].map(arch => `TraceRoost-${version}-win-${arch}.exe`),
   }
 }
 

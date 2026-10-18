@@ -1,7 +1,7 @@
 name: Desktop (macOS)
 
 # Builds the macOS desktop app (desktop/) for both architectures, verifies the packed bundle,
-# smoke-tests the one that matches the runner, and uploads the DMG/zip/checksums as build artifacts.
+# smoke-tests the one that matches the runner, and uploads the DMGs/checksums as build artifacts.
 #
 # On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
 # runs it through desktop-release.yml (`workflow_call`), which attaches the macOS files to the
@@ -90,7 +90,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # npm on the runner no longer runs Electron's postinstall, which leaves node_modules/electron/
-      # dist/ without the binary and without LICENSES.chromium.html (electron-builder.cjs copies it,
+      # dist/ without the binary and without LICENSES.chromium.html (electron-builder.cjs copies it into the bundle,
       # afterPack requires it). install.js is the postinstall itself and is a no-op when it already ran.
       - name: Download the Electron binary
         working-directory: desktop
@@ -172,7 +172,6 @@ jobs:
           name: traceroost-desktop-macos
           path: |
             desktop/dist/TraceRoost-*.dmg
-            desktop/dist/TraceRoost-*.zip
             desktop/dist/SHA256SUMS
             desktop/resources/THIRD_PARTY_NOTICES.md
           if-no-files-found: error
