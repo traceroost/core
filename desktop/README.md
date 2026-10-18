@@ -112,8 +112,9 @@ On first launch the app decides who owns the data directory (below), starts a co
 else does, and opens the dashboard. It uses the same `~/.traceroost` data directory and
 `~/.traceroost/config.json` (ports, data dir, bind host, token) as `npx traceroost` and the
 Homebrew service, so existing data appears as is. It creates `~/.traceroost/desktop.log`
-(owner-only, rotated at 5 MB with one generation kept) and, like every collector, configures the
-coding agents it finds on the machine to send telemetry to it.
+(owner-only, rotated at 5 MB with one generation kept) and, like every collector, asks once —
+in a dashboard banner, since it has no terminal — before setting up the coding agents on the
+machine to send telemetry to it; the answer is shared with `npx traceroost` and the service.
 
 Requires macOS 12 or later. Git is optional: without it, sessions are still recorded but commit
 outcomes are unavailable, and the menu bar says so.

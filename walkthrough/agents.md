@@ -1,4 +1,4 @@
-TraceRoost runs a built-in OTEL receiver and, unless auto-configuration is turned off (the `traceRoost.autoConfigureAgents` setting), wrote telemetry config for each agent it detected:
+TraceRoost runs a built-in OTEL receiver. It asks once before setting your agents up; once you choose **Set up agents**, it writes telemetry config for each agent it detects:
 
 ## OpenTelemetry (primary — real-time, richest data)
 

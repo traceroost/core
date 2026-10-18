@@ -7,6 +7,7 @@ import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult } from './autoConfig'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
 import { DatabaseReader, openReadonlySnapshot } from './database/reader'
@@ -94,6 +95,9 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
 }
 
 const SETUP_HELP_BUTTON = 'Open Setup Help'
+const AGENT_SETUP_YES = 'Set up agents'
+const AGENT_SETUP_NO = 'Not now'
+const AGENT_SETUP_SKIP = 'Skip setup'
 
 /** Opens the dashboard on Help → Setup (Manual Configuration lists every agent's settings). */
 function openSetupHelp(): void {
@@ -295,47 +299,69 @@ export async function activate(context: vscode.ExtensionContext) {
   DashboardPanel.collectorConflict = collectorConflict
 
   // ── Auto-configure agents ────────────────────────────────────────────────────
-  const autoConfigureAgents = traceRoostCfg.get<boolean>('autoConfigureAgents', true)
-  const [copilotResult, claudeResult, codexResult] = autoConfigureAgents
-    ? await Promise.all([
-        autoConfigureCopilot(port),
-        autoConfigureClaudeCode(port),
-        autoConfigureCodex(port),
-      ])
-    : [{ changed: false }, { changed: false }, { changed: false }]
+  // Only with the user's yes (src/agentSetupConsent.ts): asked once, remembered in
+  // ~/.traceroost/config.json, shared with the background service.
+  const log = (line: string) => outputChannel?.appendLine(line)
+  const runAgentSetup = async (): Promise<void> => {
+    const [copilotResult, claudeResult, codexResult] = await Promise.all([
+      autoConfigureCopilot(port),
+      autoConfigureClaudeCode(port),
+      autoConfigureCodex(port),
+    ])
 
-  // A failed auto-config points at the complete manual settings (Help → Setup) instead of a
-  // partial snippet — each agent needs several keys (Claude Code: eight env vars; Codex: both
-  // exporters with protocol = "json"), which don't fit in a toast.
-  const codexConfigPath = path.join(process.env.CODEX_HOME || '~/.codex', 'config.toml')
-  const failures: Array<[string, ConfigResult, string]> = [
-    ['Copilot', copilotResult, 'your VS Code user settings'],
-    ['Claude Code', claudeResult, '~/.claude/settings.json'],
-    ['Codex', codexResult, codexConfigPath],
-  ]
-  for (const [agent, result, file] of failures) {
-    if (!result.error) continue
-    outputChannel.appendLine(`Auto-configure ${agent} failed: ${result.error}`)
-    void vscode.window.showWarningMessage(
-      `TraceRoost: Could not auto-configure ${agent} OTEL in ${file} (details in the TraceRoost output channel). Help → Setup lists every setting to add by hand.`,
-      SETUP_HELP_BUTTON,
-    ).then(choice => { if (choice === SETUP_HELP_BUTTON) openSetupHelp() })
+    // A failed auto-config points at the complete manual settings (Help → Setup) instead of a
+    // partial snippet — each agent needs several keys (Claude Code: eight env vars; Codex: both
+    // exporters with protocol = "json"), which don't fit in a toast.
+    const codexConfigPath = path.join(process.env.CODEX_HOME || '~/.codex', 'config.toml')
+    const failures: Array<[string, ConfigResult, string]> = [
+      ['Copilot', copilotResult, 'your VS Code user settings'],
+      ['Claude Code', claudeResult, '~/.claude/settings.json'],
+      ['Codex', codexResult, codexConfigPath],
+    ]
+    for (const [agent, result, file] of failures) {
+      if (!result.error) continue
+      log(`Auto-configure ${agent} failed: ${result.error}`)
+      void vscode.window.showWarningMessage(
+        `TraceRoost: Could not auto-configure ${agent} OTEL in ${file} (details in the TraceRoost output channel). Help → Setup lists every setting to add by hand.`,
+        SETUP_HELP_BUTTON,
+      ).then(choice => { if (choice === SETUP_HELP_BUTTON) openSetupHelp() })
+    }
+
+    // A file left alone on purpose (it exports to the user's own collector) — log why.
+    for (const r of [copilotResult, claudeResult, codexResult] as ConfigResult[]) {
+      if (r.warning) log(`Auto-configure: ${r.warning}`)
+    }
+
+    const configuredAgents: string[] = []
+    if (copilotResult.changed) configuredAgents.push('Copilot')
+    if (claudeResult.changed) configuredAgents.push('Claude Code')
+    if (codexResult.changed) configuredAgents.push('Codex')
+    if (configuredAgents.length > 0) log(`Auto-configured OTEL telemetry for: ${configuredAgents.join(', ')}`)
+    void notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
   }
 
-  // A user endpoint left alone on purpose (it points at their own collector) — log why.
-  for (const r of [copilotResult, claudeResult, codexResult] as ConfigResult[]) {
-    if (r.warning) outputChannel.appendLine(`Auto-configure: ${r.warning}`)
-  }
-
-  const configuredAgents: string[] = []
-  if (copilotResult.changed) configuredAgents.push('Copilot')
-  if (claudeResult.changed) configuredAgents.push('Claude Code')
-  if (codexResult.changed) configuredAgents.push('Codex')
-  if (configuredAgents.length > 0) {
-    outputChannel.appendLine(`Auto-configured OTEL telemetry for: ${configuredAgents.join(', ')}`)
-    vscode.window.showInformationMessage(
-      `TraceRoost configured OTEL telemetry for ${configuredAgents.join(', ')} — restart the agent(s) to start streaming traces. Disable via the traceRoost.autoConfigureAgents setting.`
-    )
+  if (traceRoostCfg.get<boolean>('autoConfigureAgents', true)) {
+    const answer = readAgentSetupAnswer()
+    if (answer === 'yes') {
+      await runAgentSetup()
+    } else if (answer === undefined) {
+      // Not awaited: activation carries on while the question waits. Closing the notification
+      // without choosing records nothing, so it is asked again next time.
+      void vscode.window.showInformationMessage(
+        `TraceRoost: ${AGENT_SETUP_QUESTION} ${AGENT_SETUP_EXPLANATION}`,
+        AGENT_SETUP_YES, AGENT_SETUP_NO,
+      ).then(async choice => {
+        if (choice === undefined) return
+        // A no is asked once more, with what skipping costs, before it is recorded.
+        const confirmed = choice === AGENT_SETUP_YES ? AGENT_SETUP_YES : await vscode.window.showWarningMessage(
+          `TraceRoost: ${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`,
+          AGENT_SETUP_SKIP, AGENT_SETUP_YES,
+        )
+        if (confirmed === undefined) return
+        writeAgentSetupAnswer(confirmed === AGENT_SETUP_YES ? 'yes' : 'no')
+        if (confirmed === AGENT_SETUP_YES) await runAgentSetup()
+      })
+    }
   }
 
   // ── Panels ───────────────────────────────────────────────────────────────────
@@ -1059,7 +1085,6 @@ export async function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine(`TraceRoost active — OTLP collector listening on port ${port}`)
   }
 
-  notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
 }
 
 // ── Org (TraceRoost Cloud) commands ───────────────────────────────────────────

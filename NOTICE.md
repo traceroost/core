@@ -12,7 +12,7 @@ This repository is **not** entirely MIT-licensed. Two license zones apply:
 [src/cloud/README.md](src/cloud/README.md) for what it is and why it's split
 out. The short version of the BSL grant: you can read it, self-host it, build
 on it, and use it as a normal part of the TraceRoost product — including its
-always-free, local-only features — for your own work. What it stops is
+free, local-only features — for your own work. What it stops is
 someone taking this source and standing up a competing hosted version of the
 org/cloud service without a commercial agreement. Four years after
 publication (or the stated Change Date, whichever is first) each version

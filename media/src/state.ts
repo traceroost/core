@@ -326,6 +326,11 @@ export const otlpPort = signal(4318)
 // session's worth of OTel data can silently go to the wrong place.
 export const collectorConflict = signal<CollectorConflict>(window.__INITIAL_COLLECTOR_CONFLICT__ ?? null)
 
+// Whether to ask the user, in the dashboard, to set up their coding agents (src/agentSetupConsent.ts)
+// — only the background/npx service sets it, inlined as window.__INITIAL_AGENT_SETUP_PENDING__ and
+// updated over SSE; VS Code asks with a notification instead. Drives AgentSetupBanner in App.tsx.
+export const agentSetupPending = signal<boolean>(window.__INITIAL_AGENT_SETUP_PENDING__ === true)
+
 // The host's startup log pass, inlined as window.__INITIAL_LOG_INGEST__ and then updated by
 // 'logIngest' messages as it runs (SSE on the background/npx service, postMessage in VS Code) — drives LogIngestBanner in App.tsx, so a large history shows
 // sessions filling in with a progress bar rather than a page that looks empty or stuck.

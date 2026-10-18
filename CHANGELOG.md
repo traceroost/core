@@ -4,15 +4,23 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **TraceRoost asks before setting up your agents** — it used to edit Claude Code's, Codex's and Copilot's settings on first start. Now it asks once, in plain words, what it will change (their settings files) and what that turns on (sending each run, including prompts and tool output, to TraceRoost on this computer): a notification in VS Code, a yes/no question when `traceroost` or `traceroost service install` runs in a terminal, or a banner in the dashboard for the background service. Saying no asks once more, with what skipping costs (no live traces, only what the agents' log files record). The answer is shared by every TraceRoost on the machine (`agentSetup` in `~/.traceroost/config.json`); **Configure OTEL** in Settings counts as a yes. Docker no longer touches agent settings at all — there it could only reach the container's own files
+- **The full edition ships the Business Source License text** — the npm package, the VS Code extension and the Docker image now carry `src/cloud/LICENSE` (in the image, `licenses/LICENSE-BSL-1.1`), which the BSL asks every copy to include; before, only a pointer to it shipped. The core edition, which contains no BSL code, now declares its license as `MIT` instead of `(MIT AND BUSL-1.1)`
+
 ### Added
 
 - **The desktop app for Windows (x64 and arm64)** — an NSIS installer that installs for your user only (no administrator rights; Start Menu shortcut and uninstaller) and a portable zip, with a notification-area icon. It runs and supervises its own collector as on macOS and Linux: quitting it — or an installer upgrading or removing it — stops the collector with a cooperative shutdown request over a private pipe, so unsaved spans are flushed first (Windows has no SIGTERM, so this was why the app refused to own a collector there). Builds are unsigned until a code-signing certificate is configured; SmartScreen warns on first run (**More info → Run anyway**). Releases can now also attach unsigned macOS and Windows test builds, named `*-unsigned`, when the maintainers switch that on
 - **Settings → Dashboard port** — move the standalone dashboard off port 3000 (the default for Next.js, Rails, Express and many other dev servers) from the gear panel. It moves without a restart, the page follows it with your theme and other preferences, and **Reset to 3000** moves it back. Agents aren't affected: the OTLP and MCP ports don't change. Help and the README have a "My dev server needs port 3000" section, and `service install` / `service status` say how to move while the dashboard is on 3000
+- **Third-party notices ship with every build** — `THIRD_PARTY_NOTICES.md` carries the copyright and license text of each open source package bundled into TraceRoost (the MCP SDK, ajv, zod, preact, sql.js and the rest), in the npm package, the VS Code extension and the Docker image. It is generated from the bundler's own record of what it included, and CI fails if it falls out of date
 
 ### Fixed
 
 - **Re-running `traceroost service install` (or upgrading with it) keeps your settings** — it rebuilt `~/.traceroost/config.json` from the defaults, so a custom dashboard, OTLP or MCP port, bind host, data directory or retention reset on every re-run. A flag now changes only its own setting, and the command prints what it kept. The background service reads its ports from `config.json` only, so a service definition written by an older version can't override a port changed later
 - **A busy port can no longer push one TraceRoost server onto another's port** — the fallback scan steps over the OTLP, MCP and OTLP/gRPC (4317) ports
+- **Auto-configure no longer turns on prompt logging for your own collector** — when `~/.claude/settings.json`, `~/.codex/config.toml` or an editor's Copilot settings already export OpenTelemetry to a collector that isn't TraceRoost (a company or hosted one), TraceRoost left that endpoint alone but still switched on prompt and tool-content capture (`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_CONTENT`, Codex `log_user_prompt`) or Copilot's telemetry itself, so that content started reaching your collector. Such a file is now left untouched entirely, with a warning saying why
+- **Claude Code's `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is kept when it points at your own collector** — it was always removed as a leftover from older TraceRoost versions
 
 ### TraceRoost Cloud (full edition only)
 

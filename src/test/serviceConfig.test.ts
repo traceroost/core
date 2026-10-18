@@ -154,6 +154,17 @@ suite('serviceConfig', () => {
     })
   })
 
+  suite('service install keeps what identifies the machine', () => {
+    test('a reinstall keeps the access token, the install id and the agent-setup answer', () => {
+      const existing = { ...defaultServiceConfig(), authToken: 'tok', installId: 'id-1', agentSetup: 'no' as const }
+      const config = parseServiceInstallFlags(['--otlp-port', '4400'], existing)
+      assert.strictEqual(config.authToken, 'tok')
+      assert.strictEqual(config.installId, 'id-1', 'a reinstall must not mint a new install id')
+      assert.strictEqual(config.agentSetup, 'no')
+      assert.strictEqual(config.otlpPort, 4400)
+    })
+  })
+
   suite('parseServiceInstallFlags', () => {
     test('parses all recognized flags', () => {
       const config = parseServiceInstallFlags([

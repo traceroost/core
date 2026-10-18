@@ -74,7 +74,7 @@ network otherwise. `--explain-payload` (`standalone/cloud/explainPayload.ts`) pr
 `src/attribution/` and `src/turnover/` have no network path in their dependency graph at all —
 not gated, not disabled, structurally absent. (They lived under `src/cloud/` until they were moved
 out so a core-only build can drop every cloud directory without losing them — see "What ships
-where" below.) It's free forever, and reachable directly via
+where" below.) It's free, and reachable directly via
 `traceroost cohort` — no org link required to run it yourself. There was previously a dedicated
 free **Outcomes** dashboard tab surfacing it automatically; retired in commit `0ee7842` in favor of
 inline git-outcome signal (merged/committed/abandoned) in the Traces tab's Files sub-tab instead

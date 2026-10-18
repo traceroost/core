@@ -7,6 +7,9 @@ coverage/**
 out/**
 node_modules/**
 src/**
+# …except the Business Source License text, which every copy of the full edition must carry
+# (the core edition's appended `**/cloud/**` block excludes it again).
+!src/cloud/LICENSE
 packages/**
 .gitignore
 .yarnrc

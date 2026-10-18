@@ -56,4 +56,14 @@ suite('autoConfigureCopilot', () => {
       assert.match(result.warning ?? '', /otel\.example\.com/)
       assert.deepStrictEqual(writes, [])
     }))
+
+  test('with telemetry off and the user\'s own collector set, it does not switch telemetry on', () =>
+    withConfig(COPILOT_DEFAULTS, {
+      'github.copilot.chat.otel.enabled': false,
+      'github.copilot.chat.otel.otlpEndpoint': 'https://otel.example.com',
+    }, async writes => {
+      const result = await autoConfigureCopilot(4318)
+      assert.strictEqual(result.changed, false)
+      assert.deepStrictEqual(writes, [], 'turning it on would send Copilot telemetry to their collector')
+    }))
 })

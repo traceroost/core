@@ -166,6 +166,14 @@ export function makeTempHome(label) {
   return { home, env, cleanup: () => rmrf(home) }
 }
 
+/** Records the user's yes to agent setup in a temp home (src/agentSetupConsent.ts), as a person
+ *  answering the first-run question would — without it TraceRoost asks and changes nothing. */
+export function answerAgentSetupYes(home) {
+  const dir = path.join(home, '.traceroost')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ agentSetup: 'yes' }, null, 2) + '\n')
+}
+
 export function rmrf(p) {
   try { fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) } catch { /* best effort */ }
 }

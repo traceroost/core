@@ -115,6 +115,7 @@ async function main() {
 		minify: production,
 		sourcemap: !production,
 		sourcesContent: false,
+		metafile: true,
 		platform: 'node',
 		outfile: 'dist/extension.js',
 		external: ['vscode', 'sql.js'],
@@ -135,6 +136,7 @@ async function main() {
 		minify: production,
 		sourcemap: !production,
 		sourcesContent: false,
+		metafile: true,
 		platform: 'browser',
 		outfile: 'media/dashboard.js',
 		jsx: 'automatic',
@@ -151,6 +153,7 @@ async function main() {
 		minify: production,
 		sourcemap: !production,
 		sourcesContent: false,
+		metafile: true,
 		platform: 'browser',
 		outfile: 'media/sidebar.js',
 		define: mediaDefine,
@@ -165,6 +168,7 @@ async function main() {
 		minify: false,
 		sourcemap: !production,
 		sourcesContent: false,
+		metafile: true,
 		platform: 'node',
 		outfile: 'standalone/server.js',
 		// Not minified (identifiers and layout stay readable), but in the core edition syntax-level
@@ -184,6 +188,7 @@ async function main() {
 		minify: false,
 		sourcemap: !production,
 		sourcesContent: false,
+		metafile: true,
 		platform: 'node',
 		outfile: 'standalone/cli.js',
 		minifySyntax: core, // see the server bundle above
@@ -207,16 +212,17 @@ async function main() {
 		await standaloneCtx.watch();
 		await cliCtx.watch();
 	} else {
-		await ctx.rebuild();
-		await ctx.dispose();
-		await mediaCtx.rebuild();
-		await mediaCtx.dispose();
-		await sidebarCtx.rebuild();
-		await sidebarCtx.dispose();
-		await standaloneCtx.rebuild();
-		await standaloneCtx.dispose();
-		await cliCtx.rebuild();
-		await cliCtx.dispose();
+		const inputs = new Set();
+		for (const c of [ctx, mediaCtx, sidebarCtx, standaloneCtx, cliCtx]) {
+			const result = await c.rebuild();
+			for (const input of Object.keys(result.metafile?.inputs ?? {})) inputs.add(input);
+			await c.dispose();
+		}
+		// Every module the bundles pulled in, for scripts/third-party-notices.mjs — which packages'
+		// license notices THIRD_PARTY_NOTICES.md has to carry.
+		if (process.env.TRACEROOST_BUNDLE_INPUTS) {
+			fs.writeFileSync(process.env.TRACEROOST_BUNDLE_INPUTS, JSON.stringify([...inputs].sort(), null, 2));
+		}
 	}
 }
 

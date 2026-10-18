@@ -16,6 +16,28 @@ jobs:
   cla-check:
     runs-on: ubuntu-latest
     steps:
+      # The allowlist below matches commit author *names* — Claude Code's commits
+      # (Claude <noreply@anthropic.com>) have no GitHub account to match. A pull request from a fork
+      # could borrow one of those names to skip the CLA, so on fork PRs every commit must belong to
+      # a GitHub account and none may carry an exempt name unless it is RogerReed's own. Failing
+      # here fails this job, so the CLA status is never set for such a PR. Branches pushed to this
+      # repository (which needs write access) are not affected. Reads commit metadata through the
+      # API only — nothing from the pull request is checked out or run.
+      - name: Fork commits use real accounts, not exempt names
+        if: github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$REPO/pulls/$PR/commits" --paginate \
+            --jq '.[] | [.sha[0:7], (.author.login // "-"), .commit.author.name] | @tsv' > commits.tsv
+          bad=$(awk -F'\t' '$2 != "RogerReed" && ($2 == "-" || $3 == "Claude" || $3 == "claude" || $3 == "RogerReed")' commits.tsv)
+          if [ -n "$bad" ]; then
+            echo "::error::These commits have no GitHub account, or use a name the CLA check exempts. Commit with an email linked to your GitHub account and sign the CLA."
+            echo "$bad"
+            exit 1
+          fi
       - name: CLA Assistant
         if: >
           (github.event.comment.body == 'recheck' ||
