@@ -41,6 +41,14 @@ on:
       - '.github/workflows/desktop-macos.yml'
   workflow_dispatch:
   workflow_call:
+    # The only secrets this workflow reads — desktop-release.yml passes exactly these, never
+    # `secrets: inherit`. All optional: without them the app is ad-hoc signed (see above).
+    secrets:
+      MAC_CSC_LINK: { required: false }
+      MAC_CSC_KEY_PASSWORD: { required: false }
+      APPLE_API_KEY_P8: { required: false }
+      APPLE_API_KEY_ID: { required: false }
+      APPLE_API_ISSUER: { required: false }
     outputs:
       notarized:
         description: "'true' when both apps are Developer ID signed and carry a stapled notarization ticket"

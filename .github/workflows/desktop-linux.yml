@@ -36,6 +36,11 @@ on:
       - '.github/workflows/desktop-linux.yml'
   workflow_dispatch:
   workflow_call:
+    # The only secrets this workflow reads — desktop-release.yml passes exactly these, never
+    # `secrets: inherit`.
+    secrets:
+      MINISIGN_SECRET_KEY: { required: false }
+      MINISIGN_PASSWORD: { required: false }
 
 permissions:
   contents: read
