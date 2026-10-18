@@ -977,7 +977,16 @@ function SettingsSection() {
         <p>The bell icon shows a numbered badge when one or more alert thresholds are currently triggered. Click it to open a status card listing every active alert — severity, name, and detail about which trace tripped it. The card also has a <strong>Configure alerts →</strong> link that jumps straight to the settings panel. When no alerts are firing the bell has no badge.</p>
 
         <h4 style={subHeadStyle}>Gear icon — settings panel</h4>
-        <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTEL and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Configure OTEL</strong> button, the MCP server toggle, and two collapsible sections, <strong>Alerts</strong> and <strong>Automation</strong>. Close it with the × button or by pressing Escape.</p>
+        <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTEL and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Configure OTEL</strong> button, the <a href="#help-dashboard-port">Dashboard port</a> (standalone only), the MCP server toggle, and two collapsible sections, <strong>Alerts</strong> and <strong>Automation</strong>. Close it with the × button or by pressing Escape.</p>
+
+        <h4 id="help-dashboard-port" style={subHeadStyle}>My dev server needs port 3000</h4>
+        <p>The standalone dashboard uses port 3000 by default, which is also the default for Next.js, Rails, Express and many other dev servers. To move TraceRoost off it, use any of these:</p>
+        <ul>
+          <li><strong>Settings → Dashboard port</strong> (gear icon): enter a port and click <strong>Change</strong>. The dashboard moves straight away, no restart, and the page follows it. Your theme and other preferences come along. <strong>Reset to 3000</strong> moves it back.</li>
+          <li>From a terminal: <code style={codeStyle}>traceroost service install --ui-port 3100</code>. This changes only the port; every other setting is kept.</li>
+          <li>For a single run: <code style={codeStyle}>UI_PORT=3100 npx traceroost</code>.</li>
+        </ul>
+        <p>Your agents aren't affected. They send to TraceRoost's OTLP port (4318) and use the MCP port (4316), which don't change. Bookmarks to the old address stop working. In Docker the port is the <code style={codeStyle}>-p &lt;port&gt;:3000</code> mapping on <code style={codeStyle}>docker run</code> instead.</p>
 
         <h4 id="help-alerts" style={subHeadStyle}>Alerts</h4>
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts. When a live trace crosses a threshold the bell badge increments and the alert appears in the status card. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>

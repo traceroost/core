@@ -16,6 +16,18 @@ const SENT = [
   'A random id for each TraceRoost on your machine (the editor extension and the standalone server each have one)',
   'Your machine’s hostname when you link it, and the TraceRoost version with every request',
 ]
+/** What the panel shows for each SENT line — a few words, with the agreed wording above as its
+ *  tooltip. Same order as SENT. */
+const SENT_SHORT = [
+  'Usage counts',
+  'Model, agent and outcome',
+  'Hashed repo, branch, file and author ids',
+  'Hashed conversation id',
+  'Instruction-file stats',
+  'Loop and error categories',
+  'Install id',
+  'Hostname and version',
+]
 const NEVER_SENT = [
   'Prompts, completions, diffs and file contents',
   'File paths, repository and branch names',
@@ -135,6 +147,13 @@ const DOT_COLOR: Record<OrgIndicator, string> = {
   degraded: '#f14c4c',
 }
 
+const INDICATOR_LABEL: Record<OrgIndicator, string> = {
+  unlinked: 'not linked',
+  reporting: 'synced',
+  queued: 'queued',
+  degraded: 'paused',
+}
+
 export function requestOrgStatus(): void {
   vscode?.postMessage({ type: 'getOrgStatus' })
 }
@@ -203,6 +222,7 @@ export function OrgButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (active ? ' active' : '')}
+        title={`TraceRoost Cloud — ${indicator === 'reporting' && sending ? 'sending' : INDICATOR_LABEL[indicator]}`}
         aria-label="TraceRoost Cloud org"
         aria-expanded={active}
         onClick={() => { orgOpen.value = !orgOpen.value; if (orgOpen.value) requestOrgStatus() }}
@@ -313,7 +333,7 @@ function SentNeverSent() {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:11px">
       <div>
         <div style="font-weight:600;color:var(--fg);margin-bottom:4px">What it would send</div>
-        <ul style="margin:0;padding-left:14px;color:var(--muted);line-height:1.5">{SENT.map(s => <li key={s}>{s}</li>)}</ul>
+        <ul style="margin:0;padding-left:14px;color:var(--muted);line-height:1.5">{SENT.map((s, i) => <li key={s} title={s} style="cursor:help">{SENT_SHORT[i]}</li>)}</ul>
       </div>
       <div>
         <div style="font-weight:600;color:var(--fg);margin-bottom:4px">What it never sends</div>
@@ -353,6 +373,18 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
   const busy = orgBusy.value
   return (
     <>
+      {st.endpoint && (
+        <Section>
+          {/* The environment the picker below resolves to (stage by default in a development build). */}
+          <a
+            href={st.endpoint}
+            target="_blank"
+            rel="noreferrer"
+            title={st.endpoint}
+            style="display:inline-block;font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--fg);text-decoration:none"
+          >Open TraceRoost Cloud →</a>
+        </Section>
+      )}
       {st.notice && (
         <Section>
           <div style="font-size:12px;color:#f14c4c;line-height:1.5">{st.notice.message}</div>
@@ -425,10 +457,16 @@ function LinkedBody({ st }: { st: OrgStatus }) {
     <>
       {/* No title, and no repeated team name — the panel's sticky header above already shows it. */}
       <Section>
-        <div style="font-size:11px;color:var(--muted)">You are <strong>{st.role === 'admin' ? 'an admin' : 'a developer'}</strong> · {st.email ?? `member ${short(st.memberId)}`}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">
-          {st.teammateVisibilitySummary ?? whoSeesWhat(!!st.perDeveloperVisibility, displayOrgName(st))}
-        </div>
+        <button
+          onClick={() => vscode?.postMessage({ type: 'orgOpenView' })}
+          title={st.endpoint}
+          style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer;margin-bottom:8px"
+        >Open Team View →</button>
+        {/* Who sees what about you is the role's tooltip, not a paragraph — the panel is long enough. */}
+        <div style="font-size:11px;color:var(--muted)">You are <strong
+          title={st.teammateVisibilitySummary ?? whoSeesWhat(!!st.perDeveloperVisibility, displayOrgName(st))}
+          style="cursor:help;text-decoration:underline dotted;text-underline-offset:2px"
+        >{st.role === 'admin' ? 'an admin' : 'a developer'}</strong> · {st.email ?? `member ${short(st.memberId)}`}</div>
       </Section>
       <Section title="Status">
         <div style="display:flex;align-items:center;font-size:11px;padding:2px 0">
@@ -455,12 +493,6 @@ function LinkedBody({ st }: { st: OrgStatus }) {
           </a>
         </div>
         <PayloadPreview />
-      </Section>
-      <Section title="Team view">
-        <button
-          onClick={() => vscode?.postMessage({ type: 'orgOpenView' })}
-          style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
-        >Open Team View →</button>
       </Section>
       <Section title="Unlink">
         <button
@@ -531,7 +563,7 @@ export function OrgPanel() {
   return (
     <div inert={!open} aria-hidden={!open} style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">{st?.linked ? displayOrgName(st) : 'Not linked'}</span>
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">TraceRoost Cloud · {st?.linked ? displayOrgName(st) : 'Not linked'}</span>
         <button onClick={() => orgOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)">×</button>
       </div>
       {!st && <div style="padding:16px;font-size:12px;color:var(--muted)">Checking this machine's status — locally, no network…</div>}

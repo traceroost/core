@@ -33,7 +33,7 @@ import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { Automation, checkAutomations } from './tabs/Automation'
 import { receiveInstructionMessage } from './tabs/Instructions'
-import { IngestionToggles, McpToggle, OtelReconfigureButton, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
+import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSetting, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
 import { suggestionUrl } from './suggest'
@@ -133,6 +133,7 @@ function ConfigPanel() {
       <SessionsPageSizeControl />
       <IngestionToggles />
       <OtelReconfigureButton />
+      {window.__STANDALONE__ === true && <DashboardPortSetting />}
       <McpToggle />
       <CollapsibleSection title="Alerts">
         <Alerts />
@@ -354,6 +355,7 @@ function BellButton() {
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
+        title={count > 0 ? `Alerts — ${count} triggered` : 'Alerts'}
         aria-label={count > 0 ? `Alerts (${count})` : 'Alerts'}
         aria-expanded={open}
         onClick={() => { bellOpen.value = !bellOpen.value }}
@@ -430,6 +432,7 @@ function GearButton() {
   return (
     <button
       class={'icon-btn' + (active ? ' active' : '')}
+      title="Settings"
       aria-label="Settings"
       aria-expanded={active}
       onClick={() => { configOpen.value = !configOpen.value }}
@@ -442,6 +445,7 @@ function HelpButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
+      title="Help"
       aria-label="Help"
       aria-pressed={isActive}
       onClick={() => { activeTab.value = 'help' }}
@@ -467,6 +471,7 @@ function PricingButton() {
   return (
     <button
       class={'icon-btn' + (isActive ? ' active' : '')}
+      title="Pricing"
       aria-label="Pricing"
       aria-pressed={isActive}
       onClick={() => { activeTab.value = 'pricing' }}

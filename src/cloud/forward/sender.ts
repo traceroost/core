@@ -8,6 +8,7 @@
  * | Service unreachable / 5xx | keep the item(s), back off, retry next tick. No UI change.     |
  * | 401, refresh transiently fails | refresh once; on failure, one dismissible notice (once per streak), keep queueing; the scheduler retries the refresh within ~30 s, backing off. |
  * | 401, refresh token/client rejected (`invalid_grant`/`invalid_client`, re-checked once after another host had a chance to rotate — tokenRefresh.ts) | stop forwarding, clear the credential *and the queue*, tell the developer with a "Re-link" action and a persistent notice (forwardState.ts) — same as membership-gone below, since this credential will never refresh again. |
+ * | 401, refresh token already presented `MAX_UNANSWERED_PRESENTATIONS` times without an answer (tokenRefresh.ts — a local inference, not the cloud's word) | stop forwarding, clear the credential (it must never be presented again) but *keep the queue*, tell the developer with a "Re-link" action and the persistent notice. The next link keeps the queue only for the same org and member (link.ts). |
  * | 403 `{error:"install revoked"}` | stop forwarding, clear the credential and the queue, tell the developer once. |
  * | 403 from anything else (a proxy or WAF page, a body that isn't the cloud's) | transient: back off, keep the credential and the queue. |
  * | 426 `{error:"client_upgrade_required"}` | pause forwarding (the queue is kept), tell the developer to update TraceRoost. |
@@ -58,7 +59,7 @@ import { DeliveryLedger, DroppedLedger, scopedKey } from './deliveryLedger'
 import { readForwardState, writeForwardState, clearForwardState, type ForwardNotice } from './forwardState'
 import { loadCredentials, clearCredentials, ensureInstallId } from '../org/credentials'
 import { TokenRefreshError } from '../org/oauthClient'
-import { refreshCredentials, accessTokenExpiring } from '../org/tokenRefresh'
+import { refreshCredentials, accessTokenExpiring, RefreshReplayExhaustedError } from '../org/tokenRefresh'
 import { ingestUrl, batchIngestUrl } from '../org/config'
 import { clientVersion } from '../org/oauthClient'
 
@@ -76,6 +77,7 @@ export type NoticeAction = 'relink' | 'update'
 
 export const RELINK_MESSAGE = 'TraceRoost Cloud sign-in expired — re-link this machine to resume sending. Nothing local is lost: traces not yet sent are sent again after you re-link.'
 export const REVOKED_MESSAGE = 'TraceRoost: this machine was unlinked from TraceRoost Cloud (its install was revoked, or your membership ended) and has stopped forwarding. Re-link it to resume.'
+export const RELINK_HELD_MESSAGE = 'TraceRoost Cloud could not confirm this machine\'s sign-in (its refresh went unanswered twice) — re-link this machine to resume sending. Traces not yet sent are kept and sent after you re-link.'
 export const UPGRADE_MESSAGE = 'Update TraceRoost to keep sending to TraceRoost Cloud — this version is no longer accepted. Traces stay queued and are sent after the update.'
 
 /** How long a 426 pauses forwarding before one more try (the cloud may have relaxed its floor);
@@ -312,6 +314,25 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     return { ...result, remaining: 0 }
   }
 
+  // The refresh token ran out of unanswered replays (tokenRefresh.ts `RefreshReplayExhaustedError`):
+  // it can never be presented again, so this credential is cleared and the machine needs a
+  // re-link — but the cloud never said the credential was dead, so the queue is not destroyed on
+  // a local inference. It is kept, marked in the notice with the endpoint/org/member it was built
+  // for: its hashes are salted with that org (`repoKey.ts`) and carry that member's author
+  // fingerprint, so link.ts `persistFromTokens` keeps it only when the re-link is the same org as
+  // the same member, and clears it (at re-link time, not before) otherwise. With no credential,
+  // nothing drains it until then (`not-linked`).
+  function holdForRelink(): DrainResult {
+    const result = finish('auth-failed')
+    const held = creds ? { endpoint: creds.endpoint, orgId: creds.orgId, memberId: creds.memberId } : undefined
+    if (!held) queue.clear() // no owner to check a re-link against — never ship it blind
+    clearCredentials()
+    const notice: ForwardNotice = { kind: 'relink', message: RELINK_HELD_MESSAGE, at: new Date(now()).toISOString(), ...(held ? { heldQueueFor: held } : {}) }
+    clearForwardState(deps.baseHome, notice)
+    deps.notify?.(RELINK_HELD_MESSAGE, 'warning', 'relink')
+    return result
+  }
+
   // HTTP 426 `client_upgrade_required`: this version is too old for the cloud. Nothing is dropped
   // — the queue waits for an update (or UPGRADE_PAUSE_MS, then one more try).
   function upgradeRequired(): DrainResult {
@@ -333,6 +354,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       return undefined
     } catch (err) {
       if (err instanceof TokenRefreshError && err.upgradeRequired) return upgradeRequired()
+      if (err instanceof RefreshReplayExhaustedError) return holdForRelink()
       if (err instanceof TokenRefreshError && err.permanent) {
         // The server rejected the refresh token/client itself — retrying later with the same
         // credential would just fail the same way forever. The Org panel drops back to "Unlinked"
@@ -526,6 +548,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       refreshedThisDrain = true
     } catch (err) {
       if (err instanceof TokenRefreshError && err.upgradeRequired) return upgradeRequired()
+      if (err instanceof RefreshReplayExhaustedError) return holdForRelink()
       if (err instanceof TokenRefreshError && err.permanent) {
         refreshedThisDrain = true
         return unlinkAndClear('auth-failed', RELINK_MESSAGE)

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
+import { movedDashboardUrl } from '../dashboardPortCarry'
 import { enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSize, setSessionsPageSize, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
 
 function sendConfig(key: string, value: boolean) {
@@ -294,6 +295,121 @@ export function OtelReconfigureButton() {
         {running ? 'Configuring…' : 'Configure OTEL'}
       </button>
       {result && <div style="font-size:11px;color:var(--muted);margin-top:6px">{summarizeReconfigure(result)}</div>}
+    </div>
+  )
+}
+
+interface DashboardPortInfo {
+  port: number
+  configured: number
+  defaultPort: number
+  lockedBy: 'env' | 'network' | 'docker' | null
+  lockedReason?: string
+  reserved: number[]
+}
+
+const codeStyle = 'font-size:10px;background:var(--card-bg);padding:1px 4px;border-radius:3px'
+
+/** Settings → Dashboard port (standalone only — the VS Code webview has no port). Moves the
+ *  running dashboard without a restart; see standalone/dashboardPort.ts for the server half. */
+export function DashboardPortSetting() {
+  const [info, setInfo] = useState<DashboardPortInfo | null>(null)
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/dashboard-port')
+      .then(r => r.json())
+      .then((d: DashboardPortInfo) => setInfo(d))
+      .catch(() => { /* older server or offline — the row just doesn't show */ })
+  }, [])
+
+  if (!info) return null
+
+  function change(port: number) {
+    setBusy(true)
+    setError(null)
+    fetch('/action', { method: 'POST', body: JSON.stringify({ type: 'setDashboardPort', port }),
+      headers: { 'Content-Type': 'application/json' } })
+      .then(r => r.json())
+      .then((res: { ok: boolean; port?: number; error?: string }) => {
+        if (!res.ok || typeof res.port !== 'number') {
+          setError(res.error ?? 'The port could not be changed.')
+          setBusy(false)
+          return
+        }
+        if (res.port === info!.port) {
+          // Saved the port a startup fallback landed on — no move.
+          setInfo({ ...info!, configured: res.port })
+          setValue('')
+          setBusy(false)
+          return
+        }
+        let storage: Storage | null = null
+        try { storage = window.localStorage } catch { /* unavailable */ }
+        window.location.href = movedDashboardUrl(res.port, window.location, storage)
+      })
+      .catch(e => { setError(String(e)); setBusy(false) })
+  }
+
+  function submit(e: Event) {
+    e.preventDefault()
+    const port = Number(value.trim())
+    if (value.trim() !== '') change(port)
+  }
+
+  const fellBack = info.port !== info.configured
+  return (
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Dashboard port: {info.port}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        Change this if a dev server you use needs this port. Your agents aren't affected — they keep sending to TraceRoost's OTLP port. Bookmarks to the old address stop working.
+      </div>
+      {fellBack && !info.lockedBy && (
+        <div style="font-size:11px;color:var(--fg);margin-bottom:8px">
+          Port {info.configured} was in use when TraceRoost started, so the dashboard is on {info.port} for now. Set a port here to make it stick.
+        </div>
+      )}
+      {info.lockedBy ? (
+        <div style="font-size:11px;color:var(--muted)">{info.lockedReason}</div>
+      ) : (
+        <form onSubmit={submit} style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <input
+            type="number"
+            min={1024}
+            max={65535}
+            inputMode="numeric"
+            aria-label="New dashboard port"
+            placeholder={fellBack ? String(info.port) : '3100'}
+            value={value}
+            onInput={e => setValue((e.target as HTMLInputElement).value)}
+            disabled={busy}
+            style="width:12ch;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--vscode-input-background,var(--card-bg));color:var(--fg)"
+          />
+          <button
+            type="submit"
+            disabled={busy || value.trim() === ''}
+            style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)"
+          >
+            {busy ? 'Changing…' : 'Change'}
+          </button>
+          {info.configured !== info.defaultPort && (
+            <button
+              type="button"
+              onClick={() => change(info.defaultPort)}
+              disabled={busy}
+              style="padding:3px 0;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--vscode-textLink-foreground,#3794ff)"
+            >
+              Reset to {info.defaultPort}
+            </button>
+          )}
+        </form>
+      )}
+      {error && <div role="alert" style="font-size:11px;color:var(--vscode-testing-iconFailed,#f44);margin-top:6px">{error}</div>}
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">
+        From a terminal: <code style={codeStyle}>traceroost service install --ui-port &lt;port&gt;</code>
+      </div>
     </div>
   )
 }

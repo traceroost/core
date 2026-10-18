@@ -239,3 +239,37 @@ into a local tap, `traceroost/local`, and installs it in place of any Homebrew c
 formula: `brew uninstall traceroost && brew untap traceroost/local && brew install
 traceroost/tap/traceroost`.
 
+## Desktop app
+
+The desktop app under `desktop/` (see `desktop/README.md`) ships the same core-edition collector
+the npm tarball does, built from the same tree, so its version is `package.json`'s version
+automatically; a release bump needs no change in `desktop/`.
+
+The tag's `release.yml` run includes a `desktop` job (`.github/workflows/desktop-release.yml`)
+after `package`. It runs the macOS and Linux desktop workflows (the same builds every desktop pull
+request runs, smoke tests and the Linux install matrix included), then attaches the installers, a
+`TraceRoost-desktop-<v>-SHA256SUMS` and provenance attestations to the release `package` created. It
+finishes well after the other publish jobs (the Linux distro matrix dominates), and a failure there
+does not affect the VSIX, npm or Docker publish. Re-running a failed desktop job is safe: files
+already attached are compared, never replaced, and only missing ones are uploaded.
+
+Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and run
+`sha256sum -c TraceRoost-desktop-X.Y.Z-SHA256SUMS --ignore-missing` and
+`gh attestation verify <file> --repo traceroost/core`.
+
+- **Linux** (.deb and AppImage, x64 and arm64) is attached on every release.
+- **macOS is built and tested on every release but attached only when notarized.** It is ad-hoc
+  signed until the Apple Developer Program credentials exist, and Gatekeeper refuses an ad-hoc
+  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`,
+  `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, which `desktop-macos.yml` documents),
+  the same build is signed and notarized with no code change and the next tag attaches it. Before
+  announcing it as an install method, open a downloaded, quarantined DMG on a fresh macOS user
+  account.
+- **Windows** is paused; the work is parked on the `desktop-windows-app` branch and nothing builds
+  it for a release.
+- **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default `linux,macos`)
+  turns a platform off without a code change; a non-`core` `TRACEROOST_RELEASE_EDITION` skips
+  desktop with a notice (the app is core-only).
+- **minisign**: with `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` set, the checksums file gets a
+  `.minisig`. No key exists yet; publish the public key in `desktop/README.md` when one is made.
+
