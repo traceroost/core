@@ -50,6 +50,7 @@ suite('TraceRoost extension (end to end)', () => {
     else assert.ok(org.length >= 3, 'full edition registers the Org commands')
   })
 
+  // run.mjs records the user's yes to agent setup in the temp home first (answerAgentSetupYes).
   test('auto-configures Claude Code and Codex under the (temp) home directory', async () => {
     const endpoint = `http://localhost:${cfg.otlpPort}`
     const settings = await waitFor('~/.claude/settings.json', () => {

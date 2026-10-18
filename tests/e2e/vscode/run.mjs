@@ -22,7 +22,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import {
-  REPO_ROOT, IS_WIN, log, freePorts, makeTempHome, makeGitRepo, claudeFixture, writeClaudeTranscript,
+  REPO_ROOT, IS_WIN, log, freePorts, makeTempHome, answerAgentSetupYes, makeGitRepo, claudeFixture, writeClaudeTranscript,
   commitFixtureChange, FIXTURE_MODEL,
 } from '../lib.mjs'
 
@@ -63,6 +63,9 @@ async function main() {
   const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath })
 
   const t = makeTempHome(`vscode-${label}`)
+  // The user's yes to agent setup, as answering the first-run notification would record — the
+  // suite checks what setup writes, and the extension asks before writing anything.
+  answerAgentSetupYes(t.home)
   const userDataDir = path.join(t.home, 'vscode-user-data')
   const extensionsDir = path.join(t.home, 'vscode-extensions')
   fs.mkdirSync(path.join(userDataDir, 'User'), { recursive: true })
