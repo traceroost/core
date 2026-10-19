@@ -370,8 +370,8 @@ jobs:
 
   # The desktop apps (.github/workflows/desktop-release.yml) — only from a tag, only after `package`
   # has passed and created the GitHub release they attach to. Independent of the other publish jobs
-  # in both directions. Linux is attached on every release; macOS once it is notarized; Windows once
-  # it is signed (or either unsigned, named so, with TRACEROOST_DESKTOP_ATTACH_UNSIGNED=true); the
+  # in both directions. Linux is attached on every release; macOS and Windows signed once their
+  # signing secrets exist, and until then as `*-preview` builds labelled "(preview)"; the
   # edition gate and the TRACEROOST_DESKTOP_PLATFORMS switch live in desktop-release.yml.
   desktop:
     needs: package
