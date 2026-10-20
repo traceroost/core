@@ -33,7 +33,7 @@ import { OwnedCollector, type CollectorState } from './collector'
 import { dashboardTarget } from './dashboardUrl'
 import { describeVerdict, inspectCollector, type HandshakeEnv } from './handshake'
 import { openDesktopLog } from './logs'
-import { describeMode, resolveMode, type ShellMode } from './mode'
+import { describeMode, isOwnCollector, resolveMode, type ShellMode } from './mode'
 import { assertRuntimeSupportsCollector, resolveCollectorResources } from './resources'
 import { createTray, menuTemplate, type TrayController, type TrayHandlers } from './tray'
 import { buildMenuModel } from './trayMenu'
@@ -246,6 +246,11 @@ const resources = (() => {
 async function settleOwnership(): Promise<void> {
   const verdict = await inspectCollector(dataDir, resources.version, handshakeEnv())
   log.write(`[desktop] handshake: ${describeVerdict(verdict)}`)
+  // A wake-time re-check of our own running collector finds its own lock: still owned mode.
+  if (isOwnCollector(verdict, collectorState())) {
+    if (shellMode.mode !== 'own') setMode({ mode: 'own' })
+    return
+  }
   const resolved = resolveMode(verdict)
 
   if (resolved.mode === 'wait') {
@@ -273,7 +278,8 @@ async function settleOwnership(): Promise<void> {
     return
   }
   setMode(resolved)
-  if (resolved.mode === 'attach' && showWindowWhenReady) openWindowFor(resolved.identity.uiPort)
+  // Only the first time: a wake-time re-check must not bring back a window the user closed.
+  if (resolved.mode === 'attach' && showWindowWhenReady && win === undefined) openWindowFor(resolved.identity.uiPort)
 }
 
 async function startOwnedCollector(): Promise<void> {

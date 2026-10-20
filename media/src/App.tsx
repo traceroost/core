@@ -19,7 +19,7 @@ import {
 } from './state'
 import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
-import { DATA_SOURCE_COLORS, INITIATOR_COLORS } from './utils'
+import { DATA_SOURCE_COLORS, INITIATOR_COLORS, isHostMessage } from './utils'
 import { LANGUAGE_LABELS } from './language'
 
 // Tab components
@@ -624,6 +624,7 @@ export function App() {
       settledOutcomeIds.clear()
     }
     const handler = (e: MessageEvent) => {
+      if (!isHostMessage(e) || e.data === null || typeof e.data !== 'object') return
       const incomingType = (e.data as { type?: unknown } | null)?.type
       if (pendingOutcomes && incomingType !== 'gitOutcome' && incomingType !== 'gitOutcomeCache'
         && incomingType !== 'gitOutcomeCacheBatch') flushOutcomes()
