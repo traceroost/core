@@ -8,6 +8,16 @@ import { sessionsVersion } from './sessionsVersion'
 import { toUuid, horizonOfExtents, type SourceExtent } from '../traceIdentity'
 import { isSessionLanguage, languageFromRecord, type SessionLanguage, type SecondaryLanguage } from '../language'
 
+/** `(row, name) => row[columns.indexOf(name)]` with the index looked up once per column, not once
+ *  per cell — listSessions reads ~45 columns of every retained row. */
+function columnGetter(columns: string[]): (row: unknown[], name: string) => unknown {
+  const index = new Map(columns.map((c, i) => [c, i]))
+  return (row, name) => {
+    const i = index.get(name)
+    return i === undefined ? undefined : row[i]
+  }
+}
+
 /** Stored change-size counts — only non-negative integers come back; NULL (an older row, or a
  *  source with no edit contents) stays absent. */
 function readEditStats(files: unknown, added: unknown, removed: unknown): { filesChangedCount?: number; linesAdded?: number; linesRemoved?: number } {
@@ -43,7 +53,7 @@ function readLanguage(primary: unknown, secondary: unknown, files: () => { files
 
 export interface DailyStatRow {
   day: string              // 'YYYY-MM-DD'
-  totalTokens: number      // input + output (excludes cache tokens)
+  totalTokens: number      // SUM(input_tokens) — the input side only (stored input includes cache reads/writes); output is outputTokens
   cacheReadTokens: number
   cacheCreateTokens: number
   outputTokens: number
@@ -186,7 +196,7 @@ export class DatabaseReader {
     if (!results[0]) return []
 
     const { columns, values } = results[0]
-    const col = (row: unknown[], name: string) => row[columns.indexOf(name)]
+    const col = columnGetter(columns)
 
     return values.map(row => {
       const startMs = col(row, 'start_time') as number
@@ -242,7 +252,7 @@ export class DatabaseReader {
     if (!entryResults[0]) return []
 
     const { columns: ec, values: ev } = entryResults[0]
-    const ecol = (row: unknown[], name: string) => row[ec.indexOf(name)]
+    const ecol = columnGetter(ec)
 
     const entryIds: number[] = []
     const entries: TimelineEntry[] = ev.map(row => {
@@ -277,7 +287,7 @@ export class DatabaseReader {
 
     if (editResults[0]) {
       const { columns: dc, values: dv } = editResults[0]
-      const dcol = (row: unknown[], name: string) => row[dc.indexOf(name)]
+      const dcol = columnGetter(dc)
 
       const editsByEntry = new Map<number, EditDetail[]>()
       for (const row of dv) {
@@ -335,7 +345,7 @@ export class DatabaseReader {
     const results = this.db.exec(sql)
     if (!results[0]) return []
     const { columns, values } = results[0]
-    const col = (row: unknown[], name: string) => row[columns.indexOf(name)]
+    const col = columnGetter(columns)
     return values.map(row => ({
       day:               col(row, 'day') as string,
       totalTokens:       (col(row, 'total_tokens') as number) ?? 0,
@@ -369,7 +379,7 @@ export class DatabaseReader {
     const results = this.db.exec(sql)
     if (!results[0]) return []
     const { columns, values } = results[0]
-    const col = (row: unknown[], name: string) => row[columns.indexOf(name)]
+    const col = columnGetter(columns)
     return values.map(row => ({
       day:               col(row, 'day') as string,
       totalTokens:       (col(row, 'total_tokens') as number) ?? 0,
@@ -465,7 +475,7 @@ export class DatabaseReader {
     if (!dataResults[0]) return { sessions: [], totalCount }
 
     const { columns, values } = dataResults[0]
-    const col = (row: unknown[], name: string) => row[columns.indexOf(name)]
+    const col = columnGetter(columns)
     const sessions = values.map(row => {
       const startMs = col(row, 'start_time') as number
       return {
@@ -529,7 +539,7 @@ export class DatabaseReader {
     if (!results[0] || results[0].values.length < 2) return null
 
     const { columns, values } = results[0]
-    const col = (row: unknown[], name: string) => row[columns.indexOf(name)]
+    const col = columnGetter(columns)
 
     const firstTs = Date.parse(col(values[0], 'timestamp') as string)
     const lastTs  = Date.parse(col(values[values.length - 1], 'timestamp') as string)

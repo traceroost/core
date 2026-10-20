@@ -4,6 +4,7 @@ import {
   getAttrStr, getAttrInt, nanoToMs, extractUserRequest,
   summarizeToolArgs, summarizeToolResult, extractResponseText, detectOutputAction,
   extractTokenCounts, getGenAiModel, rankModelsByWeight, parseApplyPatchEditDetails,
+  APPLY_PATCH_FILE_HEADER_RE,
 } from './helpers'
 
 export function buildCopilotSessions(
@@ -122,7 +123,7 @@ export function buildCopilotSessions(
             const args = JSON.parse(argsStr)
             const patchContent = args.command || args.patch || args.input || ''
             for (const line of patchContent.split('\n')) {
-              const m = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
+              const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
               if (m) {
                 const fp = m[1].trim()
                 if (fp && /[\\/]/.test(fp)) { filesChanged.add(fp) }  // a path (either separator), not *** Begin/End Patch

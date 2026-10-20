@@ -6,6 +6,7 @@ import {
   isCodexPromptSpanName, isCodexToolExecSpan, isCodexLlmSpanName,
   isCodexToolDecisionSpan, isCodexToolCallSpan, isCodexToolResultSpan,
   summarizeToolResult, normalizeUserRequest, rankModelsByWeight, parseApplyPatchEditDetails,
+  APPLY_PATCH_FILE_HEADER_RE,
 } from './helpers'
 
 // A shell command mentioning a file path doesn't mean the file was changed — `cat foo.ts`,
@@ -186,7 +187,7 @@ export function buildCodexSessions(spans: Span[]): SessionSummaryCard[] {
               const patchDetails = parseApplyPatchEditDetails(patchContent)
               if (patchDetails.length > 0) editDetails = patchDetails
               for (const line of patchContent.split('\n')) {
-                const m = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
+                const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
                 if (m) {
                   const patchFp = m[1].trim()
                   if (patchFp && /[\\/]/.test(patchFp)) {
