@@ -66,18 +66,25 @@ export async function refreshOrgNameIfStale(log?: (m: string) => void): Promise<
     return false
   }
   roleCheckedThisProcess = true
+  // Re-read after the roster round trip: another host (or this one's sender) may have rotated the
+  // token pair meanwhile, and writing back the pair read before the fetch would put an
+  // already-replaced refresh token on disk — the next refresh would replay it. Only the roster
+  // fields are merged onto whatever the file holds now; a credential gone or re-linked since is
+  // left alone.
+  const latest = loadCredentials()
+  if (!latest || latest.orgId !== creds.orgId || latest.memberId !== creds.memberId) return false
   const next = {
-    ...creds,
+    ...latest,
     orgName: self.orgName,
     role: self.role,
     perDeveloperVisibility: self.perDeveloperVisibility,
-    email: self.email || creds.email,
-    teammateVisibilitySummary: self.teammateVisibilitySummary ?? creds.teammateVisibilitySummary,
+    email: self.email || latest.email,
+    teammateVisibilitySummary: self.teammateVisibilitySummary ?? latest.teammateVisibilitySummary,
   }
   if (
-    next.orgName === creds.orgName && next.role === creds.role &&
-    next.perDeveloperVisibility === creds.perDeveloperVisibility && next.email === creds.email &&
-    next.teammateVisibilitySummary === creds.teammateVisibilitySummary
+    next.orgName === latest.orgName && next.role === latest.role &&
+    next.perDeveloperVisibility === latest.perDeveloperVisibility && next.email === latest.email &&
+    next.teammateVisibilitySummary === latest.teammateVisibilitySummary
   ) return false
   saveCredentials(next)
   return true

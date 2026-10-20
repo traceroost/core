@@ -267,6 +267,9 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
     // the revision held here is skipped — the dashboard asks for the full update that fixes both.
     var __latestRev__ = window.__INITIAL_SESSION_REV__;
     window.addEventListener('message', function(e) {
+      // Only frames this page delivers to itself (media/src/utils.ts's isHostMessage) — another
+      // window that opened this loopback page can postMessage into it too.
+      if (!(e.source === window || (e.source === null && e.origin === ''))) return;
       var d = e.data;
       if (!d || d.type !== 'update') return;
       if (d.sessionSummary !== undefined) {
