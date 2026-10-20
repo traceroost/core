@@ -1244,8 +1244,8 @@ is **not** in the payload — the service derives identity from the bearer token
 cannot see other machines, so there is no flag to patch out and no fork that recovers Cloud features. The
 full statement, and the things the free tier will never do (no feature removed to force an
 upgrade, no quotas, no free self-hostable team server), lives with the pricing-page copy. (Cloud
-itself offers a no-card Individual trial — `INDIVIDUAL_TRIAL_DAYS` in `traceroost/cloud`'s
-`src/lib/trial.ts`; that is a Cloud plan, not a limit on the free local tier.)
+itself has a Free plan — three developers, every Cloud feature, `traceroost/cloud`'s
+`src/lib/entitlements.ts`; that is a Cloud plan, not a limit on the free local tier.)
 
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
 machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
