@@ -3,10 +3,10 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { decodeBody } from './decodeBody'
-import { drainQueue, resetServerCapabilities, UPGRADE_PAUSE_MS, UPGRADE_MESSAGE, RELINK_MESSAGE, RELINK_HELD_MESSAGE } from '../../../cloud/forward/sender'
+import { drainQueue, resetServerCapabilities, UPGRADE_PAUSE_MS, UPGRADE_MESSAGE, RELINK_MESSAGE, RELINK_HELD_MESSAGE, CEILING_MESSAGE } from '../../../cloud/forward/sender'
 import { ForwardQueue } from '../../../cloud/forward/queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from '../../../cloud/forward/deliveryLedger'
-import { readForwardState, writeForwardState } from '../../../cloud/forward/forwardState'
+import { readForwardState, writeForwardState, currentForwardNotice } from '../../../cloud/forward/forwardState'
 import { MAX_UNANSWERED_PRESENTATIONS } from '../../../cloud/org/tokenRefresh'
 import { clientVersion } from '../../../cloud/org/oauthClient'
 import { setCredentialStore, type CredentialStore } from '../../../cloud/org/credentials'
@@ -693,6 +693,117 @@ suite('forward/sender', () => {
     const st = readForwardState(home)
     assert.strictEqual(st.paused, true)
     assert.ok((st.pausedUntil ?? 0) > Date.now())
+  })
+
+  test('a plain 429 (the per-install rate limit) raises no notice', async () => {
+    new ForwardQueue(home).enqueue(payload(ID1))
+    const notices: string[] = []
+    stubFetch(() => new Response('', { status: 429, headers: { 'Retry-After': '60' } }))
+    await drainQueue({ baseHome: home, notify: (m) => notices.push(m) })
+    assert.deepStrictEqual(notices, [])
+    assert.strictEqual(readForwardState(home).notice, null)
+  })
+
+  suite('daily rollup ceiling (429 + X-TraceRoost-Ceiling: daily)', () => {
+    const EVENING = Date.parse('2026-10-20T21:00:00Z')
+    const MIDNIGHT = Date.parse('2026-10-21T00:00:00Z')
+    const ceiling429 = (retryAfter: string) =>
+      new Response(JSON.stringify({ error: 'daily rollup ceiling' }), {
+        status: 429,
+        headers: { 'Retry-After': retryAfter, 'X-TraceRoost-Ceiling': 'daily' },
+      })
+
+    test('keeps the queue, pauses until Retry-After, and tells the developer once', async () => {
+      new ForwardQueue(home).enqueue(payload(ID1))
+      const notices: Array<[string, string]> = []
+      stubFetch(() => ceiling429(String(3 * 3600)))
+      const res = await drainQueue({ baseHome: home, now: () => EVENING, notify: (m, k) => notices.push([m, k]) })
+      assert.strictEqual(res.stopped, 'rate-limited')
+      assert.strictEqual(new ForwardQueue(home).depth(), 1)
+      const st = readForwardState(home)
+      assert.strictEqual(st.paused, true)
+      assert.strictEqual(st.pausedUntil, MIDNIGHT)
+      assert.strictEqual(st.lastError, 'daily limit reached')
+      assert.strictEqual(st.notice?.kind, 'ceiling')
+      assert.strictEqual(st.notice?.day, '2026-10-20')
+      assert.deepStrictEqual(notices, [[CEILING_MESSAGE, 'info']])
+
+      // Later the same day (say the pause was cleared by hand): refused again, not told again.
+      writeForwardState({ paused: false, pausedUntil: null }, home)
+      await drainQueue({ baseHome: home, now: () => EVENING + 3600_000, notify: (m, k) => notices.push([m, k]) })
+      assert.strictEqual(notices.length, 1)
+    })
+
+    test('never pauses past midnight UTC, whatever Retry-After says', async () => {
+      new ForwardQueue(home).enqueue(payload(ID1))
+      stubFetch(() => ceiling429('86400'))
+      await drainQueue({ baseHome: home, now: () => EVENING })
+      assert.strictEqual(readForwardState(home).pausedUntil, MIDNIGHT)
+    })
+
+    test('after midnight the backlog drains in order and the notice clears', async () => {
+      const q = new ForwardQueue(home)
+      for (const id of [ID1, ID2, ID3]) q.enqueue(payload(id))
+      stubFetch(() => ceiling429(String(3 * 3600)))
+      await drainQueue({ baseHome: home, now: () => EVENING })
+      assert.strictEqual(new ForwardQueue(home).depth(), 3)
+
+      // Still paused at 23:59.
+      assert.strictEqual((await drainQueue({ baseHome: home, now: () => MIDNIGHT - 60_000 })).stopped, 'rate-limited')
+
+      const sentIds: string[] = []
+      stubFetch((_url, init) => {
+        const items = batchItems(init)
+        sentIds.push(...items.map(p => p.session!.session_id))
+        return batchOk(items, () => ({ status: 202 }))
+      })
+      const res = await drainQueue({ baseHome: home, now: () => MIDNIGHT + 5 * 60_000 })
+      assert.strictEqual(res.sent, 3)
+      assert.deepStrictEqual(sentIds, [ID1, ID2, ID3])
+      const st = readForwardState(home)
+      assert.strictEqual(st.paused, false)
+      assert.strictEqual(st.notice, null)
+    })
+
+    test('a drain that sent some chunks before the 429 keeps the pause', async () => {
+      enqueueMany(30)
+      let calls = 0
+      stubFetch((_url, init) => (++calls === 1 ? batchOk(batchItems(init), () => ({ status: 202 })) : ceiling429('3600')))
+      const res = await drainQueue({ baseHome: home, now: () => EVENING })
+      assert.strictEqual(res.sent, 25)
+      assert.strictEqual(res.stopped, 'rate-limited')
+      const st = readForwardState(home)
+      assert.strictEqual(st.paused, true)
+      assert.strictEqual(st.pausedUntil, EVENING + 3600_000)
+      assert.strictEqual(new ForwardQueue(home).depth(), 5)
+    })
+
+    test('the single-item fallback route honours it the same way', async () => {
+      new ForwardQueue(home).enqueue(payload(ID1))
+      stubFetch((url) => (url.endsWith('/api/ingest/batch') ? new Response('', { status: 404 }) : ceiling429('600')))
+      const res = await drainQueue({ baseHome: home, now: () => EVENING })
+      assert.strictEqual(res.stopped, 'rate-limited')
+      assert.strictEqual(readForwardState(home).notice?.kind, 'ceiling')
+      assert.strictEqual(new ForwardQueue(home).depth(), 1)
+    })
+
+    test('a notice from an earlier UTC day is no longer shown', async () => {
+      new ForwardQueue(home).enqueue(payload(ID1))
+      stubFetch(() => ceiling429('600'))
+      await drainQueue({ baseHome: home, now: () => EVENING })
+      assert.strictEqual(currentForwardNotice(home, undefined, EVENING)?.kind, 'ceiling')
+      assert.strictEqual(currentForwardNotice(home, undefined, MIDNIGHT + 1), null)
+    })
+
+    test('does not replace an update notice', async () => {
+      new ForwardQueue(home).enqueue(payload(ID1))
+      writeForwardState({ notice: { kind: 'upgrade', message: UPGRADE_MESSAGE, at: new Date().toISOString(), version: clientVersion() } }, home)
+      const notices: string[] = []
+      stubFetch(() => ceiling429('600'))
+      await drainQueue({ baseHome: home, now: () => EVENING, notify: (m) => notices.push(m) })
+      assert.strictEqual(readForwardState(home).notice?.kind, 'upgrade')
+      assert.deepStrictEqual(notices, [])
+    })
   })
 
   test('500 → every item in the chunk kept with a bumped attempt count (backoff); drain reports offline but does not stop early', async () => {
