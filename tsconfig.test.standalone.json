@@ -71,6 +71,8 @@
     "standalone/db/outcomesDb.ts",
     "standalone/db/outcomesDb.test.ts",
     "standalone/cloud/explainPayload.ts",
-    "standalone/cloud/explainPayload.test.ts"
+    "standalone/cloud/explainPayload.test.ts",
+    "standalone/cloud/org-cli.ts",
+    "standalone/cloud/org-cli.test.ts"
   ]
 }

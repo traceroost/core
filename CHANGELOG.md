@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### TraceRoost Cloud (full edition only)
+
+- **`traceroost org link` works over SSH and on machines without a display** — it always used the browser flow, which waits for a sign-in callback on this machine, so over SSH (or on a Linux server with no display) it could only time out unless you knew to pass `--device`. It now shows a URL and a code to approve from any device whenever no browser can be opened here; `--device` and `--browser` force either flow. The README has a new "Headless forwarder" section: run the background service, link, and check forwarding, all from a terminal
+
 ## [0.20.0] — 2026-10-18
 
 ### Added
