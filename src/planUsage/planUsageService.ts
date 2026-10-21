@@ -188,8 +188,9 @@ export class PlanUsageService {
     }
 
     const weeklyRollups: WindowRollup[] = []
+    const allWeekly = this.repo.rollups('weekly', now - 365 * DAY)
     for (const provider of ['claude', 'codex'] as LimitProvider[]) {
-      weeklyRollups.push(...this.repo.rollups('weekly', now - 365 * DAY).filter(r => r.provider === provider).slice(-12))
+      weeklyRollups.push(...allWeekly.filter(r => r.provider === provider).slice(-12))
     }
 
     const historyStartsAt: PlanUsageSnapshot['historyStartsAt'] = {}

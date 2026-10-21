@@ -278,7 +278,7 @@ flowchart TD
     INC -- cards --> WRI
 ```
 
-**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `logFileState.ts`'s `restoreLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`. The file carries a version (`LOG_FILE_STATE_VERSION`): a parser fix that must correct already-stored sessions bumps it, and restoring an older file forgets the affected files so they're re-parsed and their rows rewritten once — version 2 re-reads Codex rollouts (within retention) stored with reasoning tokens counted twice (`logFileState.codexReparse.test.ts`); version 3 re-reads every file within retention once, one trace per turn (see Trace identity below).
+**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `logFileState.ts`'s `restoreLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`. The file carries a version (`LOG_FILE_STATE_VERSION`): a parser fix that must correct already-stored sessions bumps it, and restoring an older file forgets the affected files so they're re-parsed and their rows rewritten once — version 2 re-reads Codex rollouts (within retention) stored with reasoning tokens counted twice (`logFileState.codexReparse.test.ts`); version 4 re-reads every file within retention once, one trace per turn (see Trace identity below; 3 was an interim development format); version 5 records each file's trace keys so a key a file stops producing is retired from the store.
 
 **Two-phase startup loading:** the fast group (all non-.json files) runs first and surfaces recent sessions immediately. The slow group (legacy .json snapshots) starts after the fast group finishes, with a 50 ms gap between each 2-file batch to keep the extension host responsive (each ~60 ms parsing window).
 
@@ -326,7 +326,7 @@ Derived keys carry `derived: true`. Subagent transcripts (`<session>/subagents/a
 
 **Changed turns only.** A growing transcript is re-parsed whole, but `parseFile`/`scan` return only the turns whose card changed since the last pass (`LogReader._onlyChanged`).
 
-**Upgrading a store.** A trace store older than `TRACE_STORE_VERSION` (SQLite `PRAGMA user_version`, `src/database/traceStore.ts` — the extension's `traceroost.db` and the standalone server's `outcomes-cache.db`) is not migrated: its trace tables (sessions with their timelines, git-outcome caches, trace revisions, commit attribution, plan-limit hits) are dropped and refilled by reading the agent logs again from scratch (`LOG_FILE_STATE_VERSION` 4), and queued or delivered trace records go with them, while settings, instruction suggestions, blame/turnover caches, plan-limit readings and rollups, the cloud link and the host id are kept. The trace-key manifest (the list of trace keys a host still holds, which lets the cloud retire rows deleted locally — `src/cloud/forward/traceManifest.ts` — see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)`, `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` over the standalone server's cards.
+**Upgrading a store.** A trace store older than `TRACE_STORE_VERSION` (SQLite `PRAGMA user_version`, `src/database/traceStore.ts` — the extension's `traceroost.db` and the standalone server's `outcomes-cache.db`) is not migrated: its trace tables (sessions with their timelines, git-outcome caches, trace revisions, commit attribution, plan-limit hits) are dropped and refilled by reading the agent logs again from scratch (`LOG_FILE_STATE_VERSION` 4, and 5 with `TRACE_STORE_VERSION` 2), and queued or delivered trace records go with them, while settings, instruction suggestions, blame/turnover caches, plan-limit readings and rollups, the cloud link and the host id are kept. The trace-key manifest (the list of trace keys a host still holds, which lets the cloud retire rows deleted locally — `src/cloud/forward/traceManifest.ts` — see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)`, `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` over the standalone server's cards.
 
 ### Per-session language and change size
 
@@ -500,6 +500,7 @@ erDiagram
         TEXT one_shot_stats
         TEXT initiator
         TEXT conversation_id
+        TEXT git_branch
         INTEGER derived
         INTEGER source_rank
         INTEGER subagent_count
@@ -1152,7 +1153,8 @@ graph LR
 
 `pnpm run check-types` runs a third pass, `tsc --noEmit -p standalone/tsconfig.json`, which
 covers all of `standalone/**` (server, CLI, `local/`, `service/`, `db/`, `cloud/`) together with
-the `src/**` it imports, so a type error anywhere in the standalone code fails `compile` and CI.
+the `src/**` it imports, so a type error anywhere in the standalone code fails `compile` and CI —
+and a fourth, `tsc --noEmit -p tsconfig.test.desktop.json`, for `desktop/`.
 Separately, `tsconfig.test.standalone.json` compiles the unit-tested standalone files and their
 tests for `pnpm run test:unit` (`compile-tests:standalone`).
 
@@ -1194,6 +1196,14 @@ org admin see cross-developer aggregates. The rest of the codebase reaches it on
 | `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders — prose fields structurally unreachable |
 | `src/cloud/org/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
 | `src/cloud/org/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
+| `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
+| `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
+| `src/cloud/org/hostIdentity.ts` | This host's `host_id` — a random UUID kept in its own trace store (`cloud-host-id`), created on first linked use; the extension and the standalone server each have one |
+| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
+| `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
+| `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
+| `src/cloud/forward/traceManifest.ts` | The trace-key manifest — per-day chunks of the keys this host holds, tagged with its `host_id`, sent after a drain by the store's single writer (each host for its own rows); full sweep on startup/(re-)link, changed days otherwise |
+| `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
 **The split that makes instruction suggestions genuinely a Cloud feature:** the cloud finds the pattern (some file is read in
 62% of sessions by four of six developers), the machine writes the text (which file, and the
@@ -1205,14 +1215,6 @@ baseline. Apply loop: `traceroost advise --apply <id>` regenerates with real pat
 captures a baseline; `vscode://agentlens.agentlens-dashboard/advise?id=…` is the editor deep
 link — routed through VS Code's own URI scheme, not a custom-registered `agentlens://` one; see
 `src/extension.ts`'s "Deep links" comment.
-| `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
-| `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
-| `src/cloud/org/hostIdentity.ts` | This host's `host_id` — a random UUID kept in its own trace store (`cloud-host-id`), created on first linked use; the extension and the standalone server each have one |
-| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
-| `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
-| `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
-| `src/cloud/forward/traceManifest.ts` | The trace-key manifest — per-day chunks of the keys this host holds, tagged with its `host_id`, sent after a drain by the store's single writer (each host for its own rows); full sweep on startup/(re-)link, changed days otherwise |
-| `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
 `traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
 (`standalone/cloud/explainPayload.ts`) print the exact bytes for a real session, stable-key-ordered,
@@ -1242,8 +1244,8 @@ is **not** in the payload — the service derives identity from the bearer token
 cannot see other machines, so there is no flag to patch out and no fork that recovers Cloud features. The
 full statement, and the things the free tier will never do (no feature removed to force an
 upgrade, no quotas, no free self-hostable team server), lives with the pricing-page copy. (Cloud
-itself offers a no-card Individual trial — `INDIVIDUAL_TRIAL_DAYS` in `traceroost/cloud`'s
-`src/lib/trial.ts`; that is a Cloud plan, not a limit on the free local tier.)
+itself has a Free plan — three developers, every Cloud feature, `traceroost/cloud`'s
+`src/lib/entitlements.ts`; that is a Cloud plan, not a limit on the free local tier.)
 
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
 machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`

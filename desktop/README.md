@@ -106,7 +106,7 @@ Open the DMG and drag TraceRoost to Applications. Then:
 Check a download against the release's `TraceRoost-desktop-<v>-SHA256SUMS` with
 `shasum -a 256 -c TraceRoost-desktop-<v>-SHA256SUMS --ignore-missing` in the directory holding the
 files. (A local `pnpm run pack` writes a plain `dist/SHA256SUMS`.) Releases attach the macOS files
-only once they are notarized; see [Releases](#releases).
+under their plain names once they are notarized, and as `*-preview` until then; see [Releases](#releases).
 
 On first launch the app decides who owns the data directory (below), starts a collector if nothing
 else does, and opens the dashboard. It uses the same `~/.traceroost` data directory and
@@ -616,7 +616,7 @@ installer on native x64 and arm64 Windows runners (see [Windows](#windows)).
 A `v*` tag's `release.yml` run calls [`desktop-release.yml`](../.github/workflows/desktop-release.yml)
 (its `desktop` job) once `package` has passed and created the GitHub release. That calls the three
 workflows above, waits for their jobs, re-verifies each artifact against the SHA256SUMS its build
-wrote (`scripts/release-assets.mjs`, tested by `src/releaseAssets.test.ts`), and attaches the
+wrote (`scripts/release-assets.mjs`, tested by `desktop/src/releaseAssets.test.ts`), and attaches the
 installers, one `TraceRoost-desktop-<v>-SHA256SUMS` and build-provenance attestations. The version is
 the repo's `package.json` version, which `package` has checked against the tag.
 

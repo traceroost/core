@@ -286,7 +286,7 @@ export function summarizeToolArgs(toolName: string, argsJson: string): string {
         const patchContent = args.command || args.patch || args.input || ''
         const files: string[] = []
         for (const line of patchContent.split('\n')) {
-          const m = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
+          const m = line.match(APPLY_PATCH_FILE_HEADER_RE)
           if (m) {
             const fp = m[1].trim()
             if (/[\\/]/.test(fp)) { files.push(fp.split(/[\\/]/).pop() || '') }
@@ -420,6 +420,14 @@ export function detectOutputAction(outputMessages: string): string {
 }
 
 /**
+ * One file header of an apply_patch body: `*** Update File: <path>`, `*** Add File: <path>`,
+ * `*** Delete File: <path>`, or the `*** Move to: <path>` that can follow an Update header (a
+ * rename). Group 1 is the path. Also matches `*** Begin Patch` / `*** End Patch` / `*** End of
+ * File`, so callers keep only a group that contains a path separator.
+ */
+export const APPLY_PATCH_FILE_HEADER_RE = /^\*\*\*\s+(?:Update File:|Add File:|Delete File:|Move to:)?\s*(.+)/
+
+/**
  * Per-file edit details from an apply_patch body ("*** Begin Patch / *** Update|Add|Delete File:
  * <path> / @@ / -old / +new / *** End Patch") — Copilot's and Codex's file-editing tool. Each
  * detail carries the hunk's removed (`-`) lines as oldString and added (`+`) lines as newString,
@@ -432,10 +440,13 @@ export function parseApplyPatchEditDetails(patchContent: string): EditDetail[] {
   let oldLines: string[] = []
   let newLines: string[] = []
   for (const line of patchContent.split('\n')) {
-    const fileMatch = line.match(/^\*\*\*\s+(?:Update File:|Add File:|Delete File:)?\s*(.+)/)
+    const fileMatch = line.match(APPLY_PATCH_FILE_HEADER_RE)
     if (fileMatch) {
       const candidate = fileMatch[1].trim()
       if (!/[\\/]/.test(candidate)) continue  // skip *** Begin Patch, *** End Patch, etc. (a path has either separator)
+      // `*** Move to: <path>` renames the file the preceding Update header opened: its hunks (which
+      // follow) are the edit to the file at its new path, not a second, empty edit.
+      if (currentFile && /^\*\*\*\s+Move to:/.test(line)) { currentFile = candidate; continue }
       if (currentFile) {
         details.push({
           filePath: currentFile,

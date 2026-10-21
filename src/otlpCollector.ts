@@ -160,9 +160,13 @@ export class OtlpCollector {
         resolve()
         return
       }
-      this.server.close(() => resolve())
-      // Force close after 2 seconds
-      setTimeout(() => resolve(), 2000)
+      // Resolve once closed, or after 2 seconds regardless; the fallback timer is cleared on a
+      // clean close so it doesn't keep the process alive for 2 more seconds.
+      const fallback = setTimeout(() => resolve(), 2000)
+      this.server.close(() => {
+        clearTimeout(fallback)
+        resolve()
+      })
     })
   }
 }

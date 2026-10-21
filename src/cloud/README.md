@@ -83,6 +83,6 @@ license (Apache 2.0) after the Change Date, so the fence isn't permanent.
 
 Practically, this has near-zero effect on anyone using TraceRoost normally:
 the npm package and VSIX only ship a compiled bundle (`src/**` is excluded
-from both via `.npmignore`/`.vscodeignore`), so the license split is a
+from both — by `package.json`'s `files` list and `.vscodeignore`), so the license split is a
 statement about *this GitHub repository's source*, not about a restriction
 end users of the product ever run into.

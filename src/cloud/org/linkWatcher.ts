@@ -80,6 +80,8 @@ export function startLinkWatcher(opts: LinkWatcherOptions): LinkWatcher {
       if (opts.isWriter && !opts.isWriter()) { seenKey = key; return }
       // Not marked seen, and retried on a timer: watchFile only fires again if the file changes.
       if (opts.isReady && !opts.isReady()) {
+        // One pending retry at most — a watchFile event while not ready would otherwise stack another.
+        if (retryTimer) clearTimeout(retryTimer)
         retryTimer = setTimeout(() => { void check() }, intervalMs)
         retryTimer.unref?.()
         return

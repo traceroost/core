@@ -163,7 +163,9 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
   }
 
   function ensureWatched(root: string): void {
-    if (knownRoots.has(root)) return
+    // A pass that was mid-flight (awaiting a repo-root lookup) when dispose() ran must not open a
+    // watcher nothing will ever close.
+    if (disposed || knownRoots.has(root)) return
     knownRoots.add(root)
     const gitDir = path.join(root, '.git')
     try {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { rangedSessions, sessionSummary, sessionTimelines, focusedSessionId, vscode } from '../state'
+import { rangedSessions, sessionSummary, sessionTimelines, focusedSessionId, requestSessionTimeline } from '../state'
 import { getAgentSourceLabel, getAgentColor, formatMs, formatSessionTime } from '../utils'
 import { calcEntryCost, fmtUsd } from '../sessionMetrics'
 import { LogIngestionNote } from './IngestionNote'
@@ -137,9 +137,7 @@ export function FlowCanvas({ sess, height = 520 }: { sess: SessionSummaryCard; h
   })
 
   // Request timeline load if needed
-  if (!sessionTimelines.value[sess.sessionId] && vscode) {
-    vscode.postMessage({ type: 'loadSessionDetail', sessionId: sess.sessionId })
-  }
+  if (!sessionTimelines.value[sess.sessionId]) requestSessionTimeline(sess.sessionId)
 
   const hasTimelineData = ((sessionTimelines.value[sess.sessionId] ?? sess.timeline) ?? [])
     .some(e => e.type === 'llm' || e.type === 'tool')

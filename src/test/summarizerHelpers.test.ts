@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { extractUserRequest, isTaskNotificationOnly, summarizeTaskNotification, findProjectRoot, commonPathPrefix, isAbsoluteFilePath, fileBaseName } from '../summarizers/helpers'
+import { extractUserRequest, isTaskNotificationOnly, summarizeTaskNotification, findProjectRoot, commonPathPrefix, isAbsoluteFilePath, fileBaseName, parseApplyPatchEditDetails } from '../summarizers/helpers'
 
 suite('findProjectRoot', () => {
   let tmpRoot: string
@@ -148,5 +148,25 @@ suite('summarizers/helpers — task notification handling', () => {
 
   test('extractUserRequest returns the notification summary instead of raw XML', () => {
     assert.strictEqual(extractUserRequest(notification), '[background task] Background compile finished with no errors.')
+  })
+})
+
+suite('parseApplyPatchEditDetails', () => {
+  test('a `*** Move to:` rename attributes the hunks to the new path, with no stray "Move to:" file', () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: src/old.ts',
+      '*** Move to: src/new.ts',
+      '@@',
+      '-a',
+      '+b',
+      '*** Add File: src/other.ts',
+      '+c',
+      '*** End Patch',
+    ].join('\n')
+    assert.deepStrictEqual(parseApplyPatchEditDetails(patch), [
+      { filePath: 'src/new.ts', toolName: 'apply_patch', oldString: 'a', newString: 'b' },
+      { filePath: 'src/other.ts', toolName: 'apply_patch', oldString: undefined, newString: 'c' },
+    ])
   })
 })

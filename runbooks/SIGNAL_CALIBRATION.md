@@ -33,7 +33,7 @@ Outcome-based calibration only applies to signals whose claim is "this predicts 
 ## How to run it
 
 1. `npx esbuild scripts/calibrateSignals.ts --bundle --platform=node --format=cjs --outfile=/tmp/calibrateSignals.js`
-   (no `ts-node` in this repo, so bundle first — same reason `standalone/server.js` is a checked-in
+   (no `ts-node` in this repo, so bundle first — same reason `standalone/server.js` is an esbuild
    bundle rather than run from `.ts` directly).
 2. `node /tmp/calibrateSignals.js`
 3. Read the two tables it prints:

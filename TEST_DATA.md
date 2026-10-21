@@ -42,11 +42,11 @@ The agent should be run in a separate terminal with a fixed prompt. Capture must
 Capture procedure:
 
 1. Stop any VS Code TraceRoost collector or standalone server already using the OTLP port.
-2. Start `pnpm run local` and wait for `OTLP receiver -> http://127.0.0.1:4318`.
+2. Start `pnpm run local` and wait for `[TraceRoost] OTLP receiver → http://localhost:4318`.
 3. Restart the agent terminal after standalone configures OTEL. Existing Claude/Codex processes keep their old telemetry settings.
 4. Start `pnpm run capture -- <fixture-name> --duration 180 --clear`.
 5. Send one prompt to the agent.
-6. Confirm the standalone terminal prints `[OTLP] ... ingested` lines. If it does not, the agent is not sending to this collector/port.
+6. Confirm the standalone terminal prints `[TraceRoost] Ingested N spans (<agent>)` lines. If it does not, the agent is not sending to this collector/port.
 7. Press `s` in the capture terminal to save and exit early, or wait for `--duration`.
 
 Each agent/scenario pair should produce one clean fixture. For Codex captures, the `[otel]` configuration must include `log_user_prompt`, `exporter`, and `trace_exporter`.
