@@ -3,7 +3,7 @@ import {
   filteredSessions, sessionSummary,
   sessionTimelines,
   requestGitOutcomesFor,
-  CHART_MAX, vscode, goToHelp,
+  CHART_MAX, requestSessionTimeline, goToHelp,
 } from '../state'
 import { getAgentColor, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
 import { buildDailyCostMap } from '../sessionMetrics'
@@ -210,9 +210,7 @@ export function Analytics() {
 
   // Load timelines for context growth chart
   chartSessions.forEach(sess => {
-    if (!sessionTimelines.value[sess.sessionId] && vscode) {
-      vscode.postMessage({ type: 'loadSessionDetail', sessionId: sess.sessionId })
-    }
+    if (!sessionTimelines.value[sess.sessionId]) requestSessionTimeline(sess.sessionId)
   })
 
   const disclaimer = (

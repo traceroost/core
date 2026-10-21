@@ -4,7 +4,7 @@ import type { ComponentChildren } from 'preact'
 import {
   sessionSummary, toolCalls,
   selectedAgentFilter, availableAgents, showAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
-  sessionTimelines, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
+  receiveSessionTimeline, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
   dailyStats, lifetimeStats, burnRateData, searchResults, rangedSearchResults, exportSearchResults,
@@ -737,7 +737,7 @@ export function App() {
           }, 0)
         }
       } else if (msg.type === 'sessionDetail' && msg.sessionId) {
-        sessionTimelines.value = { ...sessionTimelines.value, [msg.sessionId]: msg.timeline ?? [] }
+        receiveSessionTimeline(msg.sessionId, msg.timeline ?? [])
       } else if (msg.type === 'gitOutcomeCache' && msg.sessionId) {
         if (!pendingOutcomes) {
           pendingOutcomes = {}
