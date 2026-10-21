@@ -30,7 +30,7 @@
  * change. Everything else here is the same on both paths.
  *
  * Windows signing is the same kind of switch (see `windowsSigning` below): a code-signing
- * certificate (`WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`) or Azure Trusted Signing (`AZURE_*`) signs
+ * certificate (`WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`) or Azure Artifact Signing (`AZURE_*`) signs
  * the executables, the installer and the uninstaller; with neither, the build is unsigned and
  * SmartScreen warns on first run ("More info → Run anyway").
  *
@@ -80,23 +80,32 @@ const hasNotaryCredentials =
 /**
  * Windows signing, from the environment alone, in this order:
  *
- *  1. Azure Trusted Signing — `AZURE_TRUSTED_SIGNING_ENDPOINT`, `_ACCOUNT`, `_PROFILE` and
- *     `_PUBLISHER` (the certificate's subject CN) name the profile; `AZURE_TENANT_ID`,
- *     `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` are the service principal electron-builder's
- *     `Invoke-TrustedSigning` authenticates with. Windows hosts only.
+ *  1. Azure Artifact Signing (formerly Trusted Signing) — `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`
+ *     and `AZURE_CLIENT_SECRET` are the service principal electron-builder's
+ *     `Invoke-TrustedSigning` authenticates with; it needs the "Artifact Signing Certificate
+ *     Profile Signer" role. The profile it signs with is `AZURE_SIGNING_PROFILE` below. Those
+ *     values are not secrets (every signature carries them), so they live here;
+ *     `AZURE_TRUSTED_SIGNING_ENDPOINT`, `_ACCOUNT`, `_PROFILE` and `_PUBLISHER` override them,
+ *     e.g. to try another profile locally. Windows hosts only.
  *  2. A code-signing certificate — `WIN_CSC_LINK` (base64 or path of a .pfx/.p12) and
  *     `WIN_CSC_KEY_PASSWORD`, which electron-builder reads itself and hands to signtool.
  *  3. Neither — unsigned. Every Windows build until the owner has one of the above.
  */
-const azureSigning = ['ENDPOINT', 'ACCOUNT', 'PROFILE', 'PUBLISHER'].every(k => process.env[`AZURE_TRUSTED_SIGNING_${k}`]) &&
-  ['AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET'].every(k => process.env[k])
+const AZURE_SIGNING_PROFILE = {
+  endpoint: process.env.AZURE_TRUSTED_SIGNING_ENDPOINT || 'https://eus.codesigning.azure.net/',
+  codeSigningAccountName: process.env.AZURE_TRUSTED_SIGNING_ACCOUNT || 'TraceRoost',
+  certificateProfileName: process.env.AZURE_TRUSTED_SIGNING_PROFILE || 'traceroost-public',
+  // Must equal the certificate's subject CN exactly: the identity validated as an individual.
+  publisherName: process.env.AZURE_TRUSTED_SIGNING_PUBLISHER || 'Roger Reed',
+}
+const azureSigning = ['AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET'].every(k => process.env[k])
 const certificateSigning = Boolean(process.env.WIN_CSC_LINK)
 const windowsSigning = azureSigning ? 'azure' : certificateSigning ? 'certificate' : 'none'
 
 if (process.platform === 'win32') {
   console.log(windowsSigning === 'none'
-    ? 'electron-builder.config: no Windows signing credentials (WIN_CSC_LINK, or AZURE_TRUSTED_SIGNING_*) — unsigned; SmartScreen will warn on first run'
-    : `electron-builder.config: Windows signing with ${windowsSigning === 'azure' ? 'Azure Trusted Signing' : 'the WIN_CSC_LINK certificate'}`)
+    ? 'electron-builder.config: no Windows signing credentials (WIN_CSC_LINK, or AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET) — unsigned; SmartScreen will warn on first run'
+    : `electron-builder.config: Windows signing with ${windowsSigning === 'azure' ? `Azure Artifact Signing (${AZURE_SIGNING_PROFILE.codeSigningAccountName}/${AZURE_SIGNING_PROFILE.certificateProfileName})` : 'the WIN_CSC_LINK certificate'}`)
 }
 
 if (process.platform !== 'darwin') {
@@ -303,14 +312,7 @@ module.exports = {
     legalTrademarks: 'TraceRoost',
     // Signing: see `windowsSigning` above. With a certificate, electron-builder reads
     // WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD itself; Azure needs its profile spelled out here.
-    ...(azureSigning ? {
-      azureSignOptions: {
-        publisherName: process.env.AZURE_TRUSTED_SIGNING_PUBLISHER,
-        endpoint: process.env.AZURE_TRUSTED_SIGNING_ENDPOINT,
-        codeSigningAccountName: process.env.AZURE_TRUSTED_SIGNING_ACCOUNT,
-        certificateProfileName: process.env.AZURE_TRUSTED_SIGNING_PROFILE,
-      },
-    } : {}),
+    ...(azureSigning ? { azureSignOptions: AZURE_SIGNING_PROFILE } : {}),
     // Unsigned: do not even try. (electron-builder would otherwise look for signtool on a
     // Windows host and sign nothing, which is the same result with more noise.)
     signExecutable: windowsSigning !== 'none',

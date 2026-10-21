@@ -17,7 +17,7 @@ name: Desktop release
 #              Remove a platform there to stop releasing it without touching this file.
 #   macOS      notarized: attached as is. Not notarized (no Apple Developer Program secrets yet):
 #              attached as a preview — `TraceRoost-<v>-mac-<arch>-preview.dmg`.
-#   Windows    Authenticode-signed (a WIN_CSC_LINK certificate or Azure Trusted Signing): attached
+#   Windows    Authenticode-signed (a WIN_CSC_LINK certificate or Azure Artifact Signing): attached
 #              as is. Not signed: attached as a preview — `TraceRoost-<v>-win-<arch>-preview.exe`.
 #   preview    the builds CI tested, byte for byte, under names that say they are not yet signed
 #              (desktop/scripts/release-assets.mjs). Each is labelled "(preview)" on the release
@@ -63,14 +63,6 @@ on:
       AZURE_CLIENT_ID:
         required: false
       AZURE_CLIENT_SECRET:
-        required: false
-      AZURE_TRUSTED_SIGNING_ENDPOINT:
-        required: false
-      AZURE_TRUSTED_SIGNING_ACCOUNT:
-        required: false
-      AZURE_TRUSTED_SIGNING_PROFILE:
-        required: false
-      AZURE_TRUSTED_SIGNING_PUBLISHER:
         required: false
       MINISIGN_SECRET_KEY:
         required: false
@@ -138,10 +130,6 @@ jobs:
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-      AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-      AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
-      AZURE_TRUSTED_SIGNING_PUBLISHER: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER }}
 
   publish:
     needs: [gate, macos, linux, windows]
@@ -185,7 +173,7 @@ jobs:
           elif [ "$MACOS_RESULT" = success ]; then platforms="${platforms:+$platforms,}macos-preview"; echo "::notice::macOS is not notarized (no Apple Developer secrets yet); attaching the ad-hoc signed build as *-preview."
           elif [ "$MACOS_RESULT" != skipped ]; then echo "::warning::The macOS desktop build did not pass ($MACOS_RESULT); macOS is not attached."; fi
           if [ "$WINDOWS_RESULT" = success ] && [ "$WINDOWS_SIGNED" = true ]; then platforms="${platforms:+$platforms,}windows"
-          elif [ "$WINDOWS_RESULT" = success ]; then platforms="${platforms:+$platforms,}windows-preview"; echo "::notice::Windows is not signed (no WIN_CSC_LINK / Azure Trusted Signing secrets yet); attaching the unsigned build as *-preview."
+          elif [ "$WINDOWS_RESULT" = success ]; then platforms="${platforms:+$platforms,}windows-preview"; echo "::notice::Windows is not signed (no WIN_CSC_LINK / Azure Artifact Signing secrets yet); attaching the unsigned build as *-preview."
           elif [ "$WINDOWS_RESULT" != skipped ]; then echo "::warning::The Windows desktop build did not pass ($WINDOWS_RESULT); Windows is not attached."; fi
           echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
           if [ -z "$platforms" ]; then echo "::notice::No desktop platform to attach to this release."; fi

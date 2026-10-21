@@ -387,14 +387,15 @@ quit the app, then `traceroost service install`; the other way, `traceroost serv
 | --- | --- |
 | nothing | **unsigned**. Runs; SmartScreen warns on a downloaded copy until it builds reputation |
 | `WIN_CSC_LINK` (base64 or path of a code-signing `.pfx`) + `WIN_CSC_KEY_PASSWORD` | the executables, installer and uninstaller signed with signtool and timestamped |
-| `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`, `AZURE_TRUSTED_SIGNING_PUBLISHER` (the certificate's subject CN) + `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | the same, through [Azure Trusted Signing](https://learn.microsoft.com/azure/trusted-signing/) (takes precedence over a .pfx) |
+| `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | the same, through [Azure Artifact Signing](https://learn.microsoft.com/azure/artifact-signing/) (takes precedence over a .pfx), with the profile fixed in `electron-builder.cjs`: account `TraceRoost` at `https://eus.codesigning.azure.net/`, certificate profile `traceroost-public`, publisher `Roger Reed`. `AZURE_TRUSTED_SIGNING_ENDPOINT`, `_ACCOUNT`, `_PROFILE` and `_PUBLISHER` override those |
 
 CI ([`.github/workflows/desktop-windows.yml`](../.github/workflows/desktop-windows.yml)) maps
-repository secrets of the same names onto those variables, and once they exist it fails a build
+repository secrets of the same names onto those variables (only the three service-principal
+values are secrets), and once they exist it fails a build
 whose executables do not carry a valid Authenticode signature rather than shipping it unsigned.
 New OV/EV certificates are issued on hardware tokens or cloud HSMs and can no longer be exported
-as a `.pfx`, so for a new setup Azure Trusted Signing (a service principal with the *Trusted
-Signing Certificate Profile Signer* role) is the practical route.
+as a `.pfx`, so this project uses Azure Artifact Signing (a service principal with the *Artifact
+Signing Certificate Profile Signer* role on the `TraceRoost` account).
 
 ### Uninstalling
 
@@ -624,7 +625,7 @@ the repo's `package.json` version, which `package` has checked against the tag.
 | --- | --- |
 | Linux (.deb, AppImage; x64, arm64) | always, once the build and install matrix pass |
 | macOS (DMG; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is built and tested on every release and attached as a `*-preview` (below) |
-| Windows (NSIS installer .exe; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Trusted Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then it is built and tested on every release and attached as a `*-preview` (below) |
+| Windows (NSIS installer .exe; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Artifact Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then it is built and tested on every release and attached as a `*-preview` (below) |
 
 **Preview builds.** Until a platform's signing secrets exist, a release attaches its ad-hoc signed
 (not notarized) macOS build or unsigned Windows build as a preview:
@@ -678,8 +679,8 @@ Stage 4, not started:
 
 Smaller, genuinely open items:
 
-- **Windows, beyond CI** ([what CI proves](#what-ci-proves)): code signing (needs a certificate
-  or an Azure Trusted Signing account — the wiring is done), a human check of the tray icon, menu
+- **Windows, beyond CI** ([what CI proves](#what-ci-proves)): code signing (the Azure Artifact
+  Signing account and profile exist; the three service-principal secrets are not set in CI yet), a human check of the tray icon, menu
   and close-to-tray on a real desktop, SmartScreen on a downloaded copy, the all-users install,
   log-off with the app running, automatic updates, and winget/Microsoft Store listings.
 - **Unverified in a GUI session:** clicking the window's close button (close-to-menu-bar), Dock
