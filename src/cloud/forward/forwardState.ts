@@ -14,13 +14,17 @@ import { withFileLock } from './fileLock'
  *  no toast (the standalone server) can show it in its dashboard, and so it survives a restart.
  *  `relink`: the credential was rejected for good and the machine unlinked (cleared by the next
  *  link). `upgrade`: the cloud answered 426 — this TraceRoost version is too old to send (cleared
- *  by a send that succeeds, or once the running version differs from `version`). */
+ *  by a send that succeeds, or once the running version differs from `version`). `ceiling`: the
+ *  cloud answered 429 `X-TraceRoost-Ceiling: daily` — the org reached today's rollup limit, and the
+ *  queue waits for midnight UTC (cleared by a send that succeeds, and hidden once `day` is past). */
 export interface ForwardNotice {
-  kind: 'relink' | 'upgrade'
+  kind: 'relink' | 'upgrade' | 'ceiling'
   message: string
   at: string
   /** The client version the notice was raised for (`upgrade`). */
   version?: string
+  /** `ceiling` only: the UTC day (`YYYY-MM-DD`) the limit was reached — one notice per day. */
+  day?: string
   /** `relink` only: the queue was kept on unlink (the refresh token ran out of unanswered replays —
    *  a local inference, not the cloud's word; sender.ts `holdForRelink`), hashed for this link.
    *  The next link keeps it only for the same endpoint, org and member, and clears it otherwise
@@ -97,12 +101,25 @@ export function clearForwardState(baseHome?: string, keepNotice?: ForwardNotice)
   if (keepNotice) writeForwardState({ notice: keepNotice }, baseHome)
 }
 
-/** The notice to show now, if any (an `upgrade` notice raised for another version is stale). */
-export function currentForwardNotice(baseHome?: string, version?: string): ForwardNotice | null {
+/** The notice to show now, if any (an `upgrade` notice raised for another version is stale, and so
+ *  is a `ceiling` notice from an earlier UTC day — the limit has reset since). */
+export function currentForwardNotice(baseHome?: string, version?: string, now: number = Date.now()): ForwardNotice | null {
   const n = readForwardState(baseHome).notice
   if (!n || typeof n !== 'object' || typeof n.message !== 'string') return null
   if (n.kind === 'upgrade' && version && n.version && n.version !== version) return null
+  if (n.kind === 'ceiling' && n.day !== utcDay(now)) return null
   return n
+}
+
+/** `YYYY-MM-DD` of `now` in UTC — the day the cloud's daily rollup ceiling counts under. */
+export function utcDay(now: number): string {
+  return new Date(now).toISOString().slice(0, 10)
+}
+
+/** The next midnight UTC after `now`, in epoch ms — when the cloud's daily rollup ceiling resets. */
+export function nextUtcMidnight(now: number): number {
+  const d = new Date(now)
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)
 }
 
 export function clearForwardNotice(baseHome?: string): void {

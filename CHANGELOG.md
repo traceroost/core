@@ -4,6 +4,11 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### TraceRoost Cloud (full edition only)
+
+- **`traceroost org link` works over SSH and on machines without a display** — it always used the browser flow, which waits for a sign-in callback on this machine, so over SSH (or on a Linux server with no display) it could only time out unless you knew to pass `--device`. It now shows a URL and a code to approve from any device whenever no browser can be opened here; `--device` and `--browser` force either flow. The README has a new "Headless forwarder" section: run the background service, link, and check forwarding, all from a terminal
+- **TraceRoost Cloud's daily trace limit is shown, and waited out until midnight UTC** — when your org reaches the cloud's daily limit on accepted traces (an abuse guard, well above a team's normal day), sending pauses, a notice says so once a day, and nothing is lost: unsent traces stay queued and go out at the first send after midnight UTC, not on a timer that started mid-afternoon. The pause also holds after a send that got part of the queue through before the limit; it used to be cleared, so the next send was refused again five minutes later
+
 ## [0.20.0] — 2026-10-18
 
 ### Added

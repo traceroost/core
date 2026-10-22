@@ -4,7 +4,7 @@
 // Or installed with Homebrew: brew install traceroost/tap/traceroost, then `traceroost`
 // `traceroost service <install|uninstall|start|stop|restart|status|logs|update>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
-// `traceroost org <link|status|verify|leave> [--device]` links this machine to an org (Cloud, AL 01) —
+// `traceroost org <link|status|verify|leave> [--device|--browser]` links this machine to an org (Cloud, AL 01) —
 // full edition only; the core edition prints "not available" and exits 1 (see cliCloud.ts).
 // `traceroost find <repo hash | trace/session id>` resolves a cloud dashboard hash-handoff
 // locally (traces-table.tsx's HashHandoff) and prints what it finds, ending with a `vscode://`

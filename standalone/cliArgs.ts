@@ -38,7 +38,7 @@ export function usageText(cloud: boolean): string {
     '  traceroost --help                            print this help',
     cloud && '  traceroost --explain-payload [--last|--all|--session <id>|--since <date>] [--dry-run]',
     '  traceroost service <install|uninstall|start|stop|restart|status|logs|update>',
-    cloud && '  traceroost org <link|status|verify|leave> [--device]',
+    cloud && '  traceroost org <link|status|verify|leave> [--device|--browser]',
     `  ${commandUsage('find', cloud)}`,
     '  traceroost trace --id <sessionId>',
     `  ${commandUsage('patterns', cloud)}`,
