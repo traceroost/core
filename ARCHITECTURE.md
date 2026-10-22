@@ -1172,8 +1172,9 @@ org admin see cross-developer aggregates. The rest of the codebase reaches it on
    `loadCredentials()` touch local disk only. The wire format has no free-text field, so
    there is nothing for source code to travel in.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my machine, my
-   commits, my repositories* is free and ungimped. Paid is *everyone's* — aggregation a local
-   install genuinely cannot do. Nothing local is gated behind Cloud.
+   commits, my repositories* is free and ungimped. Cloud is *everyone's* — aggregation a local
+   install genuinely cannot do. Nothing local is gated behind Cloud (whose own Free plan is
+   described under "The free/paid boundary" below).
 
 ### Module map
 
