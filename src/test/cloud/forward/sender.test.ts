@@ -77,6 +77,25 @@ suite('forward/sender', () => {
     for (let i = 0; i < n; i++) q.enqueue(payload(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`))
   }
 
+  test('sends to the endpoint that issued the credential, not whatever environment resolves now', async () => {
+    const prev = process.env.TRACEROOST_ORG_URL
+    process.env.TRACEROOST_ORG_URL = 'https://elsewhere.example'
+    const urls: string[] = []
+    try {
+      stubFetch(url => {
+        urls.push(url)
+        if (url.endsWith('/api/ingest/batch')) return new Response('', { status: 404 })
+        return new Response('', { status: 202 })
+      })
+      new ForwardQueue(home).enqueue(payload(ID1))
+      assert.strictEqual((await drainQueue({ baseHome: home })).sent, 1)
+      assert.deepStrictEqual(urls, [`${CREDS.endpoint}/api/ingest/batch`, `${CREDS.endpoint}/api/ingest`])
+    } finally {
+      if (prev === undefined) delete process.env.TRACEROOST_ORG_URL
+      else process.env.TRACEROOST_ORG_URL = prev
+    }
+  })
+
   test('a batch over 1 KiB is gzipped; a small one is sent plain', async () => {
     const seen: Array<string | null> = []
     stubFetch((_url, init) => {

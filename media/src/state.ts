@@ -151,6 +151,29 @@ export function applySessionDelta(prev: FullSummary | null, delta: SessionDelta)
 
 export const sessionTimelines = signal<Record<string, TimelineEntry[]>>({})
 
+// When each unanswered timeline request went out. Analytics' chart loop and Flow ask during
+// render, so without this every re-render re-sent a load (a SQLite read, or an HTTP fetch in
+// standalone) for every session still loading. A request with no answer after
+// TIMELINE_RETRY_MS (a failed fetch is never answered) may be sent again.
+const timelineRequestedAt = new Map<string, number>()
+const TIMELINE_RETRY_MS = 10_000
+
+/** Ask the host for a session's timeline once, unless it's loaded or a request is in flight. */
+export function requestSessionTimeline(sessionId: string): void {
+  if (!vscode || sessionTimelines.peek()[sessionId] !== undefined) return
+  const at = timelineRequestedAt.get(sessionId)
+  const now = Date.now()
+  if (at !== undefined && now - at < TIMELINE_RETRY_MS) return
+  timelineRequestedAt.set(sessionId, now)
+  vscode.postMessage({ type: 'loadSessionDetail', sessionId })
+}
+
+/** A timeline arrived (sessionDetail): store it and clear its in-flight request. */
+export function receiveSessionTimeline(sessionId: string, timeline: TimelineEntry[]): void {
+  timelineRequestedAt.delete(sessionId)
+  sessionTimelines.value = { ...sessionTimelines.value, [sessionId]: timeline }
+}
+
 // Lazy git-outcome cache: sessionId → classification, or null once fetched but not applicable
 // (no git repo, no changed files, etc). Absent key = not yet requested. See gitOutcome.ts.
 export const gitOutcomes = signal<Record<string, GitOutcome | null>>({})

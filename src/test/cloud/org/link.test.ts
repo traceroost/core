@@ -213,6 +213,26 @@ suite('org/link', () => {
     assert.strictEqual(await refreshOrgNameIfStale(), false)
   })
 
+  test('refreshOrgNameIfStale never writes back a token pair another host rotated during the roster fetch', async () => {
+    let cur: OrgCredentials | null = {
+      endpoint: 'https://test.traceroost.com', orgId: 'org-1', orgName: 'org-1',
+      memberId: 'mem-1', role: 'developer', perDeveloperVisibility: false,
+      accessToken: 'access-1', refreshToken: 'refresh-1',
+      accessTokenExpiresAt: Date.now() + 3600_000, linkedAt: new Date().toISOString(),
+    }
+    setCredentialStore({ load: () => cur, save: (c: OrgCredentials) => { cur = c }, clear: () => { cur = null } })
+    globalThis.fetch = (async () => {
+      // Another host rotates the pair while the roster request is in flight.
+      cur = { ...cur!, accessToken: 'access-2', refreshToken: 'refresh-2' }
+      return new Response(JSON.stringify({ org_name: 'Acme Corp', role: 'developer', per_developer_visibility: false, email: 'dev@example.com' }), { status: 200 })
+    }) as typeof fetch
+
+    assert.strictEqual(await refreshOrgNameIfStale(), true)
+    assert.strictEqual(loadCredentials()?.orgName, 'Acme Corp')
+    assert.strictEqual(loadCredentials()?.refreshToken, 'refresh-2')
+    assert.strictEqual(loadCredentials()?.accessToken, 'access-2')
+  })
+
   test('refreshOrgNameIfStale logs and stays stale when the roster fetch keeps failing', async () => {
     setCredentialStore((() => {
       let cur: OrgCredentials | null = {

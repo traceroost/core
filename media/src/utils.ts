@@ -19,6 +19,21 @@ export function syntaxHighlightJson(jsonStr: string): string {
     .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>')
 }
 
+// ── Message provenance ───────────────────────────────────────────────────────
+
+/**
+ * Whether a `message` event came from this dashboard's own host rather than from another window.
+ * Under the standalone server the host's frames are dispatched in-page (`new MessageEvent`: no
+ * source, empty origin) and the page's own `window.postMessage` has itself as the source — whereas
+ * any page that opened the dashboard with `window.open` holds a reference it can post through, and
+ * must not be able to feed it fake sessions or drive the host-bound replies its handlers send. In
+ * VS Code the webview host is the only window that can reach the page, so everything is accepted.
+ */
+export function isHostMessage(e: MessageEvent): boolean {
+  if (window.__STANDALONE__ !== true) return true
+  return e.source === window || (e.source === null && e.origin === '')
+}
+
 // ── Number / time formatters ──────────────────────────────────────────────────
 
 export function nanoToMs(n: string | number | undefined): number {

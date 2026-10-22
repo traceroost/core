@@ -58,6 +58,9 @@ async function git(cwd: string, args: string[]): Promise<string | null> {
  */
 export async function scanCommits(repoRoot: string, opts: { sinceIso?: string; maxCommits?: number } = {}): Promise<ScannedCommit[]> {
   const args = [
+    // Without this git C-quotes any path with a non-ASCII byte (`"docs/caf\303\251.md"`), which
+    // then never equals the repo-relative path a session recorded for the same file.
+    '-c', 'core.quotePath=false',
     'log',
     '--no-color',
     '--numstat',

@@ -269,9 +269,12 @@ export class DatabaseWriter {
 
   private async _drain(): Promise<void> {
     this.writing = true
-    const gen = this._generation
     while (this.pending.size > 0) {
-      if (this._generation !== gen) break  // clearAll() was called — abort
+      // clearAll() empties `pending`, so whatever is in it now was enqueued after the last clear
+      // and is current — only the rest of a batch taken before a clear is abandoned. (Breaking out
+      // of the loop instead stranded a card enqueued while a write was in flight: `writing` was
+      // still true, so enqueue() started no drain, and the card sat in `pending` until the next.)
+      const gen = this._generation
       const batch = [...this.pending.entries()]
       this.pending.clear()
       for (const [, { card, workspace }] of batch) {

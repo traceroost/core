@@ -1,6 +1,6 @@
 import * as assert from 'assert'
 import { type AttachVerdict, type CollectorIdentity } from './handshake'
-import { describeMode, resolveMode } from './mode'
+import { describeMode, isOwnCollector, resolveMode } from './mode'
 
 function identity(over: Partial<CollectorIdentity> = {}): CollectorIdentity {
   return {
@@ -70,5 +70,15 @@ suite('mode', () => {
 
   test('a blocked shell says it is not collecting, rather than implying it is', () => {
     assert.match(describeMode({ mode: 'blocked', detail: 'x' }), /Not collecting/)
+  })
+
+  test('a re-check that finds our own running child is still owned mode, not an attach', () => {
+    const verdict: AttachVerdict = { ok: true, needsConfirmation: false, identity: identity({ pid: 4242 }) }
+    const running = { status: 'running' as const, pid: 4242, uiPort: 3000, otlpPort: 4318, mcpPort: 4316 }
+    assert.strictEqual(isOwnCollector(verdict, running), true)
+    // Someone else's collector, or no child of ours running: the verdict decides as usual.
+    assert.strictEqual(isOwnCollector(verdict, { ...running, pid: 99 }), false)
+    assert.strictEqual(isOwnCollector(verdict, { status: 'stopped' }), false)
+    assert.strictEqual(isOwnCollector({ ok: false, reason: 'no-collector', detail: 'free' }, running), false)
   })
 })

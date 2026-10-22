@@ -172,6 +172,13 @@ suite('attribution', () => {
     assert.ok(res.commits.every(c => c.sha !== git(['rev-parse', 'HEAD']).trim()))
   })
 
+  test('scanCommits reports a non-ASCII path as-is, not C-quoted', async () => {
+    write('docs/café.md', 4, 'c')
+    commit('add café', at(0))
+    const scanned = await scanCommits(repo)
+    assert.deepStrictEqual(scanned[0].files['docs/café.md'], { added: 4, removed: 0 })
+  })
+
   test('scanCommits never surfaces the commit message text', async () => {
     write('src/i.ts', 3, 'i')
     commit('SECRET_SUBJECT_TEXT should not appear anywhere', at(0))

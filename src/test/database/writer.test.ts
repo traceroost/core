@@ -314,6 +314,29 @@ suite('DatabaseWriter', () => {
     db.close()
   })
 
+  test('a card enqueued while a write is in flight across clearAll is still written', async () => {
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    const fakeFs = {
+      stat:      () => Promise.reject(new Error('not found')),
+      writeFile: () => held,
+    }
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri('clear-race'), () => {}, fakeFs as unknown as typeof import('vscode').workspace.fs)
+    w.enqueue(makeCard({
+      sessionId: 'old',
+      timeline: [{ type: 'llm', spanId: 'sp-old', label: 'LLM', durationMs: 1, isError: false, timestamp: '', responseText: 'x'.repeat(600) }],
+    }), 'ws')
+    await new Promise(resolve => setImmediate(resolve))  // the drain is now awaiting the blob write
+    w.clearAll()
+    w.enqueue(makeCard({ sessionId: 'new' }), 'ws')
+    release()
+    await w.drain()
+    const rows = db.exec('SELECT session_id FROM sessions')
+    assert.deepStrictEqual(rows[0]?.values.map(r => r[0]) ?? [], ['new'])
+    db.close()
+  })
+
   test('cost_usd for a single-model session matches pricing the aggregate totals at that model', async () => {
     const db = await openInMemoryDb()
     const w = new DatabaseWriter(db, makeStorageUri('cost-single'), () => {})

@@ -80,10 +80,16 @@ export function mergeSessions(
     return live !== kept ? live > kept : calls(stored) <= calls(s)
   })
   const liveIds = new Set(liveWinners.map(s => s.sessionId))
+  // Start times parsed once per card, not twice per comparison — and an empty/unparseable one
+  // (a row stored with start_time 0 reads back as '') sorts as 0 (oldest): a NaN from the
+  // comparator makes the whole order engine-defined, not just that card's place in it.
+  const startMs = (s: SessionSummaryCard) => Date.parse(s.startTime) || 0
   return [
     ...liveWinners,
     ...dbSessions.filter(s => !liveIds.has(s.sessionId)),
-  ].sort((a, b) => Date.parse(b.startTime) - Date.parse(a.startTime))
+  ].map(s => ({ s, ms: startMs(s) }))
+    .sort((a, b) => b.ms - a.ms)
+    .map(x => x.s)
 }
 
 /**

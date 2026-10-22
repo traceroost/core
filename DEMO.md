@@ -69,12 +69,13 @@ Everything on static.traceroost.com is immutable: names carry a content hash, th
 ```bash
 pnpm run demo:gif                       # record, upload, and point README.md at the new URL
 pnpm run demo:gif -- --no-upload        # write media/demo.gif only; README.md untouched
-pnpm run demo:gif -- --max-mb 5         # size budget (default 7 MB)
+pnpm run demo:gif -- --max-mb 4         # size budget (default 4.9 MB; GitHub's README image limit is 5)
 pnpm run demo:gif -- --force            # overwrite media/demo.gif if it already exists
 pnpm run demo:gif -- --out /tmp/x.gif   # write elsewhere instead, for review first
 pnpm run demo:gif -- --dry-run          # run the tour, skip recording — for tuning pause lengths
 pnpm run demo:gif -- --speed 2          # faster tour -> shorter capture
 pnpm run demo:gif -- --headed           # show the browser while it records (debugging)
+pnpm run demo:gif -- --theme light      # capture in light mode (default: dark)
 pnpm run demo:gif -- --edition full     # record the full edition (default: core, what releases ship)
 pnpm run demo:gif -- --no-outcomes      # skip the scratch git repo (no Outcome column/chart data)
 ```

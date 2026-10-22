@@ -44,6 +44,16 @@ suite('mergeSessions', () => {
     assert.ok(result.some(s => s.sessionId === 'live1'))
   })
 
+  test('a card with no start time sorts last without scrambling the others', () => {
+    const db = [
+      makeCard('b', '2024-02-01T00:00:00.000Z'),
+      makeCard('none', ''),
+      makeCard('c', '2024-03-01T00:00:00.000Z'),
+      makeCard('a', '2024-01-01T00:00:00.000Z'),
+    ]
+    assert.deepStrictEqual(mergeSessions(db, []).map(s => s.sessionId), ['c', 'b', 'a', 'none'])
+  })
+
   test('result is sorted by startTime DESC', () => {
     const db = [
       makeCard('a', '2024-01-01T00:00:00.000Z'),

@@ -60,7 +60,7 @@ import { readForwardState, writeForwardState, clearForwardState, type ForwardNot
 import { loadCredentials, clearCredentials, ensureInstallId } from '../org/credentials'
 import { TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring, RefreshReplayExhaustedError } from '../org/tokenRefresh'
-import { ingestUrl, batchIngestUrl } from '../org/config'
+import { ingestUrl, batchIngestUrl, type OrgCredentials } from '../org/config'
 import { clientVersion } from '../org/oauthClient'
 
 export interface DrainResult {
@@ -393,7 +393,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   async function sendChunkBatched(chunk: QueueItem[]): Promise<'continue' | 'fallback' | { stop: DrainResult }> {
     let res: Response
     try {
-      res = await postBatch(creds!.accessToken, chunk, deps.onBatchRequest)
+      res = await postBatch(creds!, chunk, deps.onBatchRequest)
     } catch {
       // A network-level failure tells us nothing about the *next* chunk — it may hit a warm
       // connection and succeed. Back this chunk off and keep going.
@@ -407,7 +407,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       const stop = await refreshOnce()
       if (stop) return { stop }
       // Retry this same chunk immediately with the fresh token.
-      res = await postBatch(creds!.accessToken, chunk, deps.onBatchRequest).catch(() => res)
+      res = await postBatch(creds!, chunk, deps.onBatchRequest).catch(() => res)
     }
 
     if (res.status === 403) return forbidden(res, chunk)
@@ -465,6 +465,9 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     }
 
     const succeeded: QueueItem[] = []
+    // Per-item transient failures, grouped by error so each group is one locked queue rewrite
+    // rather than one per item (a database-busy batch defers most of its items with the same 500).
+    const failedByError = new Map<string, string[]>()
     let upgrade = false
     chunk.forEach((item, idx) => {
       const r = results![idx]
@@ -477,10 +480,12 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         // Kept, untouched: it goes out after the update.
         upgrade = true
       } else {
-        queue.recordFailure(item.key, r.error ? `HTTP ${r.status}: ${r.error}` : `HTTP ${r.status}`)
+        const error = r.error ? `HTTP ${r.status}: ${r.error}` : `HTTP ${r.status}`
+        failedByError.set(error, [...(failedByError.get(error) ?? []), item.key])
         sawTransientFailure = true
       }
     })
+    for (const [error, keys] of failedByError) queue.recordFailures(keys, error)
     recordSuccesses(succeeded)
     if (upgrade) return { stop: upgradeRequired() }
     return 'continue'
@@ -491,7 +496,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   async function sendItemSequentially(item: QueueItem): Promise<{ stop: DrainResult } | undefined> {
     let res: Response
     try {
-      res = await postPayload(creds!.accessToken, item)
+      res = await postPayload(creds!, item)
     } catch {
       queue.recordFailure(item.key, 'service unreachable')
       writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: 'service unreachable' }, deps.baseHome)
@@ -508,7 +513,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     if (res.status === 401 && !refreshedThisDrain) {
       const stop = await refreshOnce()
       if (stop) return { stop }
-      res = await postPayload(creds!.accessToken, item).catch(() => res)
+      res = await postPayload(creds!, item).catch(() => res)
       if (res.status === 202 || res.status === 200) { recordSuccess(item); sent++; return }
     }
 
@@ -642,14 +647,17 @@ async function postJson(url: string, accessToken: string, json: string, signal: 
   return plain()
 }
 
-async function postBatch(accessToken: string, items: QueueItem[], onStat?: (s: BatchRequestStat) => void): Promise<Response> {
+// Always the endpoint that issued the credential, never `orgEndpoint()`'s current resolution: an
+// environment picked or set after linking must not send this credential's token (or its
+// org-salted rollups) to a different server.
+async function postBatch(creds: Pick<OrgCredentials, 'accessToken' | 'endpoint'>, items: QueueItem[], onStat?: (s: BatchRequestStat) => void): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20_000)
   try {
     const json = JSON.stringify({ items: items.map(it => it.payload) })
     const meta = { wireBytes: 0 }
     const started = Date.now()
-    const res = await postJson(batchIngestUrl(), accessToken, json, controller.signal, meta)
+    const res = await postJson(batchIngestUrl(creds.endpoint), creds.accessToken, json, controller.signal, meta)
     onStat?.({ items: items.length, rawBytes: Buffer.byteLength(json), wireBytes: meta.wireBytes, ms: Date.now() - started, status: res.status })
     return res
   } finally {
@@ -657,11 +665,11 @@ async function postBatch(accessToken: string, items: QueueItem[], onStat?: (s: B
   }
 }
 
-async function postPayload(accessToken: string, item: QueueItem): Promise<Response> {
+async function postPayload(creds: Pick<OrgCredentials, 'accessToken' | 'endpoint'>, item: QueueItem): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 20_000)
   try {
-    return await postJson(ingestUrl(), accessToken, JSON.stringify(item.payload), controller.signal)
+    return await postJson(ingestUrl(creds.endpoint), creds.accessToken, JSON.stringify(item.payload), controller.signal)
   } finally {
     clearTimeout(timer)
   }

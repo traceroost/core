@@ -263,10 +263,13 @@ export async function computeTurnover(workspace: string, opts: ComputeTurnoverOp
     return { repoRoot: attribution.repoRoot, headSha: null, results: [], coverage: attribution.coverage }
   }
 
-  const repoStartMs = Math.min(
-    now,
-    ...attribution.commits.map(c => Date.parse(c.authoredAt)).filter(n => !Number.isNaN(n)),
-  )
+  // A loop, not Math.min(...spread): a long history's commit count can exceed the engine's
+  // argument limit and throw a RangeError.
+  let repoStartMs = now
+  for (const c of attribution.commits) {
+    const ms = Date.parse(c.authoredAt)
+    if (ms < repoStartMs) repoStartMs = ms
+  }
   const cohorts = buildCohorts(attribution.commits)
   const windows = opts.windows ?? [30, 90]
   const blameMemo = new Map<string, Record<string, number> | null>()

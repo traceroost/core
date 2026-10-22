@@ -47,7 +47,7 @@ and revert independently if a source turns out to have been misread.
    `central_default_rates` table, so a refresh that lands only here makes the same trace cost
    different amounts locally and in Cloud, and leaves a new model unpriced ($0) there. In a
    traceroost/cloud checkout next to this one, follow its `runbooks/refresh-model-pricing.md`:
-   `pnpm rates:from-core` diffs this file's `RATES` against Cloud's migrations and drafts the
+   `pnpm rates:from-core` diffs `src/pricing.ts`'s `RATES` against Cloud's migrations and drafts the
    migration. Open the core PR and the Cloud PR together, linking each other, and merge them back to
    back. That runbook copies steps 1–7 above; this file stays the authority on them.
 

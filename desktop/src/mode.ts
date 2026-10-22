@@ -15,6 +15,7 @@
  * explicit handoff and not something this function does.
  */
 
+import type { CollectorState } from './collector'
 import { type AttachVerdict, type CollectorIdentity, meansDataDirIsFree } from './handshake'
 
 export type ShellMode =
@@ -70,4 +71,14 @@ export function describeMode(resolved: ShellMode): string {
     case 'wait': return 'Waiting for a collector that is starting up…'
     case 'blocked': return 'Not collecting — needs attention'
   }
+}
+
+/**
+ * True when the verdict's lock holder is the collector this shell already owns and runs. A
+ * re-check (sleep/wake) of an owned collector finds its own child's lock — alive, ports bound — and
+ * `resolveMode` would read that as "attach"; the shell still owns it, so it must stay in owned mode
+ * (Start/Stop/Restart, and a Quit that says it stops collection, which it does).
+ */
+export function isOwnCollector(verdict: AttachVerdict, owned: CollectorState): boolean {
+  return verdict.ok && owned.status === 'running' && verdict.identity.pid === owned.pid
 }
