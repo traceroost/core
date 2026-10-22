@@ -387,6 +387,7 @@ quit the app, then `traceroost service install`; the other way, `traceroost serv
 | nothing | **unsigned**. Runs; SmartScreen warns on a downloaded copy until it builds reputation |
 | `WIN_CSC_LINK` (base64 or path of a code-signing `.pfx`) + `WIN_CSC_KEY_PASSWORD` | the executables, installer and uninstaller signed with signtool and timestamped |
 | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | the same, through [Azure Artifact Signing](https://learn.microsoft.com/azure/artifact-signing/) (takes precedence over a .pfx), with the profile fixed in `electron-builder.cjs`: account `TraceRoost` at `https://eus.codesigning.azure.net/`, certificate profile `traceroost-public`, publisher `Roger Reed`. `AZURE_TRUSTED_SIGNING_ENDPOINT`, `_ACCOUNT`, `_PROFILE` and `_PUBLISHER` override those |
+| `TRACEROOST_WINDOWS_SIGNING=off` | **unsigned**, whatever credentials are set. In CI, set it as a repository variable (`gh variable set TRACEROOST_WINDOWS_SIGNING --body off`) to pause signing without deleting the secrets; releases then attach the Windows builds as previews. Delete the variable to sign again |
 
 CI ([`.github/workflows/desktop-windows.yml`](../.github/workflows/desktop-windows.yml)) maps
 repository secrets of the same names onto those variables (only the three service-principal
