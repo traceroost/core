@@ -3,14 +3,13 @@
 An Electron shell that runs the existing standalone collector and dashboard as a normal desktop
 app with a menu bar / tray icon — no terminal, no separately installed Node.
 
-**Linux** (a .deb and an AppImage, x64 and arm64) is Stages 1–3 of
-[`.staged-features/linux-desktop-app.md`](../.staged-features/linux-desktop-app.md), plus Stage 4's
-packaging CI; see [Linux](#linux). **Windows** (a one-click NSIS installer, x64 and
+**Linux** (a .deb and an AppImage, x64 and arm64) is built and released in CI; see
+[Linux](#linux). **Windows** (a one-click NSIS installer, x64 and
 arm64, built and tested natively on each) is in [Windows](#windows). The rest of this section is
 about macOS.
 
-**Status: Stages 1–2 of [`.staged-features/macos-desktop-menu-bar-app.md`](../.staged-features/macos-desktop-menu-bar-app.md)
-are done, and Stage 3 is done up to the point that needs an Apple Developer Program membership.**
+**Status: the macOS app is built, tested and released; signing and notarization wait on an Apple
+Developer Program membership.**
 The app builds as a `.app` and a DMG for arm64 and x64, verifies and smoke-tests itself,
 ships its third-party notices and checksums, and is built in CI on every change. What it is **not**
 is signed with a Developer ID or notarized, so a *downloaded* copy is refused by Gatekeeper until
