@@ -32,8 +32,8 @@ suite('org/oauthClient — device flow, cap errors, roster summary', () => {
   })
 
   test('device poll: a 403 cap refusal (access_denied + error_description) is "blocked", a 400 access_denied is "denied"', async () => {
-    globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'access_denied', error_description: 'Free plan allows 1 machine.' }), { status: 403 })) as typeof fetch
-    assert.deepStrictEqual(await pollDeviceFlow('d'), { status: 'blocked', message: 'Free plan allows 1 machine.' })
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'access_denied', error_description: 'Free tier is limited to 9 linked machines. Upgrade to link another.' }), { status: 403 })) as typeof fetch
+    assert.deepStrictEqual(await pollDeviceFlow('d'), { status: 'blocked', message: 'Free tier is limited to 9 linked machines. Upgrade to link another.' })
     globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'access_denied' }), { status: 400 })) as typeof fetch
     assert.deepStrictEqual(await pollDeviceFlow('d'), { status: 'denied', message: undefined })
   })
@@ -41,8 +41,8 @@ suite('org/oauthClient — device flow, cap errors, roster summary', () => {
   test('linkViaDevice keeps polling through a cap refusal (the code stays pending) and links once a slot frees up', async () => {
     const replies = [
       () => new Response(JSON.stringify({ error: 'authorization_pending' }), { status: 400 }),
-      () => new Response(JSON.stringify({ error: 'access_denied', error_description: 'Free plan allows 1 machine.' }), { status: 403 }),
-      () => new Response(JSON.stringify({ error: 'access_denied', error_description: 'Free plan allows 1 machine.' }), { status: 403 }),
+      () => new Response(JSON.stringify({ error: 'access_denied', error_description: 'Free tier is limited to 9 linked machines. Upgrade to link another.' }), { status: 403 }),
+      () => new Response(JSON.stringify({ error: 'access_denied', error_description: 'Free tier is limited to 9 linked machines. Upgrade to link another.' }), { status: 403 }),
       () => new Response(JSON.stringify(TOKENS), { status: 200 }),
     ]
     globalThis.fetch = (async (u: unknown) => {
@@ -55,7 +55,7 @@ suite('org/oauthClient — device flow, cap errors, roster summary', () => {
     const blocked: string[] = []
     const res = await linkViaDevice({ onPrompt: () => {}, onBlocked: m => blocked.push(m), sleep: async () => {} })
     assert.strictEqual(res.orgName, 'Acme')
-    assert.deepStrictEqual(blocked, ['Free plan allows 1 machine.'], 'told once per distinct message')
+    assert.deepStrictEqual(blocked, ['Free tier is limited to 9 linked machines. Upgrade to link another.'], 'told once per distinct message')
   })
 
   test('a refused code exchange shows the server\'s error_description', async () => {
