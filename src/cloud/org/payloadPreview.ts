@@ -17,6 +17,7 @@ import { assertValidRollupPayload } from '../forward/validate'
 import { stableStringify } from '../forward/preview'
 import type { RollupPayload } from '../forward/schema'
 import { loadCredentials } from './credentials'
+import { wireSessionId } from '../forward/sessionRekey'
 import { currentHostId, PREVIEW_HOST_ID } from './hostIdentity'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 import { sourceRankOf } from '../../traceIdentity'
@@ -164,6 +165,9 @@ export async function buildPayloadForCard(card: SessionSummaryCard, cache?: Payl
     // Unlinked: a placeholder, like the org salt above — and no host-id file is written.
     hostId: creds ? currentHostId() : PREVIEW_HOST_ID,
   })
+  // A trace the cloud already holds for someone else goes out under this owner's own id
+  // (sessionRekey.ts); every other one keeps its plain id.
+  if (creds && payload.session) payload.session.session_id = wireSessionId(creds, payload.session.session_id)
   assertValidRollupPayload(payload)
   return rk.ok ? { payload } : { payload, ungroupedReason: rk.reason }
 }
