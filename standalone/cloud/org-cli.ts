@@ -14,6 +14,23 @@ import { orgEndpoint } from '../../src/cloud/org/config'
 import { fetchInstallStats } from '../../src/cloud/org/oauthClient'
 import { freshCredentials } from '../../src/cloud/org/tokenRefresh'
 import { readServiceConfig } from '../../src/serviceConfig'
+import { shouldAutoOpen } from '../openBrowser'
+
+/** Which link flow `org link` runs. `--device` / `--browser` always win. Otherwise the browser
+ *  (PKCE) flow only where a browser can actually open on this machine: it waits on a loopback
+ *  callback here, so over SSH or on a display-less box it could only time out. Everywhere else —
+ *  the same places `service install` won't open the dashboard (`shouldAutoOpen`) — use the device
+ *  flow, whose code can be approved from any device. */
+export function chooseLinkFlow(opts: {
+  args: string[]
+  env: NodeJS.ProcessEnv
+  stdoutIsTty: boolean
+  platform?: NodeJS.Platform
+}): 'device' | 'browser' {
+  if (opts.args.includes('--device')) return 'device'
+  if (opts.args.includes('--browser')) return 'browser'
+  return shouldAutoOpen(opts) ? 'browser' : 'device'
+}
 
 function printPromise(): void {
   console.log('\nWhat a linked machine sends:')
@@ -28,13 +45,18 @@ async function runLink(args: string[]): Promise<number> {
     console.log('This machine is already linked. Run `traceroost org leave` first to re-link.')
     return 1
   }
-  const device = args.includes('--device')
+  const flow = chooseLinkFlow({ args, env: process.env, stdoutIsTty: process.stdout.isTTY === true })
+  const device = flow === 'device'
   console.log(`Linking this machine to TraceRoost Cloud at ${orgEndpoint()}.`)
   printPromise()
   console.log(LEAVE_HINT + '\n')
 
   try {
     if (device) {
+      if (!args.includes('--device')) {
+        console.log('No browser can be opened here, so this uses a code you can approve from any device.')
+        console.log('(Pass --browser to open one on this machine anyway.)\n')
+      }
       const result = await linkViaDevice({
         onPrompt: ({ userCode, verificationUri, verificationUriComplete }) => {
           console.log('To approve this machine, open:')
@@ -179,8 +201,9 @@ export async function runOrgCli(args: string[]): Promise<number> {
     case 'verify': return runVerify()
     case 'leave':  return runLeave()
     default:
-      console.log('Usage: traceroost org <link|status|verify|leave> [--device]')
-      console.log('  link    Join an org (opens a browser; --device for headless machines)')
+      console.log('Usage: traceroost org <link [--device|--browser]|status|verify|leave>')
+      console.log('  link    Join an org (opens a browser; over SSH or without a display it shows a')
+      console.log('          code to approve from any device instead — force either with --device/--browser)')
       console.log('  status  Show this machine\'s Cloud state')
       console.log('  verify  Compare local trace count against what the server has')
       console.log('  leave   Unlink this machine (local-first, works offline)')

@@ -627,6 +627,36 @@ and `$(brew --prefix)/opt/node`), so a plain `brew upgrade` never breaks it; run
 `traceroost service restart` afterwards to switch the running service to the new version.
 TraceRoost manages its own service, so don't also start it with `brew services`.
 
+### Headless forwarder (servers, VMs, SSH-only boxes)
+
+A machine with no desktop — a Linux server, a dev VM, a box you only reach over SSH — can collect
+its agents' traces and forward them to a TraceRoost Cloud org with nothing but a terminal. It's the
+same background service as above; nothing on it needs a browser. Forwarding needs the **full**
+edition (see [Editions](#editions)); released builds are core until TraceRoost Cloud launches.
+
+```bash
+# 1. Run TraceRoost as a background service (never opens a browser over SSH or without a display)
+npx traceroost@latest service install --no-open
+
+# Linux: keep the service running while you're logged out
+loginctl enable-linger $USER
+
+# 2. Link this machine to your org. Over SSH or without a display this prints a URL and a code —
+#    approve it from your laptop or phone. (--device / --browser force either flow.)
+traceroost org link
+
+# 3. Check it's forwarding
+traceroost org status    # linked org, queue depth, last trace sent
+traceroost org verify    # local trace count vs what the cloud has from this machine
+traceroost service logs --follow
+```
+
+The running service starts forwarding as soon as the link completes — no restart needed. Agents on
+the box send to it as usual (`service install` asks once whether to set up Claude Code, Codex and
+Copilot; answer from the same terminal). `traceroost org leave` stops forwarding and deletes the
+local credential, even offline. The credential is an owner-only (0600) file,
+`~/.traceroost/team.json`, so it works without an OS keychain or a logged-in desktop session.
+
 ### My dev server needs port 3000
 
 The standalone dashboard uses port 3000 by default, which is also the default for Next.js, Rails,
