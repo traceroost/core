@@ -50,12 +50,17 @@ import { calcAggregateTokenCostUsd, calcSessionCostUsd, lookupRates } from './pr
 
 // ── Pattern taxonomy names ───────────────────────────────────────────────────
 
+// Three names were plainer-ed on 2026-10-22 (owner's call, signal review): 'State Corruption
+// Spiral' → 'Edit Reverted', 'Hallucination Amplification Loop' → 'Repeated Error', 'Infinite
+// Loop — Context Accumulation' → 'Context Runaway'. Each old name promised more than its detector
+// measures (one revert, three recurring errors, a ratio drop across four calls), and an alarm that
+// overclaims on a session that shipped costs trust in the whole column. Help ids are unchanged.
 export const PATTERN_NAMES: Record<LoopSignalType, string> = {
   exact_tool_repeat: 'Tool Call Deadlock',
-  edit_revert_cycle: 'State Corruption Spiral',
-  error_recurrence:  'Hallucination Amplification Loop',
+  edit_revert_cycle: 'Edit Reverted',
+  error_recurrence:  'Repeated Error',
   runaway_steps:     'Ambiguous Success / Escalating Scope',
-  token_runaway:     'Infinite Loop — Context Accumulation',
+  token_runaway:     'Context Runaway',
   chronic_tool_failures: 'Chronic Tool Unreliability',
   context_flooding_risk: 'Context Flooding Risk',
   hallucinated_import:     'Fabricated Dependency',
@@ -383,10 +388,10 @@ export const SIGNAL_FORMULAS: Record<
   },
   model_tier_mismatch: {
     bullets: [
-      'No file was edited this session, 3+ tool calls were made and 90%+ of them are read-only (grep/search/glob/list/read), the model\'s input rate is $3+/M tokens, and average output per LLM call is under 300 tokens → warning',
+      'No file was edited this session, 3+ tool calls were made and 90%+ of them are read-only (grep/search/glob/list/read), the model\'s input rate is above $3/M tokens (Opus-class — Sonnet, at $3, does not count), and average output per LLM call is under 300 tokens → warning',
       'No critical tier — this is a cost-optimization tip, not a malfunction',
     ],
-    caveat: 'Experimental — every cutoff here (the 90% read-only share, the $3/M input-rate line, the 300-token output ceiling) is not yet tuned on real sessions.',
+    caveat: 'Experimental — every cutoff here (the 90% read-only share, the above-$3/M input-rate line, the 300-token output ceiling) is not yet tuned on real sessions.',
     short: 'A premium-tier model ran a read-only, low-output stretch of 3+ tool calls.',
     tip: 'Route read/search-heavy turns to a smaller model.',
     prompt: 'This stretch was read-only research. For searching and reading, use a smaller model (in Claude Code, a subagent with model: haiku); use the main model only for turns that edit.',
@@ -1231,6 +1236,11 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
 
 const READ_ONLY_TOOL_LABEL_PATTERN = /^(read_file|read|cat|view|show_file|show|grep|search|glob|find|list|ls|get)\b/i
 const TIER_MISMATCH_MIN_READ_ONLY_SHARE = 0.9
+// Strictly above this rate counts as premium. Sonnet sits exactly at $3/M and is Claude Code's
+// default model, so an inclusive bar flagged every no-edit question-and-answer session on it and
+// offered only Haiku as the fix — the most-ignored signal in the list. Above $3 the signal means
+// Opus-class (and the equivalent OpenAI tiers), where the same read-only stretch is a genuine
+// several-fold overspend and the advice gets acted on (owner's decision, 2026-10-22).
 const TIER_MISMATCH_PREMIUM_INPUT_RATE_PER_MTOK = 3
 const TIER_MISMATCH_MAX_AVG_OUTPUT_TOKENS = 300
 const TIER_MISMATCH_MIN_TOOL_CALLS = 3
@@ -1244,7 +1254,7 @@ export function detectModelTierMismatch(session: SessionSummaryCard, signals: Lo
   if (readOnlyCount / toolEntries.length < TIER_MISMATCH_MIN_READ_ONLY_SHARE) { return }
 
   const rates = lookupRates(session.model)
-  if (!rates || rates.inputPerMTok < TIER_MISMATCH_PREMIUM_INPUT_RATE_PER_MTOK) { return }
+  if (!rates || rates.inputPerMTok <= TIER_MISMATCH_PREMIUM_INPUT_RATE_PER_MTOK) { return }
 
   const llmCalls = session.timeline.filter(e => e.type === 'llm')
   const avgOutput = llmCalls.length > 0

@@ -649,7 +649,7 @@ function SignalsSection() {
             steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>If the repeated call is a command whose output changes on its own (a clock, a live log, a poll), it isn't a loop — <strong>Ignore</strong> it.</li><li>Otherwise stop the trace and restart with what was already read.</li>`}
             impact="Stopping this pattern prevents runaway token accumulation. 200K tokens looping → 20K tokens with a direct prompt."
           />
-          <LoopBlock id="help-state-spiral" title="State Corruption Spiral" signalType="edit_revert_cycle"
+          <LoopBlock id="help-state-spiral" title="Edit Reverted" signalType="edit_revert_cycle"
             why={formulaHtml(SIGNAL_FORMULAS.edit_revert_cycle.bullets)}
             caveat={SIGNAL_FORMULAS.edit_revert_cycle.caveat}
             dataSource={SIGNAL_FORMULAS.edit_revert_cycle.dataSource}
@@ -658,7 +658,7 @@ function SignalsSection() {
             steps={`<li>Clarify success criteria with explicit priority ordering.</li><li>Provide the exact final file state if possible.</li><li>Check if tests assert contradictory behavior.</li><li>Use the Files tab to spot A→B→A patterns.</li>`}
             impact="Resolving the conflict takes 2–3 focused turns vs. 20–40 oscillating turns."
           />
-          <LoopBlock id="help-hallucination" title="Hallucination Amplification Loop" signalType="error_recurrence"
+          <LoopBlock id="help-hallucination" title="Repeated Error" signalType="error_recurrence"
             why={formulaHtml(SIGNAL_FORMULAS.error_recurrence.bullets)}
             caveat={SIGNAL_FORMULAS.error_recurrence.caveat}
             dataSource={SIGNAL_FORMULAS.error_recurrence.dataSource}
@@ -676,7 +676,7 @@ function SignalsSection() {
             steps={`<li>Add explicit stopping conditions.</li><li>Avoid open-ended phrasing — name specific functions and files.</li><li>Specify scope: <em>"Only change files in src/auth/"</em>.</li><li>Monitor the context growth chart for steep rises.</li>`}
             impact="A 5-step prompt vs. a 90-step trace can save 85 tool calls — often a several-fold token reduction."
           />
-          <LoopBlock id="help-context-accumulation" title="Infinite Loop — Context Accumulation" signalType="token_runaway"
+          <LoopBlock id="help-context-accumulation" title="Context Runaway" signalType="token_runaway"
             why={formulaHtml(SIGNAL_FORMULAS.token_runaway.bullets)}
             caveat={SIGNAL_FORMULAS.token_runaway.caveat}
             dataSource={SIGNAL_FORMULAS.token_runaway.dataSource}
@@ -781,7 +781,7 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.model_tier_mismatch.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.model_tier_mismatch.dataSourceNote}
             example={`A trace ran 14 straight <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">grep</code>/<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file</code> calls on a premium model with no edits and ~80 output tokens per call.`}
-            steps={`<li>Give research to a smaller model: in Claude Code, a subagent with <code>model: haiku</code>, or <code>/model</code> for a read-only stretch.</li><li>Reserve the premium model for turns that actually produce edits.</li><li>"Premium" here means an input rate of $3/M or more, so Sonnet-class models count; on a question-and-answer session with no edits this is a cost tip, not a fault.</li>`}
+            steps={`<li>Give research to a smaller model: in Claude Code, a subagent with <code>model: haiku</code>, or <code>/model</code> for a read-only stretch.</li><li>Reserve the premium model for turns that actually produce edits.</li><li>"Premium" means an input rate above $3/M — Opus-class and the equivalent OpenAI tiers. Sonnet, at $3, doesn't count, so a question-and-answer session on the default model is never flagged.</li>`}
             impact="Switching a read-only stretch from a premium to a mid-tier model can cut that portion's cost 5–10× with no quality loss."
           />
         </div>

@@ -222,10 +222,10 @@ export const SIGNAL_FORMULAS: Record<
   },
   model_tier_mismatch: {
     bullets: [
-      'No file was edited this session, 3+ tool calls were made and 90%+ of them are read-only (grep/search/glob/list/read), the model\'s input rate is $3+/M tokens, and average output per LLM call is under 300 tokens → warning',
+      'No file was edited this session, 3+ tool calls were made and 90%+ of them are read-only (grep/search/glob/list/read), the model\'s input rate is above $3/M tokens (Opus-class — Sonnet, at $3, does not count), and average output per LLM call is under 300 tokens → warning',
       'No critical tier — this is a cost-optimization tip, not a malfunction',
     ],
-    caveat: 'Experimental — every cutoff here (the 90% read-only share, the $3/M input-rate line, the 300-token output ceiling) is not yet tuned on real sessions.',
+    caveat: 'Experimental — every cutoff here (the 90% read-only share, the above-$3/M input-rate line, the 300-token output ceiling) is not yet tuned on real sessions.',
     short: 'A premium-tier model ran a read-only, low-output stretch of 3+ tool calls.',
     tip: 'Route read/search-heavy turns to a smaller model.',
     prompt: 'This stretch was read-only research. For searching and reading, use a smaller model (in Claude Code, a subagent with model: haiku); use the main model only for turns that edit.',
