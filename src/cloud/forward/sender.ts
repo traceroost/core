@@ -21,6 +21,9 @@
  * |                       | it (see traceManifest.ts).                                         |
  * | 429                   | back off per `Retry-After`, stop the whole drain (the server just  |
  * |                       | told us to).                                                       |
+ * | 429 + `X-TraceRoost-Ceiling: daily` | the org reached today's rollup limit: pause until   |
+ * |                       | `Retry-After`, never past midnight UTC (the limit resets then, and |
+ * |                       | the next 5-minute tick drains), keep the queue, one notice a day.  |
  * | Disk full             | stop queueing, keep working (handled in `queue.ts`).              |
  *
  * Clearing the queue whenever the credential is gone for good matters because every queued rollup
@@ -57,7 +60,7 @@
 import { gzipSync } from 'node:zlib'
 import { ForwardQueue, type QueueItem } from './queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from './deliveryLedger'
-import { readForwardState, writeForwardState, clearForwardState, type ForwardNotice } from './forwardState'
+import { readForwardState, writeForwardState, clearForwardState, nextUtcMidnight, utcDay, type ForwardNotice } from './forwardState'
 import { loadCredentials, clearCredentials, ensureInstallId } from '../org/credentials'
 import { TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring, RefreshReplayExhaustedError } from '../org/tokenRefresh'
@@ -83,6 +86,7 @@ export const RELINK_MESSAGE = 'TraceRoost Cloud sign-in expired — re-link this
 export const REVOKED_MESSAGE = 'TraceRoost: this machine was unlinked from TraceRoost Cloud (its install was revoked, or your membership ended) and has stopped forwarding. Re-link it to resume.'
 export const RELINK_HELD_MESSAGE = 'TraceRoost Cloud could not confirm this machine\'s sign-in (its refresh went unanswered twice) — re-link this machine to resume sending. Traces not yet sent are kept and sent after you re-link.'
 export const UPGRADE_MESSAGE = 'Update TraceRoost to keep sending to TraceRoost Cloud — this version is no longer accepted. Traces stay queued and are sent after the update.'
+export const CEILING_MESSAGE = 'TraceRoost Cloud reached today\'s trace limit for your org. Nothing is lost: unsent traces stay queued and are sent after midnight UTC.'
 
 /** How long a 426 pauses forwarding before one more try (the cloud may have relaxed its floor);
  *  a newer client version lifts it at once. */
@@ -317,11 +321,12 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     // *were* sent — just without ledger-recording; the cost is a possible redundant resend on a
     // future restart's reconciliation (harmless, server-deduplicated), not a lost delivery.
     if (sent > 0) {
-      // A send that went through also ends an upgrade notice (the cloud accepts this version now).
-      // (Not when this very drain just hit a 426: some items went through, the rest wait.)
-      writeForwardState(stopped === 'upgrade-required'
+      // A send that went through also ends an upgrade or daily-limit notice (the cloud accepts this
+      // version, and this org's sends, now). Not when this very drain just hit a 426 or a 429: some
+      // items went through before it, the rest wait — and the pause it set must stand.
+      writeForwardState(stopped === 'upgrade-required' || stopped === 'rate-limited'
         ? { lastSuccessAt: new Date().toISOString() }
-        : { lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null, ...(state.notice?.kind === 'upgrade' ? { notice: null } : {}) }, deps.baseHome)
+        : { lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null, ...(state.notice?.kind === 'upgrade' || state.notice?.kind === 'ceiling' ? { notice: null } : {}) }, deps.baseHome)
       deps.recordSent?.(sent, now())
     }
     return { attempted: batch.length, sent, droppedInvalid, rekeyed, remaining: queue.depth(), stopped }
@@ -372,6 +377,34 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     writeForwardState({ paused: true, pausedUntil: now() + UPGRADE_PAUSE_MS, lastErrorAt: new Date().toISOString(), lastError: 'TraceRoost update required', notice }, deps.baseHome)
     if (!already) deps.notify?.(UPGRADE_MESSAGE, 'warning', 'update')
     return finish('upgrade-required')
+  }
+
+  // HTTP 429. The per-install rate limit: pause for `Retry-After`. The org's daily rollup ceiling
+  // (`X-TraceRoost-Ceiling: daily`): pause for `Retry-After` but never past midnight UTC, when the
+  // limit resets — so a machine that stays on drains at the first scheduler tick after it rather
+  // than on a timer started mid-day — and tell the developer once per UTC day. Either way the
+  // queue is kept: nothing is dropped.
+  function rateLimited(res: Response): DrainResult {
+    const retryAfter = Number(res.headers.get('retry-after')) || 60
+    if (res.headers.get('x-traceroost-ceiling') !== 'daily') {
+      writeForwardState({ paused: true, pausedUntil: now() + retryAfter * 1000, lastErrorAt: new Date().toISOString(), lastError: 'rate limited' }, deps.baseHome)
+      return finish('rate-limited')
+    }
+    const day = utcDay(now())
+    const already = state.notice?.kind === 'ceiling' && state.notice.day === day
+    // Never over a notice the developer must act on (a held re-link, an update).
+    const mayNotice = !state.notice || state.notice.kind === 'ceiling'
+    const notice: ForwardNotice = { kind: 'ceiling', message: CEILING_MESSAGE, at: new Date(now()).toISOString(), day }
+    writeForwardState({
+      paused: true,
+      pausedUntil: Math.min(now() + retryAfter * 1000, nextUtcMidnight(now())),
+      lastErrorAt: new Date().toISOString(),
+      lastError: 'daily limit reached',
+      ...(mayNotice ? { notice } : {}),
+    }, deps.baseHome)
+    if (!already && mayNotice) deps.notify?.(CEILING_MESSAGE, 'info')
+    state = { ...state, ...(mayNotice ? { notice } : {}) }
+    return finish('rate-limited')
   }
 
   // At most one refresh per drain, through the locked refresh in tokenRefresh.ts (which returns
@@ -467,11 +500,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       return 'continue'
     }
 
-    if (res.status === 429) {
-      const retryAfter = Number(res.headers.get('retry-after')) || 60
-      writeForwardState({ paused: true, pausedUntil: now() + retryAfter * 1000, lastErrorAt: new Date().toISOString(), lastError: 'rate limited' }, deps.baseHome)
-      return { stop: finish('rate-limited') }
-    }
+    if (res.status === 429) return { stop: rateLimited(res) }
 
     if (res.status !== 200) {
       // 5xx or anything else — transient, and specific to this request, not necessarily the
@@ -568,11 +597,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       return
     }
 
-    if (res.status === 429) {
-      const retryAfter = Number(res.headers.get('retry-after')) || 60
-      writeForwardState({ paused: true, pausedUntil: now() + retryAfter * 1000, lastErrorAt: new Date().toISOString(), lastError: 'rate limited' }, deps.baseHome)
-      return { stop: finish('rate-limited') }
-    }
+    if (res.status === 429) return { stop: rateLimited(res) }
 
     queue.recordFailure(item.key, `HTTP ${res.status}`)
     writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: `HTTP ${res.status}` }, deps.baseHome)
