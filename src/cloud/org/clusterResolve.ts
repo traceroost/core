@@ -17,6 +17,8 @@ import { clusterResolveUrl } from './config'
 import { clientVersion } from './oauthClient'
 import { fetchWithFreshToken } from './tokenRefresh'
 import { toUuid } from '../forward/buildSessionRollup'
+import { RekeyLedger } from '../forward/sessionRekey'
+import { loadCredentials } from './credentials'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 
 export interface ClusterResolution {
@@ -96,12 +98,17 @@ export interface ResolvedLocalSession {
  * The wire carries each session id through `toUuid` (buildSessionRollup.ts) — a lowercased UUID
  * as-is, anything else (a Codex rollout id, an OTEL trace id) as a name-based UUID of it — so the
  * local ids are mapped the same way before comparing, or every non-UUID session would go unmatched.
+ * A session re-keyed for the linked owner (sessionRekey.ts) is on the wire under its owner id, so
+ * it is mapped to that.
  */
 export function matchLocalSessions(
   resolution: ClusterResolution,
   localSessions: SessionSummaryCard[],
 ): { matched: ResolvedLocalSession[]; unmatchedCount: number } {
-  const bySessionId = new Map(localSessions.map((s) => [toUuid(s.sessionId), s]))
+  const creds = loadCredentials()
+  const rekeys = new RekeyLedger()
+  const wireId = (s: SessionSummaryCard) => (creds ? rekeys.wireId(creds, toUuid(s.sessionId)) : toUuid(s.sessionId))
+  const bySessionId = new Map(localSessions.map((s) => [wireId(s), s]))
   const matched: ResolvedLocalSession[] = []
   for (const id of resolution.sessionIds) {
     const s = bySessionId.get(id.toLowerCase())
