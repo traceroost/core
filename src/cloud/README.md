@@ -11,7 +11,7 @@ where" table.
 
 ```
 src/cloud/
-├── org/           the paid, networked half — OAuth link, credentials, the
+├── org/           the Cloud (networked) half — OAuth link, credentials, the
 │                  panel/CLI controller that turns a session close into a
 │                  queued rollup
 └── forward/       the wire format, the disk-backed queue, and the sender

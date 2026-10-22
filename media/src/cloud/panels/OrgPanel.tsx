@@ -87,7 +87,7 @@ export interface OrgStatus {
   sending: boolean
   /** Something to act on (src/cloud/org/status.ts): `relink` once the credential was rejected for
    *  good and the machine unlinked itself; `upgrade` while the cloud refuses this version. */
-  notice?: { kind: 'relink' | 'upgrade'; message: string }
+  notice?: { kind: 'relink' | 'upgrade' | 'ceiling'; message: string }
   /** The org's own "who sees what about you" paragraph, when the cloud sent one. */
   teammateVisibilitySummary?: string
 }
@@ -232,6 +232,12 @@ export function OrgButton() {
   )
 }
 
+const NOTICE_TITLE: Record<NonNullable<OrgStatus['notice']>['kind'], string> = {
+  relink: 'TraceRoost Cloud sign-in expired — re-link this machine',
+  upgrade: 'Update TraceRoost to keep sending to TraceRoost Cloud',
+  ceiling: 'TraceRoost Cloud daily limit reached',
+}
+
 /** The top-bar notice for something the developer has to act on — shown on every tab, not only
  *  inside the Org panel, because the standalone dashboard has no other way to say it (no toast).
  *  Clears itself once the status no longer carries a notice (a re-link, an update). */
@@ -242,7 +248,7 @@ export function OrgNoticeBanner() {
     <div class="collector-conflict-banner" role="alert">
       <span class="collector-conflict-banner-icon">⚠</span>
       <div style="flex:1">
-        <strong>{notice.kind === 'relink' ? 'TraceRoost Cloud sign-in expired — re-link this machine' : 'Update TraceRoost to keep sending to TraceRoost Cloud'}</strong>
+        <strong>{NOTICE_TITLE[notice.kind]}</strong>
         <div style="margin-top:2px">{notice.message}</div>
       </div>
       {notice.kind === 'relink' && (

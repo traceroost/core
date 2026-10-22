@@ -13,6 +13,7 @@ import { promisify } from 'util'
 import type { CloudBridge } from './cloudBridge'
 import { NOT_AVAILABLE_IN_CORE } from './edition'
 import { deriveRepoKey, repoHash } from './repoKey'
+import { toUuid } from './traceIdentity'
 
 const execFileAsync = promisify(execFile)
 
@@ -64,4 +65,6 @@ export const cloudBridge: CloudBridge = {
     }
   },
   resolveRepoHash: async () => null,
+
+  wireSessionId: (sessionId) => toUuid(sessionId),
 }

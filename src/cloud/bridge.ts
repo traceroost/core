@@ -24,6 +24,8 @@ import { maybeForwardOnContentChange } from './org/contentChangeForward'
 import { setHostStore } from './org/hostIdentity'
 import { ForwardQueue } from './forward/queue'
 import { DeliveryLedger, DroppedLedger } from './forward/deliveryLedger'
+import { wireSessionId } from './forward/sessionRekey'
+import { toUuid } from '../traceIdentity'
 
 export const cloudBridge: CloudBridge = {
   edition: 'full',
@@ -69,4 +71,6 @@ export const cloudBridge: CloudBridge = {
     return rk.ok ? { root: rk.ctx.root, hash: repoHash(rk.ctx) } : null
   },
   resolveRepoHash,
+
+  wireSessionId: (sessionId) => wireSessionId(loadCredentials(), toUuid(sessionId)),
 }

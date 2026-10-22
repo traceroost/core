@@ -35,6 +35,8 @@
  *   cloud has no row for it, and listing it would gate the day as `missing_keys` for a delivery
  *   that will never come. A day whose every key was dropped sends nothing (the store isn't empty,
  *   so no `confirm_empty`; an unconfirmed empty chunk would only be gated).
+ * - a key is listed under the id it was sent under: a session re-keyed for the linked owner
+ *   (sessionRekey.ts — the cloud held its plain id for someone else) is listed by its owner id.
  *
  * Cadence: a full sweep of every day in the window on startup and on (re-)link, then on each
  * forwarding tick only the days whose key set changed since their last successful chunk (a small
@@ -55,6 +57,7 @@ import * as os from 'os'
 import * as path from 'path'
 import type { TraceManifestSource } from '../../cloudBridge'
 import { loadCredentials } from '../org/credentials'
+import { RekeyLedger, type SessionOwner } from './sessionRekey'
 import { currentHostId } from '../org/hostIdentity'
 import { manifestUrl, type OrgCredentials } from '../org/config'
 import { clientVersion, TokenRefreshError } from '../org/oauthClient'
@@ -170,6 +173,16 @@ export function planManifestDay(source: Pick<TraceManifestSource, 'listTraceKeys
   const confirmed = chunks.some(c => c.confirm_empty)
   const hash = crypto.createHash('sha256').update([...allKeys].sort().join('\n') + (confirmed ? '\n#empty' : '')).digest('hex')
   return { hash, chunks }
+}
+
+/** `source`'s keys as the linked owner sends them — a re-keyed session by its owner id
+ *  (sessionRekey.ts), every other one as is. */
+function wireKeySource(source: Pick<TraceManifestSource, 'listTraceKeys' | 'countTraces'>, owner: SessionOwner, baseHome?: string): Pick<TraceManifestSource, 'listTraceKeys' | 'countTraces'> {
+  const rekeys = new RekeyLedger(baseHome)
+  return {
+    listTraceKeys: (fromMs, toMs) => source.listTraceKeys(fromMs, toMs).map(k => rekeys.wireId(owner, k)),
+    countTraces: (fromMs, toMs) => source.countTraces(fromMs, toMs),
+  }
 }
 
 // ── Per-link, per-host record ────────────────────────────────────────────────
@@ -293,6 +306,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
   if (horizon === null || days.length === 0) return { ...result, skipped: 'nothing-held' }
   // Rollups the cloud refused for good under this install — never listed (see the header).
   const dropped = new DroppedLedger(deps.baseHome).sessionIds(link.installId)
+  const keySource = wireKeySource(source, creds, deps.baseHome)
 
   let refreshed = false
   if (accessTokenExpiring(creds, now)) {
@@ -314,7 +328,7 @@ export async function syncTraceManifest(source: TraceManifestSource, deps: Manif
     // Re-checked per day: the requests below yield, and the store may be cleared (and re-read)
     // or change hands in the meantime.
     if (!source.isWriter() || !source.isReady()) return finish('interrupted')
-    const plan = planManifestDay(source, day, horizon, hostId, dropped, stuckKeys)
+    const plan = planManifestDay(keySource, day, horizon, hostId, dropped, stuckKeys)
     if (!plan) continue
     const rec = state.days[day.day]
     const nowMs = now()
@@ -473,11 +487,13 @@ export class TraceManifestSender {
 export function previewManifestChunk(source: Pick<TraceManifestSource, 'localHorizonMs' | 'listTraceKeys' | 'countTraces'>, hostId: string, nowMs: number = Date.now(), baseHome?: string): TraceManifestChunk | null {
   const horizon = source.localHorizonMs()
   if (horizon === null) return null
-  const installId = loadCredentials()?.installId
+  const creds = loadCredentials()
+  const installId = creds?.installId
   const dropped = installId ? new DroppedLedger(baseHome).sessionIds(installId) : undefined
+  const keySource = creds ? wireKeySource(source, creds, baseHome) : source
   let fallback: TraceManifestChunk | null = null
   for (const day of manifestDays(horizon, nowMs)) {
-    const plan = planManifestDay(source, day, horizon, hostId, dropped)
+    const plan = planManifestDay(keySource, day, horizon, hostId, dropped)
     const withKeys = plan?.chunks.find(c => c.keys.length > 0)
     if (withKeys) return withKeys
     fallback ??= plan?.chunks[0] ?? null

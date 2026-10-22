@@ -13,6 +13,7 @@
  * | 403 from anything else (a proxy or WAF page, a body that isn't the cloud's) | transient: back off, keep the credential and the queue. |
  * | 426 `{error:"client_upgrade_required"}` | pause forwarding (the queue is kept), tell the developer to update TraceRoost. |
  * | 400 / schema rejected (the cloud's own JSON error) | drop the record, log locally with the error, never retry. A 400 without one is transient. |
+ * | 409 `session_owned_elsewhere` | another member or org already holds this session's id: re-queue it under this owner's own id (sessionRekey.ts) and send it again. Never recorded as delivered under the refused id. |
  * | 413 / too large        | split the batch and resend the halves; a single record that is    |
  * |                       | itself too large (the cloud's own "payload too large") is dropped  |
  * |                       | and logged, never retried. A dropped session the cloud never held |
@@ -20,6 +21,9 @@
  * |                       | it (see traceManifest.ts).                                         |
  * | 429                   | back off per `Retry-After`, stop the whole drain (the server just  |
  * |                       | told us to).                                                       |
+ * | 429 + `X-TraceRoost-Ceiling: daily` | the org reached today's rollup limit: pause until   |
+ * |                       | `Retry-After`, never past midnight UTC (the limit resets then, and |
+ * |                       | the next 5-minute tick drains), keep the queue, one notice a day.  |
  * | Disk full             | stop queueing, keep working (handled in `queue.ts`).              |
  *
  * Clearing the queue whenever the credential is gone for good matters because every queued rollup
@@ -56,17 +60,20 @@
 import { gzipSync } from 'node:zlib'
 import { ForwardQueue, type QueueItem } from './queue'
 import { DeliveryLedger, DroppedLedger, scopedKey } from './deliveryLedger'
-import { readForwardState, writeForwardState, clearForwardState, type ForwardNotice } from './forwardState'
+import { readForwardState, writeForwardState, clearForwardState, nextUtcMidnight, utcDay, type ForwardNotice } from './forwardState'
 import { loadCredentials, clearCredentials, ensureInstallId } from '../org/credentials'
 import { TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring, RefreshReplayExhaustedError } from '../org/tokenRefresh'
 import { ingestUrl, batchIngestUrl, type OrgCredentials } from '../org/config'
+import { RekeyLedger, ownerSessionId, SESSION_OWNED_ELSEWHERE, ACCEPTS_HEADER, ACCEPTS_OWNER_CONFLICT } from './sessionRekey'
 import { clientVersion } from '../org/oauthClient'
 
 export interface DrainResult {
   attempted: number
   sent: number
   droppedInvalid: number
+  /** Sessions re-queued under this owner's own id after a `409 session_owned_elsewhere`. */
+  rekeyed: number
   remaining: number
   stopped: null | 'not-linked' | 'membership-revoked' | 'auth-failed' | 'rate-limited' | 'offline' | 'nothing-eligible' | 'upgrade-required'
 }
@@ -79,6 +86,7 @@ export const RELINK_MESSAGE = 'TraceRoost Cloud sign-in expired — re-link this
 export const REVOKED_MESSAGE = 'TraceRoost: this machine was unlinked from TraceRoost Cloud (its install was revoked, or your membership ended) and has stopped forwarding. Re-link it to resume.'
 export const RELINK_HELD_MESSAGE = 'TraceRoost Cloud could not confirm this machine\'s sign-in (its refresh went unanswered twice) — re-link this machine to resume sending. Traces not yet sent are kept and sent after you re-link.'
 export const UPGRADE_MESSAGE = 'Update TraceRoost to keep sending to TraceRoost Cloud — this version is no longer accepted. Traces stay queued and are sent after the update.'
+export const CEILING_MESSAGE = 'TraceRoost Cloud reached today\'s trace limit for your org. Nothing is lost: unsent traces stay queued and are sent after midnight UTC.'
 
 /** How long a 426 pauses forwarding before one more try (the cloud may have relaxed its floor);
  *  a newer client version lifts it at once. */
@@ -171,7 +179,7 @@ export function nextEligibleAt(item: QueueItem): number {
 export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   const now = deps.now ?? Date.now
   const queue = new ForwardQueue(deps.baseHome)
-  const empty: DrainResult = { attempted: 0, sent: 0, droppedInvalid: 0, remaining: queue.depth(), stopped: null }
+  const empty: DrainResult = { attempted: 0, sent: 0, droppedInvalid: 0, rekeyed: 0, remaining: queue.depth(), stopped: null }
 
   let creds = loadCredentials()
   if (!creds) return { ...empty, stopped: 'not-linked' }
@@ -211,6 +219,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   const httpBatchSize = deps.httpBatchSize ?? learnedMaxItems ?? DEFAULT_HTTP_BATCH_SIZE
   let sent = 0
   let droppedInvalid = 0
+  let rekeyed = 0
   let refreshedThisDrain = false
   let sawTransientFailure = false
   // Flips to false the first time the batch endpoint 404s, so the rest of this drain (and only
@@ -271,6 +280,31 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     deps.onItemDone?.()
   }
 
+  // The cloud already holds this session's id for another member or org (cloud persist.ts
+  // `SESSION_OWNED_ELSEWHERE`). Recorded for this owner first, so every later build of the session
+  // uses the owner id too (payloadPreview.ts); then the payload goes back on the queue under that
+  // id — a fresh item, eligible right away, so the scheduler's next pass sends it — and the
+  // refused one leaves. Nothing is recorded delivered for the refused id. An owner id that is
+  // itself refused can't be helped by salting again: dropped, like any record the cloud won't take.
+  function rekey(item: QueueItem): void {
+    const session = item.payload.session
+    if (!session || !creds) {
+      backOffAll([item], `HTTP 409 (${SESSION_OWNED_ELSEWHERE})`)
+      return
+    }
+    const owner = { orgId: creds.orgId, memberId: creds.memberId }
+    const rekeys = new RekeyLedger(deps.baseHome)
+    if (rekeys.isOwnerId(owner, session.session_id)) {
+      dropPermanently(item, 'session owned by another account, even under this owner\'s own id')
+      return
+    }
+    rekeys.markRekeyed(owner, session.session_id)
+    queue.enqueue({ ...item.payload, session: { ...session, session_id: ownerSessionId(owner, session.session_id) } })
+    queue.removeSent([item])
+    rekeyed++
+    deps.onItemDone?.()
+  }
+
   function backOffAll(items: QueueItem[], error: string): void {
     queue.recordFailures(items.map(item => item.key), error)
     writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: error }, deps.baseHome)
@@ -287,14 +321,15 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     // *were* sent — just without ledger-recording; the cost is a possible redundant resend on a
     // future restart's reconciliation (harmless, server-deduplicated), not a lost delivery.
     if (sent > 0) {
-      // A send that went through also ends an upgrade notice (the cloud accepts this version now).
-      // (Not when this very drain just hit a 426: some items went through, the rest wait.)
-      writeForwardState(stopped === 'upgrade-required'
+      // A send that went through also ends an upgrade or daily-limit notice (the cloud accepts this
+      // version, and this org's sends, now). Not when this very drain just hit a 426 or a 429: some
+      // items went through before it, the rest wait — and the pause it set must stand.
+      writeForwardState(stopped === 'upgrade-required' || stopped === 'rate-limited'
         ? { lastSuccessAt: new Date().toISOString() }
-        : { lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null, ...(state.notice?.kind === 'upgrade' ? { notice: null } : {}) }, deps.baseHome)
+        : { lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null, ...(state.notice?.kind === 'upgrade' || state.notice?.kind === 'ceiling' ? { notice: null } : {}) }, deps.baseHome)
       deps.recordSent?.(sent, now())
     }
-    return { attempted: batch.length, sent, droppedInvalid, remaining: queue.depth(), stopped }
+    return { attempted: batch.length, sent, droppedInvalid, rekeyed, remaining: queue.depth(), stopped }
   }
 
   // The credential is gone for good (refresh rejected, or the install revoked): stop, and drop
@@ -342,6 +377,34 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     writeForwardState({ paused: true, pausedUntil: now() + UPGRADE_PAUSE_MS, lastErrorAt: new Date().toISOString(), lastError: 'TraceRoost update required', notice }, deps.baseHome)
     if (!already) deps.notify?.(UPGRADE_MESSAGE, 'warning', 'update')
     return finish('upgrade-required')
+  }
+
+  // HTTP 429. The per-install rate limit: pause for `Retry-After`. The org's daily rollup ceiling
+  // (`X-TraceRoost-Ceiling: daily`): pause for `Retry-After` but never past midnight UTC, when the
+  // limit resets — so a machine that stays on drains at the first scheduler tick after it rather
+  // than on a timer started mid-day — and tell the developer once per UTC day. Either way the
+  // queue is kept: nothing is dropped.
+  function rateLimited(res: Response): DrainResult {
+    const retryAfter = Number(res.headers.get('retry-after')) || 60
+    if (res.headers.get('x-traceroost-ceiling') !== 'daily') {
+      writeForwardState({ paused: true, pausedUntil: now() + retryAfter * 1000, lastErrorAt: new Date().toISOString(), lastError: 'rate limited' }, deps.baseHome)
+      return finish('rate-limited')
+    }
+    const day = utcDay(now())
+    const already = state.notice?.kind === 'ceiling' && state.notice.day === day
+    // Never over a notice the developer must act on (a held re-link, an update).
+    const mayNotice = !state.notice || state.notice.kind === 'ceiling'
+    const notice: ForwardNotice = { kind: 'ceiling', message: CEILING_MESSAGE, at: new Date(now()).toISOString(), day }
+    writeForwardState({
+      paused: true,
+      pausedUntil: Math.min(now() + retryAfter * 1000, nextUtcMidnight(now())),
+      lastErrorAt: new Date().toISOString(),
+      lastError: 'daily limit reached',
+      ...(mayNotice ? { notice } : {}),
+    }, deps.baseHome)
+    if (!already && mayNotice) deps.notify?.(CEILING_MESSAGE, 'info')
+    state = { ...state, ...(mayNotice ? { notice } : {}) }
+    return finish('rate-limited')
   }
 
   // At most one refresh per drain, through the locked refresh in tokenRefresh.ts (which returns
@@ -437,11 +500,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       return 'continue'
     }
 
-    if (res.status === 429) {
-      const retryAfter = Number(res.headers.get('retry-after')) || 60
-      writeForwardState({ paused: true, pausedUntil: now() + retryAfter * 1000, lastErrorAt: new Date().toISOString(), lastError: 'rate limited' }, deps.baseHome)
-      return { stop: finish('rate-limited') }
-    }
+    if (res.status === 429) return { stop: rateLimited(res) }
 
     if (res.status !== 200) {
       // 5xx or anything else — transient, and specific to this request, not necessarily the
@@ -476,6 +535,8 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         sent++
       } else if (r.status === 400) {
         dropInvalid(item, r.error ?? '')
+      } else if (r.status === 409 && r.error === SESSION_OWNED_ELSEWHERE) {
+        rekey(item)
       } else if (r.status === 426 && r.error === UPGRADE_REQUIRED_ERROR) {
         // Kept, untouched: it goes out after the update.
         upgrade = true
@@ -520,7 +581,11 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     if (res.status === 403) return forbidden(res, [item])
     if (await isUpgradeRequired(res)) return { stop: upgradeRequired() }
 
-    const code = res.status === 413 || res.status === 400 ? await cloudErrorCode(res) : null
+    const code = res.status === 413 || res.status === 400 || res.status === 409 ? await cloudErrorCode(res) : null
+    if (res.status === 409 && code === SESSION_OWNED_ELSEWHERE) {
+      rekey(item)
+      return
+    }
     if (res.status === 413 && code !== null && TOO_LARGE_ERRORS.has(code)) {
       dropPermanently(item, 'payload too large (HTTP 413)')
       return
@@ -532,11 +597,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
       return
     }
 
-    if (res.status === 429) {
-      const retryAfter = Number(res.headers.get('retry-after')) || 60
-      writeForwardState({ paused: true, pausedUntil: now() + retryAfter * 1000, lastErrorAt: new Date().toISOString(), lastError: 'rate limited' }, deps.baseHome)
-      return { stop: finish('rate-limited') }
-    }
+    if (res.status === 429) return { stop: rateLimited(res) }
 
     queue.recordFailure(item.key, `HTTP ${res.status}`)
     writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: `HTTP ${res.status}` }, deps.baseHome)
@@ -619,6 +680,9 @@ async function postJson(url: string, accessToken: string, json: string, signal: 
     'Content-Type': 'application/json',
     Authorization: `Bearer ${accessToken}`,
     'User-Agent': `traceroost-client/${clientVersion()}`,
+    // Says this client re-keys a session another member or org owns (sessionRekey.ts) — without
+    // it the cloud answers that session as a duplicate, which an older client relies on.
+    [ACCEPTS_HEADER]: ACCEPTS_OWNER_CONFLICT,
   }
   const plain = () => {
     if (meta) meta.wireBytes = Buffer.byteLength(json)

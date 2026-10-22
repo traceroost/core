@@ -19,8 +19,10 @@ repeating them, and adds the diagrams none of them have yet.
    TraceRoost service, ever. The wire format has no free-text field — there is nothing for source
    code to travel in even if a bug tried to send it.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my* machine, *my*
-   commits, *my* repositories is free and complete. Paid is cross-developer aggregation — the one
-   thing a local install genuinely cannot do itself. Nothing local is gated behind Cloud.
+   commits, *my* repositories is free and complete. Cloud is cross-developer aggregation — the one
+   thing a local install genuinely cannot do itself. Nothing local is gated behind Cloud. (Cloud
+   has its own Free plan for small teams — `traceroost/cloud`'s `src/lib/entitlements.ts`; that is
+   a Cloud plan, not a limit on the local install.)
 
 ## The client owns the contract
 
@@ -146,7 +148,7 @@ scopes, so the endpoint list below *is* what a token can do.
 | `POST /oauth/device/code`, `POST /oauth/device/token` | `link.ts` (`linkViaDevice`) | RFC 8628 fallback for headless boxes. |
 | `POST /oauth/token` (`refresh_token`) | `tokenRefresh.ts` | Rotates the pair. Under the credential file's lock, re-reading it first, so two hosts on one machine never rotate the same token (the loser's `invalid_grant` would otherwise unlink the machine). Proactive when `accessTokenExpiresAt` is within a minute. |
 | `POST /oauth/revoke` | `link.ts` (`leave`) | Best-effort, after the local credential and queue are already gone; also revokes the install. |
-| `POST /api/ingest/batch`, `POST /api/ingest` (fallback on 404) | `sender.ts` | Rollup delivery. 401 = expired/unknown token (refresh and retry once; a transient refresh failure retries within ~30 s); 403 `{error:"install revoked"}` = stop, clear credential and queue, show a "re-link" notice — any other 403 backs off; 426 `client_upgrade_required` = pause, keep the queue, ask for an update; 400/413 drop a record only with the service's own error body; 413 = too large (split / drop). |
+| `POST /api/ingest/batch`, `POST /api/ingest` (fallback on 404) | `sender.ts` | Rollup delivery. 401 = expired/unknown token (refresh and retry once; a transient refresh failure retries within ~30 s); 403 `{error:"install revoked"}` = stop, clear credential and queue, show a "re-link" notice — any other 403 backs off; 426 `client_upgrade_required` = pause, keep the queue, ask for an update; 400/413 drop a record only with the service's own error body; 413 = too large (split / drop); 409 `session_owned_elsewhere` (per record, only to a client sending `X-TraceRoost-Accepts: session-owner-conflict`) = another member or org already holds the session's id — re-queue it under an id salted with this org and member (`sessionRekey.ts`), which every later build, ledger check, manifest and hand-off of that session then uses. |
 | `POST /api/ingest/manifest` | `traceManifest.ts` | The trace manifest (below). 429 = wait out `Retry-After`; 5xx / network failure / anything else unexpected = back off; 400/413 = skip that day until its keys change; 401/403 as above. |
 | `GET /api/roster/me` | `oauthClient.ts` (`fetchRosterSelf`) | Org name, own role (`admin`/`developer`) and email for the Org panel. |
 | `GET /api/installs/me` | `traceroost org verify` | How many sessions the service holds for *this install* — compared against the local count. A re-link's backfill moves already-stored sessions to the new install, so the counts line up again. |

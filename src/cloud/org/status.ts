@@ -95,7 +95,7 @@ export interface OrgStatus {
   /** Something the developer has to act on (forwardState.ts's ForwardNotice): `relink` after the
    *  credential was rejected for good and the machine unlinked itself; `upgrade` while the cloud
    *  refuses this TraceRoost version (HTTP 426). Absent when there is nothing to do. */
-  notice?: { kind: 'relink' | 'upgrade'; message: string }
+  notice?: { kind: 'relink' | 'upgrade' | 'ceiling'; message: string }
 }
 
 function describeEndpoint(endpoint: string): OrgEnvironment | 'custom' {
