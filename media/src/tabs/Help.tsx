@@ -169,6 +169,7 @@ function LoopBlock({ id, title, signalType, why, caveat, example, steps, impact,
       <div style="padding-left:8px;font-size:11px;line-height:1.6">
         <p style="margin:0 0 3px"><strong style="color:var(--fg);font-size:11px">How to fix:</strong></p>
         <ol style="margin:0 0 6px;padding-left:18px;font-size:11px;line-height:1.7;color:var(--muted)" dangerouslySetInnerHTML={{ __html: steps }} />
+        <p style="margin:0 0 6px;font-size:11px;color:var(--muted)"><strong style="color:var(--fg);font-size:11px">Tell the agent: </strong><em>{SIGNAL_FORMULAS[signalType].prompt}</em> <span style="font-size:10px">(what the Insights panel's <strong>Copy</strong> button puts on the clipboard, with the trace's evidence under it)</span></p>
         <p style="margin:0;font-size:10px;color:var(--muted)"><strong style="color:var(--fg);font-size:10px">Illustrative impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
       </div>
     </div>
@@ -637,7 +638,7 @@ function SignalsSection() {
   return (
     <div class="help-section" id="help-signals">
       <h3 class="help-heading">{HELP_SECTIONS.signals.heading}</h3>
-      <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work. They appear in the Insights panel (inside the <strong>Overview</strong> sub-tab of each trace) with warning or critical severity. The <strong>OTEL</strong>/<strong>Log</strong> badge on each one below shows what a trace actually needs to capture for it to fire — most need live OpenTelemetry, since a reconstructed log-only trace usually lacks the tool-result detail these read; the note under each badge names the one log source (if any) that's the exception. See <a href="#help-badges">Badges</a> for what a Log-sourced trace is missing more generally.</p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work — or, for the cache and cost signals, spending more than the work needed. They appear in the Insights panel (inside the <strong>Overview</strong> sub-tab of each trace) with warning or critical severity. Each entry below says exactly when it fires, how well that threshold has been checked against real sessions, what <em>you</em> do about it, and the one instruction to paste to the agent. The <strong>OTEL</strong>/<strong>Log</strong> badge on each one below shows what a trace actually needs to capture for it to fire — most need live OpenTelemetry, since a reconstructed log-only trace usually lacks the tool-result detail these read; the note under each badge names the one log source (if any) that's the exception. See <a href="#help-badges">Badges</a> for what a Log-sourced trace is missing more generally.</p>
       <div class="glossary">
           <LoopBlock id="help-tool-deadlock" title="Tool Call Deadlock" signalType="exact_tool_repeat"
             why={formulaHtml(SIGNAL_FORMULAS.exact_tool_repeat.bullets)}
@@ -645,7 +646,7 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.exact_tool_repeat.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.exact_tool_repeat.dataSourceNote}
             example={`The agent ran <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
-            steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>Pin non-deterministic commands to fixed output.</li><li>Stop the trace and restart with what was already read.</li>`}
+            steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>If the repeated call is a command whose output changes on its own (a clock, a live log, a poll), it isn't a loop — <strong>Ignore</strong> it.</li><li>Otherwise stop the trace and restart with what was already read.</li>`}
             impact="Stopping this pattern prevents runaway token accumulation. 200K tokens looping → 20K tokens with a direct prompt."
           />
           <LoopBlock id="help-state-spiral" title="State Corruption Spiral" signalType="edit_revert_cycle"
@@ -744,7 +745,7 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.cache_miss.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.cache_miss.dataSourceNote}
             example="A call re-wrote 8,000 of a 120,000-token cached prefix because a tool definition changed between turns — writing it (1.25× the input rate for a 5-minute cache write) cost roughly 12.5× what reading it back (0.1× input) would have."
-            steps={`<li>Keep tool definitions, system prompt, and thinking/effort settings stable across turns in the same session.</li><li>Avoid adding images or changing tool_choice mid-session if you can help it.</li><li>Check whether a timestamp or counter is embedded in a cached part of the prompt.</li>`}
+            steps={`<li>Don't switch model (<code>/model</code>), effort or thinking settings, or permission mode mid-task — each rebuilds the cached prefix.</li><li>Don't add or remove MCP servers mid-session; their tool definitions sit at the top of every call.</li><li>Check whether a timestamp or counter is embedded in a cached part of the prompt (a status line or hook that stamps the time).</li>`}
             impact="Avoiding one 8,000-token miss on a cache-write-priced model saves roughly the gap between cache-write and cache-read rates — about 1.15× that many tokens' worth of ordinary input cost (1.9× for 1-hour cache writes)."
           />
           <LoopBlock id="help-ttl-expiry" title="Cache TTL Expiry" signalType="ttl_expiry"
@@ -753,7 +754,7 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.ttl_expiry.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.ttl_expiry.dataSourceNote}
             example="Two turns were 90 minutes apart; the second re-wrote the full prefix even though nothing about the prompt had changed — the cache had simply expired."
-            steps={`<li>Work in tighter bursts if you want to keep benefiting from the cache.</li><li>Otherwise, accept the re-processing cost for turns that are naturally spaced out — there's no fix beyond timing.</li>`}
+            steps={`<li>Work in tighter bursts if you want to keep benefiting from the cache.</li><li>On an API key or usage credits the cache lives 5 minutes, not an hour: Claude Code lets you choose the 1-hour TTL yourself (its prompt-caching docs), at a higher write price.</li><li>Otherwise accept the re-processing cost for turns that are naturally spaced out — it's a timing effect, not a prompt problem.</li>`}
             impact="Recognizing this as a timing effect, not a prompt problem, avoids chasing a caching bug that isn't there."
           />
           <LoopBlock id="help-low-cache-hit-ratio" title="Poor Cache Utilization" signalType="low_cache_hit_ratio"
@@ -780,7 +781,7 @@ function SignalsSection() {
             dataSource={SIGNAL_FORMULAS.model_tier_mismatch.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.model_tier_mismatch.dataSourceNote}
             example={`A trace ran 14 straight <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">grep</code>/<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file</code> calls on a premium model with no edits and ~80 output tokens per call.`}
-            steps={`<li>Route read/search-heavy turns to a smaller, cheaper model.</li><li>Reserve the premium model for turns that actually produce edits.</li>`}
+            steps={`<li>Give research to a smaller model: in Claude Code, a subagent with <code>model: haiku</code>, or <code>/model</code> for a read-only stretch.</li><li>Reserve the premium model for turns that actually produce edits.</li><li>"Premium" here means an input rate of $3/M or more, so Sonnet-class models count; on a question-and-answer session with no edits this is a cost tip, not a fault.</li>`}
             impact="Switching a read-only stretch from a premium to a mid-tier model can cut that portion's cost 5–10× with no quality loss."
           />
         </div>
