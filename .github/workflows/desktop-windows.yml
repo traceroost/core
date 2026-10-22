@@ -22,11 +22,11 @@ name: Desktop (Windows)
 #
 #   WIN_CSC_LINK                    base64 of a code-signing .pfx            → WIN_CSC_LINK
 #   WIN_CSC_KEY_PASSWORD            its password                             → WIN_CSC_KEY_PASSWORD
-#   — or Azure Trusted Signing —
+#   — or Azure Artifact Signing (formerly Trusted Signing) —
 #   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET   a service principal with the
-#                                   "Trusted Signing Certificate Profile Signer" role
-#   AZURE_TRUSTED_SIGNING_ENDPOINT, AZURE_TRUSTED_SIGNING_ACCOUNT, AZURE_TRUSTED_SIGNING_PROFILE,
-#   AZURE_TRUSTED_SIGNING_PUBLISHER the account, profile and the certificate's subject CN
+#                                   "Artifact Signing Certificate Profile Signer" role. The
+#                                   account, profile and publisher are not secrets (every
+#                                   signature names them) and are fixed in electron-builder.cjs.
 #
 # An empty secret expands to an empty string, which the config treats as absent. With signing
 # configured, a build whose executables are not validly Authenticode-signed is a failure, not a
@@ -66,14 +66,6 @@ on:
         required: false
       AZURE_CLIENT_SECRET:
         required: false
-      AZURE_TRUSTED_SIGNING_ENDPOINT:
-        required: false
-      AZURE_TRUSTED_SIGNING_ACCOUNT:
-        required: false
-      AZURE_TRUSTED_SIGNING_PROFILE:
-        required: false
-      AZURE_TRUSTED_SIGNING_PUBLISHER:
-        required: false
 
 permissions:
   contents: read
@@ -95,13 +87,14 @@ jobs:
       - id: decide
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
-          if [ -n "$WIN_CSC_LINK" ] || { [ -n "$AZURE_TRUSTED_SIGNING_ENDPOINT" ] && [ -n "$AZURE_CLIENT_SECRET" ]; }; then
+          if [ -n "$WIN_CSC_LINK" ] || { [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ]; }; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::Windows build is unsigned (no WIN_CSC_LINK or Azure Trusted Signing secrets); SmartScreen will warn on first run"
+            echo "::notice::Windows build is unsigned (no WIN_CSC_LINK or Azure Artifact Signing secrets); SmartScreen will warn on first run"
             echo "configured=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -163,10 +156,6 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-          AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
-          AZURE_TRUSTED_SIGNING_PUBLISHER: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER }}
           # electron-builder skips signing on a pull-request build unless told otherwise. Secrets
           # never reach a fork's run, so a fork PR here can only ever build unsigned.
           CSC_FOR_PULL_REQUEST: 'true'

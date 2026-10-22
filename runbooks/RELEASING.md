@@ -269,9 +269,11 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
 - **Windows** (NSIS installer and portable zip, x64 and arm64) is built and tested on every release
   and **attached when Authenticode-signed**. Signing switches on from secrets, with no code change:
   either a code-signing certificate (`WIN_CSC_LINK` = base64 .pfx, `WIN_CSC_KEY_PASSWORD`) or Azure
-  Trusted Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
-  `AZURE_TRUSTED_SIGNING_ENDPOINT`, `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`,
-  `AZURE_TRUSTED_SIGNING_PUBLISHER`); `desktop-windows.yml` documents them and fails a configured
+  Artifact Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`: a service principal
+  with the *Artifact Signing Certificate Profile Signer* role; the account `TraceRoost`, profile
+  `traceroost-public` and publisher `Roger Reed` are in `desktop/electron-builder.cjs`, not
+  secrets). The client secret expires (24 months at most): renew it before then, or Windows
+  releases fall back to previews. `desktop-windows.yml` documents them and fails a configured
   build whose executables are not validly signed. `release.yml` passes each by name.
 - **Preview builds**: until the signing secrets exist, a macOS build that is not notarized
   (ad-hoc signed) and a Windows build that is not signed are attached as previews:
