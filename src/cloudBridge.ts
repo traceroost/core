@@ -132,6 +132,10 @@ export interface CloudBridge {
   /** Cloud `repo_hash` → local clone root, for the dashboard's hash hand-off deep links. Always
    *  null in the core edition. Never a network call. */
   resolveRepoHash(repoHashHex: string, candidateWorkspaces: string[]): Promise<string | null>
+  /** The id TraceRoost Cloud holds local trace `sessionId` under for the linked owner — `toUuid`
+   *  of it, or its owner id once re-keyed (src/cloud/forward/sessionRekey.ts). `toUuid` in the core
+   *  edition. Local disk only. */
+  wireSessionId(sessionId: string): string
 }
 
 export const cloud: CloudBridge = cloudBridge

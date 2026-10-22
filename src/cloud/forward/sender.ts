@@ -13,6 +13,7 @@
  * | 403 from anything else (a proxy or WAF page, a body that isn't the cloud's) | transient: back off, keep the credential and the queue. |
  * | 426 `{error:"client_upgrade_required"}` | pause forwarding (the queue is kept), tell the developer to update TraceRoost. |
  * | 400 / schema rejected (the cloud's own JSON error) | drop the record, log locally with the error, never retry. A 400 without one is transient. |
+ * | 409 `session_owned_elsewhere` | another member or org already holds this session's id: re-queue it under this owner's own id (sessionRekey.ts) and send it again. Never recorded as delivered under the refused id. |
  * | 413 / too large        | split the batch and resend the halves; a single record that is    |
  * |                       | itself too large (the cloud's own "payload too large") is dropped  |
  * |                       | and logged, never retried. A dropped session the cloud never held |
@@ -61,12 +62,15 @@ import { loadCredentials, clearCredentials, ensureInstallId } from '../org/crede
 import { TokenRefreshError } from '../org/oauthClient'
 import { refreshCredentials, accessTokenExpiring, RefreshReplayExhaustedError } from '../org/tokenRefresh'
 import { ingestUrl, batchIngestUrl, type OrgCredentials } from '../org/config'
+import { RekeyLedger, ownerSessionId, SESSION_OWNED_ELSEWHERE, ACCEPTS_HEADER, ACCEPTS_OWNER_CONFLICT } from './sessionRekey'
 import { clientVersion } from '../org/oauthClient'
 
 export interface DrainResult {
   attempted: number
   sent: number
   droppedInvalid: number
+  /** Sessions re-queued under this owner's own id after a `409 session_owned_elsewhere`. */
+  rekeyed: number
   remaining: number
   stopped: null | 'not-linked' | 'membership-revoked' | 'auth-failed' | 'rate-limited' | 'offline' | 'nothing-eligible' | 'upgrade-required'
 }
@@ -171,7 +175,7 @@ export function nextEligibleAt(item: QueueItem): number {
 export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   const now = deps.now ?? Date.now
   const queue = new ForwardQueue(deps.baseHome)
-  const empty: DrainResult = { attempted: 0, sent: 0, droppedInvalid: 0, remaining: queue.depth(), stopped: null }
+  const empty: DrainResult = { attempted: 0, sent: 0, droppedInvalid: 0, rekeyed: 0, remaining: queue.depth(), stopped: null }
 
   let creds = loadCredentials()
   if (!creds) return { ...empty, stopped: 'not-linked' }
@@ -211,6 +215,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
   const httpBatchSize = deps.httpBatchSize ?? learnedMaxItems ?? DEFAULT_HTTP_BATCH_SIZE
   let sent = 0
   let droppedInvalid = 0
+  let rekeyed = 0
   let refreshedThisDrain = false
   let sawTransientFailure = false
   // Flips to false the first time the batch endpoint 404s, so the rest of this drain (and only
@@ -271,6 +276,31 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     deps.onItemDone?.()
   }
 
+  // The cloud already holds this session's id for another member or org (cloud persist.ts
+  // `SESSION_OWNED_ELSEWHERE`). Recorded for this owner first, so every later build of the session
+  // uses the owner id too (payloadPreview.ts); then the payload goes back on the queue under that
+  // id — a fresh item, eligible right away, so the scheduler's next pass sends it — and the
+  // refused one leaves. Nothing is recorded delivered for the refused id. An owner id that is
+  // itself refused can't be helped by salting again: dropped, like any record the cloud won't take.
+  function rekey(item: QueueItem): void {
+    const session = item.payload.session
+    if (!session || !creds) {
+      backOffAll([item], `HTTP 409 (${SESSION_OWNED_ELSEWHERE})`)
+      return
+    }
+    const owner = { orgId: creds.orgId, memberId: creds.memberId }
+    const rekeys = new RekeyLedger(deps.baseHome)
+    if (rekeys.isOwnerId(owner, session.session_id)) {
+      dropPermanently(item, 'session owned by another account, even under this owner\'s own id')
+      return
+    }
+    rekeys.markRekeyed(owner, session.session_id)
+    queue.enqueue({ ...item.payload, session: { ...session, session_id: ownerSessionId(owner, session.session_id) } })
+    queue.removeSent([item])
+    rekeyed++
+    deps.onItemDone?.()
+  }
+
   function backOffAll(items: QueueItem[], error: string): void {
     queue.recordFailures(items.map(item => item.key), error)
     writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: error }, deps.baseHome)
@@ -294,7 +324,7 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         : { lastSuccessAt: new Date().toISOString(), paused: false, pausedUntil: null, ...(state.notice?.kind === 'upgrade' ? { notice: null } : {}) }, deps.baseHome)
       deps.recordSent?.(sent, now())
     }
-    return { attempted: batch.length, sent, droppedInvalid, remaining: queue.depth(), stopped }
+    return { attempted: batch.length, sent, droppedInvalid, rekeyed, remaining: queue.depth(), stopped }
   }
 
   // The credential is gone for good (refresh rejected, or the install revoked): stop, and drop
@@ -476,6 +506,8 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
         sent++
       } else if (r.status === 400) {
         dropInvalid(item, r.error ?? '')
+      } else if (r.status === 409 && r.error === SESSION_OWNED_ELSEWHERE) {
+        rekey(item)
       } else if (r.status === 426 && r.error === UPGRADE_REQUIRED_ERROR) {
         // Kept, untouched: it goes out after the update.
         upgrade = true
@@ -520,7 +552,11 @@ export async function drainQueue(deps: DrainDeps = {}): Promise<DrainResult> {
     if (res.status === 403) return forbidden(res, [item])
     if (await isUpgradeRequired(res)) return { stop: upgradeRequired() }
 
-    const code = res.status === 413 || res.status === 400 ? await cloudErrorCode(res) : null
+    const code = res.status === 413 || res.status === 400 || res.status === 409 ? await cloudErrorCode(res) : null
+    if (res.status === 409 && code === SESSION_OWNED_ELSEWHERE) {
+      rekey(item)
+      return
+    }
     if (res.status === 413 && code !== null && TOO_LARGE_ERRORS.has(code)) {
       dropPermanently(item, 'payload too large (HTTP 413)')
       return
@@ -619,6 +655,9 @@ async function postJson(url: string, accessToken: string, json: string, signal: 
     'Content-Type': 'application/json',
     Authorization: `Bearer ${accessToken}`,
     'User-Agent': `traceroost-client/${clientVersion()}`,
+    // Says this client re-keys a session another member or org owns (sessionRekey.ts) — without
+    // it the cloud answers that session as a duplicate, which an older client relies on.
+    [ACCEPTS_HEADER]: ACCEPTS_OWNER_CONFLICT,
   }
   const plain = () => {
     if (meta) meta.wireBytes = Buffer.byteLength(json)

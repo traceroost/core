@@ -8,6 +8,7 @@
 import { ForwardQueue } from '../forward/queue'
 import { DeliveryLedger, scopedKey } from '../forward/deliveryLedger'
 import { toUuid } from '../forward/buildSessionRollup'
+import { wireSessionId } from '../forward/sessionRekey'
 import { loadCredentials } from './credentials'
 import { buildPayloadForCard, type PayloadBuildCache } from './payloadPreview'
 import { enqueueInstructionStateAfterSession } from './instructionTelemetry'
@@ -55,11 +56,11 @@ export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: st
   // manifest, so sending it would leave a cloud row no local store holds; it is sent once keyed.
   if (!hasSettledKey(card)) return { enqueued: false, reason: 'unkeyed' }
   // Matches the key a built session payload would get — see buildSessionRollup.ts's session_id
-  // field and queue.ts's itemKey — without paying for the git-subprocess work just to discard it.
+  // field, payloadPreview.ts's re-keying (sessionRekey.ts) and queue.ts's itemKey — without paying for the git-subprocess work just to discard it.
   if (
     revision === undefined &&
     creds.installId &&
-    new DeliveryLedger().isDelivered(scopedKey(creds.installId, `session:${toUuid(card.sessionId)}`))
+    new DeliveryLedger().isDelivered(scopedKey(creds.installId, `session:${wireSessionId(creds, toUuid(card.sessionId))}`))
   ) {
     return { enqueued: false, reason: 'already-delivered' }
   }

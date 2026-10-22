@@ -1255,12 +1255,17 @@ function registerUriHandler(context: vscode.ExtensionContext, repo: SessionRepos
             ? ` It may be on ${reporter}'s linked machine instead of this one.`
             : ' It may be on a different linked machine.'
           void (async () => {
-            const session = repo.listSessions().find(s => matchesTraceId(s, hash))
+            const sessions = repo.listSessions()
+            const direct = sessions.find(s => matchesTraceId(s, hash))
+            // A trace re-keyed for the linked owner is shown in the cloud under its owner id
+            // (src/cloud/forward/sessionRekey.ts), which the dashboard's text filter can't match:
+            // that one is filtered by its local key instead.
+            const session = direct ?? sessions.find(s => cloud.wireSessionId(s.sessionId) === hash.toLowerCase())
             if (session) {
               vscode.commands.executeCommand('traceRoost.openDashboard')
               setTimeout(() => {
                 DashboardPanel.switchToTab('sessions')
-                DashboardPanel.sendFilter(undefined, undefined, undefined, hash)
+                DashboardPanel.sendFilter(undefined, undefined, undefined, direct ? hash : session.sessionId)
               }, 250)
               return
             }
