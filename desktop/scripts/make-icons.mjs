@@ -46,6 +46,7 @@ for (const source of [glyph, tile]) {
   if (!fs.existsSync(source)) throw new Error(`make-icons: ${source} is missing`)
 }
 fs.mkdirSync(path.join(buildDir, 'icons'), { recursive: true })
+fs.mkdirSync(path.join(buildDir, 'appx'), { recursive: true })
 
 /** Menu bar, then the app icon for the Dock and the About box. 16/32 is the 1x/2x menu bar pair.
  *  Then Linux: the tray icon (StatusNotifierItem hosts draw it at 16–24 px and scale down, so a
@@ -59,6 +60,11 @@ const TARGETS = [
   { name: 'trayLinux@2x.png', size: 64, source: tile },
   // The hicolor theme's standard sizes, as electron-builder wants them for a Linux icon directory.
   ...[16, 24, 32, 48, 64, 128, 256, 512].map(size => ({ name: `icons/${size}x${size}.png`, size, source: tile })),
+  // The Microsoft Store package's logos (electron-builder's `appx` target reads build/appx/ by
+  // these names; a missing one falls back to its sample artwork).
+  { name: 'appx/StoreLogo.png', size: 50, source: tile },
+  { name: 'appx/Square44x44Logo.png', size: 44, source: tile },
+  { name: 'appx/Square150x150Logo.png', size: 150, source: tile },
 ]
 
 for (const { name, size, source } of icoOnly ? [] : TARGETS) {

@@ -126,11 +126,15 @@ const linuxAutostart = isLinux
   : undefined
 
 // Windows: the HKCU Run value, matched on this copy's path and the login marker (windows.ts).
-const windowsLoginItemFor = isWindows
+// Not in the Microsoft Store build: an MSIX app's HKCU writes go to a private per-package copy of
+// the registry, so a Run value it writes never runs. That build has no Launch at Login item.
+const isWindowsStore = isWindows && process.windowsStore === true
+const windowsLoginItemFor = isWindows && !isWindowsStore
   ? windowsLoginItem(launchCommand({ execPath: process.execPath, isPackaged: app.isPackaged, appPath: app.getAppPath(), appImage: undefined }))
   : undefined
 
-function launchAtLoginEnabled(): boolean {
+function launchAtLoginEnabled(): boolean | undefined {
+  if (isWindowsStore) return undefined
   if (linuxAutostart) return linuxAutostart.isEnabled()
   if (windowsLoginItemFor) return app.getLoginItemSettings(windowsLoginItemFor).openAtLogin
   return app.getLoginItemSettings().openAtLogin
@@ -555,6 +559,7 @@ function confirmAttach(): boolean {
 }
 
 async function toggleLaunchAtLogin(): Promise<void> {
+  if (isWindowsStore) return
   const next = !launchAtLoginEnabled()
   if (linuxAutostart) {
     const state = linuxAutostart.setEnabled(next)

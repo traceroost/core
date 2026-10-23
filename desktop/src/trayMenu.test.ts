@@ -145,6 +145,12 @@ suite('trayMenu — invariants across every mode', () => {
     }
   })
 
+  test('Launch at Login is absent where the shell cannot manage it (the Microsoft Store build)', () => {
+    const m = buildMenuModel({ shell: { mode: 'own' }, collector: RUNNING, launchAtLogin: undefined, version: '0.19.1' })
+    assert.strictEqual(item(m, 'launch-at-login'), undefined)
+    assert.ok(item(m, 'open-logs'))
+  })
+
   test('Launch at Login reflects the real setting and is off by default', () => {
     assert.strictEqual(item(model({ mode: 'own' }, RUNNING, false), 'launch-at-login')?.checked, false)
     assert.strictEqual(item(model({ mode: 'own' }, RUNNING, true), 'launch-at-login')?.checked, true)

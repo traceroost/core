@@ -21,6 +21,7 @@
     "pack:linux:host": "pnpm run build:release && electron-builder --linux && pnpm run checksums",
     "pack:win": "pnpm run build:release && electron-builder --win --x64 && electron-builder --win --arm64 && pnpm run checksums",
     "pack:win:host": "pnpm run build:release && electron-builder --win && pnpm run checksums",
+    "pack:store": "pnpm run build:release && electron-builder --win appx --x64 && electron-builder --win appx --arm64",
     "checksums": "node scripts/checksums.mjs",
     "smoke": "node scripts/smoke-packaged.mjs",
     "runtime-check": "ELECTRON_RUN_AS_NODE=1 electron -e \"console.log(process.versions.node)\""

@@ -125,6 +125,24 @@ if (process.platform !== 'darwin') {
   console.log('electron-builder.config: signing with a Developer ID but no notarization credentials are set — the app will be signed but not notarized')
 }
 
+/**
+ * The Microsoft Store package (`electron-builder --win appx`, package.json's `pack:store`). Not
+ * signed here: the Store re-signs every package it accepts with Microsoft's certificate, so a Store
+ * install shows no SmartScreen warning and no personal publisher name.
+ *
+ * The identity must match what Partner Center reserved for the app (Product management → Product
+ * identity): Package/Identity/Name, Package/Identity/Publisher and
+ * Package/Properties/PublisherDisplayName. They are not secrets — every package carries them — so
+ * they live here once reserved. Until then the local-test values below build a package that is fine
+ * to inspect but that Partner Center would refuse. `TRACEROOST_STORE_IDENTITY_NAME`,
+ * `TRACEROOST_STORE_PUBLISHER` and `TRACEROOST_STORE_PUBLISHER_DISPLAY_NAME` override them.
+ */
+const STORE_IDENTITY = {
+  identityName: process.env.TRACEROOST_STORE_IDENTITY_NAME || 'TraceRoost.LocalTest',
+  publisher: process.env.TRACEROOST_STORE_PUBLISHER || 'CN=TraceRoost Local Test',
+  publisherDisplayName: process.env.TRACEROOST_STORE_PUBLISHER_DISPLAY_NAME || 'TraceRoost',
+}
+
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
   appId: 'com.traceroost.desktop',
@@ -349,6 +367,23 @@ module.exports = {
     // removes its files.
     installerIcon: 'build/icon.ico',
     uninstallerIcon: 'build/icon.ico',
+  },
+
+  // The Microsoft Store package — see STORE_IDENTITY above. Built only when asked for
+  // (`--win appx`); `win.target` stays the NSIS installer.
+  appx: {
+    ...STORE_IDENTITY,
+    applicationId: 'TraceRoost',
+    displayName: 'TraceRoost',
+    artifactName: 'TraceRoost-${version}-store-${arch}.${ext}',
+    // The tile colour behind the logos in build/appx/ (scripts/make-icons.mjs).
+    backgroundColor: '#0FBFA6',
+    languages: ['en-US'],
+    // Windows 10 1809, the oldest Electron 44 runs on; and the newest Windows 11 tested.
+    minVersion: '10.0.17763.0',
+    maxVersionTested: '10.0.26100.0',
+    // No startup task: Launch at Login is not offered in this build yet (src/main.ts).
+    addAutoLaunchExtension: false,
   },
 
   toolsets: {

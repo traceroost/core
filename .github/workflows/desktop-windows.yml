@@ -213,3 +213,45 @@ jobs:
             desktop/resources/THIRD_PARTY_NOTICES.md
           if-no-files-found: error
           retention-days: 14
+
+      # The Microsoft Store package (desktop/electron-builder.cjs → `appx`), from the same build.
+      # Unsigned on purpose: the Store re-signs what it accepts. It is uploaded for a manual Partner
+      # Center submission and checked only for what the Store keys on — the identity and the
+      # capabilities in its manifest — since an unsigned package cannot be installed here.
+      - name: Store package (MSIX)
+        working-directory: desktop
+        run: npx electron-builder --win appx --${{ matrix.arch }}
+
+      - name: Store package manifest
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $appx = Get-ChildItem dist\TraceRoost-*-store-${{ matrix.arch }}.appx | Select-Object -First 1
+          if (-not $appx) { Write-Error "no Store package in dist/"; exit 1 }
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($appx.FullName)
+          try {
+            $entry = $zip.GetEntry('AppxManifest.xml')
+            $reader = New-Object System.IO.StreamReader($entry.Open())
+            [xml]$manifest = $reader.ReadToEnd()
+            $reader.Close()
+          } finally { $zip.Dispose() }
+          $id = $manifest.Package.Identity
+          Write-Host "$($appx.Name): $([math]::Round($appx.Length / 1MB)) MB"
+          Write-Host "Identity: Name=$($id.Name) Publisher=$($id.Publisher) Version=$($id.Version) Arch=$($id.ProcessorArchitecture)"
+          Write-Host "PublisherDisplayName: $($manifest.Package.Properties.PublisherDisplayName)"
+          $problems = @()
+          if ($id.ProcessorArchitecture -ne '${{ matrix.arch }}') { $problems += "architecture is $($id.ProcessorArchitecture)" }
+          if ($id.Version -notmatch '\.0$') { $problems += "version $($id.Version) must end in .0 for the Store" }
+          if ($manifest.Package.Applications.Application.Executable -ne 'app\traceroost-desktop.exe') { $problems += "executable is $($manifest.Package.Applications.Application.Executable)" }
+          if (-not ($manifest.OuterXml -match 'runFullTrust')) { $problems += 'runFullTrust capability missing' }
+          if ($manifest.OuterXml -match 'SampleAppx') { $problems += 'electron-builder sample artwork in the manifest' }
+          if ($problems.Count -gt 0) { Write-Error ($problems -join '; '); exit 1 }
+          if ($id.Name -eq 'TraceRoost.LocalTest') { Write-Host "::notice::Store package ${{ matrix.arch }} uses the local-test identity; set the Partner Center values in desktop/electron-builder.cjs before submitting" }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: traceroost-desktop-store-${{ matrix.arch }}
+          path: desktop/dist/TraceRoost-*-store-${{ matrix.arch }}.appx
+          if-no-files-found: error
+          retention-days: 14

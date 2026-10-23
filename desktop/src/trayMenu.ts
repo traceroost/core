@@ -82,7 +82,9 @@ export function describeCollectorState(state: CollectorState): { label: string; 
 export function buildMenuModel(input: {
   shell: ShellMode
   collector: CollectorState
-  launchAtLogin: boolean
+  /** Undefined where the shell cannot manage it (the Microsoft Store build, whose login launch is
+   *  a startup task Windows manages in Settings → Apps → Startup), and the item is then absent. */
+  launchAtLogin: boolean | undefined
   version: string
   /** Running from an AppImage: whether its applications-menu entry exists. Undefined everywhere
    *  else, and the item is then absent — a .deb or a macOS app is in the launcher by installation. */
@@ -137,14 +139,16 @@ export function buildMenuModel(input: {
   items.push(
     { separator: true },
     { id: 'open-logs', label: 'Open Logs', enabled: true },
-    {
+  )
+  if (launchAtLogin !== undefined) {
+    items.push({
       id: 'launch-at-login',
       label: 'Launch at Login',
       enabled: true,
       checked: launchAtLogin,
       accessibilityLabel: 'Launch at Login. Off by default; turning it on opens TraceRoost when you log in.',
-    },
-  )
+    })
+  }
   if (inApplicationsMenu !== undefined) {
     items.push({
       id: 'applications-menu',

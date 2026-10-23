@@ -397,6 +397,42 @@ New OV/EV certificates are issued on hardware tokens or cloud HSMs and can no lo
 as a `.pfx`, so this project uses Azure Artifact Signing (a service principal with the *Artifact
 Signing Certificate Profile Signer* role on the `TraceRoost` account).
 
+### Microsoft Store
+
+`pnpm run pack:store` (on Windows) builds a Store package per architecture,
+`dist/TraceRoost-<v>-store-<arch>.appx`, from the same app as the installer
+(`electron-builder --win appx`; the `appx` block in [`electron-builder.cjs`](electron-builder.cjs)).
+CI builds both on every Windows run and uploads them as `traceroost-desktop-store-<arch>`.
+
+It is not signed: the Store re-signs every package it accepts with Microsoft's certificate, so a
+Store install shows no SmartScreen warning and no personal publisher name, and needs no code-signing
+subscription. The package must carry the identity Partner Center reserved for the app:
+
+1. Create a developer account at [Partner Center](https://partner.microsoft.com/dashboard) (free
+   for individuals; ID and selfie check). The **publisher display name** you choose there is what
+   the Store shows as the publisher.
+2. **Apps and games → New product → MSIX or PWA app**, and reserve the name `TraceRoost`.
+3. **Product management → Product identity** lists three values. Put them in `STORE_IDENTITY` in
+   `electron-builder.cjs`: `Package/Identity/Name` → `identityName`, `Package/Identity/Publisher`
+   (`CN=…`) → `publisher`, `Package/Properties/PublisherDisplayName` → `publisherDisplayName`.
+   Until then the package carries a local-test identity that Partner Center refuses (CI says so in
+   a notice).
+4. Submit: upload both `.appx` files (x64 and arm64) to one submission. When certification asks
+   why the app needs `runFullTrust`: it is an Electron desktop app (a tray app that runs a local
+   collector process). The listing also needs a privacy policy URL, screenshots and an age rating.
+
+What differs in the Store build. Windows runs an MSIX app — and the collector it starts — with a
+private, per-package copy of HKCU and of files *newly created* under `%APPDATA%`:
+
+- **No Launch at Login.** The tray item is absent (`process.windowsStore`): a Run value written
+  from inside the package would never run. A startup task can replace it later.
+- **GitHub Copilot setup is unverified.** It writes VS Code's `%APPDATA%\Code\User\settings.json`
+  by creating a temporary file beside it and renaming it into place (`src/autoConfigNode.ts`). A
+  new file under `%APPDATA%` lands in the package's private copy, so VS Code may never see the
+  change. Claude Code and Codex (`~/.claude`, `~/.codex`) are outside `%APPDATA%` and unaffected.
+- Everything else — `%USERPROFILE%\.traceroost`, the collector process, the dashboard — behaves as
+  in the installer build. Updates come from the Store.
+
 ### Uninstalling
 
 **Settings → Apps → TraceRoost → Uninstall** (or `Uninstall traceroost-desktop.exe`, `/S` for
