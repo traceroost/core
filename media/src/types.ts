@@ -276,6 +276,9 @@ export interface Insight {
   detail: string
   action: string
   helpId?: string
+  /** A paste-ready instruction addressed to the agent (SIGNAL_FORMULAS[type].prompt) — loop
+   *  signals only; the efficiency insights' `action` is written for the person. */
+  agentPrompt?: string
   _loopType?: LoopSignalType
 }
 

@@ -4,6 +4,7 @@ import { filteredSessions, sessionSummary, insightFilter, ignoredInsightKeys } f
 import { buildDisplaySummary, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
 import type { Insight, InsightFilter, SessionSummaryCard } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
+import { SIGNAL_FORMULAS } from '../signalFormulas'
 
 type EffSummary = ReturnType<typeof buildDisplaySummary>['efficiency']
 
@@ -72,6 +73,15 @@ const HELP_WHY: Record<string, string> = {
   'help-context-accumulation': 'Input tokens are growing while output shrinks — cost per call is compounding with diminishing returns. Continuing will likely hit the context limit with nothing saved.',
   'help-chronic-tool-unreliability': 'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
   'help-context-flooding-risk': 'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
+  'help-fabricated-dependency': 'An import of a package that isn\'t installed fails several steps later, at install or at runtime, with an error that looks unrelated — and the agent then spends turns chasing the wrong cause.',
+  'help-unverified-submission': 'A session that ends on a failing check looks finished. The failure surfaces later, in CI or in review, after the context that would have made it a one-line fix is gone.',
+  'help-tool-call-cycle':      'Each repeat of the sequence appends the same results to context again. The agent is reacting to identical feedback without new information, so the cycle only ends when something external changes.',
+  'help-file-reread':          'Each re-read appends the full file to context again. Three avoidable re-reads of a large file cost about one extra full LLM call.',
+  'help-cache-miss':           'Writing a prefix to cache costs 1.25× the input rate; reading it back costs 0.1×. One changed byte near the top of the prompt re-writes everything after it.',
+  'help-ttl-expiry':           'The cache lives an hour on a subscription and five minutes on an API key or usage credits. A turn after a longer gap re-processes the whole prefix at the write rate, whatever the prompt did.',
+  'help-low-cache-hit-ratio':  'Cached tokens cost roughly 10× less than fresh tokens. A session reading little from cache is paying full price for the same context on every turn.',
+  'help-budget-overrun':       'A cap you set is the one signal whose threshold is yours. Crossing it mid-session is the moment to look for the loop that is driving the cost, not after the bill.',
+  'help-model-tier-mismatch':  'Read-only research (grep, read, list) produces short output a smaller model handles as well. On a premium model that stretch costs 5–10× what it needs to.',
 }
 
 // ── Insight generation ────────────────────────────────────────────────────────
@@ -205,6 +215,17 @@ export function generateInsights(
       token_runaway:      'help-context-accumulation',
       chronic_tool_failures: 'help-chronic-tool-unreliability',
       context_flooding_risk: 'help-context-flooding-risk',
+      // The nine below were missing until 2026-10: their cards had no ⓘ tooltip and no link
+      // into Help's Signals section. Keep this map exhaustive over LoopSignalType.
+      hallucinated_import:     'help-fabricated-dependency',
+      failed_check_submission: 'help-unverified-submission',
+      tool_call_cycle:         'help-tool-call-cycle',
+      file_reread:             'help-file-reread',
+      cache_miss:              'help-cache-miss',
+      ttl_expiry:              'help-ttl-expiry',
+      low_cache_hit_ratio:     'help-low-cache-hit-ratio',
+      budget_overrun:          'help-budget-overrun',
+      model_tier_mismatch:     'help-model-tier-mismatch',
     }
     ;(sess.loopSignals ?? []).forEach(sig => {
       const examplesText = sig.examples?.length > 0 ? '\n\nExamples: ' + sig.examples.join(' · ') : ''
@@ -215,6 +236,7 @@ export function generateInsights(
         title: '[Trace ' + globalNum + '] ' + sig.patternName + ' — ' + sig.evidence,
         detail: examplesText.trim(),
         action: sig.action ?? sig.evidence,
+        agentPrompt: SIGNAL_FORMULAS[sig.type]?.prompt,
         _loopType: sig.type,
       })
     })
@@ -372,6 +394,12 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
       lines.push('Stats: ' + session.totalLlmCalls + ' LLM calls · ' + session.totalToolCalls + ' tool calls · '
         + (session.cacheHitRate * 100).toFixed(0) + '% cache hit')
     }
+    // A loop signal's clipboard text leads with the instruction written for the agent, so what
+    // lands in the session is something it can act on; the trace context follows as evidence.
+    // The person-facing action (what *you* do) stays on the card and in Help.
+    if (ins.agentPrompt) {
+      return [ins.agentPrompt, '', '--- What TraceRoost detected ---', ...lines.slice(3)].join('\n')
+    }
     lines.push('', '--- Recommended action ---', ins.action)
     return lines.join('\n')
   }
@@ -411,6 +439,12 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
         </span>{' '}
         <span style="white-space:pre-wrap">{ins.action}</span>
       </div>
+      {ins.agentPrompt && (
+        <div class="insight-action" style="margin-bottom:8px">
+          <span class="insight-action-label" title="Copy puts this on the clipboard, with the trace's evidence under it">Tell the agent:</span>{' '}
+          <span style="white-space:pre-wrap;font-style:italic">{ins.agentPrompt}</span>
+        </div>
+      )}
       {ins.detail && <div class="insight-detail" style="white-space:pre-wrap">{ins.detail}</div>}
     </div>
   )

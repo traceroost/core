@@ -257,28 +257,28 @@ The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categori
 - Tool failures, high turn count, oversized starting context
 - Low cache hit rate, tool definition overhead
 
-**Signals** — behavioral patterns indicating the agent is stuck or spiraling. These appear first in the list with a ↺ icon:
+**Signals** — behavioral patterns indicating the agent is stuck or spiraling, plus cache and cost patterns that spend more than the work needed. These appear first in the list with a ↺ icon. Every signal names what you do about it and carries a one-line instruction written for the agent; **Copy** puts that instruction on the clipboard with the trace's evidence under it, ready to paste into the session.
 
-| Signal | Description | Trigger |
-| ------ | ----------- | ------- |
-| **Tool Call Deadlock** | Same tool + arguments called 30+ times (critical at 50+) | Agent not retaining tool results |
-| **State Corruption Spiral** | A file edited then reverted to a prior state | Agent oscillating between conflicting constraints |
-| **Hallucination Amplification Loop** | Same error recurring 3+ times | Fix attempts not resolving the root cause |
-| **Ambiguous Success / Escalating Scope** | Too many steps for the task complexity | No clear completion condition |
-| **Infinite Loop — Context Accumulation** | Input tokens growing while output ratio collapses 70%+ | Agent stuck, accumulating context without progress |
-| **Chronic Tool Unreliability** | 20%+ of tool calls failed (5+ calls made) — many different one-off failures, not one repeating | Agent guessing at file locations, commands, or available tools |
-| **Context Flooding Risk** | A tool result over 10,000 characters landed in context | Missing line ranges or scope on a read/search |
-| **Fabricated Dependency** | An edit imports a package absent from the manifest and unresolvable on disk | Hallucinated package name |
-| **Unverified Submission** | The session's last test/build check failed with no fix attempt after | Session ended before confirming the fix |
-| **Multi-Step Oscillation** | A multi-step tool sequence (e.g. run tests → read log) repeated 5+ times with no edit | Agent retrying the same approach without new information |
-| **Redundant Context Reload** | The same file read 3+ times with no write in between | Agent losing track of what it already read |
-| **Avoidable Cache Miss** | A call re-wrote context it could plausibly have read from cache | Tool definitions, system prompt or settings changing between turns |
-| **Cache TTL Expiry** | A cache miss followed a gap longer than the cache's TTL | Turns spaced further apart than the cache lives |
-| **Poor Cache Utilization** | Little of the trace's context came from cache | Something invalidating the cached prefix every turn |
-| **Budget Overrun** | Trace cost exceeded the cap set in `TRACEROOST_BUDGET_CAP_USD` (off unless set) | A loop or retry pattern driving cost, or an under-sized cap |
-| **Model Tier Mismatch** | A premium model ran a read-only, low-output stretch of 3+ tool calls with no edits | Read/search work that a cheaper model could do |
+| Signal | Fires when | What to do |
+| ------ | ---------- | ---------- |
+| **Tool Call Deadlock** | The same tool call, same arguments, same result, 30+ times in a row with no edit in between (critical at 50+) | Stop the session; tell the agent what the last result said and to change approach. A command whose output changes by itself (a clock, a live log) isn't a loop — Ignore it |
+| **Edit Reverted** | A file's edit is exactly undone by a later edit (critical if that revert was the file's last edit) | State the one final result you want, with priorities, rather than iterating; check whether two tests contradict each other |
+| **Repeated Error** | The same error message (temp paths, timestamps and hashes stripped) recurs 3+ times (critical at 5+) | Find the cause yourself and tell the agent what actually exists; after two failed fixes, stop retrying |
+| **Ambiguous Success / Escalating Scope** | More LLM + tool steps than a task of that size should take (45 / 110 / 250 by inferred complexity; critical at 2×) | Add a stopping condition and a scope (files, functions); split the task |
+| **Context Runaway** | Over 4+ LLM calls, input grows 15,000+ tokens while the output ratio collapses to under 30% of its first value (critical past 50,000) | Stop and start a fresh session from a short summary of what was learned |
+| **Chronic Tool Unreliability** | 5+ tool calls and 20%+ of them failed, many different one-off failures (critical at 40%) | Give exact paths, commands, package manager and runtime up front |
+| **Context Flooding Risk** | One tool result over 10,000 characters (critical when such results total 300 KB) | Read with line ranges, tighten searches, filter long command output |
+| **Fabricated Dependency** | An edit imports a package that is in no package.json or requirements.txt between the file and the workspace root, and not installed | Check the package exists and is spelled right; add it to the manifest if intended |
+| **Unverified Submission** | The session's last tool call ran a test or build and it failed (a "0 failed" summary doesn't count), with nothing after it | Re-run the check and fix it before treating the work as done |
+| **Multi-Step Oscillation** | A 2–5-step tool sequence (run tests → read log → …) repeats 5+ times with no edit (critical at 10+) | Ask what changed between attempts; supply the missing stack trace, value or spec |
+| **Redundant Context Reload** | The same file read 3+ times with no write to it in between (critical at 6+) | Have the agent summarize what it knows; paste small stable files into the prompt; split long sessions |
+| **Avoidable Cache Miss** | A call re-wrote 5%+ and 2,000+ tokens of its prefix instead of reading it from cache (first call per model exempt; critical past 90,000) | Don't switch model, effort, permission mode or MCP servers mid-task; look for a timestamp stamped into the prompt |
+| **Cache TTL Expiry** | A cache miss after a gap longer than the cache's TTL (1 hour assumed; critical at 3+) | Work in bursts; on an API key the cache lives 5 minutes unless you choose the 1-hour TTL. A timing effect, not a prompt problem |
+| **Poor Cache Utilization** | 2+ LLM calls, 2,000+ tokens of real cache activity, and under 30% of input read from cache (critical under 10%) | Find what changes near the top of the prompt turn to turn; see the two cache signals above |
+| **Budget Overrun** | Trace cost exceeds `TRACEROOST_BUDGET_CAP_USD` (critical at 2×; off unless set) | Look for a loop elsewhere in the list; raise the cap if the task needed it |
+| **Model Tier Mismatch** | No edits, 3+ tool calls of which 90%+ are read-only, an Opus-class model (above $3/M input; Sonnet doesn't count), under 300 output tokens per call | Send research to a smaller model (a `model: haiku` subagent in Claude Code); keep the premium model for edits. Warning only — a cost tip, not a fault |
 
-Each signal includes a specific recommended action and a **Copy** button that copies the recommendation prompt to your clipboard so you can paste it into your agent. Use the **Ignore** button to dismiss signals that represent intentional behavior. The in-app Help tab's Signals section has each signal's exact trigger thresholds and which data source (OTEL or logs) it needs.
+Not every signal can fire from every source: most need live OpenTelemetry, and the Help tab's Signals section says for each one which agents' local logs are enough. It also states how well each threshold has been checked against real sessions — some are calibrated, several are still first guesses that have rarely fired. Use **Ignore** to dismiss a signal that represents intentional behavior.
 
 ## Ways to Run
 

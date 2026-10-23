@@ -19,6 +19,7 @@ import {
   getFileEditCounts,
   temperLoopSignalSeverity,
   LOOP_SIGNAL_ACTIONS,
+  SIGNAL_FORMULAS,
 } from '../loopDetector'
 import { SessionSummaryCard, TimelineEntry } from '../spanSummarizer'
 import { LoopSignal } from '../types'
@@ -1049,6 +1050,15 @@ suite('LOOP_SIGNAL_ACTIONS', () => {
       assert.ok(LOOP_SIGNAL_ACTIONS[t].length > 20, `action too short for ${t}`)
     }
   })
+
+  test('has a paste-ready agent prompt for every signal type, addressed to the agent', () => {
+    for (const t of signalTypes) {
+      const prompt = SIGNAL_FORMULAS[t].prompt
+      assert.ok(prompt && prompt.length > 40, `missing or too-short prompt for ${t}`)
+      // Written to the agent ("you …"), never about it ("the agent …") — that's LOOP_SIGNAL_ACTIONS' job.
+      assert.ok(!/\bthe agent\b/i.test(prompt), `prompt for ${t} talks about the agent instead of to it`)
+    }
+  })
 })
 
 // ── temperLoopSignalSeverity ─────────────────────────────────────────────────
@@ -1376,6 +1386,13 @@ suite('detectLowCacheHitRatio', () => {
   test('no signal when there isn\'t enough cache activity to judge', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({ cacheReadTokens: 100, cacheCreateTokens: 100, cacheHitRate: 0 })
+    detectLowCacheHitRatio(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('no signal on a single-call session — nothing could have been read from cache yet', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({ totalLlmCalls: 1, cacheReadTokens: 0, cacheCreateTokens: 9_500, cacheHitRate: 0 })
     detectLowCacheHitRatio(session, signals)
     assert.strictEqual(signals.length, 0)
   })

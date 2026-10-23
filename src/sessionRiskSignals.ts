@@ -26,7 +26,15 @@ import { PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from './loopDetector'
 
 const TEST_RUNNER_PATTERN =
   /\b(npm\s+(run\s+)?test|yarn\s+test|pnpm\s+test|pytest|python3?\s+-m\s+pytest|go\s+test|cargo\s+test|jest|vitest|mvn\s+test|rspec)\b/i
-const FAILURE_TEXT_PATTERN = /\bfail(ed|ure|ing)?\b|✗|✘|✖/i
+const FAILURE_TEXT_PATTERN = /\bfail(ed|ure|ures|ing)?\b|✗|✘|✖/i
+// A passing run can still print the word: cargo always ends with "0 failed; 0 ignored", Go and
+// Jest summaries say "0 failures" / "0 failed", and a suite name can contain "failing". Strip
+// those before looking for a failure, so a green check isn't read as a red one.
+const ZERO_FAILURE_PATTERN = /\b(0|no|zero)\s+(tests?\s+)?fail(ed|ures?|ing)?\b/gi
+
+function readsAsFailure(text: string): boolean {
+  return FAILURE_TEXT_PATTERN.test(text.replace(ZERO_FAILURE_PATTERN, ''))
+}
 
 /**
  * Precision-good, recall-poor by design: most sessions never invoke a test runner unless
@@ -51,7 +59,7 @@ export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSi
   if (!TEST_RUNNER_PATTERN.test(invocation)) { return null }
 
   const resultText = lastTool.resultSummary || lastTool.fullResult || ''
-  const failed = lastTool.isError || FAILURE_TEXT_PATTERN.test(resultText)
+  const failed = lastTool.isError || readsAsFailure(resultText)
   if (!failed) { return null }
 
   return {
@@ -265,12 +273,50 @@ function readPythonManifestDeps(workspaceRoot: string): Set<string> | null {
   }
 }
 
-function nodeModulesHasPackage(workspaceRoot: string, pkg: string): boolean {
+function nodeModulesHasPackage(dir: string, pkg: string): boolean {
   try {
-    return fs.existsSync(path.join(workspaceRoot, 'node_modules', pkg))
+    return fs.existsSync(path.join(dir, 'node_modules', pkg))
   } catch {
     return false
   }
+}
+
+/** The directories a Node resolver would consult for a file at `filePath`: its own directory up
+ *  to (and including) the workspace root. A monorepo package declares its dependencies in its own
+ *  package.json, and pnpm links them under its own node_modules rather than hoisting them to the
+ *  root — checking the root alone flagged every workspace-local dependency as fabricated. */
+function ancestorDirs(workspaceRoot: string, filePath: string): string[] {
+  const root = path.resolve(workspaceRoot)
+  const fileAbs = path.isAbsolute(filePath) ? filePath : path.join(root, filePath)
+  const dirs: string[] = []
+  let dir = path.dirname(path.resolve(fileAbs))
+  const rel = path.relative(root, dir)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) { return [root] }
+  while (true) {
+    dirs.push(dir)
+    if (dir === root) { break }
+    const parent = path.dirname(dir)
+    if (parent === dir) { break }
+    dir = parent
+  }
+  return dirs
+}
+
+/** True when `pkg` is declared in any package.json between the importing file and the workspace
+ *  root, or resolves under any node_modules on that path. `manifestCache` memoizes per directory
+ *  across one session's edits. */
+function jsPackageResolves(
+  workspaceRoot: string,
+  filePath: string,
+  pkg: string,
+  manifestCache: Map<string, Set<string> | null>,
+): boolean {
+  for (const dir of ancestorDirs(workspaceRoot, filePath)) {
+    if (!manifestCache.has(dir)) { manifestCache.set(dir, readJsManifestDeps(dir)) }
+    if (manifestCache.get(dir)?.has(pkg)) { return true }
+    if (nodeModulesHasPackage(dir, pkg)) { return true }
+  }
+  return false
 }
 
 /**
@@ -285,6 +331,10 @@ function nodeModulesHasPackage(workspaceRoot: string, pkg: string): boolean {
  *     package.json's declared fields — covers monorepo workspace packages (`@myorg/shared`
  *     resolved via workspace protocol) without needing to parse workspace globs, a real
  *     false-positive source this project's own repo shape would hit otherwise.
+ *   - Checks the manifest and node_modules of every directory from the edited file up to the
+ *     workspace root, not just the root: a pnpm workspace package declares its own dependencies
+ *     in `packages/x/package.json` and gets them linked under `packages/x/node_modules`, so a
+ *     root-only check flagged every one of them (2026-10 review).
  *
  * Calibration check (scripts/calibrateSignals.ts, see runbooks/SIGNAL_CALIBRATION.md): the
  * best-validated signal in the whole taxonomy so far — fired on 15% of 236 real sessions checked,
@@ -305,6 +355,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
 
   const suspects = new Map<string, string>()
   const aliasPrefixes = jsDeps ? readTsPathAliases(workspaceRoot) : []
+  const manifestCache = new Map<string, Set<string> | null>([[path.resolve(workspaceRoot), jsDeps]])
   // Python modules this session itself created/edited (`utils.py` → `utils`, `pkg/__init__.py` → `pkg`).
   const sessionPyModules = new Set<string>()
   for (const entry of session.timeline) {
@@ -324,8 +375,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
 
       if (jsDeps && JS_TS_EXTENSIONS.has(ext)) {
         for (const pkg of extractJsTsPackageNames(code, aliasPrefixes)) {
-          if (jsDeps.has(pkg)) { continue }
-          if (nodeModulesHasPackage(workspaceRoot, pkg)) { continue }
+          if (jsPackageResolves(workspaceRoot, detail.filePath, pkg, manifestCache)) { continue }
           if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath) }
         }
       }

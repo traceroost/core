@@ -3,11 +3,11 @@ The **Traces** tab continuously scans your traces for sixteen stuck-agent and wa
 | Signal | What it detects |
 | --- | --- |
 | **Tool Call Deadlock** | Same tool + arguments called 30+ times in a row — agent not retaining results |
-| **State Corruption Spiral** | File edited then reverted — agent oscillating between conflicting states |
-| **Hallucination Amplification Loop** | Same error recurring 3+ times — fix attempts not resolving root cause |
+| **Edit Reverted** | A file's edit exactly undone by a later edit — often two requirements in conflict |
+| **Repeated Error** | The same error 3+ times — fix attempts not reaching the cause |
 | **Ambiguous Success / Escalating Scope** | Too many steps for task complexity — unclear success criteria |
-| **Infinite Loop — Context Accumulation** | Input tokens growing while output collapses — agent stuck |
+| **Context Runaway** | Input growing 15,000+ tokens while output collapses — no forward progress |
 
-Each detected signal shows the evidence and concrete examples (tool names, file paths, error messages). Use the **Copy** button to copy the recommended prompt to your clipboard, then paste it into your agent. Use **Ignore** to dismiss a signal that represents intentional behavior.
+Each detected signal shows the evidence and concrete examples (tool names, file paths, error messages), the action for you, and a one-line instruction written for the agent. **Copy** puts that instruction on the clipboard with the evidence under it — paste it into the running session. Use **Ignore** to dismiss a signal that represents intentional behavior; the Help tab's Signals section says how well each threshold has been checked against real sessions.
 
 Open the gear-icon **Settings** panel's Alerts section to configure proactive notifications when traces exceed thresholds for context window usage, turn count, error rate, active time, tool repetition, cache utilization, plan-limit windows, or daily cost.

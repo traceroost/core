@@ -4,6 +4,19 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Three signals have plainer names** — "State Corruption Spiral" is now **Edit Reverted**, "Hallucination Amplification Loop" is **Repeated Error**, and "Infinite Loop — Context Accumulation" is **Context Runaway**. Each old name promised more than its detector measures (one exact revert, the same error three times, a ratio drop across four calls); the new ones say what was seen. Nothing else about them changed
+- **Model Tier Mismatch now means Opus-class** — it fired on any model at $3/M input or more, which included Sonnet, Claude Code's default, so every read-only question-and-answer session carried a warning whose only fix was Haiku. The bar is now strictly above $3/M: Opus-class models and the equivalent OpenAI tiers, where a read-only stretch is a several-fold overspend worth acting on
+- **Every signal now tells you what to do, and what to tell the agent** — each of the sixteen signals carries a one-line instruction written for the agent ("You have read the same file several times without editing it. Summarize what you already know about it and do not read it again unless you have changed it."), shown on the Insights card under **Tell the agent** and in Help's Signals section. **Copy** now puts that instruction on the clipboard with the trace's evidence under it, instead of a note addressed to you asking the agent to "explain what's happening". The Help steps for the cache and model-tier signals name the Claude Code actions that cause them (switching `/model`, effort or permission mode, adding MCP servers, the 5-minute API-key cache; `model: haiku` subagents for research), and the README's signal table now says for every signal exactly when it fires and what to do
+- **Nine signals' Insights cards lacked their ⓘ explanation and link into Help** — Fabricated Dependency, Unverified Submission, Multi-Step Oscillation, Redundant Context Reload, the three cache signals, Budget Overrun and Model Tier Mismatch. All sixteen now have both
+
+### Fixed
+
+- **A passing test run no longer reads as Unverified Submission** — the check looked for the word "failed" in the last test or build output, so a green cargo run ("14 passed; 0 failed; 0 ignored"), a Go or Jest "0 failures" summary, or a suite named "should not be failing" at the end of a session was flagged as a failure the agent ignored. A zero count is now stripped before the output is read
+- **Fabricated Dependency no longer flags a monorepo package's own dependencies** — only the workspace root's package.json and node_modules were checked, so in a pnpm workspace (where each package declares its deps in its own package.json and gets them linked under its own node_modules) every import of a package-local dependency was reported as fabricated. Every package.json and node_modules from the edited file up to the root now counts
+- **Poor Cache Utilization no longer fires on a one-call session** — a single LLM call has nothing to read from cache yet; its only cache activity is the cold-start write every session pays, which read as a 0% hit ratio and a critical signal
+
 ### TraceRoost Cloud (full edition only)
 
 - **`traceroost org link` works over SSH and on machines without a display** — it always used the browser flow, which waits for a sign-in callback on this machine, so over SSH (or on a Linux server with no display) it could only time out unless you knew to pass `--device`. It now shows a URL and a code to approve from any device whenever no browser can be opened here; `--device` and `--browser` force either flow. The README has a new "Headless forwarder" section: run the background service, link, and check forwarding, all from a terminal
