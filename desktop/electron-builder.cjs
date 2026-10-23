@@ -7,8 +7,9 @@
  * them out as code is clearer than a config that silently means different things on different
  * machines:
  *
- *  1. **Signing.** With a Developer ID available (`CSC_LINK` + `CSC_KEY_PASSWORD` for a .p12 in
- *     CI, or `CSC_NAME` naming a certificate already in the login keychain), the app is signed
+ *  1. **Signing.** With a Developer ID available (`CSC_NAME` naming a certificate in the keychain
+ *     — CI imports its .p12 into a job keychain and adds `CSC_KEYCHAIN`; `CSC_LINK` is honoured but
+ *     broken in electron-builder 26.15.3, see desktop-macos.yml), the app is signed
  *     with it under the hardened runtime, which is what notarization requires. Without one, the
  *     app is **ad-hoc signed** (`identity: "-"`). electron-builder has no automatic ad-hoc
  *     fallback — unsigned is the default — and an unsigned bundle whose resources differ from
