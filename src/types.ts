@@ -71,6 +71,35 @@ export interface LoopSignal {
   /** Estimated avoidable cost in USD, for the signals that can price it (file_reread,
    *  cache_miss). The Advisor converts it to plan-limit points for subscription users. */
   wasteUsd?: number
+  /** Why it fired, as the measured value against the threshold it crossed — e.g. "Longest streak:
+   *  34 identical calls in a row (warning at 30+, critical at 50+)". Absent on signals stored before
+   *  evidence tracking existed. */
+  trigger?: string
+  /** The timeline entries that made this signal fire, in timeline order, so the trace view can list
+   *  them and highlight them in the waterfall. Capped at MAX_SIGNAL_STEPS (src/signalEvidence.ts);
+   *  `stepsTotal` is the uncapped count when the cap was hit. Absent on signals stored before
+   *  evidence tracking existed, and on signals with no per-step cause (low_cache_hit_ratio on a
+   *  source with no per-call tokens, say). */
+  steps?: SignalStep[]
+  stepsTotal?: number
+  /** A contiguous stretch of the timeline the signal covers as a whole, rather than step by step —
+   *  runaway_steps' "every step past the threshold". Indices into the session's timeline, inclusive. */
+  range?: { from: number; to: number; note: string }
+}
+
+/** One timeline entry behind a signal. `index` is the entry's position in the session's timeline
+ *  (the same order timeline_entries.position stores and the waterfall draws); `spanId` lets a reader
+ *  confirm that position still names the same entry, and find it if not. */
+export interface SignalStep {
+  index: number
+  spanId: string
+  /** The entry's own label, truncated — enough to list it where the timeline isn't loaded. */
+  label: string
+  /** Why this entry counts: "repeat 31 of 34", "reverts the edit at step 12", "+18,402 cache-write tokens". */
+  note: string
+  /** 'trigger' entries are the ones that crossed the line; 'context' entries are what they're
+   *  measured against (the edit a revert undoes, the baseline call a growth is measured from). */
+  role: 'trigger' | 'context'
 }
 
 export interface SessionSummary {

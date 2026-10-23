@@ -21,6 +21,7 @@ import * as path from 'path'
 import { LoopSignal } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import { PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from './loopDetector'
+import { signalStep, withSteps } from './signalEvidence'
 
 // ── Detector: failed check submission ────────────────────────────────────────
 
@@ -50,8 +51,9 @@ function readsAsFailure(text: string): boolean {
 export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSignal | null {
   const timeline = session.timeline
   let lastTool: SessionSummaryCard['timeline'][number] | null = null
+  let lastToolIdx = -1
   for (let i = timeline.length - 1; i >= 0; i--) {
-    if (timeline[i].type === 'tool') { lastTool = timeline[i]; break }
+    if (timeline[i].type === 'tool') { lastTool = timeline[i]; lastToolIdx = i; break }
   }
   if (!lastTool) { return null }
 
@@ -70,6 +72,10 @@ export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSi
     examples: [invocation.slice(0, 100)],
     patternName: PATTERN_NAMES.failed_check_submission,
     action: LOOP_SIGNAL_ACTIONS.failed_check_submission,
+    ...withSteps(
+      [signalStep(timeline, lastToolIdx,
+        `the session's last tool call — ${lastTool.isError ? 'it returned an error status' : 'its output reads as a failure'}`)],
+      'The last tool call in the session ran a recognized test/build check, the check failed, and no tool call came after it.'),
   }
 }
 
@@ -354,6 +360,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
   if (!jsDeps && !pyDeps) { return null }
 
   const suspects = new Map<string, string>()
+  const suspectAt = new Map<string, number>()
   const aliasPrefixes = jsDeps ? readTsPathAliases(workspaceRoot) : []
   const manifestCache = new Map<string, Set<string> | null>([[path.resolve(workspaceRoot), jsDeps]])
   // Python modules this session itself created/edited (`utils.py` → `utils`, `pkg/__init__.py` → `pkg`).
@@ -366,7 +373,8 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
     }
   }
 
-  for (const entry of session.timeline) {
+  for (let entryIdx = 0; entryIdx < session.timeline.length; entryIdx++) {
+    const entry = session.timeline[entryIdx]
     if (!entry.editDetails) { continue }
     for (const detail of entry.editDetails) {
       const code = detail.newString || detail.content || ''
@@ -376,7 +384,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
       if (jsDeps && JS_TS_EXTENSIONS.has(ext)) {
         for (const pkg of extractJsTsPackageNames(code, aliasPrefixes)) {
           if (jsPackageResolves(workspaceRoot, detail.filePath, pkg, manifestCache)) { continue }
-          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath) }
+          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath); suspectAt.set(pkg, entryIdx) }
         }
       }
       if (pyDeps && PYTHON_EXTENSIONS.has(ext)) {
@@ -385,7 +393,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
           // A bare `import helpers` is as likely a sibling module as a package — only flag it when
           // nothing by that name exists in the project on disk.
           if (pythonModuleIsLocal(workspaceRoot, detail.filePath, pkg, sessionPyModules)) { continue }
-          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath) }
+          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath); suspectAt.set(pkg, entryIdx) }
         }
       }
     }
@@ -401,6 +409,12 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
     examples: [...suspects.entries()].slice(0, 3).map(([pkg, file]) => `${pkg} (${file.split('/').pop()})`),
     patternName: PATTERN_NAMES.hallucinated_import,
     action: LOOP_SIGNAL_ACTIONS.hallucinated_import,
+    ...withSteps(
+      [...suspects.entries()].map(([pkg, file]) => signalStep(session.timeline, suspectAt.get(pkg) ?? 0,
+        `imports "${pkg}" in ${file.split('/').pop() || file} — not in the manifest, not found on disk`)),
+      `${[...suspects.keys()].slice(0, 5).map(p => `"${p}"`).join(', ')}${suspects.size > 5 ? ` and ${suspects.size - 5} more` : ''}`
+      + ` ${suspects.size === 1 ? 'is' : 'are'} imported by this session's edits but declared in neither package.json nor requirements.txt,`
+      + ' and nothing by that name resolves on disk (node_modules, standard library and local modules excluded).'),
   }
 }
 

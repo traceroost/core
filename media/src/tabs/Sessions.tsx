@@ -16,13 +16,14 @@ import {
 } from '../utils'
 import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
-import { generateInsights, InsightCard } from './Insights'
+import { generateInsights, InsightCard, InsightIcon } from './Insights'
 import { buildDisplaySummary } from '../utils'
-import { Step, StepRow } from './Traces'
+import { Step, StepRow, type StepMark } from './Traces'
+import { hasEvidence, insightColor, insightShortName, resolveStepIndex } from '../signalEvidence'
 import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
 import { LogIngestionNote } from './IngestionNote'
-import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
+import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType, Insight } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { isNonCodeCategory, languageAbbreviation, languageLabel } from '../language'
@@ -249,8 +250,44 @@ function sessionChangesTitle(sess: SessionSummaryCard): string {
     : `${files} · line counts unavailable (this agent's data records no edit contents)`
 }
 
+// Each insight's evidence steps resolved against the loaded timeline: the timeline positions it
+// names (only those the waterfall draws), and its note for each.
+interface ResolvedEvidence {
+  ins: Insight
+  key: string
+  name: string
+  color: string
+  indices: number[]
+  notes: Map<number, { note: string; role: 'trigger' | 'context' }>
+  range?: { from: number; to: number }
+}
+
+function resolveEvidence(insights: Insight[], timeline: SessionSummaryCard['timeline'], drawn: Set<number>): ResolvedEvidence[] {
+  const out: ResolvedEvidence[] = []
+  for (const ins of insights) {
+    if (!hasEvidence(ins)) continue
+    const notes = new Map<number, { note: string; role: 'trigger' | 'context' }>()
+    for (const step of ins.steps ?? []) {
+      const i = resolveStepIndex(step, timeline)
+      if (i >= 0 && drawn.has(i) && !notes.has(i)) notes.set(i, { note: step.note, role: step.role })
+    }
+    const range = ins.range && timeline[ins.range.from] && timeline[ins.range.to] ? { from: ins.range.from, to: ins.range.to } : undefined
+    if (notes.size === 0 && !range) continue
+    out.push({
+      ins, key: ins.title, name: insightShortName(ins), color: insightColor(ins),
+      indices: [...notes.keys()].sort((a, b) => a - b), notes, range,
+    })
+  }
+  return out
+}
+
 function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   const [section, setSection] = useState<Section>('overview')
+  // The signal being inspected in the waterfall (its insight title), and the row to bring into
+  // view — `nonce` re-triggers the scroll when the same row is asked for twice.
+  const [focusKey, setFocusKey] = useState<string | null>(null)
+  const [scrollTarget, setScrollTarget] = useState<{ index: number; nonce: number } | null>(null)
+  const waterfallRef = useRef<HTMLDivElement>(null)
   const traceIdHash = formatTraceIdHash(sess.traceId || sess.sessionId)
   const repo = sess.workspace ? repoInfo.value[sess.workspace] : null
   const timelines = sessionTimelines.value
@@ -284,10 +321,66 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   }, [sess.sessionId])
 
   const ignored = ignoredInsightKeys.value
-  const summary = buildDisplaySummary([sess])
-  const sessInsights = generateInsights(summary, [sess]).filter(i => !ignored.has(i.title))
+  // The summary card's own timeline is empty for a stored trace; the efficiency checks need the
+  // loaded one to find anything — and to name the steps behind what they find.
+  const sessForInsights = timeline.length > 0 ? { ...sess, timeline } : sess
+  const summary = buildDisplaySummary([sessForInsights])
+  const sessInsights = generateInsights(summary, [sessForInsights]).filter(i => !ignored.has(i.title))
 
-  const visibleEntries = timeline.filter(e => e.type !== 'background')
+  const visible = timeline.flatMap((entry, i) => entry.type !== 'background' ? [{ entry, i }] : [])
+  const visibleEntries = visible.map(v => v.entry)
+  const stepNoByIndex = new Map(visible.map((v, n) => [v.i, n + 1]))
+  const stepNumber = (i: number) => stepNoByIndex.get(i)
+  const evidence = resolveEvidence(sessInsights, timeline, new Set(stepNoByIndex.keys()))
+  const focused = focusKey ? evidence.find(e => e.key === focusKey) : undefined
+
+  function showSteps(ins: Insight, focusIndex?: number) {
+    const ev = evidence.find(e => e.key === ins.title)
+    if (!ev) return
+    setSection('waterfall')
+    setFocusKey(ev.key)
+    const index = focusIndex ?? ev.indices[0] ?? ev.range?.from
+    if (index !== undefined) setScrollTarget({ index, nonce: Date.now() })
+  }
+
+  // Brings the target row into view and flashes it, once the waterfall has rendered it.
+  useLayoutEffect(() => {
+    if (section !== 'waterfall' || !scrollTarget) return
+    const row = waterfallRef.current?.querySelector<HTMLElement>(`[data-tl-index="${scrollTarget.index}"]`)
+    if (!row) return
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    row.classList.remove('wf-ev-flash')
+    void row.offsetWidth
+    row.classList.add('wf-ev-flash')
+  }, [scrollTarget, section, visible.length])
+
+  // Every row's part in the evidence. Without a focused signal, involved rows just carry a dot per
+  // signal; with one, its steps are lit and everything else steps back.
+  const markFor = (i: number, stepNo: number): StepMark | undefined => {
+    if (focused) {
+      const n = focused.notes.get(i)
+      if (n) return { state: 'focused', stepNo, color: focused.color, notes: [{ name: focused.name, note: n.note, color: focused.color, role: n.role }] }
+      if (focused.range && i >= focused.range.from && i <= focused.range.to) {
+        return { state: 'range', stepNo, color: focused.color, notes: [] }
+      }
+      return { state: 'dimmed', stepNo, color: focused.color, notes: [] }
+    }
+    const notes = evidence.flatMap(e => {
+      const n = e.notes.get(i)
+      return n ? [{ name: e.name, note: n.note, color: e.color, role: n.role }] : []
+    })
+    return notes.length > 0 ? { state: 'marked', stepNo, color: notes[0].color, notes } : undefined
+  }
+
+  // Prev/next walk the focused signal's steps from wherever the last jump landed.
+  const cursor = focused && scrollTarget ? focused.indices.indexOf(scrollTarget.index) : -1
+  const jump = (delta: number) => {
+    if (!focused || focused.indices.length === 0) return
+    const at = cursor < 0 ? (delta > 0 ? -1 : focused.indices.length) : cursor
+    const next = Math.min(Math.max(at + delta, 0), focused.indices.length - 1)
+    setScrollTarget({ index: focused.indices[next], nonce: Date.now() })
+  }
+
   const sessionStartMs = sess.startTime ? new Date(sess.startTime).getTime() : 0
   let sessionDur = sess.durationMs || 1
 
@@ -451,7 +544,10 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               <div>
                 <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:6px">Insights</div>
                 {sessInsights.slice(0, 4).map(ins => (
-                  <InsightCard key={ins.title} ins={ins} isIgnored={false} sessions={[sess]} />
+                  <InsightCard
+                    key={ins.title} ins={ins} isIgnored={false} sessions={[sess]}
+                    timeline={timeline} stepNumber={stepNumber} onShowSteps={showSteps}
+                  />
                 ))}
               </div>
             )}
@@ -471,21 +567,41 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   )
                   : <div class="empty-state" style="padding:12px 0">Loading…</div>)
               : (
-                <div class="waterfall">
-                  <div class="wf-time-ruler">
-                    {Array.from({ length: 6 }, (_, t) => <span key={t}>{formatMs(sessionDur * t / 5)}</span>)}
-                  </div>
-                  {steps.map((step, si) => (
-                    <StepRow
-                      key={step.entry.spanId + si}
-                      step={step}
-                      idx={si}
-                      sessIdx={0}
-                      sessionDur={sessionDur}
-                      sessionModel={sess.model ?? ''}
+                <>
+                  {evidence.length > 0 && (
+                    <WaterfallEvidenceBar
+                      evidence={evidence}
+                      focused={focused}
+                      cursor={cursor}
+                      stepNumber={stepNumber}
+                      onFocus={ev => {
+                        if (focused?.key === ev.key) { setFocusKey(null); return }
+                        setFocusKey(ev.key)
+                        const index = ev.indices[0] ?? ev.range?.from
+                        if (index !== undefined) setScrollTarget({ index, nonce: Date.now() })
+                      }}
+                      onJump={jump}
+                      onClear={() => setFocusKey(null)}
                     />
-                  ))}
-                </div>
+                  )}
+                  <div class="waterfall" ref={waterfallRef}>
+                    <div class="wf-time-ruler">
+                      {Array.from({ length: 6 }, (_, t) => <span key={t}>{formatMs(sessionDur * t / 5)}</span>)}
+                    </div>
+                    {steps.map((step, si) => (
+                      <StepRow
+                        key={step.entry.spanId + si}
+                        step={step}
+                        idx={si}
+                        sessIdx={0}
+                        sessionDur={sessionDur}
+                        sessionModel={sess.model ?? ''}
+                        tlIndex={visible[si].i}
+                        mark={markFor(visible[si].i, si + 1)}
+                      />
+                    ))}
+                  </div>
+                </>
               )
             }
           </div>
@@ -564,6 +680,66 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
         )}
 
       </div>
+    </div>
+  )
+}
+
+// The strip above a trace's waterfall: one chip per insight that names steps in it. Choosing one
+// lights its steps and dims the rest; the banner under the chips says why it fired and walks its
+// steps one at a time.
+function WaterfallEvidenceBar({ evidence, focused, cursor, stepNumber, onFocus, onJump, onClear }: {
+  evidence: ResolvedEvidence[]
+  focused: ResolvedEvidence | undefined
+  cursor: number
+  stepNumber: (i: number) => number | undefined
+  onFocus: (ev: ResolvedEvidence) => void
+  onJump: (delta: number) => void
+  onClear: () => void
+}) {
+  const rangeFrom = focused?.range ? stepNumber(focused.range.from) : undefined
+  const rangeTo = focused?.range ? stepNumber(focused.range.to) : undefined
+  return (
+    <div class="wf-ev-panel">
+      <div class="wf-ev-bar">
+        <span class="wf-ev-bar-label">Signal evidence</span>
+        {evidence.map(ev => (
+          <button
+            key={ev.key}
+            class={'wf-ev-chip' + (focused?.key === ev.key ? ' active' : '')}
+            style={'--ev-color:' + ev.color}
+            title={ev.ins.trigger ?? ev.name}
+            aria-pressed={focused?.key === ev.key}
+            onClick={e => { e.stopPropagation(); onFocus(ev) }}
+          >
+            <span class="wf-ev-chip-icon"><InsightIcon ins={ev.ins} /></span>
+            {ev.name}
+            <span class="wf-ev-chip-count">{ev.indices.length}</span>
+          </button>
+        ))}
+      </div>
+      {focused
+        ? (
+          <div class="wf-ev-banner" style={'--ev-color:' + focused.color}>
+            <div class="wf-ev-banner-text">
+              <b>{focused.name}</b>
+              {focused.ins.trigger && <> — {focused.ins.trigger}</>}
+              {rangeFrom !== undefined && rangeTo !== undefined && focused.range && (
+                <> Steps {rangeFrom}–{rangeTo} are {focused.ins.range?.note} (shaded).</>
+              )}
+            </div>
+            <div class="wf-ev-nav">
+              {focused.indices.length > 0 && (
+                <>
+                  <button onClick={e => { e.stopPropagation(); onJump(-1) }} disabled={cursor === 0} aria-label="Previous step">‹</button>
+                  <span>{cursor >= 0 ? `${cursor + 1} of ${focused.indices.length}` : `${focused.indices.length} step${focused.indices.length === 1 ? '' : 's'}`}</span>
+                  <button onClick={e => { e.stopPropagation(); onJump(1) }} disabled={cursor === focused.indices.length - 1} aria-label="Next step">›</button>
+                </>
+              )}
+              <button class="wf-ev-clear" onClick={e => { e.stopPropagation(); onClear() }}>Clear</button>
+            </div>
+          </div>
+        )
+        : <div class="wf-ev-hint">Rows marked with a dot are evidence for a signal. Pick one to light up its steps.</div>}
     </div>
   )
 }

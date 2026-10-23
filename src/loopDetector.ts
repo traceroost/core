@@ -46,7 +46,9 @@ import { LoopSignal, LoopSignalType } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import type { TimelineEntry } from './summarizers/summarizerTypes'
 import type { GitOutcome } from './gitOutcome'
-import { calcAggregateTokenCostUsd, calcSessionCostUsd, lookupRates } from './pricing'
+import { calcAggregateTokenCostUsd, calcEntryCostUsd, calcSessionCostUsd, lookupRates } from './pricing'
+import { signalStep, withSteps, fmtInt } from './signalEvidence'
+import type { SignalStep } from './types'
 
 // ── Pattern taxonomy names ───────────────────────────────────────────────────
 
@@ -480,12 +482,17 @@ const EXACT_REPEAT_CRITICAL_STREAK = 50
 export function detectExactToolRepeat(session: SessionSummaryCard, signals: LoopSignal[]): void {
   // An edit resets every label's streak. Rather than zeroing each one (O(labels) per edit), a
   // streak only counts while it was last extended in the current edit-free run (`run`).
-  const streaks = new Map<string, { n: number; run: number }>()
+  // `idx` holds the timeline positions of the current streak; `bestIdx` keeps the array of each
+  // label's longest one (a new streak gets a fresh array, so a shorter later streak can't overwrite it).
+  const streaks = new Map<string, { n: number; run: number; idx: number[] }>()
   const maxStreaks = new Map<string, number>()
+  const bestIdx = new Map<string, number[]>()
   const lastResult = new Map<string, string | undefined>()
   let run = 0
 
-  for (const entry of session.timeline) {
+  const timeline = session.timeline
+  for (let i = 0; i < timeline.length; i++) {
+    const entry = timeline[i]
     if (entry.editDetails && entry.editDetails.length > 0) { run++ }
     if (entry.type !== 'tool') { continue }
     const key = (entry.label || '').trim()
@@ -494,10 +501,16 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
     const prevResult = lastResult.get(key)
     const contentChanged = prevResult !== undefined && entry.fullResult !== undefined && entry.fullResult !== prevResult
 
-    const streak = streaks.get(key)
-    const n = contentChanged ? 1 : (streak && streak.run === run ? streak.n : 0) + 1
-    if (streak) { streak.n = n; streak.run = run } else { streaks.set(key, { n, run }) }
-    maxStreaks.set(key, Math.max(maxStreaks.get(key) || 0, n))
+    let streak = streaks.get(key)
+    if (!contentChanged && streak && streak.run === run) {
+      streak.n++
+      streak.idx.push(i)
+    } else {
+      streak = { n: 1, run, idx: [i] }
+      streaks.set(key, streak)
+    }
+    if (streak.n > (maxStreaks.get(key) || 0)) { bestIdx.set(key, streak.idx) }
+    maxStreaks.set(key, Math.max(maxStreaks.get(key) || 0, streak.n))
     lastResult.set(key, entry.fullResult)
   }
 
@@ -508,6 +521,11 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
   if (repeated.length === 0) { return }
 
   const topCount = repeated[0][1]
+  const steps: SignalStep[] = []
+  for (const [label] of repeated.slice(0, 3)) {
+    const idx = bestIdx.get(label) ?? []
+    idx.forEach((i, k) => steps.push(signalStep(timeline, i, `identical call ${k + 1} of ${idx.length}`)))
+  }
   signals.push({
     type: 'exact_tool_repeat',
     severity: topCount >= EXACT_REPEAT_CRITICAL_STREAK ? 'critical' : 'warning',
@@ -516,6 +534,9 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
     examples: repeated.slice(0, 3).map(([label, n]) => `"${label.slice(0, 60)}" ×${n}`),
     patternName: PATTERN_NAMES.exact_tool_repeat,
     action: LOOP_SIGNAL_ACTIONS.exact_tool_repeat,
+    ...withSteps(steps,
+      `Longest streak: "${repeated[0][0].slice(0, 60)}" ran ${topCount} times in a row with the same result and no file edit between`
+      + ` (warning at ${EXACT_REPEAT_WARNING_STREAK}+, critical at ${EXACT_REPEAT_CRITICAL_STREAK}+).`),
   })
 }
 
@@ -530,17 +551,20 @@ function toOrderedRecord(map: Map<string, number>): Record<string, number> {
 
 // ── Shared: per-file edit extraction ─────────────────────────────────────────
 
-function collectEditDetails(session: SessionSummaryCard, type: 'llm' | 'tool'): Record<string, Array<{ old: string; new: string }>> {
-  const fileEdits: Record<string, Array<{ old: string; new: string }>> = {}
+/** One edit pair, with `index` = the timeline position of the entry that made it. */
+export interface FileEdit { old: string; new: string; index: number }
 
-  for (const entry of session.timeline) {
-    if (entry.type !== type || !entry.editDetails) { continue }
+function collectEditDetails(session: SessionSummaryCard, type: 'llm' | 'tool'): Record<string, FileEdit[]> {
+  const fileEdits: Record<string, FileEdit[]> = {}
+
+  session.timeline.forEach((entry, index) => {
+    if (entry.type !== type || !entry.editDetails) { return }
     for (const detail of entry.editDetails) {
       if (!detail.filePath || !detail.oldString || !detail.newString) { continue }
       if (!fileEdits[detail.filePath]) { fileEdits[detail.filePath] = [] }
-      fileEdits[detail.filePath].push({ old: detail.oldString, new: detail.newString })
+      fileEdits[detail.filePath].push({ old: detail.oldString, new: detail.newString, index })
     }
-  }
+  })
 
   return fileEdits
 }
@@ -560,7 +584,7 @@ function collectEditDetails(session: SessionSummaryCard, type: 'llm' | 'tool'): 
  * original behavior here) silently dropped the primary source, reading zero edits for any session
  * that only had the former.
  */
-export function getFileEditCounts(session: SessionSummaryCard): Record<string, Array<{ old: string; new: string }>> {
+export function getFileEditCounts(session: SessionSummaryCard): Record<string, FileEdit[]> {
   const fromLlm = collectEditDetails(session, 'llm')
   if (Object.keys(fromLlm).length > 0) { return fromLlm }
   return collectEditDetails(session, 'tool')
@@ -588,27 +612,38 @@ export function detectEditRevertCycle(session: SessionSummaryCard, signals: Loop
   const fileEdits = getFileEditCounts(session)
 
   const revertedFiles: string[] = []
+  const steps: SignalStep[] = []
   let anyStillReverted = false
 
   for (const [file, edits] of Object.entries(fileEdits)) {
     if (edits.length < 2) { continue }
-    const isRevert = (j: number): boolean => {
+    // The earlier edit that edits[j] exactly reverses, or -1.
+    const revertedBy = (j: number): number => {
       for (let i = 0; i < j; i++) {
-        if (edits[j].old === edits[i].new && edits[j].new === edits[i].old) { return true }
+        if (edits[j].old === edits[i].new && edits[j].new === edits[i].old) { return i }
       }
-      return false
+      return -1
+    }
+    const name = file.split('/').pop() || file
+    const record = (i: number, j: number, final: boolean): void => {
+      steps.push(signalStep(session.timeline, edits[i].index, `edit to ${name}, later undone`, 'context'))
+      steps.push(signalStep(session.timeline, edits[j].index,
+        `undoes the earlier edit to ${name}` + (final ? ' — its last edit this session' : '')))
     }
     // The final edit is checked on its own, not just "the first revert found": a file reverted
     // early on and then reverted AGAIN as its last edit is still stuck, and stopping at the first
     // match used to miss that.
     const last = edits.length - 1
-    if (isRevert(last)) {
+    const lastReverts = revertedBy(last)
+    if (lastReverts >= 0) {
       revertedFiles.push(file)
+      record(lastReverts, last, true)
       anyStillReverted = true
       continue
     }
     for (let j = 1; j < last; j++) {
-      if (isRevert(j)) { revertedFiles.push(file); break }
+      const i = revertedBy(j)
+      if (i >= 0) { revertedFiles.push(file); record(i, j, false); break }
     }
   }
 
@@ -622,6 +657,9 @@ export function detectEditRevertCycle(session: SessionSummaryCard, signals: Loop
     examples: revertedFiles.slice(0, 3).map(f => f.split('/').pop() || f),
     patternName: PATTERN_NAMES.edit_revert_cycle,
     action: LOOP_SIGNAL_ACTIONS.edit_revert_cycle,
+    ...withSteps(steps,
+      `${revertedFiles.length} file(s) had an edit exactly undone by a later edit (old and new text swapped)`
+      + (anyStillReverted ? ', and for at least one the undo was its final edit — critical.' : '; each file was edited again afterwards — warning.')),
   })
 }
 
@@ -649,16 +687,17 @@ function normalizeErrorMessage(msg: string): string {
  * Thresholds: 3+ occurrences → warning, 5+ (with a real errorMessage match) → critical.
  */
 export function detectErrorRecurrence(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const groups: Record<string, { count: number; example: string; fromFallback: boolean }> = {}
-  for (const entry of session.timeline) {
-    if (!entry.isError) { continue }
+  const groups: Record<string, { count: number; example: string; fromFallback: boolean; idx: number[] }> = {}
+  session.timeline.forEach((entry, i) => {
+    if (!entry.isError) { return }
     const raw = (entry.errorMessage || entry.label || 'unknown error').trim()
     const fromFallback = !entry.errorMessage
     const key = normalizeErrorMessage(raw).slice(0, 200)
-    if (!groups[key]) { groups[key] = { count: 0, example: raw.slice(0, 200), fromFallback } }
+    if (!groups[key]) { groups[key] = { count: 0, example: raw.slice(0, 200), fromFallback, idx: [] } }
     groups[key].count++
+    groups[key].idx.push(i)
     if (fromFallback) { groups[key].fromFallback = true }
-  }
+  })
 
   const recurring = Object.entries(groups)
     .filter(([, g]) => g.count >= 3)
@@ -667,6 +706,12 @@ export function detectErrorRecurrence(session: SessionSummaryCard, signals: Loop
   if (recurring.length === 0) { return }
 
   const top = recurring[0][1]
+  const steps: SignalStep[] = []
+  // The trigger quotes the top error; the notes only repeat a message when several errors recur.
+  for (const [, g] of recurring.slice(0, 3)) {
+    const which = recurring.length > 1 ? `: "${g.example.slice(0, 50)}${g.example.length > 50 ? '…' : ''}"` : ''
+    g.idx.forEach((i, k) => steps.push(signalStep(session.timeline, i, `occurrence ${k + 1} of ${g.count}${which}`)))
+  }
   signals.push({
     type: 'error_recurrence',
     severity: top.count >= 5 && !top.fromFallback ? 'critical' : 'warning',
@@ -675,6 +720,10 @@ export function detectErrorRecurrence(session: SessionSummaryCard, signals: Loop
     examples: recurring.slice(0, 3).map(([, g]) => `"${g.example.slice(0, 60)}" ×${g.count}`),
     patternName: PATTERN_NAMES.error_recurrence,
     action: LOOP_SIGNAL_ACTIONS.error_recurrence,
+    ...withSteps(steps,
+      `"${top.example.slice(0, 100)}${top.example.length > 100 ? '…' : ''}" came back ${top.count} times`
+      + (top.fromFallback ? ' (grouped by tool name — no error text was captured, so it stays a warning)' : '')
+      + ' (warning at 3+, critical at 5+ with a real error message match).'),
   })
 }
 
@@ -750,6 +799,30 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
 
   if (totalSteps <= threshold) { return }
 
+  // The step counters are session totals; the timeline is walked separately to find where it
+  // crossed the line. They can disagree (a source whose timeline is partial), in which case the
+  // crossing just isn't marked rather than marked somewhere wrong.
+  const timeline = session.timeline
+  const steps: SignalStep[] = []
+  let n = 0
+  let crossedAt = -1
+  let lastStep = -1
+  for (let i = 0; i < timeline.length; i++) {
+    if (timeline[i].type !== 'llm' && timeline[i].type !== 'tool') { continue }
+    n++
+    lastStep = i
+    if (n === threshold + 1) {
+      crossedAt = i
+      steps.push(signalStep(timeline, i, `step ${n} — first step past the ${threshold}-step budget for a ${complexity} task`))
+    } else if (n === threshold * 2) {
+      steps.push(signalStep(timeline, i, `step ${n} — twice the budget (critical)`))
+    }
+  }
+  if (crossedAt >= 0 && lastStep > crossedAt) {
+    steps.push(signalStep(timeline, lastStep, `step ${n} — the session's last step`, 'context'))
+  }
+  const filesAffected = new Set([...session.filesRead, ...session.filesChanged, ...session.filesSearched]).size
+
   signals.push({
     type: 'runaway_steps',
     severity: totalSteps >= threshold * 2 ? 'critical' : 'warning',
@@ -762,6 +835,13 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
     ],
     patternName: PATTERN_NAMES.runaway_steps,
     action: LOOP_SIGNAL_ACTIONS.runaway_steps,
+    ...withSteps(steps,
+      `${totalSteps} steps (${session.totalLlmCalls} LLM + ${session.totalToolCalls} tool) against a ${threshold}-step budget —`
+      + ` the task read as ${complexity} from the prompt's wording and the ${filesAffected} file(s) it touched`
+      + ` (warning past ${threshold}, critical at ${threshold * 2}+).`),
+    ...(crossedAt >= 0 && lastStep > crossedAt
+      ? { range: { from: crossedAt, to: lastStep, note: `past the ${threshold}-step budget` } }
+      : {}),
   })
 }
 
@@ -789,9 +869,9 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
  * not a verdict either way). Threshold left unchanged; revisit once the corpus is bigger.
  */
 export function detectTokenRunaway(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const llmCalls = session.timeline.filter(
-    e => e.type === 'llm' && (e.inputTokens ?? 0) > 0,
-  )
+  const llmIdx: number[] = []
+  session.timeline.forEach((e, i) => { if (e.type === 'llm' && (e.inputTokens ?? 0) > 0) { llmIdx.push(i) } })
+  const llmCalls = llmIdx.map(i => session.timeline[i])
   if (llmCalls.length < 4) { return }
 
   const inputs  = llmCalls.map(e => e.inputTokens  ?? 0)
@@ -807,6 +887,21 @@ export function detectTokenRunaway(session: SessionSummaryCard, signals: LoopSig
 
   if (!ratioDrop) { return }
 
+  const pct = (out: number, inp: number): string => `${((out / Math.max(inp, 1)) * 100).toFixed(1)}%`
+  const last = llmCalls.length - 1
+  const steps: SignalStep[] = [
+    signalStep(session.timeline, llmIdx[0],
+      `baseline: ${fmtInt(inputs[0])} in → ${fmtInt(outputs[0])} out (${pct(outputs[0], inputs[0])} output/input)`, 'context'),
+    signalStep(session.timeline, llmIdx[last],
+      `${fmtInt(inputs[last])} in → ${fmtInt(outputs[last])} out (${pct(outputs[last], inputs[last])} output/input)`),
+  ]
+  // The three calls whose context jumped most over the call before — where the growth came from.
+  const jumps = inputs.slice(1).map((v, k) => ({ k: k + 1, d: v - inputs[k] })).filter(j => j.d > 0)
+  jumps.sort((a, b) => b.d - a.d)
+  for (const j of jumps.slice(0, 3)) {
+    steps.push(signalStep(session.timeline, llmIdx[j.k], `context +${fmtInt(j.d)} tokens over the previous call`))
+  }
+
   signals.push({
     type: 'token_runaway',
     severity: inputGrowth > 50000 ? 'critical' : 'warning',
@@ -820,6 +915,10 @@ export function detectTokenRunaway(session: SessionSummaryCard, signals: LoopSig
     ],
     patternName: PATTERN_NAMES.token_runaway,
     action: LOOP_SIGNAL_ACTIONS.token_runaway,
+    ...withSteps(steps,
+      `Input grew ${fmtInt(inputGrowth)} tokens from the first LLM call to the last (15,000+ needed; critical over 50,000)`
+      + ` while output per input token fell from ${(earlyRatio * 100).toFixed(1)}% to ${(lateRatio * 100).toFixed(1)}%`
+      + ` (under 30% of where it started needed).`),
   })
 }
 
@@ -850,13 +949,17 @@ export function detectChronicToolFailures(session: SessionSummaryCard, signals: 
   if (toolEntries.length < CHRONIC_FAILURE_MIN_SAMPLE) { return }
 
   const failedByLabel: Record<string, number> = {}
+  const steps: SignalStep[] = []
   let failedCount = 0
-  for (const entry of toolEntries) {
-    if (!entry.isError) { continue }
+  session.timeline.forEach((entry, i) => {
+    if (entry.type !== 'tool' || !entry.isError) { return }
     failedCount++
     const key = (entry.label || '').split(' ')[0] || 'unknown'
     failedByLabel[key] = (failedByLabel[key] || 0) + 1
-  }
+    const msg = (entry.errorMessage || '').trim().split('\n')[0]
+    steps.push(signalStep(session.timeline, i,
+      msg ? `failed: ${msg.slice(0, 70)}${msg.length > 70 ? '…' : ''}` : 'failed (error status, no message captured)'))
+  })
   if (failedCount === 0) { return }
 
   const rate = failedCount / toolEntries.length
@@ -872,6 +975,9 @@ export function detectChronicToolFailures(session: SessionSummaryCard, signals: 
     examples: topFailing.slice(0, 3).map(([tool, n]) => `${tool} ×${n}`),
     patternName: PATTERN_NAMES.chronic_tool_failures,
     action: LOOP_SIGNAL_ACTIONS.chronic_tool_failures,
+    ...withSteps(steps,
+      `${failedCount} of ${toolEntries.length} tool calls failed — ${(rate * 100).toFixed(0)}%`
+      + ` (warning at ${CHRONIC_FAILURE_WARNING_RATE * 100}%+, critical at ${CHRONIC_FAILURE_CRITICAL_RATE * 100}%+, once a session has ${CHRONIC_FAILURE_MIN_SAMPLE}+ tool calls).`),
   })
 }
 
@@ -893,11 +999,14 @@ const LARGE_RESULT_CRITICAL_KB = 300
  */
 export function detectContextFloodingRisk(session: SessionSummaryCard, signals: LoopSignal[]): void {
   const largeResults: Array<{ tool: string; size: number }> = []
-  for (const entry of session.timeline) {
-    if (entry.type !== 'tool' || !entry.fullResult) { continue }
-    if (entry.fullResult.length <= LARGE_RESULT_CHARS) { continue }
+  const steps: SignalStep[] = []
+  session.timeline.forEach((entry, i) => {
+    if (entry.type !== 'tool' || !entry.fullResult) { return }
+    if (entry.fullResult.length <= LARGE_RESULT_CHARS) { return }
     largeResults.push({ tool: (entry.label || '').split(' ')[0] || 'unknown', size: entry.fullResult.length })
-  }
+    steps.push(signalStep(session.timeline, i,
+      `returned ${fmtInt(entry.fullResult.length)} characters (~${fmtInt(entry.fullResult.length / 4)} tokens) into context`))
+  })
   if (largeResults.length === 0) { return }
 
   largeResults.sort((a, b) => b.size - a.size)
@@ -911,6 +1020,9 @@ export function detectContextFloodingRisk(session: SessionSummaryCard, signals: 
     examples: largeResults.slice(0, 3).map(r => `${r.tool} (${(r.size / 1024).toFixed(1)}KB)`),
     patternName: PATTERN_NAMES.context_flooding_risk,
     action: LOOP_SIGNAL_ACTIONS.context_flooding_risk,
+    ...withSteps(steps,
+      `${largeResults.length} tool result(s) over ${fmtInt(LARGE_RESULT_CHARS)} characters, ${totalKb.toFixed(0)}KB in all`
+      + ` (warning for any one result that size, critical at ${LARGE_RESULT_CRITICAL_KB}KB total).`),
   })
 }
 
@@ -942,20 +1054,25 @@ function periodicSuffixRepeats(seg: string[], period: number): number {
 export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSignal[]): void {
   // Same segmentation as detectExactToolRepeat: any file edit is forward progress and resets
   // tracking, so a cycle is only ever measured within one edit-free run.
+  // segIdx parallels segments: the timeline position of each call.
   const segments: string[][] = [[]]
-  for (const entry of session.timeline) {
+  const segIdx: number[][] = [[]]
+  session.timeline.forEach((entry, i) => {
     if (entry.editDetails && entry.editDetails.length > 0) {
       segments.push([])
-      continue
+      segIdx.push([])
+      return
     }
-    if (entry.type !== 'tool') { continue }
+    if (entry.type !== 'tool') { return }
     const key = (entry.label || '').trim()
-    if (!key) { continue }
+    if (!key) { return }
     segments[segments.length - 1].push(`${key}\u0000${entry.fullResult ?? ''}`)
-  }
+    segIdx[segIdx.length - 1].push(i)
+  })
 
-  let best: { period: number; repeats: number; pattern: string[] } | null = null
-  for (const seg of segments) {
+  let best: { period: number; repeats: number; pattern: string[]; seg: number } | null = null
+  for (let segN = 0; segN < segments.length; segN++) {
+    const seg = segments[segN]
     for (let period = TOOL_CYCLE_MIN_PERIOD; period <= TOOL_CYCLE_MAX_PERIOD; period++) {
       const repeats = periodicSuffixRepeats(seg, period)
       if (repeats < TOOL_CYCLE_WARNING_REPEATS) { continue }
@@ -964,11 +1081,17 @@ export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSi
       // longer period's clothes — that's detectExactToolRepeat's signal, not this one.
       if (new Set(pattern).size < 2) { continue }
       if (!best || repeats * period > best.repeats * best.period) {
-        best = { period, repeats, pattern }
+        best = { period, repeats, pattern, seg: segN }
       }
     }
   }
   if (!best) { return }
+  const found = best
+
+  // The cycle is the segment's tail: its last period × repeats calls.
+  const cycleIdx = segIdx[found.seg].slice(-(found.period * found.repeats))
+  const steps = cycleIdx.map((i, k) => signalStep(session.timeline, i,
+    `pass ${Math.floor(k / found.period) + 1} of ${found.repeats}, step ${(k % found.period) + 1} of ${found.period}`))
 
   signals.push({
     type: 'tool_call_cycle',
@@ -978,6 +1101,9 @@ export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSi
     examples: best.pattern.map(p => p.split('\u0000')[0].slice(0, 60)),
     patternName: PATTERN_NAMES.tool_call_cycle,
     action: LOOP_SIGNAL_ACTIONS.tool_call_cycle,
+    ...withSteps(steps,
+      `The sequence ${found.pattern.map(p => p.split('\u0000')[0].slice(0, 40)).join(' → ')} ran ${found.repeats} times back to back,`
+      + ` same results each pass, no file edit between (warning at ${TOOL_CYCLE_WARNING_REPEATS}+ passes, critical at ${TOOL_CYCLE_CRITICAL_REPEATS}+).`),
   })
 }
 
@@ -1017,23 +1143,28 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
   const counts: Record<string, number> = {}
   const maxCounts: Record<string, number> = {}
   const sizeSamples: Record<string, number[]> = {}
+  // Timeline positions of each path's current write-free run of reads, and of its longest one.
+  const runIdx: Record<string, number[]> = {}
+  const bestIdx: Record<string, number[]> = {}
 
-  for (const entry of session.timeline) {
+  session.timeline.forEach((entry, i) => {
     if (entry.editDetails) {
       for (const d of entry.editDetails) {
-        if (d.filePath) { counts[d.filePath] = 0 }
+        if (d.filePath) { counts[d.filePath] = 0; runIdx[d.filePath] = [] }
       }
     }
-    if (entry.type !== 'tool') { continue }
+    if (entry.type !== 'tool') { return }
     const label = (entry.label || '').trim()
-    if (!READ_TOOL_LABEL_PATTERN.test(label)) { continue }
+    if (!READ_TOOL_LABEL_PATTERN.test(label)) { return }
     const filePath = extractReadPath(entry)
-    if (!filePath) { continue }
+    if (!filePath) { return }
     counts[filePath] = (counts[filePath] || 0) + 1
+    ;(runIdx[filePath] ??= []).push(i)
+    if (counts[filePath] > (maxCounts[filePath] || 0)) { bestIdx[filePath] = runIdx[filePath] }
     maxCounts[filePath] = Math.max(maxCounts[filePath] || 0, counts[filePath])
     const size = (entry.fullResult ?? entry.resultSummary ?? '').length
     if (size > 0) { (sizeSamples[filePath] ??= []).push(size) }
-  }
+  })
 
   const reread = Object.entries(maxCounts)
     .filter(([, n]) => n >= FILE_REREAD_WARNING_COUNT)
@@ -1052,6 +1183,14 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
   const wasteUsd = avoidableTokens > 0 ? calcAggregateTokenCostUsd(avoidableTokens, 0, 0, 0, session.model) : 0
 
   const topCount = reread[0][1]
+  const steps: SignalStep[] = []
+  for (const [path] of reread.slice(0, 5)) {
+    const idx = bestIdx[path] ?? []
+    const name = path.split('/').pop() || path
+    idx.forEach((i, k) => steps.push(signalStep(session.timeline, i,
+      k === 0 ? `first read of ${name}` : `read ${k + 1} of ${idx.length} of ${name} — no write since the first`,
+      k === 0 ? 'context' : 'trigger')))
+  }
   signals.push({
     type: 'file_reread',
     severity: topCount >= FILE_REREAD_CRITICAL_COUNT ? 'critical' : 'warning',
@@ -1061,6 +1200,10 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
     examples: reread.slice(0, 3).map(([path, n]) => `${path.split('/').pop() || path} ×${n}`),
     patternName: PATTERN_NAMES.file_reread,
     action: LOOP_SIGNAL_ACTIONS.file_reread,
+    ...withSteps(steps,
+      `${reread[0][0].split('/').pop() || reread[0][0]} was read ${topCount} times with no write to it in between`
+      + (reread.length > 1 ? `, and ${reread.length - 1} other file(s) 3+ times` : '')
+      + ` (warning at ${FILE_REREAD_WARNING_COUNT}+ reads, critical at ${FILE_REREAD_CRITICAL_COUNT}+).`),
     ...(wasteUsd > 0 ? { wasteUsd } : {}),
   })
 }
@@ -1099,18 +1242,29 @@ function isCacheMissEntry(e: TimelineEntry): boolean {
   return totalPrefix > 0 && cacheCreate >= CACHE_MISS_MIN_TOKENS && cacheCreate / totalPrefix > CACHE_MISS_MIN_SHARE
 }
 
+/** "re-wrote 18,402 tokens to cache (42% of a 43,800-token prompt)". */
+function cacheMissStep(timeline: TimelineEntry[], i: number, verb: string, lead = ''): SignalStep {
+  const e = timeline[i]
+  const cacheCreate = e.cacheCreateTokens ?? 0
+  const prefix = Math.max(e.inputTokens ?? 0, cacheCreate + (e.cacheReadTokens ?? 0))
+  return signalStep(timeline, i,
+    `${lead}${verb} ${fmtInt(cacheCreate)} tokens to cache (${Math.round((cacheCreate / Math.max(prefix, 1)) * 100)}% of a ${fmtInt(prefix)}-token prompt)`)
+}
+
 export function detectCacheMiss(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const llmCalls = session.timeline.filter(e => e.type === 'llm')
   // The first call on each model has nothing cached yet — writing its prefix to cache is the
   // cold start every session pays, not a miss. Caches are per-model, so a subagent or /model
   // switch gets its own cold first call too.
   const seenModels = new Set<string>()
-  const misses = llmCalls.filter(e => {
+  const missIdx: number[] = []
+  session.timeline.forEach((e, i) => {
+    if (e.type !== 'llm') { return }
     const model = e.model || session.model || ''
     const first = !seenModels.has(model)
     seenModels.add(model)
-    return !first && isCacheMissEntry(e)
+    if (!first && isCacheMissEntry(e)) { missIdx.push(i) }
   })
+  const misses = missIdx.map(i => session.timeline[i])
   if (misses.length === 0) { return }
 
   const totalWasted = misses.reduce((s, e) => s + (e.cacheCreateTokens ?? 0), 0)
@@ -1127,6 +1281,10 @@ export function detectCacheMiss(session: SessionSummaryCard, signals: LoopSignal
     examples: [`${totalWasted.toLocaleString()} cache-write tokens across ${misses.length} call(s)`],
     patternName: PATTERN_NAMES.cache_miss,
     action: LOOP_SIGNAL_ACTIONS.cache_miss,
+    ...withSteps(missIdx.map(i => cacheMissStep(session.timeline, i, 're-wrote')),
+      `${misses.length} call(s) after a model's first wrote ${fmtInt(totalWasted)} tokens to cache instead of reading them —`
+      + ` each over ${CACHE_MISS_MIN_SHARE * 100}% of its prompt and ${fmtInt(CACHE_MISS_MIN_TOKENS)}+ tokens`
+      + ` (critical at ${fmtInt(CACHE_MISS_CRITICAL_TOKENS)} tokens in all).`),
     ...(wasteUsd > 0 ? { wasteUsd } : {}),
   })
 }
@@ -1136,14 +1294,20 @@ export function detectTtlExpiry(session: SessionSummaryCard, signals: LoopSignal
   if (llmCalls.length < 2) { return }
 
   let prevTs: number | null = null
+  let prevIdx = -1
   const expiryGapsMs: number[] = []
-  for (const e of llmCalls) {
+  const steps: SignalStep[] = []
+  session.timeline.forEach((e, i) => {
+    if (e.type !== 'llm') { return }
     const ts = Date.parse(e.timestamp)
     if (isCacheMissEntry(e) && prevTs !== null && !Number.isNaN(ts) && ts - prevTs > CACHE_TTL_MS) {
+      const gapMin = Math.round((ts - prevTs) / 60_000)
       expiryGapsMs.push(ts - prevTs)
+      steps.push(signalStep(session.timeline, prevIdx, `last call before a ${gapMin}-min gap`, 'context'))
+      steps.push(cacheMissStep(session.timeline, i, 're-wrote', `${gapMin} min after the previous call; `))
     }
-    if (!Number.isNaN(ts)) { prevTs = ts }
-  }
+    if (!Number.isNaN(ts)) { prevTs = ts; prevIdx = i }
+  })
   if (expiryGapsMs.length === 0) { return }
 
   signals.push({
@@ -1154,6 +1318,9 @@ export function detectTtlExpiry(session: SessionSummaryCard, signals: LoopSignal
     examples: expiryGapsMs.slice(0, 3).map(ms => `${Math.round(ms / 60_000)} min gap`),
     patternName: PATTERN_NAMES.ttl_expiry,
     action: LOOP_SIGNAL_ACTIONS.ttl_expiry,
+    ...withSteps(steps,
+      `${expiryGapsMs.length} cache miss(es) came after a pause longer than the ${Math.round(CACHE_TTL_MS / 60_000)}-min cache lifetime`
+      + ` (longest ${Math.round(Math.max(...expiryGapsMs) / 60_000)} min; critical at 3+ such gaps).`),
   })
 }
 
@@ -1178,6 +1345,17 @@ export function detectLowCacheHitRatio(session: SessionSummaryCard, signals: Loo
   if (totalCacheActivity < LOW_CACHE_HIT_MIN_ACTIVITY_TOKENS) { return }
   if (session.cacheHitRate >= LOW_CACHE_HIT_WARNING_RATIO) { return }
 
+  // The session-level ratio has no single cause; the calls that re-processed the most input
+  // without reading it from cache are where it went.
+  const worst = session.timeline
+    .map((e, i) => ({ e, i, uncached: Math.max(0, (e.inputTokens ?? 0) - (e.cacheReadTokens ?? 0)) }))
+    .filter(x => x.e.type === 'llm' && x.uncached > 0)
+    .sort((a, b) => b.uncached - a.uncached)
+    .slice(0, 5)
+  const steps = worst.map(({ e, i, uncached }) => signalStep(session.timeline, i,
+    `${fmtInt(uncached)} of ${fmtInt(e.inputTokens ?? 0)} input tokens not read from cache`
+    + ` (${Math.round(((e.cacheReadTokens ?? 0) / Math.max(e.inputTokens ?? 0, 1)) * 100)}% cached)`))
+
   signals.push({
     type: 'low_cache_hit_ratio',
     severity: session.cacheHitRate < LOW_CACHE_HIT_CRITICAL_RATIO ? 'critical' : 'warning',
@@ -1189,6 +1367,11 @@ export function detectLowCacheHitRatio(session: SessionSummaryCard, signals: Loo
     ],
     patternName: PATTERN_NAMES.low_cache_hit_ratio,
     action: LOOP_SIGNAL_ACTIONS.low_cache_hit_ratio,
+    ...withSteps(steps,
+      `Cache reads were ${(session.cacheHitRate * 100).toFixed(0)}% of this session's input tokens`
+      + ` (warning under ${LOW_CACHE_HIT_WARNING_RATIO * 100}%, critical under ${LOW_CACHE_HIT_CRITICAL_RATIO * 100}%),`
+      + ` with ${fmtInt(totalCacheActivity)} tokens of cache activity across ${session.totalLlmCalls} LLM calls.`
+      + (steps.length > 0 ? ' The calls below re-processed the most input.' : '')),
   })
 }
 
@@ -1216,6 +1399,14 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
   const costUsd = calcSessionCostUsd(session)
   if (costUsd <= cap) { return }
 
+  const priciest = session.timeline
+    .map((e, i) => ({ i, usd: e.type === 'llm' ? calcEntryCostUsd(e, session.model) : 0 }))
+    .filter(x => x.usd > 0)
+    .sort((a, b) => b.usd - a.usd)
+    .slice(0, 5)
+  const steps = priciest.map(({ i, usd }) => signalStep(session.timeline, i,
+    `~$${usd.toFixed(2)} — ${Math.round((usd / costUsd) * 100)}% of the session's cost`))
+
   signals.push({
     type: 'budget_overrun',
     severity: costUsd >= cap * 2 ? 'critical' : 'warning',
@@ -1224,6 +1415,9 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
     examples: [`$${costUsd.toFixed(2)} total`, `cap: $${cap.toFixed(2)}`],
     patternName: PATTERN_NAMES.budget_overrun,
     action: LOOP_SIGNAL_ACTIONS.budget_overrun,
+    ...withSteps(steps,
+      `Estimated cost ~$${costUsd.toFixed(2)} against the $${cap.toFixed(2)} cap set in TRACEROOST_BUDGET_CAP_USD`
+      + ` (critical at $${(cap * 2).toFixed(2)}).` + (steps.length > 0 ? ' The most expensive calls are below.' : '')),
   })
 }
 
@@ -1250,7 +1444,11 @@ export function detectModelTierMismatch(session: SessionSummaryCard, signals: Lo
 
   const toolEntries = session.timeline.filter(e => e.type === 'tool')
   if (toolEntries.length < TIER_MISMATCH_MIN_TOOL_CALLS) { return }
-  const readOnlyCount = toolEntries.filter(e => READ_ONLY_TOOL_LABEL_PATTERN.test((e.label || '').trim())).length
+  const readOnlyIdx: number[] = []
+  session.timeline.forEach((e, i) => {
+    if (e.type === 'tool' && READ_ONLY_TOOL_LABEL_PATTERN.test((e.label || '').trim())) { readOnlyIdx.push(i) }
+  })
+  const readOnlyCount = readOnlyIdx.length
   if (readOnlyCount / toolEntries.length < TIER_MISMATCH_MIN_READ_ONLY_SHARE) { return }
 
   const rates = lookupRates(session.model)
@@ -1270,6 +1468,10 @@ export function detectModelTierMismatch(session: SessionSummaryCard, signals: Lo
     examples: [`model: ${session.model}`, `avg output: ${Math.round(avgOutput)} tokens/call`],
     patternName: PATTERN_NAMES.model_tier_mismatch,
     action: LOOP_SIGNAL_ACTIONS.model_tier_mismatch,
+    ...withSteps(readOnlyIdx.map(i => signalStep(session.timeline, i, `read-only call on ${session.model}`)),
+      `${readOnlyCount} of ${toolEntries.length} tool calls were read-only (${TIER_MISMATCH_MIN_READ_ONLY_SHARE * 100}%+ needed),`
+      + ` no file was edited, ${session.model} costs $${rates.inputPerMTok}/M input tokens (above $${TIER_MISMATCH_PREMIUM_INPUT_RATE_PER_MTOK}/M),`
+      + ` and output averaged ${Math.round(avgOutput)} tokens per call (${TIER_MISMATCH_MAX_AVG_OUTPUT_TOKENS} or fewer).`),
   })
 }
 

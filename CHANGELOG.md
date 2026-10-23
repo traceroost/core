@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Every insight in an expanded trace now shows why it fired, step by step** — each Insights card has a **Why it fired** section giving the measured value against the threshold it crossed ("bash npm test → read_file test-output.log ran 5 times back to back … warning at 5+ passes"), then the specific turns and tool calls behind it, each with its own reason ("pass 3 of 5", "undoes the earlier edit to session.ts — its last edit this session", "re-wrote 18,402 tokens to cache (42% of a 43,800-token prompt)"). Click a step, or **Highlight in waterfall**, to open the trace's waterfall with that signal's steps lit and the rest dimmed, and step through them with ‹ ›. The waterfall also gets a **Signal evidence** strip with one chip per signal, and a dot on every row that is evidence for one. This covers all sixteen signals and the efficiency insights (context growth, repeated reads and searches, high call counts, large first prompt, low cache rate). Signals recorded before this version have no step list and say so; they get one when the trace is analyzed again
+
 ### Changed
 
 - **Three signals have plainer names** — "State Corruption Spiral" is now **Edit Reverted**, "Hallucination Amplification Loop" is **Repeated Error**, and "Infinite Loop — Context Accumulation" is **Context Runaway**. Each old name promised more than its detector measures (one exact revert, the same error three times, a ratio drop across four calls); the new ones say what was seen. Nothing else about them changed

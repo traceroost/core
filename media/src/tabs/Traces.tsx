@@ -16,6 +16,19 @@ export interface Step {
   durationMs: number
 }
 
+/** How a waterfall row takes part in the trace's signal evidence (see Sessions.tsx's SessionDetail).
+ *  'focused' — a step of the signal being inspected; 'range' — inside its covered stretch without
+ *  being a named step; 'dimmed' — not involved while one is inspected; 'marked' — involved in some
+ *  signal while none is inspected. */
+export interface StepMark {
+  state: 'focused' | 'range' | 'dimmed' | 'marked'
+  /** 1-based waterfall row number, as the evidence list on the Insights card shows it. */
+  stepNo: number
+  color: string
+  /** One per signal this row is evidence for (just the inspected one's, when one is). */
+  notes: Array<{ name: string; note: string; color: string; role: 'trigger' | 'context' }>
+}
+
 
 
 function BgSummaryBlock({ bgSpans }: { bgSpans: BackgroundSpanSummary[] }) {
@@ -216,7 +229,13 @@ function LongTextSection({ heading, text, id: _id, isJson }: { heading: string; 
   )
 }
 
-export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel }: { step: Step; idx: number; sessIdx: number; sessionDur: number; sessionModel: string }) {
+export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel, tlIndex, mark }: {
+  step: Step; idx: number; sessIdx: number; sessionDur: number; sessionModel: string
+  /** Position in the session's full timeline — what signal evidence points at; the row carries it
+   *  as data-tl-index so SessionDetail can scroll to it. */
+  tlIndex?: number
+  mark?: StepMark
+}) {
   const [open, setOpen] = useState(false)
   const entry = step.entry
   const entryCost = entry.type === 'llm' ? calcEntryCost(entry, sessionModel) : 0
@@ -255,20 +274,38 @@ export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel }: { step
   })()
 
   const subtitle = toolSubtitle
+  // While a signal is inspected its note replaces the subtitle — that's the line the eye is on.
+  const focusNote = mark?.state === 'focused' ? mark.notes[0] : undefined
+  const markTip = mark && mark.notes.length > 0
+    ? 'Step ' + mark.stepNo + '\n' + mark.notes.map(n => n.name + ': ' + n.note).join('\n')
+    : undefined
 
   const left = sessionDur > 0 ? (step.offsetMs / sessionDur * 100) : 0
   const width = sessionDur > 0 ? Math.max(step.durationMs / sessionDur * 100, 0.5) : 100
 
   return (
     <>
-      <div class="wf-row" onClick={() => setOpen(v => !v)}>
-        <div class="wf-label" title={subtitle ? rowLabel + ' — ' + subtitle : rowLabel}>
-          <span class="wf-indent" />
+      <div
+        class={'wf-row' + (mark ? ' wf-ev-' + mark.state : '')}
+        style={mark ? '--ev-color:' + mark.color : undefined}
+        data-tl-index={tlIndex}
+        onClick={() => setOpen(v => !v)}
+      >
+        <div class="wf-label" title={(subtitle ? rowLabel + ' — ' + subtitle : rowLabel) + (markTip ? '\n\n' + markTip : '')}>
+          {mark && mark.state !== 'dimmed' && mark.notes.length > 0
+            ? (
+              <span class="wf-ev-dots" aria-label={markTip}>
+                {mark.notes.slice(0, 3).map((n, i) => <span key={i} class="wf-ev-dot" style={'background:' + n.color} />)}
+              </span>
+            )
+            : <span class="wf-indent" />}
           <span class="sw-chevron">{open ? '▼' : '▶'}</span>
           <span class="wf-type-badge" style={'background:' + barColor + ';color:#000'}>{badgeLabel}</span>
           <span style="display:inline-flex;flex-direction:column;min-width:0">
             <span class="wf-name">{rowLabel}</span>
-            {subtitle && <span style="font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px">{subtitle}</span>}
+            {focusNote
+              ? <span class="wf-ev-note">#{mark!.stepNo} · {focusNote.note}</span>
+              : subtitle && <span style="font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px">{subtitle}</span>}
           </span>
         </div>
         <div class="wf-bar-area">
