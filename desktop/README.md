@@ -682,7 +682,9 @@ Smaller, genuinely open items:
 - **Windows, beyond CI** ([what CI proves](#what-ci-proves)): code signing (the Azure Artifact
   Signing account and profile exist; the three service-principal secrets are not set in CI yet), a human check of the tray icon, menu
   and close-to-tray on a real desktop, SmartScreen on a downloaded copy, the all-users install,
-  log-off with the app running, automatic updates, and winget/Microsoft Store listings.
+  log-off with the app running, automatic updates, and a Microsoft Store listing. winget is
+  wired into releases but the first `microsoft/winget-pkgs` pull request has not been opened
+  ([RELEASING.md → winget](../runbooks/RELEASING.md#winget)).
 - **Unverified in a GUI session:** clicking the window's close button (close-to-menu-bar), Dock
   reopen, the Launch at Login toggle actually registering a login item, sleep/wake, and how the
   template icon looks in a light vs dark menu bar. The code paths exist and the equivalent
