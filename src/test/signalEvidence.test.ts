@@ -19,7 +19,7 @@ import {
   detectModelTierMismatch,
 } from '../loopDetector'
 import { detectFailedCheckSubmission, detectHallucinatedImports } from '../sessionRiskSignals'
-import { MAX_SIGNAL_STEPS, signalStep, withSteps } from '../signalEvidence'
+import { MAX_SIGNAL_STEPS, MAX_STEP_DETAIL_CHARS, editExcerpt, firstLine, oneLine, signalStep, withSteps } from '../signalEvidence'
 import { SessionSummaryCard, TimelineEntry } from '../spanSummarizer'
 import { LoopSignal } from '../types'
 
@@ -90,6 +90,22 @@ suite('signalEvidence helpers', () => {
     assert.strictEqual(many.stepsTotal, 150)
   })
 
+  test('signalStep flattens a detail onto one line and caps it', () => {
+    const timeline = [tool('x')]
+    const step = signalStep(timeline, 0, 'why', 'trigger', 'line one\n  line two ' + 'y'.repeat(300))
+    assert.ok(step.detail!.startsWith('line one line two '))
+    assert.strictEqual(step.detail!.length, MAX_STEP_DETAIL_CHARS)
+    assert.strictEqual(signalStep(timeline, 0, 'why', 'trigger', '   ').detail, undefined)
+  })
+
+  test('oneLine, editExcerpt and firstLine', () => {
+    assert.strictEqual(oneLine('a\n\n b   c', 10), 'a b c')
+    assert.strictEqual(oneLine('abcdefghij', 5), 'abcd…')
+    assert.strictEqual(editExcerpt('ttl = 60', 'ttl = 3600'), '"ttl = 60" → "ttl = 3600"')
+    assert.strictEqual(firstLine('\n  PASS a\n  FAIL b\n', /FAIL/), 'FAIL b')
+    assert.strictEqual(firstLine('\n  PASS a\n  ok b\n', /FAIL/), 'PASS a')
+  })
+
   test('withSteps with no steps leaves steps off but keeps the trigger', () => {
     assert.deepStrictEqual(withSteps([], 'why'), { trigger: 'why' })
   })
@@ -113,6 +129,8 @@ suite('signal evidence: per detector', () => {
     const sig = run(detectEditRevertCycle, makeSession({ timeline }))
     assert.deepStrictEqual(sig.steps!.map(s => [s.index, s.role]), [[0, 'context'], [2, 'trigger']])
     assert.match(sig.steps![1].note, /undoes the earlier edit to a\.ts — its last edit/)
+    assert.strictEqual(sig.steps![0].detail, '"A" → "B"')
+    assert.strictEqual(sig.steps![1].detail, '"B" → "A"')
   })
 
   test('edit_revert_cycle points at the LLM entries when edits came from them', () => {
@@ -127,6 +145,7 @@ suite('signal evidence: per detector', () => {
     const sig = run(detectErrorRecurrence, makeSession({ timeline }))
     assert.deepStrictEqual(indices(sig), [0, 2, 4])
     assert.strictEqual(sig.steps![2].note, 'occurrence 3 of 3')
+    assert.strictEqual(sig.steps![2].detail, 'Cannot find module x')
     assert.match(sig.trigger!, /"Cannot find module x" came back 3 times/)
   })
 
@@ -158,8 +177,10 @@ suite('signal evidence: per detector', () => {
     const timeline = [tool('a'), tool('b', { isError: true, errorMessage: 'ENOENT: no such file\nstack…' }), tool('c'), tool('d', { isError: true }), tool('e')]
     const sig = run(detectChronicToolFailures, makeSession({ timeline }))
     assert.deepStrictEqual(indices(sig), [1, 3])
-    assert.strictEqual(sig.steps![0].note, 'failed: ENOENT: no such file')
+    assert.strictEqual(sig.steps![0].note, 'failed')
+    assert.strictEqual(sig.steps![0].detail, 'ENOENT: no such file')
     assert.match(sig.steps![1].note, /no message captured/)
+    assert.strictEqual(sig.steps![1].detail, undefined)
   })
 
   test('context_flooding_risk names the oversized results', () => {
@@ -243,6 +264,14 @@ suite('signal evidence: per detector', () => {
     assert.ok(sig)
     assert.deepStrictEqual(indices(sig!), [1])
     assert.match(sig!.steps![0].note, /error status/)
+    assert.strictEqual(sig!.steps![0].detail, undefined)
+  })
+
+  test('failed_check_submission quotes the failing output line when there is one', () => {
+    const timeline = [tool('bash', { toolInput: 'npm test', resultSummary: 'Tests: 11 passed\n✕ auth › refresh (12 ms)\nTests: 1 failed, 12 total' })]
+    const sig = detectFailedCheckSubmission(makeSession({ timeline }))
+    assert.ok(sig)
+    assert.strictEqual(sig!.steps![0].detail, 'Tests: 1 failed, 12 total')
   })
 
   test('hallucinated_import names the edit that introduced the import', () => {
@@ -253,5 +282,6 @@ suite('signal evidence: per detector', () => {
     assert.ok(sig)
     assert.deepStrictEqual(indices(sig!), [1])
     assert.match(sig!.steps![0].note, /imports "totally-fake-pkg-xyz" in a\.ts/)
+    assert.strictEqual(sig!.steps![0].detail, "import fake from 'totally-fake-pkg-xyz'")
   })
 })

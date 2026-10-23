@@ -1,7 +1,9 @@
 import { useState } from 'preact/hooks'
 import type { Insight, SignalStep, TimelineEntry } from './types'
 import { SIGNAL_SEVERITY_COLOR } from './signalIcons'
-import { formatLlmLabel, formatToolLabel } from './utils'
+import { formatCompact, formatLlmLabel, formatMs, formatToolLabel } from './utils'
+import { calcEntryCost } from './sessionMetrics'
+import { fmtUsd } from './sessionMetrics'
 
 // Step-level evidence for an insight: which timeline entries made it fire. Loop signals carry
 // theirs from the detectors (src/signalEvidence.ts — the loaded timeline has no tool results or
@@ -91,14 +93,117 @@ function stepLabel(step: SignalStep, entry: TimelineEntry | undefined): string {
 
 const PREVIEW_STEPS = 5
 
+// ── Stretch summary ──────────────────────────────────────────────────────────
+
+/** What the stretch of the trace between an insight's first and last step amounted to: how long
+ *  it ran, the LLM calls inside it, and what those cost. The LLM calls are counted inclusively
+ *  (from the first step to the last), so this is the cost of that part of the session — not a
+ *  claim that the signal caused all of it. */
+function stretchSummary(indices: number[], timeline: TimelineEntry[], model: string): string | null {
+  if (indices.length < 2) return null
+  const from = Math.min(...indices), to = Math.max(...indices)
+  const parts: string[] = []
+  const t0 = Date.parse(timeline[from]?.timestamp ?? ''), t1 = Date.parse(timeline[to]?.timestamp ?? '')
+  if (!Number.isNaN(t0) && !Number.isNaN(t1) && t1 > t0) parts.push(formatMs(t1 - t0 + (timeline[to]?.durationMs ?? 0)))
+  let llm = 0, usd = 0, tokens = 0
+  for (let i = from; i <= to; i++) {
+    const e = timeline[i]
+    if (e?.type !== 'llm') continue
+    llm++
+    usd += calcEntryCost(e, model)
+    tokens += (e.inputTokens ?? 0) + (e.outputTokens ?? 0)
+  }
+  if (llm > 0) {
+    parts.push(`${llm} LLM call${llm === 1 ? '' : 's'} in between${tokens > 0 ? ` (${formatCompact(tokens)} tokens)` : ''}`)
+    if (usd > 0) parts.push(`~${fmtUsd(usd)}`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+// ── Token chart ──────────────────────────────────────────────────────────────
+
+/** Insights about how context or cache behaved call to call — the ones a per-call token chart
+ *  explains. Matched by loop type, or by title for the efficiency checks in Insights.tsx. */
+export function wantsTokenChart(ins: Insight): boolean {
+  if (ins._loopType) return ['token_runaway', 'cache_miss', 'ttl_expiry', 'low_cache_hit_ratio'].includes(ins._loopType)
+  return /Context grew|Starts with .* input tokens|Low prompt cache hit rate/.test(ins.title)
+}
+
+const CHART_H = 64
+
 /**
- * The "Why it fired" block on an insight card: the measured value against its threshold, then the
- * steps involved. Inside a trace (`timeline` loaded, `onShowSteps` given) each step is a link into
- * the waterfall; on the Insights tab it's a plain list built from the stored labels.
+ * One column per LLM call: input tokens, split into what was read from cache (muted) and what
+ * was processed fresh (accent — new input and cache writes both). The calls the insight names
+ * carry a marker in the insight's color above the column and their step number. A legend names
+ * the two series; each column's hit area carries the full numbers on hover. Plain flex columns
+ * rather than an SVG, so a column is never wider than 24px however wide the card is.
  */
-export function InsightEvidence({ ins, timeline, stepNumber, onShowSteps }: {
+function TokenChart({ ins, timeline, stepNumber, flagged, onPick }: {
+  ins: Insight
+  timeline: TimelineEntry[]
+  stepNumber?: (i: number) => number | undefined
+  flagged: Set<number>
+  onPick?: (i: number) => void
+}) {
+  const calls = timeline.flatMap((e, i) => e.type === 'llm' && (e.inputTokens ?? 0) > 0 ? [{ e, i }] : [])
+  if (calls.length < 2) return null
+  const max = Math.max(...calls.map(c => c.e.inputTokens ?? 0))
+  if (max <= 0) return null
+  const color = insightColor(ins)
+  return (
+    <div class="insight-evidence-chart" style={`--ev-color:${color}`}>
+      <div class="ev-chart" style={`height:${CHART_H}px`} role="img"
+        aria-label={`Input tokens per LLM call, ${calls.length} calls, peak ${formatCompact(max)}`}>
+        {calls.map(({ e, i }, k) => {
+          const input = e.inputTokens ?? 0
+          const cached = Math.min(input, e.cacheReadTokens ?? 0)
+          const fresh = input - cached
+          const isFlag = flagged.has(i)
+          const no = stepNumber?.(i)
+          const tip = [
+            `${no !== undefined ? `Step ${no} · ` : ''}LLM call ${k + 1} of ${calls.length}`,
+            `${input.toLocaleString()} input → ${(e.outputTokens ?? 0).toLocaleString()} output`,
+            `${cached.toLocaleString()} read from cache · ${fresh.toLocaleString()} processed fresh`
+              + ((e.cacheCreateTokens ?? 0) > 0 ? ` (${(e.cacheCreateTokens ?? 0).toLocaleString()} written to cache)` : ''),
+            isFlag ? 'Named by this insight' : '',
+          ].filter(Boolean).join('\n')
+          return (
+            <div
+              key={e.spanId + k}
+              class={'ev-chart-slot' + (onPick ? ' ev-link' : '') + (isFlag ? ' ev-flag' : '')}
+              data-tip={tip}
+              onClick={onPick ? ev => { ev.stopPropagation(); onPick(i) } : undefined}
+            >
+              <div class="ev-chart-col" style={`height:${((input / max) * 100).toFixed(1)}%`}>
+                {fresh > 0 && <div class="ev-seg ev-seg-fresh" style={`flex:${fresh} 0 0`} />}
+                {cached > 0 && <div class="ev-seg ev-seg-cached" style={`flex:${cached} 0 0`} />}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div class="insight-evidence-legend">
+        <span><i class="ev-swatch" style="background:var(--accent);opacity:.7" />processed fresh</span>
+        <span><i class="ev-swatch" style="background:var(--muted);opacity:.35" />read from cache</span>
+        <span><i class="ev-swatch ev-swatch-flag" style={`border-top-color:${color}`} />named above</span>
+        <span class="ev-legend-peak">peak {formatCompact(max)} input tokens</span>
+      </div>
+    </div>
+  )
+}
+
+// ── The card section ─────────────────────────────────────────────────────────
+
+/**
+ * The "Why it fired" section on an insight card: the measured value against its threshold, the
+ * stretch it covered, a per-call token chart where tokens are the story, then the steps involved
+ * with what each one did. Inside a trace (`timeline` loaded, `onShowSteps` given) each step is a
+ * link into the waterfall; on the Insights tab it's a plain list built from the stored labels.
+ */
+export function InsightEvidence({ ins, timeline, model, stepNumber, onShowSteps }: {
   ins: Insight
   timeline?: TimelineEntry[]
+  model?: string
   stepNumber?: (timelineIndex: number) => number | undefined
   onShowSteps?: (ins: Insight, focusIndex?: number) => void
 }) {
@@ -119,7 +224,12 @@ export function InsightEvidence({ ins, timeline, stepNumber, onShowSteps }: {
 
   const shown = showAll ? steps : steps.slice(0, PREVIEW_STEPS)
   const color = insightColor(ins)
-  const loaded = timeline && timeline.length > 0
+  const loaded = !!timeline && timeline.length > 0
+  const resolved = loaded ? steps.map(s => resolveStepIndex(s, timeline!)).filter(i => i >= 0) : []
+  const flagged = new Set(loaded ? steps.filter(s => s.role === 'trigger').map(s => resolveStepIndex(s, timeline!)).filter(i => i >= 0) : [])
+  const stretch = loaded ? stretchSummary(resolved, timeline!, model ?? '') : null
+  const stretchFrom = resolved.length > 1 && stepNumber ? stepNumber(Math.min(...resolved)) : undefined
+  const stretchTo = resolved.length > 1 && stepNumber ? stepNumber(Math.max(...resolved)) : undefined
 
   return (
     <div class="insight-evidence" style={`--ev-color:${color}`}>
@@ -143,11 +253,21 @@ export function InsightEvidence({ ins, timeline, stepNumber, onShowSteps }: {
           })()}
         </div>
       )}
+      {stretch && (
+        <div class="insight-evidence-stretch" title="The part of the trace between this insight's first and last step: how long it ran and what the LLM calls inside it cost. The cost of that stretch, not a claim the signal caused all of it.">
+          {stretchFrom !== undefined && stretchTo !== undefined && <span class="ev-stretch-steps">Steps #{stretchFrom}–#{stretchTo}</span>}
+          <span>{stretch}</span>
+        </div>
+      )}
+      {loaded && wantsTokenChart(ins) && (
+        <TokenChart ins={ins} timeline={timeline!} stepNumber={stepNumber} flagged={flagged}
+          onPick={onShowSteps ? i => onShowSteps(ins, i) : undefined} />
+      )}
       {steps.length > 0 && (
         <>
           <ol class="insight-evidence-list">
             {shown.map(step => {
-              const idx = loaded ? resolveStepIndex(step, timeline) : -1
+              const idx = loaded ? resolveStepIndex(step, timeline!) : -1
               const entry = idx >= 0 ? timeline![idx] : undefined
               const no = idx >= 0 && stepNumber ? stepNumber(idx) : undefined
               const clickable = !!onShowSteps && idx >= 0
@@ -158,11 +278,14 @@ export function InsightEvidence({ ins, timeline, stepNumber, onShowSteps }: {
                   onClick={clickable ? e => { e.stopPropagation(); onShowSteps!(ins, idx) } : undefined}
                   title={clickable ? 'Show this step in the waterfall' : undefined}
                 >
-                  {no !== undefined && <span class="ev-step-no">#{no}</span>}
-                  {entry && <span class="ev-badge">{stepBadge(entry)}</span>}
-                  {entry?.isError && <span class="ev-error" title="This step errored">✕</span>}
-                  <span class="ev-label">{stepLabel(step, entry)}</span>
-                  <span class="ev-note">{step.note}</span>
+                  <div class="ev-step-main">
+                    {no !== undefined && <span class="ev-step-no">#{no}</span>}
+                    {entry && <span class="ev-badge">{stepBadge(entry)}</span>}
+                    {entry?.isError && <span class="ev-error" title="This step errored">✕</span>}
+                    <span class="ev-label">{stepLabel(step, entry)}</span>
+                    <span class="ev-note">{step.note}</span>
+                  </div>
+                  {step.detail && <div class="ev-detail" title={step.detail}>{step.detail}</div>}
                 </li>
               )
             })}
@@ -194,7 +317,10 @@ export function evidenceClipboardLines(ins: Insight): string[] {
   const steps = ins.steps ?? []
   if (steps.length > 0) {
     lines.push('Steps involved:')
-    for (const s of steps.slice(0, 12)) lines.push('  - ' + s.label + ' — ' + s.note)
+    for (const s of steps.slice(0, 12)) {
+      lines.push('  - ' + s.label + ' — ' + s.note)
+      if (s.detail) lines.push('      ' + s.detail)
+    }
     const total = ins.stepsTotal ?? steps.length
     if (total > 12) lines.push('  … and ' + (total - 12) + ' more')
   }

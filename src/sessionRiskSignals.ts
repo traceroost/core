@@ -21,7 +21,7 @@ import * as path from 'path'
 import { LoopSignal } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import { PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from './loopDetector'
-import { signalStep, withSteps } from './signalEvidence'
+import { signalStep, withSteps, firstLine } from './signalEvidence'
 
 // ── Detector: failed check submission ────────────────────────────────────────
 
@@ -74,7 +74,8 @@ export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSi
     action: LOOP_SIGNAL_ACTIONS.failed_check_submission,
     ...withSteps(
       [signalStep(timeline, lastToolIdx,
-        `the session's last tool call — ${lastTool.isError ? 'it returned an error status' : 'its output reads as a failure'}`)],
+        `the session's last tool call — ${lastTool.isError ? 'it returned an error status' : 'its output reads as a failure'}`,
+        'trigger', lastTool.isError && lastTool.errorMessage ? firstLine(lastTool.errorMessage) : firstLine(resultText, FAILURE_TEXT_PATTERN))],
       'The last tool call in the session ran a recognized test/build check, the check failed, and no tool call came after it.'),
   }
 }
@@ -361,6 +362,10 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
 
   const suspects = new Map<string, string>()
   const suspectAt = new Map<string, number>()
+  // The import line itself, so the card can show what was written.
+  const suspectLine = new Map<string, string>()
+  const lineImporting = (code: string, pkg: string): string =>
+    code.split('\n').find(l => l.includes(pkg) && /\b(import|require|from)\b/.test(l))?.trim() ?? ''
   const aliasPrefixes = jsDeps ? readTsPathAliases(workspaceRoot) : []
   const manifestCache = new Map<string, Set<string> | null>([[path.resolve(workspaceRoot), jsDeps]])
   // Python modules this session itself created/edited (`utils.py` → `utils`, `pkg/__init__.py` → `pkg`).
@@ -384,7 +389,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
       if (jsDeps && JS_TS_EXTENSIONS.has(ext)) {
         for (const pkg of extractJsTsPackageNames(code, aliasPrefixes)) {
           if (jsPackageResolves(workspaceRoot, detail.filePath, pkg, manifestCache)) { continue }
-          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath); suspectAt.set(pkg, entryIdx) }
+          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath); suspectAt.set(pkg, entryIdx); suspectLine.set(pkg, lineImporting(code, pkg)) }
         }
       }
       if (pyDeps && PYTHON_EXTENSIONS.has(ext)) {
@@ -393,7 +398,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
           // A bare `import helpers` is as likely a sibling module as a package — only flag it when
           // nothing by that name exists in the project on disk.
           if (pythonModuleIsLocal(workspaceRoot, detail.filePath, pkg, sessionPyModules)) { continue }
-          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath); suspectAt.set(pkg, entryIdx) }
+          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath); suspectAt.set(pkg, entryIdx); suspectLine.set(pkg, lineImporting(code, pkg)) }
         }
       }
     }
@@ -411,7 +416,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
     action: LOOP_SIGNAL_ACTIONS.hallucinated_import,
     ...withSteps(
       [...suspects.entries()].map(([pkg, file]) => signalStep(session.timeline, suspectAt.get(pkg) ?? 0,
-        `imports "${pkg}" in ${file.split('/').pop() || file} — not in the manifest, not found on disk`)),
+        `imports "${pkg}" in ${file.split('/').pop() || file} — not in the manifest, not found on disk`, 'trigger', suspectLine.get(pkg))),
       `${[...suspects.keys()].slice(0, 5).map(p => `"${p}"`).join(', ')}${suspects.size > 5 ? ` and ${suspects.size - 5} more` : ''}`
       + ` ${suspects.size === 1 ? 'is' : 'are'} imported by this session's edits but declared in neither package.json nor requirements.txt,`
       + ' and nothing by that name resolves on disk (node_modules, standard library and local modules excluded).'),

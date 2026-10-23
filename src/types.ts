@@ -100,6 +100,9 @@ export interface SignalStep {
   /** 'trigger' entries are the ones that crossed the line; 'context' entries are what they're
    *  measured against (the edit a revert undoes, the baseline call a growth is measured from). */
   role: 'trigger' | 'context'
+  /** The thing itself, excerpted: the edit's old → new text, the error line, the import line,
+   *  the failing output. Only where a signal has one; capped at MAX_STEP_DETAIL_CHARS. */
+  detail?: string
 }
 
 export interface SessionSummary {

@@ -428,7 +428,9 @@ export function InsightCard({ ins, isIgnored, sessions, timeline, stepNumber, on
   stepNumber?: (timelineIndex: number) => number | undefined
   onShowSteps?: (ins: Insight, focusIndex?: number) => void
 }) {
-  const session = ins.sessionIdx !== undefined ? sessions[ins.sessionIdx] : undefined
+  // A session-wide insight (no sessionIdx) still belongs to the one session when the card sits
+  // inside an expanded trace, so its evidence can be priced against that session's model.
+  const session = ins.sessionIdx !== undefined ? sessions[ins.sessionIdx] : (sessions.length === 1 ? sessions[0] : undefined)
   const titleTraceMatch = ins.title.match(/^\[Trace\s+\d+\]\s*(.*)$/)
   const insightTitle = titleTraceMatch ? titleTraceMatch[1] : ins.title
   const sessionTimestamp = session ? formatSessionTime(session) : ''
@@ -518,7 +520,7 @@ export function InsightCard({ ins, isIgnored, sessions, timeline, stepNumber, on
         </div>
       )}
       {ins.detail && <div class="insight-detail" style="white-space:pre-wrap">{ins.detail}</div>}
-      <InsightEvidence ins={ins} timeline={timeline} stepNumber={stepNumber} onShowSteps={onShowSteps} />
+      <InsightEvidence ins={ins} timeline={timeline} model={session?.model} stepNumber={stepNumber} onShowSteps={onShowSteps} />
     </div>
   )
 }

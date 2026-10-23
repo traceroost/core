@@ -95,3 +95,17 @@
 }
 .wf-row.wf-ev-flash { animation: wf-ev-flash 1.4s ease-out; }
 @media (prefers-reduced-motion: reduce) { .wf-row.wf-ev-flash { animation: none; } }
+
+/* Time-axis view of the evidence: ticks under the ruler at each step's moment */
+.wf-ev-track { display: flex; align-items: stretch; height: 7px; border-bottom: 1px solid var(--border); }
+.wf-ev-track-pad { width: 260px; min-width: 260px; }
+.wf-ev-track-info { width: 90px; min-width: 90px; }
+.wf-ev-track-area { flex: 1; position: relative; margin: 0 8px; }
+.wf-ev-tick {
+  position: absolute; top: 1px; width: 3px; height: 5px; margin-left: -1px; padding: 0;
+  border: none; border-radius: 1px; cursor: pointer; opacity: .85;
+}
+.wf-ev-tick::after { content: ''; position: absolute; inset: -6px -5px; }  /* a hit target wider than 3px */
+.wf-ev-tick:hover { opacity: 1; height: 7px; top: 0; }
+.sw-step-signal { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; }
+.sw-step-signal .wf-ev-dot { position: relative; top: -1px; }

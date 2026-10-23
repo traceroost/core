@@ -78,6 +78,8 @@ export interface SignalStep {
   label: string
   note: string
   role: 'trigger' | 'context'
+  /** The thing itself, excerpted — the edit's old → new text, the error line, the import line. */
+  detail?: string
 }
 
 // Mirrors src/gitOutcome.ts. Fetched lazily per session (see sessionTimelines in state.ts for the

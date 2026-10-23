@@ -92,14 +92,15 @@ const MAX_SIGNAL_ICONS = 3
 function SignalsCell({ signals }: { signals: LoopSignal[] }) {
   // Blank, not a dash, when there are none: the same as the Outcome and Plan limit cells.
   if (!signals || signals.length === 0) return null
-  const byType = new Map<string, { severity: 'warning' | 'critical'; count: number; patterns: Map<string, number>; signalTypes: Set<LoopSignalType> }>()
+  const byType = new Map<string, { severity: 'warning' | 'critical'; count: number; patterns: Map<string, number>; signalTypes: Set<LoopSignalType>; triggers: string[] }>()
   for (const s of signals) {
     const iconType = LOOP_SIGNAL_ICON_TYPE[s.type] ?? s.type
-    const e = byType.get(iconType) ?? { severity: 'warning' as const, count: 0, patterns: new Map<string, number>(), signalTypes: new Set<LoopSignalType>() }
+    const e = byType.get(iconType) ?? { severity: 'warning' as const, count: 0, patterns: new Map<string, number>(), signalTypes: new Set<LoopSignalType>(), triggers: [] }
     if (s.severity === 'critical') e.severity = 'critical'
     e.count += 1
     e.patterns.set(s.patternName, (e.patterns.get(s.patternName) ?? 0) + 1)
     e.signalTypes.add(s.type)
+    if (s.trigger) e.triggers.push(s.trigger)
     byType.set(iconType, e)
   }
   const severityRank = { warning: 0, critical: 1 }
@@ -115,13 +116,15 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
   // Uses SIGNAL_FORMULAS' short/tip fields (not the full bullets/caveat — that detail lives in
   // Help.tsx) so the tooltip stays skimmable: what fired, then what to do about it. Bolds both as
   // headings via data-tip-html (App.tsx's tooltip effect renders this as HTML instead of text) —
-  // safe because every interpolated piece here is a static label/short/tip string, never
-  // session-derived text.
-  const formulaFor = (e: { signalTypes: Set<LoopSignalType> }) =>
+  // safe because every interpolated piece here is a static label/short/tip string — except the
+  // signal's own trigger text, which quotes tool labels and error lines from the session and so
+  // goes through esc().
+  const formulaFor = (e: { signalTypes: Set<LoopSignalType>; triggers: string[] }) =>
     [...e.signalTypes]
       .map(t => SIGNAL_FORMULAS[t] ? `${SIGNAL_FORMULAS[t].short}\n<b>What to do:</b> ${SIGNAL_FORMULAS[t].tip}` : undefined)
       .filter(Boolean)
       .join('\n\n')
+    + (e.triggers.length > 0 ? `\n\n<b>In this trace:</b> ${e.triggers.map(esc).join('\n')}` : '')
   // Up to MAX_SIGNAL_ICONS, drawn small (.sig-icon) so they fit the narrow Sig column instead of
   // spilling into Turns; anything past the cap is listed in the last icon's tooltip rather than a
   // "+N" badge there's no room for.
@@ -588,6 +591,15 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                     <div class="wf-time-ruler">
                       {Array.from({ length: 6 }, (_, t) => <span key={t}>{formatMs(sessionDur * t / 5)}</span>)}
                     </div>
+                    {evidence.length > 0 && (
+                      <EvidenceTrack
+                        evidence={focused ? [focused] : evidence}
+                        steps={steps}
+                        visible={visible}
+                        sessionDur={sessionDur}
+                        onPick={i => setScrollTarget({ index: i, nonce: Date.now() })}
+                      />
+                    )}
                     {steps.map((step, si) => (
                       <StepRow
                         key={step.entry.spanId + si}
@@ -680,6 +692,44 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
         )}
 
       </div>
+    </div>
+  )
+}
+
+// A thin track under the time ruler with a tick at each evidence step's moment, in its signal's
+// color, so a burst of retries reads as a cluster and a slow drift as a spread — the time-axis
+// view of what the row dots show row by row. Only the focused signal's ticks while one is chosen.
+function EvidenceTrack({ evidence, steps, visible, sessionDur, onPick }: {
+  evidence: ResolvedEvidence[]
+  steps: Step[]
+  visible: Array<{ i: number }>
+  sessionDur: number
+  onPick: (timelineIndex: number) => void
+}) {
+  const rowOf = new Map(visible.map((v, n) => [v.i, n]))
+  const ticks = evidence.flatMap(ev => ev.indices.flatMap(i => {
+    const row = rowOf.get(i)
+    if (row === undefined) return []
+    const left = sessionDur > 0 ? (steps[row].offsetMs / sessionDur) * 100 : 0
+    const n = ev.notes.get(i)
+    return [{ i, left, color: ev.color, tip: `Step ${row + 1} · ${ev.name}${n ? ': ' + n.note : ''}` }]
+  }))
+  if (ticks.length === 0) return null
+  return (
+    <div class="wf-ev-track" aria-label="When each evidence step happened">
+      <span class="wf-ev-track-pad" />
+      <div class="wf-ev-track-area">
+        {ticks.map((t, k) => (
+          <button
+            key={k}
+            class="wf-ev-tick"
+            style={`left:${t.left.toFixed(2)}%;background:${t.color}`}
+            title={t.tip}
+            onClick={e => { e.stopPropagation(); onPick(t.i) }}
+          />
+        ))}
+      </div>
+      <span class="wf-ev-track-info" />
     </div>
   )
 }

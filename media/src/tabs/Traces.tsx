@@ -79,7 +79,26 @@ function BgSummaryBlock({ bgSpans }: { bgSpans: BackgroundSpanSummary[] }) {
   )
 }
 
-function StepDetail({ step, idx, sessIdx, sessionModel }: { step: Step; idx: number; sessIdx: number; sessionModel: string }) {
+/** The signals this step is evidence for, with what it did in each — shown at the top of an
+ *  opened row so the reason is there without going back to the Insights card. */
+function StepSignals({ mark }: { mark?: StepMark }) {
+  if (!mark || mark.notes.length === 0) return null
+  return (
+    <div class="sw-detail-section">
+      <div class="sw-detail-heading">Signal evidence</div>
+      <div class="sw-detail-value">
+        {mark.notes.map((n, i) => (
+          <div key={i} class="sw-step-signal">
+            <span class="wf-ev-dot" style={'background:' + n.color} />
+            <b>{n.name}</b> — {n.note}{n.role === 'context' ? ' (what the signal is measured against)' : ''}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StepDetail({ step, idx, sessIdx, sessionModel, mark }: { step: Step; idx: number; sessIdx: number; sessionModel: string; mark?: StepMark }) {
   const [showOutput, setShowOutput] = useState(false)
   const entry = step.entry
 
@@ -89,6 +108,7 @@ function StepDetail({ step, idx, sessIdx, sessionModel }: { step: Step; idx: num
     const entryCost = calcEntryCost(entry, sessionModel)
     return (
       <>
+        <StepSignals mark={mark} />
         <div class="sw-detail-section"><div class="sw-detail-heading">Model</div><div class="sw-detail-value">{entry.model || 'unknown'}</div></div>
         {((entry.inputTokens ?? 0) > 0 || (entry.outputTokens ?? 0) > 0) && (
           <div class="sw-detail-section">
@@ -159,6 +179,7 @@ function StepDetail({ step, idx, sessIdx, sessionModel }: { step: Step; idx: num
     const resultText = entry.fullResult || entry.resultSummary || ''
     return (
       <>
+        <StepSignals mark={mark} />
         <div class="sw-detail-section"><div class="sw-detail-heading">Tool</div><div class="sw-detail-value"><code>{tName}</code></div></div>
         {inputText && (
           <div class="sw-detail-section">
@@ -182,6 +203,7 @@ function StepDetail({ step, idx, sessIdx, sessionModel }: { step: Step; idx: num
 
   return (
     <>
+      <StepSignals mark={mark} />
       <div class="sw-detail-section"><div class="sw-detail-heading">Background Task</div><div class="sw-detail-value">{entry.label || ''}</div></div>
       <div class="sw-detail-section"><div class="sw-detail-heading">Duration</div><div class="sw-detail-value">{formatMs(step.durationMs)}</div></div>
     </>
@@ -330,7 +352,7 @@ export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel, tlIndex,
       </div>
       {open && (
         <div class="sw-detail open">
-          <StepDetail step={step} idx={idx} sessIdx={sessIdx} sessionModel={sessionModel} />
+          <StepDetail step={step} idx={idx} sessIdx={sessIdx} sessionModel={sessionModel} mark={mark} />
         </div>
       )}
     </>

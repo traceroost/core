@@ -17,19 +17,44 @@ import type { TimelineEntry } from './summarizers/summarizerTypes'
  *  its first 100 steps and says how many there were. */
 export const MAX_SIGNAL_STEPS = 100
 const STEP_LABEL_CHARS = 80
+export const MAX_STEP_DETAIL_CHARS = 160
 
 export function signalStep(
-  timeline: TimelineEntry[], index: number, note: string, role: SignalStep['role'] = 'trigger',
+  timeline: TimelineEntry[], index: number, note: string, role: SignalStep['role'] = 'trigger', detail?: string,
 ): SignalStep {
   const entry = timeline[index]
   const label = (entry?.label || entry?.type || '').trim()
+  const excerpt = detail ? oneLine(detail, MAX_STEP_DETAIL_CHARS) : ''
   return {
     index,
     spanId: entry?.spanId ?? '',
     label: label.length > STEP_LABEL_CHARS ? label.slice(0, STEP_LABEL_CHARS - 1) + '…' : label,
     note,
     role,
+    ...(excerpt ? { detail: excerpt } : {}),
   }
+}
+
+/** Text collapsed onto one line and cut to `max` characters, with an ellipsis when cut. */
+export function oneLine(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? flat.slice(0, max - 1) + '…' : flat
+}
+
+/** `"old" → "new"` for an edit, each side excerpted — the diff a revert is judged by. */
+export function editExcerpt(oldText: string, newText: string): string {
+  const half = Math.floor((MAX_STEP_DETAIL_CHARS - 8) / 2)
+  return `"${oneLine(oldText, half)}" → "${oneLine(newText, half)}"`
+}
+
+/** The first line of `text`, or the first line matching `prefer` when given. */
+export function firstLine(text: string, prefer?: RegExp): string {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+  if (prefer) {
+    const hit = lines.find(l => prefer.test(l))
+    if (hit) return hit
+  }
+  return lines[0] ?? ''
 }
 
 /** The evidence fields to spread into a LoopSignal: steps in timeline order (one entry per index —

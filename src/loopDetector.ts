@@ -47,7 +47,7 @@ import { SessionSummaryCard } from './spanSummarizer'
 import type { TimelineEntry } from './summarizers/summarizerTypes'
 import type { GitOutcome } from './gitOutcome'
 import { calcAggregateTokenCostUsd, calcEntryCostUsd, calcSessionCostUsd, lookupRates } from './pricing'
-import { signalStep, withSteps, fmtInt } from './signalEvidence'
+import { signalStep, withSteps, fmtInt, editExcerpt, firstLine } from './signalEvidence'
 import type { SignalStep } from './types'
 
 // ── Pattern taxonomy names ───────────────────────────────────────────────────
@@ -626,9 +626,11 @@ export function detectEditRevertCycle(session: SessionSummaryCard, signals: Loop
     }
     const name = file.split('/').pop() || file
     const record = (i: number, j: number, final: boolean): void => {
-      steps.push(signalStep(session.timeline, edits[i].index, `edit to ${name}, later undone`, 'context'))
+      steps.push(signalStep(session.timeline, edits[i].index, `edit to ${name}, later undone`, 'context',
+        editExcerpt(edits[i].old, edits[i].new)))
       steps.push(signalStep(session.timeline, edits[j].index,
-        `undoes the earlier edit to ${name}` + (final ? ' — its last edit this session' : '')))
+        `undoes the earlier edit to ${name}` + (final ? ' — its last edit this session' : ''), 'trigger',
+        editExcerpt(edits[j].old, edits[j].new)))
     }
     // The final edit is checked on its own, not just "the first revert found": a file reverted
     // early on and then reverted AGAIN as its last edit is still stuck, and stopping at the first
@@ -687,15 +689,16 @@ function normalizeErrorMessage(msg: string): string {
  * Thresholds: 3+ occurrences → warning, 5+ (with a real errorMessage match) → critical.
  */
 export function detectErrorRecurrence(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const groups: Record<string, { count: number; example: string; fromFallback: boolean; idx: number[] }> = {}
+  const groups: Record<string, { count: number; example: string; fromFallback: boolean; idx: number[]; msgs: string[] }> = {}
   session.timeline.forEach((entry, i) => {
     if (!entry.isError) { return }
     const raw = (entry.errorMessage || entry.label || 'unknown error').trim()
     const fromFallback = !entry.errorMessage
     const key = normalizeErrorMessage(raw).slice(0, 200)
-    if (!groups[key]) { groups[key] = { count: 0, example: raw.slice(0, 200), fromFallback, idx: [] } }
+    if (!groups[key]) { groups[key] = { count: 0, example: raw.slice(0, 200), fromFallback, idx: [], msgs: [] } }
     groups[key].count++
     groups[key].idx.push(i)
+    groups[key].msgs.push(entry.errorMessage ? firstLine(entry.errorMessage) : '')
     if (fromFallback) { groups[key].fromFallback = true }
   })
 
@@ -710,7 +713,7 @@ export function detectErrorRecurrence(session: SessionSummaryCard, signals: Loop
   // The trigger quotes the top error; the notes only repeat a message when several errors recur.
   for (const [, g] of recurring.slice(0, 3)) {
     const which = recurring.length > 1 ? `: "${g.example.slice(0, 50)}${g.example.length > 50 ? '…' : ''}"` : ''
-    g.idx.forEach((i, k) => steps.push(signalStep(session.timeline, i, `occurrence ${k + 1} of ${g.count}${which}`)))
+    g.idx.forEach((i, k) => steps.push(signalStep(session.timeline, i, `occurrence ${k + 1} of ${g.count}${which}`, 'trigger', g.msgs[k])))
   }
   signals.push({
     type: 'error_recurrence',
@@ -956,9 +959,8 @@ export function detectChronicToolFailures(session: SessionSummaryCard, signals: 
     failedCount++
     const key = (entry.label || '').split(' ')[0] || 'unknown'
     failedByLabel[key] = (failedByLabel[key] || 0) + 1
-    const msg = (entry.errorMessage || '').trim().split('\n')[0]
-    steps.push(signalStep(session.timeline, i,
-      msg ? `failed: ${msg.slice(0, 70)}${msg.length > 70 ? '…' : ''}` : 'failed (error status, no message captured)'))
+    const msg = entry.errorMessage ? firstLine(entry.errorMessage) : ''
+    steps.push(signalStep(session.timeline, i, msg ? 'failed' : 'failed (error status, no message captured)', 'trigger', msg))
   })
   if (failedCount === 0) { return }
 
@@ -1005,7 +1007,8 @@ export function detectContextFloodingRisk(session: SessionSummaryCard, signals: 
     if (entry.fullResult.length <= LARGE_RESULT_CHARS) { return }
     largeResults.push({ tool: (entry.label || '').split(' ')[0] || 'unknown', size: entry.fullResult.length })
     steps.push(signalStep(session.timeline, i,
-      `returned ${fmtInt(entry.fullResult.length)} characters (~${fmtInt(entry.fullResult.length / 4)} tokens) into context`))
+      `returned ${fmtInt(entry.fullResult.length)} characters (~${fmtInt(entry.fullResult.length / 4)} tokens) into context`,
+      'trigger', 'begins: ' + firstLine(entry.fullResult)))
   })
   if (largeResults.length === 0) { return }
 
