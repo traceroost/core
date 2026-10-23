@@ -93,12 +93,14 @@
 .insight-evidence-step .ev-error { color: var(--error); flex-shrink: 0; }
 .insight-evidence-step .ev-label {
   font-family: monospace; font-size: 10.5px; color: var(--fg);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 40%; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0;
 }
-.insight-evidence-step .ev-note { color: var(--muted); flex: 1 1 60%; min-width: 0; }
+/* The command takes every pixel the note doesn't need; the note keeps its own width up to 45%
+   (wrapping past that) and sits at the right edge, so a long command is cut only at the card's edge. */
+.insight-evidence-step .ev-note { color: var(--muted); flex: 0 1 auto; max-width: 45%; min-width: 0; text-align: right; }
 @media (max-width: 600px) {
   .insight-evidence-step .ev-label { flex-basis: calc(100% - 90px); }
-  .insight-evidence-step .ev-note { flex-basis: 100%; padding-left: 34px; }
+  .insight-evidence-step .ev-note { flex-basis: 100%; max-width: none; padding-left: 34px; text-align: left; }
 }
 .insight-evidence-more { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .insight-evidence-more button {
@@ -138,5 +140,5 @@
 .ev-swatch-flag { width: 0; height: 0; border-radius: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid; }
 @media (max-width: 600px) {
   .insight-evidence-step .ev-step-main { flex-wrap: wrap; row-gap: 0; }
-  .insight-evidence-step .ev-detail { padding-left: 0; white-space: normal; }
+  .insight-evidence-step .ev-detail { white-space: normal; word-break: break-word; }
 }

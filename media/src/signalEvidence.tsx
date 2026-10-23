@@ -83,12 +83,34 @@ function stepBadge(entry: TimelineEntry | undefined): string {
   return 'BG'
 }
 
-/** The label the waterfall would draw for this entry, so a step reads the same in both places. */
+/** The label the waterfall would draw for this entry, so a step reads the same in both places —
+ *  except where that label is cut short (formatToolLabel caps a Bash command at 60 characters for
+ *  the waterfall's narrow column): this list has the card's full width, so it shows the command
+ *  whole and lets CSS ellipsize only what doesn't fit. */
 function stepLabel(step: SignalStep, entry: TimelineEntry | undefined): string {
   if (!entry) return step.label
   if (entry.type === 'llm') return formatLlmLabel(entry) || entry.label || step.label
-  if (entry.type === 'tool') return formatToolLabel(entry) || step.label
+  if (entry.type === 'tool') {
+    const pretty = formatToolLabel(entry)
+    if (pretty && !pretty.endsWith('…')) return pretty
+    return fullCommand(entry) || entry.label || step.label
+  }
   return entry.label || step.label
+}
+
+/** The whole command a tool call ran: toolInput's `command` when it's JSON, the raw toolInput when
+ *  it's a command string, else the full label. */
+function fullCommand(entry: TimelineEntry): string {
+  const raw = (entry.toolInput ?? '').trim()
+  if (raw.startsWith('{')) {
+    try {
+      const cmd = (JSON.parse(raw) as Record<string, unknown>).command
+      if (typeof cmd === 'string' && cmd) return cmd
+    } catch { /* not JSON after all — fall through */ }
+  } else if (raw) {
+    return raw
+  }
+  return entry.label ?? ''
 }
 
 const PREVIEW_STEPS = 5
@@ -282,7 +304,7 @@ export function InsightEvidence({ ins, timeline, model, stepNumber, onShowSteps 
                     {no !== undefined && <span class="ev-step-no">#{no}</span>}
                     {entry && <span class="ev-badge">{stepBadge(entry)}</span>}
                     {entry?.isError && <span class="ev-error" title="This step errored">✕</span>}
-                    <span class="ev-label">{stepLabel(step, entry)}</span>
+                    <span class="ev-label" title={stepLabel(step, entry)}>{stepLabel(step, entry)}</span>
                     <span class="ev-note">{step.note}</span>
                   </div>
                   {step.detail && <div class="ev-detail" title={step.detail}>{step.detail}</div>}
