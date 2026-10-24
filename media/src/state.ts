@@ -331,6 +331,11 @@ export const workspaceFilter = signal<WorkspaceFilter>('')
 export const currentWorkspace = signal<string | null>(null)
 export const outcomeFilter = signal<OutcomeFilter>('all')
 export const activeTab = signal('sessions')
+// The Settings drawer (App.tsx's ConfigPanel), and its Alerts section's expanded state — here
+// rather than in App.tsx so a tab (Alerts' "View trace", an empty state's "Set up agents") can
+// close or open it.
+export const configOpen = signal(false)
+export const alertsSectionOpen = signal(true)
 
 // ── Ingestion settings ────────────────────────────────────────────────────────
 

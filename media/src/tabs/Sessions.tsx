@@ -342,8 +342,28 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   }
   if (sessionDur <= 0) sessionDur = 1
 
+  const tabIdBase = `trace-${sess.sessionId}`
+  const sections: Section[] = ['overview', 'waterfall', 'flow', 'tools', 'files']
+  // Arrow keys move between the sub-tabs (WAI-ARIA tabs pattern, automatic activation).
+  function onTabKey(e: KeyboardEvent) {
+    const i = sections.indexOf(section)
+    const next = e.key === 'ArrowRight' ? sections[(i + 1) % sections.length]
+      : e.key === 'ArrowLeft' ? sections[(i - 1 + sections.length) % sections.length]
+      : e.key === 'Home' ? sections[0] : e.key === 'End' ? sections[sections.length - 1] : null
+    if (!next) return
+    e.preventDefault()
+    setSection(next)
+    document.getElementById(`${tabIdBase}-tab-${next}`)?.focus()
+  }
   const navBtn = (s: Section, label: string) => (
     <button
+      type="button"
+      role="tab"
+      id={`${tabIdBase}-tab-${s}`}
+      aria-selected={section === s}
+      aria-controls={`${tabIdBase}-panel`}
+      tabIndex={section === s ? 0 : -1}
+      onKeyDown={onTabKey}
       onClick={e => { e.stopPropagation(); setSection(s) }}
       style={[
         'padding:3px 10px;font-size:11px;cursor:pointer;border:none;border-bottom:2px solid transparent;background:transparent;',
@@ -385,7 +405,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
           </span>
         )}
       </div>
-      <div style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
+      <div role="tablist" aria-label="Trace detail" style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         {navBtn('overview', 'Overview')}
         {navBtn('waterfall', `Waterfall${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
         {navBtn('flow', `Flow${sess.totalLlmCalls > 0 ? ' (' + sess.totalLlmCalls + ')' : ''}`)}
@@ -393,7 +413,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
         {navBtn('files', `Files${sess.filesChanged.length > 0 ? ' (' + sess.filesChanged.length + ')' : ''}`)}
       </div>
 
-      <div style="padding:12px 14px">
+      <div style="padding:12px 14px" role="tabpanel" id={`${tabIdBase}-panel`} aria-labelledby={`${tabIdBase}-tab-${section}`}>
 
         {section === 'overview' && (
           <div>

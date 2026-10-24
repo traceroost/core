@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { vscode, goToHelp } from '../../state'
+import { useDialog } from '../../a11y'
 
 // ── The one description of the payload promise ──────────────────────────────
 // Mirrors src/cloud/org/privacy.ts, which mirrors the OAuth consent screen. A test on the extension
@@ -558,19 +559,16 @@ export function OrgPanel() {
   const open = orgOpen.value
   const st = orgStatus.value
 
+  const ref = useDialog<HTMLDivElement>(open, () => { orgOpen.value = false })
   useEffect(() => {
-    if (!open) return
-    requestOrgStatus()
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') orgOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    if (open) requestOrgStatus()
   }, [open])
 
   return (
-    <div inert={!open} aria-hidden={!open} style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}>
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="org-panel-title" inert={!open} aria-hidden={!open} style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">TraceRoost Cloud · {st?.linked ? displayOrgName(st) : 'Not linked'}</span>
-        <button onClick={() => orgOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)">×</button>
+        <h2 id="org-panel-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">TraceRoost Cloud · {st?.linked ? displayOrgName(st) : 'Not linked'}</h2>
+        <button onClick={() => orgOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)" aria-label="Close TraceRoost Cloud panel">×</button>
       </div>
       {!st && <div style="padding:16px;font-size:12px;color:var(--muted)">Checking this machine's status — locally, no network…</div>}
       {st && !st.linked && <UnlinkedBody st={st} />}

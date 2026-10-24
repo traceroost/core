@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { displaySessions, activeTab, focusedSessionId } from '../state'
+import { displaySessions, activeTab, focusedSessionId, configOpen } from '../state'
 import { buildDisplaySummary, formatMs } from '../utils'
 import {
   fmtUsd,
@@ -517,6 +517,7 @@ export function Alerts() {
               <label class="toggle-switch">
                 <input
                   type="checkbox"
+                  aria-label={`${cfg.label} alert enabled`}
                   checked={cfg.enabled}
                   onChange={e => updateConfig(cfg.id, { enabled: (e.target as HTMLInputElement).checked })}
                 />
@@ -536,13 +537,14 @@ export function Alerts() {
                 {sessionId && (
                   <>
                     {' '}
-                    <span
-                      role="link"
-                      tabIndex={0}
-                      onClick={() => { focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
-                      onKeyDown={e => { if (e.key === 'Enter') { focusedSessionId.value = sessionId; activeTab.value = 'sessions' } }}
-                      style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline;white-space:nowrap"
-                    >View trace →</span>
+                    {/* Closes the Settings drawer this list lives in — otherwise the trace opens
+                        underneath it, out of sight. */}
+                    <button
+                      type="button"
+                      class="link-btn"
+                      onClick={() => { configOpen.value = false; focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
+                      style="white-space:nowrap"
+                    >View trace →</button>
                   </>
                 )}
               </div>
