@@ -935,8 +935,12 @@ export function App() {
         >
           {sidebarOpen.value ? '◄' : '►'}
         </button>
-        {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
-        <div style="margin-left:auto;display:flex;align-items:center;border-left:1px solid var(--border);padding-left:2px">
+        {/* Only the tab buttons scroll on a narrow panel; the icon cluster after them never
+            shrinks, so Settings, Help and the Alerts bell stay reachable at any width. */}
+        <div class="tabs-scroll">
+          {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
+        </div>
+        <div class="tabs-icons">
           <OrgButton />
           {window.__STANDALONE__ === true && <UpdateButton />}
           <BellButton />

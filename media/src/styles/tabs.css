@@ -98,8 +98,30 @@
 }
 @media (max-width: 560px) { .tr-wordmark { display: none; } }
 
-.tabs { overflow-x: auto; scrollbar-width: thin; }
+/* Narrow panels: the tab buttons scroll inside .tabs-scroll while the wordmark, sidebar toggle and
+   the right-hand icon cluster (.tabs-icons) keep their size — so Settings, Help and the Alerts
+   bell are never scrolled out of view. .tabs-scroll overlaps the bar's bottom border by 1px (the
+   tabs themselves can't: the scroller would clip their -1px margin) so the active indicator still
+   meets it. */
 .tabs > * { flex-shrink: 0; }
+.tabs > .tabs-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  margin-bottom: -1px;
+}
+.tabs-scroll > .tab { flex-shrink: 0; margin-bottom: 0; white-space: nowrap; }
+.tabs-icons {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  border-left: 1px solid var(--border);
+  padding-left: 2px;
+  background: var(--vscode-editor-background, #1e1e1e);
+}
 
 /* Persistent (non-dismissible) warning shown while this window's own OTLP collector isn't
    bound — see CollectorConflictBanner in App.tsx. */
