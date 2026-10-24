@@ -514,7 +514,7 @@ Environment variables (the first five predate the `TRACEROOST_` prefix and keep 
 | `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Configure OTEL** button reports that it's disabled) |
 | `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends nothing from your traces or settings) |
 | `TRACEROOST_BUDGET_CAP_USD` | unset | Per-trace dollar cap for the **Budget Overrun** signal; the signal is off until this is set (also read by the VS Code extension from its environment) |
-| `TRACEROOST_LOG_LEVEL` | `info` | Set to `debug` for routine per-tick detail — forwarding and trace-manifest counts, which are quiet at `info` (also read by the VS Code extension; its output goes to the TraceRoost output channel) |
+| `TRACEROOST_LOG_LEVEL` | `info` | Set to `debug` for routine per-tick detail — forwarding and trace-manifest counts, and one `Ingested N spans` line per OTLP payload, which are quiet at `info` (also read by the VS Code extension; its output goes to the TraceRoost output channel) |
 
 **`.env` files and the data directory.** Development builds (`pnpm run local`) load a `.env`
 from the current directory; released builds (`npx traceroost`, the background service, Docker)

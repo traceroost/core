@@ -74,6 +74,7 @@ import { generateCspNonce, dashboardCspHeader, UNAUTHORIZED_PAGE_CSP } from './d
 import { renderDashboardHtml } from './dashboardHtml'
 import { knownWorkspace } from './instructionActions'
 import { installOwnerChannel } from './ownerChannel'
+import { logDebug } from '../src/logLevel'
 
 // Development builds only: load `.env` from the current working directory, so `pnpm run local` can
 // point at a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell
@@ -2224,7 +2225,8 @@ const otlpServer = http.createServer((req, res) => {
       const kind = classifyOtlpPayload(payload)
       if (req.url === '/v1/traces' || kind === 'traces') {
         const { count, agent } = processTraces(payload, req.url ?? '/v1/traces')
-        if (count > 0) console.log(`[TraceRoost] Ingested ${count} span${count !== 1 ? 's' : ''} (${agent})`)
+        // One line per payload is routine detail — TRACEROOST_LOG_LEVEL=debug shows it (src/logLevel.ts).
+        if (count > 0) logDebug(console.log, `[TraceRoost] Ingested ${count} span${count !== 1 ? 's' : ''} (${agent})`)
       } else if (req.url === '/v1/logs' || kind === 'logs') {
         processLogs(payload, req.url ?? '/v1/logs')
       } else if (kind === 'metrics' || req.url === '/v1/metrics') {
@@ -2342,12 +2344,25 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
   return runAgentSetup(port)
 }
 
+/** The startup lines printed after the terminal question (the dashboard URL, the log-history
+ *  summary) push it up out of sight. Once they're done, if it's still unanswered, say so in one
+ *  line and show its prompt again, keeping anything already typed. */
+function repromptAgentSetup(): void {
+  const rl = agentSetupQuestion
+  if (!rl) return
+  console.log(`\n[TraceRoost] Still waiting for your answer: ${AGENT_SETUP_QUESTION} (details above; you can also answer in the dashboard)`)
+  rl.prompt(true)
+}
+
 /** `npx traceroost` in a terminal: ask there. No answer leaves the dashboard banner to ask. */
 function askAgentSetupInTerminal(port: number): void {
   agentSetupPending = true
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   agentSetupQuestion = rl
-  rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\nSet up agents? [y/N] `, input => {
+  // The question and explanation are printed once; only the short "[y/N]" line is the readline
+  // prompt, so repromptAgentSetup can show it again below the startup lines that follow.
+  console.log(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}`)
+  rl.question('Set up agents? [y/N] ', input => {
     if (parseYesNo(input) === 'yes') { void answerAgentSetup('yes', port); return }
     // A no is asked once more, with what skipping costs; Enter keeps the no.
     rl.question(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}\nSkip setup? [Y/n] `, again => {
@@ -2395,7 +2410,9 @@ async function startUiServer(): Promise<void> {
   }
 
   // Start log ingestion after the server is ready
-  startLogIngestion()
+  // The last burst of startup output ends with the log-history summary — re-show a pending
+  // terminal question after it.
+  void startLogIngestion().finally(repromptAgentSetup)
 
   // Cloud: forwarding scheduler. No timer runs unless an org is linked.
   // `notify`: the standalone has no toast — the message goes to the log, and the notice the sender
