@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 import {
-  filteredSessions, sessionSummary, sessionTimelines, gitOutcomes, burnRateData,
+  filteredSessions, sessionSummary, sessionTimelines, gitOutcomes, burnRateData, sessionSignals,
   focusedSessionId, vscode, ignoredInsightKeys,
   sessionSortKey, sessionSortDir, type SortKey, sessionsPage,
   goToHelp,
@@ -326,7 +326,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   const ignored = ignoredInsightKeys.value
   // The summary card's own timeline is empty for a stored trace; the efficiency checks need the
   // loaded one to find anything — and to name the steps behind what they find.
-  const sessForInsights = timeline.length > 0 ? { ...sess, timeline } : sess
+  const sessForInsights = { ...sess, timeline: timeline.length > 0 ? timeline : sess.timeline, loopSignals: sessionSignals(sess) }
   const summary = buildDisplaySummary([sessForInsights])
   const sessInsights = generateInsights(summary, [sessForInsights]).filter(i => !ignored.has(i.title))
 
@@ -1018,7 +1018,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
         {/* Signals — own column, unconditional (unlike Repo/Outcome above, doesn't need a
             workspace) so a struggle pattern is visible regardless of showWorkspace. */}
         <td style="padding:4px 2px 4px 4px;text-align:left">
-          <SignalsCell signals={sess.loopSignals} />
+          <SignalsCell signals={sessionSignals(sess)} />
         </td>
 
         {/* Turns */}
