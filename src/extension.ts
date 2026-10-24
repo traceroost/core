@@ -3,7 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import * as vscode from 'vscode'
 import { OtlpCollector } from './otlpCollector'
-import { detectPortOwner, serviceDashboardPort } from './portResolver'
+import { detectPortOwner, serviceDashboardUrl } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
@@ -112,6 +112,26 @@ function openSetupHelp(): void {
 /** Reveals the TraceRoost output channel — the "Show Log" button on errors that say more there. */
 function showLog(): void {
   outputChannel?.show(true)
+}
+
+/** "Open Service Dashboard": opens the background service's dashboard (with its access token when
+ *  it binds beyond loopback) once it is confirmed listening. A stale ports.json or a stopped
+ *  service would otherwise open a dead or wrong page, so say so instead. */
+async function openServiceDashboard(otlpPort: number): Promise<void> {
+  const url = await serviceDashboardUrl(otlpPort)
+  if (url) {
+    await vscode.env.openExternal(vscode.Uri.parse(url))
+    return
+  }
+  outputChannel?.appendLine(
+    `Open Service Dashboard: no TraceRoost dashboard answered on the ports in ~/.traceroost/ports.json or config.json. ` +
+    `Run \`traceroost service status\` for the service's address, or \`traceroost service start\` if it has stopped.`,
+  )
+  const choice = await vscode.window.showWarningMessage(
+    "TraceRoost: the background service's dashboard isn't answering. `traceroost service status` shows its address.",
+    SHOW_LOG_BUTTON,
+  )
+  if (choice === SHOW_LOG_BUTTON) showLog()
 }
 
 /** The file each agent's setup edits, as named to the user and as opened by "Show Changes".
@@ -311,7 +331,7 @@ export async function activate(context: vscode.ExtensionContext) {
           `TraceRoost: the background service already receives OTel on port ${port}, so this window won't get live traces — use the service's dashboard, or stop the service and reload.`,
           OPEN_SERVICE, SHOW_LOG_BUTTON,
         ).then(choice => {
-          if (choice === OPEN_SERVICE) void vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${serviceDashboardPort(port)}`))
+          if (choice === OPEN_SERVICE) void openServiceDashboard(port)
           else if (choice === SHOW_LOG_BUTTON) showLog()
         })
       } else if (owner === 'foreign') {
