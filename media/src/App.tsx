@@ -1,4 +1,4 @@
-import { signal } from '@preact/signals'
+import { signal, type Signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import {
@@ -25,7 +25,7 @@ import { LANGUAGE_LABELS } from './language'
 // Tab components
 import { Sessions } from './tabs/Sessions'
 import { Analytics } from './tabs/Analytics'
-import { Alerts, computeAlertCount, getTriggeredAlerts, checkAlerts, type TriggeredAlert } from './tabs/Alerts'
+import { Alerts, alertCardId, computeAlertCount, getTriggeredAlerts, checkAlerts, type TriggeredAlert } from './tabs/Alerts'
 import { Export } from './tabs/Export'
 import { Import } from './tabs/Import'
 import { Help } from './tabs/Help'
@@ -48,6 +48,8 @@ const REPO_ALL = 'All'
 // sidebar (toggled via workbench commands, not this panel) defaults to open.
 const sidebarOpen = signal(window.__STANDALONE__ !== true)
 const configOpen = signal(false)
+// Lifted out of CollapsibleSection so "View Alert" can expand a collapsed Alerts section.
+const alertsSectionOpen = signal(true)
 const actionLogOpen = signal(false)
 const bellOpen = signal(false)
 const versionCheckOpen = signal(false)
@@ -85,8 +87,25 @@ function normalizeTabId(tab: string): string {
   return tab
 }
 
-function CollapsibleSection({ title, children }: { title: string; children: ComponentChildren }) {
-  const [open, setOpen] = useState(true)
+// "View Alert" on a firing notification: once the settings panel has slid open, bring that
+// alert's card into view and pulse its outline so it stands out among the other alerts.
+function scrollToAlertCard(alertId: string): void {
+  alertsSectionOpen.value = true
+  setTimeout(() => {
+    const el = document.getElementById(alertCardId(alertId))
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.animate?.(
+      [{ boxShadow: '0 0 0 2px var(--vscode-focusBorder, #4fc3f7)' }, { boxShadow: '0 0 0 2px transparent' }],
+      { duration: 1600, delay: 300, easing: 'ease-out' },
+    )
+  }, 80)
+}
+
+function CollapsibleSection({ title, children, openState }: { title: string; children: ComponentChildren; openState?: Signal<boolean> }) {
+  const [localOpen, setLocalOpen] = useState(true)
+  const open = openState ? openState.value : localOpen
+  const setOpen = (fn: (o: boolean) => boolean) => openState ? (openState.value = fn(openState.value)) : setLocalOpen(fn)
   return (
     <div style="border-bottom:1px solid var(--border)">
       <button
@@ -135,7 +154,7 @@ function ConfigPanel() {
       <OtelReconfigureButton />
       {window.__STANDALONE__ === true && <DashboardPortSetting />}
       <McpToggle />
-      <CollapsibleSection title="Alerts">
+      <CollapsibleSection title="Alerts" openState={alertsSectionOpen}>
         <Alerts />
       </CollapsibleSection>
       <CollapsibleSection title="Automation">
@@ -732,7 +751,7 @@ export function App() {
             }
             const alertNotifications = checkAlerts()
             for (const a of alertNotifications) {
-              vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
+              vscode?.postMessage({ type: 'alert', alertId: a.alertId, label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
             }
           }, 0)
         }
@@ -780,7 +799,7 @@ export function App() {
           const alertNotifications = checkAlerts()
           if (first) return
           for (const a of alertNotifications) {
-            vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
+            vscode?.postMessage({ type: 'alert', alertId: a.alertId, label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
           }
         }, 0)
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
@@ -790,6 +809,7 @@ export function App() {
         const tab = normalizeTabId(msg.tab)
         if (tab === 'alerts' || tab === 'automation' || tab === 'settings-automation') {
           configOpen.value = true
+          if (tab === 'alerts' && typeof msg.anchor === 'string') scrollToAlertCard(msg.anchor)
         } else if (tab === 'help' && typeof msg.anchor === 'string') {
           goToHelp(msg.anchor)
         } else {

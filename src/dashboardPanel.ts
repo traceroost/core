@@ -210,7 +210,7 @@ export class DashboardPanel {
       } else if (msg.type === 'getRepoHash' && msg.workspace) {
         void this.sendRepoHash(msg.workspace as string)
       } else if (msg.type === 'alert' && msg.label) {
-        handleAlertNotification(msg as { label: string; detail?: string; severity: string; sessionId?: string }, context, repo, sidebarProvider, rawDb)
+        handleAlertNotification(msg as { alertId?: string; label: string; detail?: string; severity: string; sessionId?: string }, context, repo, sidebarProvider, rawDb)
       } else if (msg.type === 'automation' && msg.prompt) {
         handleAutomation(msg as { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; prompt: string })
       } else if (msg.type === 'openFile' && typeof msg.filePath === 'string' && msg.filePath) {
@@ -883,7 +883,7 @@ function buildEfficiency(sessions: SessionSummaryCard[]) {
 // ── Alert / automation helpers (unchanged) ────────────────────────────────────
 
 async function handleAlertNotification(
-  msg: { label: string; detail?: string; severity: string; sessionId?: string },
+  msg: { alertId?: string; label: string; detail?: string; severity: string; sessionId?: string },
   context: vscode.ExtensionContext,
   repo: SessionRepository,
   sidebarProvider?: SidebarPanel,
@@ -899,8 +899,8 @@ async function handleAlertNotification(
 
   // Most alerts point at one offending trace (evaluateAlert's `worst` session) — jump straight to
   // it in the Sessions tab instead of the generic Alerts tab. Aggregate alerts (e.g. daily_cost)
-  // have no single trace responsible, so those still fall back to the Alerts tab.
-  const viewLabel = msg.sessionId ? 'View Trace' : 'View Alerts'
+  // have no single trace responsible, so those open the Alerts section scrolled to that alert.
+  const viewLabel = msg.sessionId ? 'View Trace' : 'View Alert'
 
   let promise: Thenable<string | undefined>
   if (msg.severity === 'error') {
@@ -918,7 +918,7 @@ async function handleAlertNotification(
           DashboardPanel.switchToTab('sessions')
           DashboardPanel.sendFilter(undefined, undefined, undefined, msg.sessionId)
         } else {
-          DashboardPanel.switchToTab('alerts')
+          DashboardPanel.switchToTab('alerts', msg.alertId)
         }
       }, 250)
     } else if (action === 'Copy Prompt') {
