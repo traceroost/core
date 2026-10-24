@@ -179,6 +179,21 @@ export function receiveSessionTimeline(sessionId: string, timeline: TimelineEntr
 // (no git repo, no changed files, etc). Absent key = not yet requested. See gitOutcome.ts.
 export const gitOutcomes = signal<Record<string, GitOutcome | null>>({})
 
+// The two post-hoc signals (hallucinated_import, failed_check_submission — src/sessionRiskSignals.ts)
+// aren't in a card's loopSignals: the host computes them on demand and sends them with a session's
+// git outcome. sessionId → what it last sent. Absent key = never sent (or sent as "can't tell").
+export const riskSignals = signal<Record<string, LoopSignal[]>>({})
+
+/** A session's own loop signals plus any post-hoc risk signals received for it — what the Sig
+ *  column and the expanded trace's Insights show. A type already in loopSignals isn't added twice. */
+export function sessionSignals(sess: SessionSummaryCard): LoopSignal[] {
+  const extra = riskSignals.value[sess.sessionId]
+  const own = sess.loopSignals ?? []
+  if (!extra || extra.length === 0) return own
+  const have = new Set(own.map(s => s.type))
+  return [...own, ...extra.filter(s => !have.has(s.type))]
+}
+
 // Sessions the host has told us are "deferred" — still inside their active-session grace window
 // (reconciliationService.ts's ACTIVE_GRACE_MS), so no git classification has run or will run for
 // them yet. Kept separate from `gitOutcomes` (which means "resolved, here's the answer") so the

@@ -179,6 +179,17 @@ suite('logFileState — one-time Codex reasoning-token correction', () => {
     assert.deepStrictEqual(restored.parseFile(codexFile, 'codex'), [])
   })
 
+  test('a version-5 state file re-reads every file within retention once, for signal evidence', () => {
+    const lr = new LogReader()
+    lr.parseFile(codexFile, 'codex')
+    fs.writeFileSync(path.join(storageDir, LOG_FILE_STATE_FILENAME), JSON.stringify({ version: 5, files: lr.exportFileState() }))
+    const restored = new LogReader()
+    assert.strictEqual(restoreLogFileState(restored, storageDir, 90), 1)
+    assert.ok(restored.parseFile(codexFile, 'codex').length > 0, 'the file is parsed again')
+    writeLogFileState(storageDir, restored.exportFileState())
+    assert.strictEqual(restoreLogFileState(new LogReader(), storageDir, 90), 0, 'and only once')
+  })
+
   test('a missing state file reads as current (a fresh install parses everything anyway)', () => {
     assert.deepStrictEqual(readLogFileState(storageDir), { version: LOG_FILE_STATE_VERSION, files: {} })
   })

@@ -14,11 +14,11 @@ import {
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending,
-  getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp,
+  getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp, riskSignals,
   configOpen, alertsOpen, filtersOpen, filtersFocusField,
 } from './state'
 import { useDialog } from './a11y'
-import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
+import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, LoopSignal, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS, isHostMessage, getAgentColorVar } from './utils'
 import { LANGUAGE_LABELS } from './language'
@@ -596,6 +596,7 @@ export function App() {
         sessionId?: string
         timeline?: TimelineEntry[]
         outcome?: GitOutcome | null
+        riskSignals?: LoopSignal[]
         outcomes?: Record<string, GitOutcome>
         workspace?: string
         name?: string | null
@@ -712,6 +713,14 @@ export function App() {
         }
         pendingOutcomes[msg.sessionId] = msg.outcome ?? null
         settledOutcomeIds.add(msg.sessionId)
+        // Only an array is an answer: the host leaves the field off when it had no timeline to
+        // check (a stored VS Code trace), which mustn't erase what an earlier reply found.
+        if (Array.isArray(msg.riskSignals)) {
+          const prev = riskSignals.value[msg.sessionId]
+          if (msg.riskSignals.length > 0 || (prev && prev.length > 0)) {
+            riskSignals.value = { ...riskSignals.value, [msg.sessionId]: msg.riskSignals }
+          }
+        }
       } else if (msg.type === 'gitOutcomeDeferred' && msg.sessionId) {
         // Session is still inside its active-session grace window — no git classification ran or
         // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
