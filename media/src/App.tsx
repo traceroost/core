@@ -540,6 +540,9 @@ export function App() {
     let tipEl: HTMLDivElement | null = null
     let showTimer: ReturnType<typeof setTimeout> | null = null
     let activeTarget: HTMLElement | null = null
+    // The target whose tooltip Escape dismissed: it stays dismissed while the pointer or focus is
+    // still on it (moving over its children fires mouseover again), and shows again once left.
+    let dismissedTarget: HTMLElement | null = null
 
     function clearTimer() {
       if (showTimer !== null) { clearTimeout(showTimer); showTimer = null }
@@ -588,7 +591,7 @@ export function App() {
       // pointer is already hovering it, and a click-focused button shouldn't re-trigger it.
       if (e.type === 'focusin' && !el.matches(':focus-visible')) return
       const target = el.closest('[data-tip], [title]') as HTMLElement | null
-      if (!target || target === activeTarget) return
+      if (!target || target === activeTarget || target === dismissedTarget) return
       clearTimer()
       activeTarget = target
       // Suppress the native tooltip right away (not after the delay) so it never gets a chance
@@ -607,12 +610,13 @@ export function App() {
     function hide(e: MouseEvent | FocusEvent) {
       const el = e.target as HTMLElement | null
       if (!el?.closest) return
+      const related = e.relatedTarget as Node | null
+      if (dismissedTarget?.contains(el) && !(related && dismissedTarget.contains(related))) dismissedTarget = null
       const target = el.closest('[data-tip], [data-native-title]') as HTMLElement | null
       if (!target) return
       // Moving onto a child of the same target (e.g. an icon inside a titled pill) isn't a real
       // leave — mouseout/mouseover delegation fires for that boundary too, and without this
       // check the tooltip would flicker hidden-then-rescheduled on every such internal move.
-      const related = e.relatedTarget as Node | null
       if (related && target.contains(related)) return
       restoreNativeTitle(target)
       clearTimer()
@@ -625,6 +629,10 @@ export function App() {
       if (e.key !== 'Escape' || !activeTarget) return
       restoreNativeTitle(activeTarget)
       clearTimer()
+      // Forget it as the active target, or show() would ignore it for good and its styled
+      // tooltip would never appear again.
+      dismissedTarget = activeTarget
+      activeTarget = null
       if (tipEl) tipEl.style.display = 'none'
     }
 
