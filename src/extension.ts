@@ -8,7 +8,7 @@ import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult } from './autoConfig'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, leftAloneMessage, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
 import { DatabaseReader, openReadonlySnapshot } from './database/reader'
@@ -350,13 +350,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // partial snippet — each agent needs several keys (Claude Code: eight env vars; Codex: both
     // exporters with protocol = "json"), which don't fit in a toast.
     const files = agentConfigFiles()
-    const failures: Array<[string, ConfigResult, string]> = [
+    const outcomes: Array<[string, ConfigResult, string]> = [
       ['Copilot', copilotResult, files.copilot.label],
       ['Claude Code', claudeResult, files.claude.label],
       ['Codex', codexResult, files.codex.label],
     ]
     let failed = 0
-    for (const [agent, result, file] of failures) {
+    for (const [agent, result, file] of outcomes) {
       if (!result.error) continue
       failed++
       log(`Auto-configure ${agent} failed: ${result.error}`)
@@ -370,8 +370,11 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // A file left alone on purpose (it exports to the user's own collector) — log why.
-    for (const r of [copilotResult, claudeResult, codexResult] as ConfigResult[]) {
-      if (r.warning) log(`Auto-configure: ${r.warning}`)
+    const leftAlone: string[] = []
+    for (const [agent, result] of outcomes) {
+      if (!result.warning) continue
+      leftAlone.push(agent)
+      log(`Auto-configure: ${result.warning}`)
     }
 
     const configuredAgents: string[] = []
@@ -379,8 +382,16 @@ export async function activate(context: vscode.ExtensionContext) {
     if (claudeResult.changed) configuredAgents.push('Claude Code')
     if (codexResult.changed) configuredAgents.push('Codex')
     if (configuredAgents.length > 0) log(`Auto-configured OTel telemetry for: ${configuredAgents.join(', ')}`)
+    // The command is never silent, and never claims "already set up" for an agent it left alone:
+    // that agent's traces go to the user's own collector, not here.
+    const leftAloneNote = fromCommand ? leftAloneMessage(leftAlone, port) : undefined
+    if (leftAloneNote) {
+      void vscode.window.showWarningMessage(leftAloneNote, SHOW_LOG_BUTTON).then(choice => {
+        if (choice === SHOW_LOG_BUTTON) showLog()
+      })
+    }
     if (fromCommand && configuredAgents.length === 0 && failed === 0) {
-      void vscode.window.showInformationMessage(`TraceRoost: your agents are already set up to send traces to port ${port}. Nothing needed changing.`)
+      if (!leftAloneNote) void vscode.window.showInformationMessage(`TraceRoost: your agents are already set up to send traces to port ${port}. Nothing needed changing.`)
       return
     }
     void notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)

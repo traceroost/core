@@ -43,3 +43,14 @@ export function parseYesNo(input: string): AgentSetupAnswer {
 export function parseSkipConfirmation(input: string): AgentSetupAnswer {
   return /^\s*no?\s*$/i.test(input) && input.trim() !== '' ? 'yes' : 'no'
 }
+
+/** What the Set Up Agents command reports when it changed nothing: `undefined` when no agent was
+ *  left alone (the caller says everything is already set up), otherwise one sentence naming the
+ *  agents whose settings already export OTel somewhere else — so their traces don't reach this
+ *  port — rather than claiming nothing needed changing. The log has each file and endpoint. */
+export function leftAloneMessage(agents: string[], port: number): string | undefined {
+  if (agents.length === 0) return undefined
+  const names = agents.length === 1 ? agents[0] : `${agents.slice(0, -1).join(', ')} and ${agents[agents.length - 1]}`
+  const [they, their] = agents.length === 1 ? ['it', 'its'] : ['they', 'their']
+  return `TraceRoost: left ${names} alone — ${they} already send${agents.length === 1 ? 's' : ''} OTel to another collector, so ${their} traces won't reach port ${port}. Show Log has the details.`
+}
