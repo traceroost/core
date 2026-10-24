@@ -8,18 +8,21 @@
  * `~/.codex/config.toml`, an editor's user settings) and turns on its prompt and tool-output
  * telemetry, so it waits for a yes. Where it asks:
  *   - VS Code: a notification on activation (src/extension.ts);
- *   - a terminal running `traceroost` or `traceroost service install`: a yes/no question;
+ *   - a terminal running `traceroost` or `traceroost service install`: one question, where `y` is
+ *     a yes, Enter is "not now" and typing `never` is "don't set up";
  *   - the background service, which has no terminal: a dashboard banner (AgentSetupBanner).
- * Saying no asks once more, with what skipping costs (AGENT_SETUP_SKIP_*), before it is recorded.
- * The "Set up agents" button in the dashboard's Settings panel, and VS Code's "TraceRoost: Set Up
- * Agents…" command, are themselves a yes. Dismissing either question without
- * answering records nothing, so it is asked again next time.
+ * Each offers the same three answers (AGENT_SETUP_YES / _NOT_NOW / _DONT). Only "Don't set up"
+ * records the no; "Not now" — or dismissing the question — records nothing, so it is asked again
+ * the next time TraceRoost starts. The stored values are still just 'yes' and 'no'.
+ * The "Set up agents" button in the dashboard's Settings panel, VS Code's "TraceRoost: Set Up
+ * Agents…" command and `traceroost agents setup` are themselves a yes; Remove agent setup
+ * (src/agentSetupRemoval.ts) records a no.
  */
 
 import { readServiceConfig, writeServiceConfig } from './serviceConfig'
-import { AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
+import { AGENT_SETUP_QUESTION } from './agentSetupText'
 
-export { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
+export { AGENT_SETUP_DECLINED, AGENT_SETUP_DONT, AGENT_SETUP_EXPLANATION, AGENT_SETUP_NOT_NOW, AGENT_SETUP_QUESTION, AGENT_SETUP_YES } from './agentSetupText'
 
 export type AgentSetupAnswer = 'yes' | 'no'
 
@@ -34,15 +37,15 @@ export function writeAgentSetupAnswer(answer: AgentSetupAnswer, baseHome?: strin
   writeServiceConfig({ ...config, agentSetup: answer }, baseHome)
 }
 
-/** `y`, `yes` (any case) is a yes; anything else, including an empty answer, is a no. */
-export function parseYesNo(input: string): AgentSetupAnswer {
-  return /^\s*y(es)?\s*$/i.test(input) ? 'yes' : 'no'
-}
+/** The terminal question's prompt line — its three answers spelled out. */
+export const AGENT_SETUP_TERMINAL_PROMPT = 'Set up agents? [y = yes, Enter = not now, "never" = don\'t set up] '
 
-/** The answer to "Skip setup? [Y/n]": `n`/`no` takes it back (a yes to setup); anything else,
- *  Enter included, keeps the no. */
-export function parseSkipConfirmation(input: string): AgentSetupAnswer {
-  return /^\s*no?\s*$/i.test(input) && input.trim() !== '' ? 'yes' : 'no'
+/** The terminal answer: `y`/`yes` (any case) is a yes, `never` is "don't set up" (a no), and
+ *  anything else — Enter above all — is "not now" (undefined: nothing is recorded). */
+export function parseAgentSetupInput(input: string): AgentSetupAnswer | undefined {
+  if (/^\s*y(es)?\s*$/i.test(input)) return 'yes'
+  if (/^\s*never\s*$/i.test(input)) return 'no'
+  return undefined
 }
 
 /** What the Set Up Agents command reports when it changed nothing: `undefined` when no agent was
@@ -56,13 +59,8 @@ export function leftAloneMessage(agents: string[], port: number): string | undef
   return `TraceRoost: left ${names} alone — ${they} already send${agents.length === 1 ? 's' : ''} OTel to another collector, so ${their} traces won't reach port ${port}. Show Log has the details.`
 }
 
-/** Which terminal question is waiting: the first ("Set up agents? [y/N]") or, after a no, the
- *  confirmation ("Skip setup? [Y/n]"). */
-export type AgentSetupStep = 'setup' | 'skip'
-
-/** The one line printed when startup output has pushed the terminal question out of sight —
- *  worded for whichever question is actually waiting. */
-export function agentSetupWaitingLine(step: AgentSetupStep): string {
-  const question = step === 'skip' ? AGENT_SETUP_SKIP_QUESTION : AGENT_SETUP_QUESTION
-  return `[TraceRoost] Still waiting for your answer: ${question} (details above; you can also answer in the dashboard)`
+/** The one line printed when startup output has pushed the terminal question out of sight. */
+export function agentSetupWaitingLine(): string {
+  return `[TraceRoost] Still waiting for your answer: ${AGENT_SETUP_QUESTION} ` +
+    '(y = yes, Enter = not now, "never" = don\'t set up; details above, or answer in the dashboard)'
 }

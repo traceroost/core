@@ -9,7 +9,7 @@ import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, removeCopilotSetup, type ConfigResult, type SetupMode } from './autoConfig'
 import { changedFiles, describeRemoval, removeAgentSetupFiles, type AgentRemoval } from './agentSetupRemoval'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, leftAloneMessage, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
+import { AGENT_SETUP_DECLINED, AGENT_SETUP_DONT, AGENT_SETUP_EXPLANATION, AGENT_SETUP_NOT_NOW, AGENT_SETUP_QUESTION, AGENT_SETUP_YES, leftAloneMessage, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
 import { DatabaseReader, openReadonlySnapshot } from './database/reader'
@@ -99,9 +99,6 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
 
 const SETUP_HELP_BUTTON = 'Open Setup Help'
 const SHOW_LOG_BUTTON = 'Show Log'
-const AGENT_SETUP_YES = 'Set up agents'
-const AGENT_SETUP_NO = 'Not now'
-const AGENT_SETUP_SKIP = 'Skip setup'
 
 /** Opens the dashboard on Help → Setup (Manual Configuration lists every agent's settings). */
 function openSetupHelp(): void {
@@ -420,25 +417,24 @@ export async function activate(context: vscode.ExtensionContext) {
     void notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
   }
 
-  /** The VS Code activation question (asked when there's no stored answer yet). Closing the
-   *  notification without choosing records nothing, so it is asked again next time. */
+  /** The VS Code activation question (asked when there's no stored answer yet). "Not now", or
+   *  closing the notification, records nothing, so it is asked again next time; only "Don't set
+   *  up" records the no — and then says what skipping costs. */
   const askAgentSetup = async (): Promise<void> => {
     const choice = await vscode.window.showInformationMessage(
       `TraceRoost: ${AGENT_SETUP_QUESTION} ${AGENT_SETUP_EXPLANATION}`,
-      AGENT_SETUP_YES, AGENT_SETUP_NO,
+      AGENT_SETUP_YES, AGENT_SETUP_NOT_NOW, AGENT_SETUP_DONT,
     )
-    if (choice === undefined) return
-    // A no is asked once more, with what skipping costs, before it is recorded.
-    const confirmed = choice === AGENT_SETUP_YES ? AGENT_SETUP_YES : await vscode.window.showWarningMessage(
-      `TraceRoost: ${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`,
-      AGENT_SETUP_SKIP, AGENT_SETUP_YES,
-    )
-    if (confirmed === undefined) return
-    writeAgentSetupAnswer(confirmed === AGENT_SETUP_YES ? 'yes' : 'no')
-    if (confirmed === AGENT_SETUP_YES) await runAgentSetup('full')
+    if (choice === AGENT_SETUP_YES) {
+      writeAgentSetupAnswer('yes')
+      await runAgentSetup('full')
+    } else if (choice === AGENT_SETUP_DONT) {
+      writeAgentSetupAnswer('no')
+      void vscode.window.showInformationMessage(`TraceRoost: ${AGENT_SETUP_DECLINED}`)
+    }
   }
 
-  // The way back in after "Skip setup", and a manual re-apply after a yes. Running the command is
+  // The way back in after "Don't set up", and a manual re-apply after a yes. Running the command is
   // itself the yes — like the dashboard's Settings button (src/agentSetupConsent.ts). Only someone
   // who hasn't answered yet is shown what setup does first. It ignores traceRoost.autoConfigureAgents,
   // which governs only what happens on activation.

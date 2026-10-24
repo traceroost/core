@@ -15,7 +15,7 @@ import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone, type SetupMode } from '../src/autoConfigNode'
 import { changedFiles, describeRemoval, removeAgentSetupFiles } from '../src/agentSetupRemoval'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, agentSetupWaitingLine, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer, type AgentSetupStep } from '../src/agentSetupConsent'
+import { AGENT_SETUP_DECLINED, AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_TERMINAL_PROMPT, agentSetupWaitingLine, parseAgentSetupInput, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer } from '../src/agentSetupConsent'
 import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
 import { OtlpIngest } from '../src/otlpIngest'
@@ -2363,10 +2363,8 @@ async function runAgentSetup(port: number, mode: SetupMode): Promise<void> {
   }
 }
 
-// The terminal question while it waits — closed when the dashboard answers first — and which of
-// its two questions is showing, so the re-prompt names the right one.
+// The terminal question while it waits — closed when the dashboard answers first.
 let agentSetupQuestion: readline.Interface | undefined
-let agentSetupStep: AgentSetupStep = 'setup'
 
 /** Records the user's answer, from the terminal or the dashboard, and acts on it. */
 function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void> {
@@ -2376,7 +2374,7 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
   agentSetupPending = false
   broadcastSse({ type: 'update', agentSetupPending })
   if (answer === 'no') {
-    console.log("[TraceRoost] Agents not set up — set them up from the dashboard's ⚙ Settings panel when you want to.")
+    console.log(`[TraceRoost] ${AGENT_SETUP_DECLINED}`)
     return Promise.resolve()
   }
   return runAgentSetup(port, 'full')
@@ -2388,7 +2386,7 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
 function repromptAgentSetup(): void {
   const rl = agentSetupQuestion
   if (!rl) return
-  console.log(`\n${agentSetupWaitingLine(agentSetupStep)}`)
+  console.log(`\n${agentSetupWaitingLine()}`)
   rl.prompt(true)
 }
 
@@ -2397,18 +2395,19 @@ function askAgentSetupInTerminal(port: number): void {
   agentSetupPending = true
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   agentSetupQuestion = rl
-  agentSetupStep = 'setup'
-  // Each question and its explanation are printed once; only the short "[y/N]" / "[Y/n]" line is
-  // the readline prompt, so repromptAgentSetup can show it again below the startup lines that follow.
+  // The question and its explanation are printed once; only the short prompt line is the readline
+  // prompt, so repromptAgentSetup can show it again below the startup lines that follow.
   console.log(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}`)
-  rl.question('Set up agents? [y/N] ', input => {
-    if (parseYesNo(input) === 'yes') { void answerAgentSetup('yes', port); return }
-    // A no is asked once more, with what skipping costs; Enter keeps the no.
-    agentSetupStep = 'skip'
-    console.log(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`)
-    rl.question('Skip setup? [Y/n] ', again => {
-      void answerAgentSetup(parseSkipConfirmation(again), port)
-    })
+  rl.question(AGENT_SETUP_TERMINAL_PROMPT, input => {
+    const answer = parseAgentSetupInput(input)
+    if (answer) { void answerAgentSetup(answer, port); return }
+    // Not now: nothing is recorded, so the next start asks again. This run stops asking — the
+    // dashboard banner included — and Settings → Set up agents is there in the meantime.
+    agentSetupQuestion = undefined
+    rl.close()
+    agentSetupPending = false
+    broadcastSse({ type: 'update', agentSetupPending })
+    console.log("[TraceRoost] Not now — TraceRoost will ask again next time it starts. To set them up sooner, use Set up agents in the dashboard's ⚙ Settings panel.")
   })
   // readline swallows Ctrl-C while it waits; pass it on so the server still stops as usual.
   rl.on('SIGINT', () => { rl.close(); process.kill(process.pid, 'SIGINT') })

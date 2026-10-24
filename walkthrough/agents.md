@@ -1,4 +1,4 @@
-TraceRoost runs a built-in OTel receiver. It asks once before it changes any agent's settings. When you choose **Set up agents** — in that question, or later with the **TraceRoost: Set Up Agents…** command — it writes telemetry config for each agent it detects:
+TraceRoost runs a built-in OTel receiver. It asks before it changes any agent's settings — **Not now** asks again next time, **Don't set up** stops asking. When you choose **Set up agents** — in that question, or later with the **TraceRoost: Set Up Agents…** command — it writes telemetry config for each agent it detects:
 
 ## OpenTelemetry (primary — real-time, richest data)
 
@@ -10,7 +10,7 @@ TraceRoost runs a built-in OTel receiver. It asks once before it changes any age
 
 OTel gives you real-time span timing, time-to-first-token, loop detection, file diffs, and streaming speed. Traces from OTel show an **OTel** badge.
 
-> **Restart any running agents** to pick up the OTel config. Skipped setup, or turned auto-configuration off? Run **TraceRoost: Set Up Agents…** from the Command Palette ([run it now](command:traceRoost.setUpAgents)), or set it up by hand (dashboard Help tab → Setup). No external infrastructure is required — everything stays on-device.
+> **Restart any running agents** to pick up the OTel config. Chose **Don't set up**, or turned auto-configuration off? Run **TraceRoost: Set Up Agents…** from the Command Palette ([run it now](command:traceRoost.setUpAgents)), or set it up by hand (dashboard Help tab → Setup). **TraceRoost: Remove Agent Setup…** takes out only what TraceRoost added. No external infrastructure is required — everything stays on-device.
 
 ## Log files (fallback — history, no extra setup)
 

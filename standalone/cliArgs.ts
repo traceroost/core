@@ -100,7 +100,7 @@ export function usageText(cloud: boolean): string {
     '',
     'Bare run: `traceroost` with no command starts the dashboard (and opens it in your browser), the',
     'OTLP receiver your agents send live traces to, and the MCP server. Past history appears right',
-    "away from your agents' log files. It asks once before it changes any agent's settings — here in",
+    "away from your agents' log files. It asks before it changes any agent's settings — here in",
     'the terminal, or in the dashboard when there is no terminal. Options:',
     ...Object.entries(SERVER_FLAGS).map(([flag, f]) => {
       const left = f.value === 'none' ? flag : `${flag} <${f.value}>`

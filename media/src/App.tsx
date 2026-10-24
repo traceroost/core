@@ -39,7 +39,7 @@ import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSettin
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
 import { suggestionUrl } from './suggest'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
+import { AGENT_SETUP_DECLINED, AGENT_SETUP_DONT, AGENT_SETUP_EXPLANATION, AGENT_SETUP_NOT_NOW, AGENT_SETUP_QUESTION, AGENT_SETUP_YES } from './agentSetupText'
 
 /** The REPO filter's empty state, shown as its placeholder and first list entry. */
 const REPO_ALL = 'All'
@@ -1067,35 +1067,48 @@ function CollectorConflictBanner() {
   )
 }
 
-// Asks once, on the background/npx service, whether TraceRoost may set up the user's coding agents
-// (src/agentSetupConsent.ts); VS Code asks with a notification instead. The answer is stored by the
-// server and shared with every other TraceRoost host on the machine.
+// Asks, on the background/npx service, whether TraceRoost may set up the user's coding agents
+// (src/agentSetupConsent.ts); VS Code asks with a notification instead. A yes or "Don't set up" is
+// stored by the server and shared with every other TraceRoost host on the machine; "Not now" only
+// hides the banner for this page, so it is back on the next load until answered.
 function AgentSetupBanner() {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
-  // "Not now" first shows what skipping costs; only "Skip setup" records the no.
-  const [confirmingSkip, setConfirmingSkip] = useState(false)
-  if (!agentSetupPending.value) return null
+  const [notNow, setNotNow] = useState(false)
+  // After Don't set up: what skipping costs, until dismissed.
+  const [declined, setDeclined] = useState(false)
+  if (declined) {
+    return (
+      <div class="agent-setup-banner" role="status">
+        <div style="flex:1">{AGENT_SETUP_DECLINED}</div>
+        <button aria-label="Dismiss" class="btn-secondary" onClick={() => setDeclined(false)}>OK</button>
+      </div>
+    )
+  }
+  if (!agentSetupPending.value || notNow) return null
   const answer = (choice: 'yes' | 'no') => {
     setBusy(true)
     setFailed(false)
     fetch('/action', { method: 'POST', body: JSON.stringify({ type: 'agentSetup', answer: choice }),
       headers: { 'Content-Type': 'application/json' } })
-      .then(r => { if (!r.ok) throw new Error(String(r.status)); agentSetupPending.value = false })
+      .then(r => {
+        if (!r.ok) throw new Error(String(r.status))
+        agentSetupPending.value = false
+        if (choice === 'no') setDeclined(true)
+      })
       .catch(() => setFailed(true))
       .finally(() => setBusy(false))
   }
   return (
     <div class="agent-setup-banner" role="region" aria-label="Set up your coding agents">
       <div style="flex:1">
-        <strong>{confirmingSkip ? AGENT_SETUP_SKIP_QUESTION : AGENT_SETUP_QUESTION}</strong>
-        <div style="margin-top:2px">{confirmingSkip ? AGENT_SETUP_SKIP_EXPLANATION : AGENT_SETUP_EXPLANATION}</div>
+        <strong>{AGENT_SETUP_QUESTION}</strong>
+        <div style="margin-top:2px">{AGENT_SETUP_EXPLANATION}</div>
         {failed && <div role="alert" style="margin-top:4px">That didn't go through — try again, or use Set up agents in Settings.</div>}
-        <div style="display:flex;gap:8px;margin-top:6px">
-          <button class="btn-primary" disabled={busy} onClick={() => answer('yes')}>Set up agents</button>
-          {confirmingSkip
-            ? <button class="btn-secondary" disabled={busy} onClick={() => answer('no')}>Skip setup</button>
-            : <button class="btn-secondary" disabled={busy} onClick={() => setConfirmingSkip(true)}>Not now</button>}
+        <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn-primary" disabled={busy} onClick={() => answer('yes')}>{AGENT_SETUP_YES}</button>
+          <button class="btn-secondary" disabled={busy} onClick={() => setNotNow(true)}>{AGENT_SETUP_NOT_NOW}</button>
+          <button class="btn-secondary" disabled={busy} onClick={() => answer('no')}>{AGENT_SETUP_DONT}</button>
         </div>
       </div>
     </div>

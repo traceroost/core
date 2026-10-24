@@ -13,12 +13,17 @@ export const AGENT_SETUP_EXPLANATION =
   'anywhere else, and a setting that already sends to a different collector is left alone. ' +
   'After a yes, later starts only keep the port in these settings current; a setting you remove ' +
   'stays removed. The first time it changes an existing Claude Code or Codex file, it saves the original beside ' +
-  "it as <file>.traceroost.bak. Not now? You can do it later from the dashboard's Settings panel."
+  'it as <file>.traceroost.bak. Not now asks again next time; Don\'t set up stops asking. Either ' +
+  "way you can set them up, or remove the setup, from the dashboard's Settings panel."
 
-/** Shown when the user says no, so they skip setup knowing what it costs. */
-export const AGENT_SETUP_SKIP_QUESTION = 'Skip agent setup?'
+/** The three answers, as every host labels them. "Not now" records nothing, so the question
+ *  comes back the next time TraceRoost starts; only "Don't set up" records the no. */
+export const AGENT_SETUP_YES = 'Set up agents'
+export const AGENT_SETUP_NOT_NOW = 'Not now'
+export const AGENT_SETUP_DONT = "Don't set up"
 
-export const AGENT_SETUP_SKIP_EXPLANATION =
-  "Without it, your agents won't send live traces to TraceRoost, so it only sees what their log " +
-  'files record: less detail for Claude Code, and little more than totals for Codex and Copilot ' +
-  "CLI. You can set them up any time from the dashboard's Settings panel."
+/** Said once the user chose Don't set up, so they know what skipping costs and the way back. */
+export const AGENT_SETUP_DECLINED =
+  "TraceRoost won't set up your agents, so they won't send it live traces: it only sees what " +
+  'their log files record — less detail for Claude Code, and little more than totals for Codex ' +
+  "and Copilot CLI. You can set them up any time from the dashboard's Settings panel."
