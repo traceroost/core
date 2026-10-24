@@ -7,7 +7,7 @@ export function LogIngestionNote({ feature }: { feature: string }) {
     <div style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.5">
       No {feature} data from local logs for this session.{' '}
       <button type="button" class="link-btn" onClick={() => goToHelp('help-config')}>
-        Configuring OTEL ingestion
+        Configuring OTel ingestion
       </button>{' '}would capture this.
     </div>
   )

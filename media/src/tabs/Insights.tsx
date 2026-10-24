@@ -114,7 +114,7 @@ export function generateInsights(
           helpId: 'help-context-bloat',
           title: '[Trace ' + globalNum + '] Context grew ' + growthPct.toFixed(0) + '%',
           detail: 'Input tokens grew from ' + first.toLocaleString() + ' to ' + last.toLocaleString()
-            + ' (+' + growth.toLocaleString() + ' tokens) across ' + llmEntries.length + ' LLM calls'
+            + ' (+' + growth.toLocaleString() + ' tokens) across ' + llmEntries.length + ' turns'
             + (reqSnippet ? ' for "' + reqSnippet + '"' : '') + '.',
           action: 'The first call used ' + first.toLocaleString() + ' tokens — audit your instruction files '
             + '(CLAUDE.md, .agent.md, system prompt). Remove verbose examples and anything the agent '
@@ -154,8 +154,8 @@ export function generateInsights(
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-high-turns',
-        title: '[Trace ' + globalNum + '] ' + sess.totalLlmCalls + ' LLM calls',
-        detail: '"' + reqSnippet + '" required ' + sess.totalLlmCalls + ' LLM calls and '
+        title: '[Trace ' + globalNum + '] ' + sess.totalLlmCalls + ' turns',
+        detail: '"' + reqSnippet + '" required ' + sess.totalLlmCalls + ' turns and '
           + sess.totalToolCalls + ' tool calls' + (topTools ? ' (' + topTools + ')' : '') + '.',
         action: 'For ' + sess.totalLlmCalls + '-turn trace, break the task into smaller pieces with '
           + 'explicit stopping conditions. Provide specific file paths and line numbers so the agent '

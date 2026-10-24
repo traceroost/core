@@ -28,7 +28,7 @@ suite('costSavingActions', () => {
     assert.strictEqual(first.title, 'Prompt cache hit rate is 20%')
     assert.strictEqual(first.affectedSessions, 3)
     assert.strictEqual(first.priority, 'high')
-    assert.match(first.evidence, /across 3 sessions in view/)
+    assert.match(first.evidence, /across 3 traces in view/)
   })
 
   test('cache rate is medium priority between 30% and 60%, and absent at 60% or with too few sessions', () => {
@@ -55,13 +55,13 @@ suite('costSavingActions', () => {
     assert.strictEqual(actions[1].loopSignalSeverity, 'warning')
     assert.strictEqual(actions[0].title, 'Pattern error_recurrence')
     assert.strictEqual(actions[0].action, 'Fix error_recurrence')
-    assert.match(actions[0].evidence, /Detected in 5 of 25 sessions \(20%\)/)
+    assert.match(actions[0].evidence, /Detected in 5 of 25 traces \(20%\)/)
     assert.strictEqual(actions[2].estimatedUsd, undefined, 'zero waste is not priced')
   })
 
   test('a single session reads in the singular', () => {
     const [a] = getCostSavingActions([makeCard({ loopSignals: [signal('file_reread', { wasteUsd: 0.5 })] })], '')
-    assert.match(a.evidence, /Detected in 1 of 1 session \(100%\)/)
+    assert.match(a.evidence, /Detected in 1 of 1 trace \(100%\)/)
     assert.strictEqual(a.estimatedUsd, 0.5)
   })
 

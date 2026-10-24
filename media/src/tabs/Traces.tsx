@@ -473,7 +473,7 @@ export function Traces() {
     <div id="summary-traces-content">
       <div class="tab-stats">
         <div><strong class="tab-stat-val">{sessionsToShow.length}</strong> traces</div>
-        <div><strong class="tab-stat-val">{totalLlmCalls}</strong> LLM calls</div>
+        <div><strong class="tab-stat-val">{totalLlmCalls}</strong> turns</div>
         <div><strong class="tab-stat-val">{totalToolCalls}</strong> tool calls</div>
         <div><strong class="tab-stat-val">{formatCompact(totalTokens)}</strong> tokens</div>
       </div>

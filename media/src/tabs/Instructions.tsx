@@ -386,7 +386,7 @@ function ConfidenceBar({ postCount }: { postCount: number }) {
           <div key={i} style={`width:14px;height:4px;border-radius:2px;background:${i < filled ? '#4fc3f7' : 'var(--border)'}`} />
         ))}
       </div>
-      <span style="font-size:10px;color:var(--muted)">{label} ({postCount} post sessions)</span>
+      <span style="font-size:10px;color:var(--muted)">{label} ({postCount} traces since)</span>
     </div>
   )
 }

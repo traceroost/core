@@ -323,7 +323,7 @@ function render() {
     statusText.style.color = isActive ? 'var(--vscode-foreground)' : 'var(--vscode-descriptionForeground)'
   }
   const sessionLabel = document.getElementById('sb-session-label')
-  if (sessionLabel) sessionLabel.textContent = isActive ? 'current session' : ''
+  if (sessionLabel) sessionLabel.textContent = isActive ? 'current trace' : ''
   if (agoEl) agoEl.textContent = isActive ? '' : (lastActivityMs ? fmtAgo(lastActivityMs) : '')
 
   // Current session block

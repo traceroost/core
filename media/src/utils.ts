@@ -215,7 +215,7 @@ export const INITIATOR_COLORS = { all: 'var(--fg)', user: '#4a90d9', agent: '#90
 // name/description split (not one sentence) so the tooltip can state the value first, as a bold
 // heading, then what it means — matching the Signals column's tooltip format.
 const DATA_SOURCE_TOOLTIP = {
-  otel: { name: 'OTEL', description: 'Full telemetry: timing, speed, TTFT, loop signals' },
+  otel: { name: 'OTel', description: 'Full telemetry: timing, speed, TTFT, loop signals' },
   log:  { name: 'Log',  description: 'Conversation logs: tokens, tool calls, messages (no timing or speed data)' },
 }
 

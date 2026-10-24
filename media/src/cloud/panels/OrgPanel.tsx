@@ -309,7 +309,7 @@ function ReconcileButton({ queueDepth }: { queueDepth: number }) {
             // everything made it. Clicking still nudges the scheduler to retry them now (see
             // reconcileLocalSessions), but a persistently failing item (see the Status row above)
             // needs its own send fixed, not another click here.
-            : queueDepth > 0 ? `No new sessions found — ${queueDepth} already-queued trace(s) will retry shortly.`
+            : queueDepth > 0 ? `No new traces found — ${queueDepth} already-queued trace(s) will retry shortly.`
             : 'Everything is already sent.'}
         </span>
       )}
@@ -442,7 +442,7 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
           <li>An admin sees your individual figures; other members see only what your org's teammate-visibility settings allow</li>
           <li>Opt-in and off by default; nothing is sent until you link</li>
           <li>Reversible any time — unlinking deletes the local credential and stops sending immediately, even offline</li>
-          <li>Works offline — sessions queue locally and send automatically once you're back</li>
+          <li>Works offline — traces queue locally and send automatically once you're back</li>
         </ul>
       </Section>
       <Section title="Data privacy">

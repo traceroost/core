@@ -232,7 +232,7 @@ function ActionLogPanel() {
         >×</button>
       </div>
       {entries.length === 0
-        ? <div style="padding:14px;font-size:11px;color:var(--muted)">Nothing has run yet this session.</div>
+        ? <div style="padding:14px;font-size:11px;color:var(--muted)">Nothing has run yet since TraceRoost started.</div>
         : [...entries].reverse().map(e => <ActionLogRow key={e.id} entry={e} />)}
     </div>
   )
@@ -1010,7 +1010,7 @@ function CollectorConflictBanner() {
           <>
             <strong>Not receiving OTel</strong> — the background service already holds port <code>{port}</code>.
             <ul style="margin:2px 0 0;padding-left:16px">
-              <li>New sessions here come from log files only (no prompt/tool content).</li>
+              <li>New traces here come from log files only (no prompt/tool content).</li>
               <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command), or with Homebrew: <code>brew install traceroost/tap/traceroost</code> then <code>traceroost service install</code>.</li>
               <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension {extensionId}</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
             </ul>
@@ -1572,7 +1572,7 @@ function FilterActionsBar() {
 
 const DATA_SOURCE_FILTER_OPTIONS: Array<{ value: DataSourceFilter; label: string; color: string }> = [
   { value: 'all',  label: 'All',  color: DATA_SOURCE_COLORS.all },
-  { value: 'otel', label: 'OTEL', color: DATA_SOURCE_COLORS.otel },
+  { value: 'otel', label: 'OTel', color: DATA_SOURCE_COLORS.otel },
   { value: 'log',  label: 'Log',  color: DATA_SOURCE_COLORS.log },
 ]
 

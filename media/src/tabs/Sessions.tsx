@@ -447,7 +447,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
                     <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">OpenCode SQLite trace</span>
                     {' — '}
-                    Token counts, tools, and files sourced from OpenCode&apos;s local database. OTEL traces and TTFT are not available for OpenCode.
+                    Token counts, tools, and files sourced from OpenCode&apos;s local database. OTel traces and TTFT are not available for OpenCode.
                   </div>
                 )
               }
@@ -460,7 +460,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
                     <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">Cursor CLI trace</span>
                     {' — '}
-                    Token counts, cost, and model name aren&apos;t recorded anywhere on disk by cursor-agent, so they show as unpriced/unknown here rather than a guess. Session start/end times fall back to the transcript file&apos;s own timestamps. There is no OTEL path for Cursor CLI to enable instead.
+                    Token counts, cost, and model name aren&apos;t recorded anywhere on disk by cursor-agent, so they show as unpriced/unknown here rather than a guess. Session start/end times fall back to the transcript file&apos;s own timestamps. There is no OTel path for Cursor CLI to enable instead.
                   </div>
                 )
               }
@@ -474,7 +474,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   {' — '}
                   {parts.join(', ')} not available from local logs.{' '}
                   <button type="button" class="link-btn" onClick={() => goToHelp('help-config')}>
-                    Enable OTEL ingestion
+                    Enable OTel ingestion
                   </button>{' '}for full telemetry.
                 </div>
               )
@@ -488,7 +488,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
             }
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;margin-bottom:10px">
               {[
-                { k: 'LLM calls',  v: String(sess.totalLlmCalls) },
+                { k: 'Turns',      v: String(sess.totalLlmCalls) },
                 { k: 'Language',   v: sessionLanguageText(sess) },
                 ...(sess.filesChangedCount !== undefined ? [{ k: 'Files changed', v: String(sess.filesChangedCount) }] : []),
                 ...(sess.linesAdded !== undefined && sess.linesRemoved !== undefined ? [{ k: 'Lines +/−', v: `+${formatCompact(sess.linesAdded)} / −${formatCompact(sess.linesRemoved)}` }] : []),

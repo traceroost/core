@@ -76,7 +76,7 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
         <span style="font-size:11px;color:var(--muted);margin-left:auto">{s.sessions} trace{s.sessions !== 1 ? 's' : ''}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
-        <div><span style="color:var(--muted)">LLM calls</span> <strong>{s.totalLlm}</strong></div>
+        <div><span style="color:var(--muted)">Turns</span> <strong>{s.totalLlm}</strong></div>
         <div><span style="color:var(--muted)">Tool calls</span> <strong>{s.totalTools}</strong></div>
         <div><span style="color:var(--muted)">Input tokens</span> <strong>{hasTokens ? formatCompact(s.totalInput) : '—'}</strong></div>
         <div><span style="color:var(--muted)">Output tokens</span> <strong>{hasTokens ? formatCompact(s.totalOutput) : '—'}</strong></div>

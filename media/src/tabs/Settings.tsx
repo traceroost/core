@@ -9,7 +9,7 @@ function sendConfig(key: string, value: boolean) {
   }
 }
 
-const CLEAR_ALL_CONFIRM_TEXT = 'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).'
+const CLEAR_ALL_CONFIRM_TEXT = 'Clear all TraceRoost data? OTel trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).'
 
 export function sendConfirmClear() {
   if (vscode) {
@@ -225,7 +225,7 @@ export function IngestionToggles() {
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:6px">Data Ingestion</div>
       <ToggleRow
-        label="Accept OTEL spans"
+        label="Accept OTel spans"
         description={`Server stays running on port ${port}; turning this off silently drops incoming data.`}
         checked={otelOn}
         onChange={v => sendConfig('enableOtelIngestion', v)}
