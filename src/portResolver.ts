@@ -27,6 +27,10 @@ export interface ResolvedPorts {
    *  to read stale: `service status` only uses this record to decide what to print/probe, never
    *  to decide liveness on its own. */
   pid: number
+  /** The data directory that process serves (absolute) — its `server.lock` is there. Usually
+   *  config.json's dataDir, but a DATA_DIR override moves it, so readers that look for the lock
+   *  (src/serviceOwnership.ts) look here too. Absent from records older servers wrote. */
+  dataDir?: string
 }
 
 /** How far past the requested port to scan before giving up. Matches the doc's "+1 through +20". */
@@ -185,23 +189,38 @@ export async function listenWithFallback(
 // way — used both when the VS Code extension's own collector loses a bind race (extension.ts) and
 // when the standalone/service path falls back to a different port (standalone/server.ts).
 
-function probePort(port: number, probePath: string): Promise<boolean> {
+/** The identity reply on `port` at `probePath` — a JSON object with `traceroost: true` — or
+ *  undefined when nothing TraceRoost answers there. */
+function probeIdentity(port: number, probePath: string): Promise<Record<string, unknown> | undefined> {
   return new Promise((resolve) => {
     const req = http.get(`http://127.0.0.1:${port}${probePath}`, (res) => {
       const chunks: Buffer[] = []
       res.on('data', (chunk: Buffer) => chunks.push(chunk))
       res.on('end', () => {
         try {
-          const json = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>
-          resolve(json.traceroost === true)
+          const json = JSON.parse(Buffer.concat(chunks).toString()) as unknown
+          const ok = !!json && typeof json === 'object' && (json as Record<string, unknown>).traceroost === true
+          resolve(ok ? json as Record<string, unknown> : undefined)
         } catch {
-          resolve(false)
+          resolve(undefined)
         }
       })
     })
-    req.on('error', () => resolve(false))
-    req.setTimeout(1000, () => { req.destroy(); resolve(false) })
+    req.on('error', () => resolve(undefined))
+    req.setTimeout(1000, () => { req.destroy(); resolve(undefined) })
   })
+}
+
+function probePort(port: number, probePath: string): Promise<boolean> {
+  return probeIdentity(port, probePath).then(identity => identity !== undefined)
+}
+
+/** What a standalone server on `port` says about itself (`GET /traceroost/standalone`):
+ *  `{ traceroost: true, kind: 'standalone', managesAgentSetup, docker }`, or undefined when no
+ *  standalone server answers. `managesAgentSetup` is false where setting agents up from that
+ *  server would not reach this machine's agents (Docker); older servers leave it out. */
+export function standaloneIdentity(port: number): Promise<Record<string, unknown> | undefined> {
+  return probeIdentity(port, '/traceroost/standalone')
 }
 
 export async function detectPortOwner(port: number): Promise<'plugin' | 'standalone' | 'foreign'> {

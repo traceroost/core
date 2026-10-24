@@ -22,6 +22,9 @@ export function commandUsage(command: 'find' | 'patterns' | 'cohort', cloud: boo
   }
 }
 
+/** `traceroost agents` (standalone/agentsCli.ts), which prints it on bad arguments too. */
+export const AGENTS_USAGE = 'traceroost agents <setup|remove> [--otlp-port <port>]'
+
 /** Whether this build is the full edition. A literal `process.env.TRACEROOST_EDITION` check
  *  (esbuild.js defines it); unit tests run against the sources, i.e. the full edition. */
 export function isCloudEdition(): boolean {
@@ -37,6 +40,8 @@ function commandEntries(cloud: boolean): UsageEntry[] {
       description: 'Start TraceRoost here — see "Bare run" below.' },
     { usage: 'traceroost service <install|uninstall|start|stop|restart|status|logs|update>',
       description: 'Run TraceRoost as a background service that starts at login; `install` also updates it.' },
+    { usage: AGENTS_USAGE,
+      description: 'Set up Claude Code, Codex and Copilot to send traces here, or remove only what TraceRoost added.' },
     { usage: commandUsage('find', cloud),
       description: 'Look up a trace or repository and print what this machine recorded for it.' },
     { usage: 'traceroost trace --id <sessionId>',
@@ -95,7 +100,7 @@ export function usageText(cloud: boolean): string {
     '',
     'Bare run: `traceroost` with no command starts the dashboard (and opens it in your browser), the',
     'OTLP receiver your agents send live traces to, and the MCP server. Past history appears right',
-    "away from your agents' log files. It asks once before it changes any agent's settings — here in",
+    "away from your agents' log files. It asks before it changes any agent's settings — here in",
     'the terminal, or in the dashboard when there is no terminal. Options:',
     ...Object.entries(SERVER_FLAGS).map(([flag, f]) => {
       const left = f.value === 'none' ? flag : `${flag} <${f.value}>`

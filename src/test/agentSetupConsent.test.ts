@@ -2,8 +2,8 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { agentSetupWaitingLine, leftAloneMessage, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer } from '../agentSetupConsent'
-import { AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_QUESTION } from '../agentSetupText'
+import { AGENT_SETUP_TERMINAL_PROMPT, agentSetupWaitingLine, leftAloneMessage, parseAgentSetupInput, readAgentSetupAnswer, writeAgentSetupAnswer } from '../agentSetupConsent'
+import { AGENT_SETUP_DECLINED, AGENT_SETUP_DONT, AGENT_SETUP_EXPLANATION, AGENT_SETUP_NOT_NOW, AGENT_SETUP_QUESTION } from '../agentSetupText'
 import { readServiceConfig, writeServiceConfig, defaultServiceConfig } from '../serviceConfig'
 
 suite('agentSetupConsent', () => {
@@ -32,14 +32,18 @@ suite('agentSetupConsent', () => {
     assert.strictEqual(readAgentSetupAnswer(home), undefined)
   })
 
-  test('only y or yes is a yes', () => {
-    for (const yes of ['y', 'Y', 'yes', ' YES ']) assert.strictEqual(parseYesNo(yes), 'yes', yes)
-    for (const no of ['', 'n', 'no', 'yep', 'sure']) assert.strictEqual(parseYesNo(no), 'no', no)
+  test('terminal: y is a yes, "never" is don\'t set up, Enter or anything else is not now', () => {
+    for (const yes of ['y', 'Y', 'yes', ' YES ']) assert.strictEqual(parseAgentSetupInput(yes), 'yes', yes)
+    for (const no of ['never', 'NEVER', ' never ']) assert.strictEqual(parseAgentSetupInput(no), 'no', no)
+    for (const notNow of ['', '   ', 'n', 'no', 'yep', 'later']) assert.strictEqual(parseAgentSetupInput(notNow), undefined, notNow)
+    assert.match(AGENT_SETUP_TERMINAL_PROMPT, /y = yes, Enter = not now, "never" = don't set up/)
   })
 
-  test('confirming a no: Enter or yes keeps it, only n or no takes it back', () => {
-    for (const keep of ['', 'y', 'Y', 'yes', 'whatever']) assert.strictEqual(parseSkipConfirmation(keep), 'no', keep)
-    for (const back of ['n', 'N', 'no', ' NO ']) assert.strictEqual(parseSkipConfirmation(back), 'yes', back)
+  test('"Not now" records nothing, so the question comes back; the stored values stay yes/no', () => {
+    assert.strictEqual(parseAgentSetupInput(''), undefined)
+    assert.strictEqual(readAgentSetupAnswer(home), undefined)
+    assert.match(AGENT_SETUP_EXPLANATION, new RegExp(`${AGENT_SETUP_NOT_NOW} asks again next time; ${AGENT_SETUP_DONT} stops asking`))
+    assert.match(AGENT_SETUP_DECLINED, /only sees what their log files record/)
   })
 
   test('the dashboard shows the same words as VS Code and the terminal', () => {
@@ -62,10 +66,9 @@ suite('agentSetupConsent', () => {
     assert.match(several, /their traces/)
   })
 
-  test('the terminal re-prompt names whichever question is waiting', () => {
-    assert.ok(agentSetupWaitingLine('setup').includes(AGENT_SETUP_QUESTION))
-    assert.ok(!agentSetupWaitingLine('setup').includes(AGENT_SETUP_SKIP_QUESTION))
-    assert.ok(agentSetupWaitingLine('skip').includes(AGENT_SETUP_SKIP_QUESTION))
-    assert.ok(!agentSetupWaitingLine('skip').includes(AGENT_SETUP_QUESTION))
+  test('the terminal re-prompt repeats the question and its three answers', () => {
+    const line = agentSetupWaitingLine()
+    assert.ok(line.includes(AGENT_SETUP_QUESTION))
+    assert.match(line, /y = yes, Enter = not now, "never" = don't set up/)
   })
 })

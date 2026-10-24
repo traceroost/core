@@ -78,7 +78,7 @@ suite('cli usageText', () => {
         assert.ok(text.includes(env), `Environment lists ${env}`)
       }
       assert.match(text, /opens it in your browser/)
-      assert.match(text, /asks once before it changes any agent's settings/)
+      assert.match(text, /asks before it changes any agent's settings/)
     }
   })
 

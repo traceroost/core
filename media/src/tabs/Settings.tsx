@@ -273,12 +273,58 @@ export function openAgentSetup(): void {
   }, 80)
 }
 
+/** POST /action on the standalone server, for Remove agent setup. */
+function removeAgentSetupAction(dryRun: boolean): Promise<{ files?: string[]; summary?: string; error?: string }> {
+  return fetch('/action', { method: 'POST', body: JSON.stringify({ type: 'removeAgentSetup', dryRun }),
+    headers: { 'Content-Type': 'application/json' } }).then(r => r.json())
+}
+
 export function OtelReconfigureButton() {
   const [running, setRunning] = useState(false)
   const result = otelReconfigureResult.value
+  // Remove agent setup: takes out only what TraceRoost added (src/agentSetupRemoval.ts). VS Code
+  // confirms and reports with its own modal and notification; the browser lists what would go
+  // (a dry run) and asks first.
+  const [removing, setRemoving] = useState(false)
+  const [removeSummary, setRemoveSummary] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!vscode) return
+    const onMessage = (e: MessageEvent) => {
+      const msg = e.data as { type?: string; summary?: string | null } | undefined
+      if (msg?.type !== 'removeAgentSetupResult') return
+      setRemoving(false)
+      if (msg.summary) setRemoveSummary(msg.summary)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  function remove() {
+    setRemoving(true)
+    setRemoveSummary(null)
+    otelReconfigureResult.value = null
+    if (vscode) {
+      vscode.postMessage({ type: 'removeAgentSetup' })
+      return
+    }
+    removeAgentSetupAction(true)
+      .then(preview => {
+        if (preview.error) { setRemoveSummary(preview.error); return }
+        const files = preview.files ?? []
+        const question = 'Remove agent setup?\n\n' + (files.length > 0
+          ? `TraceRoost will take out the settings it added in:\n${files.map(f => `• ${f}`).join('\n')}\n\nEverything else in those files stays, and so does any setting that sends to a different collector. `
+          : 'No TraceRoost agent settings were found. ') + "TraceRoost won't set up your agents again unless you choose Set up agents."
+        if (!confirm(question)) return
+        return removeAgentSetupAction(false).then(done => setRemoveSummary(done.summary ?? done.error ?? null))
+      })
+      .catch(e => setRemoveSummary(`Failed: ${String(e)}`))
+      .finally(() => setRemoving(false))
+  }
 
   function run() {
     setRunning(true)
+    setRemoveSummary(null)
     otelReconfigureResult.value = null
     if (vscode) {
       vscode.postMessage({ type: 'reconfigureOtel' })
@@ -300,17 +346,27 @@ export function OtelReconfigureButton() {
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Set up agents</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-        Sets up Claude Code, Codex and Copilot to send their activity, including prompts and tool output, to TraceRoost on this computer. Pressing it is your go-ahead: TraceRoost then keeps them pointed here each time it starts. A setting that sends to a different collector is left alone.
+        Sets up Claude Code, Codex and Copilot to send their activity, including prompts and tool output, to TraceRoost on this computer. Pressing it is your go-ahead and writes every setting again; later starts only keep TraceRoost's port in them current. A setting that sends to a different collector is left alone. Remove agent setup takes out only what TraceRoost added and stops it setting agents up.
       </div>
-      <button
-        id={AGENT_SETUP_BUTTON_ID}
-        onClick={run}
-        disabled={running}
-        style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)"
-      >
-        {running ? 'Setting up…' : 'Set up agents'}
-      </button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button
+          id={AGENT_SETUP_BUTTON_ID}
+          onClick={run}
+          disabled={running || removing}
+          style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)"
+        >
+          {running ? 'Setting up…' : 'Set up agents'}
+        </button>
+        <button
+          onClick={remove}
+          disabled={running || removing}
+          style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)"
+        >
+          {removing ? 'Removing…' : 'Remove agent setup'}
+        </button>
+      </div>
       {result && <div style="font-size:11px;color:var(--muted);margin-top:6px">{summarizeReconfigure(result)}</div>}
+      {removeSummary && <div role="status" style="font-size:11px;color:var(--muted);margin-top:6px">{removeSummary}</div>}
     </div>
   )
 }

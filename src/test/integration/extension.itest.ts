@@ -50,8 +50,11 @@ suite('TraceRoost extension (end to end)', () => {
     else assert.ok(org.length >= 3, 'full edition registers the Org commands')
   })
 
-  // run.mjs records the user's yes to agent setup in the temp home first (answerAgentSetupYes).
-  test('auto-configures Claude Code and Codex under the (temp) home directory', async () => {
+  // run.mjs records the user's yes to agent setup in the temp home first (answerAgentSetupYes), so
+  // Set Up Agents runs without its first-time question. Activation alone writes nothing new after
+  // a yes (SetupMode 'maintain'): the command is what writes the full set.
+  test('Set Up Agents configures Claude Code and Codex under the (temp) home directory', async () => {
+    await vscode.commands.executeCommand('traceRoost.setUpAgents')
     const endpoint = `http://localhost:${cfg.otlpPort}`
     const settings = await waitFor('~/.claude/settings.json', () => {
       const s = JSON.parse(fs.readFileSync(path.join(cfg.home, '.claude', 'settings.json'), 'utf8')) as { env?: Record<string, string> }

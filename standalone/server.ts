@@ -13,8 +13,9 @@ import * as path from 'path'
 import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
-import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, agentSetupWaitingLine, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer, type AgentSetupStep } from '../src/agentSetupConsent'
+import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone, type SetupMode } from '../src/autoConfigNode'
+import { changedFiles, describeRemoval, removeAgentSetupFiles } from '../src/agentSetupRemoval'
+import { AGENT_SETUP_DECLINED, AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_TERMINAL_PROMPT, agentSetupWaitingLine, parseAgentSetupInput, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer } from '../src/agentSetupConsent'
 import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
 import { OtlpIngest } from '../src/otlpIngest'
@@ -154,7 +155,7 @@ function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, boun
   if (resolvedPorts.ui !== undefined && resolvedPorts.otlp !== undefined && resolvedPorts.mcp !== undefined) {
     const record: ResolvedPorts = {
       ui: resolvedPorts.ui, otlp: resolvedPorts.otlp, mcp: resolvedPorts.mcp,
-      resolvedAt: new Date().toISOString(), pid: process.pid,
+      resolvedAt: new Date().toISOString(), pid: process.pid, dataDir: path.resolve(DATA_DIR),
     }
     try { writeResolvedPorts(record) } catch (e) { console.warn('[TraceRoost] Could not persist resolved ports:', e) }
     // So a refused second server on this data dir can name this one's dashboard.
@@ -1805,16 +1806,16 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
           res.end(JSON.stringify(result))
           return
         } else if (body.type === 'reconfigureOtel') {
-          if (AUTOCONFIG_DISABLED) {
+          if (AUTOCONFIG_DISABLED || IS_DOCKER) {
             res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: 'Auto-configure is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
+            res.end(JSON.stringify({ error: IS_DOCKER
+              ? "Running in Docker: TraceRoost can't reach your host's agent settings from here. Help → Setup lists the settings to add on your computer."
+              : 'Auto-configure is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
             return
           }
           // Pressing Set up agents is the user's yes (src/agentSetupConsent.ts).
-          if (!IS_DOCKER) {
-            writeAgentSetupAnswer('yes')
-            if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
-          }
+          writeAgentSetupAnswer('yes')
+          if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
           const [claudeCode, codex, copilotResults] = await Promise.all([
             autoConfigureClaudeCode(resolvedPorts.otlp ?? OTLP_PORT),
             autoConfigureCodex(resolvedPorts.otlp ?? OTLP_PORT),
@@ -1826,6 +1827,34 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
           }
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ claudeCode, codex, copilot }))
+          return
+        } else if (body.type === 'removeAgentSetup') {
+          // Remove agent setup (src/agentSetupRemoval.ts): `dryRun` lists what would go, for the
+          // dashboard's confirmation; a real run records the answer as no.
+          if (AUTOCONFIG_DISABLED || IS_DOCKER) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: IS_DOCKER
+              ? "Running in Docker: TraceRoost can't reach your host's agent settings from here."
+              : 'Agent setup is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
+            return
+          }
+          const dryRun = (body as { dryRun?: unknown }).dryRun === true
+          const results = await removeAgentSetupFiles({ dryRun, port: resolvedPorts.otlp ?? OTLP_PORT })
+          let summary: string | undefined
+          if (!dryRun) {
+            agentSetupQuestion?.close()
+            agentSetupQuestion = undefined
+            writeAgentSetupAnswer('no')
+            if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
+            summary = describeRemoval(results)
+            for (const r of results) {
+              if (r.warning) console.warn(`[TraceRoost] ${r.warning}`)
+              if (r.error) console.warn(`[TraceRoost] Could not remove agent setup from ${r.file}: ${r.error}`)
+            }
+            console.log(`[TraceRoost] ${summary}`)
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ results, files: changedFiles(results), summary }))
           return
         }
       } catch (e) { console.warn('[TraceRoost] Malformed /action body:', e) }
@@ -2187,7 +2216,10 @@ const otlpServer = http.createServer((req, res) => {
   // server already running before starting its own collector) — same reasoning as /health above.
   if (req.method === 'GET' && req.url === '/traceroost/standalone') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ traceroost: true, kind: 'standalone' }))
+    // managesAgentSetup: whether this server sets up this machine's agents, so a VS Code window
+    // leaves them to it (src/serviceOwnership.ts). Not in Docker, whose files are the container's,
+    // nor with TRACEROOST_NO_AUTOCONFIG=1, which refuses every agent-setup action.
+    res.end(JSON.stringify({ traceroost: true, kind: 'standalone', managesAgentSetup: !IS_DOCKER && !AUTOCONFIG_DISABLED, docker: IS_DOCKER }))
     return
   }
   if (REQUIRE_TOKEN_EVERYWHERE && !isAuthorized(req, AUTH_TOKEN)) {
@@ -2306,7 +2338,8 @@ async function startOtlpServer(): Promise<void> {
     // Only with the user's yes, asked once (src/agentSetupConsent.ts).
     const answer = readAgentSetupAnswer()
     if (answer === 'yes') {
-      void runAgentSetup(bound)
+      // A start after the yes only keeps the port current; a setting the user removed stays removed.
+      void runAgentSetup(bound, 'maintain')
     } else if (answer === undefined) {
       if (process.env.TRACEROOST_SERVICE !== '1' && process.stdin.isTTY && process.stdout.isTTY) {
         askAgentSetupInTerminal(bound)
@@ -2318,13 +2351,14 @@ async function startOtlpServer(): Promise<void> {
   }
 }
 
-/** Points the coding agents at this collector (only ever after a yes) and logs what changed. */
-async function runAgentSetup(port: number): Promise<void> {
+/** Points the coding agents at this collector (only ever after a yes) and logs what changed.
+ *  `mode` (src/autoConfigNode.ts): 'full' for a yes given now, 'maintain' on a later start. */
+async function runAgentSetup(port: number, mode: SetupMode): Promise<void> {
   try {
     const [claudeResult, codexResult, copilotResults] = await Promise.all([
-      autoConfigureClaudeCode(port),
-      autoConfigureCodex(port),
-      autoConfigureCopilotStandalone(port),
+      autoConfigureClaudeCode(port, mode),
+      autoConfigureCodex(port, mode),
+      autoConfigureCopilotStandalone(port, mode),
     ])
     for (const { level, text } of autoConfigLogLines(claudeResult, codexResult, copilotResults)) console[level](text)
   } catch (e) {
@@ -2332,10 +2366,8 @@ async function runAgentSetup(port: number): Promise<void> {
   }
 }
 
-// The terminal question while it waits — closed when the dashboard answers first — and which of
-// its two questions is showing, so the re-prompt names the right one.
+// The terminal question while it waits — closed when the dashboard answers first.
 let agentSetupQuestion: readline.Interface | undefined
-let agentSetupStep: AgentSetupStep = 'setup'
 
 /** Records the user's answer, from the terminal or the dashboard, and acts on it. */
 function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void> {
@@ -2345,10 +2377,10 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
   agentSetupPending = false
   broadcastSse({ type: 'update', agentSetupPending })
   if (answer === 'no') {
-    console.log("[TraceRoost] Agents not set up — set them up from the dashboard's ⚙ Settings panel when you want to.")
+    console.log(`[TraceRoost] ${AGENT_SETUP_DECLINED}`)
     return Promise.resolve()
   }
-  return runAgentSetup(port)
+  return runAgentSetup(port, 'full')
 }
 
 /** The startup lines printed after the terminal question (the dashboard URL, the log-history
@@ -2357,7 +2389,7 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
 function repromptAgentSetup(): void {
   const rl = agentSetupQuestion
   if (!rl) return
-  console.log(`\n${agentSetupWaitingLine(agentSetupStep)}`)
+  console.log(`\n${agentSetupWaitingLine()}`)
   rl.prompt(true)
 }
 
@@ -2366,18 +2398,19 @@ function askAgentSetupInTerminal(port: number): void {
   agentSetupPending = true
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   agentSetupQuestion = rl
-  agentSetupStep = 'setup'
-  // Each question and its explanation are printed once; only the short "[y/N]" / "[Y/n]" line is
-  // the readline prompt, so repromptAgentSetup can show it again below the startup lines that follow.
+  // The question and its explanation are printed once; only the short prompt line is the readline
+  // prompt, so repromptAgentSetup can show it again below the startup lines that follow.
   console.log(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}`)
-  rl.question('Set up agents? [y/N] ', input => {
-    if (parseYesNo(input) === 'yes') { void answerAgentSetup('yes', port); return }
-    // A no is asked once more, with what skipping costs; Enter keeps the no.
-    agentSetupStep = 'skip'
-    console.log(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`)
-    rl.question('Skip setup? [Y/n] ', again => {
-      void answerAgentSetup(parseSkipConfirmation(again), port)
-    })
+  rl.question(AGENT_SETUP_TERMINAL_PROMPT, input => {
+    const answer = parseAgentSetupInput(input)
+    if (answer) { void answerAgentSetup(answer, port); return }
+    // Not now: nothing is recorded, so the next start asks again. This run stops asking — the
+    // dashboard banner included — and Settings → Set up agents is there in the meantime.
+    agentSetupQuestion = undefined
+    rl.close()
+    agentSetupPending = false
+    broadcastSse({ type: 'update', agentSetupPending })
+    console.log("[TraceRoost] Not now — TraceRoost will ask again next time it starts. To set them up sooner, use Set up agents in the dashboard's ⚙ Settings panel.")
   })
   // readline swallows Ctrl-C while it waits; pass it on so the server still stops as usual.
   rl.on('SIGINT', () => { rl.close(); process.kill(process.pid, 'SIGINT') })

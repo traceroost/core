@@ -114,7 +114,10 @@ async function serverRoundTrip(inst, edition) {
     const ports = JSON.parse(fs.readFileSync(path.join(dataDir, 'ports.json'), 'utf8'))
     assertEqual(`${ports.ui}/${ports.otlp}/${ports.mcp}`, `${ui}/${otlp}/${mcp}`, 'ports.json records the ports actually bound')
 
-    // Auto-config pointed Claude Code and Codex at this server (under the temp home).
+    // Set up agents (the Settings button) pointed Claude Code and Codex at this server, under the
+    // temp home. The recorded yes alone no longer does: a start after a yes only keeps an existing
+    // TraceRoost endpoint current (SetupMode 'maintain', src/autoConfigNode.ts).
+    assertEqual((await request('POST', `${base}/action`, { body: { type: 'reconfigureOtel' } })).status, 200, 'Set up agents answers')
     await waitFor('auto-config to write ~/.claude/settings.json', () => {
       const s = JSON.parse(fs.readFileSync(path.join(home.home, '.claude', 'settings.json'), 'utf8'))
       return s.env?.OTEL_EXPORTER_OTLP_ENDPOINT === `http://localhost:${otlp}`

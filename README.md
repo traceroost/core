@@ -27,7 +27,7 @@ Two things it does that a usage dashboard doesn't:
 | **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
 | **Terminal** (Node.js 24+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:3000> |
 
-Each one asks once before it sets your agents up. History appears immediately; restart your agents for live traces.
+Each one asks before it sets your agents up. History appears immediately; restart your agents for live traces.
 
 **Keep it running** (terminal installs). A terminal run stops when you close the terminal — and if TraceRoost isn't running when an agent sends OTel data, that data has nowhere to go and is lost, no retry. Install it as a background service that starts at login instead (the recommended way to run it from a terminal):
 
@@ -79,7 +79,7 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
 
 ## Features
 
-- **OpenTelemetry collection** — Built-in OTel receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; TraceRoost asks once before setting your agents up, then keeps them pointed at it
+- **OpenTelemetry collection** — Built-in OTel receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; TraceRoost asks before setting your agents up, then keeps its port in their settings current
 - **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, and Cursor CLI, and OpenCode's SQLite database — backfilling history when OTel isn't configured (VS Code-family IDEs and native process only)
 - **Traces Table** — Drill into any trace: expand a row to see a full span waterfall, turn-to-tool flow graph, tool distribution chart, and modified files — all without leaving the trace list. Filter by agent, language, repo, git outcome, data source, initiator, time range or text; the agent pills and language list offer only what your traces contain, and changing the sort returns to page 1
 - **Files Changed** — The Files sub-tab tracks every file created or modified by a trace, organized with inline before/after diffs. A git-outcome banner then classifies each file as Merged (reached the trunk branch), Committed, or still Uncommitted by comparing against local git history after the fact — answers "did this trace's changes actually survive?" The same verdict drives the Traces table's **Out** column and Outcome filter (VS Code extension and native process; not available in Docker mode — same host git-repo access limitation as log file ingestion)
@@ -408,10 +408,12 @@ Trace history stored under the old `~/.agentlens` directory is not migrated auto
 
 The VS Code extension and the standalone (`npx`) server both offer to set up Copilot, Claude Code, and Codex, so you shouldn't need any of this by default. It's here for when you do:
 
-- **It asks first, once** — before TraceRoost changes any agent's settings, it asks: a notification in VS Code, a yes/no question in the terminal (`traceroost`, `traceroost service install`), or a banner in the dashboard when it runs as a background service. Saying yes lets it edit `~/.claude/settings.json`, `~/.codex/config.toml` and your editors' Copilot settings so the agents send their activity — including prompts and tool output — to TraceRoost on this computer. Saying no asks once more, with what skipping costs — without setup the agents send no live traces, so TraceRoost sees only what their log files record. The answer is kept in `~/.traceroost/config.json` (`agentSetup`) and shared by every TraceRoost on the machine; **Set up agents** in Settings counts as a yes.
+- **It asks first** — before TraceRoost changes any agent's settings, it asks: a notification in VS Code, a question in the terminal (`traceroost`, `traceroost service install`), or a banner in the dashboard when it runs as a background service. Each offers **Set up agents**, **Not now** and **Don't set up** (in the terminal: `y`, Enter, or `never`). **Set up agents** lets it edit `~/.claude/settings.json`, `~/.codex/config.toml` and your editors' Copilot settings so the agents send their activity — including prompts and tool output — to TraceRoost on this computer. **Not now** records nothing, so it asks again the next time it starts. **Don't set up** stops asking — without setup the agents send no live traces, so TraceRoost sees only what their log files record. A yes or a don't-set-up is kept in `~/.traceroost/config.json` (`agentSetup`: `yes` / `no`) and shared by every TraceRoost on the machine; **Set up agents** in Settings counts as a yes, **Remove agent setup** as a no.
 - **It never takes over your own collector** — a settings file that already sends OpenTelemetry somewhere other than localhost is left exactly as it is.
-- **It's idempotent and quiet** — only rewrites a config file when something's actually missing or different, and only notifies (once, in a VS Code notification and the Output panel) when it changes something. Disable it entirely with the `traceRoost.autoConfigureAgents` setting.
-- **Changed an agent's OTel settings by hand?** Use the **Set up agents** button in the Settings panel (gear icon) to reapply TraceRoost's values immediately, instead of waiting for the next restart.
+- **After the yes, starts only keep the port current** — each later start updates TraceRoost's own endpoint (`http://localhost:<port>`) when it is still there and the port moved, and nothing else: a setting you removed, such as `OTEL_LOG_USER_PROMPTS`, stays removed, and nothing missing is added back. It only notifies (in a VS Code notification and the Output panel) when it changes something. Disable even that with the `traceRoost.autoConfigureAgents` setting.
+- **Changed an agent's OTel settings by hand?** Use the **Set up agents** button in the Settings panel (gear icon), or `TraceRoost: Set Up Agents…`, to write TraceRoost's full set of values again — starts never do that on their own.
+- **The background service always wins** — while a standalone TraceRoost runs on this machine (the background service, `traceroost` in a terminal, or the desktop app), the VS Code extension never changes agent settings itself, not even on startup, so the two never fight over which port the agents send to. Its `Set Up Agents…` and `Remove Agent Setup…` commands ask the service to do it instead (or, if it can't answer, point you at the service's dashboard).
+- **Undo it any time** — **Remove agent setup** in Settings, `TraceRoost: Remove Agent Setup…` or `traceroost agents remove` takes out only what TraceRoost added (see [Uninstall](#uninstall)) and records a no. `traceroost agents setup` is the terminal's **Set up agents**.
 - **Docker doesn't set up your host agents** — inside the container it could only reach the container's own files, so it doesn't offer. Use the setup scripts below, or the manual steps per agent.
 - Replace `4318` below with your custom port if you changed `traceRoost.otlpPort`.
 
@@ -760,7 +762,12 @@ did, delete that data directory too: it holds the trace database, the service's 
 instead.
 
 **Remove what auto-configuration wrote into your agents** (skip this if you turned
-auto-configuration off). TraceRoost added or updated the keys below. In Claude Code's
+auto-configuration off). Do this *before* removing TraceRoost: `TraceRoost: Remove Agent Setup…` in
+VS Code, **Remove agent setup** in the dashboard's ⚙ Settings panel, or `traceroost agents remove` in
+a terminal takes out exactly the keys below — only where they still hold TraceRoost's values, in a
+file whose endpoint is TraceRoost's own (`http://localhost:<port>`) — leaves everything else in the
+files, and records your answer as no so nothing sets the agents up again. Each says which files it
+changed. To do it by hand: TraceRoost added or updated the keys below. In Claude Code's
 `settings.json` it also *removed* four older keys from `"env"` — `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`,
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_SEMCONV_STABILITY_OPT_IN` and
 `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` — and a `Stop` hook that earlier versions
@@ -818,7 +825,8 @@ Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for
 | Command | Description |
 | ------- | ----------- |
 | `TraceRoost: Open Dashboard` | Open the full dashboard in an editor panel |
-| `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Skip setup**, or to re-apply the settings now. Running it counts as your yes |
+| `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Don't set up**, or to write them all again the settings now. Running it counts as your yes |
+| `TraceRoost: Remove Agent Setup…` | Take out only the settings TraceRoost added to Claude Code, Codex and Copilot (listed in a confirmation first), and stop setting agents up. Settings that send to a different collector are left alone. Same as `traceroost agents remove` |
 | `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The **Export** dashboard tab exports per-trace summaries instead |
 | `TraceRoost: Export Live OTel Spans, Redacted (debug)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
 | `TraceRoost: Show Storage Stats` | Report local database size, blob storage size, trace count, date range, and current retention setting to the Output panel |
@@ -833,7 +841,7 @@ The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Mac
 | `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver (1024–65535) |
 | `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTel span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
 | `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI. Disable if you only want OTel data. |
-| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep their OTel settings pointed at TraceRoost each time it starts. Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Set up agents** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
+| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep TraceRoost's port in their OTel settings current each time it starts (a setting you removed stays removed). Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Set up agents** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
 | `traceRoost.enableMcpServer` | `true` | Start the TraceRoost MCP server so Claude Code and other MCP-compatible agents can query your trace history. |
 | `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (1024–65535; when `traceRoost.enableMcpServer` is true) |
 | `traceRoost.sessionRetentionDays` | `90` | How many days to keep trace history in the local database (pruned on activation and every 24 hours) |
