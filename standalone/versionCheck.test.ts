@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { updateCheckDisabled, startVersionCheckLoop, getCachedVersionCheck, updateAdvice, DESKTOP_RELEASES_URL } from './versionCheck'
+import { updateCheckDisabled, startVersionCheckLoop, getCachedVersionCheck, updateAdvice, DESKTOP_RELEASES_URL, npxCachedCopyNotice } from './versionCheck'
 
 suite('versionCheck', () => {
   const realFetch = globalThis.fetch
@@ -40,10 +40,28 @@ suite('versionCheck', () => {
     process.env.TRACEROOST_NO_UPDATE_CHECK = '1'
     let called = false
     globalThis.fetch = (() => { called = true; throw new Error('must not fetch') }) as typeof fetch
-    startVersionCheckLoop('1.2.3')
+    const first = startVersionCheckLoop('1.2.3')
     assert.strictEqual(called, false)
     const r = getCachedVersionCheck('1.2.3')
     assert.strictEqual(r.currentVersion, '1.2.3')
     assert.strictEqual(r.updateAvailable, false)
+    return first.then(result => assert.strictEqual(result, null))
+  })
+
+  test('npxCachedCopyNotice: only when this copy is behind, or when that is unknown', () => {
+    const base = { currentVersion: '1.2.3', checkedAt: 'now', error: null }
+    assert.strictEqual(npxCachedCopyNotice({ ...base, latestVersion: '1.2.3', updateAvailable: false }), null)
+    assert.match(npxCachedCopyNotice({ ...base, latestVersion: '1.3.0', updateAvailable: true }) ?? '', /this is v1\.2\.3, but v1\.3\.0 is out.*npx traceroost@latest/)
+    // No answer — disabled, or npm unreachable — keeps the general reminder.
+    assert.match(npxCachedCopyNotice(null) ?? '', /npx served a cached copy/)
+    assert.match(npxCachedCopyNotice({ ...base, latestVersion: null, updateAvailable: false, error: 'offline' }) ?? '', /npx served a cached copy/)
+  })
+
+  test('the first check resolves with its result', async () => {
+    delete process.env.TRACEROOST_NO_UPDATE_CHECK
+    globalThis.fetch = (async () => new Response(JSON.stringify({ version: '9.9.9' }), { status: 200 })) as typeof fetch
+    const result = await startVersionCheckLoop('1.2.3', 'traceroost-test-pkg')
+    assert.strictEqual(result?.latestVersion, '9.9.9')
+    assert.strictEqual(result?.updateAvailable, true)
   })
 })

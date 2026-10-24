@@ -85,17 +85,32 @@ export function updateCheckDisabled(env: NodeJS.ProcessEnv = process.env): boole
   return v === '1' || v === 'true'
 }
 
-/** Starts a background check now (fire-and-forget) and re-checks every `REFRESH_INTERVAL_MS` for
- *  as long as the process lives. Call once, near server startup. Does nothing beyond recording
- *  the current version when `updateCheckDisabled()` — no fetch, no timer. */
-export function startVersionCheckLoop(currentVersion: string, packageName = 'traceroost'): void {
+/** Starts a background check now and re-checks every `REFRESH_INTERVAL_MS` for as long as the
+ *  process lives. Call once, near server startup. Does nothing beyond recording the current version
+ *  when `updateCheckDisabled()` — no fetch, no timer. Resolves with the first check's result once
+ *  it's in (null when disabled), for a caller that wants to act on it; nothing needs to await it. */
+export function startVersionCheckLoop(currentVersion: string, packageName = 'traceroost'): Promise<VersionCheckResult | null> {
   cache = { ...cache, currentVersion }
-  if (updateCheckDisabled()) { return }
-  void refresh(currentVersion, packageName)
+  if (updateCheckDisabled()) { return Promise.resolve(null) }
+  const first = refresh(currentVersion, packageName).then(() => getCachedVersionCheck(currentVersion))
   setInterval(() => {
     if (Date.now() - lastAttemptAt < REFRESH_INTERVAL_MS) { return }
     void refresh(currentVersion, packageName)
   }, REFRESH_INTERVAL_MS).unref()
+  return first
+}
+
+/** What to print when launched through npx, which can serve a stale cached copy. With the first
+ *  version check's answer (the check the server makes anyway — no extra request), only when this
+ *  copy really is older than npm's latest; with no answer (check disabled, or npm unreachable),
+ *  the general reminder, since a stale copy can't be ruled out. */
+export function npxCachedCopyNotice(result: VersionCheckResult | null): string | null {
+  if (result && result.latestVersion !== null) {
+    return result.updateAvailable
+      ? `[TraceRoost] Launched via npx, which served a cached copy: this is v${result.currentVersion}, but v${result.latestVersion} is out. Re-run as \`npx traceroost@latest\` (or clear npx's cache with \`rm -rf ~/.npm/_npx\`).`
+      : null
+  }
+  return '[TraceRoost] Launched via npx — if this isn\'t the version you expect, npx served a cached copy. Re-run as `npx traceroost@latest` (or clear it with `rm -rf ~/.npm/_npx`).'
 }
 
 /** Where the desktop app's new builds are published (README's Desktop app section links here too). */

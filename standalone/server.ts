@@ -38,7 +38,7 @@ import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, writeServiceConfig, configuredPorts, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
-import { startVersionCheckLoop, getCachedVersionCheck, updateAdvice } from './versionCheck'
+import { startVersionCheckLoop, getCachedVersionCheck, updateAdvice, npxCachedCopyNotice, type VersionCheckResult } from './versionCheck'
 import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
@@ -175,6 +175,7 @@ const parsedMaxSpans = parseInt(process.env.TRACEROOST_MAX_SPANS ?? '', 10)
 const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxSpans
 
 const PACKAGE_VERSION: string = readPackageManifest(__dirname).version ?? 'unknown'
+let firstVersionCheck: Promise<VersionCheckResult | null> = Promise.resolve(null)
 if (PACKAGE_VERSION === 'unknown') {
   console.warn('[TraceRoost] Could not read package.json to determine the running version — is package.json missing from this install?')
 } else {
@@ -182,12 +183,16 @@ if (PACKAGE_VERSION === 'unknown') {
   // The Sessions tab footer shows this version, but a bare `npx traceroost`/long-running
   // service can go stale silently — startVersionCheckLoop compares it against npm in the
   // background so the dashboard can surface an "update available" notice (/api/version-check).
-  startVersionCheckLoop(PACKAGE_VERSION)
+  firstVersionCheck = startVersionCheckLoop(PACKAGE_VERSION)
 }
 if (isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) {
   // A bare `npx traceroost` re-runs npx's cached copy without checking npm, so the version
-  // above can be an old release even right after a publish. Surface that at the moment it's on screen.
-  console.log('[TraceRoost] Launched via npx — if this isn\'t the version you expect, npx served a cached copy. Re-run as `npx traceroost@latest` (or clear it with `rm -rf ~/.npm/_npx`).')
+  // above can be an old release even right after a publish. Said once the version check above
+  // answers, and only when this copy is actually behind (npxCachedCopyNotice).
+  void firstVersionCheck.then(result => {
+    const notice = npxCachedCopyNotice(result)
+    if (notice) console.log(notice)
+  })
 }
 
 const mediaDir  = path.join(__dirname, '..', 'media')
