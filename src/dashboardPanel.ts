@@ -252,7 +252,7 @@ export class DashboardPanel {
         vscode.commands.executeCommand('workbench.action.closeSidebar')
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(
-          'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
+          'Clear all TraceRoost data? OTel trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
           { modal: true },
           'Clear All'
         )
@@ -263,7 +263,7 @@ export class DashboardPanel {
         if (!isDeclaredSettingUpdate(this.context.extension.packageJSON, msg.key, msg.value)) { return }
         void vscode.workspace.getConfiguration('traceRoost').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
       } else if (msg.type === 'reconfigureOtel') {
-        // Pressing Configure OTEL is the user's yes (src/agentSetupConsent.ts) — remembered, so
+        // Pressing Set up agents is the user's yes (src/agentSetupConsent.ts) — remembered, so
         // later activations keep the agents pointed at this port.
         writeAgentSetupAnswer('yes')
         const port = vscode.workspace.getConfiguration('traceRoost').get<number>('otlpPort', 4318)

@@ -37,7 +37,7 @@ async function runList(workspace: string): Promise<number> {
   const existing = safeInstructions(workspace)
   const suggestions = generateSuggestions(sessions, existing)
   if (suggestions.length === 0) {
-    console.log('No suggestions right now — need at least a handful of recorded sessions in this repo.')
+    console.log('No suggestions right now — need at least a handful of recorded traces in this repo.')
     return 0
   }
   for (const s of suggestions) {

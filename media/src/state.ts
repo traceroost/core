@@ -2,6 +2,7 @@ import { signal, computed } from '@preact/signals'
 import { calcSessionCost } from './sessionMetrics'
 import { formatTraceIdHash } from './hash'
 import { LANGUAGE_IDS, type SessionLanguage } from './language'
+import { scrollBehavior } from './a11y'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
@@ -331,6 +332,11 @@ export const workspaceFilter = signal<WorkspaceFilter>('')
 export const currentWorkspace = signal<string | null>(null)
 export const outcomeFilter = signal<OutcomeFilter>('all')
 export const activeTab = signal('sessions')
+// The Settings drawer (App.tsx's ConfigPanel), and its Alerts section's expanded state — here
+// rather than in App.tsx so a tab (Alerts' "View trace", an empty state's "Set up agents") can
+// close or open it.
+export const configOpen = signal(false)
+export const alertsSectionOpen = signal(true)
 
 // ── Ingestion settings ────────────────────────────────────────────────────────
 
@@ -464,7 +470,7 @@ export function goToHelp(anchor: string): void {
   activeTab.value = 'help'
   setTimeout(() => {
     const el = document.getElementById(anchor)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (el) el.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
   }, 80)
 }
 

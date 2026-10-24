@@ -11,11 +11,13 @@
  *   - a terminal running `traceroost` or `traceroost service install`: a yes/no question;
  *   - the background service, which has no terminal: a dashboard banner (AgentSetupBanner).
  * Saying no asks once more, with what skipping costs (AGENT_SETUP_SKIP_*), before it is recorded.
- * The "Configure OTEL" button in Settings is itself a yes. Dismissing either question without
+ * The "Set up agents" button in the dashboard's Settings panel, and VS Code's "TraceRoost: Set Up
+ * Agents…" command, are themselves a yes. Dismissing either question without
  * answering records nothing, so it is asked again next time.
  */
 
 import { readServiceConfig, writeServiceConfig } from './serviceConfig'
+import { AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
 
 export { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
 
@@ -41,4 +43,26 @@ export function parseYesNo(input: string): AgentSetupAnswer {
  *  Enter included, keeps the no. */
 export function parseSkipConfirmation(input: string): AgentSetupAnswer {
   return /^\s*no?\s*$/i.test(input) && input.trim() !== '' ? 'yes' : 'no'
+}
+
+/** What the Set Up Agents command reports when it changed nothing: `undefined` when no agent was
+ *  left alone (the caller says everything is already set up), otherwise one sentence naming the
+ *  agents whose settings already export OTel somewhere else — so their traces don't reach this
+ *  port — rather than claiming nothing needed changing. The log has each file and endpoint. */
+export function leftAloneMessage(agents: string[], port: number): string | undefined {
+  if (agents.length === 0) return undefined
+  const names = agents.length === 1 ? agents[0] : `${agents.slice(0, -1).join(', ')} and ${agents[agents.length - 1]}`
+  const [they, their] = agents.length === 1 ? ['it', 'its'] : ['they', 'their']
+  return `TraceRoost: left ${names} alone — ${they} already send${agents.length === 1 ? 's' : ''} OTel to another collector, so ${their} traces won't reach port ${port}. Show Log has the details.`
+}
+
+/** Which terminal question is waiting: the first ("Set up agents? [y/N]") or, after a no, the
+ *  confirmation ("Skip setup? [Y/n]"). */
+export type AgentSetupStep = 'setup' | 'skip'
+
+/** The one line printed when startup output has pushed the terminal question out of sight —
+ *  worded for whichever question is actually waiting. */
+export function agentSetupWaitingLine(step: AgentSetupStep): string {
+  const question = step === 'skip' ? AGENT_SETUP_SKIP_QUESTION : AGENT_SETUP_QUESTION
+  return `[TraceRoost] Still waiting for your answer: ${question} (details above; you can also answer in the dashboard)`
 }

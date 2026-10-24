@@ -3,6 +3,15 @@ import { sessionSummary, displaySessions } from './state'
 
 // ── HTML escape ───────────────────────────────────────────────────────────────
 
+/** onKeyDown for a non-button element given role="button": Enter or Space activates it, as on a
+ *  real <button>. Use a real <button> where the markup allows one (not inside a <tr>/<table> row). */
+export function activateOnKey(fn: () => void): (e: KeyboardEvent) => void {
+  return (e: KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn() }
+  }
+}
+
 export function esc(s: unknown): string {
   if (!s) return ''
   const d = document.createElement('div')
@@ -206,7 +215,7 @@ export const INITIATOR_COLORS = { all: 'var(--fg)', user: '#4a90d9', agent: '#90
 // name/description split (not one sentence) so the tooltip can state the value first, as a bold
 // heading, then what it means — matching the Signals column's tooltip format.
 const DATA_SOURCE_TOOLTIP = {
-  otel: { name: 'OTEL', description: 'Full telemetry: timing, speed, TTFT, loop signals' },
+  otel: { name: 'OTel', description: 'Full telemetry: timing, speed, TTFT, loop signals' },
   log:  { name: 'Log',  description: 'Conversation logs: tokens, tool calls, messages (no timing or speed data)' },
 }
 

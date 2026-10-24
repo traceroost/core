@@ -5,10 +5,11 @@ import {
 import {
   formatMs, formatCompact, syntaxHighlightJson,
   getAgentDotHtml, formatLlmLabel, formatToolLabel, formatToolResult,
-  sessionDateKey, formatDayLabel, formatSessionTime,
+  sessionDateKey, formatDayLabel, formatSessionTime, activateOnKey,
 } from '../utils'
 import { calcEntryCost, fmtUsd } from '../sessionMetrics'
 import type { SessionSummaryCard, TimelineEntry, BackgroundSpanSummary } from '../types'
+import { scrollBehavior } from '../a11y'
 
 export interface Step {
   entry: TimelineEntry
@@ -43,7 +44,7 @@ function BgSummaryBlock({ bgSpans }: { bgSpans: BackgroundSpanSummary[] }) {
 
   return (
     <div class="sw-bg-group">
-      <div class="sw-bg-header" onClick={() => setOpen(v => !v)}>
+      <div class="sw-bg-header" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(v => !v)} onKeyDown={activateOnKey(() => setOpen(v => !v))}>
         <span class="sw-bg-chevron">{open ? '▼' : '▶'}</span>{' '}
         <span>Background Overhead</span>
         <span class="sw-bg-summary">{bgSpans.length} calls · {totalTokens.toLocaleString()} tokens</span>
@@ -157,7 +158,7 @@ function StepDetail({ step, idx, sessIdx, sessionModel }: { step: Step; idx: num
         {entry.decision && (
           <div class="sw-detail-section">
             <div class="sw-detail-heading">Decision</div>
-            <div class="sw-detail-value" style={entry.decision === 'rejected' ? 'color:var(--error)' : 'color:#8ec96b'}>{entry.decision}</div>
+            <div class="sw-detail-value" style={entry.decision === 'rejected' ? 'color:var(--error)' : 'color:var(--vscode-charts-green, #8ec96b)'}>{entry.decision}</div>
           </div>
         )}
         {resultText && <LongTextSection heading="Result" text={resultText} id={'sw-result-' + sessIdx + '-' + idx} isJson />}
@@ -261,7 +262,7 @@ export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel }: { step
 
   return (
     <>
-      <div class="wf-row" onClick={() => setOpen(v => !v)}>
+      <div class="wf-row" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(v => !v)} onKeyDown={activateOnKey(() => setOpen(v => !v))}>
         <div class="wf-label" title={subtitle ? rowLabel + ' — ' + subtitle : rowLabel}>
           <span class="wf-indent" />
           <span class="sw-chevron">{open ? '▼' : '▶'}</span>
@@ -348,7 +349,7 @@ function SessionBlock({ sess, sessIdx, sessNum, isFirst }: {
 
   return (
     <div id={`trace-session-${sess.sessionId}`} class="wf-trace-group" style={isFocused ? 'outline:2px solid var(--vscode-focusBorder,#007fd4);border-radius:4px;outline-offset:1px' : ''}>
-      <div class="wf-trace-header" onClick={toggle}>
+      <div class="wf-trace-header" role="button" tabIndex={0} aria-expanded={!collapsed} onClick={toggle} onKeyDown={activateOnKey(toggle)}>
         <span>
           <span class="wf-header-chevron">{collapsed ? '▶' : '▼'}</span>
           <span dangerouslySetInnerHTML={{ __html: getAgentDotHtml(sess.source) }} />{' '}
@@ -412,7 +413,11 @@ function DayGroup({ label, sessions, startNum, focusedId }: {
     <div style="margin-bottom:4px">
       <div
         style="display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;user-select:none;border-bottom:1px solid var(--vscode-panel-border)"
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
         onClick={() => setCollapsed(c => !c)}
+        onKeyDown={activateOnKey(() => setCollapsed(c => !c))}
       >
         <span style="font-size:10px;color:var(--muted)">{collapsed ? '▶' : '▼'}</span>
         <span style="font-size:12px;font-weight:600;color:var(--foreground)">{label}</span>
@@ -441,7 +446,7 @@ export function Traces() {
   useEffect(() => {
     if (!focusedId) return
     const el = document.getElementById(`trace-session-${focusedId}`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (el) el.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
   }, [focusedId])
 
   if (!summary?.sessions?.length) {
@@ -469,7 +474,7 @@ export function Traces() {
     <div id="summary-traces-content">
       <div class="tab-stats">
         <div><strong class="tab-stat-val">{sessionsToShow.length}</strong> traces</div>
-        <div><strong class="tab-stat-val">{totalLlmCalls}</strong> LLM calls</div>
+        <div><strong class="tab-stat-val">{totalLlmCalls}</strong> turns</div>
         <div><strong class="tab-stat-val">{totalToolCalls}</strong> tool calls</div>
         <div><strong class="tab-stat-val">{formatCompact(totalTokens)}</strong> tokens</div>
       </div>

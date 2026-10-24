@@ -36,7 +36,7 @@ import { openDesktopLog } from './logs'
 import { describeMode, isOwnCollector, resolveMode, type ShellMode } from './mode'
 import { assertRuntimeSupportsCollector, resolveCollectorResources } from './resources'
 import { createTray, menuTemplate, type TrayController, type TrayHandlers } from './tray'
-import { buildMenuModel } from './trayMenu'
+import { buildMenuModel, collectionProblem } from './trayMenu'
 import { createDashboardWindow } from './window'
 import { autostartDir, LAUNCHED_AT_LOGIN_ARG, launchCommand, LinuxAutostart } from './autostart'
 import { inspectLauncherEntry, launcherPaths, renderLauncherEntry, shouldOfferLauncher } from './appImageLauncher'
@@ -439,7 +439,7 @@ function detectGit(): void {
   execFile('git', ['--version'], { timeout: 5_000 }, err => {
     gitAvailable = !err
     if (!gitAvailable) {
-      log.write('[desktop] git was not found on PATH — sessions are still recorded, but commit outcomes are unavailable until Git is installed')
+      log.write('[desktop] git was not found on PATH — traces are still recorded, but commit outcomes are unavailable until Git is installed')
     }
     refreshTray()
   })
@@ -493,6 +493,7 @@ app.whenReady().then(async () => {
     restart: () => { showWindowWhenReady = false; void collector?.restart().catch(e => log.write(`[desktop] restart failed: ${String(e)}`)) },
     attach: () => { confirmAttach() },
     'open-logs': () => { void shell.openPath(log.filePath) },
+    'show-error': () => showCollectionError(),
     'launch-at-login': () => { void toggleLaunchAtLogin() },
     'applications-menu': () => toggleApplicationsMenu(),
     about: () => showAbout(),
@@ -535,6 +536,21 @@ app.whenReady().then(async () => {
 }).catch(err => {
   log.write(`[desktop] startup failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`)
 })
+
+/** The tray's "Show Error…": the full text behind the short error line, with the log one click on. */
+function showCollectionError(): void {
+  const problem = collectionProblem(shellMode, collectorState())
+  if (!problem) return
+  void dialog.showMessageBox({
+    type: 'error',
+    message: problem.title,
+    detail: problem.detail,
+    buttons: ['OK', 'Open Logs'],
+    defaultId: 0,
+  }).then(({ response }) => {
+    if (response === 1) void shell.openPath(log.filePath)
+  }).catch(() => { /* dismissed */ })
+}
 
 /** Returns whether the user chose to attach. */
 function confirmAttach(): boolean {

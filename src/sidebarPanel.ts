@@ -78,7 +78,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         }, 300)
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(
-          'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
+          'Clear all TraceRoost data? OTel trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
           { modal: true },
           'Clear All'
         )
@@ -319,6 +319,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   .sb-dot.active { background: #56D364; animation: pulse 1.5s ease-in-out infinite; }
   .sb-dot.idle { background: var(--vscode-descriptionForeground); opacity: 0.5; }
   @keyframes pulse { 0%,100% { opacity:1;transform:scale(1); } 50% { opacity:0.5;transform:scale(1.4); } }
+  @media (prefers-reduced-motion: reduce) { .sb-dot.active { animation: none; } }
   .sb-status { font-size: 12px; font-weight: 600; }
   .sb-muted { color: var(--vscode-descriptionForeground); font-size: 11px; }
   .sb-prompt {
@@ -332,7 +333,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
   .sb-model { font-size: 10px; color: var(--vscode-textLink-foreground); margin-bottom: 4px; }
   canvas { display: block; width: 100%; height: 80px; }
   .sb-turn-label { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 3px; }
-  .sb-burn { font-size: 12px; font-weight: 600; color: var(--vscode-charts-green, #81c784); }
+  .sb-burn { font-size: 12px; font-weight: 600; color: var(--vscode-foreground); }
   .sb-counters {
     display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 4px; text-align: center;
@@ -454,7 +455,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
       <!-- Estimated cost -->
       <div class="sb-card" id="sb-cost-card">
         <div class="sb-section-label">Estimated Cost</div>
-        <div id="sb-cost-val" style="font-size:16px;font-weight:700;color:var(--vscode-charts-green,#81c784)">—</div>
+        <div id="sb-cost-val" style="font-size:16px;font-weight:700;color:var(--vscode-foreground)">—</div>
       </div>
 
       <!-- Burn rate -->

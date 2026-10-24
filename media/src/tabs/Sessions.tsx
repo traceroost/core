@@ -12,7 +12,7 @@ import {
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
   getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
-  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash, esc,
+  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash, esc, activateOnKey,
 } from '../utils'
 import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
@@ -22,12 +22,14 @@ import { Step, StepRow } from './Traces'
 import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
 import { LogIngestionNote } from './IngestionNote'
+import { NoTracesYet } from './GettingStarted'
 import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { isNonCodeCategory, languageAbbreviation, languageLabel } from '../language'
 import { planUsage, showLimitColumn } from '../planUsage'
 import { LimitUsedCell, LimitHitBanner, PlanLimitDetail } from './PlanLimits'
+import { scrollBehavior } from '../a11y'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
@@ -45,7 +47,7 @@ type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 export const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string; description: string }>> = {
   merged:    { icon: '✓', letter: 'M', color: 'var(--tr-merged)', label: 'Merged',    description: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history." },
   committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed', description: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally." },
-  abandoned: { icon: '◑', letter: 'U', color: '#f6a623',          label: 'Uncommitted', description: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress." },
+  abandoned: { icon: '◑', letter: 'U', color: 'var(--vscode-editorWarning-foreground, #f6a623)', label: 'Uncommitted', description: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress." },
 }
 
 // Small one-letter badge for the session's overall git outcome — same visual language as the
@@ -121,34 +123,83 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
       .map(t => SIGNAL_FORMULAS[t] ? `${SIGNAL_FORMULAS[t].short}\n<b>What to do:</b> ${SIGNAL_FORMULAS[t].tip}` : undefined)
       .filter(Boolean)
       .join('\n\n')
-  // Up to MAX_SIGNAL_ICONS, drawn small (.sig-icon) so they fit the narrow Sig column instead of
-  // spilling into Turns; anything past the cap is listed in the last icon's tooltip rather than a
-  // "+N" badge there's no room for.
-  const overflowTip = overflow.length > 0
-    ? `\n\n<b>+${overflow.length} more:</b>\n\n` + overflow.map(([, e]) => `<b>${labelFor(e)}</b> (${e.severity})\n${formulaFor(e)}`).join('\n\n')
-    : ''
+  // Up to MAX_SIGNAL_ICONS, drawn small (.sig-icon) so they fit the Signals column; anything past
+  // the cap becomes a "+N" badge whose tooltip lists the rest. Severity isn't colour alone: a
+  // critical signal draws its glyph knocked out of a filled square (.sig-icon.critical), a
+  // warning draws the bare outlined glyph.
+  const overflowTip = overflow.map(([, e]) => `<b>${labelFor(e)}</b> (${e.severity})\n${formulaFor(e)}`).join('\n\n')
+  const plain = (html: string) => html.replace(/<[^>]+>/g, '').replace(/\n+/g, ' ')
   return (
     <span style="display:inline-flex;align-items:center;gap:1px">
-      {shown.map(([type, e], i) => {
-        const color = SIGNAL_SEVERITY_COLOR[e.severity]
+      {shown.map(([type, e]) => {
+        const critical = e.severity === 'critical'
+        const color = critical ? 'var(--vscode-editor-background, #1e1e1e)' : SIGNAL_SEVERITY_COLOR[e.severity]
         const label = labelFor(e)
         const Icon = SIGNAL_ICON[type]
-        const isLast = i === shown.length - 1
         return (
           <span
             key={type}
             role="img"
-            aria-label={`${label} (${e.severity})${isLast && overflow.length > 0 ? `, and ${overflow.length} more` : ''}`}
-            title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}${isLast ? overflowTip : ''}`}
+            tabIndex={0}
+            aria-label={`${label} (${e.severity}). ${plain(formulaFor(e))}`}
+            title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}`}
             data-tip-html
-            class="sig-icon"
-            style="display:inline-flex;align-items:center;justify-content:center;width:11px;height:11px;flex-shrink:0"
+            class={'sig-icon' + (critical ? ' critical' : '')}
           >
             {Icon ? <Icon color={color} /> : <span style={`font-size:9px;font-weight:700;color:${color}`}>?</span>}
           </span>
         )
       })}
+      {overflow.length > 0 && (
+        <span
+          role="img"
+          tabIndex={0}
+          aria-label={`${overflow.length} more signal${overflow.length === 1 ? '' : 's'}: ${plain(overflowTip)}`}
+          title={`<b>+${overflow.length} more:</b>\n\n${overflowTip}`}
+          data-tip-html
+          class="sig-more"
+        >+{overflow.length}</span>
+      )}
     </span>
+  )
+}
+
+// The expanded trace's Overview spells out what the Signals column's icons only say on hover:
+// each distinct signal type, its severity, what fired it and what to do — as plain text.
+function SignalList({ signals }: { signals: LoopSignal[] }) {
+  if (!signals || signals.length === 0) return null
+  const byType = new Map<LoopSignalType, { patternName: string; severity: 'warning' | 'critical'; count: number }>()
+  for (const s of signals) {
+    const e = byType.get(s.type) ?? { patternName: s.patternName, severity: 'warning' as const, count: 0 }
+    if (s.severity === 'critical') e.severity = 'critical'
+    e.count += 1
+    byType.set(s.type, e)
+  }
+  const rows = [...byType.entries()].sort((a, b) => (a[1].severity === b[1].severity ? b[1].count - a[1].count : a[1].severity === 'critical' ? -1 : 1))
+  return (
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:6px">Signals</div>
+      <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px">
+        {rows.map(([type, e]) => {
+          const Icon = SIGNAL_ICON[LOOP_SIGNAL_ICON_TYPE[type] ?? type]
+          const f = SIGNAL_FORMULAS[type]
+          return (
+            <li key={type} style="display:flex;gap:8px;align-items:flex-start;font-size:11px;line-height:1.5">
+              <span aria-hidden="true" style="flex-shrink:0;margin-top:2px">{Icon ? <Icon color={SIGNAL_SEVERITY_COLOR[e.severity]} /> : null}</span>
+              <div>
+                <div>
+                  <strong>{e.patternName}</strong>
+                  {e.count > 1 && <span style="color:var(--muted)"> ×{e.count}</span>}
+                  <span style="color:var(--muted)"> · {e.severity === 'critical' ? 'Critical' : 'Warning'}</span>
+                </div>
+                {f && <div style="color:var(--muted)">{f.short}</div>}
+                {f && <div><strong>What to do:</strong> {f.tip}</div>}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 
@@ -302,8 +353,28 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
   }
   if (sessionDur <= 0) sessionDur = 1
 
+  const tabIdBase = `trace-${sess.sessionId}`
+  const sections: Section[] = ['overview', 'waterfall', 'flow', 'tools', 'files']
+  // Arrow keys move between the sub-tabs (WAI-ARIA tabs pattern, automatic activation).
+  function onTabKey(e: KeyboardEvent) {
+    const i = sections.indexOf(section)
+    const next = e.key === 'ArrowRight' ? sections[(i + 1) % sections.length]
+      : e.key === 'ArrowLeft' ? sections[(i - 1 + sections.length) % sections.length]
+      : e.key === 'Home' ? sections[0] : e.key === 'End' ? sections[sections.length - 1] : null
+    if (!next) return
+    e.preventDefault()
+    setSection(next)
+    document.getElementById(`${tabIdBase}-tab-${next}`)?.focus()
+  }
   const navBtn = (s: Section, label: string) => (
     <button
+      type="button"
+      role="tab"
+      id={`${tabIdBase}-tab-${s}`}
+      aria-selected={section === s}
+      aria-controls={`${tabIdBase}-panel`}
+      tabIndex={section === s ? 0 : -1}
+      onKeyDown={onTabKey}
       onClick={e => { e.stopPropagation(); setSection(s) }}
       style={[
         'padding:3px 10px;font-size:11px;cursor:pointer;border:none;border-bottom:2px solid transparent;background:transparent;',
@@ -345,7 +416,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
           </span>
         )}
       </div>
-      <div style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
+      <div role="tablist" aria-label="Trace detail" style="display:flex;align-items:center;gap:0;padding:0 8px;border-bottom:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         {navBtn('overview', 'Overview')}
         {navBtn('waterfall', `Waterfall${visibleEntries.length > 0 ? ' (' + visibleEntries.length + ')' : ''}`)}
         {navBtn('flow', `Flow${sess.totalLlmCalls > 0 ? ' (' + sess.totalLlmCalls + ')' : ''}`)}
@@ -353,7 +424,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
         {navBtn('files', `Files${sess.filesChanged.length > 0 ? ' (' + sess.filesChanged.length + ')' : ''}`)}
       </div>
 
-      <div style="padding:12px 14px">
+      <div style="padding:12px 14px" role="tabpanel" id={`${tabIdBase}-panel`} aria-labelledby={`${tabIdBase}-tab-${section}`}>
 
         {section === 'overview' && (
           <div>
@@ -377,7 +448,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
                     <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">OpenCode SQLite trace</span>
                     {' — '}
-                    Token counts, tools, and files sourced from OpenCode&apos;s local database. OTEL traces and TTFT are not available for OpenCode.
+                    Token counts, tools, and files sourced from OpenCode&apos;s local database. OTel traces and TTFT are not available for OpenCode.
                   </div>
                 )
               }
@@ -390,7 +461,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
                     <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">Cursor CLI trace</span>
                     {' — '}
-                    Token counts, cost, and model name aren&apos;t recorded anywhere on disk by cursor-agent, so they show as unpriced/unknown here rather than a guess. Session start/end times fall back to the transcript file&apos;s own timestamps. There is no OTEL path for Cursor CLI to enable instead.
+                    Token counts, cost, and model name aren&apos;t recorded anywhere on disk by cursor-agent, so they show as unpriced/unknown here rather than a guess. Session start/end times fall back to the transcript file&apos;s own timestamps. There is no OTel path for Cursor CLI to enable instead.
                   </div>
                 )
               }
@@ -403,9 +474,9 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only trace</span>
                   {' — '}
                   {parts.join(', ')} not available from local logs.{' '}
-                  <a onClick={() => goToHelp('help-config')} style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
-                    Enable OTEL ingestion
-                  </a>{' '}for full telemetry.
+                  <button type="button" class="link-btn" onClick={() => goToHelp('help-config')}>
+                    Enable OTel ingestion
+                  </button>{' '}for full telemetry.
                 </div>
               )
             })()}
@@ -418,7 +489,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
             }
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;margin-bottom:10px">
               {[
-                { k: 'LLM calls',  v: String(sess.totalLlmCalls) },
+                { k: 'Turns',      v: String(sess.totalLlmCalls) },
                 { k: 'Language',   v: sessionLanguageText(sess) },
                 ...(sess.filesChangedCount !== undefined ? [{ k: 'Files changed', v: String(sess.filesChangedCount) }] : []),
                 ...(sess.linesAdded !== undefined && sess.linesRemoved !== undefined ? [{ k: 'Lines +/−', v: `+${formatCompact(sess.linesAdded)} / −${formatCompact(sess.linesRemoved)}` }] : []),
@@ -441,11 +512,13 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
 
             {burnRate && burnRate.sessionId === sess.sessionId && (
               <div style="margin-bottom:10px;padding:6px 10px;border-radius:4px;border-left:3px solid #56D364;background:var(--hover);font-size:11px">
-                <span style="color:#56D364;font-weight:600">{formatCompact(Math.round(burnRate.burnRate.tokensPerMinute))} tok/min</span>
+                <span style="color:var(--vscode-charts-green, #56D364);font-weight:600">{formatCompact(Math.round(burnRate.burnRate.tokensPerMinute))} tok/min</span>
                 {burnRate.burnRate.costPerHour > 0.001 && <span style="color:var(--muted);margin-left:8px">~{fmtUsd(burnRate.burnRate.costPerHour)}/hr</span>}
                 {burnRate.projection && <span style="color:var(--muted);margin-left:8px">{burnRate.projection.contextFillPct.toFixed(0)}% context used</span>}
               </div>
             )}
+
+            <SignalList signals={sess.loopSignals} />
 
             {sessInsights.length > 0 && (
               <div>
@@ -544,6 +617,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                         key={f}
                         style={`display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--hover);border-radius:4px;font-size:11px${vscode ? ';cursor:pointer' : ''}`}
                         onClick={() => vscode?.postMessage({ type: 'openFile', filePath: f })}
+                        {...(vscode ? { role: 'button', tabIndex: 0, onKeyDown: activateOnKey(() => vscode?.postMessage({ type: 'openFile', filePath: f })) } : {})}
                         title={vscode ? 'Click to open in editor' : f}
                       >
                         <span style="color:var(--vscode-charts-green,#81c784);font-size:10px;flex-shrink:0">M</span>
@@ -633,7 +707,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
     const thead = target.closest('table')?.tHead
     if (!scroller || !thead) return
     const delta = target.getBoundingClientRect().top - thead.getBoundingClientRect().bottom - offset
-    if (Math.abs(delta) > 1) scroller.scrollBy({ top: delta, behavior: smooth ? 'smooth' : 'auto' })
+    if (Math.abs(delta) > 1) scroller.scrollBy({ top: delta, behavior: smooth ? scrollBehavior() : 'auto' })
   }
 
   // An expanded row pins itself just under the table's own sticky thead, so its collapse chevron
@@ -688,26 +762,32 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
             filter the Advisor tab's "View sessions" button already uses — click again (same
             gesture, same spot) to clear it, same as the banner's "×" but without needing to look
             away to find it. A currently-active bar renders wider as a visible "you are here." */}
-        <td
-          style={`padding:0;width:${isIsolatedToThisGroup ? 8 : 5}px${conversation ? ';cursor:pointer' : ''}`}
-          title={conversation
-            ? isIsolatedToThisGroup
-              ? `Part ${conversation.index} of ${conversation.total} — showing just this conversation. Click again to clear.`
-              : `Part ${conversation.index} of ${conversation.total} of the same conversation — split into separate rows by a long gap. Click to show just this conversation.`
-            : undefined}
-          onClick={conversation ? (e: MouseEvent) => {
-            e.stopPropagation()
-            if (isIsolatedToThisGroup) {
-              evidenceSessionIds.value = null
-              evidenceSessionPrompt.value = null
-            } else {
-              evidenceSessionIds.value = new Set(conversation.memberIds)
-              evidenceSessionLabel.value = 'from this conversation'
-              evidenceSessionPrompt.value = conversation.firstPrompt || null
-            }
-          } : undefined}
-        >
-          <div style={`width:${isIsolatedToThisGroup ? 8 : 5}px;height:100%;min-height:20px;background:${conversation ? conversation.color : 'transparent'}`} />
+        <td style={`padding:0;width:${isIsolatedToThisGroup ? 8 : 5}px`}>
+          {conversation ? (
+            <button
+              type="button"
+              class="conv-marker"
+              aria-pressed={isIsolatedToThisGroup}
+              aria-label={`Part ${conversation.index} of ${conversation.total} of the same conversation — show just this conversation`}
+              title={isIsolatedToThisGroup
+                ? `Part ${conversation.index} of ${conversation.total} — showing just this conversation. Click again to clear.`
+                : `Part ${conversation.index} of ${conversation.total} of the same conversation — split into separate rows by a long gap. Click to show just this conversation.`}
+              onClick={(e: MouseEvent) => {
+                e.stopPropagation()
+                if (isIsolatedToThisGroup) {
+                  evidenceSessionIds.value = null
+                  evidenceSessionPrompt.value = null
+                } else {
+                  evidenceSessionIds.value = new Set(conversation.memberIds)
+                  evidenceSessionLabel.value = 'from this conversation'
+                  evidenceSessionPrompt.value = conversation.firstPrompt || null
+                }
+              }}
+              style={`display:block;width:${isIsolatedToThisGroup ? 8 : 5}px;height:100%;min-height:20px;padding:0;border:0;cursor:pointer;background:${conversation.color}`}
+            />
+          ) : (
+            <div style="width:5px;height:100%;min-height:20px" />
+          )}
         </td>
 
         {/* Chevron */}
@@ -813,11 +893,16 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
 
         {/* Cost */}
         <td style="padding:4px 6px 4px 2px;text-align:left;white-space:nowrap;font-size:10px">
+          {/* Plain text colour: green read as "good", not "a cost". An unpriced trace shows "—" with
+              the reason; its error count stays in the Turns column. */}
           {!cost.modelUnknown && cost.totalUsd > 0
-            ? <span style="color:var(--vscode-charts-green,#81c784)">{fmtUsd(cost.totalUsd)}</span>
-            : sess.errors > 0
-              ? <span style="color:var(--error)">{sess.errors} err</span>
-              : <span style="color:var(--muted)">—</span>
+            ? <span style="color:var(--fg)">{fmtUsd(cost.totalUsd)}</span>
+            : (() => {
+                const why = cost.modelUnknown
+                  ? `Couldn't be priced — ${sess.model ? `no rates for ${sess.model} in the pricing table` : 'the model wasn\'t recorded'}`
+                  : 'No cost — this trace recorded no billable tokens'
+                return <span style="color:var(--muted)" title={why} aria-label={why} tabIndex={0}>—</span>
+              })()
           }
         </td>
 
@@ -895,18 +980,18 @@ export function Sessions() {
       {/* Every column but Prompt has a fixed width, so a wide panel's spare space all goes to
           Prompt instead of being spread across the narrow number columns as gaps. min-width
           keeps Prompt at least 160px when every optional column is showing. */}
-      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${694 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 72 : 0) + 160}px`}>
+      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${712 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 72 : 0) + 160}px`}>
         <colgroup>
           <col style="width:8px" /><col style="width:18px" /><col style="width:196px" /><col style="width:92px" /><col style="width:64px" /><col style="width:80px" />
           <col />
           {showWorkspace && <col style="width:110px" />}
           {showOutcome && <col style="width:36px" />}
-          <col style="width:42px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
+          <col style="width:60px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
           {showLimit && <col style="width:72px" />}
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
-            <th style="width:5px;padding:0" title={`<b>Conversation marker</b>\nA colored bar marks traces that are really one conversation split into multiple rows by a long gap between them.`} data-tip-html />
+            <th style="width:5px;padding:0" tabIndex={0} aria-label="Conversation marker" title={`<b>Conversation marker</b>\nA colored bar marks traces that are really one conversation split into multiple rows by a long gap between them.`} data-tip-html />
             <th style="width:16px;padding:3px 2px 3px 4px" />
             <th scope="col" aria-sort={sortKey === 'start_time' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
               <button class="sort-button" onClick={() => onSortClick('start_time')} title={`<b>Agent / Start / Source / From</b>\nSorted by start time only — Agent/Source/From aren't part of the sort`} data-tip-html>
@@ -930,19 +1015,19 @@ export function Sessions() {
               </th>
             )}
             <th scope="col" aria-sort={sortKey === 'signals' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--fg);padding-left:0'}>
-              <button class="sort-button" onClick={() => onSortClick('signals')} title={`<b>Signals</b>\nBehavioral signals detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.`} data-tip-html>Sig{sortArrow('signals')}</button>
+              <button class="sort-button" onClick={() => onSortClick('signals')} title={`<b>Signals</b>\nBehavioral signals detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.`} data-tip-html>Signals{sortArrow('signals')}</button>
             </th>
             {sortHeader('turns', 'Turns')}
             {sortHeader('duration_ms', 'Duration')}
             {sortHeader('total_tokens', 'Tokens', 'left', '<b>Tokens</b>\nAccumulated input and output tokens across all turns')}
             {sortHeader('cost', 'Est Cost')}
             {showLimit && (
-              <th scope="col" style={thSort + ';text-align:left'} title={`<b>Plan limit</b>\nShare of your Claude or ChatGPT plan's 5-hour window this trace used (weekly when there's no 5-hour reading). Expand a trace for every window and any limit hits. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Plan limit</th>
+              <th scope="col" tabIndex={0} style={thSort + ';text-align:left'} title={`<b>Plan limit</b>\nShare of your Claude or ChatGPT plan's 5-hour window this trace used (weekly when there's no 5-hour reading). Expand a trace for every window and any limit hits. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Plan limit</th>
             )}
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : logIngestProgress.value ? 'Loading traces from local logs…' : 'No traces recorded yet.'}</div></td></tr>}
+          {sessions.length === 0 && <tr><td colspan={12 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : logIngestProgress.value ? 'Loading traces from local logs…' : <NoTracesYet />}</div></td></tr>}
           {pageSessions.map(sess => (
             <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} showOutcome={showOutcome} showLimit={showLimit} conversation={conversationInfo.get(sess.sessionId)} />
           ))}

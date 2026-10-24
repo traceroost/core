@@ -6,7 +6,7 @@ import {
   CHART_MAX, requestSessionTimeline, goToHelp,
 } from '../state'
 import { getAgentColor, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
-import { buildDailyCostMap } from '../sessionMetrics'
+import { buildDailyCostMap, calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 import { PRICING_LAST_UPDATED } from '../pricing'
 
@@ -20,6 +20,7 @@ import { OUTCOME_META } from './Sessions'
 import { gitOutcomes, selectedAgentFilter } from '../state'
 import { planUsage, hasPlanData, forAgentFilter, PROVIDER_LABEL } from '../planUsage'
 import { PlanLimitsSection } from './PlanLimits'
+import { NoTracesYet } from './GettingStarted'
 import { buildLanguageBreakdown, LANGUAGE_NOT_REPORTED_LABEL, type CodeChangeTotals, type LanguageBreakdownRow } from './languageBreakdown'
 import { languageLabel } from '../language'
 
@@ -34,6 +35,7 @@ function SectionHead({ id, title, tip, first, helpAnchor }: { id: string; title:
         class={tip ? 'has-metric-tip' : undefined}
         style="font-size:12px;color:var(--muted);margin:0"
         data-tip={tip}
+        tabIndex={tip ? 0 : undefined}
       >{title}</h3>
       {helpAnchor && (
         <button
@@ -74,7 +76,7 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
         <span style="font-size:11px;color:var(--muted);margin-left:auto">{s.sessions} trace{s.sessions !== 1 ? 's' : ''}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
-        <div><span style="color:var(--muted)">LLM calls</span> <strong>{s.totalLlm}</strong></div>
+        <div><span style="color:var(--muted)">Turns</span> <strong>{s.totalLlm}</strong></div>
         <div><span style="color:var(--muted)">Tool calls</span> <strong>{s.totalTools}</strong></div>
         <div><span style="color:var(--muted)">Input tokens</span> <strong>{hasTokens ? formatCompact(s.totalInput) : '—'}</strong></div>
         <div><span style="color:var(--muted)">Output tokens</span> <strong>{hasTokens ? formatCompact(s.totalOutput) : '—'}</strong></div>
@@ -185,7 +187,7 @@ export function Analytics() {
   if (sessions.length === 0) {
     return (
       <div id="analytics-content">
-        <div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div>
+        <div class="empty-state">{hasAny ? 'No traces match the active filters.' : <NoTracesYet />}</div>
       </div>
     )
   }
@@ -204,6 +206,9 @@ export function Analytics() {
     Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')
   )
   const pricedChartSess = timeOrdered.filter(s => s.source === 'copilot' || s.source === 'codex' || s.source === 'claude_code' || s.source === 'opencode')
+  // One legend entry per agent that has a bar in the chart (CostBarChart skips unpriced traces),
+  // drawn with the same colour the bars use.
+  const costChartAgents = BREAKDOWN_SOURCES.filter(src => pricedChartSess.some(s => s.source === src && !calcSessionCost(s).modelUnknown))
 
   // Most recent CHART_MAX sessions (newest-first slice, then reversed to oldest-first for charts)
   const chartSessions = timeOrdered.slice(0, CHART_MAX).reverse()
@@ -421,19 +426,20 @@ export function Analytics() {
           <SectionHead id="analytics-cost" title="ESTIMATED COST" helpAnchor="help-costs" />
           {disclaimer}
 
-          {copilotSess.length > 0 && (
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:8px">
-              <span style={'display:inline-block;width:6px;height:6px;border-radius:50%;background:' + getAgentColor('copilot')} />
-              <span style="text-transform:uppercase;letter-spacing:.3px;font-size:10px">Copilot — Token-based</span>
-            </div>
-          )}
-
-          {/* Daily total legend above chart */}
-          <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);margin-bottom:6px">
-            <svg width="16" height="8" viewBox="0 0 16 8">
-              <line x1="0" y1="4" x2="16" y2="4" stroke="var(--vscode-charts-green,#81c784)" stroke-width="1.5" stroke-dasharray="4 2" />
-            </svg>
-            Daily total (right axis)
+          {/* Legend: each bar is one trace, coloured by its agent; the line is the daily total. */}
+          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-bottom:6px">
+            {costChartAgents.map(src => (
+              <span key={src} style="display:inline-flex;align-items:center;gap:4px">
+                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColor(src)};box-shadow:0 0 0 1px var(--border)`} />
+                {getAgentSourceLabel(src)}{src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''}
+              </span>
+            ))}
+            <span style="display:inline-flex;align-items:center;gap:4px">
+              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
+                <line x1="0" y1="4" x2="16" y2="4" stroke="rgba(129,199,132,0.9)" stroke-width="1.5" />
+              </svg>
+              Daily total (right axis)
+            </span>
           </div>
 
           <CostBarChart sessions={pricedChartSess} />
@@ -513,7 +519,7 @@ export function Analytics() {
                           <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">{fmtN(d.cacheCreate)}</td>
                           <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">{fmtN(d.cacheRead)}</td>
                           <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">{fmtN(dayTotal)}</td>
-                          <td style="padding:3px 8px;text-align:right;color:var(--vscode-charts-green,#81c784);font-weight:600">{fmtUsd(d.cost)}</td>
+                          <td style="padding:3px 8px;text-align:right;color:var(--fg);font-weight:600">{fmtUsd(d.cost)}</td>
                         </tr>
                         {/* Per-agent rows */}
                         {agents.map(([src, ae]) => {
@@ -533,7 +539,7 @@ export function Analytics() {
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.cacheCreate)}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.cacheRead)}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(agentTotal)}</td>
-                              <td style="padding:3px 8px;text-align:right;color:var(--vscode-charts-green,#81c784)">{fmtUsd(ae.cost)}</td>
+                              <td style="padding:3px 8px;text-align:right;color:var(--fg)">{fmtUsd(ae.cost)}</td>
                             </tr>
                           )
                         })}
@@ -551,7 +557,7 @@ export function Analytics() {
                     <td style="padding:3px 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{fmtN(grand.cacheCreate)}</td>
                     <td style="padding:3px 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{fmtN(grand.cacheRead)}</td>
                     <td style="padding:3px 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{fmtN(grand.input+grand.output+grand.cacheCreate+grand.cacheRead)}</td>
-                    <td style="padding:3px 8px;text-align:right;font-weight:600;color:var(--vscode-charts-green,#81c784)">{fmtUsd(grand.cost)}</td>
+                    <td style="padding:3px 8px;text-align:right;font-weight:600;color:var(--fg)">{fmtUsd(grand.cost)}</td>
                   </tr>
                 </tfoot>
               </table>

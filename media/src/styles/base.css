@@ -8,6 +8,10 @@
   --success: var(--vscode-testing-iconPassed, #4c4);
   --muted: var(--vscode-descriptionForeground);
   --hover: var(--vscode-list-hoverBackground);
+  /* Inset surface for code spans, KV tiles and alert detail boxes. Follows the theme the same way
+   * as the tokens above: VS Code's code-block background where the host defines one, else the
+   * hover tint (which the standalone shim switches between light and dark). */
+  --panel-bg: var(--vscode-textCodeBlock-background, var(--hover));
 
   /* The TraceRoost brand teal (Wordmark.tsx, BrandMark.tsx) — used only for the top nav's
    * active-section indicator (.tab.active in tabs.css), not buttons or links. */
@@ -53,6 +57,7 @@ body { font-family: var(--vscode-font-family); color: var(--fg); background: var
 .panel.active { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 
 .empty-state { text-align: center; padding: 40px; color: var(--muted); font-style: italic; }
+.empty-state-next { margin-top: 8px; font-style: normal; }
 
 .json-key { color: #9cdcfe; }
 .json-string { color: #ce9178; }
@@ -145,6 +150,10 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .sort-button { font: inherit; color: inherit; border: 0; background: none; padding: 3px 0; cursor: pointer; }
 .sort-indicator { display: inline-block; width: 12px; margin-left: 3px; text-align: center; }
+/* A <button> that reads as an inline text link — for in-app navigation that has no URL (goToHelp,
+ * opening a trace), so it stays reachable and operable from the keyboard, unlike an <a> with no href. */
+.link-btn { font: inherit; color: var(--vscode-textLink-foreground, #4fc3f7); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: inherit; }
+.link-btn:hover { color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground, #4fc3f7)); }
 
 /* Freeform filter inputs (App.tsx's TimeRangePicker row — Repo and Prompt, next to Time and
  * Agent) — shared here so every filter box looks and weighs the same by default rather than each
@@ -187,8 +196,14 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .tr-reset-btn:disabled { cursor: default; }
 /* Sessions.tsx's SignalsCell: the shared 13px signal icons (signalIcons.tsx) drawn smaller so three
- * fit side by side in the narrow Sig column. */
+ * and a "+N" fit side by side in the Signals column. A critical signal is a filled square with the
+ * glyph knocked out of it; a warning is the bare outlined glyph — a shape difference, not just
+ * colour. */
+.sig-icon { display: inline-flex; align-items: center; justify-content: center; width: 11px; height: 11px; flex-shrink: 0; }
 .sig-icon svg { width: 11px; height: 11px; }
+.sig-icon.critical { width: 13px; height: 13px; border-radius: 3px; background: var(--error); }
+.sig-icon.critical svg { width: 9px; height: 9px; }
+.sig-more { font-size: 9px; font-weight: 600; color: var(--muted); padding: 0 2px; margin-left: 1px; border-radius: 3px; background: var(--hover); line-height: 13px; flex-shrink: 0; }
 .trace-expand { color: var(--muted); background: none; border: 0; font: inherit; cursor: pointer; padding: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }

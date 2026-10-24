@@ -323,7 +323,7 @@ function render() {
     statusText.style.color = isActive ? 'var(--vscode-foreground)' : 'var(--vscode-descriptionForeground)'
   }
   const sessionLabel = document.getElementById('sb-session-label')
-  if (sessionLabel) sessionLabel.textContent = isActive ? 'current session' : ''
+  if (sessionLabel) sessionLabel.textContent = isActive ? 'current trace' : ''
   if (agoEl) agoEl.textContent = isActive ? '' : (lastActivityMs ? fmtAgo(lastActivityMs) : '')
 
   // Current session block
@@ -377,6 +377,12 @@ function render() {
   if (canvas) {
     if (hasSparklineData) {
       canvas.style.display = 'block'
+      // A canvas has no text of its own — name what it plots for screen readers.
+      const t = currentSession.turnInputTokens
+      canvas.setAttribute('role', 'img')
+      canvas.setAttribute('aria-label', t.length === 1
+        ? `Input tokens, turn 1: ${fmt(t[0])}`
+        : `Input tokens per turn, ${t.length} turns: from ${fmt(t[0])} at turn 1 to ${fmt(t[t.length - 1])} at turn ${t.length}, peak ${fmt(Math.max(...t))}`)
       drawSparkline(canvas, currentSession.turnInputTokens, color, isActive)
     } else {
       canvas.style.display = 'none'
@@ -407,13 +413,13 @@ function render() {
       tokenBars.innerHTML =
         `<div style="display:flex;flex-direction:column;gap:3px">` +
         `<div style="display:flex;align-items:center;gap:5px;font-size:10px">` +
-        `<span style="width:36px;color:#FFB74D;text-align:right;font-variant-numeric:tabular-nums">${fmt(inp)}</span>` +
+        `<span style="width:36px;color:var(--vscode-charts-orange, #FFB74D);text-align:right;font-variant-numeric:tabular-nums">${fmt(inp)}</span>` +
         `<div style="flex:1;height:5px;background:var(--vscode-panel-border);border-radius:2px">` +
         `<div style="width:${inPct}%;height:100%;background:#FFB74D;border-radius:2px"></div></div>` +
         `<span style="color:var(--muted);font-size:9px">in</span>` +
         `<span style="color:var(--muted);font-size:9px;opacity:0.6">avg ${fmt(Math.round(avgInputTokens))}</span></div>` +
         `<div style="display:flex;align-items:center;gap:5px;font-size:10px">` +
-        `<span style="width:36px;color:#81C784;text-align:right;font-variant-numeric:tabular-nums">${fmt(out)}</span>` +
+        `<span style="width:36px;color:var(--vscode-charts-green, #81C784);text-align:right;font-variant-numeric:tabular-nums">${fmt(out)}</span>` +
         `<div style="flex:1;height:5px;background:var(--vscode-panel-border);border-radius:2px">` +
         `<div style="width:${outPct}%;height:100%;background:#81C784;border-radius:2px"></div></div>` +
         `<span style="color:var(--muted);font-size:9px">out</span>` +

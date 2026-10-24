@@ -8,6 +8,6 @@ The **Traces** tab continuously scans your traces for sixteen stuck-agent and wa
 | **Ambiguous Success / Escalating Scope** | Too many steps for task complexity — unclear success criteria |
 | **Context Runaway** | Input growing 15,000+ tokens while output collapses — no forward progress |
 
-Each detected signal shows the evidence and concrete examples (tool names, file paths, error messages), the action for you, and a one-line instruction written for the agent. **Copy** puts that instruction on the clipboard with the evidence under it — paste it into the running session. Use **Ignore** to dismiss a signal that represents intentional behavior; the Help tab's Signals section says how well each threshold has been checked against real sessions.
+Each detected signal shows the evidence and concrete examples (tool names, file paths, error messages), the action for you, and a one-line instruction written for the agent. **Copy** puts that instruction on the clipboard with the evidence under it — paste it into the running agent. Use **Ignore** to dismiss a signal that represents intentional behavior; the Help tab's Signals section says how well each threshold has been checked against real traces.
 
 Open the gear-icon **Settings** panel's Alerts section to configure proactive notifications when traces exceed thresholds for context window usage, turn count, error rate, active time, tool repetition, cache utilization, plan-limit windows, or daily cost.

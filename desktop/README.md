@@ -595,7 +595,7 @@ linted by the repo's `pnpm run lint`, with the same rules and the same cloud-imp
   on Windows also `scripts/check-nsis.mjs` (install, upgrade over a running app, uninstall).
 
 These tests redirect `HOME` to a temporary directory. The collector **auto-configures the agents it
-finds at startup**, writing OTEL endpoints into `~/.claude/settings.json`, `~/.codex/config.toml`
+finds at startup**, writing OTel endpoints into `~/.claude/settings.json`, `~/.codex/config.toml`
 and VS Code's settings. Running one against the real `HOME` points a developer's live agents at a
 test port that is about to disappear. `stagedCollector.test.ts` and the smoke test both assert the
 redirection holds; keep it that way in anything added here.

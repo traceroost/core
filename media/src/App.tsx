@@ -16,7 +16,9 @@ import {
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending,
   getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp,
+  configOpen, alertsSectionOpen,
 } from './state'
+import { useDialog, scrollBehavior } from './a11y'
 import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS, isHostMessage } from './utils'
@@ -47,9 +49,6 @@ const REPO_ALL = 'All'
 // duplicates content already visible in the main dashboard. VS Code's native
 // sidebar (toggled via workbench commands, not this panel) defaults to open.
 const sidebarOpen = signal(window.__STANDALONE__ !== true)
-const configOpen = signal(false)
-// Lifted out of CollapsibleSection so "View Alert" can expand a collapsed Alerts section.
-const alertsSectionOpen = signal(true)
 const actionLogOpen = signal(false)
 const bellOpen = signal(false)
 const versionCheckOpen = signal(false)
@@ -94,7 +93,7 @@ function scrollToAlertCard(alertId: string): void {
   setTimeout(() => {
     const el = document.getElementById(alertCardId(alertId))
     if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.scrollIntoView({ behavior: scrollBehavior(), block: 'center' })
     el.animate?.(
       [{ boxShadow: '0 0 0 2px var(--vscode-focusBorder, #4fc3f7)' }, { boxShadow: '0 0 0 2px transparent' }],
       { duration: 1600, delay: 300, easing: 'ease-out' },
@@ -102,15 +101,31 @@ function scrollToAlertCard(alertId: string): void {
   }, 80)
 }
 
-function CollapsibleSection({ title, children, openState }: { title: string; children: ComponentChildren; openState?: Signal<boolean> }) {
+// The bell's "Configure alerts →": open Settings with the Alerts section expanded, scrolled to
+// the top of the drawer's view and its heading focused, rather than leaving the drawer at the top.
+const ALERTS_SECTION_ID = 'settings-alerts'
+function openAlertsSettings(): void {
+  alertsSectionOpen.value = true
+  configOpen.value = true
+  setTimeout(() => {
+    const heading = document.getElementById(ALERTS_SECTION_ID)
+    if (!heading) return
+    heading.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+    heading.focus({ preventScroll: true })
+  }, 80)
+}
+
+function CollapsibleSection({ id, title, children, openState }: { id?: string; title: string; children: ComponentChildren; openState?: Signal<boolean> }) {
   const [localOpen, setLocalOpen] = useState(true)
   const open = openState ? openState.value : localOpen
   const setOpen = (fn: (o: boolean) => boolean) => openState ? (openState.value = fn(openState.value)) : setLocalOpen(fn)
   return (
     <div style="border-bottom:1px solid var(--border)">
       <button
+        id={id}
+        aria-expanded={open}
         onClick={() => setOpen(o => !o)}
-        style="display:flex;align-items:center;gap:6px;width:100%;padding:10px 14px;background:none;border:none;cursor:pointer;text-align:left;color:var(--fg)"
+        style="scroll-margin-top:44px;display:flex;align-items:center;gap:6px;width:100%;padding:10px 14px;background:none;border:none;cursor:pointer;text-align:left;color:var(--fg)"
       >
         <span style={`color:var(--muted);font-size:9px;display:inline-block;transition:transform 0.15s;transform:rotate(${open ? 90 : 0}deg)`}>▶</span>
         <span style="font-size:12px;font-weight:600">{title}</span>
@@ -126,26 +141,25 @@ function CollapsibleSection({ title, children, openState }: { title: string; chi
 
 function ConfigPanel() {
   const open = configOpen.value
-
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') configOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+  const ref = useDialog<HTMLDivElement>(open, () => { configOpen.value = false })
 
   return (
     <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-drawer-title"
       inert={!open}
       aria-hidden={!open}
       style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
     >
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Settings</span>
+        <h2 id="settings-drawer-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">Settings</h2>
         <button
           onClick={() => configOpen.value = false}
           style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
           title="Close (Esc)"
+          aria-label="Close settings"
         >×</button>
       </div>
       {window.__STANDALONE__ === true && <ThemeToggle />}
@@ -154,7 +168,7 @@ function ConfigPanel() {
       <OtelReconfigureButton />
       {window.__STANDALONE__ === true && <DashboardPortSetting />}
       <McpToggle />
-      <CollapsibleSection title="Alerts" openState={alertsSectionOpen}>
+      <CollapsibleSection id={ALERTS_SECTION_ID} title="Alerts" openState={alertsSectionOpen}>
         <Alerts />
       </CollapsibleSection>
       <CollapsibleSection title="Automation">
@@ -181,7 +195,7 @@ function ActionLogRow({ entry }: { entry: ActionLogEntry }) {
     <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted)">
         <span>{relativeTime(entry.startedAt)}</span>
-        {running ? <span style="color:#4fc3f7">running…</span> : entry.failed ? <span style="color:#f44747">failed</span> : null}
+        {running ? <span style="color:var(--vscode-textLink-foreground, #4fc3f7)">running…</span> : entry.failed ? <span style="color:var(--vscode-errorForeground, #f44747)">failed</span> : null}
       </div>
       <div style="color:var(--fg);margin-top:2px">{entry.gloss ?? entry.raw}</div>
       <div style="color:var(--muted);font-family:var(--vscode-editor-font-family,monospace);margin-top:2px;overflow-wrap:break-word">
@@ -195,40 +209,39 @@ function ActionLogRow({ entry }: { entry: ActionLogEntry }) {
 // right now" footer ticker — this panel is the persistent history, that ticker stays as-is.
 function ActionLogPanel() {
   const open = actionLogOpen.value
-
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') actionLogOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+  const ref = useDialog<HTMLDivElement>(open, () => { actionLogOpen.value = false })
 
   const entries = actionLog.value
   return (
     <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="action-log-title"
       inert={!open}
       aria-hidden={!open}
       style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
     >
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Action log</span>
+        <h2 id="action-log-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">Action log</h2>
         <button
           onClick={() => actionLogOpen.value = false}
           style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
           title="Close (Esc)"
+          aria-label="Close action log"
         >×</button>
       </div>
       {entries.length === 0
-        ? <div style="padding:14px;font-size:11px;color:var(--muted)">Nothing has run yet this session.</div>
+        ? <div style="padding:14px;font-size:11px;color:var(--muted)">Nothing has run yet since TraceRoost started.</div>
         : [...entries].reverse().map(e => <ActionLogRow key={e.id} entry={e} />)}
     </div>
   )
 }
 
 const SEV_COLOR: Record<string, string> = {
-  error:   '#f44747',
-  warning: '#f6a623',
-  info:    '#4fc3f7',
+  error:   'var(--vscode-errorForeground, #f44747)',
+  warning: 'var(--vscode-editorWarning-foreground, #f6a623)',
+  info:    'var(--vscode-editorInfo-foreground, #4fc3f7)',
 }
 
 function IconBell() {
@@ -312,28 +325,26 @@ function IconUpdate() {
 }
 
 function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') bellOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  // Mounted only while open, so the dialog behavior (focus in, Tab wraps, Escape, focus back to
+  // the bell) runs for its whole lifetime.
+  const ref = useDialog<HTMLDivElement>(true, () => { bellOpen.value = false })
 
   return (
     <>
       {/* Backdrop — click outside to close */}
       <div style="position:fixed;inset:0;z-index:199" onClick={() => bellOpen.value = false} />
-      <div style="position:fixed;top:35px;right:8px;width:min(400px,calc(100vw - 16px));background:var(--vscode-editor-background);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.5);z-index:200;overflow:hidden">
-        <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="active-alerts-title" style="position:fixed;top:35px;right:8px;width:min(400px,calc(100vw - 16px));background:var(--vscode-editor-background);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.5);z-index:200;overflow:hidden">
+        <h2 id="active-alerts-title" style="margin:0;padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">
           Active Alerts
-        </div>
+        </h2>
         {alerts.length === 0 ? (
           <div style="padding:14px 12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px">
-            <span style="color:#81c784;font-size:14px">✓</span> All clear — no alerts triggered
+            <span style="color:var(--vscode-charts-green, #81c784);font-size:14px">✓</span> All clear — no alerts triggered
           </div>
         ) : (
           <div>
             {alerts.map((a, i) => {
-              const color = SEV_COLOR[a.severity] ?? '#f6a623'
+              const color = SEV_COLOR[a.severity] ?? SEV_COLOR.warning
               return (
                 <div key={i} style={`padding:10px 12px;border-left:3px solid ${color};${i > 0 ? 'border-top:1px solid var(--border)' : ''}`}>
                   <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
@@ -342,13 +353,12 @@ function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
                   </div>
                   {a.detail && <div style="font-size:11px;color:var(--muted);line-height:1.4">{a.detail}</div>}
                   {a.sessionId && (
-                    <span
-                      role="link"
-                      tabIndex={0}
+                    <button
+                      type="button"
+                      class="link-btn"
                       onClick={() => { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false }}
-                      onKeyDown={e => { if (e.key === 'Enter') { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false } }}
-                      style="display:inline-block;margin-top:4px;font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline"
-                    >View trace →</span>
+                      style="display:inline-block;margin-top:4px;font-size:11px"
+                    >View trace →</button>
                   )}
                 </div>
               )
@@ -358,7 +368,7 @@ function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
         <div style="padding:8px 12px;border-top:1px solid var(--border)">
           <button
             style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
-            onClick={() => { bellOpen.value = false; configOpen.value = true }}
+            onClick={() => { bellOpen.value = false; openAlertsSettings() }}
           >Configure alerts →</button>
         </div>
       </div>
@@ -401,22 +411,31 @@ function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
         </div>
         <div style="padding:12px;font-size:12px;color:var(--fg);line-height:1.5">
           <div style="margin-bottom:8px">
-            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available on npm.
+            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available{info.isDesktop ? '' : ' on npm'}.
           </div>
-          <div style="margin-bottom:8px;color:var(--muted)">
-            {info.isService
-              ? 'Update the background service:'
-              : info.isDocker
-                ? 'Pull the new image:'
-                : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTEL data is never lost. Install it (this also updates you to the latest version):"}
-          </div>
-          <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
+          {info.isDesktop && info.recommendedUrl ? (
+            <div style="margin-bottom:6px">
+              <a href={info.recommendedUrl} target="_blank" rel="noreferrer">Download the new desktop app from GitHub Releases</a>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Install it over this one; your traces and settings are kept.</div>
+            </div>
+          ) : (
+            <>
+              <div style="margin-bottom:8px;color:var(--muted)">
+                {info.isService
+                  ? 'Update the background service:'
+                  : info.isDocker
+                    ? 'Pull the new image:'
+                    : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTel data is never lost. Install it (this also updates you to the latest version):"}
+              </div>
+              <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
+            </>
+          )}
           {info.isDocker && (
             <div style="font-size:11px;color:var(--muted)">
               Then stop and remove this container and start a new one with your usual <code>docker run</code> command (with <code>--pull=always</code>, that run alone also fetches the new image). Mount a volume on <code>/data</code> to keep your traces and access token across containers.
             </div>
           )}
-          {!info.isService && !info.isDocker && (
+          {!info.isService && !info.isDocker && !info.isDesktop && (
             <div style="font-size:11px;color:var(--muted)">
               Or for a quick one-off look: <code>npx traceroost@latest</code> · Homebrew: <code>brew upgrade traceroost</code> · Docker: <code>docker pull traceroost/traceroost</code> and re-run your <code>docker run</code> command.
             </div>
@@ -521,14 +540,18 @@ export function App() {
   // [title] tooltip — native title tooltips take ~1s+ (OS/browser-controlled, not something CSS
   // or JS can shorten) to appear, which reads as sluggish given how many small badges/pills
   // throughout this app rely on title text to explain themselves. This shows the same styled
-  // tooltip for either attribute after one short, consistent delay. The native title is
-  // temporarily removed while hovered (restored on mouseout) so it can't also pop in later,
+  // tooltip for either attribute after one short, consistent delay — on hover, and on keyboard
+  // focus so tooltip-only meaning is reachable without a mouse. The native title is temporarily
+  // removed while hovered/focused (restored on mouseout/focusout) so it can't also pop in later,
   // stacked on top of this one.
   useEffect(() => {
     const HOVER_DELAY_MS = 150
     let tipEl: HTMLDivElement | null = null
     let showTimer: ReturnType<typeof setTimeout> | null = null
     let activeTarget: HTMLElement | null = null
+    // The target whose tooltip Escape dismissed: it stays dismissed while the pointer or focus is
+    // still on it (moving over its children fires mouseover again), and shows again once left.
+    let dismissedTarget: HTMLElement | null = null
 
     function clearTimer() {
       if (showTimer !== null) { clearTimeout(showTimer); showTimer = null }
@@ -570,9 +593,14 @@ export function App() {
       }
     }
 
-    function show(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('[data-tip], [title]') as HTMLElement | null
-      if (!target || target === activeTarget) return
+    function show(e: MouseEvent | FocusEvent) {
+      const el = e.target as HTMLElement | null
+      if (!el?.closest) return
+      // Keyboard focus shows the same tooltip as hover. Focus from a mouse click doesn't — the
+      // pointer is already hovering it, and a click-focused button shouldn't re-trigger it.
+      if (e.type === 'focusin' && !el.matches(':focus-visible')) return
+      const target = el.closest('[data-tip], [title]') as HTMLElement | null
+      if (!target || target === activeTarget || target === dismissedTarget) return
       clearTimer()
       activeTarget = target
       // Suppress the native tooltip right away (not after the delay) so it never gets a chance
@@ -588,13 +616,16 @@ export function App() {
       }, HOVER_DELAY_MS)
     }
 
-    function hide(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('[data-tip], [data-native-title]') as HTMLElement | null
+    function hide(e: MouseEvent | FocusEvent) {
+      const el = e.target as HTMLElement | null
+      if (!el?.closest) return
+      const related = e.relatedTarget as Node | null
+      if (dismissedTarget?.contains(el) && !(related && dismissedTarget.contains(related))) dismissedTarget = null
+      const target = el.closest('[data-tip], [data-native-title]') as HTMLElement | null
       if (!target) return
       // Moving onto a child of the same target (e.g. an icon inside a titled pill) isn't a real
       // leave — mouseout/mouseover delegation fires for that boundary too, and without this
       // check the tooltip would flicker hidden-then-rescheduled on every such internal move.
-      const related = e.relatedTarget as Node | null
       if (related && target.contains(related)) return
       restoreNativeTitle(target)
       clearTimer()
@@ -602,11 +633,29 @@ export function App() {
       if (tipEl) tipEl.style.display = 'none'
     }
 
+    // Escape dismisses a showing tooltip without moving focus or the pointer (WCAG 1.4.13).
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape' || !activeTarget) return
+      restoreNativeTitle(activeTarget)
+      clearTimer()
+      // Forget it as the active target, or show() would ignore it for good and its styled
+      // tooltip would never appear again.
+      dismissedTarget = activeTarget
+      activeTarget = null
+      if (tipEl) tipEl.style.display = 'none'
+    }
+
     document.addEventListener('mouseover', show)
     document.addEventListener('mouseout', hide)
+    document.addEventListener('focusin', show)
+    document.addEventListener('focusout', hide)
+    document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('mouseover', show)
       document.removeEventListener('mouseout', hide)
+      document.removeEventListener('focusin', show)
+      document.removeEventListener('focusout', hide)
+      document.removeEventListener('keydown', onKey)
       clearTimer()
       if (tipEl) { tipEl.remove(); tipEl = null }
     }
@@ -880,7 +929,9 @@ export function App() {
   }, [])
 
   const tab = normalizeTabId(activeTab.value)
-  const showFilterBars = tab !== 'help' && tab !== 'pricing'
+  // Import reads a file and ignores every filter, so its tab drops the filter chrome. Export keeps
+  // it: what it exports is the filtered set.
+  const showFilterBars = tab !== 'help' && tab !== 'pricing' && tab !== 'import'
 
   return (
     <>
@@ -903,8 +954,12 @@ export function App() {
         >
           {sidebarOpen.value ? '◄' : '►'}
         </button>
-        {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
-        <div style="margin-left:auto;display:flex;align-items:center;border-left:1px solid var(--border);padding-left:2px">
+        {/* Only the tab buttons scroll on a narrow panel; the icon cluster after them never
+            shrinks, so Settings, Help and the Alerts bell stay reachable at any width. */}
+        <div class="tabs-scroll">
+          {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
+        </div>
+        <div class="tabs-icons">
           <OrgButton />
           {window.__STANDALONE__ === true && <UpdateButton />}
           <BellButton />
@@ -978,7 +1033,7 @@ function CollectorConflictBanner() {
           <>
             <strong>Not receiving OTel</strong> — the background service already holds port <code>{port}</code>.
             <ul style="margin:2px 0 0;padding-left:16px">
-              <li>New sessions here come from log files only (no prompt/tool content).</li>
+              <li>New traces here come from log files only (no prompt/tool content).</li>
               <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command), or with Homebrew: <code>brew install traceroost/tap/traceroost</code> then <code>traceroost service install</code>.</li>
               <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension {extensionId}</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
             </ul>
@@ -1031,16 +1086,16 @@ function AgentSetupBanner() {
       .finally(() => setBusy(false))
   }
   return (
-    <div class="collector-conflict-banner" role="region" aria-label="Set up your coding agents">
+    <div class="agent-setup-banner" role="region" aria-label="Set up your coding agents">
       <div style="flex:1">
         <strong>{confirmingSkip ? AGENT_SETUP_SKIP_QUESTION : AGENT_SETUP_QUESTION}</strong>
         <div style="margin-top:2px">{confirmingSkip ? AGENT_SETUP_SKIP_EXPLANATION : AGENT_SETUP_EXPLANATION}</div>
-        {failed && <div style="margin-top:4px">That didn't go through — try again, or use Configure OTEL in Settings.</div>}
+        {failed && <div role="alert" style="margin-top:4px">That didn't go through — try again, or use Set up agents in Settings.</div>}
         <div style="display:flex;gap:8px;margin-top:6px">
-          <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('yes')}>Set up agents</button>
+          <button class="btn-primary" disabled={busy} onClick={() => answer('yes')}>Set up agents</button>
           {confirmingSkip
-            ? <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('no')}>Skip setup</button>
-            : <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => setConfirmingSkip(true)}>Not now</button>}
+            ? <button class="btn-secondary" disabled={busy} onClick={() => answer('no')}>Skip setup</button>
+            : <button class="btn-secondary" disabled={busy} onClick={() => setConfirmingSkip(true)}>Not now</button>}
         </div>
       </div>
     </div>
@@ -1540,7 +1595,7 @@ function FilterActionsBar() {
 
 const DATA_SOURCE_FILTER_OPTIONS: Array<{ value: DataSourceFilter; label: string; color: string }> = [
   { value: 'all',  label: 'All',  color: DATA_SOURCE_COLORS.all },
-  { value: 'otel', label: 'OTEL', color: DATA_SOURCE_COLORS.otel },
+  { value: 'otel', label: 'OTel', color: DATA_SOURCE_COLORS.otel },
   { value: 'log',  label: 'Log',  color: DATA_SOURCE_COLORS.log },
 ]
 
@@ -1587,7 +1642,7 @@ const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string; color
   { value: 'all',       label: 'All',         color: 'var(--fg)',        title: 'Show all traces' },
   { value: 'merged',    label: 'Merged',      color: 'var(--tr-merged)', title: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history" },
   { value: 'committed', label: 'Committed',   color: 'var(--accent)',    title: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally" },
-  { value: 'abandoned', label: 'Uncommitted', color: '#f6a623',          title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
+  { value: 'abandoned', label: 'Uncommitted', color: 'var(--vscode-editorWarning-foreground, #f6a623)', title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
 ]
 
 // The local-git equivalent of traceroost-cloud's own Outcome filter (same TracesTable this
@@ -1713,16 +1768,16 @@ function SearchFilterBar() {
 
   return (
     <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#4fc3f711;border-bottom:1px solid #4fc3f733;flex-shrink:0">
-      <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
+      <span style="font-size:10px;color:var(--vscode-textLink-foreground, #4fc3f7);white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
       {evidenceSessionPrompt.value && (
         <span
-          style="font-size:10px;color:#4fc3f7;opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
+          style="font-size:10px;color:var(--vscode-textLink-foreground, #4fc3f7);opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
           title={evidenceSessionPrompt.value}
         >— "{evidenceSessionPrompt.value}"</span>
       )}
       <button
         onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}
-        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:#4fc3f7;cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
+        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:var(--vscode-textLink-foreground, #4fc3f7);cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
       >Show all traces</button>
     </div>
   )

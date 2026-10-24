@@ -14,7 +14,7 @@ import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer } from '../src/agentSetupConsent'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, agentSetupWaitingLine, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer, type AgentSetupStep } from '../src/agentSetupConsent'
 import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
 import { OtlpIngest } from '../src/otlpIngest'
@@ -38,7 +38,7 @@ import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, writeServiceConfig, configuredPorts, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
-import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
+import { startVersionCheckLoop, getCachedVersionCheck, updateAdvice, npxCachedCopyNotice, type VersionCheckResult } from './versionCheck'
 import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
@@ -74,6 +74,7 @@ import { generateCspNonce, dashboardCspHeader, UNAUTHORIZED_PAGE_CSP } from './d
 import { renderDashboardHtml } from './dashboardHtml'
 import { knownWorkspace } from './instructionActions'
 import { installOwnerChannel } from './ownerChannel'
+import { logDebug } from '../src/logLevel'
 
 // Development builds only: load `.env` from the current working directory, so `pnpm run local` can
 // point at a specific org environment (e.g. `TRACEROOST_ORG_ENV=test`) without exporting shell
@@ -105,7 +106,7 @@ const BIND_HOST  = process.env.BIND_HOST ?? fileConfig.bindHost
 const AUTH_TOKEN = fileConfig.authToken
 // Escape hatch for anything that starts this server without wanting it to touch the real
 // machine's agent config — demo/test harnesses, CI, a second instance for screenshotting.
-// Covers both the unconditional startup call below and the manual "Configure OTEL" button
+// Covers both the unconditional startup call below and the manual "Set up agents" button
 // (POST /action { type: 'reconfigureOtel' }); unset (the default) changes nothing for a real
 // user, since nobody sets this by hand.
 const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
@@ -174,6 +175,7 @@ const parsedMaxSpans = parseInt(process.env.TRACEROOST_MAX_SPANS ?? '', 10)
 const MAX_SPANS  = Number.isNaN(parsedMaxSpans) ? DEFAULT_MAX_SPANS : parsedMaxSpans
 
 const PACKAGE_VERSION: string = readPackageManifest(__dirname).version ?? 'unknown'
+let firstVersionCheck: Promise<VersionCheckResult | null> = Promise.resolve(null)
 if (PACKAGE_VERSION === 'unknown') {
   console.warn('[TraceRoost] Could not read package.json to determine the running version — is package.json missing from this install?')
 } else {
@@ -181,12 +183,16 @@ if (PACKAGE_VERSION === 'unknown') {
   // The Sessions tab footer shows this version, but a bare `npx traceroost`/long-running
   // service can go stale silently — startVersionCheckLoop compares it against npm in the
   // background so the dashboard can surface an "update available" notice (/api/version-check).
-  startVersionCheckLoop(PACKAGE_VERSION)
+  firstVersionCheck = startVersionCheckLoop(PACKAGE_VERSION)
 }
 if (isRunningFromNpx(process.env.npm_config_user_agent, process.argv[1] ?? '')) {
   // A bare `npx traceroost` re-runs npx's cached copy without checking npm, so the version
-  // above can be an old release even right after a publish. Surface that at the moment it's on screen.
-  console.log('[TraceRoost] Launched via npx — if this isn\'t the version you expect, npx served a cached copy. Re-run as `npx traceroost@latest` (or clear it with `rm -rf ~/.npm/_npx`).')
+  // above can be an old release even right after a publish. Said once the version check above
+  // answers, and only when this copy is actually behind (npxCachedCopyNotice).
+  void firstVersionCheck.then(result => {
+    const notice = npxCachedCopyNotice(result)
+    if (notice) console.log(notice)
+  })
 }
 
 const mediaDir  = path.join(__dirname, '..', 'media')
@@ -558,7 +564,7 @@ function checkStaleOtelSessions() {
     void forward.then(r => {
       otelForwardGate.settle(card, r.enqueued || (r.reason !== 'error' && r.reason !== 'not-linked'))
       if (r.enqueued) cloud.drainUploadsSoon()
-    }, e => { otelForwardGate.settle(card, false); forwardFailed('OTEL trace forward')(e) })
+    }, e => { otelForwardGate.settle(card, false); forwardFailed('OTel trace forward')(e) })
   }
 }
 
@@ -1804,7 +1810,7 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
             res.end(JSON.stringify({ error: 'Auto-configure is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
             return
           }
-          // Pressing Configure OTEL is the user's yes (src/agentSetupConsent.ts).
+          // Pressing Set up agents is the user's yes (src/agentSetupConsent.ts).
           if (!IS_DOCKER) {
             writeAgentSetupAnswer('yes')
             if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
@@ -1845,26 +1851,11 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
 
   if (req.method === 'GET' && url === '/api/version-check') {
     const result = getCachedVersionCheck(PACKAGE_VERSION)
-    // Four ways to be running, four different update commands: an OS-native background service
-    // (src/serviceConfig.ts's generators set TRACEROOST_SERVICE=1) updates in place (through npm or
-    // brew, whichever installed it); the Docker image (its Dockerfile sets TRACEROOST_DOCKER=1)
-    // needs a new image and a re-created container; a Homebrew install run by hand is pointed at
-    // the service, which upgrades through brew; anything else (npx, a global install) is pointed
-    // at the background service through npx.
-    const isService = process.env.TRACEROOST_SERVICE === '1'
-    const isDocker = !isService && process.env.TRACEROOST_DOCKER === '1'
-    const isHomebrew = !isService && !isDocker &&
-      detectHomebrewInstall(process.argv[1] ?? '', readPackageManifest(__dirname).name ?? 'traceroost') !== undefined
+    // How to update depends on how this server was started — see updateAdvice.
+    const advice = updateAdvice(process.env, () =>
+      detectHomebrewInstall(process.argv[1] ?? '', readPackageManifest(__dirname).name ?? 'traceroost') !== undefined)
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({
-      ...result,
-      isService,
-      isDocker,
-      recommendedCommand: isService
-        ? 'traceroost service update'
-        : isDocker ? 'docker pull traceroost/traceroost'
-          : isHomebrew ? 'traceroost service install' : 'npx traceroost@latest service install',
-    }))
+    res.end(JSON.stringify({ ...result, ...advice }))
     return
   }
 
@@ -2239,7 +2230,8 @@ const otlpServer = http.createServer((req, res) => {
       const kind = classifyOtlpPayload(payload)
       if (req.url === '/v1/traces' || kind === 'traces') {
         const { count, agent } = processTraces(payload, req.url ?? '/v1/traces')
-        if (count > 0) console.log(`[TraceRoost] Ingested ${count} span${count !== 1 ? 's' : ''} (${agent})`)
+        // One line per payload is routine detail — TRACEROOST_LOG_LEVEL=debug shows it (src/logLevel.ts).
+        if (count > 0) logDebug(console.log, `[TraceRoost] Ingested ${count} span${count !== 1 ? 's' : ''} (${agent})`)
       } else if (req.url === '/v1/logs' || kind === 'logs') {
         processLogs(payload, req.url ?? '/v1/logs')
       } else if (kind === 'metrics' || req.url === '/v1/metrics') {
@@ -2340,8 +2332,10 @@ async function runAgentSetup(port: number): Promise<void> {
   }
 }
 
-// The terminal question while it waits — closed when the dashboard answers first.
+// The terminal question while it waits — closed when the dashboard answers first — and which of
+// its two questions is showing, so the re-prompt names the right one.
 let agentSetupQuestion: readline.Interface | undefined
+let agentSetupStep: AgentSetupStep = 'setup'
 
 /** Records the user's answer, from the terminal or the dashboard, and acts on it. */
 function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void> {
@@ -2351,10 +2345,20 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
   agentSetupPending = false
   broadcastSse({ type: 'update', agentSetupPending })
   if (answer === 'no') {
-    console.log('[TraceRoost] Agents not set up — run Configure OTEL in Settings when you want to.')
+    console.log("[TraceRoost] Agents not set up — set them up from the dashboard's ⚙ Settings panel when you want to.")
     return Promise.resolve()
   }
   return runAgentSetup(port)
+}
+
+/** The startup lines printed after the terminal question (the dashboard URL, the log-history
+ *  summary) push it up out of sight. Once they're done, if it's still unanswered, say so in one
+ *  line and show its prompt again, keeping anything already typed. */
+function repromptAgentSetup(): void {
+  const rl = agentSetupQuestion
+  if (!rl) return
+  console.log(`\n${agentSetupWaitingLine(agentSetupStep)}`)
+  rl.prompt(true)
 }
 
 /** `npx traceroost` in a terminal: ask there. No answer leaves the dashboard banner to ask. */
@@ -2362,10 +2366,16 @@ function askAgentSetupInTerminal(port: number): void {
   agentSetupPending = true
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   agentSetupQuestion = rl
-  rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\nSet up agents? [y/N] `, input => {
+  agentSetupStep = 'setup'
+  // Each question and its explanation are printed once; only the short "[y/N]" / "[Y/n]" line is
+  // the readline prompt, so repromptAgentSetup can show it again below the startup lines that follow.
+  console.log(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}`)
+  rl.question('Set up agents? [y/N] ', input => {
     if (parseYesNo(input) === 'yes') { void answerAgentSetup('yes', port); return }
     // A no is asked once more, with what skipping costs; Enter keeps the no.
-    rl.question(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}\nSkip setup? [Y/n] `, again => {
+    agentSetupStep = 'skip'
+    console.log(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`)
+    rl.question('Skip setup? [Y/n] ', again => {
       void answerAgentSetup(parseSkipConfirmation(again), port)
     })
   })
@@ -2410,7 +2420,9 @@ async function startUiServer(): Promise<void> {
   }
 
   // Start log ingestion after the server is ready
-  startLogIngestion()
+  // The last burst of startup output ends with the log-history summary — re-show a pending
+  // terminal question after it.
+  void startLogIngestion().finally(repromptAgentSetup)
 
   // Cloud: forwarding scheduler. No timer runs unless an org is linked.
   // `notify`: the standalone has no toast — the message goes to the log, and the notice the sender

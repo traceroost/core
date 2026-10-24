@@ -487,7 +487,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
             _requestFullUpdate();
           }${ORG_FETCH_SHIM}
           if (msg.type === 'confirmClear') {
-            if (confirm('Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
+            if (confirm('Clear all TraceRoost data? OTel trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).')) {
               fetch('/api/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
               window.dispatchEvent(new MessageEvent('message', { data: { type: 'clearAll' } }));
             }
