@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
-import { isLoopbackEndpoint, isTraceRoostEndpoint, type ConfigResult, type SetupMode } from './autoConfigNode'
-export type { ConfigResult, SetupMode } from './autoConfigNode'
-export { autoConfigureClaudeCode, autoConfigureCodex } from './autoConfigNode'
+import { COPILOT_ENDPOINT_KEY, copilotSettings, isLoopbackEndpoint, isTraceRoostEndpoint, type ConfigResult, type SetupMode } from './autoConfigNode'
+export type { ConfigResult, RemoveResult, SetupMode } from './autoConfigNode'
+export { autoConfigureClaudeCode, autoConfigureCodex, removeClaudeCodeSetup, removeCodexSetup, removeCopilotStandaloneSetup } from './autoConfigNode'
 
 export async function autoConfigureCopilot(port: number, mode: SetupMode = 'full'): Promise<ConfigResult> {
   try {
@@ -51,6 +51,30 @@ export async function autoConfigureCopilot(port: number, mode: SetupMode = 'full
     }
 
     return { changed }
+  } catch (e) {
+    return { changed: false, error: String(e) }
+  }
+}
+
+/** Remove agent setup (src/autoConfigNode.ts) for this editor's Copilot settings, through the
+ *  settings API like the setup above: drops the user-level values setup writes, while the
+ *  endpoint is still TraceRoost's. */
+export async function removeCopilotSetup(): Promise<ConfigResult> {
+  try {
+    const config = vscode.workspace.getConfiguration()
+    if (config.inspect(COPILOT_ENDPOINT_KEY)?.defaultValue === undefined) return { changed: false }
+    const endpoint = config.inspect<string>(COPILOT_ENDPOINT_KEY)?.globalValue
+    if (typeof endpoint === 'string' && endpoint && !isTraceRoostEndpoint(endpoint)) {
+      return { changed: false, warning: `${COPILOT_ENDPOINT_KEY} points at ${endpoint}, not TraceRoost; left untouched` }
+    }
+    if (!isTraceRoostEndpoint(endpoint)) return { changed: false }
+    const ours = copilotSettings(0)
+    for (const key of Object.keys(ours)) {
+      if (key === COPILOT_ENDPOINT_KEY || config.inspect(key)?.globalValue === ours[key]) {
+        await config.update(key, undefined, vscode.ConfigurationTarget.Global)
+      }
+    }
+    return { changed: true }
   } catch (e) {
     return { changed: false, error: String(e) }
   }

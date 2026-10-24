@@ -1,6 +1,6 @@
 import * as assert from 'assert'
 import * as vscode from 'vscode'
-import { autoConfigureCopilot } from '../autoConfig'
+import { autoConfigureCopilot, removeCopilotSetup } from '../autoConfig'
 
 type Settings = Record<string, unknown>
 
@@ -80,6 +80,30 @@ suite('autoConfigureCopilot', () => {
   test("'maintain' adds no endpoint that isn't there", () =>
     withConfig(COPILOT_DEFAULTS, {}, async writes => {
       assert.deepStrictEqual(await autoConfigureCopilot(4318, 'maintain'), { changed: false })
+      assert.deepStrictEqual(writes, [])
+    }))
+
+  test('Remove agent setup takes out the three user settings setup wrote', () =>
+    withConfig(COPILOT_DEFAULTS, {}, async writes => {
+      await autoConfigureCopilot(4318)
+      writes.length = 0
+      assert.deepStrictEqual(await removeCopilotSetup(), { changed: true })
+      assert.deepStrictEqual(writes, [
+        ['github.copilot.chat.otel.enabled', undefined],
+        ['github.copilot.chat.otel.exporterType', undefined],
+        ['github.copilot.chat.otel.otlpEndpoint', undefined],
+      ])
+      assert.deepStrictEqual(await removeCopilotSetup(), { changed: false }, 'a second remove changes nothing')
+    }))
+
+  test('Remove agent setup leaves the user\'s own collector alone', () =>
+    withConfig(COPILOT_DEFAULTS, {
+      'github.copilot.chat.otel.enabled': true,
+      'github.copilot.chat.otel.otlpEndpoint': 'https://otel.example.com',
+    }, async writes => {
+      const result = await removeCopilotSetup()
+      assert.strictEqual(result.changed, false)
+      assert.match(result.warning ?? '', /otel\.example\.com/)
       assert.deepStrictEqual(writes, [])
     }))
 })

@@ -456,3 +456,159 @@ export async function autoConfigureCopilotStandalone(port: number, mode: SetupMo
   return results
 }
 
+
+// ── Remove agent setup ───────────────────────────────────────────────────────
+//
+// Takes out exactly what the setup above wrote, and nothing else — not a restore of
+// <file>.traceroost.bak, which would also undo every change the user made since. What counts as
+// TraceRoost's: a setting whose value is the one setup writes, in a file whose endpoint is
+// TraceRoost's own (isTraceRoostEndpoint). A file exporting anywhere else — another collector,
+// remote or local — is left exactly as it is. Settings setup *removed* (Claude Code's stale keys,
+// the legacy Stop hook) are not put back.
+
+/** One agent settings file's outcome, naming the file so the caller can say what changed. */
+export interface RemoveResult extends ConfigResult {
+  file: string
+}
+
+/** Claude Code: drops the `"env"` keys setup writes (only where they still hold setup's value),
+ *  and `"env"` itself when nothing else is left in it. Edits the text in place, so the rest of
+ *  the file keeps its formatting byte for byte. */
+export async function removeClaudeCodeSetup(): Promise<RemoveResult> {
+  const file = claudeSettingsPath()
+  try {
+    const raw = await readIfExists(file)
+    if (raw === undefined || raw.trim() === '') return { file, changed: false }
+    let settings: unknown
+    try {
+      settings = JSON.parse(raw)
+    } catch (e) {
+      return { file, changed: false, error: `${file} is not valid JSON (${(e as Error).message}) — left untouched` }
+    }
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+      return { file, changed: false, error: `${file} is not a JSON object — left untouched` }
+    }
+    const env = (settings as Record<string, unknown>).env
+    if (!env || typeof env !== 'object' || Array.isArray(env)) return { file, changed: false }
+    const envVars = env as Record<string, unknown>
+
+    for (const key of ['OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT']) {
+      const current = envVars[key]
+      if (typeof current === 'string' && current && !isTraceRoostEndpoint(current)) {
+        return { file, changed: false, warning: `${key} in ${file} points at ${current}, not TraceRoost; left untouched` }
+      }
+    }
+    const endpoint = envVars.OTEL_EXPORTER_OTLP_ENDPOINT
+    // No TraceRoost endpoint: nothing marks the remaining telemetry keys as TraceRoost's.
+    if (!isTraceRoostEndpoint(endpoint)) return { file, changed: false }
+
+    const ours = claudeCodeEnv(0)
+    const remove = Object.keys(ours).filter(key =>
+      key === 'OTEL_EXPORTER_OTLP_ENDPOINT' || (key in envVars && envVars[key] === ours[key]))
+    let text = raw
+    for (const key of remove) text = applyEdits(text, modify(text, ['env', key], undefined, JSONC_FORMAT))
+    if (Object.keys(envVars).every(key => remove.includes(key))) {
+      text = applyEdits(text, modify(text, ['env'], undefined, JSONC_FORMAT))
+    }
+    if (text === raw) return { file, changed: false }
+    await writeConfigFile(file, text, true, false)
+    return { file, changed: true }
+  } catch (e) {
+    return { file, changed: false, error: String(e) }
+  }
+}
+
+/** The exact `exporter` / `trace_exporter` line Codex setup writes, for any port. */
+const CODEX_SETUP_EXPORTER_RE = /^(exporter|trace_exporter) = \{ otlp-http = \{ endpoint = "http:\/\/localhost:\d{1,5}", protocol = "json" \} \}\s*$/
+
+/** Codex: drops setup's `exporter` / `trace_exporter` lines from `[otel]`, and `log_user_prompt =
+ *  true` with them, then the `[otel]` header itself if nothing is left under it. An exporter line
+ *  setup didn't write (another endpoint, extra headers) marks the table as the user's own. */
+export async function removeCodexSetup(): Promise<RemoveResult> {
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
+  const file = path.join(codexHome, 'config.toml')
+  try {
+    const content = await readIfExists(file)
+    if (content === undefined) return { file, changed: false }
+    const lines = content.split('\n')
+    const { otelIdx, sectionEnd } = codexOtelSection(lines)
+    if (otelIdx === -1) return { file, changed: false }
+    const foreign = foreignCodexEndpoint(lines, otelIdx, sectionEnd)
+    if (foreign !== undefined) {
+      return { file, changed: false, warning: `[otel] in ${file} exports to ${foreign}, not TraceRoost; left untouched` }
+    }
+
+    const section = lines.slice(otelIdx + 1, sectionEnd)
+    const isExporterLine = (l: string) => /^\s*("|')?(trace_exporter|exporter)("|')?\s*[=.]/.test(l)
+    const ourExporters = section.filter(l => CODEX_SETUP_EXPORTER_RE.test(l))
+    if (ourExporters.length === 0) return { file, changed: false }
+    const otherExporter = section.find(l => isExporterLine(l) && !CODEX_SETUP_EXPORTER_RE.test(l))
+    if (otherExporter !== undefined) {
+      return { file, changed: false, warning: `[otel] in ${file} has an exporter TraceRoost didn't write (${otherExporter.trim()}); left untouched` }
+    }
+
+    const kept = section.filter(l => !CODEX_SETUP_EXPORTER_RE.test(l) && !/^log_user_prompt = true\s*$/.test(l))
+    let before = lines.slice(0, otelIdx)
+    const after = lines.slice(sectionEnd)
+    let rebuilt: string[]
+    if (kept.every(l => l.trim() === '')) {
+      // Nothing of the user's under [otel]: the header goes too. Setup appended it as
+      // "\n\n[otel]\n…" after the file's last line, so at the end of the file the blank line
+      // before it goes with it.
+      if (after.length === 0) {
+        while (before.length > 0 && before[before.length - 1].trim() === '') before = before.slice(0, -1)
+        rebuilt = before.length > 0 ? [...before, ''] : []
+      } else {
+        rebuilt = [...before, ...after]
+      }
+    } else {
+      rebuilt = [...before, lines[otelIdx], ...kept, ...after]
+    }
+    const text = rebuilt.join('\n')
+    if (text === content) return { file, changed: false }
+    await writeConfigFile(file, text, true, false)
+    return { file, changed: true }
+  } catch (e) {
+    return { file, changed: false, error: String(e) }
+  }
+}
+
+/** Copilot, in every installed VS Code-family IDE's user settings: drops the three settings setup
+ *  writes (each only while it holds setup's value) from a file whose endpoint is TraceRoost's. */
+export async function removeCopilotStandaloneSetup(): Promise<RemoveResult[]> {
+  const ours = copilotSettings(0)
+  const results: RemoveResult[] = []
+  for (const file of vscodeUserSettingsPaths()) {
+    try { await fs.access(path.dirname(file)) } catch { continue }
+    try {
+      const raw = await readIfExists(file)
+      if (raw === undefined || raw.trim() === '') { results.push({ file, changed: false }); continue }
+      const errors: ParseError[] = []
+      const parsed: unknown = parseJsonc(raw, errors, { allowTrailingComma: true, disallowComments: false })
+      if (errors.length > 0 || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        const why = errors.length > 0 ? printParseErrorCode(errors[0].error) : 'not an object'
+        results.push({ file, changed: false, error: `${file} could not be parsed (${why}) — left untouched` })
+        continue
+      }
+      const settings = parsed as Record<string, unknown>
+      const endpoint = settings[COPILOT_ENDPOINT_KEY]
+      if (typeof endpoint === 'string' && endpoint && !isTraceRoostEndpoint(endpoint)) {
+        results.push({ file, changed: false, warning: `${COPILOT_ENDPOINT_KEY} in ${file} points at ${endpoint}, not TraceRoost; left untouched` })
+        continue
+      }
+      if (!isTraceRoostEndpoint(endpoint)) { results.push({ file, changed: false }); continue }
+      let text = raw
+      for (const key of Object.keys(ours)) {
+        if (key === COPILOT_ENDPOINT_KEY || settings[key] === ours[key]) {
+          text = applyEdits(text, modify(text, [key], undefined, JSONC_FORMAT))
+        }
+      }
+      if (text === raw) { results.push({ file, changed: false }); continue }
+      await writeConfigFile(file, text, true, false)
+      results.push({ file, changed: true })
+    } catch (e) {
+      results.push({ file, changed: false, error: String(e) })
+    }
+  }
+  return results
+}
