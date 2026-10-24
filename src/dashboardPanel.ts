@@ -263,7 +263,7 @@ export class DashboardPanel {
         if (!isDeclaredSettingUpdate(this.context.extension.packageJSON, msg.key, msg.value)) { return }
         void vscode.workspace.getConfiguration('traceRoost').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
       } else if (msg.type === 'reconfigureOtel') {
-        // Pressing Configure OTEL is the user's yes (src/agentSetupConsent.ts) — remembered, so
+        // Pressing Set up agents is the user's yes (src/agentSetupConsent.ts) — remembered, so
         // later activations keep the agents pointed at this port.
         writeAgentSetupAnswer('yes')
         const port = vscode.workspace.getConfiguration('traceRoost').get<number>('otlpPort', 4318)

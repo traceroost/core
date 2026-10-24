@@ -106,7 +106,7 @@ const BIND_HOST  = process.env.BIND_HOST ?? fileConfig.bindHost
 const AUTH_TOKEN = fileConfig.authToken
 // Escape hatch for anything that starts this server without wanting it to touch the real
 // machine's agent config — demo/test harnesses, CI, a second instance for screenshotting.
-// Covers both the unconditional startup call below and the manual "Configure OTEL" button
+// Covers both the unconditional startup call below and the manual "Set up agents" button
 // (POST /action { type: 'reconfigureOtel' }); unset (the default) changes nothing for a real
 // user, since nobody sets this by hand.
 const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
@@ -1810,7 +1810,7 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
             res.end(JSON.stringify({ error: 'Auto-configure is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
             return
           }
-          // Pressing Configure OTEL is the user's yes (src/agentSetupConsent.ts).
+          // Pressing Set up agents is the user's yes (src/agentSetupConsent.ts).
           if (!IS_DOCKER) {
             writeAgentSetupAnswer('yes')
             if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }

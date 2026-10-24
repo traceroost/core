@@ -400,7 +400,7 @@ TraceRoost was renamed from AgentLens — several unrelated projects already use
 
 1. Remove the old service: `agentlens service uninstall`
 2. Install the new one: `npx traceroost@latest service install`
-3. Let auto-config rewrite your agents' OTel settings on the next start (or use **Configure OTel** in Settings)
+3. Let auto-config rewrite your agents' OTel settings on the next start (or use **Set up agents** in Settings)
 
 Trace history stored under the old `~/.agentlens` directory is not migrated automatically — point `DATA_DIR` (or `service install --data-dir`) at it if you need it.
 
@@ -408,10 +408,10 @@ Trace history stored under the old `~/.agentlens` directory is not migrated auto
 
 The VS Code extension and the standalone (`npx`) server both offer to set up Copilot, Claude Code, and Codex, so you shouldn't need any of this by default. It's here for when you do:
 
-- **It asks first, once** — before TraceRoost changes any agent's settings, it asks: a notification in VS Code, a yes/no question in the terminal (`traceroost`, `traceroost service install`), or a banner in the dashboard when it runs as a background service. Saying yes lets it edit `~/.claude/settings.json`, `~/.codex/config.toml` and your editors' Copilot settings so the agents send their activity — including prompts and tool output — to TraceRoost on this computer. Saying no asks once more, with what skipping costs — without setup the agents send no live traces, so TraceRoost sees only what their log files record. The answer is kept in `~/.traceroost/config.json` (`agentSetup`) and shared by every TraceRoost on the machine; **Configure OTel** in Settings counts as a yes.
+- **It asks first, once** — before TraceRoost changes any agent's settings, it asks: a notification in VS Code, a yes/no question in the terminal (`traceroost`, `traceroost service install`), or a banner in the dashboard when it runs as a background service. Saying yes lets it edit `~/.claude/settings.json`, `~/.codex/config.toml` and your editors' Copilot settings so the agents send their activity — including prompts and tool output — to TraceRoost on this computer. Saying no asks once more, with what skipping costs — without setup the agents send no live traces, so TraceRoost sees only what their log files record. The answer is kept in `~/.traceroost/config.json` (`agentSetup`) and shared by every TraceRoost on the machine; **Set up agents** in Settings counts as a yes.
 - **It never takes over your own collector** — a settings file that already sends OpenTelemetry somewhere other than localhost is left exactly as it is.
 - **It's idempotent and quiet** — only rewrites a config file when something's actually missing or different, and only notifies (once, in a VS Code notification and the Output panel) when it changes something. Disable it entirely with the `traceRoost.autoConfigureAgents` setting.
-- **Changed an agent's OTel settings by hand?** Use the **Configure OTel** button in the Settings panel (gear icon) to reapply TraceRoost's values immediately, instead of waiting for the next restart.
+- **Changed an agent's OTel settings by hand?** Use the **Set up agents** button in the Settings panel (gear icon) to reapply TraceRoost's values immediately, instead of waiting for the next restart.
 - **Docker doesn't set up your host agents** — inside the container it could only reach the container's own files, so it doesn't offer. Use the setup scripts below, or the manual steps per agent.
 - Replace `4318` below with your custom port if you changed `traceRoost.otlpPort`.
 
@@ -505,7 +505,7 @@ Environment variables (the first five predate the `TRACEROOST_` prefix and keep 
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
 | `TRACEROOST_NO_OPEN` | unset | Set to `1` so a terminal run doesn't open the dashboard in your browser (same as `--no-open`) |
 | `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
-| `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Configure OTel** button reports that it's disabled) |
+| `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Set up agents** button reports that it's disabled) |
 | `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends nothing from your traces or settings) |
 | `TRACEROOST_BUDGET_CAP_USD` | unset | Per-trace dollar cap for the **Budget Overrun** signal; the signal is off until this is set (also read by the VS Code extension from its environment) |
 | `TRACEROOST_LOG_LEVEL` | `info` | Set to `debug` for routine per-tick detail — forwarding and trace-manifest counts, and one `Ingested N spans` line per OTLP payload, which are quiet at `info` (also read by the VS Code extension; its output goes to the TraceRoost output channel) |
@@ -833,7 +833,7 @@ The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Mac
 | `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver (1024–65535) |
 | `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTel span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
 | `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI. Disable if you only want OTel data. |
-| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep their OTel settings pointed at TraceRoost each time it starts. Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Configure OTel** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
+| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep their OTel settings pointed at TraceRoost each time it starts. Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Set up agents** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
 | `traceRoost.enableMcpServer` | `true` | Start the TraceRoost MCP server so Claude Code and other MCP-compatible agents can query your trace history. |
 | `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (1024–65535; when `traceRoost.enableMcpServer` is true) |
 | `traceRoost.sessionRetentionDays` | `90` | How many days to keep trace history in the local database (pruned on activation and every 24 hours) |
