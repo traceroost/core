@@ -8,6 +8,10 @@
   --success: var(--vscode-testing-iconPassed, #4c4);
   --muted: var(--vscode-descriptionForeground);
   --hover: var(--vscode-list-hoverBackground);
+  /* Inset surface for code spans, KV tiles and alert detail boxes. Follows the theme the same way
+   * as the tokens above: VS Code's code-block background where the host defines one, else the
+   * hover tint (which the standalone shim switches between light and dark). */
+  --panel-bg: var(--vscode-textCodeBlock-background, var(--hover));
 
   /* The TraceRoost brand teal (Wordmark.tsx, BrandMark.tsx) — used only for the top nav's
    * active-section indicator (.tab.active in tabs.css), not buttons or links. */
