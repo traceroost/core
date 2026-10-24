@@ -33,6 +33,8 @@
  *   agree.
  * - A shallow clone has no root commit; `deriveRepoKey` returns `null` and callers report
  *   without repository grouping rather than emitting hashes that silently match nothing.
+ * - Only the git lookups behind the key (the repo's top level and root commit) are memoized, in
+ *   memory and per workspace for ROOT_LOOKUP_TTL_MS; the key itself is still derived per call.
  */
 
 import { execFile } from 'child_process'
@@ -49,6 +51,18 @@ const GIT_TIMEOUT_MS = 5000
 // repo_key/repo_hash/repo_key_fp already derived, and changing it makes every existing repo
 // look like a brand-new one to the service, silently discontinuing its cohort history.
 const HKDF_INFO = 'traceroost/v1'
+// Every forwarded trace derives its repo's key, and so does the instruction-state rollup queued
+// right after it: three git spawns each, for a root commit that never changes. A successful
+// lookup is reused for this long, so a re-clone or history rewrite in place is still noticed.
+// Failures (not a repo, shallow, no commit yet) aren't memoized: they may change any moment
+// (`git init`, an unshallow) and a non-repo costs only one spawn to re-check.
+const ROOT_LOOKUP_TTL_MS = 10 * 60_000
+
+type RootLookup =
+  | { ok: true; topLevel: string; root: string }
+  | Extract<RepoKeyResult, { ok: false }>
+
+const rootLookups = new Map<string, { at: number; lookup: Promise<RootLookup> }>()
 
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
@@ -78,6 +92,27 @@ export type RepoKeyResult =
  * papered over with a hash that matches nothing.
  */
 export async function deriveRepoKey(workspace: string, orgId: string): Promise<RepoKeyResult> {
+  const lookup = await lookupRoot(workspace)
+  if (!lookup.ok) return lookup
+  const key = Buffer.from(
+    crypto.hkdfSync('sha256', Buffer.from(lookup.root, 'utf8'), Buffer.from(orgId, 'utf8'), Buffer.from(HKDF_INFO, 'utf8'), 32),
+  )
+  return { ok: true, ctx: { root: realpathBestEffort(lookup.topLevel), key } }
+}
+
+/** The top level and root commit of `workspace`'s repo — memoized on success (see
+ *  ROOT_LOOKUP_TTL_MS). Concurrent callers share one in-flight lookup. */
+function lookupRoot(workspace: string): Promise<RootLookup> {
+  const hit = rootLookups.get(workspace)
+  if (hit && Date.now() - hit.at < ROOT_LOOKUP_TTL_MS) return hit.lookup
+  const lookup = lookupRootUncached(workspace)
+  const entry = { at: Date.now(), lookup }
+  rootLookups.set(workspace, entry)
+  void lookup.then(r => { if (!r.ok && rootLookups.get(workspace) === entry) rootLookups.delete(workspace) })
+  return lookup
+}
+
+async function lookupRootUncached(workspace: string): Promise<RootLookup> {
   const topLevel = (await git(workspace, ['rev-parse', '--show-toplevel']))?.trim()
   if (!topLevel) return { ok: false, reason: 'not-a-repo' }
 
@@ -87,11 +122,7 @@ export async function deriveRepoKey(workspace: string, orgId: string): Promise<R
 
   const root = smallestRootCommit(await git(topLevel, ['rev-list', '--max-parents=0', 'HEAD']))
   if (!root) return { ok: false, reason: 'no-root-commit' }
-
-  const key = Buffer.from(
-    crypto.hkdfSync('sha256', Buffer.from(root, 'utf8'), Buffer.from(orgId, 'utf8'), Buffer.from(HKDF_INFO, 'utf8'), 32),
-  )
-  return { ok: true, ctx: { root: realpathBestEffort(topLevel), key } }
+  return { ok: true, topLevel, root }
 }
 
 // `git rev-parse --show-toplevel` returns a fully-resolved path, but a workspace/file path from

@@ -4,7 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
 import { SCHEMA_SQL } from '../../database/schema'
-import { resolveOutcomeCacheKey } from '../../gitOutcome'
+import { resolveOutcomeCacheKey, createOutcomeRepoCache, readRepoTips, type RepoTips } from '../../gitOutcome'
 import { ReconciliationService, type ReconcileInput } from '../../reconcile/reconciliationService'
 
 // reconcileMany reads each repo root's HEAD/trunk tip once per pass and reuses a session's stored
@@ -119,6 +119,27 @@ suiteOrSkip('reconcileMany: per-pass repo tips and stored file shas', () => {
     await assertKeysMatchUncachedPath(db)
   })
 
+  test('a caller-held cache and trusted tips: an unchanged repo spawns no git at all', async () => {
+    const db = await openInMemoryDb()
+    const service = new ReconciliationService(db)
+    const cache = createOutcomeRepoCache()
+    let tips: Map<string, RepoTips> | undefined
+    const first = await service.reconcileMany(sessions(), { cache, onTips: t => { tips = t } })
+    assert.strictEqual(tips?.size, 1)
+
+    resetSpawns()
+    const again = await service.reconcileMany(sessions(), { cache, trustedTips: tips })
+    assert.deepStrictEqual(spawned(), [])
+    assert.deepStrictEqual(again.map(r => r.outcome), first.map(r => r.outcome))
+    assert.ok(again.every(r => !r.changed))
+
+    // Trusted tips stand in for HEAD/trunk only; an uncommitted edit is still read from disk.
+    fs.writeFileSync(path.join(repoDir, 'c.txt'), 'c.txt edited, not committed\n')
+    const edited = await service.reconcileMany(sessions(), { cache, trustedTips: tips })
+    assert.deepStrictEqual(edited.map(r => r.changed), sessions().map((_, i) => i % FILES.length === 2))
+    await assertKeysMatchUncachedPath(db)
+  })
+
   test('trunk advances with HEAD unchanged: stored file shas are reused, but the new trunk tip still reclassifies', async () => {
     const db = await openInMemoryDb()
     await new ReconciliationService(db).reconcileMany(sessions())
@@ -174,10 +195,14 @@ suiteOrSkip('reconcileMany: per-pass repo tips and stored file shas', () => {
       // in this pass still sees the snapshot taken before this move.
       if (!moved) { moved = true; git('branch', '-f', 'main', 'feature') }
     })
-    const after = await service.reconcileMany(sessions())
+    let reported: Map<string, RepoTips> | undefined
+    const after = await service.reconcileMany(sessions(), { onTips: t => { reported = t } })
     assert.ok(moved)
     assert.ok(after.every(r => r.outcome?.overall === 'merged'), JSON.stringify(after.map(r => r.outcome?.overall)))
     await assertKeysMatchUncachedPath(db)
+    // The tips handed back for reuse are the moved ones, never the pass-start snapshot's.
+    assert.strictEqual(reported?.size, 1)
+    for (const [root, t] of reported ?? []) assert.deepStrictEqual(t, await readRepoTips(root, 'refs/heads/main'))
 
     // And the pass after that is warm again against the new tips.
     resetSpawns()
