@@ -892,11 +892,16 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
 
         {/* Cost */}
         <td style="padding:4px 6px 4px 2px;text-align:left;white-space:nowrap;font-size:10px">
+          {/* Plain text colour: green read as "good", not "a cost". An unpriced trace shows "—" with
+              the reason; its error count stays in the Turns column. */}
           {!cost.modelUnknown && cost.totalUsd > 0
-            ? <span style="color:var(--vscode-charts-green,#81c784)">{fmtUsd(cost.totalUsd)}</span>
-            : sess.errors > 0
-              ? <span style="color:var(--error)">{sess.errors} err</span>
-              : <span style="color:var(--muted)">—</span>
+            ? <span style="color:var(--fg)">{fmtUsd(cost.totalUsd)}</span>
+            : (() => {
+                const why = cost.modelUnknown
+                  ? `Couldn't be priced — ${sess.model ? `no rates for ${sess.model} in the pricing table` : 'the model wasn\'t recorded'}`
+                  : 'No cost — this trace recorded no billable tokens'
+                return <span style="color:var(--muted)" title={why} aria-label={why} tabIndex={0}>—</span>
+              })()
           }
         </td>
 
