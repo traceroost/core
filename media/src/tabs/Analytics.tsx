@@ -6,7 +6,7 @@ import {
   CHART_MAX, requestSessionTimeline, goToHelp,
 } from '../state'
 import { getAgentColor, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
-import { buildDailyCostMap } from '../sessionMetrics'
+import { buildDailyCostMap, calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 import { PRICING_LAST_UPDATED } from '../pricing'
 
@@ -206,6 +206,9 @@ export function Analytics() {
     Date.parse(b.startTime || '0') - Date.parse(a.startTime || '0')
   )
   const pricedChartSess = timeOrdered.filter(s => s.source === 'copilot' || s.source === 'codex' || s.source === 'claude_code' || s.source === 'opencode')
+  // One legend entry per agent that has a bar in the chart (CostBarChart skips unpriced traces),
+  // drawn with the same colour the bars use.
+  const costChartAgents = BREAKDOWN_SOURCES.filter(src => pricedChartSess.some(s => s.source === src && !calcSessionCost(s).modelUnknown))
 
   // Most recent CHART_MAX sessions (newest-first slice, then reversed to oldest-first for charts)
   const chartSessions = timeOrdered.slice(0, CHART_MAX).reverse()
@@ -423,19 +426,20 @@ export function Analytics() {
           <SectionHead id="analytics-cost" title="ESTIMATED COST" helpAnchor="help-costs" />
           {disclaimer}
 
-          {copilotSess.length > 0 && (
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:8px">
-              <span style={'display:inline-block;width:6px;height:6px;border-radius:50%;background:' + getAgentColor('copilot')} />
-              <span style="text-transform:uppercase;letter-spacing:.3px;font-size:10px">Copilot — Token-based</span>
-            </div>
-          )}
-
-          {/* Daily total legend above chart */}
-          <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);margin-bottom:6px">
-            <svg width="16" height="8" viewBox="0 0 16 8">
-              <line x1="0" y1="4" x2="16" y2="4" stroke="var(--vscode-charts-green,#81c784)" stroke-width="1.5" stroke-dasharray="4 2" />
-            </svg>
-            Daily total (right axis)
+          {/* Legend: each bar is one trace, coloured by its agent; the line is the daily total. */}
+          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-bottom:6px">
+            {costChartAgents.map(src => (
+              <span key={src} style="display:inline-flex;align-items:center;gap:4px">
+                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColor(src)};box-shadow:0 0 0 1px var(--border)`} />
+                {getAgentSourceLabel(src)}{src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''}
+              </span>
+            ))}
+            <span style="display:inline-flex;align-items:center;gap:4px">
+              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
+                <line x1="0" y1="4" x2="16" y2="4" stroke="rgba(129,199,132,0.9)" stroke-width="1.5" />
+              </svg>
+              Daily total (right axis)
+            </span>
           </div>
 
           <CostBarChart sessions={pricedChartSess} />
