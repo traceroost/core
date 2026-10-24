@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "sources": {
+    "claude-code-monitoring-docs": {
+      "kind": "page",
+      "status": 200,
+      "sha": "12553fa9a0e561c7cb318ddb698e121338d0c2b5ad1070a093be0b25d4470eda",
+      "checkedAt": "2026-10-24T05:04:02.250Z"
+    },
+    "claude-code-changelog": {
+      "kind": "page",
+      "status": 200,
+      "sha": "69386d1c18af28004f64343e1dc394e0a7a246c683ccc4aa38e166cce441fc81",
+      "checkedAt": "2026-10-24T05:04:02.345Z"
+    },
+    "codex-otel-crate": {
+      "kind": "repo",
+      "checkedAt": "2026-10-24T05:04:03.827Z",
+      "lastCommit": "d4e03acb6147dc83f5e013fd91f729da72712a03",
+      "lastCommitAt": "2026-10-20T22:34:40Z"
+    },
+    "codex-otel-readme": {
+      "kind": "page",
+      "status": 200,
+      "sha": "d18a41850bd3bc81a58a23f4dc682fbe43fbe5cab612c3f56337e12cce0d175a",
+      "checkedAt": "2026-10-24T05:04:04.001Z"
+    },
+    "copilot-chat-otel": {
+      "kind": "repo",
+      "checkedAt": "2026-10-24T05:04:05.010Z",
+      "lastCommit": "ae752d97feced36a92695b2997ad9f69c00afad6",
+      "lastCommitAt": "2026-03-31T04:59:30Z"
+    },
+    "copilot-cli-changelog": {
+      "kind": "page",
+      "status": 200,
+      "sha": "e0716404710cbe72200487e3eecdc0900324badec4ccb825894fc92875a34c20",
+      "checkedAt": "2026-10-24T05:04:05.189Z"
+    },
+    "opencode-observability": {
+      "kind": "repo",
+      "checkedAt": "2026-10-24T05:04:05.829Z",
+      "lastCommit": "1aae67e853babebcd2211f6e5cd3cebad3d6080c",
+      "lastCommitAt": "2026-10-09T08:36:06Z"
+    }
+  },
+  "runs": [
+    {
+      "at": "2026-10-24T05:04:05.834Z",
+      "changed": false,
+      "noteworthy": 0,
+      "errors": 0
+    }
+  ]
+}
