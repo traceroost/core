@@ -500,7 +500,7 @@ TraceRoost runs as a local web server outside VS Code — useful for CI, remote 
 
 Runs directly on your machine — no Docker required. Gives the server full access to the local filesystem, which is required for log file ingestion. Quick-start commands are in [Ways to Run](#local-otel-and-log-files) above.
 
-Environment variables (the first five predate the `TRACEROOST_` prefix and keep their unprefixed names):
+Environment variables (the first five predate the `TRACEROOST_` prefix and keep their unprefixed names). A terminal run also takes the common ones as flags — `traceroost --ui-port 3100 --otlp-port 4400 --mcp-port 4401 --data-dir <path> --no-open` — and a flag wins over its variable; `traceroost --help` lists both:
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -509,6 +509,7 @@ Environment variables (the first five predate the `TRACEROOST_` prefix and keep 
 | `MCP_PORT` | `4316` | MCP endpoint for Claude Code and other MCP-compatible agents |
 | `DATA_DIR` | `~/.traceroost` | Directory for persistent span data |
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
+| `TRACEROOST_NO_OPEN` | unset | Set to `1` so a terminal run doesn't open the dashboard in your browser (same as `--no-open`) |
 | `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
 | `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Configure OTEL** button reports that it's disabled) |
 | `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends nothing from your traces or settings) |
