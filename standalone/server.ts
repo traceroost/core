@@ -2336,7 +2336,7 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
   agentSetupPending = false
   broadcastSse({ type: 'update', agentSetupPending })
   if (answer === 'no') {
-    console.log('[TraceRoost] Agents not set up — run Configure OTEL in Settings when you want to.')
+    console.log("[TraceRoost] Agents not set up — set them up from the dashboard's ⚙ Settings panel when you want to.")
     return Promise.resolve()
   }
   return runAgentSetup(port)
