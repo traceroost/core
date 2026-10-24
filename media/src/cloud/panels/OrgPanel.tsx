@@ -447,9 +447,9 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
       <Section title="Data privacy">
         <SentNeverSent />
         <div style="margin-top:8px">
-          <a onClick={() => goToHelp('help-privacy')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+          <button type="button" class="link-btn" onClick={() => goToHelp('help-privacy')} style="font-size:11px">
             How the hashing works, and what linking does →
-          </a>
+          </button>
         </div>
         <PayloadPreview />
       </Section>
@@ -494,9 +494,9 @@ function LinkedBody({ st }: { st: OrgStatus }) {
       <Section title="What is being sent">
         <SentNeverSent />
         <div style="margin-top:8px">
-          <a onClick={() => goToHelp('help-privacy')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+          <button type="button" class="link-btn" onClick={() => goToHelp('help-privacy')} style="font-size:11px">
             How the hashing works, and what linking does →
-          </a>
+          </button>
         </div>
         <PayloadPreview />
       </Section>

@@ -12,7 +12,7 @@ import {
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
   getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
-  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash, esc,
+  getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash, esc, activateOnKey,
 } from '../utils'
 import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
@@ -443,9 +443,9 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                   <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only trace</span>
                   {' — '}
                   {parts.join(', ')} not available from local logs.{' '}
-                  <a onClick={() => goToHelp('help-config')} style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+                  <button type="button" class="link-btn" onClick={() => goToHelp('help-config')}>
                     Enable OTEL ingestion
-                  </a>{' '}for full telemetry.
+                  </button>{' '}for full telemetry.
                 </div>
               )
             })()}
@@ -586,6 +586,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                         key={f}
                         style={`display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--hover);border-radius:4px;font-size:11px${vscode ? ';cursor:pointer' : ''}`}
                         onClick={() => vscode?.postMessage({ type: 'openFile', filePath: f })}
+                        {...(vscode ? { role: 'button', tabIndex: 0, onKeyDown: activateOnKey(() => vscode?.postMessage({ type: 'openFile', filePath: f })) } : {})}
                         title={vscode ? 'Click to open in editor' : f}
                       >
                         <span style="color:var(--vscode-charts-green,#81c784);font-size:10px;flex-shrink:0">M</span>
@@ -730,26 +731,32 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
             filter the Advisor tab's "View sessions" button already uses — click again (same
             gesture, same spot) to clear it, same as the banner's "×" but without needing to look
             away to find it. A currently-active bar renders wider as a visible "you are here." */}
-        <td
-          style={`padding:0;width:${isIsolatedToThisGroup ? 8 : 5}px${conversation ? ';cursor:pointer' : ''}`}
-          title={conversation
-            ? isIsolatedToThisGroup
-              ? `Part ${conversation.index} of ${conversation.total} — showing just this conversation. Click again to clear.`
-              : `Part ${conversation.index} of ${conversation.total} of the same conversation — split into separate rows by a long gap. Click to show just this conversation.`
-            : undefined}
-          onClick={conversation ? (e: MouseEvent) => {
-            e.stopPropagation()
-            if (isIsolatedToThisGroup) {
-              evidenceSessionIds.value = null
-              evidenceSessionPrompt.value = null
-            } else {
-              evidenceSessionIds.value = new Set(conversation.memberIds)
-              evidenceSessionLabel.value = 'from this conversation'
-              evidenceSessionPrompt.value = conversation.firstPrompt || null
-            }
-          } : undefined}
-        >
-          <div style={`width:${isIsolatedToThisGroup ? 8 : 5}px;height:100%;min-height:20px;background:${conversation ? conversation.color : 'transparent'}`} />
+        <td style={`padding:0;width:${isIsolatedToThisGroup ? 8 : 5}px`}>
+          {conversation ? (
+            <button
+              type="button"
+              class="conv-marker"
+              aria-pressed={isIsolatedToThisGroup}
+              aria-label={`Part ${conversation.index} of ${conversation.total} of the same conversation — show just this conversation`}
+              title={isIsolatedToThisGroup
+                ? `Part ${conversation.index} of ${conversation.total} — showing just this conversation. Click again to clear.`
+                : `Part ${conversation.index} of ${conversation.total} of the same conversation — split into separate rows by a long gap. Click to show just this conversation.`}
+              onClick={(e: MouseEvent) => {
+                e.stopPropagation()
+                if (isIsolatedToThisGroup) {
+                  evidenceSessionIds.value = null
+                  evidenceSessionPrompt.value = null
+                } else {
+                  evidenceSessionIds.value = new Set(conversation.memberIds)
+                  evidenceSessionLabel.value = 'from this conversation'
+                  evidenceSessionPrompt.value = conversation.firstPrompt || null
+                }
+              }}
+              style={`display:block;width:${isIsolatedToThisGroup ? 8 : 5}px;height:100%;min-height:20px;padding:0;border:0;cursor:pointer;background:${conversation.color}`}
+            />
+          ) : (
+            <div style="width:5px;height:100%;min-height:20px" />
+          )}
         </td>
 
         {/* Chevron */}

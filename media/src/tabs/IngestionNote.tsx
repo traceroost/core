@@ -6,9 +6,9 @@ export function LogIngestionNote({ feature }: { feature: string }) {
   return (
     <div style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.5">
       No {feature} data from local logs for this session.{' '}
-      <a onClick={() => goToHelp('help-config')} style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+      <button type="button" class="link-btn" onClick={() => goToHelp('help-config')}>
         Configuring OTEL ingestion
-      </a>{' '}would capture this.
+      </button>{' '}would capture this.
     </div>
   )
 }

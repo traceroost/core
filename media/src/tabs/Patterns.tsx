@@ -181,11 +181,11 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
             <table style="width:100%;border-collapse:collapse;font-size:11px">
               <thead>
                 <tr style="border-bottom:1px solid var(--border)">
-                  <th style={thStyle('time')}   onClick={() => toggleSort('time')}>Start Time{arrow('time')}</th>
-                  <th style={thStyle('prompt')} onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</th>
-                  <th style={`${thStyle('cost')};text-align:right`}  onClick={() => toggleSort('cost')}>Estimated cost{arrow('cost')}</th>
-                  <th style={`${thStyle('turns')};text-align:right`} onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</th>
-                  <th style={`${thStyle('cache')};text-align:right`} onClick={() => toggleSort('cache')}>Cache hit{arrow('cache')}</th>
+                  <th style={thStyle('time')}   aria-sort={sort.col === 'time' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('time')}>Start Time{arrow('time')}</button></th>
+                  <th style={thStyle('prompt')} aria-sort={sort.col === 'prompt' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</button></th>
+                  <th style={`${thStyle('cost')};text-align:right`}  aria-sort={sort.col === 'cost' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('cost')}>Estimated cost{arrow('cost')}</button></th>
+                  <th style={`${thStyle('turns')};text-align:right`} aria-sort={sort.col === 'turns' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</button></th>
+                  <th style={`${thStyle('cache')};text-align:right`} aria-sort={sort.col === 'cache' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('cache')}>Cache hit{arrow('cache')}</button></th>
                 </tr>
               </thead>
               <tbody>
@@ -195,10 +195,10 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
                   <tr key={i} style={`border-bottom:1px solid var(--border);${isClicked ? 'background:rgba(79,195,247,0.08);box-shadow:inset 3px 0 0 var(--accent)' : ''}`}>
                     <td style="padding:4px 8px 4px 0;white-space:nowrap;font-size:10px;font-variant-numeric:tabular-nums">
                       <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${agentDotColor(p.s.source)};margin-right:5px;flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(p.s.source)} />
-                      <span style="color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px"
+                      <button type="button" class="link-btn"
                         title="Open in Traces tab"
                         onClick={() => { activeTab.value = 'sessions'; focusedSessionId.value = p.s.sessionId }}
-                      >{formatSessionTime(p.s)}</span>
+                      >{formatSessionTime(p.s)}</button>
                     </td>
                     <td style="padding:4px 8px 4px 0;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)">{p.s.userRequest?.slice(0, 80) ?? '—'}</td>
                     <td style="padding:4px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">{fmtUsd(p.cost)}</td>

@@ -454,12 +454,16 @@ function IgnoredSection({ insights, sessions }: { insights: Insight[]; sessions:
   const [open, setOpen] = useState(false)
   return (
     <div style="margin-top:12px">
-      <h3
-        style="margin:28px 0 12px;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer"
-        onClick={() => setOpen(v => !v)}
-      >
-        <span>{open ? '▼' : '▶'}</span>
-        IGNORED ({insights.length})
+      <h3 style="margin:28px 0 12px;font-size:13px;color:var(--muted)">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(v => !v)}
+          style="font:inherit;color:inherit;background:none;border:0;padding:0;display:flex;align-items:center;gap:8px;cursor:pointer"
+        >
+          <span aria-hidden="true">{open ? '▼' : '▶'}</span>
+          IGNORED ({insights.length})
+        </button>
       </h3>
       {open && insights.map(ins => <InsightCard key={ins.title} ins={ins} isIgnored={true} sessions={sessions} />)}
     </div>

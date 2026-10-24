@@ -3,6 +3,15 @@ import { sessionSummary, displaySessions } from './state'
 
 // ── HTML escape ───────────────────────────────────────────────────────────────
 
+/** onKeyDown for a non-button element given role="button": Enter or Space activates it, as on a
+ *  real <button>. Use a real <button> where the markup allows one (not inside a <tr>/<table> row). */
+export function activateOnKey(fn: () => void): (e: KeyboardEvent) => void {
+  return (e: KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn() }
+  }
+}
+
 export function esc(s: unknown): string {
   if (!s) return ''
   const d = document.createElement('div')
