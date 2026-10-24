@@ -91,7 +91,7 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
         )}
       </div>
       {topTools.length > 0 && (
-        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)">
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:var(--fs-xs);color:var(--muted)">
           <div style="margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Top tools</div>
           {topTools.map(([t, n]) => (
             <div key={t} style="display:flex;justify-content:space-between;margin-bottom:1px">
@@ -427,7 +427,7 @@ export function Analytics() {
           {disclaimer}
 
           {/* Legend: each bar is one trace, coloured by its agent; the line is the daily total. */}
-          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-bottom:6px">
+          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--muted);margin-bottom:6px">
             {costChartAgents.map(src => (
               <span key={src} style="display:inline-flex;align-items:center;gap:4px">
                 <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColor(src)};box-shadow:0 0 0 1px var(--border)`} />
@@ -450,12 +450,12 @@ export function Analytics() {
               <button
                 onClick={() => setShowZeroCost(s => !s)}
                 title={showZeroCost ? 'Hide $0.00 rows' : 'Show $0.00 rows (included/free models)'}
-                style={`font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:${showZeroCost ? 'var(--hover)' : 'transparent'};color:var(--muted);white-space:nowrap`}
+                style={`font-size:var(--fs-xs);padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:${showZeroCost ? 'var(--hover)' : 'transparent'};color:var(--muted);white-space:nowrap`}
               >Show $0</button>
               <button
                 onClick={() => setAbbrevTokens(a => !a)}
                 title={abbrevTokens ? 'Switch to full numbers' : 'Switch to abbreviated numbers'}
-                style="font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
+                style="font-size:var(--fs-xs);padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
               >{abbrevTokens ? '1.2M' : '1,234'}</button>
               <button
                 onClick={() => {
@@ -487,13 +487,13 @@ export function Analytics() {
                   a.href = url; a.download = 'traceroost-cost.csv'; a.click()
                   URL.revokeObjectURL(url)
                 }}
-                style="font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
+                style="font-size:var(--fs-xs);padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
               >↓ CSV</button>
             </div>
           )}
           {dayRows.length > 0 && (
             <div class="h-scroll-hint" style="margin-bottom:8px">
-              <table style="border-collapse:collapse;font-size:10px;min-width:100%;white-space:nowrap">
+              <table style="border-collapse:collapse;font-size:var(--fs-xs);min-width:100%;white-space:nowrap">
                 <thead>
                   <tr style="border-bottom:1px solid var(--border)">
                     {(['Date','Agent','Model','Input','Output','Cache Create','Cache Read','Total Tokens','Estimated Cost (USD)'] as const).map(h => (
@@ -533,7 +533,7 @@ export function Analytics() {
                                 <span style={'display:inline-block;width:5px;height:5px;border-radius:50%;background:' + getAgentColor(src) + ';vertical-align:middle;margin-right:4px'} />
                                 {getAgentSourceLabel(src)}
                               </td>
-                              <td style="padding:3px 8px;color:var(--muted);font-size:9px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={modelFull}>{modelShort}</td>
+                              <td style="padding:3px 8px;color:var(--muted);font-size:var(--fs-xs);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={modelFull}>{modelShort}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.input)}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.output)}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.cacheCreate)}</td>
@@ -568,7 +568,7 @@ export function Analytics() {
 
       {/* Token usage per session */}
       <SectionHead id="analytics-token-usage" title="TOKEN USAGE PER TRACE" />
-      <div style="display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--muted)">
+      <div style="display:flex;gap:12px;margin-bottom:6px;font-size:var(--fs-xs);color:var(--muted)">
         <span><span style="display:inline-block;width:10px;height:3px;background:#FFB74D;border-radius:1px;vertical-align:middle" /> Input tokens</span>
         <span><span style="display:inline-block;width:10px;height:3px;background:#81C784;border-radius:1px;vertical-align:middle" /> Output tokens</span>
       </div>

@@ -129,7 +129,7 @@ function InsightBlock({ id, title, why, steps, impact }: {
   )
 }
 
-const dsBadgeStyle = 'font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-left:6px'
+const dsBadgeStyle = 'font-size:var(--fs-xs);font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-left:6px'
 
 // Same OTEL(white)/Log(grey) coloring as BadgesSection's trace-row badges, so "where did this
 // number come from" reads consistently everywhere it's shown. 'both' shows both badges rather than
@@ -159,9 +159,9 @@ function LoopBlock({ id, title, signalType, why, caveat, example, steps, impact,
         </dt>
         <dd class="glossary-def" dangerouslySetInnerHTML={{ __html: why }} />
       </div>
-      <div style="padding-left:8px;font-size:10.5px;color:var(--muted);line-height:1.5">{dataSourceNote}</div>
+      <div style="padding-left:8px;font-size:var(--fs-xs);color:var(--muted);line-height:1.5">{dataSourceNote}</div>
       {caveat && (
-        <div style="padding-left:8px;font-size:10.5px;color:var(--muted);font-style:italic;line-height:1.5">
+        <div style="padding-left:8px;font-size:var(--fs-xs);color:var(--muted);font-style:italic;line-height:1.5">
           <span dangerouslySetInnerHTML={{ __html: caveat }} />
         </div>
       )}
@@ -169,8 +169,8 @@ function LoopBlock({ id, title, signalType, why, caveat, example, steps, impact,
       <div style="padding-left:8px;font-size:11px;line-height:1.6">
         <p style="margin:0 0 3px"><strong style="color:var(--fg);font-size:11px">How to fix:</strong></p>
         <ol style="margin:0 0 6px;padding-left:18px;font-size:11px;line-height:1.7;color:var(--muted)" dangerouslySetInnerHTML={{ __html: steps }} />
-        <p style="margin:0 0 6px;font-size:11px;color:var(--muted)"><strong style="color:var(--fg);font-size:11px">Tell the agent: </strong><em>{SIGNAL_FORMULAS[signalType].prompt}</em> <span style="font-size:10px">(what the Insights panel's <strong>Copy</strong> button puts on the clipboard, with the trace's evidence under it)</span></p>
-        <p style="margin:0;font-size:10px;color:var(--muted)"><strong style="color:var(--fg);font-size:10px">Illustrative impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
+        <p style="margin:0 0 6px;font-size:11px;color:var(--muted)"><strong style="color:var(--fg);font-size:11px">Tell the agent: </strong><em>{SIGNAL_FORMULAS[signalType].prompt}</em> <span style="font-size:var(--fs-xs)">(what the Insights panel's <strong>Copy</strong> button puts on the clipboard, with the trace's evidence under it)</span></p>
+        <p style="margin:0;font-size:var(--fs-xs);color:var(--muted)"><strong style="color:var(--fg);font-size:var(--fs-xs)">Illustrative impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
       </div>
     </div>
   )
@@ -225,11 +225,11 @@ function OverviewSection() {
         <p style="font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.75">OTel is captured live, so TraceRoost must be running while the agent works to collect full spans, timing, tool payloads and turn-level detail. If it wasn't running (or OTel wasn't set up yet), TraceRoost backfills from the agent's local logs and databases instead, with less detail.</p>
         <ul style="margin:0 0 10px 18px;padding:0;font-size:12px;color:var(--muted);line-height:1.75">
           <li>
-            <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid #90a4ae;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--vscode-descriptionForeground, #90a4ae)">Log</span>
+            <span style="font-size:var(--fs-xs);font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid #90a4ae;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--vscode-descriptionForeground, #90a4ae)">Log</span>
             traces can have missing or reduced detail in Trace, Flow, Tools, and Files.
           </li>
           <li>
-            <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid var(--fg, #ffffff);letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--fg, #ffffff)">OTel</span>
+            <span style="font-size:var(--fs-xs);font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid var(--fg, #ffffff);letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--fg, #ffffff)">OTel</span>
             traces usually include fuller timing structure and richer event detail.
           </li>
         </ul>
@@ -645,7 +645,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.exact_tool_repeat.caveat}
             dataSource={SIGNAL_FORMULAS.exact_tool_repeat.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.exact_tool_repeat.dataSourceNote}
-            example={`The agent ran <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
+            example={`The agent ran <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
             steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>If the repeated call is a command whose output changes on its own (a clock, a live log, a poll), it isn't a loop — <strong>Ignore</strong> it.</li><li>Otherwise stop the trace and restart with what was already read.</li>`}
             impact="Stopping this pattern prevents runaway token accumulation. 200K tokens looping → 20K tokens with a direct prompt."
           />
@@ -663,7 +663,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.error_recurrence.caveat}
             dataSource={SIGNAL_FORMULAS.error_recurrence.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.error_recurrence.dataSourceNote}
-            example={`A <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">ModuleNotFoundError</code> appeared five times as the agent tried different import paths for a package not installed.`}
+            example={`A <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">ModuleNotFoundError</code> appeared five times as the agent tried different import paths for a package not installed.`}
             steps={`<li>Stop and verify the root cause yourself.</li><li>Tell the agent explicitly what exists.</li><li>Paste actual API responses or function signatures.</li><li>After 2 failures, resolve the underlying issue before re-prompting.</li>`}
             impact="Intervening after 2 recurrences instead of 6 saves ~120,000 tokens in a 30K-token trace."
           />
@@ -708,7 +708,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.hallucinated_import.caveat}
             dataSource={SIGNAL_FORMULAS.hallucinated_import.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.hallucinated_import.dataSourceNote}
-            example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code> — no such package in package.json or node_modules.`}
+            example={`<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code> — no such package in package.json or node_modules.`}
             steps={`<li>Verify the package actually exists and is spelled correctly before asking the agent to use it.</li><li>Add it to the manifest yourself if it's intentional (e.g. you're about to run the install).</li>`}
             impact="Catching this before install/runtime avoids a confusing failure several steps later that looks unrelated to the actual cause."
           />
@@ -726,7 +726,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.tool_call_cycle.caveat}
             dataSource={SIGNAL_FORMULAS.tool_call_cycle.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.tool_call_cycle.dataSourceNote}
-            example={`The agent alternated <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">edit_file src/app.ts</code> → <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">bash npm test</code> six times in a row without changing approach.`}
+            example={`The agent alternated <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">edit_file src/app.ts</code> → <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">bash npm test</code> six times in a row without changing approach.`}
             steps={`<li>Ask the agent to explain what changed between attempts before trying again.</li><li>Supply the missing information yourself — a stack trace, an expected value, a spec.</li><li>Interrupt and restart with a more specific instruction.</li>`}
             impact="Catching the cycle at 5 repeats instead of letting it run to 15+ saves ten or more redundant tool round-trips."
           />
@@ -735,7 +735,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.file_reread.caveat}
             dataSource={SIGNAL_FORMULAS.file_reread.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.file_reread.dataSourceNote}
-            example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">src/schema.ts</code> was read 4 times across the trace, each time in full, with no edits to it in between.`}
+            example={`<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">src/schema.ts</code> was read 4 times across the trace, each time in full, with no edits to it in between.`}
             steps={`<li>Ask the agent to summarize what it already knows about the file instead of rereading it.</li><li>Paste the relevant lines directly into your prompt if it's a small, stable file.</li><li>Split a long session so the file stays in recent context.</li>`}
             impact="Eliminating 3 avoidable rereads of a 40K-token file saves roughly the cost of one extra full LLM call."
           />
@@ -771,7 +771,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.budget_overrun.caveat}
             dataSource={SIGNAL_FORMULAS.budget_overrun.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.budget_overrun.dataSourceNote}
-            example={`A trace cost $9.40 against a configured $5 cap (<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">TRACEROOST_BUDGET_CAP_USD=5</code>) — 1.9× over.`}
+            example={`A trace cost $9.40 against a configured $5 cap (<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">TRACEROOST_BUDGET_CAP_USD=5</code>) — 1.9× over.`}
             steps={`<li>Check whether a loop or retry pattern elsewhere in this list is driving the cost.</li><li>Raise the cap if the task genuinely needed this much work.</li>`}
             impact="Catching an overrun mid-session, rather than after the fact, is the point of setting a cap at all."
           />
@@ -780,7 +780,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.model_tier_mismatch.caveat}
             dataSource={SIGNAL_FORMULAS.model_tier_mismatch.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.model_tier_mismatch.dataSourceNote}
-            example={`A trace ran 14 straight <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">grep</code>/<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file</code> calls on a premium model with no edits and ~80 output tokens per call.`}
+            example={`A trace ran 14 straight <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">grep</code>/<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file</code> calls on a premium model with no edits and ~80 output tokens per call.`}
             steps={`<li>Give research to a smaller model: in Claude Code, a subagent with <code>model: haiku</code>, or <code>/model</code> for a read-only stretch.</li><li>Reserve the premium model for turns that actually produce edits.</li><li>"Premium" means an input rate above $3/M — Opus-class and the equivalent OpenAI tiers. Sonnet, at $3, doesn't count, so a question-and-answer session on the default model is never flagged.</li>`}
             impact="Switching a read-only stretch from a premium to a mid-tier model can cut that portion's cost 5–10× with no quality loss."
           />
@@ -993,39 +993,39 @@ function SettingsSection() {
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts on the Alerts panel's <strong>Configure</strong> tab (bell icon). When a live trace crosses a threshold the bell badge increments and the alert appears on the panel's <strong>Active</strong> tab. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when today's total estimated cost across all agents (UTC day) crosses the configured dollar threshold. Disabled by default. Default threshold: $20/day.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Context Window Filling Up <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Context Window Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when peak input tokens for a trace reaches the per-agent threshold. Defaults: Claude Code 170K, Copilot 108K, Codex 340K. Adjust per agent or raise the shared baseline.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Too Many Turns Per Trace <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Too Many Turns Per Trace <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when the LLM turn count reaches the per-agent threshold. High turn counts often indicate scope creep or a task that should be split. Defaults: 150 / 275 / 450 turns.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Error Spike <span style="font-size:10px;font-weight:400;color:var(--muted)">(error)</span></dt>
+            <dt class="glossary-term">Error Spike <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(error)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when the error count in a trace reaches the per-agent threshold. A spike usually means the agent is stuck in a failure loop. Defaults: 4 / 5 / 6 errors.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Long Active Trace <span style="font-size:10px;font-weight:400;color:var(--muted)">(info)</span></dt>
+            <dt class="glossary-term">Long Active Trace <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(info)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when active LLM/tool compute time exceeds the per-agent threshold. Idle time (waiting for you to respond) does not count. Defaults: 30 / 45 / 60 minutes.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Zero Cache Utilization <span style="font-size:10px;font-weight:400;color:var(--muted)">(info)</span></dt>
+            <dt class="glossary-term">Zero Cache Utilization <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(info)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when a trace above the token gate has 0% cache hit rate. A large uncached trace is paying full price for every token. The gate prevents noise from small traces. Default gate: 30K input tokens for every agent (adjustable per agent).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Identical Tool Repeat <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Identical Tool Repeat <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when the same tool with identical arguments repeats beyond the per-agent threshold without a file change between repeats — a strong deadlock signal. Defaults: 4 / 5 / 6 repeats.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Weekly Plan Limit Filling Up <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Weekly Plan Limit Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when a Claude or ChatGPT plan's weekly window reaches the configured share, once per window. Only appears once Claude Code or Codex has recorded a <a href="#help-plan-limits">plan-limit</a> reading. Default: 80%.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">5-Hour Plan Limit Filling Up <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">5-Hour Plan Limit Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">The same for the 5-hour window. Default: 90%.</dd>
           </div>
         </div>
@@ -1289,7 +1289,7 @@ function ImportSection() {
 }
 
 function BadgesSection() {
-  const badgeStyle = 'font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px'
+  const badgeStyle = 'font-size:var(--fs-xs);font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px'
   return (
     <div class="help-section" id="help-badges">
       <h3 class="help-heading">{HELP_SECTIONS.badges.heading}</h3>

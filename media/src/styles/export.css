@@ -64,7 +64,7 @@
   font-weight: 600;
 }
 .export-card-badge {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   padding: 2px 7px;
   border-radius: 10px;
@@ -109,7 +109,7 @@
 
 .export-redacted-label {
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--accent);
   opacity: 0.75;
   white-space: nowrap;
@@ -436,7 +436,7 @@
 }
 .export-replay-note code {
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   background: color-mix(in srgb, var(--fg) 8%, transparent);
   padding: 1px 4px;
   border-radius: 3px;

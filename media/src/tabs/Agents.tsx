@@ -54,7 +54,7 @@ function KV({ k, v, accent }: { k: string; v: string | number; accent: string })
   return (
     <div style="padding:5px 8px;background:var(--panel-bg);border-radius:4px">
       <div style={'font-size:18px;font-weight:bold;color:' + accent}>{v}</div>
-      <div style="font-size:10px;color:var(--muted)">{k}</div>
+      <div style="font-size:var(--fs-xs);color:var(--muted)">{k}</div>
     </div>
   )
 }
@@ -87,7 +87,7 @@ function AgentCol({ label, accent, stats }: { label: string; accent: string; sta
           </div>
           {topTools.length > 0 && (
             <>
-              <div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:5px;text-transform:uppercase">Top Tools</div>
+              <div style="font-size:var(--fs-xs);color:var(--muted);font-weight:600;margin-bottom:5px;text-transform:uppercase">Top Tools</div>
               <div style="display:flex;flex-wrap:wrap;gap:4px">
                 {topTools.map(t => (
                   <span key={t} style="padding:2px 7px;background:var(--panel-bg);border-radius:3px;font-size:11px">

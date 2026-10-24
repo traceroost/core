@@ -6,6 +6,7 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ### Changed
 
+- **No dashboard text below 11px** — about 200 labels, badges, table cells and chart axis labels were 8–10px, including the Traces table body; they're all at least 11px now, and the Traces table's Model, Out, Turns, Duration and Tokens columns are a little wider so their headers fit
 - **A shorter filter bar** — Time and Agent stay in the bar; Prompt, Language, Repo, Outcome, Source and From moved behind a **Filters (n)** button, where n counts the ones that are on. Each active one shows as a chip beside the button, with × to turn it off. The second filter row is gone, so the table starts higher
 - **Alerts have their own panel** — the header bell now opens a slide-in Alerts panel with three tabs: **Active** (what's firing now, with **View trace →** and **Adjust threshold →**), **Configure** (each alert's switch and thresholds) and **Automation**. They used to be collapsible sections at the bottom of the Settings drawer, behind a small bell popover; Settings now holds only settings. **View Alert** on a notification opens the Configure tab at that alert
 - **Desktop downloads are no longer named `*-preview`** — macOS and Windows builds that aren't signed are attached to a release under their plain names (`TraceRoost-<version>-mac-<arch>.dmg`, `TraceRoost-<version>-win-<arch>.exe`), with no "(preview)" label. The release notes still say how to get past Gatekeeper and SmartScreen when a build isn't signed

@@ -51,7 +51,7 @@ export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
     const cs = getComputedStyle(document.body)
     const gridColor = cs.getPropertyValue('--vscode-panel-border').trim() || '#333'
     const textColor = cs.getPropertyValue('--vscode-descriptionForeground').trim() || '#888'
-    const fontStr = '9px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
+    const fontStr = '11px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
 
     // Grid
     ctx.strokeStyle = gridColor; ctx.lineWidth = 0.5
@@ -105,7 +105,7 @@ export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
 
     // Day boundary lines + date labels
     if (n > 0) {
-      const labelFont = '8px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
+      const labelFont = '11px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
       const MIN_LABEL_GAP = 30  // minimum pixels between label centres before skipping
 
       let isFirst = true
@@ -182,7 +182,7 @@ export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
       <canvas ref={canvasRef} style="width:100%;height:230px;display:block;cursor:pointer"
         onClick={handleClick} title="Click a bar to open that trace" />
       {excludedCount > 0 && (
-        <div style="font-size:10px;color:var(--muted);text-align:right;margin-top:2px">
+        <div style="font-size:var(--fs-xs);color:var(--muted);text-align:right;margin-top:2px">
           {excludedCount} trace{excludedCount === 1 ? '' : 's'} excluded — model unrecognized
         </div>
       )}

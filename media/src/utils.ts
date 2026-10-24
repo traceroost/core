@@ -224,7 +224,7 @@ export function getDataSourceBadgeHtml(dataSource: 'otel' | 'log' | undefined): 
   const label = ds === 'log' ? 'L' : 'O'
   const color = DATA_SOURCE_COLORS[ds]
   const { name, description } = DATA_SOURCE_TOOLTIP[ds]
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:var(--fs-xs);font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
 }
 
 // 'agent' and 'api' (isSidechain sub-tasks vs. non-interactive `claude -p` calls) collapse into
@@ -239,7 +239,7 @@ export function getInitiatorBadgeHtml(initiator: 'user' | 'agent' | 'api' | unde
   const color = INITIATOR_COLORS[key]
   const label = key === 'user' ? 'U' : 'A'
   const { name, description } = INITIATOR_TOOLTIP[key]
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:var(--fs-xs);font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
 }
 
 // ── Agent label / color helpers ───────────────────────────────────────────────

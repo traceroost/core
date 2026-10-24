@@ -1,6 +1,6 @@
 /* Heatmap (Latency tab) */
 .heatmap { overflow-x: auto; }
-.heatmap-grid { display: grid; gap: 2px; font-size: 10px; }
+.heatmap-grid { display: grid; gap: 2px; font-size: var(--fs-xs); }
 .heatmap-cell {
   width: 24px; height: 24px; border-radius: 2px; cursor: default;
   position: relative; display: flex; align-items: center; justify-content: center; margin: 0 auto;
@@ -8,11 +8,11 @@
 .heatmap-cell .htip {
   display: none; position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%);
   background: var(--card-bg); border: 1px solid var(--border); border-radius: 4px;
-  padding: 4px 6px; white-space: nowrap; z-index: 10; font-size: 10px;
+  padding: 4px 6px; white-space: nowrap; z-index: 10; font-size: var(--fs-xs);
 }
 .heatmap-cell:hover .htip { display: block; }
 .heatmap-row-label { font-size: 11px; display: flex; align-items: center; padding-right: 8px; white-space: nowrap; }
-.heatmap-axis-label { font-size: 10px; color: var(--muted); text-align: center; padding-top: 6px; }
-.heatmap-legend { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--muted); margin-top: 8px; }
+.heatmap-axis-label { font-size: var(--fs-xs); color: var(--muted); text-align: center; padding-top: 6px; }
+.heatmap-legend { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--muted); margin-top: 8px; }
 .heatmap-legend-bar { display: flex; height: 12px; width: 120px; border-radius: 2px; overflow: hidden; }
 .heatmap-legend-bar span { flex: 1; }

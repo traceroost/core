@@ -125,7 +125,7 @@ function drawSparkline(canvas: HTMLCanvasElement, tokens: number[], color: strin
 
   const cs = getComputedStyle(document.body)
   const mutedColor = cs.getPropertyValue('--vscode-descriptionForeground').trim() || '#888'
-  const fontStr = '9px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
+  const fontStr = '11px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
 
   if (tokens.length < 2) {
     if (tokens.length === 1) {
@@ -412,18 +412,18 @@ function render() {
       const outPct = Math.min(100, Math.round(out / outScale * 100))
       tokenBars.innerHTML =
         `<div style="display:flex;flex-direction:column;gap:3px">` +
-        `<div style="display:flex;align-items:center;gap:5px;font-size:10px">` +
+        `<div style="display:flex;align-items:center;gap:5px;font-size:11px">` +
         `<span style="width:36px;color:var(--vscode-charts-orange, #FFB74D);text-align:right;font-variant-numeric:tabular-nums">${fmt(inp)}</span>` +
         `<div style="flex:1;height:5px;background:var(--vscode-panel-border);border-radius:2px">` +
         `<div style="width:${inPct}%;height:100%;background:#FFB74D;border-radius:2px"></div></div>` +
-        `<span style="color:var(--muted);font-size:9px">in</span>` +
-        `<span style="color:var(--muted);font-size:9px;opacity:0.6">avg ${fmt(Math.round(avgInputTokens))}</span></div>` +
-        `<div style="display:flex;align-items:center;gap:5px;font-size:10px">` +
+        `<span style="color:var(--muted);font-size:11px">in</span>` +
+        `<span style="color:var(--muted);font-size:11px;opacity:0.6">avg ${fmt(Math.round(avgInputTokens))}</span></div>` +
+        `<div style="display:flex;align-items:center;gap:5px;font-size:11px">` +
         `<span style="width:36px;color:var(--vscode-charts-green, #81C784);text-align:right;font-variant-numeric:tabular-nums">${fmt(out)}</span>` +
         `<div style="flex:1;height:5px;background:var(--vscode-panel-border);border-radius:2px">` +
         `<div style="width:${outPct}%;height:100%;background:#81C784;border-radius:2px"></div></div>` +
-        `<span style="color:var(--muted);font-size:9px">out</span>` +
-        `<span style="color:var(--muted);font-size:9px;opacity:0.6">avg ${fmt(Math.round(avgOutputTokens))}</span></div></div>`
+        `<span style="color:var(--muted);font-size:11px">out</span>` +
+        `<span style="color:var(--muted);font-size:11px;opacity:0.6">avg ${fmt(Math.round(avgOutputTokens))}</span></div></div>`
     }
   } else {
     if (tokenBars) tokenBars.innerHTML = ''

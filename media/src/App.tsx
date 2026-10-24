@@ -1012,7 +1012,7 @@ function GitCommandStatusBar() {
   return (
     <div
       role="status"
-      style="position:sticky;bottom:0;flex-shrink:0;display:flex;align-items:center;gap:5px;padding:2px 8px;font-size:10px;font-family:var(--vscode-editor-font-family,monospace);color:var(--muted);background:var(--vscode-editor-background);border-top:1px solid var(--vscode-panel-border);overflow:hidden;white-space:nowrap"
+      style="position:sticky;bottom:0;flex-shrink:0;display:flex;align-items:center;gap:5px;padding:2px 8px;font-size:var(--fs-xs);font-family:var(--vscode-editor-font-family,monospace);color:var(--muted);background:var(--vscode-editor-background);border-top:1px solid var(--vscode-panel-border);overflow:hidden;white-space:nowrap"
       title={commands.join('\n')}
     >
       <span style="overflow:hidden;text-overflow:ellipsis">{current}</span>
@@ -1191,10 +1191,10 @@ function TimeRangeMenu({ range, onSelectPreset, onApplyCustom }: {
           ))}
         </div>
         <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:8px">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Custom range</div>
+          <div style="font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Custom range</div>
           <div style="display:flex;flex-direction:column;gap:6px">
             <div style="display:flex;flex-direction:column;gap:2px">
-              <span style="font-size:10px;color:var(--muted)">Since</span>
+              <span style="font-size:var(--fs-xs);color:var(--muted)">Since</span>
               <div style="display:flex;gap:4px">
                 <input
                   type="date"
@@ -1216,7 +1216,7 @@ function TimeRangeMenu({ range, onSelectPreset, onApplyCustom }: {
               </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:2px">
-              <span style="font-size:10px;color:var(--muted)">Until</span>
+              <span style="font-size:var(--fs-xs);color:var(--muted)">Until</span>
               <div style="display:flex;gap:4px">
                 <input
                   type="date"
@@ -1313,7 +1313,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
     <div class="time-range-bar" role="group" aria-label="Time and agent filters" style="display:flex;align-items:center;gap:0;padding:0 8px 6px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
       {/* Time presets + custom range, collapsed into one popover trigger so a custom
           date range never widens this bar — see TimeRangeMenu above. */}
-      <span style="font-size:10px;color:var(--muted);margin-right:6px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Time</span>
+      <span style="font-size:var(--fs-xs);color:var(--muted);margin-right:6px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Time</span>
       <TimeRangeMenu
         range={range}
         onSelectPreset={selectPreset}
@@ -1328,7 +1328,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
           and no agent is selected (showAgentFilter). */}
       {!hideAgentFilter && showAgentFilter.value && (
         <div class="tr-agent-filter" style="display:flex;gap:3px;align-items:center;margin-left:20px">
-          <span style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
+          <span style="font-size:var(--fs-xs);color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
           {agentOptions.map(o => (
             <button
               key={o.value}
@@ -1788,16 +1788,16 @@ function SearchFilterBar() {
 
   return (
     <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#4fc3f711;border-bottom:1px solid #4fc3f733;flex-shrink:0">
-      <span style="font-size:10px;color:var(--vscode-textLink-foreground, #4fc3f7);white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
+      <span style="font-size:var(--fs-xs);color:var(--vscode-textLink-foreground, #4fc3f7);white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
       {evidenceSessionPrompt.value && (
         <span
-          style="font-size:10px;color:var(--vscode-textLink-foreground, #4fc3f7);opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
+          style="font-size:var(--fs-xs);color:var(--vscode-textLink-foreground, #4fc3f7);opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
           title={evidenceSessionPrompt.value}
         >— "{evidenceSessionPrompt.value}"</span>
       )}
       <button
         onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}
-        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:var(--vscode-textLink-foreground, #4fc3f7);cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
+        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:var(--vscode-textLink-foreground, #4fc3f7);cursor:pointer;font-size:var(--fs-xs);padding:2px 8px;white-space:nowrap"
       >Show all traces</button>
     </div>
   )

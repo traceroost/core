@@ -13,6 +13,12 @@
    * hover tint (which the standalone shim switches between light and dark). */
   --panel-bg: var(--vscode-textCodeBlock-background, var(--hover));
 
+  /* Type scale floor: nothing in the dashboard renders below --fs-xs (11px). Use these rather
+   * than a literal for small text; canvas and SVG chart labels, which can't read a variable,
+   * use 11px directly. */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+
   /* The TraceRoost brand teal (Wordmark.tsx, BrandMark.tsx) — used only for the top nav's
    * active-section indicator (.tab.active in tabs.css), not buttons or links. */
   --tr-brand: #0fbfa6;
@@ -162,7 +168,7 @@ button:disabled { cursor: default; opacity: .5; }
   flex: 1;
   min-width: 0;
   padding: 2px 5px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 400;
   border-radius: 3px;
   background: var(--vscode-input-background, #3c3c3c);
@@ -250,7 +256,7 @@ button:disabled { cursor: default; opacity: .5; }
  * apart from the rest of the bar's controls. */
 .tr-reset-btn {
   padding: 2px 8px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   border-radius: 3px;
   cursor: pointer;
@@ -266,13 +272,13 @@ button:disabled { cursor: default; opacity: .5; }
 .sig-icon svg { width: 11px; height: 11px; }
 .sig-icon.critical { width: 13px; height: 13px; border-radius: 3px; background: var(--error); }
 .sig-icon.critical svg { width: 9px; height: 9px; }
-.sig-more { font-size: 9px; font-weight: 600; color: var(--muted); padding: 0 2px; margin-left: 1px; border-radius: 3px; background: var(--hover); line-height: 13px; flex-shrink: 0; }
+.sig-more { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); padding: 0 2px; margin-left: 1px; border-radius: 3px; background: var(--hover); line-height: 13px; flex-shrink: 0; }
 .trace-expand { color: var(--muted); background: none; border: 0; font: inherit; cursor: pointer; padding: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-.range-status { width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); margin-left: 8px; }
+.range-status { width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); margin-left: 8px; }
 body.vscode-light { --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed; --tr-merged: #1a7f37; }
 
 :root { --agent-opencode: var(--fg); }

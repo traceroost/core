@@ -21,7 +21,7 @@
   font-size: 11px; line-height: 1.6; color: var(--fg); padding: 8px 10px;
   background: var(--hover); border-radius: 6px; white-space: pre-wrap;
 }
-.insight-action-label { font-weight: 600; color: var(--accent); text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+.insight-action-label { font-weight: 600; color: var(--accent); text-transform: uppercase; font-size: var(--fs-xs); letter-spacing: 0.5px; }
 
 .insight-ask-ai-group {
   display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;
@@ -49,7 +49,7 @@
 .insight-filter-pill.active .insight-filter-badge { background: rgba(0,0,0,0.2); color: var(--bg); }
 .insight-filter-badge {
   display: inline-block; min-width: 16px; padding: 0 4px; height: 16px; line-height: 16px;
-  border-radius: 8px; font-size: 10px; font-weight: 700; text-align: center;
+  border-radius: 8px; font-size: var(--fs-xs); font-weight: 700; text-align: center;
   background: var(--hover); color: var(--muted);
 }
 

@@ -513,7 +513,7 @@ export function Alerts() {
               <div class="flex-8">
                 <span style={`font-size:15px;color:${statusColor};line-height:1`}>{statusIcon}</span>
                 <strong style="font-size:13px">{cfg.label}</strong>
-                {triggered && <span style={`font-size:10px;background:${trigColor};color:#000;padding:1px 7px;border-radius:3px;font-weight:700;letter-spacing:.4px`}>TRIGGERED</span>}
+                {triggered && <span style={`font-size:var(--fs-xs);background:${trigColor};color:#000;padding:1px 7px;border-radius:3px;font-weight:700;letter-spacing:.4px`}>TRIGGERED</span>}
               </div>
               <label class="toggle-switch">
                 <input
