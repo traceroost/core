@@ -47,7 +47,9 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
           url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          if git ls-remote --exit-code --heads "$url" otel-watch >/dev/null; then
+          # The full ref: a bare `otel-watch` pattern also matches any branch ending in it
+          # (feat/otel-watch), which made the first run try to clone a branch that wasn't there.
+          if git ls-remote --exit-code "$url" refs/heads/otel-watch >/dev/null; then
             git clone --depth 1 --branch otel-watch "$url" state
           else
             git init -b otel-watch state
