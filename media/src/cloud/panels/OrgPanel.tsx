@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { vscode, goToHelp } from '../../state'
+import { useDialog } from '../../a11y'
 
 // ── The one description of the payload promise ──────────────────────────────
 // Mirrors src/cloud/org/privacy.ts, which mirrors the OAuth consent screen. A test on the extension
@@ -299,7 +300,7 @@ function ReconcileButton({ queueDepth }: { queueDepth: number }) {
         style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
       >{label}</button>
       {result && (
-        <span style={`font-size:11px;margin-left:8px;color:${result.error ? '#f14c4c' : 'var(--muted)'}`}>
+        <span style={`font-size:11px;margin-left:8px;color:${result.error ? 'var(--vscode-errorForeground, #f14c4c)' : 'var(--muted)'}`}>
           {result.error
             ? `Couldn't finish: ${result.error}`
             : result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.`
@@ -308,7 +309,7 @@ function ReconcileButton({ queueDepth }: { queueDepth: number }) {
             // everything made it. Clicking still nudges the scheduler to retry them now (see
             // reconcileLocalSessions), but a persistently failing item (see the Status row above)
             // needs its own send fixed, not another click here.
-            : queueDepth > 0 ? `No new sessions found — ${queueDepth} already-queued trace(s) will retry shortly.`
+            : queueDepth > 0 ? `No new traces found — ${queueDepth} already-queued trace(s) will retry shortly.`
             : 'Everything is already sent.'}
         </span>
       )}
@@ -381,7 +382,7 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
     <>
       {st.notice && (
         <Section>
-          <div style="font-size:12px;color:#f14c4c;line-height:1.5">{st.notice.message}</div>
+          <div style="font-size:12px;color:var(--vscode-errorForeground, #f14c4c);line-height:1.5">{st.notice.message}</div>
         </Section>
       )}
       <Section title="This machine">
@@ -413,14 +414,14 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
             Go to <a href={orgDevicePrompt.value.verificationUriComplete ?? orgDevicePrompt.value.verificationUri} style="color:var(--vscode-textLink-foreground,#4fc3f7)">{orgDevicePrompt.value.verificationUri}</a> and enter
             {' '}<code style="font-size:13px;font-weight:700;letter-spacing:1px">{orgDevicePrompt.value.userCode}</code>. Waiting for approval…
             {orgDevicePrompt.value.blocked && (
-              <div style="font-size:11px;color:#f6a623;margin-top:6px">
+              <div style="font-size:11px;color:var(--vscode-editorWarning-foreground, #f6a623);margin-top:6px">
                 {orgDevicePrompt.value.blocked} Still waiting — this same code links as soon as the org has a free machine slot.
               </div>
             )}
           </div>
         )}
         {orgActionError.value && (
-          <div style="font-size:11px;color:#f14c4c;margin-top:8px">Link failed: {orgActionError.value}</div>
+          <div style="font-size:11px;color:var(--vscode-errorForeground, #f14c4c);margin-top:8px">Link failed: {orgActionError.value}</div>
         )}
         {st.endpoint && (
           // The environment the picker above resolves to (stage by default in a development build).
@@ -441,15 +442,15 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
           <li>An admin sees your individual figures; other members see only what your org's teammate-visibility settings allow</li>
           <li>Opt-in and off by default; nothing is sent until you link</li>
           <li>Reversible any time — unlinking deletes the local credential and stops sending immediately, even offline</li>
-          <li>Works offline — sessions queue locally and send automatically once you're back</li>
+          <li>Works offline — traces queue locally and send automatically once you're back</li>
         </ul>
       </Section>
       <Section title="Data privacy">
         <SentNeverSent />
         <div style="margin-top:8px">
-          <a onClick={() => goToHelp('help-privacy')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+          <button type="button" class="link-btn" onClick={() => goToHelp('help-privacy')} style="font-size:11px">
             How the hashing works, and what linking does →
-          </a>
+          </button>
         </div>
         <PayloadPreview />
       </Section>
@@ -494,9 +495,9 @@ function LinkedBody({ st }: { st: OrgStatus }) {
       <Section title="What is being sent">
         <SentNeverSent />
         <div style="margin-top:8px">
-          <a onClick={() => goToHelp('help-privacy')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+          <button type="button" class="link-btn" onClick={() => goToHelp('help-privacy')} style="font-size:11px">
             How the hashing works, and what linking does →
-          </a>
+          </button>
         </div>
         <PayloadPreview />
       </Section>
@@ -507,7 +508,7 @@ function LinkedBody({ st }: { st: OrgStatus }) {
           style="font-size:12px;padding:6px 14px;border:1px solid var(--error);border-radius:4px;background:transparent;color:var(--error);cursor:pointer"
         >{busy === 'leave' ? 'Unlinking…' : 'Unlink this machine'}</button>
         {orgActionError.value && (
-          <div style="font-size:11px;color:#f14c4c;margin-top:8px">Unlink failed: {orgActionError.value}</div>
+          <div style="font-size:11px;color:var(--vscode-errorForeground, #f14c4c);margin-top:8px">Unlink failed: {orgActionError.value}</div>
         )}
         <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
       </Section>
@@ -558,19 +559,16 @@ export function OrgPanel() {
   const open = orgOpen.value
   const st = orgStatus.value
 
+  const ref = useDialog<HTMLDivElement>(open, () => { orgOpen.value = false })
   useEffect(() => {
-    if (!open) return
-    requestOrgStatus()
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') orgOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    if (open) requestOrgStatus()
   }, [open])
 
   return (
-    <div inert={!open} aria-hidden={!open} style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}>
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="org-panel-title" inert={!open} aria-hidden={!open} style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">TraceRoost Cloud · {st?.linked ? displayOrgName(st) : 'Not linked'}</span>
-        <button onClick={() => orgOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)">×</button>
+        <h2 id="org-panel-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">TraceRoost Cloud · {st?.linked ? displayOrgName(st) : 'Not linked'}</h2>
+        <button onClick={() => orgOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)" aria-label="Close TraceRoost Cloud panel">×</button>
       </div>
       {!st && <div style="padding:16px;font-size:12px;color:var(--muted)">Checking this machine's status — locally, no network…</div>}
       {st && !st.linked && <UnlinkedBody st={st} />}

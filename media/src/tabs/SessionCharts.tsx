@@ -9,11 +9,12 @@ import type { CodeChangeTrend } from './codeChanges'
 
 export function TurnsLink() {
   return (
-    <span
+    <button
+      type="button"
       onClick={() => goToHelp('gl-turn')}
-      style="cursor:pointer;border-bottom:1px dotted currentColor"
+      style="font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;border-bottom:1px dotted currentColor"
       title="View 'Turn' definition in glossary"
-    >Turns</span>
+    >Turns</button>
   )
 }
 

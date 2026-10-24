@@ -6,9 +6,10 @@ import * as path from 'path'
 import { EventEmitter } from 'events'
 import {
   listenWithFallback, PortScanExhaustedError, isUnavailablePort,
-  readResolvedPorts, writeResolvedPorts, resolvedPortsPath,
+  readResolvedPorts, writeResolvedPorts, resolvedPortsPath, serviceDashboardUrl, isDashboardListening,
   type ResolvedPorts,
 } from '../portResolver'
+import { defaultServiceConfig, writeServiceConfig } from '../serviceConfig'
 
 function tmpHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-portresolver-test-'))
@@ -271,5 +272,75 @@ suite('portResolver', () => {
         PortScanExhaustedError,
       )
     })
+  })
+})
+
+suite('serviceDashboardUrl', () => {
+  /** A stand-in dashboard answering /health like the standalone UI server, on a free port. */
+  async function fakeDashboard(): Promise<{ server: http.Server; port: number }> {
+    const server = http.createServer((req, res) => {
+      if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"status":"ok"}'); return }
+      res.writeHead(401); res.end()
+    })
+    await listenPlain(server, 0, '127.0.0.1')
+    return { server, port: (server.address() as { port: number }).port }
+  }
+  /** A port nothing listens on: bind one, note it, close it. */
+  async function deadPort(): Promise<number> {
+    const s = http.createServer()
+    await listenPlain(s, 0, '127.0.0.1')
+    const port = (s.address() as { port: number }).port
+    await close(s)
+    return port
+  }
+  const ports = (ui: number, otlp: number): ResolvedPorts => ({ ui, otlp, mcp: 4316, resolvedAt: new Date().toISOString(), pid: 1 })
+
+  test('uses the resolved-ports record when it describes the server on that OTLP port and it answers', async () => {
+    const home = tmpHome()
+    const { server, port } = await fakeDashboard()
+    try {
+      writeServiceConfig({ ...defaultServiceConfig(home), uiPort: await deadPort() }, home)
+      writeResolvedPorts(ports(port, 4318), home)
+      assert.strictEqual(await serviceDashboardUrl(4318, home), `http://localhost:${port}`)
+    } finally { await close(server) }
+  })
+
+  test('a stale ports.json (nothing listening there) falls back to the configured dashboard port', async () => {
+    const home = tmpHome()
+    const { server, port } = await fakeDashboard()
+    try {
+      writeServiceConfig({ ...defaultServiceConfig(home), uiPort: port }, home)
+      writeResolvedPorts(ports(await deadPort(), 4318), home)
+      assert.strictEqual(await serviceDashboardUrl(4318, home), `http://localhost:${port}`)
+      // A record for some other OTLP port is ignored outright.
+      writeResolvedPorts(ports(await deadPort(), 4320), home)
+      assert.strictEqual(await serviceDashboardUrl(4318, home), `http://localhost:${port}`)
+    } finally { await close(server) }
+  })
+
+  test('undefined when no dashboard answers on any candidate', async () => {
+    const home = tmpHome()
+    writeServiceConfig({ ...defaultServiceConfig(home), uiPort: await deadPort() }, home)
+    writeResolvedPorts(ports(await deadPort(), 4318), home)
+    assert.strictEqual(await serviceDashboardUrl(4318, home, 300), undefined)
+  })
+
+  test('carries the access token only when the service binds beyond loopback', async () => {
+    const home = tmpHome()
+    const { server, port } = await fakeDashboard()
+    try {
+      writeServiceConfig({ ...defaultServiceConfig(home), uiPort: port, authToken: 'tok123' }, home)
+      assert.strictEqual(await serviceDashboardUrl(4318, home), `http://localhost:${port}`)
+      writeServiceConfig({ ...defaultServiceConfig(home), uiPort: port, authToken: 'tok123', bindHost: '0.0.0.0' }, home)
+      assert.strictEqual(await serviceDashboardUrl(4318, home), `http://localhost:${port}/?token=tok123`)
+    } finally { await close(server) }
+  })
+
+  test('isDashboardListening: a port answering something other than TraceRoost health is not a dashboard', async () => {
+    const other = http.createServer((_req, res) => { res.writeHead(200); res.end('hello') })
+    await listenPlain(other, 0, '127.0.0.1')
+    try {
+      assert.strictEqual(await isDashboardListening((other.address() as { port: number }).port), false)
+    } finally { await close(other) }
   })
 })

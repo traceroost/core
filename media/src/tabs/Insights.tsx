@@ -130,7 +130,7 @@ export function generateInsights(
           helpId: 'help-context-bloat',
           title: '[Trace ' + globalNum + '] Context grew ' + growthPct.toFixed(0) + '%',
           detail: 'Input tokens grew from ' + first.toLocaleString() + ' to ' + last.toLocaleString()
-            + ' (+' + growth.toLocaleString() + ' tokens) across ' + llmEntries.length + ' LLM calls'
+            + ' (+' + growth.toLocaleString() + ' tokens) across ' + llmEntries.length + ' turns'
             + (reqSnippet ? ' for "' + reqSnippet + '"' : '') + '.',
           action: 'The first call used ' + first.toLocaleString() + ' tokens — audit your instruction files '
             + '(CLAUDE.md, .agent.md, system prompt). Remove verbose examples and anything the agent '
@@ -180,12 +180,12 @@ export function generateInsights(
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-high-turns',
-        trigger: sess.totalLlmCalls + ' LLM calls for a ' + (sess.userRequest ?? '').length
-          + '-character prompt. Fires above 8 calls when the prompt is under 80 characters, a sign the agent explored '
+        trigger: sess.totalLlmCalls + ' turns for a ' + (sess.userRequest ?? '').length
+          + '-character prompt. Fires above 8 turns when the prompt is under 80 characters, a sign the agent explored '
           + 'what a longer prompt would have told it.',
         ...capSteps(llmIdx.map((i, k) => evidenceStep(timeline, i, 'LLM call ' + (k + 1) + ' of ' + llmIdx.length))),
-        title: '[Trace ' + globalNum + '] ' + sess.totalLlmCalls + ' LLM calls',
-        detail: '"' + reqSnippet + '" required ' + sess.totalLlmCalls + ' LLM calls and '
+        title: '[Trace ' + globalNum + '] ' + sess.totalLlmCalls + ' turns',
+        detail: '"' + reqSnippet + '" required ' + sess.totalLlmCalls + ' turns and '
           + sess.totalToolCalls + ' tool calls' + (topTools ? ' (' + topTools + ')' : '') + '.',
         action: 'For ' + sess.totalLlmCalls + '-turn trace, break the task into smaller pieces with '
           + 'explicit stopping conditions. Provide specific file paths and line numbers so the agent '
@@ -508,7 +508,7 @@ export function InsightCard({ ins, isIgnored, sessions, timeline, stepNumber, on
         <span class="insight-action-label">
           Action
           {ins.helpId && HELP_WHY[ins.helpId] && (
-            <span data-tip={HELP_WHY[ins.helpId]} style="margin-left:4px;cursor:help;opacity:0.55;font-size:11px">ⓘ</span>
+            <span tabIndex={0} aria-label={`Why: ${HELP_WHY[ins.helpId]}`} data-tip={HELP_WHY[ins.helpId]} style="margin-left:4px;cursor:help;opacity:0.55;font-size:11px">ⓘ</span>
           )}:
         </span>{' '}
         <span style="white-space:pre-wrap">{ins.action}</span>
@@ -529,12 +529,16 @@ function IgnoredSection({ insights, sessions }: { insights: Insight[]; sessions:
   const [open, setOpen] = useState(false)
   return (
     <div style="margin-top:12px">
-      <h3
-        style="margin:28px 0 12px;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;cursor:pointer"
-        onClick={() => setOpen(v => !v)}
-      >
-        <span>{open ? '▼' : '▶'}</span>
-        IGNORED ({insights.length})
+      <h3 style="margin:28px 0 12px;font-size:13px;color:var(--muted)">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(v => !v)}
+          style="font:inherit;color:inherit;background:none;border:0;padding:0;display:flex;align-items:center;gap:8px;cursor:pointer"
+        >
+          <span aria-hidden="true">{open ? '▼' : '▶'}</span>
+          IGNORED ({insights.length})
+        </button>
       </h3>
       {open && insights.map(ins => <InsightCard key={ins.title} ins={ins} isIgnored={true} sessions={sessions} />)}
     </div>

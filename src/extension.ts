@@ -1,13 +1,14 @@
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import * as vscode from 'vscode'
 import { OtlpCollector } from './otlpCollector'
-import { detectPortOwner } from './portResolver'
+import { detectPortOwner, serviceDashboardUrl } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult } from './autoConfig'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, leftAloneMessage, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
 import { DatabaseReader, openReadonlySnapshot } from './database/reader'
@@ -35,6 +36,7 @@ import { matchesTraceId } from './traceIdentity'
 import { TraceHorizon } from './traceHorizon'
 import { HistoryReadiness } from './historyReadiness'
 import { decidePipeline } from './ownerGate'
+import { logLevel } from './logLevel'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -95,6 +97,7 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
 }
 
 const SETUP_HELP_BUTTON = 'Open Setup Help'
+const SHOW_LOG_BUTTON = 'Show Log'
 const AGENT_SETUP_YES = 'Set up agents'
 const AGENT_SETUP_NO = 'Not now'
 const AGENT_SETUP_SKIP = 'Skip setup'
@@ -104,6 +107,46 @@ function openSetupHelp(): void {
   void vscode.commands.executeCommand('traceRoost.openDashboard')
   // Same delay the deep-link handlers use, so a panel opened just now has its webview listening.
   setTimeout(() => DashboardPanel.switchToTab('help', 'help-config'), 250)
+}
+
+/** Reveals the TraceRoost output channel — the "Show Log" button on errors that say more there. */
+function showLog(): void {
+  outputChannel?.show(true)
+}
+
+/** "Open Service Dashboard": opens the background service's dashboard (with its access token when
+ *  it binds beyond loopback) once it is confirmed listening. A stale ports.json or a stopped
+ *  service would otherwise open a dead or wrong page, so say so instead. */
+async function openServiceDashboard(otlpPort: number): Promise<void> {
+  const url = await serviceDashboardUrl(otlpPort)
+  if (url) {
+    await vscode.env.openExternal(vscode.Uri.parse(url))
+    return
+  }
+  outputChannel?.appendLine(
+    `Open Service Dashboard: no TraceRoost dashboard answered on the ports in ~/.traceroost/ports.json or config.json. ` +
+    `Run \`traceroost service status\` for the service's address, or \`traceroost service start\` if it has stopped.`,
+  )
+  const choice = await vscode.window.showWarningMessage(
+    "TraceRoost: the background service's dashboard isn't answering. `traceroost service status` shows its address.",
+    SHOW_LOG_BUTTON,
+  )
+  if (choice === SHOW_LOG_BUTTON) showLog()
+}
+
+/** The file each agent's setup edits, as named to the user and as opened by "Show Changes".
+ *  Copilot's settings live in VS Code's own user settings (written through the settings API). */
+function agentConfigFiles(): Record<'copilot' | 'claude' | 'codex', { label: string; open: () => Thenable<unknown> }> {
+  const home = os.homedir()
+  const claudePath = path.join(home, '.claude', 'settings.json')
+  const codexPath = path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'config.toml')
+  const tilde = (p: string) => p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p
+  const openFile = (p: string) => vscode.window.showTextDocument(vscode.Uri.file(p), { preview: false })
+  return {
+    copilot: { label: 'your VS Code user settings', open: () => vscode.commands.executeCommand('workbench.action.openSettingsJson') },
+    claude: { label: tilde(claudePath), open: () => openFile(claudePath) },
+    codex: { label: tilde(codexPath), open: () => openFile(codexPath) },
+  }
 }
 
 // ── Activate ─────────────────────────────────────────────────────────────────
@@ -138,9 +181,10 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(traceRoostDb)
     outputChannel.appendLine('TraceRoost database initialized.')
     if (traceRoostDb.loadError) {
-      vscode.window.showErrorMessage(
-        `TraceRoost: Could not read the existing trace database (${traceRoostDb.loadError}). History is unavailable in this window and nothing will be saved over it — see the TraceRoost output channel.`
-      )
+      void vscode.window.showErrorMessage(
+        `TraceRoost: Could not read the existing trace database (${traceRoostDb.loadError}). History is unavailable in this window and nothing will be saved over it — the TraceRoost log has details.`,
+        SHOW_LOG_BUTTON,
+      ).then(choice => { if (choice === SHOW_LOG_BUTTON) showLog() })
     } else if (!traceRoostDb.isOwner) {
       // Another window owns writes to the shared database file (see TraceRoostDb) — this window
       // only reads it, so it can never overwrite that window's newer history with a stale copy.
@@ -154,8 +198,9 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     store = new SessionStore(context)
   } catch (err) {
-    outputChannel.appendLine(`Failed to initialize session store: ${err}`)
-    vscode.window.showErrorMessage('TraceRoost: Failed to initialize trace store.')
+    outputChannel.appendLine(`Failed to initialize the trace store: ${err}`)
+    void vscode.window.showErrorMessage('TraceRoost: Failed to initialize the trace store.', SHOW_LOG_BUTTON)
+      .then(choice => { if (choice === SHOW_LOG_BUTTON) showLog() })
     return
   }
 
@@ -268,7 +313,7 @@ export async function activate(context: vscode.ExtensionContext) {
         collectorConflict = { owner, port, extensionId: context.extension.id }
         outputChannel.appendLine(
           `Not receiving OTel — the background service already holds port ${port}.\n` +
-          `  - New sessions here come from log files only (no prompt/tool content).\n` +
+          `  - New traces here come from log files only (no prompt/tool content).\n` +
           `  - Run TraceRoost one way per machine — background service, VS Code extension, or Docker. ` +
           `Recommended: the background service — it starts at login and keeps capturing OTel even when ` +
           `VS Code is closed, so nothing gets missed. Install with \`npx traceroost@latest service install\` ` +
@@ -278,18 +323,28 @@ export async function activate(context: vscode.ExtensionContext) {
           `(\`code --uninstall-extension ${context.extension.id}\`), then reload — or, to use VS Code instead, ` +
           `stop the service with \`traceroost service stop\`.`
         )
-        vscode.window.showErrorMessage(
-          `TraceRoost: the background service is already receiving OTel data on port ${port}. This window won't ` +
-          `see live OTel sessions until you stop the service (\`traceroost service stop\`) and reload, or view its ` +
-          `dashboard instead. Run TraceRoost one way per machine — extension, background service, local run, or ` +
-          `Docker, not several at once — and stick to the default ports.`
-        )
+        // One sentence; the full story is in the log above. The buttons are what this window can
+        // do about it — show the service's own dashboard, or say more. Stopping the service is a
+        // terminal command (`traceroost service stop`), named in the log.
+        const OPEN_SERVICE = 'Open Service Dashboard'
+        void vscode.window.showErrorMessage(
+          `TraceRoost: the background service already receives OTel on port ${port}, so this window won't get live traces — use the service's dashboard, or stop the service and reload.`,
+          OPEN_SERVICE, SHOW_LOG_BUTTON,
+        ).then(choice => {
+          if (choice === OPEN_SERVICE) void openServiceDashboard(port)
+          else if (choice === SHOW_LOG_BUTTON) showLog()
+        })
       } else if (owner === 'foreign') {
         collectorConflict = { owner, port, extensionId: context.extension.id }
         outputChannel.appendLine(`Port ${port} is in use by an unknown process — change traceRoost.otlpPort`)
-        vscode.window.showErrorMessage(
-          `TraceRoost: Port ${port} is already in use by another application. Change the traceRoost.otlpPort setting to use a different port.`
-        )
+        const CHANGE_PORT = 'Change Port'
+        void vscode.window.showErrorMessage(
+          `TraceRoost: port ${port} is in use by another application, so no live traces can arrive. Pick a free port for traceRoost.otlpPort and reload.`,
+          CHANGE_PORT, SHOW_LOG_BUTTON,
+        ).then(choice => {
+          if (choice === CHANGE_PORT) void vscode.commands.executeCommand('workbench.action.openSettings', 'traceRoost.otlpPort')
+          else if (choice === SHOW_LOG_BUTTON) showLog()
+        })
       }
     } else {
       outputChannel.appendLine(`Failed to start OTLP collector on port ${port}: ${err}`)
@@ -302,7 +357,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // Only with the user's yes (src/agentSetupConsent.ts): asked once, remembered in
   // ~/.traceroost/config.json, shared with the background service.
   const log = (line: string) => outputChannel?.appendLine(line)
-  const runAgentSetup = async (): Promise<void> => {
+  /** Sets every agent up for this port and says what changed. `fromCommand` is the Set Up Agents
+   *  command: it also reports when nothing needed changing, so running it is never silent. */
+  const runAgentSetup = async (fromCommand = false): Promise<void> => {
     const [copilotResult, claudeResult, codexResult] = await Promise.all([
       autoConfigureCopilot(port),
       autoConfigureClaudeCode(port),
@@ -312,55 +369,96 @@ export async function activate(context: vscode.ExtensionContext) {
     // A failed auto-config points at the complete manual settings (Help → Setup) instead of a
     // partial snippet — each agent needs several keys (Claude Code: eight env vars; Codex: both
     // exporters with protocol = "json"), which don't fit in a toast.
-    const codexConfigPath = path.join(process.env.CODEX_HOME || '~/.codex', 'config.toml')
-    const failures: Array<[string, ConfigResult, string]> = [
-      ['Copilot', copilotResult, 'your VS Code user settings'],
-      ['Claude Code', claudeResult, '~/.claude/settings.json'],
-      ['Codex', codexResult, codexConfigPath],
+    const files = agentConfigFiles()
+    const outcomes: Array<[string, ConfigResult, string]> = [
+      ['Copilot', copilotResult, files.copilot.label],
+      ['Claude Code', claudeResult, files.claude.label],
+      ['Codex', codexResult, files.codex.label],
     ]
-    for (const [agent, result, file] of failures) {
+    let failed = 0
+    for (const [agent, result, file] of outcomes) {
       if (!result.error) continue
+      failed++
       log(`Auto-configure ${agent} failed: ${result.error}`)
       void vscode.window.showWarningMessage(
-        `TraceRoost: Could not auto-configure ${agent} OTEL in ${file} (details in the TraceRoost output channel). Help → Setup lists every setting to add by hand.`,
-        SETUP_HELP_BUTTON,
-      ).then(choice => { if (choice === SETUP_HELP_BUTTON) openSetupHelp() })
+        `TraceRoost: Could not set up ${agent} in ${file}. Help → Setup lists every setting to add by hand.`,
+        SETUP_HELP_BUTTON, SHOW_LOG_BUTTON,
+      ).then(choice => {
+        if (choice === SETUP_HELP_BUTTON) openSetupHelp()
+        else if (choice === SHOW_LOG_BUTTON) showLog()
+      })
     }
 
     // A file left alone on purpose (it exports to the user's own collector) — log why.
-    for (const r of [copilotResult, claudeResult, codexResult] as ConfigResult[]) {
-      if (r.warning) log(`Auto-configure: ${r.warning}`)
+    const leftAlone: string[] = []
+    for (const [agent, result] of outcomes) {
+      if (!result.warning) continue
+      leftAlone.push(agent)
+      log(`Auto-configure: ${result.warning}`)
     }
 
     const configuredAgents: string[] = []
     if (copilotResult.changed) configuredAgents.push('Copilot')
     if (claudeResult.changed) configuredAgents.push('Claude Code')
     if (codexResult.changed) configuredAgents.push('Codex')
-    if (configuredAgents.length > 0) log(`Auto-configured OTEL telemetry for: ${configuredAgents.join(', ')}`)
+    if (configuredAgents.length > 0) log(`Auto-configured OTel telemetry for: ${configuredAgents.join(', ')}`)
+    // The command is never silent, and never claims "already set up" for an agent it left alone:
+    // that agent's traces go to the user's own collector, not here.
+    const leftAloneNote = fromCommand ? leftAloneMessage(leftAlone, port) : undefined
+    if (leftAloneNote) {
+      void vscode.window.showWarningMessage(leftAloneNote, SHOW_LOG_BUTTON).then(choice => {
+        if (choice === SHOW_LOG_BUTTON) showLog()
+      })
+    }
+    if (fromCommand && configuredAgents.length === 0 && failed === 0) {
+      if (!leftAloneNote) void vscode.window.showInformationMessage(`TraceRoost: your agents are already set up to send traces to port ${port}. Nothing needed changing.`)
+      return
+    }
     void notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
   }
+
+  /** The VS Code activation question (asked when there's no stored answer yet). Closing the
+   *  notification without choosing records nothing, so it is asked again next time. */
+  const askAgentSetup = async (): Promise<void> => {
+    const choice = await vscode.window.showInformationMessage(
+      `TraceRoost: ${AGENT_SETUP_QUESTION} ${AGENT_SETUP_EXPLANATION}`,
+      AGENT_SETUP_YES, AGENT_SETUP_NO,
+    )
+    if (choice === undefined) return
+    // A no is asked once more, with what skipping costs, before it is recorded.
+    const confirmed = choice === AGENT_SETUP_YES ? AGENT_SETUP_YES : await vscode.window.showWarningMessage(
+      `TraceRoost: ${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`,
+      AGENT_SETUP_SKIP, AGENT_SETUP_YES,
+    )
+    if (confirmed === undefined) return
+    writeAgentSetupAnswer(confirmed === AGENT_SETUP_YES ? 'yes' : 'no')
+    if (confirmed === AGENT_SETUP_YES) await runAgentSetup()
+  }
+
+  // The way back in after "Skip setup", and a manual re-apply after a yes. Running the command is
+  // itself the yes — like the dashboard's Settings button (src/agentSetupConsent.ts). Only someone
+  // who hasn't answered yet is shown what setup does first. It ignores traceRoost.autoConfigureAgents,
+  // which governs only what happens on activation.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('traceRoost.setUpAgents', async () => {
+      if (readAgentSetupAnswer() === undefined) {
+        const choice = await vscode.window.showInformationMessage(
+          AGENT_SETUP_QUESTION, { modal: true, detail: AGENT_SETUP_EXPLANATION }, AGENT_SETUP_YES,
+        )
+        if (choice !== AGENT_SETUP_YES) return
+      }
+      writeAgentSetupAnswer('yes')
+      await runAgentSetup(true)
+    }),
+  )
 
   if (traceRoostCfg.get<boolean>('autoConfigureAgents', true)) {
     const answer = readAgentSetupAnswer()
     if (answer === 'yes') {
       await runAgentSetup()
     } else if (answer === undefined) {
-      // Not awaited: activation carries on while the question waits. Closing the notification
-      // without choosing records nothing, so it is asked again next time.
-      void vscode.window.showInformationMessage(
-        `TraceRoost: ${AGENT_SETUP_QUESTION} ${AGENT_SETUP_EXPLANATION}`,
-        AGENT_SETUP_YES, AGENT_SETUP_NO,
-      ).then(async choice => {
-        if (choice === undefined) return
-        // A no is asked once more, with what skipping costs, before it is recorded.
-        const confirmed = choice === AGENT_SETUP_YES ? AGENT_SETUP_YES : await vscode.window.showWarningMessage(
-          `TraceRoost: ${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`,
-          AGENT_SETUP_SKIP, AGENT_SETUP_YES,
-        )
-        if (confirmed === undefined) return
-        writeAgentSetupAnswer(confirmed === AGENT_SETUP_YES ? 'yes' : 'no')
-        if (confirmed === AGENT_SETUP_YES) await runAgentSetup()
-      })
+      // Not awaited: activation carries on while the question waits.
+      void askAgentSetup()
     }
   }
 
@@ -806,7 +904,7 @@ export async function activate(context: vscode.ExtensionContext) {
         : 'no traces'
       const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
       const msg = [
-        `Database:  ${toMb(dbBytes)} MB  (${lifetime.totalSessions} sessions, ${dateRange})`,
+        `Database:  ${toMb(dbBytes)} MB  (${lifetime.totalSessions} traces, ${dateRange})`,
         `Blobs:     ${toMb(blobBytes)} MB  (${blobCount} files)`,
         `Total:     ${toMb(dbBytes + blobBytes)} MB`,
         `Retention: ${retentionDays} days`,
@@ -831,6 +929,11 @@ export async function activate(context: vscode.ExtensionContext) {
   if (process.env.TRACEROOST_EDITION !== 'core') registerOrgCommands(context)
   registerUriHandler(context, repo)
 
+  // Dump Span Attributes is listed in the Command Palette only at debug log level
+  // (TRACEROOST_LOG_LEVEL=debug, src/logLevel.ts) or when running from source — package.json's
+  // commandPalette `when` reads this key. It stays callable either way (the integration tests).
+  void vscode.commands.executeCommand('setContext', 'traceRoost.debugCommands',
+    logLevel() === 'debug' || context.extensionMode === vscode.ExtensionMode.Development)
   context.subscriptions.push(
     vscode.commands.registerCommand('traceRoost.dumpSpanAttrs', () => {
       const spans = store!.getSpans()
@@ -872,28 +975,73 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   )
 
-  async function runExport(exporter: typeof exportSpans) {
-    const spans = store!.getSpans()
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]
-    const baseUri = workspaceFolder ? workspaceFolder.uri : context.globalStorageUri
-    const writtenFiles = await exporter(spans, baseUri)
-    if (writtenFiles.length === 0) {
-      vscode.window.showInformationMessage('TraceRoost: No trace data to export')
+  // Exports the spans this window's collector holds in memory right now — a debugging aid, not
+  // the dashboard's trace export. The files are built first so the dialog can fit them: a save
+  // dialog for one file, a folder picker for several (one per agent/endpoint). `target` (a folder)
+  // skips the dialog — the integration tests use it; folderArg honours it only under test.
+  async function runExport(exporter: typeof exportSpans, redacted: boolean, target?: vscode.Uri) {
+    const files: Array<{ name: string; data: Uint8Array }> = []
+    await exporter(store!.getSpans(), context.globalStorageUri, {
+      writeFile: async (uri, data) => { files.push({ name: path.posix.basename(uri.path), data }) },
+    })
+    if (files.length === 0) {
+      vscode.window.showInformationMessage('TraceRoost: no live OTel spans in memory to export.')
       return
     }
-    vscode.window.showInformationMessage(`TraceRoost: Exported to: ${writtenFiles.join(', ')}`)
-    for (const fname of writtenFiles) {
-      const uri = vscode.Uri.joinPath(baseUri, fname)
-      const doc = await vscode.workspace.openTextDocument(uri)
-      vscode.window.showTextDocument(doc, { preview: false })
+    const defaultDir = vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(os.homedir())
+    const what = redacted ? 'live OTel spans (redacted)' : 'live OTel spans — includes prompts and tool output'
+    let uris: vscode.Uri[]
+    if (target) {
+      uris = files.map(f => vscode.Uri.joinPath(target, f.name))
+    } else if (files.length === 1) {
+      const picked = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(defaultDir, files[0].name),
+        filters: { JSON: ['json'] },
+        saveLabel: 'Export',
+        title: `Export ${what}`,
+      })
+      if (!picked) return
+      uris = [picked]
+    } else {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFiles: false, canSelectFolders: true, canSelectMany: false,
+        defaultUri: defaultDir,
+        openLabel: 'Export Here',
+        title: `Export ${what} (${files.length} files, one per agent)`,
+      })
+      if (!picked?.[0]) return
+      uris = files.map(f => vscode.Uri.joinPath(picked[0], f.name))
     }
+    for (let i = 0; i < files.length; i++) await vscode.workspace.fs.writeFile(uris[i], files[i].data)
+
+    const REVEAL = 'Reveal'
+    const OPEN = 'Open'
+    // Not awaited, so the command (and a caller awaiting it) finishes once the files are written.
+    void vscode.window.showInformationMessage(
+      uris.length === 1
+        ? `TraceRoost: exported ${what.split(' — ')[0]} to ${uris[0].fsPath}`
+        : `TraceRoost: exported ${uris.length} files of ${what.split(' — ')[0]} to ${path.dirname(uris[0].fsPath)}`,
+      ...(uris.length === 1 ? [OPEN, REVEAL] : [REVEAL]),
+    ).then(choice => {
+      if (choice === OPEN) void vscode.window.showTextDocument(uris[0], { preview: false })
+      else if (choice === REVEAL) void vscode.commands.executeCommand('revealFileInOS', uris[0])
+    })
   }
+  // Only the integration tests may skip the dialog: any other extension can run these commands,
+  // and a folder argument would let it write unredacted prompts somewhere without asking. The
+  // development-mode suite runs in ExtensionMode.Test; the shipped-VSIX suite
+  // (tests/e2e/vscode/run.mjs) installs the extension normally, so it runs in Production and is
+  // recognised by the TRACEROOST_IT_CONFIG its runner puts in the extension host's environment.
+  const underIntegrationTest = () =>
+    context.extensionMode === vscode.ExtensionMode.Test || !!process.env.TRACEROOST_IT_CONFIG
+  const folderArg = (arg: unknown) =>
+    underIntegrationTest() && arg instanceof vscode.Uri ? arg : undefined
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('traceRoost.exportData', () => runExport(exportSpans))
+    vscode.commands.registerCommand('traceRoost.exportData', (target?: unknown) => runExport(exportSpans, false, folderArg(target)))
   )
   context.subscriptions.push(
-    vscode.commands.registerCommand('traceRoost.exportDataRedacted', () => runExport(exportSpansRedacted))
+    vscode.commands.registerCommand('traceRoost.exportDataRedacted', (target?: unknown) => runExport(exportSpansRedacted, true, folderArg(target)))
   )
 
   context.subscriptions.push(
@@ -1051,6 +1199,9 @@ export async function activate(context: vscode.ExtensionContext) {
   function updateStatusBar() {
     if (collectorConflict) {
       statusBar.text = '$(warning) TraceRoost — not receiving OTel'
+      statusBar.tooltip = collectorConflict.owner === 'standalone'
+        ? `Not receiving live traces: the TraceRoost background service holds port ${collectorConflict.port}. Click to open this window's dashboard (log history only).`
+        : `Not receiving live traces: another application holds port ${collectorConflict.port} — change traceRoost.otlpPort. Click to open the dashboard (log history only).`
       statusBar.color = new vscode.ThemeColor('statusBarItem.warningForeground')
       statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
     } else {
@@ -1074,11 +1225,13 @@ export async function activate(context: vscode.ExtensionContext) {
   } else if (collectorFailed) {
     outputChannel.appendLine('TraceRoost active — collector already running in another VS Code window; sharing its database')
   } else {
-    // The toast only on first activation and after an update — not on every window/startup.
+    // The toast only on the very first activation after install — not after updates or on
+    // every window/startup; the status bar item says it's running from then on. The key still
+    // records the version, so it is set for anyone who saw the toast under the old per-update rule.
     // The Output panel stays where the user left it; the line is there for anyone who looks.
     const version = String(context.extension.packageJSON.version)
     const toastKey = 'traceRoost.activeToastVersion'
-    if (context.globalState.get<string>(toastKey) !== version) {
+    if (context.globalState.get<string>(toastKey) === undefined) {
       void context.globalState.update(toastKey, version)
       vscode.window.showInformationMessage(`TraceRoost active — listening on port ${port}`)
     }
@@ -1325,17 +1478,30 @@ async function notifySetupRequired(
     context.globalState.update('traceRoost.installedVersion', context.extension.packageJSON.version)
   }
 
-  const parts: string[] = []
-  if (copilotChanged) { parts.push('Reload VS Code to activate Copilot tracing.') }
-  const cliAgents = [claudeChanged && 'Claude', codexChanged && 'Codex'].filter(Boolean).join(' and ')
-  if (cliAgents) { parts.push(`Restart ${cliAgents} in your terminal to activate CLI tracing.`) }
+  const files = agentConfigFiles()
+  const changed = [
+    copilotChanged && { agent: 'Copilot', ...files.copilot },
+    claudeChanged && { agent: 'Claude Code', ...files.claude },
+    codexChanged && { agent: 'Codex', ...files.codex },
+  ].filter((c): c is { agent: string; label: string; open: () => Thenable<unknown> } => !!c)
 
-  const message = `TraceRoost: Telemetry configured. ${parts.join(' ')}`
-  const actions = copilotChanged ? ['Reload VS Code'] : []
+  const parts: string[] = []
+  if (copilotChanged) { parts.push('Reload VS Code to start tracing Copilot.') }
+  const cliAgents = [claudeChanged && 'Claude Code', codexChanged && 'Codex'].filter(Boolean).join(' and ')
+  if (cliAgents) { parts.push(`Restart ${cliAgents} in your terminal to start tracing ${claudeChanged && codexChanged ? 'them' : 'it'}.`) }
+
+  const updated = changed.map(c => `${c.agent} (${c.label})`).join(', ')
+  const message = `TraceRoost: Set up ${updated}. ${parts.join(' ')}`
+  const SHOW_CHANGES = 'Show Changes'
+  const actions = copilotChanged ? ['Reload VS Code', SHOW_CHANGES] : [SHOW_CHANGES]
 
   const action = await vscode.window.showInformationMessage(message, ...actions)
   if (action === 'Reload VS Code') {
     vscode.commands.executeCommand('workbench.action.reloadWindow')
+  } else if (action === SHOW_CHANGES) {
+    for (const c of changed) {
+      try { await c.open() } catch (err) { outputChannel?.appendLine(`Could not open ${c.label}: ${err}`) }
+    }
   }
 }
 

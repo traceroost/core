@@ -7,6 +7,7 @@ import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
 import { planUsage } from '../planUsage'
+import { showLimitTraces } from './PlanLimits'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { SectionNav, type NavSection } from '../SectionNav'
@@ -65,7 +66,13 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
   const yPos = (turns: number) => PAD.top  + ch - (turns / maxTurns) * ch
 
   const xTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ v: f * maxCost, x: PAD.left + f * cw }))
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ v: Math.round(f * maxTurns), y: PAD.top + ch - f * ch }))
+  // Distinct integer ticks: rounding evenly spaced fractions of a small max (e.g. 1.15) gave
+  // repeated labels (0, 0, 1, 1, 1). Step through whole turns instead, at most ~4 intervals.
+  const rawStep = Math.max(1, maxTurns / 4)
+  const mag = 10 ** Math.floor(Math.log10(rawStep))
+  const yStep = [1, 2, 5, 10].map(m => m * mag).find(s => s >= rawStep) ?? 10 * mag
+  const yTicks: Array<{ v: number; y: number }> = []
+  for (let v = 0; v <= maxTurns; v += yStep) yTicks.push({ v, y: yPos(v) })
 
   const sortedMatches = (() => {
     const m = [...points]
@@ -86,7 +93,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
   return (
     <div>
       <div style="margin-bottom:8px;padding:8px 10px;font-size:11px;color:var(--muted);line-height:1.6;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more model calls. <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth — start there. <strong style="color:#81c784">Green</strong> = model reused cached context between calls (efficient). <strong style="color:#f44747">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
+        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more turns (model calls). <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth — start there. <strong style="color:var(--vscode-charts-green, #81c784)">Green</strong> = model reused cached context between calls (efficient). <strong style="color:var(--vscode-errorForeground, #f44747)">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
       </div>
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
         <span style="font-size:10px;color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
@@ -110,7 +117,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
           <line x1={PAD.left} y1={PAD.top + ch} x2={PAD.left + cw} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
           <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="10" fill="var(--muted)">Estimated cost (USD)</text>
           <text x={10} y={PAD.top + ch / 2} text-anchor="middle" font-size="10" fill="var(--muted)"
-            transform={`rotate(-90,10,${PAD.top + ch / 2})`}>LLM calls</text>
+            transform={`rotate(-90,10,${PAD.top + ch / 2})`}>Turns</text>
           {xTicks.map(t => (
             <g key={t.v}>
               <line x1={t.x} y1={PAD.top + ch} x2={t.x} y2={PAD.top + ch + 4} stroke="var(--border)" />
@@ -175,11 +182,11 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
             <table style="width:100%;border-collapse:collapse;font-size:11px">
               <thead>
                 <tr style="border-bottom:1px solid var(--border)">
-                  <th style={thStyle('time')}   onClick={() => toggleSort('time')}>Start Time{arrow('time')}</th>
-                  <th style={thStyle('prompt')} onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</th>
-                  <th style={`${thStyle('cost')};text-align:right`}  onClick={() => toggleSort('cost')}>Estimated cost{arrow('cost')}</th>
-                  <th style={`${thStyle('turns')};text-align:right`} onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</th>
-                  <th style={`${thStyle('cache')};text-align:right`} onClick={() => toggleSort('cache')}>Cache hit{arrow('cache')}</th>
+                  <th style={thStyle('time')}   aria-sort={sort.col === 'time' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('time')}>Start Time{arrow('time')}</button></th>
+                  <th style={thStyle('prompt')} aria-sort={sort.col === 'prompt' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</button></th>
+                  <th style={`${thStyle('cost')};text-align:right`}  aria-sort={sort.col === 'cost' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('cost')}>Estimated cost{arrow('cost')}</button></th>
+                  <th style={`${thStyle('turns')};text-align:right`} aria-sort={sort.col === 'turns' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</button></th>
+                  <th style={`${thStyle('cache')};text-align:right`} aria-sort={sort.col === 'cache' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('cache')}>Cache hit{arrow('cache')}</button></th>
                 </tr>
               </thead>
               <tbody>
@@ -189,10 +196,10 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
                   <tr key={i} style={`border-bottom:1px solid var(--border);${isClicked ? 'background:rgba(79,195,247,0.08);box-shadow:inset 3px 0 0 var(--accent)' : ''}`}>
                     <td style="padding:4px 8px 4px 0;white-space:nowrap;font-size:10px;font-variant-numeric:tabular-nums">
                       <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${agentDotColor(p.s.source)};margin-right:5px;flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(p.s.source)} />
-                      <span style="color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px"
+                      <button type="button" class="link-btn"
                         title="Open in Traces tab"
                         onClick={() => { activeTab.value = 'sessions'; focusedSessionId.value = p.s.sessionId }}
-                      >{formatSessionTime(p.s)}</span>
+                      >{formatSessionTime(p.s)}</button>
                     </td>
                     <td style="padding:4px 8px 4px 0;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)">{p.s.userRequest?.slice(0, 80) ?? '—'}</td>
                     <td style="padding:4px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">{fmtUsd(p.cost)}</td>
@@ -399,7 +406,7 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
             <div key={a.id} style="display:flex;gap:8px;align-items:flex-start;font-size:12px">
               <span
                 style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0;margin-top:2px"
-                {...(tip ? { title: tip, 'data-tip-html': true } : {})}
+                {...(tip ? { title: tip, 'data-tip-html': true, tabIndex: 0, role: 'img', 'aria-label': tip.replace(/<[^>]+>/g, '').replace(/\n/g, ' ') } : {})}
               >
                 <ActionIcon a={a} />
               </span>
@@ -407,13 +414,21 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
                 <div style="font-weight:600">
                   {a.title}
                   {a.limitPts !== undefined
-                    ? <span style="font-weight:400;color:var(--muted);margin-left:6px" title="Estimated waste converted into points of your weekly plan limit, from how much of the window your past sessions used per dollar of work">≈ {fmtPts(a.limitPts)} of weekly limit</span>
+                    ? <span style="font-weight:400;color:var(--muted);margin-left:6px" title="Estimated waste converted into points of your weekly plan limit, from how much of the window your past traces used per dollar of work">≈ {fmtPts(a.limitPts)} of weekly limit</span>
                     : a.estimatedUsd !== undefined
                       ? <span style="font-weight:400;color:var(--muted);margin-left:6px">≈ ${a.estimatedUsd.toFixed(2)}</span>
                       : null}
                 </div>
                 <div style="color:var(--muted);margin:2px 0">{a.evidence}</div>
                 <div>{a.action}</div>
+                {a.sessionIds.length > 0 && (
+                  <button
+                    type="button"
+                    class="link-btn"
+                    style="margin-top:3px;font-size:11px"
+                    onClick={() => showLimitTraces(a.sessionIds, `for “${a.title}”`)}
+                  >Show {a.sessionIds.length} trace{a.sessionIds.length === 1 ? '' : 's'} →</button>
+                )}
               </div>
             </div>
           )
@@ -421,7 +436,7 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
       </div>
       {actions.length > 3 && (
         <button
-          class="btn-link"
+          class="link-btn"
           style="margin-top:8px;font-size:11px"
           onClick={() => setExpanded(e => !e)}
         >

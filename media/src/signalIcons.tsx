@@ -52,7 +52,7 @@ export const LOOP_SIGNAL_ICON_TYPE: Record<LoopSignalType, string> = {
 // instead (see Sessions.tsx's SignalsCell and Insights.tsx's InsightCard).
 
 export const SIGNAL_SEVERITY_COLOR: Record<'warning' | 'critical', string> = {
-  warning: '#f6a623',
+  warning: 'var(--vscode-editorWarning-foreground, #f6a623)',
   critical: 'var(--error)',
 }
 

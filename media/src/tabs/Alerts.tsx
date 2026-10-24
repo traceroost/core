@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { displaySessions, activeTab, focusedSessionId } from '../state'
+import { displaySessions, activeTab, focusedSessionId, configOpen } from '../state'
 import { buildDisplaySummary, formatMs } from '../utils'
 import {
   fmtUsd,
@@ -490,9 +490,9 @@ export function Alerts() {
         </div>
       ) : (
         <div style="background:rgba(129,199,132,0.1);border:1px solid #81c784;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
-          <span style="font-size:18px;color:#81c784">✓</span>
+          <span style="font-size:18px;color:var(--vscode-charts-green, #81c784)">✓</span>
           <div>
-            <strong style="color:#81c784">All clear</strong>
+            <strong style="color:var(--vscode-charts-green, #81c784)">All clear</strong>
             <span style="color:var(--muted);font-size:12px;margin-left:8px">no alerts triggered for current traces</span>
           </div>
         </div>
@@ -500,10 +500,10 @@ export function Alerts() {
 
       {results.map(({ config: cfg, triggered, detail, sessionId }) => {
         const sev = cfg.severity
-        const trigColor = sev === 'error' ? 'var(--error)' : sev === 'info' ? '#4fc3f7' : '#f6a623'
+        const trigColor = sev === 'error' ? 'var(--error)' : sev === 'info' ? 'var(--vscode-editorInfo-foreground, #4fc3f7)' : 'var(--vscode-editorWarning-foreground, #f6a623)'
         const borderColor = triggered ? trigColor : 'var(--border)'
         const statusIcon = !cfg.enabled ? '○' : triggered ? (sev === 'error' ? '⛔' : sev === 'info' ? 'ℹ' : '⚠') : '✓'
-        const statusColor = !cfg.enabled ? 'var(--muted)' : triggered ? trigColor : '#81c784'
+        const statusColor = !cfg.enabled ? 'var(--muted)' : triggered ? trigColor : 'var(--vscode-charts-green, #81c784)'
         const profileMetrics = alertProfileMetrics(cfg)
 
         return (
@@ -517,6 +517,7 @@ export function Alerts() {
               <label class="toggle-switch">
                 <input
                   type="checkbox"
+                  aria-label={`${cfg.label} alert enabled`}
                   checked={cfg.enabled}
                   onChange={e => updateConfig(cfg.id, { enabled: (e.target as HTMLInputElement).checked })}
                 />
@@ -527,7 +528,7 @@ export function Alerts() {
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5">
               {cfg.description}
               {ALERT_TOOLTIPS[cfg.id] && (
-                <> {' '}<span data-tip={ALERT_TOOLTIPS[cfg.id]} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);border-bottom:1px dotted currentColor;cursor:help;white-space:nowrap">Why?</span></>
+                <> {' '}<span tabIndex={0} aria-label={`Why: ${ALERT_TOOLTIPS[cfg.id]}`} data-tip={ALERT_TOOLTIPS[cfg.id]} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);border-bottom:1px dotted currentColor;cursor:help;white-space:nowrap">Why?</span></>
               )}
             </div>
             {triggered && detail && (
@@ -536,13 +537,14 @@ export function Alerts() {
                 {sessionId && (
                   <>
                     {' '}
-                    <span
-                      role="link"
-                      tabIndex={0}
-                      onClick={() => { focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
-                      onKeyDown={e => { if (e.key === 'Enter') { focusedSessionId.value = sessionId; activeTab.value = 'sessions' } }}
-                      style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline;white-space:nowrap"
-                    >View trace →</span>
+                    {/* Closes the Settings drawer this list lives in — otherwise the trace opens
+                        underneath it, out of sight. */}
+                    <button
+                      type="button"
+                      class="link-btn"
+                      onClick={() => { configOpen.value = false; focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
+                      style="white-space:nowrap"
+                    >View trace →</button>
                   </>
                 )}
               </div>

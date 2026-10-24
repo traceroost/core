@@ -27,7 +27,7 @@ fs.mkdirSync(dataDir, { recursive: true })
 const lock = { pid: process.pid, hostname: require('os').hostname(), startedAt: new Date().toISOString(), service: false, token: 'stub', version: '0.19.1' }
 if (process.env.STUB_PORTS !== '0') Object.assign(lock, { uiPort: 31990, otlpPort: 31991, mcpPort: 31992 })
 fs.writeFileSync(path.join(dataDir, '${LOCK_FILENAME}'), JSON.stringify(lock))
-fs.writeFileSync(path.join(dataDir, 'channel'), JSON.stringify({ env: process.env.TRACEROOST_OWNER_CHANNEL ?? null, ipc: typeof process.send === 'function', noOpen: process.env.TRACEROOST_NO_OPEN ?? null }))
+fs.writeFileSync(path.join(dataDir, 'channel'), JSON.stringify({ env: process.env.TRACEROOST_OWNER_CHANNEL ?? null, ipc: typeof process.send === 'function', noOpen: process.env.TRACEROOST_NO_OPEN ?? null, desktop: process.env.TRACEROOST_DESKTOP ?? null }))
 const flush = via => { fs.writeFileSync(path.join(dataDir, 'flushed'), via); process.exit(0) }
 if (process.env.STUB_IGNORE_TERM === '1') {
   // An explicit no-op handler is what makes it wedged: with no handler at all, Node's default
@@ -109,9 +109,9 @@ suite('collector — supervised child', () => {
     test(`stop is graceful on ${platform}: the shutdown request goes over the owner channel and the child flushes`, async () => {
       const c = make({}, platform)
       await c.start()
-      // The child was given the channel and told to use it — and told not to open a browser tab,
-      // since the app shows the dashboard in its own window.
-      assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'channel'), 'utf-8')), { env: 'ipc', ipc: true, noOpen: '1' })
+      // The child was given the channel and told to use it — told not to open a browser tab,
+      // since the app shows the dashboard in its own window, and told it is the desktop app's.
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'channel'), 'utf-8')), { env: 'ipc', ipc: true, noOpen: '1', desktop: '1' })
       await c.stop()
       assert.strictEqual(fs.readFileSync(path.join(dataDir, 'flushed'), 'utf-8'), 'ipc')
       assert.strictEqual(c.current().status, 'stopped')
