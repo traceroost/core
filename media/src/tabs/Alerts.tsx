@@ -383,10 +383,17 @@ export function computeAlertCount(): number {
 const firedAlertKeys = new Set<string>()
 
 export interface AlertNotification {
+  alertId: string
   label: string
   detail?: string
   severity: 'error' | 'warning' | 'info'
   sessionId?: string
+}
+
+// DOM id of an alert's card in the Alerts section — the target "View Alert" on a firing
+// notification scrolls to (see the switchTab handler in App.tsx).
+export function alertCardId(alertId: string): string {
+  return 'alert-card-' + alertId
 }
 
 export function checkAlerts(): AlertNotification[] {
@@ -412,7 +419,7 @@ export function checkAlerts(): AlertNotification[] {
       activeKeys.add(key)
       if (firedAlertKeys.has(key)) { continue }
       firedAlertKeys.add(key)
-      notifications.push({ label: cfg.label, detail: result.detail, severity: cfg.severity, sessionId: result.sessionId })
+      notifications.push({ alertId: cfg.id, label: cfg.label, detail: result.detail, severity: cfg.severity, sessionId: result.sessionId })
     }
   }
   for (const key of Array.from(firedAlertKeys)) {
@@ -500,7 +507,7 @@ export function Alerts() {
         const profileMetrics = alertProfileMetrics(cfg)
 
         return (
-          <div key={cfg.id} style={`border:1px solid ${borderColor};border-left:4px solid ${borderColor};border-radius:6px;padding:12px 14px;margin-bottom:10px`}>
+          <div key={cfg.id} id={alertCardId(cfg.id)} style={`border:1px solid ${borderColor};border-left:4px solid ${borderColor};border-radius:6px;padding:12px 14px;margin-bottom:10px`}>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
               <div class="flex-8">
                 <span style={`font-size:15px;color:${statusColor};line-height:1`}>{statusIcon}</span>

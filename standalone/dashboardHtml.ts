@@ -634,9 +634,9 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
               alertColor,
               msg.detail || null,
               {
-                label: 'View Alerts',
+                label: 'View Alert',
                 onClick: function() {
-                  window.dispatchEvent(new MessageEvent('message', { data: { type: 'switchTab', tab: 'alerts' } }));
+                  window.dispatchEvent(new MessageEvent('message', { data: { type: 'switchTab', tab: 'alerts', anchor: msg.alertId } }));
                 }
               },
               30000
