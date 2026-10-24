@@ -58,8 +58,10 @@ export function describeRemoval(results: AgentRemoval[], home?: string): string 
   } else {
     parts.push('No TraceRoost agent settings were found to remove.')
   }
-  const leftAlone = results.filter(r => r.warning).length
+  const leftAlone = results.filter(r => r.warning && !r.customized).length
   if (leftAlone > 0) parts.push(`Left ${leftAlone === 1 ? 'one file' : `${leftAlone} files`} alone that ${leftAlone === 1 ? 'sends' : 'send'} to another collector.`)
+  const customized = results.filter(r => r.warning && r.customized)
+  if (customized.length > 0) parts.push(`Left ${list(customized.map(r => `${r.agent} (${tildePath(r.file, home)})`))} unchanged: ${customized.length === 1 ? 'it has a custom exporter' : 'they have custom exporters'} (with headers, say) that TraceRoost didn't write — remove ${customized.length === 1 ? 'it' : 'them'} by hand.`)
   const failed = results.filter(r => r.error)
   if (failed.length > 0) parts.push(`Could not change ${list(failed.map(r => `${r.agent} (${tildePath(r.file, home)})`))}.`)
   parts.push("TraceRoost won't set up your agents again unless you choose Set up agents.")

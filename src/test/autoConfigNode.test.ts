@@ -438,6 +438,18 @@ suite('autoConfigNode', () => {
       write(codexPath(), original)
       const result = await removeCodexSetup()
       assert.strictEqual(result.changed, false)
+      assert.strictEqual(result.customized, true, 'it sends to TraceRoost, just not in the form setup writes')
+      assert.match(result.warning ?? '', /custom exporter sending to TraceRoost .*remove it by hand/)
+      assert.strictEqual(read(codexPath()), original)
+    })
+
+    test('Codex: an exporter for a local collector of the user\'s is not called a custom TraceRoost exporter', async () => {
+      const original = '[otel]\nexporter = { otlp-http = { endpoint = "http://127.0.0.1:4317", protocol = "binary" } }\n' +
+        'trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = "json" } }\n'
+      write(codexPath(), original)
+      const result = await removeCodexSetup()
+      assert.strictEqual(result.changed, false)
+      assert.strictEqual(result.customized, undefined)
       assert.strictEqual(read(codexPath()), original)
     })
 

@@ -474,6 +474,10 @@ export async function autoConfigureCopilotStandalone(port: number, mode: SetupMo
 /** One agent settings file's outcome, naming the file so the caller can say what changed. */
 export interface RemoveResult extends ConfigResult {
   file: string
+  /** Left alone (see `warning`) not because it sends elsewhere but because it sends to TraceRoost
+   *  in a form setup didn't write — a Codex exporter with an auth header, say. Only the user can
+   *  tell whether that is theirs, so it is theirs to remove. */
+  customized?: boolean
 }
 
 /** `dryRun`: work out what would be removed (`changed`) without writing — for the confirmation
@@ -556,7 +560,10 @@ export async function removeCodexSetup(opts: RemoveOptions = {}): Promise<Remove
     if (ourExporters.length === 0) return { file, changed: false }
     const otherExporter = section.find(l => isExporterLine(l) && !CODEX_SETUP_EXPORTER_RE.test(l))
     if (otherExporter !== undefined) {
-      return { file, changed: false, warning: `[otel] in ${file} has an exporter TraceRoost didn't write (${otherExporter.trim()}); left untouched` }
+      // TraceRoost's endpoint with extras (headers, other options) vs. another local collector.
+      return CODEX_TRACEROOST_ENDPOINT_RE.test(otherExporter)
+        ? { file, changed: false, customized: true, warning: `[otel] in ${file} has a custom exporter sending to TraceRoost that setup didn't write (${otherExporter.trim()}), such as one with headers; left unchanged — remove it by hand if you no longer want it` }
+        : { file, changed: false, warning: `[otel] in ${file} has an exporter TraceRoost didn't write (${otherExporter.trim()}); left untouched` }
     }
 
     const kept = section.filter(l => !CODEX_SETUP_EXPORTER_RE.test(l) && !/^log_user_prompt = true\s*$/.test(l))

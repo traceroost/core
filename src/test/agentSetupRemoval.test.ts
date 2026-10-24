@@ -27,6 +27,14 @@ suite('agentSetupRemoval', function () {
     assert.match(text, /won't set up your agents again/)
   })
 
+  test('a custom exporter sending to TraceRoost is named as such, not as another collector', () => {
+    const text = describeRemoval([
+      { agent: 'Codex', file: '/home/u/.codex/config.toml', changed: false, customized: true, warning: 'custom exporter' },
+    ], home)
+    assert.doesNotMatch(text, /another collector/)
+    assert.match(text, /Left Codex \(~\/\.codex\/config\.toml\) unchanged: it has a custom exporter .* remove it by hand\./)
+  })
+
   test('says so when there was nothing to remove', () => {
     assert.match(describeRemoval([{ agent: 'Codex', file: '/home/u/.codex/config.toml', changed: false }], home), /^No TraceRoost agent settings were found/)
   })
