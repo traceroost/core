@@ -19,30 +19,23 @@ Two things it does that a usage dashboard doesn't:
 - **Catches agents that are stuck.** Sixteen named signals — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, avoidable cache misses, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--signals)
 - **Tells you what to fix in your instructions file.** The Advisor reads across traces and suggests concrete additions to your CLAUDE.md or AGENTS.md — including hot files the agent rediscovers from scratch on every run. [More →](#features)
 
-**Quick start** (requires Node.js 24+):
+**Quick start — pick one:**
 
-The recommended way to run TraceRoost is as a background service — it starts automatically and keeps running without a terminal open, so incoming OTEL data from your agents is never silently lost:
+| Way to run | Get it | Then |
+| --- | --- | --- |
+| **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar |
+| **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
+| **Terminal** (Node.js 24+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:3000> |
 
-```bash
-npx traceroost@latest service install
-```
+Each one asks once before it sets your agents up. History appears immediately; restart your agents for live traces.
 
-Or with Homebrew (macOS or Linux; brings its own Node.js):
-
-```bash
-brew install traceroost/tap/traceroost
-traceroost service install
-```
-
-Open <http://localhost:3000> — that's it. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or manage it later (`traceroost service status`, `service stop`, `service uninstall`, etc.). Does a dev server of yours need port 3000? [Move the dashboard](#my-dev-server-needs-port-3000) in one step.
-
-Just want a quick look first? Run it directly in a terminal instead — closing the terminal stops it, and if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry:
+**Keep it running** (terminal installs). A terminal run stops when you close the terminal — and if TraceRoost isn't running when an agent sends OTel data, that data has nowhere to go and is lost, no retry. Install it as a background service that starts at login instead (the recommended way to run it from a terminal):
 
 ```bash
-npx traceroost@latest
+npx traceroost@latest service install     # with Homebrew: traceroost service install
 ```
 
-See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker options.
+Manage it later with `traceroost service status`, `service stop`, `service uninstall`, etc. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or for Docker. Does a dev server of yours need port 3000? [Move the dashboard](#my-dev-server-needs-port-3000) in one step.
 
 - [Features](#features)
 - [Data Sources](#data-sources)
@@ -62,6 +55,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - [Ways to Run](#ways-to-run)
   - [Local (OTEL and log files)](#local-otel-and-log-files)
   - [VS Code Extension (OTEL and log files)](#vs-code-extension-otel-and-log-files)
+  - [Desktop app (macOS, Linux, Windows)](#desktop-app-macos-linux-windows)
   - [Docker (OTEL only)](#docker-otel-only)
     - [Configuring Agents for Local / Docker](#configuring-agents-for-local--docker)
 - [Upgrading from AgentLens](#upgrading-from-agentlens)
@@ -319,9 +313,9 @@ The extension receives OTEL traces in real time **and** reads local log files, s
 
 Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
 
-1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)**
+1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)** (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was [kept from the rename](#upgrading-from-agentlens))
 2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
-3. TraceRoost asks whether to set up Copilot, Claude Code, and Codex — choose **Set up agents**, then restart any running agents to start streaming traces
+3. TraceRoost asks whether to set up Copilot, Claude Code, and Codex — choose **Set up agents**, then restart any running agents to start streaming traces (skipped it? run **TraceRoost: Set Up Agents…** from the Command Palette)
 4. Past trace history loads automatically from local log files — no extra setup needed
 
 ### Desktop app (macOS, Linux, Windows)
