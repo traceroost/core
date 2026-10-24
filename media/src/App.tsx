@@ -521,8 +521,9 @@ export function App() {
   // [title] tooltip — native title tooltips take ~1s+ (OS/browser-controlled, not something CSS
   // or JS can shorten) to appear, which reads as sluggish given how many small badges/pills
   // throughout this app rely on title text to explain themselves. This shows the same styled
-  // tooltip for either attribute after one short, consistent delay. The native title is
-  // temporarily removed while hovered (restored on mouseout) so it can't also pop in later,
+  // tooltip for either attribute after one short, consistent delay — on hover, and on keyboard
+  // focus so tooltip-only meaning is reachable without a mouse. The native title is temporarily
+  // removed while hovered/focused (restored on mouseout/focusout) so it can't also pop in later,
   // stacked on top of this one.
   useEffect(() => {
     const HOVER_DELAY_MS = 150
@@ -570,8 +571,13 @@ export function App() {
       }
     }
 
-    function show(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('[data-tip], [title]') as HTMLElement | null
+    function show(e: MouseEvent | FocusEvent) {
+      const el = e.target as HTMLElement | null
+      if (!el?.closest) return
+      // Keyboard focus shows the same tooltip as hover. Focus from a mouse click doesn't — the
+      // pointer is already hovering it, and a click-focused button shouldn't re-trigger it.
+      if (e.type === 'focusin' && !el.matches(':focus-visible')) return
+      const target = el.closest('[data-tip], [title]') as HTMLElement | null
       if (!target || target === activeTarget) return
       clearTimer()
       activeTarget = target
@@ -588,8 +594,10 @@ export function App() {
       }, HOVER_DELAY_MS)
     }
 
-    function hide(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('[data-tip], [data-native-title]') as HTMLElement | null
+    function hide(e: MouseEvent | FocusEvent) {
+      const el = e.target as HTMLElement | null
+      if (!el?.closest) return
+      const target = el.closest('[data-tip], [data-native-title]') as HTMLElement | null
       if (!target) return
       // Moving onto a child of the same target (e.g. an icon inside a titled pill) isn't a real
       // leave — mouseout/mouseover delegation fires for that boundary too, and without this
@@ -602,11 +610,25 @@ export function App() {
       if (tipEl) tipEl.style.display = 'none'
     }
 
+    // Escape dismisses a showing tooltip without moving focus or the pointer (WCAG 1.4.13).
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape' || !activeTarget) return
+      restoreNativeTitle(activeTarget)
+      clearTimer()
+      if (tipEl) tipEl.style.display = 'none'
+    }
+
     document.addEventListener('mouseover', show)
     document.addEventListener('mouseout', hide)
+    document.addEventListener('focusin', show)
+    document.addEventListener('focusout', hide)
+    document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('mouseover', show)
       document.removeEventListener('mouseout', hide)
+      document.removeEventListener('focusin', show)
+      document.removeEventListener('focusout', hide)
+      document.removeEventListener('keydown', onKey)
       clearTimer()
       if (tipEl) { tipEl.remove(); tipEl = null }
     }

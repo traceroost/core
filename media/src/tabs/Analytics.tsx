@@ -34,6 +34,7 @@ function SectionHead({ id, title, tip, first, helpAnchor }: { id: string; title:
         class={tip ? 'has-metric-tip' : undefined}
         style="font-size:12px;color:var(--muted);margin:0"
         data-tip={tip}
+        tabIndex={tip ? 0 : undefined}
       >{title}</h3>
       {helpAnchor && (
         <button

@@ -434,7 +434,7 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
         <span class="insight-action-label">
           Action
           {ins.helpId && HELP_WHY[ins.helpId] && (
-            <span data-tip={HELP_WHY[ins.helpId]} style="margin-left:4px;cursor:help;opacity:0.55;font-size:11px">ⓘ</span>
+            <span tabIndex={0} aria-label={`Why: ${HELP_WHY[ins.helpId]}`} data-tip={HELP_WHY[ins.helpId]} style="margin-left:4px;cursor:help;opacity:0.55;font-size:11px">ⓘ</span>
           )}:
         </span>{' '}
         <span style="white-space:pre-wrap">{ins.action}</span>

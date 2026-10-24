@@ -138,6 +138,7 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
           <span
             key={type}
             role="img"
+            tabIndex={0}
             aria-label={`${label} (${e.severity})${isLast && overflow.length > 0 ? `, and ${overflow.length} more` : ''}`}
             title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}${isLast ? overflowTip : ''}`}
             data-tip-html
@@ -149,6 +150,45 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
         )
       })}
     </span>
+  )
+}
+
+// The expanded trace's Overview spells out what the Signals column's icons only say on hover:
+// each distinct signal type, its severity, what fired it and what to do — as plain text.
+function SignalList({ signals }: { signals: LoopSignal[] }) {
+  if (!signals || signals.length === 0) return null
+  const byType = new Map<LoopSignalType, { patternName: string; severity: 'warning' | 'critical'; count: number }>()
+  for (const s of signals) {
+    const e = byType.get(s.type) ?? { patternName: s.patternName, severity: 'warning' as const, count: 0 }
+    if (s.severity === 'critical') e.severity = 'critical'
+    e.count += 1
+    byType.set(s.type, e)
+  }
+  const rows = [...byType.entries()].sort((a, b) => (a[1].severity === b[1].severity ? b[1].count - a[1].count : a[1].severity === 'critical' ? -1 : 1))
+  return (
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:6px">Signals</div>
+      <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px">
+        {rows.map(([type, e]) => {
+          const Icon = SIGNAL_ICON[LOOP_SIGNAL_ICON_TYPE[type] ?? type]
+          const f = SIGNAL_FORMULAS[type]
+          return (
+            <li key={type} style="display:flex;gap:8px;align-items:flex-start;font-size:11px;line-height:1.5">
+              <span aria-hidden="true" style="flex-shrink:0;margin-top:2px">{Icon ? <Icon color={SIGNAL_SEVERITY_COLOR[e.severity]} /> : null}</span>
+              <div>
+                <div>
+                  <strong>{e.patternName}</strong>
+                  {e.count > 1 && <span style="color:var(--muted)"> ×{e.count}</span>}
+                  <span style="color:var(--muted)"> · {e.severity === 'critical' ? 'Critical' : 'Warning'}</span>
+                </div>
+                {f && <div style="color:var(--muted)">{f.short}</div>}
+                {f && <div><strong>What to do:</strong> {f.tip}</div>}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 
@@ -446,6 +486,8 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                 {burnRate.projection && <span style="color:var(--muted);margin-left:8px">{burnRate.projection.contextFillPct.toFixed(0)}% context used</span>}
               </div>
             )}
+
+            <SignalList signals={sess.loopSignals} />
 
             {sessInsights.length > 0 && (
               <div>
@@ -906,7 +948,7 @@ export function Sessions() {
         </colgroup>
         <thead>
           <tr style="border-bottom:2px solid var(--vscode-panel-border)">
-            <th style="width:5px;padding:0" title={`<b>Conversation marker</b>\nA colored bar marks traces that are really one conversation split into multiple rows by a long gap between them.`} data-tip-html />
+            <th style="width:5px;padding:0" tabIndex={0} aria-label="Conversation marker" title={`<b>Conversation marker</b>\nA colored bar marks traces that are really one conversation split into multiple rows by a long gap between them.`} data-tip-html />
             <th style="width:16px;padding:3px 2px 3px 4px" />
             <th scope="col" aria-sort={sortKey === 'start_time' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
               <button class="sort-button" onClick={() => onSortClick('start_time')} title={`<b>Agent / Start / Source / From</b>\nSorted by start time only — Agent/Source/From aren't part of the sort`} data-tip-html>
@@ -937,7 +979,7 @@ export function Sessions() {
             {sortHeader('total_tokens', 'Tokens', 'left', '<b>Tokens</b>\nAccumulated input and output tokens across all turns')}
             {sortHeader('cost', 'Est Cost')}
             {showLimit && (
-              <th scope="col" style={thSort + ';text-align:left'} title={`<b>Plan limit</b>\nShare of your Claude or ChatGPT plan's 5-hour window this trace used (weekly when there's no 5-hour reading). Expand a trace for every window and any limit hits. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Plan limit</th>
+              <th scope="col" tabIndex={0} style={thSort + ';text-align:left'} title={`<b>Plan limit</b>\nShare of your Claude or ChatGPT plan's 5-hour window this trace used (weekly when there's no 5-hour reading). Expand a trace for every window and any limit hits. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Plan limit</th>
             )}
           </tr>
         </thead>

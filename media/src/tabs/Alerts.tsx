@@ -527,7 +527,7 @@ export function Alerts() {
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5">
               {cfg.description}
               {ALERT_TOOLTIPS[cfg.id] && (
-                <> {' '}<span data-tip={ALERT_TOOLTIPS[cfg.id]} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);border-bottom:1px dotted currentColor;cursor:help;white-space:nowrap">Why?</span></>
+                <> {' '}<span tabIndex={0} aria-label={`Why: ${ALERT_TOOLTIPS[cfg.id]}`} data-tip={ALERT_TOOLTIPS[cfg.id]} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);border-bottom:1px dotted currentColor;cursor:help;white-space:nowrap">Why?</span></>
               )}
             </div>
             {triggered && detail && (

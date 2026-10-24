@@ -405,7 +405,7 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
             <div key={a.id} style="display:flex;gap:8px;align-items:flex-start;font-size:12px">
               <span
                 style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0;margin-top:2px"
-                {...(tip ? { title: tip, 'data-tip-html': true } : {})}
+                {...(tip ? { title: tip, 'data-tip-html': true, tabIndex: 0, role: 'img', 'aria-label': tip.replace(/<[^>]+>/g, '').replace(/\n/g, ' ') } : {})}
               >
                 <ActionIcon a={a} />
               </span>
