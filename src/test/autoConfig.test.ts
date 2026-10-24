@@ -91,6 +91,12 @@ suite('autoConfigureCopilot', () => {
       assert.deepStrictEqual(writes, [])
     }))
 
+  test("'maintain' on another port does not mistake Copilot's default endpoint for TraceRoost's", () =>
+    withConfig(COPILOT_BUILTIN_DEFAULTS, { 'github.copilot.chat.otel.enabled': true }, async writes => {
+      assert.deepStrictEqual(await autoConfigureCopilot(4320, 'maintain'), { changed: false })
+      assert.deepStrictEqual(writes, [])
+    }))
+
   test('Remove agent setup takes out the three user settings setup wrote', () =>
     withConfig(COPILOT_DEFAULTS, {}, async writes => {
       await autoConfigureCopilot(4318)

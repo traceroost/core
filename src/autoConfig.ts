@@ -26,9 +26,12 @@ export async function autoConfigureCopilot(port: number, mode: SetupMode = 'full
       return { changed: false, warning: `github.copilot.chat.otel.otlpEndpoint points at ${existing}; left untouched (TraceRoost listens on ${endpoint})` }
     }
 
-    // 'maintain' (src/autoConfigNode.ts): only TraceRoost's own endpoint, when it is already there.
+    // 'maintain' (src/autoConfigNode.ts): only TraceRoost's own endpoint, when it is already there —
+    // as a user-level setting. Copilot's built-in default endpoint (http://localhost:4318) looks
+    // like TraceRoost's, but writing over it would add a key the user never had, or one they deleted.
     if (mode === 'maintain') {
-      if (!isTraceRoostEndpoint(existing) || existing === endpoint) return { changed: false }
+      const own = config.inspect<string>('github.copilot.chat.otel.otlpEndpoint')?.globalValue
+      if (!isTraceRoostEndpoint(own) || own === endpoint) return { changed: false }
       await config.update('github.copilot.chat.otel.otlpEndpoint', endpoint, vscode.ConfigurationTarget.Global)
       return { changed: true }
     }
