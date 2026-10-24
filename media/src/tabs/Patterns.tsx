@@ -65,7 +65,13 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
   const yPos = (turns: number) => PAD.top  + ch - (turns / maxTurns) * ch
 
   const xTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ v: f * maxCost, x: PAD.left + f * cw }))
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ v: Math.round(f * maxTurns), y: PAD.top + ch - f * ch }))
+  // Distinct integer ticks: rounding evenly spaced fractions of a small max (e.g. 1.15) gave
+  // repeated labels (0, 0, 1, 1, 1). Step through whole turns instead, at most ~4 intervals.
+  const rawStep = Math.max(1, maxTurns / 4)
+  const mag = 10 ** Math.floor(Math.log10(rawStep))
+  const yStep = [1, 2, 5, 10].map(m => m * mag).find(s => s >= rawStep) ?? 10 * mag
+  const yTicks: Array<{ v: number; y: number }> = []
+  for (let v = 0; v <= maxTurns; v += yStep) yTicks.push({ v, y: yPos(v) })
 
   const sortedMatches = (() => {
     const m = [...points]
