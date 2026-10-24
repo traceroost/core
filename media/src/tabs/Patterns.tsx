@@ -7,6 +7,7 @@ import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
 import { planUsage } from '../planUsage'
+import { showLimitTraces } from './PlanLimits'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { SectionNav, type NavSection } from '../SectionNav'
@@ -420,6 +421,14 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
                 </div>
                 <div style="color:var(--muted);margin:2px 0">{a.evidence}</div>
                 <div>{a.action}</div>
+                {a.sessionIds.length > 0 && (
+                  <button
+                    type="button"
+                    class="link-btn"
+                    style="margin-top:3px;font-size:11px"
+                    onClick={() => showLimitTraces(a.sessionIds, `for “${a.title}”`)}
+                  >Show {a.sessionIds.length} trace{a.sessionIds.length === 1 ? '' : 's'} →</button>
+                )}
               </div>
             </div>
           )
@@ -427,7 +436,7 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
       </div>
       {actions.length > 3 && (
         <button
-          class="btn-link"
+          class="link-btn"
           style="margin-top:8px;font-size:11px"
           onClick={() => setExpanded(e => !e)}
         >

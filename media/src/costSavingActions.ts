@@ -24,6 +24,8 @@ export interface CostSavingAction {
   evidence: string
   action: string
   affectedSessions: number
+  /** The traces this action is built from — what the Advisor's "Show N traces" opens. */
+  sessionIds: string[]
   priority: 'high' | 'medium' | 'low'
   /** Only set for kind 'loop_signal' — which pattern this is, so callers can draw the exact same
    *  glyph the traces table's Signals column uses for it (see ../signalIcons.ts). */
@@ -57,6 +59,7 @@ function aggregateCacheHitRate(sessions: SessionSummaryCard[]): CostSavingAction
     evidence: `Average across ${withCalls.length} session${withCalls.length === 1 ? '' : 's'} in view that report prompt caching. Cached tokens cost roughly 10× less than fresh tokens.`,
     action: 'Going from 0% to 60% cache hit rate cuts trace cost by 80–90% with no change to model behavior — keep instruction files and early-turn context stable between calls so the cache stays warm.',
     affectedSessions: withCalls.length,
+    sessionIds: withCalls.map(s => s.sessionId),
     priority: avg < 0.3 ? 'high' : 'medium',
   }
 }
@@ -93,6 +96,7 @@ function loopSignalActions(sessions: SessionSummaryCard[], plan: PlanUsageSnapsh
       evidence: `Detected in ${count} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} (${Math.round(pct * 100)}%). Based on a heuristic — may include false positives.`,
       action,
       affectedSessions: sessionIds.size,
+      sessionIds: [...sessionIds],
       priority: pct >= 0.2 ? 'high' : pct >= 0.08 ? 'medium' : 'low',
       loopSignalType: type,
       loopSignalSeverity: severity,
@@ -130,6 +134,9 @@ function hotFileAction(sessions: SessionSummaryCard[], existingInstructionText: 
   const qualifying = [...fileSessionIds.entries()].filter(([, ids]) => ids.size / sessions.length >= HOT_FILE_THRESHOLD)
   if (qualifying.length === 0) return null
   const maxPct = Math.max(...qualifying.map(([, ids]) => ids.size / sessions.length))
+  // Every trace that touched one of the undocumented hot files.
+  const touched = new Set<string>()
+  for (const [, ids] of qualifying) for (const id of ids) touched.add(id)
   return {
     id: 'hot_file_pointer',
     kind: 'hot_file',
@@ -137,6 +144,7 @@ function hotFileAction(sessions: SessionSummaryCard[], existingInstructionText: 
     evidence: `Each undocumented file the agent has to discover costs ~2–3 extra turns per session.`,
     action: 'See the Instructions tab for ready-to-paste suggestions, one per file.',
     affectedSessions: Math.round(maxPct * sessions.length),
+    sessionIds: [...touched],
     priority: maxPct >= 0.6 ? 'high' : 'medium',
   }
 }
