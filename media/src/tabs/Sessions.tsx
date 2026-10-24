@@ -46,7 +46,7 @@ type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 export const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string; description: string }>> = {
   merged:    { icon: '✓', letter: 'M', color: 'var(--tr-merged)', label: 'Merged',    description: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history." },
   committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed', description: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally." },
-  abandoned: { icon: '◑', letter: 'U', color: '#f6a623',          label: 'Uncommitted', description: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress." },
+  abandoned: { icon: '◑', letter: 'U', color: 'var(--vscode-editorWarning-foreground, #f6a623)', label: 'Uncommitted', description: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress." },
 }
 
 // Small one-letter badge for the session's overall git outcome — same visual language as the
@@ -511,7 +511,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
 
             {burnRate && burnRate.sessionId === sess.sessionId && (
               <div style="margin-bottom:10px;padding:6px 10px;border-radius:4px;border-left:3px solid #56D364;background:var(--hover);font-size:11px">
-                <span style="color:#56D364;font-weight:600">{formatCompact(Math.round(burnRate.burnRate.tokensPerMinute))} tok/min</span>
+                <span style="color:var(--vscode-charts-green, #56D364);font-weight:600">{formatCompact(Math.round(burnRate.burnRate.tokensPerMinute))} tok/min</span>
                 {burnRate.burnRate.costPerHour > 0.001 && <span style="color:var(--muted);margin-left:8px">~{fmtUsd(burnRate.burnRate.costPerHour)}/hr</span>}
                 {burnRate.projection && <span style="color:var(--muted);margin-left:8px">{burnRate.projection.contextFillPct.toFixed(0)}% context used</span>}
               </div>

@@ -157,7 +157,7 @@ function StepDetail({ step, idx, sessIdx, sessionModel }: { step: Step; idx: num
         {entry.decision && (
           <div class="sw-detail-section">
             <div class="sw-detail-heading">Decision</div>
-            <div class="sw-detail-value" style={entry.decision === 'rejected' ? 'color:var(--error)' : 'color:#8ec96b'}>{entry.decision}</div>
+            <div class="sw-detail-value" style={entry.decision === 'rejected' ? 'color:var(--error)' : 'color:var(--vscode-charts-green, #8ec96b)'}>{entry.decision}</div>
           </div>
         )}
         {resultText && <LongTextSection heading="Result" text={resultText} id={'sw-result-' + sessIdx + '-' + idx} isJson />}

@@ -137,8 +137,8 @@ const dsBadgeStyle = 'font-size:9px;font-weight:600;padding:1px 5px;border-radiu
 // this, 'both' is no longer the default: most of these signals are 'otel'-only in practice (see
 // dataSourceNote on each one for exactly which log source, if any, is the exception).
 function DataSourceBadge({ value }: { value: 'otel' | 'log' | 'both' }) {
-  const otel = <span style={`${dsBadgeStyle}color:#ffffff;border-color:#ffffff`}>OTel</span>
-  const log = <span style={`${dsBadgeStyle}color:#90a4ae;border-color:#90a4ae`}>Log</span>
+  const otel = <span style={`${dsBadgeStyle}color:var(--fg, #ffffff);border-color:var(--fg, #ffffff)`}>OTel</span>
+  const log = <span style={`${dsBadgeStyle}color:var(--vscode-descriptionForeground, #90a4ae);border-color:#90a4ae`}>Log</span>
   if (value === 'both') return <>{otel}{log}</>
   return value === 'otel' ? otel : log
 }
@@ -225,11 +225,11 @@ function OverviewSection() {
         <p style="font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.75">OTel is captured live, so TraceRoost must be running while the agent works to collect full spans, timing, tool payloads and turn-level detail. If it wasn't running (or OTel wasn't set up yet), TraceRoost backfills from the agent's local logs and databases instead, with less detail.</p>
         <ul style="margin:0 0 10px 18px;padding:0;font-size:12px;color:var(--muted);line-height:1.75">
           <li>
-            <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid #90a4ae;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:#90a4ae">Log</span>
+            <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid #90a4ae;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--vscode-descriptionForeground, #90a4ae)">Log</span>
             traces can have missing or reduced detail in Trace, Flow, Tools, and Files.
           </li>
           <li>
-            <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid #ffffff;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:#ffffff">OTel</span>
+            <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid var(--fg, #ffffff);letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--fg, #ffffff)">OTel</span>
             traces usually include fuller timing structure and richer event detail.
           </li>
         </ul>
@@ -1299,13 +1299,13 @@ function BadgesSection() {
       <div class="glossary" style="margin-bottom:16px">
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
-            <span style={`${badgeStyle}color:#ffffff;border-color:#ffffff`}>OTel</span>
+            <span style={`${badgeStyle}color:var(--fg, #ffffff);border-color:var(--fg, #ffffff)`}>OTel</span>
           </dt>
           <dd class="glossary-def">Full OpenTelemetry telemetry — timing, TTFT, span waterfall, loop signals. Requires the agent to be configured to export traces to TraceRoost.</dd>
         </div>
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
-            <span style={`${badgeStyle}color:#90a4ae;border-color:#90a4ae`}>Log</span>
+            <span style={`${badgeStyle}color:var(--vscode-descriptionForeground, #90a4ae);border-color:#90a4ae`}>Log</span>
           </dt>
           <dd class="glossary-def">Parsed from local log files and databases — <code>~/.claude/projects</code>, <code>~/.codex/sessions</code>, <code>~/.copilot/session-state</code>, Copilot Chat's <code>chatSessions</code> in each VS Code-family IDE, OpenCode's SQLite database at <code>~/.local/share/opencode/</code>, and Cursor CLI's transcripts under <code>~/.cursor/projects</code>. Tokens, tool calls, file paths, and user prompts are available where the agent records them. Timing and TTFT are not available from log sources. No agent configuration needed.</dd>
         </div>
@@ -1315,19 +1315,19 @@ function BadgesSection() {
       <div class="glossary" style="margin-bottom:8px">
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
-            <span style={`${badgeStyle}color:#4a90d9;border-color:#4a90d9`}>User</span>
+            <span style={`${badgeStyle}color:var(--vscode-charts-blue, #4a90d9);border-color:#4a90d9`}>User</span>
           </dt>
           <dd class="glossary-def">A human typed this prompt directly in the chat. The baseline case — most of your interactive traces will carry this badge.</dd>
         </div>
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
-            <span style={`${badgeStyle}color:#b0bec5;border-color:#b0bec5`}>Agent</span>
+            <span style={`${badgeStyle}color:var(--vscode-descriptionForeground, #b0bec5);border-color:#b0bec5`}>Agent</span>
           </dt>
           <dd class="glossary-def">Started by the agent itself, not typed by a human: a Copilot sub-agent run nested inside another, or a Claude Code turn opened by a background task finishing. Claude subagent work (the Agent/Task tool) is not a trace of its own — it is counted in the prompt that delegated it.</dd>
         </div>
         <div class="glossary-item">
           <dt class="glossary-term" style="min-width:0">
-            <span style={`${badgeStyle}color:#90a4ae;border-color:#90a4ae`}>API</span>
+            <span style={`${badgeStyle}color:var(--vscode-descriptionForeground, #90a4ae);border-color:#90a4ae`}>API</span>
           </dt>
           <dd class="glossary-def">Started non-interactively via <code>claude -p</code> (pipeline mode). Comes from a script, CI job, or shell automation — human-authored but not a live conversation. Identified by the <code>&lt;local-command-caveat&gt;</code> prefix Claude Code prepends to the prompt.</dd>
         </div>

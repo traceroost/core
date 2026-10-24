@@ -189,8 +189,8 @@ function changePctLabel(pct: number | null): string | null {
 
 function changePctColor(pct: number | null): string {
   if (pct === null) return 'var(--muted)'
-  if (pct < -10) return '#81c784'
-  if (pct >  10) return '#e57373'
+  if (pct < -10) return 'var(--vscode-charts-green, #81c784)'
+  if (pct >  10) return 'var(--vscode-errorForeground, #e57373)'
   return 'var(--muted)'
 }
 

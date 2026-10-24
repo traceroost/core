@@ -195,7 +195,7 @@ function ActionLogRow({ entry }: { entry: ActionLogEntry }) {
     <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted)">
         <span>{relativeTime(entry.startedAt)}</span>
-        {running ? <span style="color:#4fc3f7">running…</span> : entry.failed ? <span style="color:#f44747">failed</span> : null}
+        {running ? <span style="color:var(--vscode-textLink-foreground, #4fc3f7)">running…</span> : entry.failed ? <span style="color:var(--vscode-errorForeground, #f44747)">failed</span> : null}
       </div>
       <div style="color:var(--fg);margin-top:2px">{entry.gloss ?? entry.raw}</div>
       <div style="color:var(--muted);font-family:var(--vscode-editor-font-family,monospace);margin-top:2px;overflow-wrap:break-word">
@@ -239,9 +239,9 @@ function ActionLogPanel() {
 }
 
 const SEV_COLOR: Record<string, string> = {
-  error:   '#f44747',
-  warning: '#f6a623',
-  info:    '#4fc3f7',
+  error:   'var(--vscode-errorForeground, #f44747)',
+  warning: 'var(--vscode-editorWarning-foreground, #f6a623)',
+  info:    'var(--vscode-editorInfo-foreground, #4fc3f7)',
 }
 
 function IconBell() {
@@ -339,12 +339,12 @@ function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
         </h2>
         {alerts.length === 0 ? (
           <div style="padding:14px 12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px">
-            <span style="color:#81c784;font-size:14px">✓</span> All clear — no alerts triggered
+            <span style="color:var(--vscode-charts-green, #81c784);font-size:14px">✓</span> All clear — no alerts triggered
           </div>
         ) : (
           <div>
             {alerts.map((a, i) => {
-              const color = SEV_COLOR[a.severity] ?? '#f6a623'
+              const color = SEV_COLOR[a.severity] ?? SEV_COLOR.warning
               return (
                 <div key={i} style={`padding:10px 12px;border-left:3px solid ${color};${i > 0 ? 'border-top:1px solid var(--border)' : ''}`}>
                   <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
@@ -1619,7 +1619,7 @@ const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string; color
   { value: 'all',       label: 'All',         color: 'var(--fg)',        title: 'Show all traces' },
   { value: 'merged',    label: 'Merged',      color: 'var(--tr-merged)', title: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history" },
   { value: 'committed', label: 'Committed',   color: 'var(--accent)',    title: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally" },
-  { value: 'abandoned', label: 'Uncommitted', color: '#f6a623',          title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
+  { value: 'abandoned', label: 'Uncommitted', color: 'var(--vscode-editorWarning-foreground, #f6a623)', title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
 ]
 
 // The local-git equivalent of traceroost-cloud's own Outcome filter (same TracesTable this
@@ -1745,16 +1745,16 @@ function SearchFilterBar() {
 
   return (
     <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#4fc3f711;border-bottom:1px solid #4fc3f733;flex-shrink:0">
-      <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
+      <span style="font-size:10px;color:var(--vscode-textLink-foreground, #4fc3f7);white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
       {evidenceSessionPrompt.value && (
         <span
-          style="font-size:10px;color:#4fc3f7;opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
+          style="font-size:10px;color:var(--vscode-textLink-foreground, #4fc3f7);opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
           title={evidenceSessionPrompt.value}
         >— "{evidenceSessionPrompt.value}"</span>
       )}
       <button
         onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}
-        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:#4fc3f7;cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
+        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:var(--vscode-textLink-foreground, #4fc3f7);cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
       >Show all traces</button>
     </div>
   )

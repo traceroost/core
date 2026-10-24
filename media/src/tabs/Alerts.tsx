@@ -490,9 +490,9 @@ export function Alerts() {
         </div>
       ) : (
         <div style="background:rgba(129,199,132,0.1);border:1px solid #81c784;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
-          <span style="font-size:18px;color:#81c784">✓</span>
+          <span style="font-size:18px;color:var(--vscode-charts-green, #81c784)">✓</span>
           <div>
-            <strong style="color:#81c784">All clear</strong>
+            <strong style="color:var(--vscode-charts-green, #81c784)">All clear</strong>
             <span style="color:var(--muted);font-size:12px;margin-left:8px">no alerts triggered for current traces</span>
           </div>
         </div>
@@ -500,10 +500,10 @@ export function Alerts() {
 
       {results.map(({ config: cfg, triggered, detail, sessionId }) => {
         const sev = cfg.severity
-        const trigColor = sev === 'error' ? 'var(--error)' : sev === 'info' ? '#4fc3f7' : '#f6a623'
+        const trigColor = sev === 'error' ? 'var(--error)' : sev === 'info' ? 'var(--vscode-editorInfo-foreground, #4fc3f7)' : 'var(--vscode-editorWarning-foreground, #f6a623)'
         const borderColor = triggered ? trigColor : 'var(--border)'
         const statusIcon = !cfg.enabled ? '○' : triggered ? (sev === 'error' ? '⛔' : sev === 'info' ? 'ℹ' : '⚠') : '✓'
-        const statusColor = !cfg.enabled ? 'var(--muted)' : triggered ? trigColor : '#81c784'
+        const statusColor = !cfg.enabled ? 'var(--muted)' : triggered ? trigColor : 'var(--vscode-charts-green, #81c784)'
         const profileMetrics = alertProfileMetrics(cfg)
 
         return (

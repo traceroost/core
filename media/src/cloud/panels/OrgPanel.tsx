@@ -300,7 +300,7 @@ function ReconcileButton({ queueDepth }: { queueDepth: number }) {
         style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
       >{label}</button>
       {result && (
-        <span style={`font-size:11px;margin-left:8px;color:${result.error ? '#f14c4c' : 'var(--muted)'}`}>
+        <span style={`font-size:11px;margin-left:8px;color:${result.error ? 'var(--vscode-errorForeground, #f14c4c)' : 'var(--muted)'}`}>
           {result.error
             ? `Couldn't finish: ${result.error}`
             : result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.`
@@ -394,7 +394,7 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
       )}
       {st.notice && (
         <Section>
-          <div style="font-size:12px;color:#f14c4c;line-height:1.5">{st.notice.message}</div>
+          <div style="font-size:12px;color:var(--vscode-errorForeground, #f14c4c);line-height:1.5">{st.notice.message}</div>
         </Section>
       )}
       <Section title="This machine">
@@ -426,14 +426,14 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
             Go to <a href={orgDevicePrompt.value.verificationUriComplete ?? orgDevicePrompt.value.verificationUri} style="color:var(--vscode-textLink-foreground,#4fc3f7)">{orgDevicePrompt.value.verificationUri}</a> and enter
             {' '}<code style="font-size:13px;font-weight:700;letter-spacing:1px">{orgDevicePrompt.value.userCode}</code>. Waiting for approval…
             {orgDevicePrompt.value.blocked && (
-              <div style="font-size:11px;color:#f6a623;margin-top:6px">
+              <div style="font-size:11px;color:var(--vscode-editorWarning-foreground, #f6a623);margin-top:6px">
                 {orgDevicePrompt.value.blocked} Still waiting — this same code links as soon as the org has a free machine slot.
               </div>
             )}
           </div>
         )}
         {orgActionError.value && (
-          <div style="font-size:11px;color:#f14c4c;margin-top:8px">Link failed: {orgActionError.value}</div>
+          <div style="font-size:11px;color:var(--vscode-errorForeground, #f14c4c);margin-top:8px">Link failed: {orgActionError.value}</div>
         )}
       </Section>
       <Section title="Why link">
@@ -508,7 +508,7 @@ function LinkedBody({ st }: { st: OrgStatus }) {
           style="font-size:12px;padding:6px 14px;border:1px solid var(--error);border-radius:4px;background:transparent;color:var(--error);cursor:pointer"
         >{busy === 'leave' ? 'Unlinking…' : 'Unlink this machine'}</button>
         {orgActionError.value && (
-          <div style="font-size:11px;color:#f14c4c;margin-top:8px">Unlink failed: {orgActionError.value}</div>
+          <div style="font-size:11px;color:var(--vscode-errorForeground, #f14c4c);margin-top:8px">Unlink failed: {orgActionError.value}</div>
         )}
         <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
       </Section>
