@@ -293,7 +293,11 @@ export interface VersionCheckResponse {
   isService: boolean
   /** Running in the TraceRoost Docker image — update by pulling the image and re-running it. */
   isDocker?: boolean
+  /** The desktop app's own collector — update by downloading the new app (recommendedUrl). */
+  isDesktop?: boolean
   recommendedCommand: string
+  /** A download page to link to instead of a command (the desktop app). */
+  recommendedUrl?: string
 }
 
 /** 'standalone' — the background/npx service holds the OTLP port (seen from the VS Code

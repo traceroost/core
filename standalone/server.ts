@@ -38,7 +38,7 @@ import type { Span } from '../src/types'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { pruneSpans, DEFAULT_MAX_SPANS } from '../src/spanStore'
 import { readServiceConfig, writeServiceConfig, configuredPorts, ensureAuthToken, ensureInstallId, isRunningFromNpx, readPackageManifest, writeServiceProcessRecord, clearServiceProcessRecord } from '../src/serviceConfig'
-import { startVersionCheckLoop, getCachedVersionCheck } from './versionCheck'
+import { startVersionCheckLoop, getCachedVersionCheck, updateAdvice } from './versionCheck'
 import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
@@ -1845,26 +1845,11 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
 
   if (req.method === 'GET' && url === '/api/version-check') {
     const result = getCachedVersionCheck(PACKAGE_VERSION)
-    // Four ways to be running, four different update commands: an OS-native background service
-    // (src/serviceConfig.ts's generators set TRACEROOST_SERVICE=1) updates in place (through npm or
-    // brew, whichever installed it); the Docker image (its Dockerfile sets TRACEROOST_DOCKER=1)
-    // needs a new image and a re-created container; a Homebrew install run by hand is pointed at
-    // the service, which upgrades through brew; anything else (npx, a global install) is pointed
-    // at the background service through npx.
-    const isService = process.env.TRACEROOST_SERVICE === '1'
-    const isDocker = !isService && process.env.TRACEROOST_DOCKER === '1'
-    const isHomebrew = !isService && !isDocker &&
-      detectHomebrewInstall(process.argv[1] ?? '', readPackageManifest(__dirname).name ?? 'traceroost') !== undefined
+    // How to update depends on how this server was started — see updateAdvice.
+    const advice = updateAdvice(process.env, () =>
+      detectHomebrewInstall(process.argv[1] ?? '', readPackageManifest(__dirname).name ?? 'traceroost') !== undefined)
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({
-      ...result,
-      isService,
-      isDocker,
-      recommendedCommand: isService
-        ? 'traceroost service update'
-        : isDocker ? 'docker pull traceroost/traceroost'
-          : isHomebrew ? 'traceroost service install' : 'npx traceroost@latest service install',
-    }))
+    res.end(JSON.stringify({ ...result, ...advice }))
     return
   }
 

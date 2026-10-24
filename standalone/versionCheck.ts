@@ -97,3 +97,36 @@ export function startVersionCheckLoop(currentVersion: string, packageName = 'tra
     void refresh(currentVersion, packageName)
   }, REFRESH_INTERVAL_MS).unref()
 }
+
+/** Where the desktop app's new builds are published (README's Desktop app section links here too). */
+export const DESKTOP_RELEASES_URL = 'https://github.com/traceroost/core/releases/latest'
+
+export interface UpdateAdvice {
+  isService: boolean
+  isDocker: boolean
+  /** The collector the desktop app spawned (desktop/src/collector.ts sets TRACEROOST_DESKTOP=1). */
+  isDesktop: boolean
+  recommendedCommand: string
+  /** Set when the update is a download rather than a command (the desktop app). */
+  recommendedUrl?: string
+}
+
+/** Five ways to be running, five different ways to update: an OS-native background service
+ *  (src/serviceConfig.ts's generators set TRACEROOST_SERVICE=1) updates in place (through npm or
+ *  brew, whichever installed it); the Docker image (its Dockerfile sets TRACEROOST_DOCKER=1) needs a
+ *  new image and a re-created container; the desktop app's own collector is updated by downloading
+ *  the new app from GitHub Releases (there is no Node or npm to run a command with); a Homebrew
+ *  install run by hand is pointed at the service, which upgrades through brew; anything else (npx,
+ *  a global install) is pointed at the background service through npx. */
+export function updateAdvice(env: NodeJS.ProcessEnv, isHomebrewInstall: () => boolean): UpdateAdvice {
+  const isService = env.TRACEROOST_SERVICE === '1'
+  const isDocker = !isService && env.TRACEROOST_DOCKER === '1'
+  const isDesktop = !isService && !isDocker && env.TRACEROOST_DESKTOP === '1'
+  if (isService) return { isService, isDocker, isDesktop, recommendedCommand: 'traceroost service update' }
+  if (isDocker) return { isService, isDocker, isDesktop, recommendedCommand: 'docker pull traceroost/traceroost' }
+  if (isDesktop) return { isService, isDocker, isDesktop, recommendedCommand: '', recommendedUrl: DESKTOP_RELEASES_URL }
+  return {
+    isService, isDocker, isDesktop,
+    recommendedCommand: isHomebrewInstall() ? 'traceroost service install' : 'npx traceroost@latest service install',
+  }
+}

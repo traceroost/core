@@ -401,22 +401,31 @@ function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
         </div>
         <div style="padding:12px;font-size:12px;color:var(--fg);line-height:1.5">
           <div style="margin-bottom:8px">
-            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available on npm.
+            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available{info.isDesktop ? '' : ' on npm'}.
           </div>
-          <div style="margin-bottom:8px;color:var(--muted)">
-            {info.isService
-              ? 'Update the background service:'
-              : info.isDocker
-                ? 'Pull the new image:'
-                : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTEL data is never lost. Install it (this also updates you to the latest version):"}
-          </div>
-          <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
+          {info.isDesktop && info.recommendedUrl ? (
+            <div style="margin-bottom:6px">
+              <a href={info.recommendedUrl} target="_blank" rel="noreferrer">Download the new desktop app from GitHub Releases</a>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Install it over this one; your traces and settings are kept.</div>
+            </div>
+          ) : (
+            <>
+              <div style="margin-bottom:8px;color:var(--muted)">
+                {info.isService
+                  ? 'Update the background service:'
+                  : info.isDocker
+                    ? 'Pull the new image:'
+                    : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTel data is never lost. Install it (this also updates you to the latest version):"}
+              </div>
+              <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
+            </>
+          )}
           {info.isDocker && (
             <div style="font-size:11px;color:var(--muted)">
               Then stop and remove this container and start a new one with your usual <code>docker run</code> command (with <code>--pull=always</code>, that run alone also fetches the new image). Mount a volume on <code>/data</code> to keep your traces and access token across containers.
             </div>
           )}
-          {!info.isService && !info.isDocker && (
+          {!info.isService && !info.isDocker && !info.isDesktop && (
             <div style="font-size:11px;color:var(--muted)">
               Or for a quick one-off look: <code>npx traceroost@latest</code> · Homebrew: <code>brew upgrade traceroost</code> · Docker: <code>docker pull traceroost/traceroost</code> and re-run your <code>docker run</code> command.
             </div>
