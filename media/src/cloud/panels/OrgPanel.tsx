@@ -379,18 +379,6 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
   const busy = orgBusy.value
   return (
     <>
-      {st.endpoint && (
-        <Section>
-          {/* The environment the picker below resolves to (stage by default in a development build). */}
-          <a
-            href={st.endpoint}
-            target="_blank"
-            rel="noreferrer"
-            title={st.endpoint}
-            style="display:inline-block;font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--fg);text-decoration:none"
-          >Open TraceRoost Cloud →</a>
-        </Section>
-      )}
       {st.notice && (
         <Section>
           <div style="font-size:12px;color:#f14c4c;line-height:1.5">{st.notice.message}</div>
@@ -433,6 +421,18 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
         )}
         {orgActionError.value && (
           <div style="font-size:11px;color:#f14c4c;margin-top:8px">Link failed: {orgActionError.value}</div>
+        )}
+        {st.endpoint && (
+          // The environment the picker above resolves to (stage by default in a development build).
+          <div style="margin-top:10px">
+            <a
+              href={st.endpoint}
+              target="_blank"
+              rel="noreferrer"
+              title={st.endpoint}
+              style="display:inline-block;font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--fg);text-decoration:none"
+            >Open TraceRoost Cloud →</a>
+          </div>
         )}
       </Section>
       <Section title="Why link">
