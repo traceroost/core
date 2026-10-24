@@ -27,6 +27,10 @@ export interface ResolvedPorts {
    *  to read stale: `service status` only uses this record to decide what to print/probe, never
    *  to decide liveness on its own. */
   pid: number
+  /** The data directory that process serves (absolute) — its `server.lock` is there. Usually
+   *  config.json's dataDir, but a DATA_DIR override moves it, so readers that look for the lock
+   *  (src/serviceOwnership.ts) look here too. Absent from records older servers wrote. */
+  dataDir?: string
 }
 
 /** How far past the requested port to scan before giving up. Matches the doc's "+1 through +20". */

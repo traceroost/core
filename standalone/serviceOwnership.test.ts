@@ -6,6 +6,7 @@ import * as path from 'path'
 import { LOCK_FILENAME, tryAcquireDataDirLock } from './dataDirLock'
 import { SERVER_LOCK_FILENAME, decideAgentSetupOwner, detectAgentSetupOwner, postServiceAction, readServerLock, type AgentSetupOwnerInput } from '../src/serviceOwnership'
 import { defaultServiceConfig, writeServiceConfig } from '../src/serviceConfig'
+import { writeResolvedPorts } from '../src/portResolver'
 
 /** A stand-in for a standalone server: `/traceroost/standalone` (the OTLP identity probe),
  *  `/health`, and `POST /action`, which records what it was sent. */
@@ -102,6 +103,30 @@ suite('serviceOwnership — the background service always wins', () => {
         await srv.close()
         assert.deepStrictEqual(await detectAgentSetupOwner(4318, undefined, home), { owner: 'extension' })
       } finally { acquired.lock.release() }
+    })
+
+    test('a server on a DATA_DIR override is found through the data dir ports.json records', async () => {
+      const srv = await fakeServer()
+      const otherDir = path.join(home, 'elsewhere')
+      const acquired = tryAcquireDataDirLock(otherDir, {})
+      assert.ok(acquired.ok)
+      acquired.lock.setPorts({ ui: srv.port, otlp: srv.port, mcp: 4316 })
+      try {
+        assert.deepStrictEqual(await detectAgentSetupOwner(4318, undefined, home), { owner: 'extension' }, 'config.json\'s data dir has no lock')
+        writeResolvedPorts({ ui: srv.port, otlp: srv.port, mcp: 4316, resolvedAt: new Date().toISOString(), pid: process.pid, dataDir: otherDir }, home)
+        assert.deepStrictEqual(await detectAgentSetupOwner(4318, undefined, home), { owner: 'service', otlpPort: srv.port })
+      } finally { acquired.lock.release(); await srv.close() }
+    })
+
+    test('a server with TRACEROOST_NO_AUTOCONFIG=1 (managesAgentSetup false) holding the lock: the extension decides', async () => {
+      const srv = await fakeServer(undefined, { managesAgentSetup: false })
+      writeServiceConfig({ ...defaultServiceConfig(home), dataDir }, home)
+      const acquired = tryAcquireDataDirLock(dataDir, {})
+      assert.ok(acquired.ok)
+      acquired.lock.setPorts({ ui: srv.port, otlp: srv.port, mcp: 4316 })
+      try {
+        assert.deepStrictEqual(await detectAgentSetupOwner(4318, undefined, home), { owner: 'extension' })
+      } finally { acquired.lock.release(); await srv.close() }
     })
 
     test('a Docker container answering on the extension\'s port: the extension keeps setting agents up', async () => {

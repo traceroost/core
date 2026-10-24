@@ -16,17 +16,20 @@
  *   - it holds the data-dir lock (`<dataDir>/server.lock`, standalone/dataDirLock.ts) on this host
  *     with a live pid, and its recorded OTLP port answers that same identity probe. This catches a
  *     server that fell back to another port, which the extension's own bind would never notice.
+ *     The lock is looked for in config.json's dataDir and in the one the last server to start
+ *     recorded in ports.json, which covers a server started with a DATA_DIR override.
  * Either way only a server whose identity reply says `managesAgentSetup: true` takes over. A
  * Docker container publishing 4318 answers the probe too, but the agent settings it can reach are
  * the container's own: it says false, and the extension keeps setting up this machine's agents
- * (pointed at that port, where the container receives them) as it did before.
+ * (pointed at that port, where the container receives them) as it did before. So does a server
+ * run with TRACEROOST_NO_AUTOCONFIG=1, which refuses every agent-setup request.
  */
 
 import * as fs from 'fs'
 import * as http from 'http'
 import * as os from 'os'
 import * as path from 'path'
-import { serviceDashboardUrl, standaloneIdentity } from './portResolver'
+import { readResolvedPorts, serviceDashboardUrl, standaloneIdentity } from './portResolver'
 import { readServiceConfig } from './serviceConfig'
 
 /** The data-dir lock's file name — standalone/dataDirLock.ts re-exports it as LOCK_FILENAME. */
@@ -95,15 +98,30 @@ export async function serviceManagesAgentSetup(port: number): Promise<boolean> {
   return identity?.kind === 'standalone' && identity.managesAgentSetup === true
 }
 
-/** Reads the lock and probes its port, then decides (decideAgentSetupOwner). Cheap when no
+/** The data dirs whose lock may name a running server: config.json's, and the one recorded in
+ *  ports.json by the last server to start (a DATA_DIR override). */
+export function candidateDataDirs(baseHome?: string): string[] {
+  const configured = path.resolve(readServiceConfig(baseHome).dataDir)
+  const recorded = readResolvedPorts(baseHome)?.dataDir
+  return typeof recorded === 'string' && recorded && path.resolve(recorded) !== configured
+    ? [configured, path.resolve(recorded)]
+    : [configured]
+}
+
+/** Reads the locks and probes their ports, then decides (decideAgentSetupOwner). Cheap when no
  *  server runs: no lock, no probe. */
 export async function detectAgentSetupOwner(extensionPort: number, portOwner?: 'plugin' | 'standalone' | 'foreign', baseHome?: string): Promise<AgentSetupOwner> {
   const hostname = os.hostname()
   const portOwnerManagesSetup = portOwner === 'standalone' && await serviceManagesAgentSetup(extensionPort)
-  const lock = portOwnerManagesSetup ? undefined : readServerLock(readServiceConfig(baseHome).dataDir)
-  const live = !!lock && lock.hostname.toLowerCase() === hostname.toLowerCase() && isPidAlive(lock.pid) && typeof lock.otlpPort === 'number'
-  const lockPortManagesSetup = live && await serviceManagesAgentSetup(lock!.otlpPort!)
-  return decideAgentSetupOwner({ extensionPort, portOwner, portOwnerManagesSetup, lock, lockPortManagesSetup, hostname, isPidAlive })
+  if (portOwnerManagesSetup) return decideAgentSetupOwner({ extensionPort, portOwner, portOwnerManagesSetup, lockPortManagesSetup: false, hostname, isPidAlive })
+  for (const dataDir of candidateDataDirs(baseHome)) {
+    const lock = readServerLock(dataDir)
+    const live = !!lock && lock.hostname.toLowerCase() === hostname.toLowerCase() && isPidAlive(lock.pid) && typeof lock.otlpPort === 'number'
+    const lockPortManagesSetup = live && await serviceManagesAgentSetup(lock!.otlpPort!)
+    const decided = decideAgentSetupOwner({ extensionPort, portOwner, portOwnerManagesSetup, lock, lockPortManagesSetup, hostname, isPidAlive })
+    if (decided.owner === 'service') return decided
+  }
+  return { owner: 'extension' }
 }
 
 /**

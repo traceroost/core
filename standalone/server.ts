@@ -155,7 +155,7 @@ function recordResolvedPort(kind: 'ui' | 'otlp' | 'mcp', requested: number, boun
   if (resolvedPorts.ui !== undefined && resolvedPorts.otlp !== undefined && resolvedPorts.mcp !== undefined) {
     const record: ResolvedPorts = {
       ui: resolvedPorts.ui, otlp: resolvedPorts.otlp, mcp: resolvedPorts.mcp,
-      resolvedAt: new Date().toISOString(), pid: process.pid,
+      resolvedAt: new Date().toISOString(), pid: process.pid, dataDir: path.resolve(DATA_DIR),
     }
     try { writeResolvedPorts(record) } catch (e) { console.warn('[TraceRoost] Could not persist resolved ports:', e) }
     // So a refused second server on this data dir can name this one's dashboard.
@@ -2217,8 +2217,9 @@ const otlpServer = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/traceroost/standalone') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     // managesAgentSetup: whether this server sets up this machine's agents, so a VS Code window
-    // leaves them to it (src/serviceOwnership.ts). Not in Docker, whose files are the container's.
-    res.end(JSON.stringify({ traceroost: true, kind: 'standalone', managesAgentSetup: !IS_DOCKER, docker: IS_DOCKER }))
+    // leaves them to it (src/serviceOwnership.ts). Not in Docker, whose files are the container's,
+    // nor with TRACEROOST_NO_AUTOCONFIG=1, which refuses every agent-setup action.
+    res.end(JSON.stringify({ traceroost: true, kind: 'standalone', managesAgentSetup: !IS_DOCKER && !AUTOCONFIG_DISABLED, docker: IS_DOCKER }))
     return
   }
   if (REQUIRE_TOKEN_EVERYWHERE && !isAuthorized(req, AUTH_TOKEN)) {
