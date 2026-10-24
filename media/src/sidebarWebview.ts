@@ -377,6 +377,12 @@ function render() {
   if (canvas) {
     if (hasSparklineData) {
       canvas.style.display = 'block'
+      // A canvas has no text of its own — name what it plots for screen readers.
+      const t = currentSession.turnInputTokens
+      canvas.setAttribute('role', 'img')
+      canvas.setAttribute('aria-label', t.length === 1
+        ? `Input tokens, turn 1: ${fmt(t[0])}`
+        : `Input tokens per turn, ${t.length} turns: from ${fmt(t[0])} at turn 1 to ${fmt(t[t.length - 1])} at turn ${t.length}, peak ${fmt(Math.max(...t))}`)
       drawSparkline(canvas, currentSession.turnInputTokens, color, isActive)
     } else {
       canvas.style.display = 'none'

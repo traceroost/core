@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { scrollBehavior } from './a11y'
 
 // Left-hand jump rail for long single-page tabs (Analytics, Advisor) — the same pattern as
 // cloud's analytics/advisor nav rail. Cloud uses plain `#id` anchors + :target styling; here
@@ -41,7 +42,7 @@ export function SectionNav({ label, sections, children }: { label: string; secti
   const jump = (id: string) => {
     setActive(id)
     clickLockUntil.current = Date.now() + 600
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    document.getElementById(id)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
   }
 
   return (

@@ -2,6 +2,7 @@ import { signal, computed } from '@preact/signals'
 import { calcSessionCost } from './sessionMetrics'
 import { formatTraceIdHash } from './hash'
 import { LANGUAGE_IDS, type SessionLanguage } from './language'
+import { scrollBehavior } from './a11y'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
@@ -469,7 +470,7 @@ export function goToHelp(anchor: string): void {
   activeTab.value = 'help'
   setTimeout(() => {
     const el = document.getElementById(anchor)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (el) el.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
   }, 80)
 }
 

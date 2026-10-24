@@ -9,6 +9,7 @@ import {
 } from '../utils'
 import { calcEntryCost, fmtUsd } from '../sessionMetrics'
 import type { SessionSummaryCard, TimelineEntry, BackgroundSpanSummary } from '../types'
+import { scrollBehavior } from '../a11y'
 
 export interface Step {
   entry: TimelineEntry
@@ -445,7 +446,7 @@ export function Traces() {
   useEffect(() => {
     if (!focusedId) return
     const el = document.getElementById(`trace-session-${focusedId}`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (el) el.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
   }, [focusedId])
 
   if (!summary?.sessions?.length) {

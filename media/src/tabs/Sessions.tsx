@@ -29,6 +29,7 @@ import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { isNonCodeCategory, languageAbbreviation, languageLabel } from '../language'
 import { planUsage, showLimitColumn } from '../planUsage'
 import { LimitUsedCell, LimitHitBanner, PlanLimitDetail } from './PlanLimits'
+import { scrollBehavior } from '../a11y'
 
 // ── Session detail panel (shown in expanded row) ──────────────────────────────
 
@@ -706,7 +707,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
     const thead = target.closest('table')?.tHead
     if (!scroller || !thead) return
     const delta = target.getBoundingClientRect().top - thead.getBoundingClientRect().bottom - offset
-    if (Math.abs(delta) > 1) scroller.scrollBy({ top: delta, behavior: smooth ? 'smooth' : 'auto' })
+    if (Math.abs(delta) > 1) scroller.scrollBy({ top: delta, behavior: smooth ? scrollBehavior() : 'auto' })
   }
 
   // An expanded row pins itself just under the table's own sticky thead, so its collapse chevron
