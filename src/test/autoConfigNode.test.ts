@@ -450,6 +450,16 @@ suite('autoConfigNode', () => {
       assert.strictEqual(read(vscodeSettings()), original)
     })
 
+    test('Copilot (settings files): takes out otel.enabled that relied on Copilot\'s default endpoint (4318)', async function () {
+      if (process.platform === 'win32') { this.skip() }
+      const original = '{\n  "editor.fontSize": 14\n}\n'
+      write(vscodeSettings(), '{\n  "editor.fontSize": 14,\n  "github.copilot.chat.otel.enabled": true\n}\n')
+      assert.deepStrictEqual(await removeCopilotStandaloneSetup({ port: 4319 }), [{ file: vscodeSettings(), changed: false }],
+        'on another port the default endpoint is not TraceRoost\'s')
+      assert.deepStrictEqual(await removeCopilotStandaloneSetup({ port: 4318 }), [{ file: vscodeSettings(), changed: true }])
+      assert.strictEqual(read(vscodeSettings()), original)
+    })
+
     test('Copilot (settings files): leaves another collector\'s endpoint untouched', async function () {
       if (process.platform === 'win32') { this.skip() }
       const original = '{ "github.copilot.chat.otel.enabled": true, "github.copilot.chat.otel.otlpEndpoint": "https://otel.example.com" }\n'

@@ -392,6 +392,11 @@ export function copilotSettings(port: number): Record<string, unknown> {
 
 export const COPILOT_ENDPOINT_KEY = 'github.copilot.chat.otel.otlpEndpoint'
 
+/** The endpoint Copilot Chat uses while none is set (its package.json default for
+ *  github.copilot.chat.otel.otlpEndpoint; exporterType defaults to 'otlp-http'). On TraceRoost's
+ *  default port, a user settings file holding only `otel.enabled: true` already sends there. */
+export const COPILOT_DEFAULT_ENDPOINT = 'http://localhost:4318'
+
 const JSONC_FORMAT = { formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' } }
 
 export async function autoConfigureCopilotStandalone(port: number, mode: SetupMode = 'full'): Promise<ConfigResult[]> {
@@ -472,8 +477,11 @@ export interface RemoveResult extends ConfigResult {
 }
 
 /** `dryRun`: work out what would be removed (`changed`) without writing — for the confirmation
- *  that lists it first. */
-export interface RemoveOptions { dryRun?: boolean }
+ *  that lists it first. `port`: TraceRoost's OTLP port. With it, Copilot's removal also recognises
+ *  settings that set no endpoint of their own but reach TraceRoost through Copilot's built-in
+ *  default (COPILOT_DEFAULT_ENDPOINT) — what an earlier setup on port 4318 left behind, when it
+ *  wrote only `otel.enabled`. */
+export interface RemoveOptions { dryRun?: boolean; port?: number }
 
 /** Claude Code: drops the `"env"` keys setup writes (only where they still hold setup's value),
  *  and `"env"` itself when nothing else is left in it. Edits the text in place, so the rest of
@@ -578,7 +586,8 @@ export async function removeCodexSetup(opts: RemoveOptions = {}): Promise<Remove
 }
 
 /** Copilot, in every installed VS Code-family IDE's user settings: drops the three settings setup
- *  writes (each only while it holds setup's value) from a file whose endpoint is TraceRoost's. */
+ *  writes (each only while it holds setup's value) from a file whose endpoint is TraceRoost's —
+ *  set in the file, or Copilot's default when the file sets none and `opts.port` is 4318. */
 export async function removeCopilotStandaloneSetup(opts: RemoveOptions = {}): Promise<RemoveResult[]> {
   const ours = copilotSettings(0)
   const results: RemoveResult[] = []
@@ -600,10 +609,12 @@ export async function removeCopilotStandaloneSetup(opts: RemoveOptions = {}): Pr
         results.push({ file, changed: false, warning: `${COPILOT_ENDPOINT_KEY} in ${file} points at ${endpoint}, not TraceRoost; left untouched` })
         continue
       }
-      if (!isTraceRoostEndpoint(endpoint)) { results.push({ file, changed: false }); continue }
+      // No endpoint in the file: Copilot falls back to its default, TraceRoost's when it is on 4318.
+      const viaDefault = endpoint === undefined && opts.port !== undefined && COPILOT_DEFAULT_ENDPOINT === `http://localhost:${opts.port}`
+      if (!isTraceRoostEndpoint(endpoint) && !viaDefault) { results.push({ file, changed: false }); continue }
       let text = raw
       for (const key of Object.keys(ours)) {
-        if (key === COPILOT_ENDPOINT_KEY || settings[key] === ours[key]) {
+        if (key === COPILOT_ENDPOINT_KEY ? endpoint !== undefined : settings[key] === ours[key]) {
           text = applyEdits(text, modify(text, [key], undefined, JSONC_FORMAT))
         }
       }

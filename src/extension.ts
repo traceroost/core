@@ -503,8 +503,8 @@ export async function activate(context: vscode.ExtensionContext) {
         return reply && !reply.error && Array.isArray(reply.results) ? reply.results as AgentRemoval[] : undefined
       }
       : async (dryRun: boolean): Promise<AgentRemoval[] | undefined> => {
-        const copilot = await removeCopilotSetup({ dryRun })
-        const files = (await removeAgentSetupFiles({ dryRun })).filter(r => r.file !== ownSettings)
+        const copilot = await removeCopilotSetup({ dryRun, port })
+        const files = (await removeAgentSetupFiles({ dryRun, port })).filter(r => r.file !== ownSettings)
         return [{ agent: 'Copilot', file: agentConfigFiles().copilot.label, ...copilot }, ...files]
       }
     const previewResults = await run(true)

@@ -27,6 +27,14 @@ const COPILOT_DEFAULTS = {
   'github.copilot.chat.otel.otlpEndpoint': '',
 }
 
+/** Copilot Chat's real defaults (its package.json): exporterType and endpoint already point at
+ *  port 4318 before anything is set. */
+const COPILOT_BUILTIN_DEFAULTS = {
+  'github.copilot.chat.otel.enabled': false,
+  'github.copilot.chat.otel.exporterType': 'otlp-http',
+  'github.copilot.chat.otel.otlpEndpoint': 'http://localhost:4318',
+}
+
 suite('autoConfigureCopilot', () => {
   test('without Copilot Chat installed (settings unregistered) it is a silent no-op, not an error', () =>
     withConfig({}, {}, async writes => {
@@ -94,6 +102,43 @@ suite('autoConfigureCopilot', () => {
         ['github.copilot.chat.otel.otlpEndpoint', undefined],
       ])
       assert.deepStrictEqual(await removeCopilotSetup(), { changed: false }, 'a second remove changes nothing')
+    }))
+
+  test('on port 4318, setup writes all three user settings even though Copilot\'s defaults match two', () =>
+    withConfig(COPILOT_BUILTIN_DEFAULTS, {}, async writes => {
+      assert.deepStrictEqual(await autoConfigureCopilot(4318), { changed: true })
+      assert.deepStrictEqual(writes, [
+        ['github.copilot.chat.otel.enabled', true],
+        ['github.copilot.chat.otel.exporterType', 'otlp-http'],
+        ['github.copilot.chat.otel.otlpEndpoint', 'http://localhost:4318'],
+      ])
+    }))
+
+  test('Remove agent setup takes out what an earlier setup on 4318 left (only otel.enabled)', () =>
+    withConfig(COPILOT_BUILTIN_DEFAULTS, { 'github.copilot.chat.otel.enabled': true }, async writes => {
+      assert.deepStrictEqual(await removeCopilotSetup({ port: 4318, dryRun: true }), { changed: true })
+      assert.deepStrictEqual(writes, [], 'a dry run writes nothing')
+      assert.deepStrictEqual(await removeCopilotSetup({ port: 4318 }), { changed: true })
+      assert.deepStrictEqual(writes, [['github.copilot.chat.otel.enabled', undefined]])
+    }))
+
+  test('Remove agent setup also drops a user-level exporterType when the default endpoint is TraceRoost\'s', () =>
+    withConfig(COPILOT_BUILTIN_DEFAULTS, {
+      'github.copilot.chat.otel.enabled': true,
+      'github.copilot.chat.otel.exporterType': 'otlp-http',
+    }, async writes => {
+      assert.deepStrictEqual(await removeCopilotSetup({ port: 4318 }), { changed: true })
+      assert.deepStrictEqual(writes, [
+        ['github.copilot.chat.otel.enabled', undefined],
+        ['github.copilot.chat.otel.exporterType', undefined],
+      ])
+    }))
+
+  test('Remove agent setup leaves telemetry on the default endpoint alone when TraceRoost is on another port', () =>
+    withConfig(COPILOT_BUILTIN_DEFAULTS, { 'github.copilot.chat.otel.enabled': true }, async writes => {
+      assert.deepStrictEqual(await removeCopilotSetup({ port: 4320 }), { changed: false })
+      assert.deepStrictEqual(await removeCopilotSetup(), { changed: false }, 'without the port nothing marks it as TraceRoost\'s')
+      assert.deepStrictEqual(writes, [])
     }))
 
   test('Remove agent setup leaves the user\'s own collector alone', () =>

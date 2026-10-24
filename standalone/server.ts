@@ -1839,7 +1839,7 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
             return
           }
           const dryRun = (body as { dryRun?: unknown }).dryRun === true
-          const results = await removeAgentSetupFiles({ dryRun })
+          const results = await removeAgentSetupFiles({ dryRun, port: resolvedPorts.otlp ?? OTLP_PORT })
           let summary: string | undefined
           if (!dryRun) {
             agentSetupQuestion?.close()

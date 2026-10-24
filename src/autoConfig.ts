@@ -33,21 +33,15 @@ export async function autoConfigureCopilot(port: number, mode: SetupMode = 'full
       return { changed: true }
     }
 
-    const otelEnabled = config.get<boolean>('github.copilot.chat.otel.enabled')
-    if (!otelEnabled) {
-      await config.update('github.copilot.chat.otel.enabled', true, vscode.ConfigurationTarget.Global)
-      changed = true
-    }
-
-    const exporterType = config.get<string>('github.copilot.chat.otel.exporterType')
-    if (exporterType !== 'otlp-http') {
-      await config.update('github.copilot.chat.otel.exporterType', 'otlp-http', vscode.ConfigurationTarget.Global)
-      changed = true
-    }
-
-    if (existing !== endpoint) {
-      await config.update('github.copilot.chat.otel.otlpEndpoint', endpoint, vscode.ConfigurationTarget.Global)
-      changed = true
+    // Compared with the user-level value, not the effective one: Copilot Chat's own defaults are
+    // exporterType 'otlp-http' and otlpEndpoint 'http://localhost:4318' (COPILOT_DEFAULT_ENDPOINT),
+    // so on port 4318 an effective-value check would write only `otel.enabled` — and Remove agent
+    // setup, which goes by the user-level endpoint, would then find nothing of TraceRoost's.
+    for (const [key, value] of Object.entries(copilotSettings(port))) {
+      if (config.inspect(key)?.globalValue !== value) {
+        await config.update(key, value, vscode.ConfigurationTarget.Global)
+        changed = true
+      }
     }
 
     return { changed }
@@ -58,7 +52,9 @@ export async function autoConfigureCopilot(port: number, mode: SetupMode = 'full
 
 /** Remove agent setup (src/autoConfigNode.ts) for this editor's Copilot settings, through the
  *  settings API like the setup above: drops the user-level values setup writes, while the
- *  endpoint is still TraceRoost's. */
+ *  endpoint is still TraceRoost's. With no user-level endpoint, the effective one decides: when it
+ *  is TraceRoost's (`opts.port`) — Copilot's default endpoint on port 4318, which is what an
+ *  earlier setup that wrote only `otel.enabled` relied on — `enabled` and `exporterType` still go. */
 export async function removeCopilotSetup(opts: RemoveOptions = {}): Promise<ConfigResult> {
   try {
     const config = vscode.workspace.getConfiguration()
@@ -67,14 +63,17 @@ export async function removeCopilotSetup(opts: RemoveOptions = {}): Promise<Conf
     if (typeof endpoint === 'string' && endpoint && !isTraceRoostEndpoint(endpoint)) {
       return { changed: false, warning: `${COPILOT_ENDPOINT_KEY} points at ${endpoint}, not TraceRoost; left untouched` }
     }
-    if (!isTraceRoostEndpoint(endpoint)) return { changed: false }
-    if (opts.dryRun) return { changed: true }
+    const effective = config.get<string>(COPILOT_ENDPOINT_KEY)
+    const viaEffective = endpoint === undefined && opts.port !== undefined
+      && typeof effective === 'string' && effective.replace(/\/$/, '') === `http://localhost:${opts.port}`
+    if (!isTraceRoostEndpoint(endpoint) && !viaEffective) return { changed: false }
     const ours = copilotSettings(0)
-    for (const key of Object.keys(ours)) {
-      if (key === COPILOT_ENDPOINT_KEY || config.inspect(key)?.globalValue === ours[key]) {
-        await config.update(key, undefined, vscode.ConfigurationTarget.Global)
-      }
-    }
+    const remove = Object.keys(ours).filter(key => key === COPILOT_ENDPOINT_KEY
+      ? endpoint !== undefined
+      : config.inspect(key)?.globalValue === ours[key])
+    if (remove.length === 0) return { changed: false }
+    if (opts.dryRun) return { changed: true }
+    for (const key of remove) await config.update(key, undefined, vscode.ConfigurationTarget.Global)
     return { changed: true }
   } catch (e) {
     return { changed: false, error: String(e) }

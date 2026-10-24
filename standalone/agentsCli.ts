@@ -64,7 +64,7 @@ export async function runAgentsCli(args: string[], io: AgentsCliIo = defaultIo):
   }
 
   if (sub === 'remove') {
-    const results = await removeAgentSetupFiles()
+    const results = await removeAgentSetupFiles({ port: setupPort(undefined, io.env) })
     writeAgentSetupAnswer('no')
     for (const r of results) {
       if (r.changed) io.log(`[TraceRoost] ${r.agent}: removed TraceRoost's settings from ${tildePath(r.file)}`)
