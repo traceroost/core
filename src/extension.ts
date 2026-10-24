@@ -160,9 +160,10 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(traceRoostDb)
     outputChannel.appendLine('TraceRoost database initialized.')
     if (traceRoostDb.loadError) {
-      vscode.window.showErrorMessage(
-        `TraceRoost: Could not read the existing trace database (${traceRoostDb.loadError}). History is unavailable in this window and nothing will be saved over it — see the TraceRoost output channel.`
-      )
+      void vscode.window.showErrorMessage(
+        `TraceRoost: Could not read the existing trace database (${traceRoostDb.loadError}). History is unavailable in this window and nothing will be saved over it — the TraceRoost log has details.`,
+        SHOW_LOG_BUTTON,
+      ).then(choice => { if (choice === SHOW_LOG_BUTTON) showLog() })
     } else if (!traceRoostDb.isOwner) {
       // Another window owns writes to the shared database file (see TraceRoostDb) — this window
       // only reads it, so it can never overwrite that window's newer history with a stale copy.
@@ -177,7 +178,8 @@ export async function activate(context: vscode.ExtensionContext) {
     store = new SessionStore(context)
   } catch (err) {
     outputChannel.appendLine(`Failed to initialize session store: ${err}`)
-    vscode.window.showErrorMessage('TraceRoost: Failed to initialize trace store.')
+    void vscode.window.showErrorMessage('TraceRoost: Failed to initialize the trace store.', SHOW_LOG_BUTTON)
+      .then(choice => { if (choice === SHOW_LOG_BUTTON) showLog() })
     return
   }
 
