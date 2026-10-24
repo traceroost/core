@@ -1,9 +1,8 @@
-import { signal, type Signal } from '@preact/signals'
+import { signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import type { ComponentChildren } from 'preact'
 import {
   sessionSummary, toolCalls,
-  selectedAgentFilter, availableAgents, showAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
+  selectedAgentFilter, availableAgents, showAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
   receiveSessionTimeline, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
@@ -16,9 +15,9 @@ import {
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending,
   getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp,
-  configOpen, alertsSectionOpen,
+  configOpen, alertsOpen,
 } from './state'
-import { useDialog, scrollBehavior } from './a11y'
+import { useDialog } from './a11y'
 import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
 import { DATA_SOURCE_COLORS, INITIATOR_COLORS, isHostMessage } from './utils'
@@ -27,13 +26,14 @@ import { LANGUAGE_LABELS } from './language'
 // Tab components
 import { Sessions } from './tabs/Sessions'
 import { Analytics } from './tabs/Analytics'
-import { Alerts, alertCardId, computeAlertCount, getTriggeredAlerts, checkAlerts, type TriggeredAlert } from './tabs/Alerts'
+import { computeAlertCount, checkAlerts } from './tabs/Alerts'
+import { AlertsPanel, openAlertsPanel, openAlertCard } from './AlertsPanel'
 import { Export } from './tabs/Export'
 import { Import } from './tabs/Import'
 import { Help } from './tabs/Help'
 import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
-import { Automation, checkAutomations } from './tabs/Automation'
+import { checkAutomations } from './tabs/Automation'
 import { receiveInstructionMessage } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSetting, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
@@ -50,7 +50,6 @@ const REPO_ALL = 'All'
 // sidebar (toggled via workbench commands, not this panel) defaults to open.
 const sidebarOpen = signal(window.__STANDALONE__ !== true)
 const actionLogOpen = signal(false)
-const bellOpen = signal(false)
 const versionCheckOpen = signal(false)
 const versionCheck = signal<VersionCheckResponse | null>(null)
 
@@ -86,59 +85,6 @@ function normalizeTabId(tab: string): string {
   return tab
 }
 
-// "View Alert" on a firing notification: once the settings panel has slid open, bring that
-// alert's card into view and pulse its outline so it stands out among the other alerts.
-function scrollToAlertCard(alertId: string): void {
-  alertsSectionOpen.value = true
-  setTimeout(() => {
-    const el = document.getElementById(alertCardId(alertId))
-    if (!el) return
-    el.scrollIntoView({ behavior: scrollBehavior(), block: 'center' })
-    el.animate?.(
-      [{ boxShadow: '0 0 0 2px var(--vscode-focusBorder, #4fc3f7)' }, { boxShadow: '0 0 0 2px transparent' }],
-      { duration: 1600, delay: 300, easing: 'ease-out' },
-    )
-  }, 80)
-}
-
-// The bell's "Configure alerts →": open Settings with the Alerts section expanded, scrolled to
-// the top of the drawer's view and its heading focused, rather than leaving the drawer at the top.
-const ALERTS_SECTION_ID = 'settings-alerts'
-function openAlertsSettings(): void {
-  alertsSectionOpen.value = true
-  configOpen.value = true
-  setTimeout(() => {
-    const heading = document.getElementById(ALERTS_SECTION_ID)
-    if (!heading) return
-    heading.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
-    heading.focus({ preventScroll: true })
-  }, 80)
-}
-
-function CollapsibleSection({ id, title, children, openState }: { id?: string; title: string; children: ComponentChildren; openState?: Signal<boolean> }) {
-  const [localOpen, setLocalOpen] = useState(true)
-  const open = openState ? openState.value : localOpen
-  const setOpen = (fn: (o: boolean) => boolean) => openState ? (openState.value = fn(openState.value)) : setLocalOpen(fn)
-  return (
-    <div style="border-bottom:1px solid var(--border)">
-      <button
-        id={id}
-        aria-expanded={open}
-        onClick={() => setOpen(o => !o)}
-        style="scroll-margin-top:44px;display:flex;align-items:center;gap:6px;width:100%;padding:10px 14px;background:none;border:none;cursor:pointer;text-align:left;color:var(--fg)"
-      >
-        <span style={`color:var(--muted);font-size:9px;display:inline-block;transition:transform 0.15s;transform:rotate(${open ? 90 : 0}deg)`}>▶</span>
-        <span style="font-size:12px;font-weight:600">{title}</span>
-      </button>
-      {open && (
-        <div style="padding:0 14px 14px">
-          {children}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function ConfigPanel() {
   const open = configOpen.value
   const ref = useDialog<HTMLDivElement>(open, () => { configOpen.value = false })
@@ -168,12 +114,6 @@ function ConfigPanel() {
       <OtelReconfigureButton />
       {window.__STANDALONE__ === true && <DashboardPortSetting />}
       <McpToggle />
-      <CollapsibleSection id={ALERTS_SECTION_ID} title="Alerts" openState={alertsSectionOpen}>
-        <Alerts />
-      </CollapsibleSection>
-      <CollapsibleSection title="Automation">
-        <Automation />
-      </CollapsibleSection>
     </div>
   )
 }
@@ -236,12 +176,6 @@ function ActionLogPanel() {
         : [...entries].reverse().map(e => <ActionLogRow key={e.id} entry={e} />)}
     </div>
   )
-}
-
-const SEV_COLOR: Record<string, string> = {
-  error:   'var(--vscode-errorForeground, #f44747)',
-  warning: 'var(--vscode-editorWarning-foreground, #f6a623)',
-  info:    'var(--vscode-editorInfo-foreground, #4fc3f7)',
 }
 
 function IconBell() {
@@ -324,73 +258,23 @@ function IconUpdate() {
   )
 }
 
-function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
-  // Mounted only while open, so the dialog behavior (focus in, Tab wraps, Escape, focus back to
-  // the bell) runs for its whole lifetime.
-  const ref = useDialog<HTMLDivElement>(true, () => { bellOpen.value = false })
-
-  return (
-    <>
-      {/* Backdrop — click outside to close */}
-      <div style="position:fixed;inset:0;z-index:199" onClick={() => bellOpen.value = false} />
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="active-alerts-title" style="position:fixed;top:35px;right:8px;width:min(400px,calc(100vw - 16px));background:var(--vscode-editor-background);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.5);z-index:200;overflow:hidden">
-        <h2 id="active-alerts-title" style="margin:0;padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">
-          Active Alerts
-        </h2>
-        {alerts.length === 0 ? (
-          <div style="padding:14px 12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px">
-            <span style="color:var(--vscode-charts-green, #81c784);font-size:14px">✓</span> All clear — no alerts triggered
-          </div>
-        ) : (
-          <div>
-            {alerts.map((a, i) => {
-              const color = SEV_COLOR[a.severity] ?? SEV_COLOR.warning
-              return (
-                <div key={i} style={`padding:10px 12px;border-left:3px solid ${color};${i > 0 ? 'border-top:1px solid var(--border)' : ''}`}>
-                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-                    <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0`} />
-                    <span style={`font-size:12px;font-weight:600;color:${color}`}>{a.label}</span>
-                  </div>
-                  {a.detail && <div style="font-size:11px;color:var(--muted);line-height:1.4">{a.detail}</div>}
-                  {a.sessionId && (
-                    <button
-                      type="button"
-                      class="link-btn"
-                      onClick={() => { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false }}
-                      style="display:inline-block;margin-top:4px;font-size:11px"
-                    >View trace →</button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-        <div style="padding:8px 12px;border-top:1px solid var(--border)">
-          <button
-            style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
-            onClick={() => { bellOpen.value = false; openAlertsSettings() }}
-          >Configure alerts →</button>
-        </div>
-      </div>
-    </>
-  )
-}
-
 function BellButton() {
   void displaySessions.value
   const count = computeAlertCount()
-  const open = bellOpen.value
+  const open = alertsOpen.value
+  // Opens the Alerts panel (AlertsPanel.tsx) on its Active tab: what's firing now, with the
+  // alert and automation settings one tab over.
   return (
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
         title={count > 0 ? `Alerts — ${count} triggered` : 'Alerts'}
         aria-label={count > 0 ? `Alerts (${count})` : 'Alerts'}
+        aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => { bellOpen.value = !bellOpen.value }}
+        onClick={() => { if (open) alertsOpen.value = false; else openAlertsPanel('active') }}
       ><IconBell /></button>
       {count > 0 && <span class="alert-badge">{count}</span>}
-      {open && <AlertStatusCard alerts={getTriggeredAlerts()} />}
     </div>
   )
 }
@@ -856,9 +740,11 @@ export function App() {
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
       } else if (msg.type === 'switchTab' && msg.tab) {
         const tab = normalizeTabId(msg.tab)
-        if (tab === 'alerts' || tab === 'automation' || tab === 'settings-automation') {
-          configOpen.value = true
-          if (tab === 'alerts' && typeof msg.anchor === 'string') scrollToAlertCard(msg.anchor)
+        if (tab === 'alerts') {
+          if (typeof msg.anchor === 'string') openAlertCard(msg.anchor)
+          else openAlertsPanel('active')
+        } else if (tab === 'automation' || tab === 'settings-automation') {
+          openAlertsPanel('automation')
         } else if (tab === 'help' && typeof msg.anchor === 'string') {
           goToHelp(msg.anchor)
         } else {
@@ -985,6 +871,7 @@ export function App() {
       </div>
 
       <ConfigPanel />
+      <AlertsPanel />
       <ActionLogPanel />
       <OrgPanel />
     </>
