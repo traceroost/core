@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from 'preact/hooks'
 import { signal, computed } from '@preact/signals'
 import {
   currentWorkspace, filteredSessions, activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt, vscode,
-  repoInfo, repoDisplayName, repoTooltipName, sessionSummary,
+  repoInfo, repoDisplayName, repoTooltipName, sessionSummary, goToHelp,
 } from '../state'
 import { calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
+import { getAgentSourceLabel } from '../utils'
+import { openAgentSetup } from './Settings'
 import {
   generateSuggestions as generateSuggestionsWithCost, SCOPE_PATTERNS, BASH_TOOLS, READ_TOOLS,
   type SuggestionCard, type SuggestionCategory,
@@ -657,24 +659,45 @@ function WorkspaceSuggestions({ view, canApply, repoPill }: { view: WorkspaceVie
   )
 }
 
+// What the "no suggestions yet" state leads with: one plain sentence on what's missing, and the
+// next step. The raw diagnostic counts and rule thresholds stay available under Details.
+function diagnosticsSummary(diag: Diagnostics): { text: string; needsSetup: boolean } {
+  const n = diag.sessionCount
+  const traces = `${n} trace${n === 1 ? '' : 's'}`
+  if (diag.withFiles === 0 && diag.withToolCounts === 0) {
+    return { needsSetup: true, text: `None of these ${traces} recorded which files or tools the agent used — that usually means they came from log files only. Suggestions are built from that detail, so set up your agents to send full traces.` }
+  }
+  if (diag.withFiles === 0) {
+    return { needsSetup: true, text: `None of these ${traces} recorded which files the agent read or changed, which most suggestions are built from. Setting up your agents to send full traces adds it.` }
+  }
+  return { needsSetup: false, text: `No pattern shows up often enough across these ${traces} to suggest an instruction-file change yet. Suggestions appear here as more traces come in.` }
+}
+
 function DiagnosticsPanel({ sessions }: { sessions: SessionSummaryCard[] }) {
   const diag = getDiagnostics(sessions)
+  const summary = diagnosticsSummary(diag)
+  const missing = (have: number) => `color:${have > 0 ? 'var(--fg)' : 'var(--muted)'}`
   return (
     <div style="padding:16px 0">
-      <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:12px">
-        No patterns detected yet in <strong style="color:var(--fg)">{sessions.length} traces</strong>.
+      <p style="font-size:12px;color:var(--fg);margin:0 0 8px;line-height:1.5">{summary.text}</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:11px">
+        {summary.needsSetup && <button type="button" class="btn-primary" onClick={openAgentSetup}>Set up agents</button>}
+        <button type="button" class="link-btn" onClick={() => goToHelp(summary.needsSetup ? 'help-config' : 'help-advisor')}>
+          {summary.needsSetup ? 'How setup works' : 'How suggestions work'}
+        </button>
       </div>
-      <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:11px;color:var(--muted)">
-        <div style="font-weight:600;color:var(--fg);margin-bottom:6px">Data available</div>
+      <details style="border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:11px;color:var(--muted)">
+        <summary style="cursor:pointer;color:var(--fg);font-weight:600">Details</summary>
+        <div style="font-weight:600;color:var(--fg);margin:8px 0 6px">Data available</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px">
-          <span>Sources</span>
-          <span style="color:var(--fg)">{Object.entries(diag.sources).map(([k,v]) => `${k}: ${v}`).join(', ') || 'none'}</span>
+          <span>Agents</span>
+          <span style="color:var(--fg)">{Object.entries(diag.sources).map(([k, v]) => `${getAgentSourceLabel(k)}: ${v}`).join(', ') || 'none'}</span>
           <span>Traces with file data</span>
-          <span style={`color:${diag.withFiles > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withFiles} / {diag.sessionCount}</span>
+          <span style={missing(diag.withFiles)}>{diag.withFiles} of {diag.sessionCount}</span>
           <span>Traces with cost data</span>
-          <span style={`color:${diag.withCost > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withCost} / {diag.sessionCount}</span>
+          <span style={missing(diag.withCost)}>{diag.withCost} of {diag.sessionCount}</span>
           <span>Traces with tool counts</span>
-          <span style={`color:${diag.withToolCounts > 0 ? 'var(--fg)' : '#e57373'}`}>{diag.withToolCounts} / {diag.sessionCount}</span>
+          <span style={missing(diag.withToolCounts)}>{diag.withToolCounts} of {diag.sessionCount}</span>
           <span>Most-touched file</span>
           <span style="color:var(--fg)">{diag.topFile ? `${diag.topFile.name} (${diag.topFile.count} traces, ${pct(diag.topFile.count, diag.sessionCount)}%)` : 'none'}</span>
           <span>Loop signal types</span>
@@ -684,14 +707,14 @@ function DiagnosticsPanel({ sessions }: { sessions: SessionSummaryCard[] }) {
           <span>Avg turns per trace</span>
           <span style="color:var(--fg)">{diag.avgTurns > 0 ? diag.avgTurns.toFixed(1) : 'no data'}</span>
           <span>High-turn traces</span>
-          <span style="color:var(--fg)">{diag.highTurnCount} / {diag.sessionCount}{diag.avgTurns > 0 ? ` (need ≥15% and avg ≥8)` : ''}</span>
+          <span style="color:var(--fg)">{diag.highTurnCount} of {diag.sessionCount}{diag.avgTurns > 0 ? ` (need ≥15% and avg ≥8)` : ''}</span>
           <span>Open-ended prompts</span>
           <span style="color:var(--fg)">{diag.scopeMatches}{diag.scopeRatio !== null ? ` (${diag.scopeRatio.toFixed(2)}× avg ${diag.scopeRatioUnit}, need ≥1.4×)` : diag.scopeMatches > 0 ? ' (no cost or turn data)' : ''}</span>
         </div>
         <div style="margin-top:8px;font-size:10px;color:var(--muted)">
-          Thresholds: hot file ≥20% · loop signal ≥20% · terminal-heavy ≥3 sessions · high turns ≥15% at avg≥8 · open-ended prompts ≥2 at 1.4× avg turns
+          Thresholds: hot file ≥20% · loop signal ≥20% · terminal-heavy ≥3 traces · high turns ≥15% at avg≥8 · open-ended prompts ≥2 at 1.4× avg turns
         </div>
-      </div>
+      </details>
     </div>
   )
 }
