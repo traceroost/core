@@ -9,6 +9,7 @@ import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
 import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, removeCopilotSetup, type ConfigResult, type SetupMode } from './autoConfig'
 import { changedFiles, describeRemoval, removeAgentSetupFiles, type AgentRemoval } from './agentSetupRemoval'
+import { detectAgentSetupOwner, postServiceAction, type AgentSetupOwner } from './serviceOwnership'
 import { AGENT_SETUP_DECLINED, AGENT_SETUP_DONT, AGENT_SETUP_EXPLANATION, AGENT_SETUP_NOT_NOW, AGENT_SETUP_QUESTION, AGENT_SETUP_YES, leftAloneMessage, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
@@ -355,6 +356,19 @@ export async function activate(context: vscode.ExtensionContext) {
   // Only with the user's yes (src/agentSetupConsent.ts): asked once, remembered in
   // ~/.traceroost/config.json, shared with the background service.
   const log = (line: string) => outputChannel?.appendLine(line)
+  // The background service always wins (src/serviceOwnership.ts): while a standalone TraceRoost
+  // server runs, this window never writes agent settings. Re-checked on every command, since the
+  // service can start or stop while the window is open.
+  const agentSetupOwner = (): Promise<AgentSetupOwner> => detectAgentSetupOwner(port, collectorConflict?.owner)
+  /** When the service couldn't do it for us (stopped meanwhile, or a version without the action):
+   *  say that it manages agent setup, and offer its dashboard. */
+  const serviceManagesAgentSetup = (otlpPort: number): void => {
+    const OPEN_SERVICE = 'Open Service Dashboard'
+    void vscode.window.showInformationMessage(
+      "TraceRoost: the background service manages agent setup on this computer. Use Set up agents or Remove agent setup in its dashboard's ⚙ Settings panel.",
+      OPEN_SERVICE,
+    ).then(choice => { if (choice === OPEN_SERVICE) void openServiceDashboard(otlpPort) })
+  }
   /** Sets every agent up for this port and says what changed. `mode` (src/autoConfigNode.ts):
    *  'full' for a yes given now, 'maintain' on a later activation, which only keeps TraceRoost's
    *  endpoint current. `fromCommand` is the Set Up Agents command: it also reports when nothing
@@ -446,6 +460,27 @@ export async function activate(context: vscode.ExtensionContext) {
         )
         if (choice !== AGENT_SETUP_YES) return
       }
+      // The background service always wins (src/serviceOwnership.ts): it sets the agents up for
+      // the port it receives on, and this window writes nothing.
+      const owner = await agentSetupOwner()
+      if (owner.owner === 'service') {
+        const reply = await postServiceAction(owner.otlpPort, { type: 'reconfigureOtel' })
+        const results = reply && !reply.error ? reply as Partial<Record<'claudeCode' | 'codex' | 'copilot', ConfigResult>> : undefined
+        if (!results) { serviceManagesAgentSetup(owner.otlpPort); return }
+        const changed = ([['claudeCode', 'Claude Code'], ['codex', 'Codex'], ['copilot', 'Copilot']] as const)
+          .filter(([k]) => results[k]?.changed).map(([, label]) => label)
+        const failed = ([['claudeCode', 'Claude Code'], ['codex', 'Codex'], ['copilot', 'Copilot']] as const)
+          .filter(([k]) => results[k]?.error).map(([, label]) => label)
+        for (const [k, r] of Object.entries(results)) if (r?.error) log(`Set up agents (background service): ${k} failed: ${r.error}`)
+        void vscode.window.showInformationMessage(
+          (changed.length > 0
+            ? `TraceRoost: the background service set up ${changed.join(', ')} to send traces to port ${owner.otlpPort}. Restart ${changed.length === 1 ? 'it' : 'them'} to start tracing.`
+            : `TraceRoost: your agents are already set up to send traces to the background service (port ${owner.otlpPort}).`) +
+          (failed.length > 0 ? ` Could not set up ${failed.join(', ')} — Show Log has the details.` : ''),
+          ...(failed.length > 0 ? [SHOW_LOG_BUTTON] : []),
+        ).then(c => { if (c === SHOW_LOG_BUTTON) showLog() })
+        return
+      }
       writeAgentSetupAnswer('yes')
       await runAgentSetup('full', true)
     }),
@@ -459,12 +494,22 @@ export async function activate(context: vscode.ExtensionContext) {
     // This editor's own settings.json (…/User/globalStorage/<extension> → …/User) is already
     // covered by the settings API, so it isn't listed twice.
     const ownSettings = path.join(path.dirname(path.dirname(context.globalStorageUri.fsPath)), 'settings.json')
-    const run = async (dryRun: boolean): Promise<AgentRemoval[]> => {
-      const copilot = await removeCopilotSetup({ dryRun })
-      const files = (await removeAgentSetupFiles({ dryRun })).filter(r => r.file !== ownSettings)
-      return [{ agent: 'Copilot', file: agentConfigFiles().copilot.label, ...copilot }, ...files]
-    }
-    const preview = changedFiles(await run(true))
+    const owner = await agentSetupOwner()
+    // With the background service running, it removes (and records the no) — this window
+    // writes nothing (src/serviceOwnership.ts).
+    const run = owner.owner === 'service'
+      ? async (dryRun: boolean): Promise<AgentRemoval[] | undefined> => {
+        const reply = await postServiceAction(owner.otlpPort, { type: 'removeAgentSetup', dryRun })
+        return reply && !reply.error && Array.isArray(reply.results) ? reply.results as AgentRemoval[] : undefined
+      }
+      : async (dryRun: boolean): Promise<AgentRemoval[] | undefined> => {
+        const copilot = await removeCopilotSetup({ dryRun })
+        const files = (await removeAgentSetupFiles({ dryRun })).filter(r => r.file !== ownSettings)
+        return [{ agent: 'Copilot', file: agentConfigFiles().copilot.label, ...copilot }, ...files]
+      }
+    const previewResults = await run(true)
+    if (!previewResults) { if (owner.owner === 'service') serviceManagesAgentSetup(owner.otlpPort); return undefined }
+    const preview = changedFiles(previewResults)
     const REMOVE = 'Remove Agent Setup'
     const choice = await vscode.window.showWarningMessage('Remove agent setup?', {
       modal: true,
@@ -476,9 +521,10 @@ export async function activate(context: vscode.ExtensionContext) {
     }, REMOVE)
     if (choice !== REMOVE) return undefined
     const results = await run(false)
-    writeAgentSetupAnswer('no')
+    if (!results) { if (owner.owner === 'service') serviceManagesAgentSetup(owner.otlpPort); return undefined }
+    if (owner.owner === 'extension') writeAgentSetupAnswer('no')
     for (const r of results) {
-      if (r.changed) log(`Remove agent setup: ${r.agent} — removed TraceRoost's settings from ${r.file}`)
+      if (r.changed) log(`Remove agent setup${owner.owner === 'service' ? ' (background service)' : ''}: ${r.agent} — removed TraceRoost's settings from ${r.file}`)
       if (r.warning) log(`Remove agent setup: ${r.warning}`)
       if (r.error) log(`Remove agent setup: ${r.agent} failed: ${r.error}`)
     }
@@ -490,6 +536,14 @@ export async function activate(context: vscode.ExtensionContext) {
     return summary
   }
   DashboardPanel.removeAgentSetup = runAgentRemoval
+  DashboardPanel.setUpAgentsElsewhere = async () => {
+    const owner = await agentSetupOwner()
+    if (owner.owner === 'extension') return undefined
+    const reply = await postServiceAction(owner.otlpPort, { type: 'reconfigureOtel' })
+    if (reply) return reply
+    serviceManagesAgentSetup(owner.otlpPort)
+    return { error: "The background service manages agent setup — use Set up agents in its dashboard." }
+  }
 
   // The undo of Set Up Agents: takes out only what TraceRoost added, and stops it setting agents
   // up again. Like Set Up Agents, it ignores traceRoost.autoConfigureAgents.
@@ -497,7 +551,11 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('traceRoost.removeAgentSetup', async () => { await runAgentRemoval() }),
   )
 
-  if (traceRoostCfg.get<boolean>('autoConfigureAgents', true)) {
+  const activationOwner = traceRoostCfg.get<boolean>('autoConfigureAgents', true) ? await agentSetupOwner() : undefined
+  if (activationOwner?.owner === 'service') {
+    // Not even the question: the service asks in its own terminal or dashboard.
+    log(`Agent setup: the TraceRoost background service receives OTel on port ${activationOwner.otlpPort} and manages agent setup — this window leaves agent settings alone.`)
+  } else if (activationOwner) {
     const answer = readAgentSetupAnswer()
     if (answer === 'yes') {
       // Keeps the port current; never re-adds a setting the user removed.

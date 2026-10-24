@@ -36,6 +36,7 @@
     "standalone/autoConfigLog.test.ts",
     "standalone/agentsCli.ts",
     "standalone/agentsCli.test.ts",
+    "standalone/serviceOwnership.test.ts",
     "standalone/promptsFile.ts",
     "standalone/promptsFile.test.ts",
     "standalone/pathGuard.ts",

@@ -79,6 +79,10 @@ export class DashboardPanel {
   /** The Remove Agent Setup command's flow (extension.ts) — confirms, removes, reports. Resolves
    *  with what it says it did, or undefined when the user backed out. */
   public static removeAgentSetup: (() => Promise<string | undefined>) | undefined
+  /** Set by extension.ts: while the background service runs, Settings → Set up agents is sent to
+   *  it (src/serviceOwnership.ts) and this resolves with its reply; undefined means set them up
+   *  here. */
+  public static setUpAgentsElsewhere: (() => Promise<Record<string, unknown> | undefined>) | undefined
   /** Progress of extension.ts's batched log load (startBatchedLoad); null when none is running.
    *  Inlined into a panel opened mid-load and posted to an open one as it advances, so the
    *  webview shows a progress banner rather than an empty dashboard. */
@@ -266,6 +270,11 @@ export class DashboardPanel {
         if (!isDeclaredSettingUpdate(this.context.extension.packageJSON, msg.key, msg.value)) { return }
         void vscode.workspace.getConfiguration('traceRoost').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
       } else if (msg.type === 'reconfigureOtel') {
+        const elsewhere = await DashboardPanel.setUpAgentsElsewhere?.()
+        if (elsewhere) {
+          this.panel.webview.postMessage({ type: 'reconfigureOtelResult', results: elsewhere })
+          return
+        }
         // Pressing Set up agents is the user's yes (src/agentSetupConsent.ts) — remembered, so
         // later activations keep the agents pointed at this port.
         writeAgentSetupAnswer('yes')
