@@ -28,8 +28,13 @@ export const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
  *    file stops producing is removed from the store (LogReader.takeRetiredKeys). The trace store
  *    is rebuilt again (TRACE_STORE_VERSION 2) to drop keys earlier builds kept that way; every file
  *    within retention is read again to record its keys.
+ * 6: Signals record the steps that made them fire (LoopSignal.steps/trigger, src/signalEvidence.ts).
+ *    Signals are computed from a full parsed timeline, which the database doesn't keep (tool results
+ *    and short edit text are never stored), so a stored row can't be re-analyzed in place: every
+ *    file within retention is read again and its rows rewritten with the evidence. The trace store
+ *    is not rebuilt — keys are unchanged, so the writer's INSERT OR REPLACE updates rows in place.
  */
-export const LOG_FILE_STATE_VERSION = 5
+export const LOG_FILE_STATE_VERSION = 6
 
 export function readLogFileState(storageDir: string, log?: (msg: string) => void): { version: number; files: Record<string, FileState> } {
   const file = path.join(storageDir, LOG_FILE_STATE_FILENAME)
@@ -72,8 +77,9 @@ export function writeLogFileState(storageDir: string, files: Record<string, File
 export function restoreLogFileState(lr: LogReader, storageDir: string, retentionDays: number, log?: (msg: string) => void): number {
   const { version, files } = readLogFileState(storageDir, log)
   let forgotten = 0
-  // Version 5 re-reads every file within retention, which covers every earlier upgrade's re-read.
-  if (version < 5) {
+  // Versions 5 and 6 re-read every file within retention, which covers every earlier upgrade's
+  // re-read.
+  if (version < 6) {
     const cutoffMs = Date.now() - retentionDays * 86_400_000
     for (const [filePath, state] of Object.entries(files)) {
       if (state.mtimeMs >= cutoffMs) {

@@ -2,9 +2,10 @@ import { useState } from 'preact/hooks'
 import clsx from 'clsx'
 import { filteredSessions, sessionSummary, insightFilter, ignoredInsightKeys } from '../state'
 import { buildDisplaySummary, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
-import type { Insight, InsightFilter, SessionSummaryCard } from '../types'
+import type { Insight, InsightFilter, SessionSummaryCard, SignalStep, TimelineEntry } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
+import { capSteps, evidenceStep, evidenceClipboardLines, InsightEvidence } from '../signalEvidence'
 
 type EffSummary = ReturnType<typeof buildDisplaySummary>['efficiency']
 
@@ -98,7 +99,10 @@ export function generateInsights(
   // ── Per-session insights ────────────────────────────────────────────────────
 
   sessions.forEach((sess, idx) => {
-    const llmEntries = (sess.timeline ?? []).filter(e => e.type === 'llm' && (e.inputTokens ?? 0) > 0)
+    const timeline = sess.timeline ?? []
+    // Timeline positions alongside the entries, so each check below can name the steps it counted.
+    const llmIdx = timeline.flatMap((e, i) => e.type === 'llm' && (e.inputTokens ?? 0) > 0 ? [i] : [])
+    const llmEntries = llmIdx.map(i => timeline[i])
     const globalNum = getSessionGlobalNumber(sess) || (idx + 1)
     const reqSnippet = (sess.userRequest ?? '').slice(0, 60)
 
@@ -109,6 +113,18 @@ export function generateInsights(
       const growth = last - first
       const growthPct = first > 0 ? (growth / first) * 100 : 0
       if (growthPct > 20 && growth > 2000) {
+        // The baseline, the end point, and the three calls whose context jumped most — where the
+        // growth actually came from.
+        const steps: SignalStep[] = [
+          evidenceStep(timeline, llmIdx[0], 'baseline: ' + first.toLocaleString() + ' input tokens', 'context'),
+          evidenceStep(timeline, llmIdx[llmIdx.length - 1], 'last call: ' + last.toLocaleString() + ' input tokens'),
+        ]
+        llmEntries.slice(1)
+          .map((e, k) => ({ i: llmIdx[k + 1], d: (e.inputTokens ?? 0) - (llmEntries[k].inputTokens ?? 0) }))
+          .filter(j => j.d > 0)
+          .sort((a, b) => b.d - a.d)
+          .slice(0, 3)
+          .forEach(j => steps.push(evidenceStep(timeline, j.i, 'context +' + j.d.toLocaleString() + ' tokens over the previous call')))
         insights.push({
           severity: 'warning', category: 'efficiency', sessionIdx: idx,
           helpId: 'help-context-bloat',
@@ -119,20 +135,27 @@ export function generateInsights(
           action: 'The first call used ' + first.toLocaleString() + ' tokens — audit your instruction files '
             + '(CLAUDE.md, .agent.md, system prompt). Remove verbose examples and anything the agent '
             + 'can discover via tools. Target <5,000 tokens for combined static instructions.',
+          trigger: 'Input per call went from ' + first.toLocaleString() + ' to ' + last.toLocaleString() + ' tokens (+'
+            + growth.toLocaleString() + ', ' + growthPct.toFixed(0) + '%) across ' + llmEntries.length
+            + ' LLM calls. Fires above 20% and 2,000 tokens of growth.',
+          ...capSteps(steps),
         })
       }
     }
 
     // Files read multiple times
     const fileReads: Record<string, number> = {}
-    ;(sess.timeline ?? []).forEach(e => {
+    const fileReadIdx: Record<string, number[]> = {}
+    timeline.forEach((e, i) => {
       if (e.type !== 'tool') return
       const m = (e.label ?? '').match(/^read_file\s+(\S+)/)
-      if (m) fileReads[m[1]] = (fileReads[m[1]] ?? 0) + 1
+      if (m) { fileReads[m[1]] = (fileReads[m[1]] ?? 0) + 1; (fileReadIdx[m[1]] ??= []).push(i) }
     })
     const repeats = Object.keys(fileReads).filter(f => fileReads[f] > 1)
     if (repeats.length > 0) {
       const topFile = repeats.sort((a, b) => fileReads[b] - fileReads[a])[0]
+      const steps = repeats.flatMap(f => fileReadIdx[f].map((i, k) => evidenceStep(timeline, i,
+        k === 0 ? 'first read of ' + f : 'read ' + (k + 1) + ' of ' + fileReads[f] + ' of ' + f, k === 0 ? 'context' : 'trigger')))
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-files-repeated',
@@ -143,6 +166,9 @@ export function generateInsights(
             + 'Mention its path explicitly at the start of your prompt so the agent finds it without re-reading.'
           : 'The agent re-read ' + repeats.length + ' files, most often ' + topFile + ' (' + fileReads[topFile] + '×). '
             + 'Try opening with the key paths listed: e.g. "The main files are: ' + repeats.slice(0, 2).join(', ') + '".',
+        trigger: repeats.length + ' file(s) were read with read_file more than once in this trace; ' + topFile
+          + ' most often (' + fileReads[topFile] + '×). Fires on any second read.',
+        ...capSteps(steps),
       })
     }
 
@@ -154,6 +180,10 @@ export function generateInsights(
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-high-turns',
+        trigger: sess.totalLlmCalls + ' turns for a ' + (sess.userRequest ?? '').length
+          + '-character prompt. Fires above 8 turns when the prompt is under 80 characters, a sign the agent explored '
+          + 'what a longer prompt would have told it.',
+        ...capSteps(llmIdx.map((i, k) => evidenceStep(timeline, i, 'LLM call ' + (k + 1) + ' of ' + llmIdx.length))),
         title: '[Trace ' + globalNum + '] ' + sess.totalLlmCalls + ' turns',
         detail: '"' + reqSnippet + '" required ' + sess.totalLlmCalls + ' turns and '
           + sess.totalToolCalls + ' tool calls' + (topTools ? ' (' + topTools + ')' : '') + '.',
@@ -164,11 +194,14 @@ export function generateInsights(
     }
 
     // Oversized starting context
-    const firstLlm = (sess.timeline ?? []).find(e => e.type === 'llm' && (e.inputTokens ?? 0) > 0)
+    const firstLlm = llmEntries[0]
     if (firstLlm && (firstLlm.inputTokens ?? 0) > 15000) {
       insights.push({
         severity: 'warning', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-large-context',
+        trigger: 'The first LLM call already carried ' + (firstLlm.inputTokens ?? 0).toLocaleString()
+          + ' input tokens, before any tool result was added. Fires above 15,000.',
+        ...capSteps([evidenceStep(timeline, llmIdx[0], (firstLlm.inputTokens ?? 0).toLocaleString() + ' input tokens on the first call')]),
         title: '[Trace ' + globalNum + '] Starts with ' + (firstLlm.inputTokens ?? 0).toLocaleString() + ' input tokens',
         detail: 'The very first LLM call already has ' + (firstLlm.inputTokens ?? 0).toLocaleString()
           + ' tokens before any tool results are added.',
@@ -180,10 +213,15 @@ export function generateInsights(
 
     // Duplicate searches
     const searches: Record<string, number> = {}
-    ;(sess.timeline ?? []).forEach(e => {
+    const searchIdx: Record<string, number[]> = {}
+    timeline.forEach((e, i) => {
       if (e.type !== 'tool') return
       const m = (e.label ?? '').match(/^(grep_search|file_search)\s+(.+)$/)
-      if (m) { const key = m[1] + ':' + m[2].replace(/\s+/g, ' ').trim(); searches[key] = (searches[key] ?? 0) + 1 }
+      if (m) {
+        const key = m[1] + ':' + m[2].replace(/\s+/g, ' ').trim()
+        searches[key] = (searches[key] ?? 0) + 1
+        ;(searchIdx[key] ??= []).push(i)
+      }
     })
     const dupes = Object.keys(searches).filter(k => searches[k] > 1)
     if (dupes.length > 0) {
@@ -191,9 +229,14 @@ export function generateInsights(
         const [, pattern] = d.split(':')
         return '"' + pattern?.trim().slice(0, 40) + '"'
       })
+      const steps = dupes.flatMap(d => searchIdx[d].map((i, k) => evidenceStep(timeline, i,
+        k === 0 ? 'first search for this pattern' : 'same search again (' + (k + 1) + ' of ' + searches[d] + ')',
+        k === 0 ? 'context' : 'trigger')))
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-duplicate-searches',
+        trigger: dupes.length + ' search pattern(s) were run more than once with identical text. Fires on any repeat.',
+        ...capSteps(steps),
         title: '[Trace ' + globalNum + '] Duplicate searches',
         detail: dupes.length + ' search pattern(s) repeated: ' + examples.join(', ') + '.',
         action: 'These repeated searches suggest the agent was uncertain where to look. '
@@ -238,6 +281,10 @@ export function generateInsights(
         action: sig.action ?? sig.evidence,
         agentPrompt: SIGNAL_FORMULAS[sig.type]?.prompt,
         _loopType: sig.type,
+        trigger: sig.trigger,
+        steps: sig.steps,
+        stepsTotal: sig.stepsTotal,
+        range: sig.range,
       })
     })
   })
@@ -267,6 +314,7 @@ export function generateInsights(
         severity: 'warning', category: 'efficiency',
         helpId: 'help-files-repeated',
         title: troubleFiles.length + ' file(s) appear in most traces with errors or loops',
+        trigger: 'Each file below was touched in 3+ traces, and 60%+ of those traces had an error or a signal.',
         detail: troubleFiles.map(([f, v]) =>
           (f.split('/').pop() || f) + ': ' + v.problems + '/' + v.total + ' traces had issues'
         ).join('\n'),
@@ -292,6 +340,8 @@ export function generateInsights(
           title: 'Cache hit rate declining — ' + (avgOlder * 100).toFixed(0) + '% → ' + (avgRecent * 100).toFixed(0) + '%',
           detail: 'Average cache hit rate dropped ' + (drop * 100).toFixed(0)
             + '% over your last ' + recentN + ' traces.',
+          trigger: 'The last ' + recentN + ' traces averaged ' + (avgRecent * 100).toFixed(0) + '% from cache against '
+            + (avgOlder * 100).toFixed(0) + '% before them. Fires on a 15-point drop from a 30%+ starting point.',
           action: 'Cache hit rate drops when the stable prefix of your prompts changes. '
             + 'Recent changes to your instruction files (CLAUDE.md, .agent.md, system prompt) '
             + 'may be invalidating cached context. Keep static content at the top of prompts '
@@ -310,16 +360,30 @@ export function generateInsights(
       title: 'Tool definitions consuming ~' + (eff.toolDefWaste * 100).toFixed(0) + '% of context',
       detail: 'A significant portion of each prompt is spent describing available tool schemas to the model.',
       action: 'Use tool restrictions in your .agent.md files with "tools:" to limit which tools are available.',
+      trigger: 'Tool schemas are ~' + (eff.toolDefWaste * 100).toFixed(0) + '% of the prompt across every recorded call, '
+        + 'not one step in particular. Fires above 25%.',
     })
   }
 
   if (eff.totalLlmCalls > 3 && eff.cacheHitRate < 0.5) {
+    // Inside one trace, the calls that re-processed the most input are where the rate went.
+    const one = sessions.length === 1 ? sessions[0].timeline ?? [] : []
+    const worst = one
+      .map((e, i) => ({ e, i, uncached: Math.max(0, (e.inputTokens ?? 0) - (e.cacheReadTokens ?? 0)) }))
+      .filter(x => x.e.type === 'llm' && x.uncached > 0)
+      .sort((a, b) => b.uncached - a.uncached)
+      .slice(0, 5)
     insights.push({
       severity: 'warning', category: 'efficiency',
       helpId: 'help-cache-rate',
       title: 'Low prompt cache hit rate (' + (eff.cacheHitRate * 100).toFixed(0) + '%)',
       detail: 'Less than half of input tokens are being served from cache.',
       action: 'Cache works best when the beginning of the prompt stays stable across turns. Keep static content at the top of your prompts.',
+      trigger: (eff.cacheHitRate * 100).toFixed(0) + '% of ' + eff.totalInputTokens.toLocaleString() + ' input tokens across '
+        + eff.totalLlmCalls + ' LLM calls came from cache. Fires under 50% once there are more than 3 calls.'
+        + (worst.length > 0 ? ' The calls below re-processed the most input.' : ''),
+      ...capSteps(worst.map(({ e, i, uncached }) => evidenceStep(one, i,
+        uncached.toLocaleString() + ' of ' + (e.inputTokens ?? 0).toLocaleString() + ' input tokens not read from cache'))),
     })
   }
 
@@ -339,7 +403,7 @@ export function generateInsights(
 // (via _loopType) instead of a generic ↺ — same struggle pattern, same glyph, wherever it shows
 // up. Non-loop (efficiency) insights keep the plain ⚠/ℹ they always had; only loop severities
 // have a per-type icon to draw.
-function InsightIcon({ ins }: { ins: Insight }) {
+export function InsightIcon({ ins }: { ins: Insight }) {
   if (ins.severity.startsWith('loop')) {
     const iconType = ins._loopType ? LOOP_SIGNAL_ICON_TYPE[ins._loopType] : undefined
     const Icon = iconType ? SIGNAL_ICON[iconType] : undefined
@@ -356,8 +420,17 @@ function InsightIcon({ ins }: { ins: Insight }) {
   return <>{ins.severity === 'warning' ? '⚠' : 'ℹ'}</>
 }
 
-export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgnored: boolean; sessions: SessionSummaryCard[] }) {
-  const session = ins.sessionIdx !== undefined ? sessions[ins.sessionIdx] : undefined
+export function InsightCard({ ins, isIgnored, sessions, timeline, stepNumber, onShowSteps }: {
+  ins: Insight; isIgnored: boolean; sessions: SessionSummaryCard[]
+  /** Set when the card sits inside an expanded trace: the loaded timeline, its waterfall step
+   *  numbers, and a way to jump there — each listed step then links into the waterfall. */
+  timeline?: TimelineEntry[]
+  stepNumber?: (timelineIndex: number) => number | undefined
+  onShowSteps?: (ins: Insight, focusIndex?: number) => void
+}) {
+  // A session-wide insight (no sessionIdx) still belongs to the one session when the card sits
+  // inside an expanded trace, so its evidence can be priced against that session's model.
+  const session = ins.sessionIdx !== undefined ? sessions[ins.sessionIdx] : (sessions.length === 1 ? sessions[0] : undefined)
   const titleTraceMatch = ins.title.match(/^\[Trace\s+\d+\]\s*(.*)$/)
   const insightTitle = titleTraceMatch ? titleTraceMatch[1] : ins.title
   const sessionTimestamp = session ? formatSessionTime(session) : ''
@@ -397,6 +470,7 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
     // A loop signal's clipboard text leads with the instruction written for the agent, so what
     // lands in the session is something it can act on; the trace context follows as evidence.
     // The person-facing action (what *you* do) stays on the card and in Help.
+    lines.push(...evidenceClipboardLines(ins))
     if (ins.agentPrompt) {
       return [ins.agentPrompt, '', '--- What TraceRoost detected ---', ...lines.slice(3)].join('\n')
     }
@@ -446,6 +520,7 @@ export function InsightCard({ ins, isIgnored, sessions }: { ins: Insight; isIgno
         </div>
       )}
       {ins.detail && <div class="insight-detail" style="white-space:pre-wrap">{ins.detail}</div>}
+      <InsightEvidence ins={ins} timeline={timeline} model={session?.model} stepNumber={stepNumber} onShowSteps={onShowSteps} />
     </div>
   )
 }

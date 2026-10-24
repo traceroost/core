@@ -10,17 +10,32 @@ name: Desktop (macOS)
 # (right-click → Open gets past it; see desktop/README.md). The build is identical either way.
 #
 # Signing and notarization are switched on by secrets alone (desktop/electron-builder.cjs
-# reads the environment; nothing here branches on it):
+# reads the environment; nothing here branches on it). The day-of procedure for creating them is
+# runbooks/MACOS_SIGNING.md.
 #
-#   MAC_CSC_LINK             base64 of the Developer ID Application .p12   → CSC_LINK
-#   MAC_CSC_KEY_PASSWORD     its password                                   → CSC_KEY_PASSWORD
-#   APPLE_API_KEY_P8         contents of the App Store Connect API .p8 key  → written to a file,
+#   MAC_CSC_LINK             base64 of the Developer ID Application .p12   → imported into a
+#   MAC_CSC_KEY_PASSWORD     its password                                     job keychain; its
+#                                                                             SHA-1 → CSC_NAME
+#   Notarization, either an App Store Connect API key:
+#   APPLE_API_KEY_P8         contents of the .p8 key                        → written to a file,
 #                                                                              its path → APPLE_API_KEY
 #   APPLE_API_KEY_ID         the key's id                                   → APPLE_API_KEY_ID
 #   APPLE_API_ISSUER         the issuer id                                  → APPLE_API_ISSUER
+#   or an Apple ID (simplest for an individual membership):
+#   APPLE_ID                 the Apple Account email                        → APPLE_ID
+#   APPLE_APP_SPECIFIC_PASSWORD  an app-specific password for it            → APPLE_APP_SPECIFIC_PASSWORD
+#   APPLE_TEAM_ID            the 10-character Team ID                       → APPLE_TEAM_ID
+#
+# The .p12 is imported here rather than handed to electron-builder as CSC_LINK: electron-builder
+# 26.15.3 unlocks its own temporary keychain with the .p12's password instead of the keychain's
+# (app-builder-lib/out/codeSign/macCodeSign.js, importCerts), so CSC_LINK fails at
+# `set-key-partition-list` whenever the two differ — always. Found by rehearsing the signed path
+# with a self-signed identity (desktop/scripts/rehearse-mac-signing.sh).
 #
 # An empty secret expands to an empty string, which the config treats as absent — so a repo
-# without them builds exactly as a developer's machine without them does.
+# without them builds exactly as a developer's machine without them does. Half a configuration
+# (a certificate without notarization credentials, or the reverse) fails the Notarization check
+# rather than shipping a build that is signed but refused by Gatekeeper.
 
 on:
   pull_request:
@@ -49,6 +64,9 @@ on:
       APPLE_API_KEY_P8: { required: false }
       APPLE_API_KEY_ID: { required: false }
       APPLE_API_ISSUER: { required: false }
+      APPLE_ID: { required: false }
+      APPLE_APP_SPECIFIC_PASSWORD: { required: false }
+      APPLE_TEAM_ID: { required: false }
     outputs:
       notarized:
         description: "'true' when both apps are Developer ID signed and carry a stapled notarization ticket"
@@ -104,6 +122,46 @@ jobs:
         working-directory: desktop
         run: node node_modules/electron/install.js && test -f node_modules/electron/dist/LICENSES.chromium.html
 
+      # Only runs when the certificate secret exists. A job-scoped keychain holding the Developer ID
+      # identity plus Apple's Developer ID intermediates (a .p12 exported from Keychain Access carries
+      # the leaf only, and `find-identity -v` lists an identity only when its chain is complete).
+      # electron-builder is then given the identity's SHA-1 as CSC_NAME and the keychain as
+      # CSC_KEYCHAIN. A CSC_NAME that matches nothing would make electron-builder skip signing with
+      # a warning, so the identity is looked up here and a missing one fails the step.
+      - name: Import the Developer ID certificate
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        if: env.MAC_CSC_LINK != ''
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$MAC_CSC_LINK" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$MAC_CSC_KEY_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          for ca in DeveloperIDG2CA DeveloperIDCA; do
+            curl -fsSL "https://www.apple.com/certificateauthority/$ca.cer" -o "$RUNNER_TEMP/$ca.cer"
+            security import "$RUNNER_TEMP/$ca.cer" -k "$keychain" || true
+          done
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          existing=()
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"; line="${line#\"}"; line="${line%\"}"
+            [ -n "$line" ] && existing+=("$line")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" "${existing[@]}"
+          security find-identity -v -p codesigning "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/"Developer ID Application: / { print $2; exit }')"
+          if [ -z "$identity" ]; then
+            echo "::error::MAC_CSC_LINK holds no valid 'Developer ID Application' identity (wrong certificate type, wrong password, or the private key was not exported with it). See runbooks/MACOS_SIGNING.md."
+            exit 1
+          fi
+          echo "CSC_NAME=$identity" >> "$GITHUB_ENV"
+          echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
       # Only runs when the notarization key secret exists; otherwise APPLE_API_KEY stays unset and
       # the config leaves notarization off. (The `secrets` context cannot be read in a step's `if`,
       # hence the detour through `env`.)
@@ -121,12 +179,14 @@ jobs:
       - name: Build and package
         working-directory: desktop
         env:
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          # CSC_NAME and CSC_KEYCHAIN come from the import step above, when it ran.
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          # No keychain search on a runner: either CSC_LINK provides the identity or the config
-          # ad-hoc signs. (The same variable is harmless on a developer's machine.)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # No keychain search on a runner: either CSC_NAME names the imported identity or the
+          # config ad-hoc signs. (The same variable is harmless on a developer's machine.)
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           # electron-builder skips *all* signing on a pull-request build (it sees GITHUB_BASE_REF)
           # unless told otherwise, and that would include the ad-hoc signature Apple Silicon needs
@@ -147,24 +207,48 @@ jobs:
       - name: Staged collector integration tests
         run: pnpm run compile-tests:desktop && npx mocha --grep "staged collector" --color
 
-      # With the notarization key configured, a build that is not actually signed and stapled is a
-      # failure, not a silent ad-hoc fallback. Without it, `notarized=false` attaches the macOS files
-      # unnotarized, with a release-notes line on opening them (desktop-release.yml).
+      # With signing and notarization configured, a build that is not actually Developer ID signed,
+      # hardened and stapled is a failure, not a silent fallback; so is half a configuration. With
+      # neither, `notarized=false` attaches the macOS files unnotarized, with a release-notes line on
+      # opening them (desktop-release.yml).
       - name: Notarization check
         id: notarization
         working-directory: desktop
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "${APPLE_API_KEY:-}" ]; then
+          signing=false; notary=false
+          [ -n "${CSC_NAME:-}" ] && signing=true
+          if [ -n "${APPLE_API_KEY:-}" ] || { [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; }; then notary=true; fi
+          if [ "$signing" = false ] && [ "$notary" = false ]; then
             echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release attaches it unnotarized"
             echo "notarized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if [ "$signing" != "$notary" ]; then
+            echo "::error::Apple signing is half configured (certificate: $signing, notarization credentials: $notary). Both are needed for a download Gatekeeper accepts — see runbooks/MACOS_SIGNING.md."
+            exit 1
+          fi
           for app in dist/mac*/TraceRoost.app; do
             echo "== $app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            details="$(codesign --display --verbose=2 "$app" 2>&1)"
+            grep -q '^Authority=Developer ID Application: ' <<<"$details" || { echo "::error::$app is not signed with a Developer ID Application certificate"; exit 1; }
+            grep -q 'flags=.*runtime' <<<"$details" || { echo "::error::$app is not signed with the hardened runtime"; exit 1; }
+            if [ -n "$APPLE_TEAM_ID" ] && ! grep -qx "TeamIdentifier=$APPLE_TEAM_ID" <<<"$details"; then
+              echo "::error::$app is signed by team $(grep TeamIdentifier <<<"$details"), not APPLE_TEAM_ID"; exit 1
+            fi
             xcrun stapler validate "$app"
             spctl --assess --type execute --verbose=2 "$app"
           done
           echo "notarized=true" >> "$GITHUB_OUTPUT"
+
+      # The job keychain dies with the runner, but delete it anyway so nothing outlives the job.
+      - name: Remove the signing keychain
+        if: always() && env.CSC_KEYCHAIN != ''
+        run: security delete-keychain "$CSC_KEYCHAIN" || true
 
       - name: Signature report
         working-directory: desktop
