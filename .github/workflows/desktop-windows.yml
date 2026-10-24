@@ -28,6 +28,9 @@ name: Desktop (Windows)
 #                                   account, profile and publisher are not secrets (every
 #                                   signature names them) and are fixed in electron-builder.cjs.
 #
+# The repository variable TRACEROOST_WINDOWS_SIGNING=off switches signing off with the secrets still
+# in place: the build is unsigned, `signed` is false, and a release attaches it as a preview.
+#
 # An empty secret expands to an empty string, which the config treats as absent. With signing
 # configured, a build whose executables are not validly Authenticode-signed is a failure, not a
 # silent unsigned fallback.
@@ -90,8 +93,12 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          TRACEROOST_WINDOWS_SIGNING: ${{ vars.TRACEROOST_WINDOWS_SIGNING }}
         run: |
-          if [ -n "$WIN_CSC_LINK" ] || { [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ]; }; then
+          if [ "$TRACEROOST_WINDOWS_SIGNING" = off ]; then
+            echo "::notice::Windows signing is switched off (repository variable TRACEROOST_WINDOWS_SIGNING=off); the build is unsigned"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          elif [ -n "$WIN_CSC_LINK" ] || { [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ]; }; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Windows build is unsigned (no WIN_CSC_LINK or Azure Artifact Signing secrets); SmartScreen will warn on first run"
@@ -156,6 +163,7 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          TRACEROOST_WINDOWS_SIGNING: ${{ vars.TRACEROOST_WINDOWS_SIGNING }}
           # electron-builder skips signing on a pull-request build unless told otherwise. Secrets
           # never reach a fork's run, so a fork PR here can only ever build unsigned.
           CSC_FOR_PULL_REQUEST: 'true'

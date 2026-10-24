@@ -182,7 +182,7 @@ jobs:
           elif [ "$MACOS_RESULT" = success ]; then platforms="${platforms:+$platforms,}macos-preview"; echo "::notice::macOS is not notarized (no Apple Developer secrets yet); attaching the ad-hoc signed build as *-preview."
           elif [ "$MACOS_RESULT" != skipped ]; then echo "::warning::The macOS desktop build did not pass ($MACOS_RESULT); macOS is not attached."; fi
           if [ "$WINDOWS_RESULT" = success ] && [ "$WINDOWS_SIGNED" = true ]; then platforms="${platforms:+$platforms,}windows"
-          elif [ "$WINDOWS_RESULT" = success ]; then platforms="${platforms:+$platforms,}windows-preview"; echo "::notice::Windows is not signed (no WIN_CSC_LINK / Azure Artifact Signing secrets yet); attaching the unsigned build as *-preview."
+          elif [ "$WINDOWS_RESULT" = success ]; then platforms="${platforms:+$platforms,}windows-preview"; echo "::notice::Windows is not signed (no WIN_CSC_LINK / Azure Artifact Signing secrets, or TRACEROOST_WINDOWS_SIGNING=off); attaching the unsigned build as *-preview."
           elif [ "$WINDOWS_RESULT" != skipped ]; then echo "::warning::The Windows desktop build did not pass ($WINDOWS_RESULT); Windows is not attached."; fi
           echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
           if [ -z "$platforms" ]; then echo "::notice::No desktop platform to attach to this release."; fi
