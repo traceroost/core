@@ -1,9 +1,9 @@
 import * as vscode from 'vscode'
-import { isLoopbackEndpoint, type ConfigResult } from './autoConfigNode'
-export type { ConfigResult } from './autoConfigNode'
+import { isLoopbackEndpoint, isTraceRoostEndpoint, type ConfigResult, type SetupMode } from './autoConfigNode'
+export type { ConfigResult, SetupMode } from './autoConfigNode'
 export { autoConfigureClaudeCode, autoConfigureCodex } from './autoConfigNode'
 
-export async function autoConfigureCopilot(port: number): Promise<ConfigResult> {
+export async function autoConfigureCopilot(port: number, mode: SetupMode = 'full'): Promise<ConfigResult> {
   try {
     const config = vscode.workspace.getConfiguration()
     const endpoint = `http://localhost:${port}`
@@ -24,6 +24,13 @@ export async function autoConfigureCopilot(port: number): Promise<ConfigResult> 
     const existing = config.get<string>('github.copilot.chat.otel.otlpEndpoint')
     if (typeof existing === 'string' && existing && !isLoopbackEndpoint(existing)) {
       return { changed: false, warning: `github.copilot.chat.otel.otlpEndpoint points at ${existing}; left untouched (TraceRoost listens on ${endpoint})` }
+    }
+
+    // 'maintain' (src/autoConfigNode.ts): only TraceRoost's own endpoint, when it is already there.
+    if (mode === 'maintain') {
+      if (!isTraceRoostEndpoint(existing) || existing === endpoint) return { changed: false }
+      await config.update('github.copilot.chat.otel.otlpEndpoint', endpoint, vscode.ConfigurationTarget.Global)
+      return { changed: true }
     }
 
     const otelEnabled = config.get<boolean>('github.copilot.chat.otel.enabled')

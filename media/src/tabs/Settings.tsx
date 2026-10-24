@@ -300,7 +300,7 @@ export function OtelReconfigureButton() {
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Set up agents</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-        Sets up Claude Code, Codex and Copilot to send their activity, including prompts and tool output, to TraceRoost on this computer. Pressing it is your go-ahead: TraceRoost then keeps them pointed here each time it starts. A setting that sends to a different collector is left alone.
+        Sets up Claude Code, Codex and Copilot to send their activity, including prompts and tool output, to TraceRoost on this computer. Pressing it is your go-ahead and writes every setting again; later starts only keep TraceRoost's port in them current. A setting that sends to a different collector is left alone.
       </div>
       <button
         id={AGENT_SETUP_BUTTON_ID}

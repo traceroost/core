@@ -12,6 +12,17 @@ export interface ConfigResult {
 }
 
 /**
+ * How much an autoConfigure* call may write:
+ *  - `'full'` — the consented setup: the first yes, the Settings panel's Set up agents button, the
+ *    Set Up Agents command. Writes every setting the agent needs.
+ *  - `'maintain'` — every later start after a yes. Only keeps TraceRoost's own endpoint current
+ *    (its port can move after a port fallback): an endpoint key is updated when it exists and
+ *    still points at TraceRoost (isTraceRoostEndpoint). Nothing missing is added back, so a key
+ *    the user deleted — OTEL_LOG_USER_PROMPTS, say — stays deleted.
+ */
+export type SetupMode = 'full' | 'maintain'
+
+/**
  * Reads a config file, distinguishing "doesn't exist" (→ `undefined`, safe to create) from every
  * other read failure (permissions, EISDIR, …), which is thrown so the caller skips the file instead
  * of clobbering something it couldn't see.
@@ -30,15 +41,17 @@ async function readIfExists(filePath: string): Promise<string | undefined> {
  * file already existed, a one-time `<file>.traceroost.bak` copy of the original is kept first —
  * never overwritten afterwards, so it always holds the user's pre-TraceRoost version.
  */
-async function writeConfigFile(filePath: string, content: string, existed: boolean): Promise<void> {
+async function writeConfigFile(filePath: string, content: string, existed: boolean, backup = true): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
   let mode: number | undefined
-  if (existed) {
+  if (existed && backup) {
     try {
       await fs.copyFile(filePath, `${filePath}.traceroost.bak`, fs.constants.COPYFILE_EXCL)
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') { throw e }
     }
+  }
+  if (existed) {
     try { mode = (await fs.stat(filePath)).mode & 0o777 } catch { /* keep default */ }
   }
   const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`
@@ -62,7 +75,18 @@ export function isLoopbackEndpoint(value: string): boolean {
   }
 }
 
-export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
+/** True for an endpoint in the exact form TraceRoost writes (`http://localhost:<port>`). Only
+ *  these are TraceRoost's: a later start may move their port, and Remove agent setup takes them
+ *  out. Any other endpoint — loopback ones included, such as a local OpenTelemetry Collector on
+ *  `http://127.0.0.1:4317` — belongs to the user. */
+export function isTraceRoostEndpoint(value: unknown): value is string {
+  return typeof value === 'string' && /^http:\/\/localhost:\d{1,5}\/?$/.test(value)
+}
+
+/** `http://localhost:<port>` inside a Codex exporter line, the endpoint TraceRoost writes there. */
+const CODEX_TRACEROOST_ENDPOINT_RE = /(\bendpoint\s*=\s*)(["'])http:\/\/localhost:\d{1,5}\/?\2/
+
+export async function autoConfigureCodex(port: number, mode: SetupMode = 'full'): Promise<ConfigResult> {
   const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
   const configPath = path.join(codexHome, 'config.toml')
   const endpoint = `http://localhost:${port}`
@@ -78,6 +102,7 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
 
   try {
     const content = await readIfExists(configPath)
+    if (mode === 'maintain') return content === undefined ? { changed: false } : await maintainCodexEndpoint(configPath, content, endpoint)
     if (content === undefined) {
       const block = requiredOtelKeys.map(k => k.line).join('\n')
       await writeConfigFile(configPath, `[otel]\n${block}\n`, false)
@@ -101,7 +126,8 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
 
     // `[otel]` may carry a trailing comment or inner spaces — an exact-string match missed those
     // and appended a second [otel] table, which TOML rejects.
-    const otelIdx = lines.findIndex(l => /^\[\s*otel\s*\]\s*(#.*)?$/.test(l.trim()))
+    const section = codexOtelSection(lines)
+    const otelIdx = section.otelIdx
 
     if (otelIdx === -1) {
       const block = requiredOtelKeys.map(k => k.line).join('\n')
@@ -110,19 +136,14 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
       return { changed: true }
     }
 
-    let sectionEnd = lines.length
-    for (let i = otelIdx + 1; i < lines.length; i++) {
-      if (lines[i].trim().startsWith('[')) { sectionEnd = i; break }
-    }
+    let sectionEnd = section.sectionEnd
 
     // An [otel] exporter the user aimed at a collector of their own makes the whole section
     // theirs: nothing is changed, above all not `log_user_prompt` — turning that on next to their
     // exporter would send prompt text to their collector because of TraceRoost.
-    for (let i = otelIdx + 1; i < sectionEnd; i++) {
-      const ep = /\bendpoint\s*=\s*["']([^"']+)["']/.exec(lines[i])?.[1]
-      if (ep !== undefined && !isLoopbackEndpoint(ep)) {
-        return { changed: false, warning: `[otel] in ${configPath} exports to ${ep}; left untouched (TraceRoost listens on ${endpoint})` }
-      }
+    const foreign = foreignCodexEndpoint(lines, otelIdx, sectionEnd)
+    if (foreign !== undefined) {
+      return { changed: false, warning: `[otel] in ${configPath} exports to ${foreign}; left untouched (TraceRoost listens on ${endpoint})` }
     }
 
     // Insert or update each required key within the [otel] section. A key may be spread over
@@ -166,6 +187,51 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
   }
 }
 
+/** The `[otel]` table of a Codex config split into lines: its header's index (-1 when there is
+ *  none) and the index of the line after its last (the next table's header, or the end). */
+function codexOtelSection(lines: string[]): { otelIdx: number; sectionEnd: number } {
+  // `[otel]` may carry a trailing comment or inner spaces.
+  const otelIdx = lines.findIndex(l => /^\[\s*otel\s*\]\s*(#.*)?$/.test(l.trim()))
+  let sectionEnd = lines.length
+  if (otelIdx !== -1) {
+    for (let i = otelIdx + 1; i < lines.length; i++) {
+      if (lines[i].trim().startsWith('[')) { sectionEnd = i; break }
+    }
+  }
+  return { otelIdx, sectionEnd }
+}
+
+/** The first endpoint in `[otel]` that isn't on this machine — the user's own collector. */
+function foreignCodexEndpoint(lines: string[], otelIdx: number, sectionEnd: number): string | undefined {
+  for (let i = otelIdx + 1; i < sectionEnd; i++) {
+    const ep = /\bendpoint\s*=\s*["']([^"']+)["']/.exec(lines[i])?.[1]
+    if (ep !== undefined && !isLoopbackEndpoint(ep)) return ep
+  }
+  return undefined
+}
+
+/** SetupMode 'maintain' for Codex: moves the port of an `exporter` / `trace_exporter` line still
+ *  aimed at TraceRoost, in place (anything else on the line — an auth header — stays). Adds
+ *  nothing: no `[otel]` table, no missing exporter, no `log_user_prompt`. */
+async function maintainCodexEndpoint(configPath: string, content: string, endpoint: string): Promise<ConfigResult> {
+  const lines = content.split('\n')
+  const { otelIdx, sectionEnd } = codexOtelSection(lines)
+  if (otelIdx === -1) return { changed: false }
+  const foreign = foreignCodexEndpoint(lines, otelIdx, sectionEnd)
+  if (foreign !== undefined) {
+    return { changed: false, warning: `[otel] in ${configPath} exports to ${foreign}; left untouched (TraceRoost listens on ${endpoint})` }
+  }
+  let changed = false
+  for (let i = otelIdx + 1; i < sectionEnd; i++) {
+    if (!/^\s*(trace_exporter|exporter|"trace_exporter"|"exporter"|'trace_exporter'|'exporter')\s*[=.]/.test(lines[i])) continue
+    const updated = lines[i].replace(CODEX_TRACEROOST_ENDPOINT_RE, (_m, prefix: string, quote: string) => `${prefix}${quote}${endpoint}${quote}`)
+    if (updated !== lines[i]) { lines[i] = updated; changed = true }
+  }
+  if (!changed) return { changed: false }
+  await writeConfigFile(configPath, lines.join('\n'), true)
+  return { changed: true }
+}
+
 // Earlier versions installed a Claude Code Stop hook that printed ~/.traceroost/pending-prompt.txt
 // into the session. Nothing writes that file any more, and any local process could, so the hook
 // is no longer installed and existing copies are removed below.
@@ -202,10 +268,13 @@ export function removeLegacyStopHook(settings: Record<string, unknown>): boolean
   return true
 }
 
-export async function autoConfigureClaudeCode(port: number): Promise<ConfigResult> {
-  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json')
+function claudeSettingsPath(): string {
+  return path.join(os.homedir(), '.claude', 'settings.json')
+}
 
-  const requiredEnv: Record<string, string> = {
+/** The `"env"` keys TraceRoost's Claude Code setup writes, with their values. */
+function claudeCodeEnv(port: number): Record<string, string> {
+  return {
     CLAUDE_CODE_ENABLE_TELEMETRY: '1',
     CLAUDE_CODE_ENHANCED_TELEMETRY_BETA: '1',
     OTEL_TRACES_EXPORTER: 'otlp',
@@ -215,6 +284,14 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
     OTEL_LOG_TOOL_CONTENT: '1',
     OTEL_LOG_USER_PROMPTS: '1',
   }
+}
+
+export async function autoConfigureClaudeCode(port: number, mode: SetupMode = 'full'): Promise<ConfigResult> {
+  const settingsPath = claudeSettingsPath()
+
+  // 'maintain' writes only the endpoint, and only where TraceRoost's own already is.
+  const endpoint = `http://localhost:${port}`
+  const requiredEnv: Record<string, string> = mode === 'full' ? claudeCodeEnv(port) : {}
 
   const staleKeys = [
     'OTEL_EXPORTER_OTLP_TRACES_PROTOCOL',
@@ -261,10 +338,18 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
         changed = true
       }
     }
-    for (const key of staleKeys) {
-      if (key in existingEnv) {
-        delete existingEnv[key]
+    if (mode === 'maintain') {
+      const current = existingEnv.OTEL_EXPORTER_OTLP_ENDPOINT
+      if (isTraceRoostEndpoint(current) && current !== endpoint) {
+        existingEnv.OTEL_EXPORTER_OTLP_ENDPOINT = endpoint
         changed = true
+      }
+    } else {
+      for (const key of staleKeys) {
+        if (key in existingEnv) {
+          delete existingEnv[key]
+          changed = true
+        }
       }
     }
 
@@ -274,7 +359,7 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
       return { changed: false }
     }
 
-    settings.env = existingEnv
+    if (settings.env !== undefined || Object.keys(existingEnv).length > 0) settings.env = existingEnv
     await writeConfigFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', raw !== undefined)
 
     return { changed: true }
@@ -296,12 +381,21 @@ function vscodeUserSettingsPaths(): string[] {
   return VSCODE_FAMILY_IDE_NAMES.map(v => path.join(base, v, 'User', 'settings.json'))
 }
 
-export async function autoConfigureCopilotStandalone(port: number): Promise<ConfigResult[]> {
-  const required: Record<string, unknown> = {
+/** The Copilot settings TraceRoost's setup writes, with their values. */
+export function copilotSettings(port: number): Record<string, unknown> {
+  return {
     'github.copilot.chat.otel.enabled':      true,
     'github.copilot.chat.otel.exporterType': 'otlp-http',
     'github.copilot.chat.otel.otlpEndpoint': `http://localhost:${port}`,
   }
+}
+
+export const COPILOT_ENDPOINT_KEY = 'github.copilot.chat.otel.otlpEndpoint'
+
+const JSONC_FORMAT = { formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' } }
+
+export async function autoConfigureCopilotStandalone(port: number, mode: SetupMode = 'full'): Promise<ConfigResult[]> {
+  const required: Record<string, unknown> = mode === 'full' ? copilotSettings(port) : {}
 
   const results: ConfigResult[] = []
 
@@ -338,11 +432,15 @@ export async function autoConfigureCopilotStandalone(port: number): Promise<Conf
       for (const [key, value] of Object.entries(required)) {
         const current = settings[key]
         if (current !== value) {
-          text = applyEdits(text, modify(text, [key], value, {
-            formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' },
-          }))
+          text = applyEdits(text, modify(text, [key], value, JSONC_FORMAT))
           changed = true
         }
+      }
+      // 'maintain': only TraceRoost's own endpoint, and only when it is already there.
+      const endpoint = `http://localhost:${port}`
+      if (mode === 'maintain' && isTraceRoostEndpoint(ownEndpoint) && ownEndpoint !== endpoint) {
+        text = applyEdits(text, modify(text, [COPILOT_ENDPOINT_KEY], endpoint, JSONC_FORMAT))
+        changed = true
       }
 
       if (!changed) { results.push({ changed: false }); continue }

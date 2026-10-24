@@ -66,4 +66,20 @@ suite('autoConfigureCopilot', () => {
       assert.strictEqual(result.changed, false)
       assert.deepStrictEqual(writes, [], 'turning it on would send Copilot telemetry to their collector')
     }))
+
+  test("'maintain' moves only TraceRoost's endpoint and never switches telemetry back on", () =>
+    withConfig(COPILOT_DEFAULTS, {
+      'github.copilot.chat.otel.enabled': false,
+      'github.copilot.chat.otel.otlpEndpoint': 'http://localhost:4318',
+    }, async writes => {
+      assert.deepStrictEqual(await autoConfigureCopilot(4318, 'maintain'), { changed: false })
+      assert.deepStrictEqual(await autoConfigureCopilot(4320, 'maintain'), { changed: true })
+      assert.deepStrictEqual(writes, [['github.copilot.chat.otel.otlpEndpoint', 'http://localhost:4320']])
+    }))
+
+  test("'maintain' adds no endpoint that isn't there", () =>
+    withConfig(COPILOT_DEFAULTS, {}, async writes => {
+      assert.deepStrictEqual(await autoConfigureCopilot(4318, 'maintain'), { changed: false })
+      assert.deepStrictEqual(writes, [])
+    }))
 })

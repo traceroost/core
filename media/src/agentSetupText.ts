@@ -11,8 +11,8 @@ export const AGENT_SETUP_EXPLANATION =
   "(~/.codex/config.toml) and GitHub Copilot (your editor's settings) so they report each run — " +
   'including your prompts and tool output — to TraceRoost on this computer. Nothing is sent ' +
   'anywhere else, and a setting that already sends to a different collector is left alone. ' +
-  'After a yes, TraceRoost re-applies these settings each time it starts so they stay in place; ' +
-  'the first time it changes an existing Claude Code or Codex file, it saves the original beside ' +
+  'After a yes, later starts only keep the port in these settings current; a setting you remove ' +
+  'stays removed. The first time it changes an existing Claude Code or Codex file, it saves the original beside ' +
   "it as <file>.traceroost.bak. Not now? You can do it later from the dashboard's Settings panel."
 
 /** Shown when the user says no, so they skip setup knowing what it costs. */

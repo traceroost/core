@@ -7,7 +7,7 @@ import { detectPortOwner, serviceDashboardUrl } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
-import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult } from './autoConfig'
+import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult, type SetupMode } from './autoConfig'
 import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, leftAloneMessage, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
@@ -357,13 +357,15 @@ export async function activate(context: vscode.ExtensionContext) {
   // Only with the user's yes (src/agentSetupConsent.ts): asked once, remembered in
   // ~/.traceroost/config.json, shared with the background service.
   const log = (line: string) => outputChannel?.appendLine(line)
-  /** Sets every agent up for this port and says what changed. `fromCommand` is the Set Up Agents
-   *  command: it also reports when nothing needed changing, so running it is never silent. */
-  const runAgentSetup = async (fromCommand = false): Promise<void> => {
+  /** Sets every agent up for this port and says what changed. `mode` (src/autoConfigNode.ts):
+   *  'full' for a yes given now, 'maintain' on a later activation, which only keeps TraceRoost's
+   *  endpoint current. `fromCommand` is the Set Up Agents command: it also reports when nothing
+   *  needed changing, so running it is never silent. */
+  const runAgentSetup = async (mode: SetupMode, fromCommand = false): Promise<void> => {
     const [copilotResult, claudeResult, codexResult] = await Promise.all([
-      autoConfigureCopilot(port),
-      autoConfigureClaudeCode(port),
-      autoConfigureCodex(port),
+      autoConfigureCopilot(port, mode),
+      autoConfigureClaudeCode(port, mode),
+      autoConfigureCodex(port, mode),
     ])
 
     // A failed auto-config points at the complete manual settings (Help → Setup) instead of a
@@ -432,7 +434,7 @@ export async function activate(context: vscode.ExtensionContext) {
     )
     if (confirmed === undefined) return
     writeAgentSetupAnswer(confirmed === AGENT_SETUP_YES ? 'yes' : 'no')
-    if (confirmed === AGENT_SETUP_YES) await runAgentSetup()
+    if (confirmed === AGENT_SETUP_YES) await runAgentSetup('full')
   }
 
   // The way back in after "Skip setup", and a manual re-apply after a yes. Running the command is
@@ -448,14 +450,15 @@ export async function activate(context: vscode.ExtensionContext) {
         if (choice !== AGENT_SETUP_YES) return
       }
       writeAgentSetupAnswer('yes')
-      await runAgentSetup(true)
+      await runAgentSetup('full', true)
     }),
   )
 
   if (traceRoostCfg.get<boolean>('autoConfigureAgents', true)) {
     const answer = readAgentSetupAnswer()
     if (answer === 'yes') {
-      await runAgentSetup()
+      // Keeps the port current; never re-adds a setting the user removed.
+      await runAgentSetup('maintain')
     } else if (answer === undefined) {
       // Not awaited: activation carries on while the question waits.
       void askAgentSetup()

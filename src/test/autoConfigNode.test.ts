@@ -262,4 +262,86 @@ suite('autoConfigNode', () => {
       assert.deepStrictEqual(await autoConfigureCodex(4318), { changed: false })
     })
   })
+
+  // os.homedir() is the sandbox; vscodeUserSettingsPaths() resolves VS Code's settings under it
+  // on macOS and Linux (Windows reads APPDATA, so these skip there).
+  const vscodeSettings = () => process.platform === 'darwin'
+    ? path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json')
+    : path.join(home, '.config', 'Code', 'User', 'settings.json')
+  const write = (file: string, text: string) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text) }
+  const read = (file: string) => fs.readFileSync(file, 'utf-8')
+
+  // SetupMode 'maintain': every start after the yes. It keeps TraceRoost's endpoint current and
+  // nothing else — above all it never re-adds a setting the user took out.
+  suite("SetupMode 'maintain'", () => {
+    const claudePath = () => path.join(home, '.claude', 'settings.json')
+    const codexPath = () => path.join(home, '.codex', 'config.toml')
+
+    test('Claude Code: moves TraceRoost\'s endpoint to the new port and adds nothing back', async () => {
+      await autoConfigureClaudeCode(4318)
+      const settings = JSON.parse(read(claudePath()))
+      delete settings.env.OTEL_LOG_USER_PROMPTS
+      delete settings.env.OTEL_LOG_TOOL_CONTENT
+      write(claudePath(), JSON.stringify(settings, null, 2) + '\n')
+
+      assert.deepStrictEqual(await autoConfigureClaudeCode(4318, 'maintain'), { changed: false })
+      assert.deepStrictEqual(await autoConfigureClaudeCode(4320, 'maintain'), { changed: true })
+      const after = JSON.parse(read(claudePath()))
+      assert.strictEqual(after.env.OTEL_EXPORTER_OTLP_ENDPOINT, 'http://localhost:4320')
+      assert.strictEqual(after.env.OTEL_LOG_USER_PROMPTS, undefined, 'a deleted key stays deleted')
+      assert.strictEqual(after.env.OTEL_LOG_TOOL_CONTENT, undefined)
+      assert.deepStrictEqual(Object.keys(after.env), Object.keys(settings.env))
+    })
+
+    test('Claude Code: creates nothing and adds no missing keys', async () => {
+      assert.deepStrictEqual(await autoConfigureClaudeCode(4318, 'maintain'), { changed: false })
+      assert.ok(!fs.existsSync(claudePath()), 'no settings file is created')
+      const original = JSON.stringify({ model: 'opus', env: { CLAUDE_CODE_ENABLE_TELEMETRY: '1' } }, null, 2) + '\n'
+      write(claudePath(), original)
+      assert.deepStrictEqual(await autoConfigureClaudeCode(4318, 'maintain'), { changed: false })
+      assert.strictEqual(read(claudePath()), original)
+    })
+
+    test('Claude Code: leaves a loopback endpoint TraceRoost did not write alone', async () => {
+      const original = JSON.stringify({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4317' } }, null, 2) + '\n'
+      write(claudePath(), original)
+      assert.deepStrictEqual(await autoConfigureClaudeCode(4318, 'maintain'), { changed: false })
+      assert.strictEqual(read(claudePath()), original)
+    })
+
+    test('Codex: moves the port in place, keeping an auth header, and adds no log_user_prompt', async () => {
+      const withHeaders = 'exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = "json", headers = { "Authorization" = "Bearer t" } } }'
+      write(codexPath(), `model = "o3"\n\n[otel]\n${withHeaders}\n`)
+      assert.deepStrictEqual(await autoConfigureCodex(4321, 'maintain'), { changed: true })
+      assert.strictEqual(read(codexPath()), `model = "o3"\n\n[otel]\n${withHeaders.replace('4318', '4321')}\n`)
+    })
+
+    test('Codex: creates no file and no [otel] table', async () => {
+      assert.deepStrictEqual(await autoConfigureCodex(4318, 'maintain'), { changed: false })
+      assert.ok(!fs.existsSync(codexPath()))
+      write(codexPath(), 'model = "o3"\n')
+      assert.deepStrictEqual(await autoConfigureCodex(4318, 'maintain'), { changed: false })
+      assert.strictEqual(read(codexPath()), 'model = "o3"\n')
+    })
+
+    test('Codex: a trace_exporter the user removed stays removed', async () => {
+      await autoConfigureCodex(4318)
+      const without = read(codexPath()).split('\n').filter(l => !l.startsWith('trace_exporter')).join('\n')
+      write(codexPath(), without)
+      await autoConfigureCodex(4319, 'maintain')
+      const text = read(codexPath())
+      assert.ok(!text.includes('trace_exporter'), text)
+      assert.ok(text.includes('endpoint = "http://localhost:4319"'), text)
+    })
+
+    test('Copilot (settings files): moves only the endpoint', async function () {
+      if (process.platform === 'win32') { this.skip() }
+      const original = '{\n  // keep me\n  "github.copilot.chat.otel.otlpEndpoint": "http://localhost:4318",\n}\n'
+      write(vscodeSettings(), original)
+      assert.deepStrictEqual(await autoConfigureCopilotStandalone(4319, 'maintain'), [{ changed: true }])
+      const text = read(vscodeSettings())
+      assert.strictEqual(text, original.replace('4318', '4319'))
+      assert.ok(!text.includes('otel.enabled'), 'enabled is not added back')
+    })
+  })
 })

@@ -13,7 +13,7 @@ import * as path from 'path'
 import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
-import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
+import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone, type SetupMode } from '../src/autoConfigNode'
 import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, agentSetupWaitingLine, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer, type AgentSetupStep } from '../src/agentSetupConsent'
 import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
@@ -2306,7 +2306,8 @@ async function startOtlpServer(): Promise<void> {
     // Only with the user's yes, asked once (src/agentSetupConsent.ts).
     const answer = readAgentSetupAnswer()
     if (answer === 'yes') {
-      void runAgentSetup(bound)
+      // A start after the yes only keeps the port current; a setting the user removed stays removed.
+      void runAgentSetup(bound, 'maintain')
     } else if (answer === undefined) {
       if (process.env.TRACEROOST_SERVICE !== '1' && process.stdin.isTTY && process.stdout.isTTY) {
         askAgentSetupInTerminal(bound)
@@ -2318,13 +2319,14 @@ async function startOtlpServer(): Promise<void> {
   }
 }
 
-/** Points the coding agents at this collector (only ever after a yes) and logs what changed. */
-async function runAgentSetup(port: number): Promise<void> {
+/** Points the coding agents at this collector (only ever after a yes) and logs what changed.
+ *  `mode` (src/autoConfigNode.ts): 'full' for a yes given now, 'maintain' on a later start. */
+async function runAgentSetup(port: number, mode: SetupMode): Promise<void> {
   try {
     const [claudeResult, codexResult, copilotResults] = await Promise.all([
-      autoConfigureClaudeCode(port),
-      autoConfigureCodex(port),
-      autoConfigureCopilotStandalone(port),
+      autoConfigureClaudeCode(port, mode),
+      autoConfigureCodex(port, mode),
+      autoConfigureCopilotStandalone(port, mode),
     ])
     for (const { level, text } of autoConfigLogLines(claudeResult, codexResult, copilotResults)) console[level](text)
   } catch (e) {
@@ -2348,7 +2350,7 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
     console.log("[TraceRoost] Agents not set up — set them up from the dashboard's ⚙ Settings panel when you want to.")
     return Promise.resolve()
   }
-  return runAgentSetup(port)
+  return runAgentSetup(port, 'full')
 }
 
 /** The startup lines printed after the terminal question (the dashboard URL, the log-history

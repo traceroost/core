@@ -201,7 +201,7 @@
         "traceRoost.autoConfigureAgents": {
           "type": "boolean",
           "default": true,
-          "description": "Offer to set up Claude Code, Codex and GitHub Copilot to send their activity — including prompts and tool output — to TraceRoost on this computer. It asks once first; after a yes it keeps them pointed here each time it starts. Turn this off to leave agent settings alone on startup — you can still run TraceRoost: Set Up Agents… (or use the dashboard's ⚙ Settings panel) at any time."
+          "description": "Offer to set up Claude Code, Codex and GitHub Copilot to send their activity — including prompts and tool output — to TraceRoost on this computer. It asks first; after a yes, each start keeps TraceRoost's port in their settings current (it never re-adds a setting you removed). Turn this off to leave agent settings alone on startup — you can still run TraceRoost: Set Up Agents… (or use the dashboard's ⚙ Settings panel) at any time."
         },
         "traceRoost.enableOtelIngestion": {
           "type": "boolean",
