@@ -11,7 +11,8 @@
  *   - a terminal running `traceroost` or `traceroost service install`: a yes/no question;
  *   - the background service, which has no terminal: a dashboard banner (AgentSetupBanner).
  * Saying no asks once more, with what skipping costs (AGENT_SETUP_SKIP_*), before it is recorded.
- * The "Configure OTEL" button in Settings is itself a yes. Dismissing either question without
+ * The "Configure OTEL" button in the dashboard's Settings panel, and VS Code's "TraceRoost: Set Up
+ * Agents…" command, are themselves a yes. Dismissing either question without
  * answering records nothing, so it is asked again next time.
  */
 

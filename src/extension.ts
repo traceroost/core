@@ -1,4 +1,5 @@
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import * as vscode from 'vscode'
 import { OtlpCollector } from './otlpCollector'
@@ -95,6 +96,7 @@ function readLastWriteMs(storageUri: vscode.Uri): number {
 }
 
 const SETUP_HELP_BUTTON = 'Open Setup Help'
+const SHOW_LOG_BUTTON = 'Show Log'
 const AGENT_SETUP_YES = 'Set up agents'
 const AGENT_SETUP_NO = 'Not now'
 const AGENT_SETUP_SKIP = 'Skip setup'
@@ -104,6 +106,26 @@ function openSetupHelp(): void {
   void vscode.commands.executeCommand('traceRoost.openDashboard')
   // Same delay the deep-link handlers use, so a panel opened just now has its webview listening.
   setTimeout(() => DashboardPanel.switchToTab('help', 'help-config'), 250)
+}
+
+/** Reveals the TraceRoost output channel — the "Show Log" button on errors that say more there. */
+function showLog(): void {
+  outputChannel?.show(true)
+}
+
+/** The file each agent's setup edits, as named to the user and as opened by "Show Changes".
+ *  Copilot's settings live in VS Code's own user settings (written through the settings API). */
+function agentConfigFiles(): Record<'copilot' | 'claude' | 'codex', { label: string; open: () => Thenable<unknown> }> {
+  const home = os.homedir()
+  const claudePath = path.join(home, '.claude', 'settings.json')
+  const codexPath = path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'config.toml')
+  const tilde = (p: string) => p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p
+  const openFile = (p: string) => vscode.window.showTextDocument(vscode.Uri.file(p), { preview: false })
+  return {
+    copilot: { label: 'your VS Code user settings', open: () => vscode.commands.executeCommand('workbench.action.openSettingsJson') },
+    claude: { label: tilde(claudePath), open: () => openFile(claudePath) },
+    codex: { label: tilde(codexPath), open: () => openFile(codexPath) },
+  }
 }
 
 // ── Activate ─────────────────────────────────────────────────────────────────
@@ -302,7 +324,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // Only with the user's yes (src/agentSetupConsent.ts): asked once, remembered in
   // ~/.traceroost/config.json, shared with the background service.
   const log = (line: string) => outputChannel?.appendLine(line)
-  const runAgentSetup = async (): Promise<void> => {
+  /** Sets every agent up for this port and says what changed. `fromCommand` is the Set Up Agents
+   *  command: it also reports when nothing needed changing, so running it is never silent. */
+  const runAgentSetup = async (fromCommand = false): Promise<void> => {
     const [copilotResult, claudeResult, codexResult] = await Promise.all([
       autoConfigureCopilot(port),
       autoConfigureClaudeCode(port),
@@ -312,19 +336,24 @@ export async function activate(context: vscode.ExtensionContext) {
     // A failed auto-config points at the complete manual settings (Help → Setup) instead of a
     // partial snippet — each agent needs several keys (Claude Code: eight env vars; Codex: both
     // exporters with protocol = "json"), which don't fit in a toast.
-    const codexConfigPath = path.join(process.env.CODEX_HOME || '~/.codex', 'config.toml')
+    const files = agentConfigFiles()
     const failures: Array<[string, ConfigResult, string]> = [
-      ['Copilot', copilotResult, 'your VS Code user settings'],
-      ['Claude Code', claudeResult, '~/.claude/settings.json'],
-      ['Codex', codexResult, codexConfigPath],
+      ['Copilot', copilotResult, files.copilot.label],
+      ['Claude Code', claudeResult, files.claude.label],
+      ['Codex', codexResult, files.codex.label],
     ]
+    let failed = 0
     for (const [agent, result, file] of failures) {
       if (!result.error) continue
+      failed++
       log(`Auto-configure ${agent} failed: ${result.error}`)
       void vscode.window.showWarningMessage(
-        `TraceRoost: Could not auto-configure ${agent} OTEL in ${file} (details in the TraceRoost output channel). Help → Setup lists every setting to add by hand.`,
-        SETUP_HELP_BUTTON,
-      ).then(choice => { if (choice === SETUP_HELP_BUTTON) openSetupHelp() })
+        `TraceRoost: Could not set up ${agent} in ${file}. Help → Setup lists every setting to add by hand.`,
+        SETUP_HELP_BUTTON, SHOW_LOG_BUTTON,
+      ).then(choice => {
+        if (choice === SETUP_HELP_BUTTON) openSetupHelp()
+        else if (choice === SHOW_LOG_BUTTON) showLog()
+      })
     }
 
     // A file left alone on purpose (it exports to the user's own collector) — log why.
@@ -336,31 +365,56 @@ export async function activate(context: vscode.ExtensionContext) {
     if (copilotResult.changed) configuredAgents.push('Copilot')
     if (claudeResult.changed) configuredAgents.push('Claude Code')
     if (codexResult.changed) configuredAgents.push('Codex')
-    if (configuredAgents.length > 0) log(`Auto-configured OTEL telemetry for: ${configuredAgents.join(', ')}`)
+    if (configuredAgents.length > 0) log(`Auto-configured OTel telemetry for: ${configuredAgents.join(', ')}`)
+    if (fromCommand && configuredAgents.length === 0 && failed === 0) {
+      void vscode.window.showInformationMessage(`TraceRoost: your agents are already set up to send traces to port ${port}. Nothing needed changing.`)
+      return
+    }
     void notifySetupRequired(context, copilotResult.changed, claudeResult.changed, codexResult.changed)
   }
+
+  /** The VS Code activation question (asked when there's no stored answer yet). Closing the
+   *  notification without choosing records nothing, so it is asked again next time. */
+  const askAgentSetup = async (): Promise<void> => {
+    const choice = await vscode.window.showInformationMessage(
+      `TraceRoost: ${AGENT_SETUP_QUESTION} ${AGENT_SETUP_EXPLANATION}`,
+      AGENT_SETUP_YES, AGENT_SETUP_NO,
+    )
+    if (choice === undefined) return
+    // A no is asked once more, with what skipping costs, before it is recorded.
+    const confirmed = choice === AGENT_SETUP_YES ? AGENT_SETUP_YES : await vscode.window.showWarningMessage(
+      `TraceRoost: ${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`,
+      AGENT_SETUP_SKIP, AGENT_SETUP_YES,
+    )
+    if (confirmed === undefined) return
+    writeAgentSetupAnswer(confirmed === AGENT_SETUP_YES ? 'yes' : 'no')
+    if (confirmed === AGENT_SETUP_YES) await runAgentSetup()
+  }
+
+  // The way back in after "Skip setup", and a manual re-apply after a yes. Running the command is
+  // itself the yes — like the dashboard's Settings button (src/agentSetupConsent.ts). Only someone
+  // who hasn't answered yet is shown what setup does first. It ignores traceRoost.autoConfigureAgents,
+  // which governs only what happens on activation.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('traceRoost.setUpAgents', async () => {
+      if (readAgentSetupAnswer() === undefined) {
+        const choice = await vscode.window.showInformationMessage(
+          AGENT_SETUP_QUESTION, { modal: true, detail: AGENT_SETUP_EXPLANATION }, AGENT_SETUP_YES,
+        )
+        if (choice !== AGENT_SETUP_YES) return
+      }
+      writeAgentSetupAnswer('yes')
+      await runAgentSetup(true)
+    }),
+  )
 
   if (traceRoostCfg.get<boolean>('autoConfigureAgents', true)) {
     const answer = readAgentSetupAnswer()
     if (answer === 'yes') {
       await runAgentSetup()
     } else if (answer === undefined) {
-      // Not awaited: activation carries on while the question waits. Closing the notification
-      // without choosing records nothing, so it is asked again next time.
-      void vscode.window.showInformationMessage(
-        `TraceRoost: ${AGENT_SETUP_QUESTION} ${AGENT_SETUP_EXPLANATION}`,
-        AGENT_SETUP_YES, AGENT_SETUP_NO,
-      ).then(async choice => {
-        if (choice === undefined) return
-        // A no is asked once more, with what skipping costs, before it is recorded.
-        const confirmed = choice === AGENT_SETUP_YES ? AGENT_SETUP_YES : await vscode.window.showWarningMessage(
-          `TraceRoost: ${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`,
-          AGENT_SETUP_SKIP, AGENT_SETUP_YES,
-        )
-        if (confirmed === undefined) return
-        writeAgentSetupAnswer(confirmed === AGENT_SETUP_YES ? 'yes' : 'no')
-        if (confirmed === AGENT_SETUP_YES) await runAgentSetup()
-      })
+      // Not awaited: activation carries on while the question waits.
+      void askAgentSetup()
     }
   }
 
@@ -1325,17 +1379,30 @@ async function notifySetupRequired(
     context.globalState.update('traceRoost.installedVersion', context.extension.packageJSON.version)
   }
 
-  const parts: string[] = []
-  if (copilotChanged) { parts.push('Reload VS Code to activate Copilot tracing.') }
-  const cliAgents = [claudeChanged && 'Claude', codexChanged && 'Codex'].filter(Boolean).join(' and ')
-  if (cliAgents) { parts.push(`Restart ${cliAgents} in your terminal to activate CLI tracing.`) }
+  const files = agentConfigFiles()
+  const changed = [
+    copilotChanged && { agent: 'Copilot', ...files.copilot },
+    claudeChanged && { agent: 'Claude Code', ...files.claude },
+    codexChanged && { agent: 'Codex', ...files.codex },
+  ].filter((c): c is { agent: string; label: string; open: () => Thenable<unknown> } => !!c)
 
-  const message = `TraceRoost: Telemetry configured. ${parts.join(' ')}`
-  const actions = copilotChanged ? ['Reload VS Code'] : []
+  const parts: string[] = []
+  if (copilotChanged) { parts.push('Reload VS Code to start tracing Copilot.') }
+  const cliAgents = [claudeChanged && 'Claude Code', codexChanged && 'Codex'].filter(Boolean).join(' and ')
+  if (cliAgents) { parts.push(`Restart ${cliAgents} in your terminal to start tracing ${claudeChanged && codexChanged ? 'them' : 'it'}.`) }
+
+  const updated = changed.map(c => `${c.agent} (${c.label})`).join(', ')
+  const message = `TraceRoost: Set up ${updated}. ${parts.join(' ')}`
+  const SHOW_CHANGES = 'Show Changes'
+  const actions = copilotChanged ? ['Reload VS Code', SHOW_CHANGES] : [SHOW_CHANGES]
 
   const action = await vscode.window.showInformationMessage(message, ...actions)
   if (action === 'Reload VS Code') {
     vscode.commands.executeCommand('workbench.action.reloadWindow')
+  } else if (action === SHOW_CHANGES) {
+    for (const c of changed) {
+      try { await c.open() } catch (err) { outputChannel?.appendLine(`Could not open ${c.label}: ${err}`) }
+    }
   }
 }
 
