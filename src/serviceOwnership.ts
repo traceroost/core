@@ -16,13 +16,17 @@
  *   - it holds the data-dir lock (`<dataDir>/server.lock`, standalone/dataDirLock.ts) on this host
  *     with a live pid, and its recorded OTLP port answers that same identity probe. This catches a
  *     server that fell back to another port, which the extension's own bind would never notice.
+ * Either way only a server whose identity reply says `managesAgentSetup: true` takes over. A
+ * Docker container publishing 4318 answers the probe too, but the agent settings it can reach are
+ * the container's own: it says false, and the extension keeps setting up this machine's agents
+ * (pointed at that port, where the container receives them) as it did before.
  */
 
 import * as fs from 'fs'
 import * as http from 'http'
 import * as os from 'os'
 import * as path from 'path'
-import { detectPortOwner, serviceDashboardUrl } from './portResolver'
+import { serviceDashboardUrl, standaloneIdentity } from './portResolver'
 import { readServiceConfig } from './serviceConfig'
 
 /** The data-dir lock's file name — standalone/dataDirLock.ts re-exports it as LOCK_FILENAME. */
@@ -64,33 +68,42 @@ export interface AgentSetupOwnerInput {
   extensionPort: number
   /** Who holds that port when the extension's own collector couldn't bind it (collectorConflict). */
   portOwner?: 'plugin' | 'standalone' | 'foreign'
+  /** Whether that standalone server says it manages agent setup (serviceManagesAgentSetup). */
+  portOwnerManagesSetup: boolean
   /** The data dir's lock, if any. */
   lock?: ServerLockSnapshot
-  /** Whether `lock.otlpPort` answered the standalone identity probe. */
-  lockPortIsStandalone: boolean
+  /** Whether `lock.otlpPort` answered the standalone identity probe saying it manages agent setup. */
+  lockPortManagesSetup: boolean
   hostname: string
   isPidAlive: (pid: number) => boolean
 }
 
 /** Pure: which host sets agents up. See the file comment for the rules. */
 export function decideAgentSetupOwner(input: AgentSetupOwnerInput): AgentSetupOwner {
-  if (input.portOwner === 'standalone') return { owner: 'service', otlpPort: input.extensionPort }
+  if (input.portOwner === 'standalone' && input.portOwnerManagesSetup) return { owner: 'service', otlpPort: input.extensionPort }
   const lock = input.lock
   if (lock && lock.hostname.toLowerCase() === input.hostname.toLowerCase() && input.isPidAlive(lock.pid)
-    && typeof lock.otlpPort === 'number' && input.lockPortIsStandalone) {
+    && typeof lock.otlpPort === 'number' && input.lockPortManagesSetup) {
     return { owner: 'service', otlpPort: lock.otlpPort }
   }
   return { owner: 'extension' }
+}
+
+/** True when a standalone server answers on `port` and says it sets this machine's agents up. */
+export async function serviceManagesAgentSetup(port: number): Promise<boolean> {
+  const identity = await standaloneIdentity(port)
+  return identity?.kind === 'standalone' && identity.managesAgentSetup === true
 }
 
 /** Reads the lock and probes its port, then decides (decideAgentSetupOwner). Cheap when no
  *  server runs: no lock, no probe. */
 export async function detectAgentSetupOwner(extensionPort: number, portOwner?: 'plugin' | 'standalone' | 'foreign', baseHome?: string): Promise<AgentSetupOwner> {
   const hostname = os.hostname()
-  const lock = portOwner === 'standalone' ? undefined : readServerLock(readServiceConfig(baseHome).dataDir)
+  const portOwnerManagesSetup = portOwner === 'standalone' && await serviceManagesAgentSetup(extensionPort)
+  const lock = portOwnerManagesSetup ? undefined : readServerLock(readServiceConfig(baseHome).dataDir)
   const live = !!lock && lock.hostname.toLowerCase() === hostname.toLowerCase() && isPidAlive(lock.pid) && typeof lock.otlpPort === 'number'
-  const lockPortIsStandalone = live && (await detectPortOwner(lock!.otlpPort!)) === 'standalone'
-  return decideAgentSetupOwner({ extensionPort, portOwner, lock, lockPortIsStandalone, hostname, isPidAlive })
+  const lockPortManagesSetup = live && await serviceManagesAgentSetup(lock!.otlpPort!)
+  return decideAgentSetupOwner({ extensionPort, portOwner, portOwnerManagesSetup, lock, lockPortManagesSetup, hostname, isPidAlive })
 }
 
 /**

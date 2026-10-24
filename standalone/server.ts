@@ -1806,16 +1806,16 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
           res.end(JSON.stringify(result))
           return
         } else if (body.type === 'reconfigureOtel') {
-          if (AUTOCONFIG_DISABLED) {
+          if (AUTOCONFIG_DISABLED || IS_DOCKER) {
             res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: 'Auto-configure is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
+            res.end(JSON.stringify({ error: IS_DOCKER
+              ? "Running in Docker: TraceRoost can't reach your host's agent settings from here. Help → Setup lists the settings to add on your computer."
+              : 'Auto-configure is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
             return
           }
           // Pressing Set up agents is the user's yes (src/agentSetupConsent.ts).
-          if (!IS_DOCKER) {
-            writeAgentSetupAnswer('yes')
-            if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
-          }
+          writeAgentSetupAnswer('yes')
+          if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
           const [claudeCode, codex, copilotResults] = await Promise.all([
             autoConfigureClaudeCode(resolvedPorts.otlp ?? OTLP_PORT),
             autoConfigureCodex(resolvedPorts.otlp ?? OTLP_PORT),
@@ -2216,7 +2216,9 @@ const otlpServer = http.createServer((req, res) => {
   // server already running before starting its own collector) — same reasoning as /health above.
   if (req.method === 'GET' && req.url === '/traceroost/standalone') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ traceroost: true, kind: 'standalone' }))
+    // managesAgentSetup: whether this server sets up this machine's agents, so a VS Code window
+    // leaves them to it (src/serviceOwnership.ts). Not in Docker, whose files are the container's.
+    res.end(JSON.stringify({ traceroost: true, kind: 'standalone', managesAgentSetup: !IS_DOCKER, docker: IS_DOCKER }))
     return
   }
   if (REQUIRE_TOKEN_EVERYWHERE && !isAuthorized(req, AUTH_TOKEN)) {

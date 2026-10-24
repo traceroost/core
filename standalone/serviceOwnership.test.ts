@@ -9,10 +9,10 @@ import { defaultServiceConfig, writeServiceConfig } from '../src/serviceConfig'
 
 /** A stand-in for a standalone server: `/traceroost/standalone` (the OTLP identity probe),
  *  `/health`, and `POST /action`, which records what it was sent. */
-function fakeServer(reply: (body: unknown) => unknown = () => ({ ok: true })): Promise<{ port: number; posts: Array<{ body: unknown; headers: http.IncomingHttpHeaders }>; close: () => Promise<void> }> {
+function fakeServer(reply: (body: unknown) => unknown = () => ({ ok: true }), identity: Record<string, unknown> = { managesAgentSetup: true }): Promise<{ port: number; posts: Array<{ body: unknown; headers: http.IncomingHttpHeaders }>; close: () => Promise<void> }> {
   const posts: Array<{ body: unknown; headers: http.IncomingHttpHeaders }> = []
   const server = http.createServer((req, res) => {
-    if (req.url === '/traceroost/standalone') { res.end(JSON.stringify({ traceroost: true, kind: 'standalone' })); return }
+    if (req.url === '/traceroost/standalone') { res.end(JSON.stringify({ traceroost: true, kind: 'standalone', ...identity })); return }
     if (req.url === '/health') { res.end(JSON.stringify({ status: 'ok' })); return }
     if (req.method === 'POST' && req.url === '/action') {
       const chunks: Buffer[] = []
@@ -35,7 +35,7 @@ function fakeServer(reply: (body: unknown) => unknown = () => ({ ok: true })): P
 
 suite('serviceOwnership — the background service always wins', () => {
   const base: AgentSetupOwnerInput = {
-    extensionPort: 4318, lockPortIsStandalone: true, hostname: 'mac', isPidAlive: () => true,
+    extensionPort: 4318, portOwnerManagesSetup: true, lockPortManagesSetup: true, hostname: 'mac', isPidAlive: () => true,
   }
   const lock = { pid: 42, hostname: 'mac', service: true, uiPort: 3000, otlpPort: 4319 }
 
@@ -60,7 +60,13 @@ suite('serviceOwnership — the background service always wins', () => {
     assert.deepStrictEqual(decideAgentSetupOwner({ ...base, lock, isPidAlive: () => false }), ext, 'a crashed server\'s leftover lock')
     assert.deepStrictEqual(decideAgentSetupOwner({ ...base, lock: { ...lock, hostname: 'other' } }), ext, 'a server on another host')
     assert.deepStrictEqual(decideAgentSetupOwner({ ...base, lock: { ...lock, otlpPort: undefined } }), ext, 'still binding its ports')
-    assert.deepStrictEqual(decideAgentSetupOwner({ ...base, lock, lockPortIsStandalone: false }), ext, 'its port now belongs to something else')
+    assert.deepStrictEqual(decideAgentSetupOwner({ ...base, lock, lockPortManagesSetup: false }), ext, 'its port now belongs to something else')
+  })
+
+  test('a standalone server that doesn\'t manage agent setup (Docker) never takes over', () => {
+    assert.deepStrictEqual(decideAgentSetupOwner({ ...base, portOwner: 'standalone', portOwnerManagesSetup: false, lockPortManagesSetup: false }), { owner: 'extension' })
+    assert.deepStrictEqual(decideAgentSetupOwner({ ...base, portOwner: 'standalone', portOwnerManagesSetup: false, lock }), { owner: 'service', otlpPort: 4319 },
+      'a host service on another port still does')
   })
 
   suite('against a real lock and a listening server', () => {
@@ -96,6 +102,19 @@ suite('serviceOwnership — the background service always wins', () => {
         await srv.close()
         assert.deepStrictEqual(await detectAgentSetupOwner(4318, undefined, home), { owner: 'extension' })
       } finally { acquired.lock.release() }
+    })
+
+    test('a Docker container answering on the extension\'s port: the extension keeps setting agents up', async () => {
+      const docker = await fakeServer(undefined, { managesAgentSetup: false, docker: true })
+      const older = await fakeServer(undefined, {})
+      try {
+        assert.deepStrictEqual(await detectAgentSetupOwner(docker.port, 'standalone', home), { owner: 'extension' })
+        assert.deepStrictEqual(await detectAgentSetupOwner(older.port, 'standalone', home), { owner: 'extension' }, 'a server that doesn\'t say')
+        const host = await fakeServer()
+        try {
+          assert.deepStrictEqual(await detectAgentSetupOwner(host.port, 'standalone', home), { owner: 'service', otlpPort: host.port })
+        } finally { await host.close() }
+      } finally { await docker.close(); await older.close() }
     })
 
     test('actions go to the service\'s dashboard, with no token on loopback', async () => {
