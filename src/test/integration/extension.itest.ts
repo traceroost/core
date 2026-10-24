@@ -129,7 +129,7 @@ suite('TraceRoost extension (end to end)', () => {
   test('storage stats and export work against the real storage directory', async () => {
     await vscode.commands.executeCommand('traceRoost.showStorageStats')
     const stats = await waitFor('storage stats in the Output channel', () => {
-      const m = /Database:\s+[\d.]+ MB\s+\((\d+) sessions/.exec(outputChannelText(cfg))
+      const m = /Database:\s+[\d.]+ MB\s+\((\d+) traces/.exec(outputChannelText(cfg))
       return m ? m : undefined
     }, 20_000)
     assert.ok(Number(stats[1]) >= 1, `storage stats count the session (${stats[0]})`)

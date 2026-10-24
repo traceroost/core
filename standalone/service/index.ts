@@ -164,7 +164,7 @@ Commands:
   status            Check whether the service is running and reachable.
   logs [--follow]   Print (or tail) the service's log file.
 
-If TraceRoost isn't running, incoming OTEL data has nowhere to go and is lost —
+If TraceRoost isn't running, incoming OTel data has nowhere to go and is lost —
 agents don't queue or retry failed exports. Running as a background service
 avoids gaps in your trace history from forgetting to start it, closing the
 terminal, or a reboot.`)

@@ -78,7 +78,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
         }, 300)
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(
-          'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
+          'Clear all TraceRoost data? OTel trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
           { modal: true },
           'Clear All'
         )

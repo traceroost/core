@@ -178,7 +178,7 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     store = new SessionStore(context)
   } catch (err) {
-    outputChannel.appendLine(`Failed to initialize session store: ${err}`)
+    outputChannel.appendLine(`Failed to initialize the trace store: ${err}`)
     void vscode.window.showErrorMessage('TraceRoost: Failed to initialize the trace store.', SHOW_LOG_BUTTON)
       .then(choice => { if (choice === SHOW_LOG_BUTTON) showLog() })
     return
@@ -293,7 +293,7 @@ export async function activate(context: vscode.ExtensionContext) {
         collectorConflict = { owner, port, extensionId: context.extension.id }
         outputChannel.appendLine(
           `Not receiving OTel — the background service already holds port ${port}.\n` +
-          `  - New sessions here come from log files only (no prompt/tool content).\n` +
+          `  - New traces here come from log files only (no prompt/tool content).\n` +
           `  - Run TraceRoost one way per machine — background service, VS Code extension, or Docker. ` +
           `Recommended: the background service — it starts at login and keeps capturing OTel even when ` +
           `VS Code is closed, so nothing gets missed. Install with \`npx traceroost@latest service install\` ` +
@@ -873,7 +873,7 @@ export async function activate(context: vscode.ExtensionContext) {
         : 'no traces'
       const retentionDays = vscode.workspace.getConfiguration('traceRoost').get<number>('sessionRetentionDays', 90)
       const msg = [
-        `Database:  ${toMb(dbBytes)} MB  (${lifetime.totalSessions} sessions, ${dateRange})`,
+        `Database:  ${toMb(dbBytes)} MB  (${lifetime.totalSessions} traces, ${dateRange})`,
         `Blobs:     ${toMb(blobBytes)} MB  (${blobCount} files)`,
         `Total:     ${toMb(dbBytes + blobBytes)} MB`,
         `Retention: ${retentionDays} days`,

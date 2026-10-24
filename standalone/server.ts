@@ -564,7 +564,7 @@ function checkStaleOtelSessions() {
     void forward.then(r => {
       otelForwardGate.settle(card, r.enqueued || (r.reason !== 'error' && r.reason !== 'not-linked'))
       if (r.enqueued) cloud.drainUploadsSoon()
-    }, e => { otelForwardGate.settle(card, false); forwardFailed('OTEL trace forward')(e) })
+    }, e => { otelForwardGate.settle(card, false); forwardFailed('OTel trace forward')(e) })
   }
 }
 

@@ -439,7 +439,7 @@ function detectGit(): void {
   execFile('git', ['--version'], { timeout: 5_000 }, err => {
     gitAvailable = !err
     if (!gitAvailable) {
-      log.write('[desktop] git was not found on PATH — sessions are still recorded, but commit outcomes are unavailable until Git is installed')
+      log.write('[desktop] git was not found on PATH — traces are still recorded, but commit outcomes are unavailable until Git is installed')
     }
     refreshTray()
   })
