@@ -88,7 +88,7 @@
       },
       {
         "command": "traceRoost.dumpSpanAttrs",
-        "title": "TraceRoost: Dump Span Attributes"
+        "title": "TraceRoost: Dump Span Attributes (debug)"
       },
       {
         "command": "traceRoost.showStorageStats",
@@ -116,6 +116,10 @@
         {
           "command": "traceRoost.clearSessions",
           "when": "false"
+        },
+        {
+          "command": "traceRoost.dumpSpanAttrs",
+          "when": "traceRoost.debugCommands"
         }
       ],
       "view/title": [

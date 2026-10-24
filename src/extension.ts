@@ -36,6 +36,7 @@ import { matchesTraceId } from './traceIdentity'
 import { TraceHorizon } from './traceHorizon'
 import { HistoryReadiness } from './historyReadiness'
 import { decidePipeline } from './ownerGate'
+import { logLevel } from './logLevel'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -897,6 +898,11 @@ export async function activate(context: vscode.ExtensionContext) {
   if (process.env.TRACEROOST_EDITION !== 'core') registerOrgCommands(context)
   registerUriHandler(context, repo)
 
+  // Dump Span Attributes is listed in the Command Palette only at debug log level
+  // (TRACEROOST_LOG_LEVEL=debug, src/logLevel.ts) or when running from source — package.json's
+  // commandPalette `when` reads this key. It stays callable either way (the integration tests).
+  void vscode.commands.executeCommand('setContext', 'traceRoost.debugCommands',
+    logLevel() === 'debug' || context.extensionMode === vscode.ExtensionMode.Development)
   context.subscriptions.push(
     vscode.commands.registerCommand('traceRoost.dumpSpanAttrs', () => {
       const spans = store!.getSpans()

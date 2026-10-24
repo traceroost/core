@@ -827,7 +827,7 @@ Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for
 | `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The **Export** dashboard tab exports per-trace summaries instead |
 | `TraceRoost: Export Live OTel Spans, Redacted (debug)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
 | `TraceRoost: Show Storage Stats` | Report local database size, blob storage size, trace count, date range, and current retention setting to the Output panel |
-| `TraceRoost: Dump Span Attributes` | Debugging aid: print the span names and attributes in the live window (one example per Codex span type, the last few Claude spans) to the Output panel |
+| `TraceRoost: Dump Span Attributes (debug)` | Debugging aid: print the span names and attributes in the live window (one example per Codex span type, the last few Claude spans) to the Output panel. Listed in the Command Palette only when VS Code was started with `TRACEROOST_LOG_LEVEL=debug` |
 
 The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Machine to an Org (Cloud)`, `TraceRoost: Org Link Status (Cloud)` and `TraceRoost: Unlink (Cloud)`; released builds are the core edition and don't include them.
 
