@@ -1,6 +1,19 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { formatTraceIdHash } from '../../media/src/hash'
 import { sessions } from './fixtures'
+
+/** Prompt, Language, Repo, Outcome, Source and From sit in the filter bar's Filters popover
+ *  (App.tsx's FiltersControl). */
+async function openFilters(page: Page) {
+  await page.getByRole('button', { name: /^Filters/ }).click()
+  await expect(page.getByRole('dialog', { name: 'Filters' })).toBeVisible()
+  // Focus moving in means the popover is ready for keys (Escape).
+  await expect(page.getByRole('button', { name: 'Close filters' })).toBeFocused()
+}
+async function closeFilters(page: Page) {
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Filters' })).toHaveCount(0)
+}
 
 /**
  * Exercises the shipped dashboard bundle (media/src/dashboard.tsx) against synthetic fixture
@@ -26,12 +39,13 @@ test('renders, searches, filters, and sorts traces without layout jitter or over
   )
   await page.locator('#sessions-content tbody tr').first().waitFor()
 
-  // The Traces tab search field (#tr-filter-prompt) matches prompt text, the raw Trace ID, and
+  // The Traces tab search field (#tr-filter-prompt, in the Filters popover) matches prompt text, the raw Trace ID, and
   // the normalized display hash shown/copied from a trace's expanded detail — a pasted value
   // from any of those three should find the trace (media/src/state.ts, hash.ts). Runs before the
   // geometry watch below: collapsing to a single matching row is a legitimate, large reflow (not
   // animation jitter) that the stationary-elements check isn't meant to catch.
   const searchInput = () => page.getByPlaceholder('Text or Trace ID')
+  await openFilters(page)
   await searchInput().fill('Task 01')
   await expect(page.locator('#sessions-content tbody tr')).toHaveCount(1)
 
@@ -45,6 +59,7 @@ test('renders, searches, filters, and sorts traces without layout jitter or over
   await expect(page.locator('#sessions-content tbody')).toContainText(/No traces match/)
 
   await searchInput().fill('')
+  await closeFilters(page)
   await page.locator('#sessions-content tbody tr').first().waitFor()
   await page.screenshot({
     path: testInfo.outputPath('traces.png'),
@@ -65,13 +80,15 @@ test('renders, searches, filters, and sorts traces without layout jitter or over
   // TimeRangeMenu) is excluded for the same reason: it only exists while a user has it open, and
   // this test opens it to click "24h"/"All" below — real, expected motion, not jank. The
   // popover's own fixed-width trigger (.time-range-bar summary) is still tracked, since that one
-  // really must stay put regardless of which range is selected.
+  // really must stay put regardless of which range is selected. The same goes for the Filters
+  // popover (.tr-filters-popover) and its fixed-width trigger (.tr-filters-btn); the active-filter
+  // chips after it come and go with the filters, so they aren't tracked either.
   await page.evaluate(() => {
     const elements = [
       ...document.querySelectorAll(
-        '.tabs, .time-range-bar, .search-filter-controls, #sessions-content th, .time-range-bar summary, .time-range-bar button, .search-filter-controls button, .search-filter-controls input, .search-filter-controls select',
+        '.tabs, .time-range-bar, #sessions-content th, .time-range-bar summary, .time-range-bar button',
       ),
-    ].filter((el) => !el.closest('.tr-trailing-controls') && !el.closest('.tr-time-popover'))
+    ].filter((el) => !el.closest('.tr-trailing-controls') && !el.closest('.tr-time-popover') && !el.closest('.tr-filters-popover') && !el.closest('.tr-filter-chip'))
     function rect(el: Element) {
       const box = el.getBoundingClientRect().toJSON()
       // User-initiated scrolling to reach offscreen controls is intentional. Compare content
@@ -116,6 +133,7 @@ test('renders, searches, filters, and sorts traces without layout jitter or over
       .click()
     await page.waitForTimeout(100)
   }
+  await openFilters(page)
   for (const title of [
     'Log-file traces only',
     'Show all data sources',
@@ -137,6 +155,7 @@ test('renders, searches, filters, and sorts traces without layout jitter or over
   await expect(page.locator('#sessions-content tbody tr').first()).toBeVisible()
 
   await page.getByLabel('Repo', { exact: true }).fill('')
+  await closeFilters(page)
 
   // Time presets moved into a popover (TimeRangeMenu, App.tsx) so a custom range never widens the
   // filter bar — open its <summary> trigger before each preset click, since choosing one closes

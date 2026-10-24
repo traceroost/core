@@ -339,6 +339,11 @@ export const configOpen = signal(false)
 export type AlertsPanelTab = 'active' | 'configure' | 'automation'
 export const alertsOpen = signal(false)
 export const alertsPanelTab = signal<AlertsPanelTab>('active')
+// The filter bar's "Filters (n)" popover (App.tsx's FiltersControl), and a field inside it to
+// focus when it opens — set by a caller that sends the user to one filter (the Advisor's "Choose
+// repo"), cleared once used.
+export const filtersOpen = signal(false)
+export const filtersFocusField = signal<string | null>(null)
 
 // ── Ingestion settings ────────────────────────────────────────────────────────
 

@@ -15,7 +15,7 @@ import {
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending,
   getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp,
-  configOpen, alertsOpen,
+  configOpen, alertsOpen, filtersOpen, filtersFocusField,
 } from './state'
 import { useDialog } from './a11y'
 import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
@@ -197,7 +197,7 @@ function IconGear() {
 }
 
 // Fixed 12x12 so a status icon appearing/disappearing next to it never reflows neighboring
-// controls — used by OutcomeFilterBar while git outcomes are still resolving.
+// controls — used beside the Filters button while git outcomes are still resolving.
 function IconSpinner() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="display:block;animation:tr-spin 0.8s linear infinite">
@@ -652,7 +652,7 @@ export function App() {
           sessionRev = msg.rev
         }
         // Warm the git-outcome cache in the background as soon as sessions load, rather than
-        // waiting for the Outcome filter to be engaged (OutcomeFilterBar below) or the Outcome
+        // waiting for the Outcome filter to be engaged (useOutcomeResolution below) or the Outcome
         // column to scroll into view (Sessions.tsx). Both of those still fire their own request
         // on top of this — requestGitOutcomesFor already skips anything already resolved or
         // in flight, so that's a cheap no-op once this has run. This is what makes turning the
@@ -863,7 +863,6 @@ export function App() {
       <LogIngestBanner />
       {showFilterBars && <TimeRangePicker />}
       {showFilterBars && <SearchFilterBar />}
-      {showFilterBars && <OutcomeFilterBar />}
       {showFilterBars && <FilterActionsBar />}
       <div class="panel active h-scroll-hint">
         <ActivePanel />
@@ -1304,13 +1303,6 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
     }
   }, [rangedSearchResults.value])
 
-  // Resolves each known workspace's git repo hash (repoKey.ts's repoHash, the same one
-  // traceroost-cloud shows in its own Repo column) up front, so the Repo filter below can match a
-  // pasted hash as soon as it's typed rather than only after some other view has requested it.
-  useEffect(() => {
-    availableWorkspaces.value.forEach(ws => requestRepoHash(ws))
-  }, [availableWorkspaces.value])
-
   // Agent pills: "All" plus only the agents loaded traces have (state.ts availableAgents, which
   // also keeps a selected agent listed), in AGENT_FILTER_OPTIONS order. The row is hidden when
   // there is nothing to choose between — see showAgentFilter.
@@ -1349,41 +1341,9 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         </div>
       )}
 
-      {/* Language filter — only the languages loaded traces actually have (availableLanguages), so a
-          <select> rather than pills.
-          Matches a trace whose primary or secondary language is the one picked. */}
-      {!hideAgentFilter && (
-        <div style="display:flex;align-items:center;margin-left:20px">
-          <label for="tr-filter-language" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Language</label>
-          <select
-            id="tr-filter-language"
-            class={'tr-header-input' + (languageFilter.value !== 'all' ? ' active' : '')}
-            value={languageFilter.value}
-            onChange={e => { languageFilter.value = (e.target as HTMLSelectElement).value as LanguageFilter }}
-            title="Traces whose primary or secondary language is this one — derived from the code files the agent read or changed"
-            style="flex:none;width:auto"
-          >
-            <option value="all">All</option>
-            {availableLanguages.value.map(id => <option key={id} value={id}>{LANGUAGE_LABELS[id]}</option>)}
-          </select>
-        </div>
-      )}
-
-      {/* Prompt filter — substring match against the trace's captured prompt text. */}
-      {!hideAgentFilter && (
-        <div style="display:flex;align-items:center;margin-left:20px">
-          <label for="tr-filter-prompt" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Prompt</label>
-          <input
-            id="tr-filter-prompt"
-            type="text"
-            class={'tr-header-input' + (sessionTextFilter.value.trim() !== '' ? ' active' : '')}
-            placeholder="Text or Trace ID"
-            value={sessionTextFilter.value}
-            onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
-            style="flex:none;width:180px"
-          />
-        </div>
-      )}
+      {/* Every other filter (Prompt, Language, Repo, Outcome, Source, From) sits behind one
+          "Filters (n)" button, with the active ones as removable chips beside it. */}
+      {!hideAgentFilter && <FiltersControl />}
 
       {/* Search status/loading stay grouped together, immediately after the last filter control
           (no margin-left:auto) so there's no dead gap before them. Clear Filters and trace paging
@@ -1405,8 +1365,8 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
 }
 
 // Clear Filters + trace paging, on their own row directly above the table — pulled out of
-// TimeRangePicker's trailing controls (where they used to live) so they sit under every filter bar
-// (Time, Agent, Prompt, Source, From, Outcome) instead of looking scoped to just the top row.
+// TimeRangePicker's trailing controls (where they used to live) so they read as acting on every
+// filter (Time, Agent and everything behind the Filters button) instead of on just one of them.
 // Paging mirrors the table's own footer in Sessions.tsx exactly (same styling, same sessionsPage
 // signal) so the two never disagree; kept mounted for short/empty results so the row stays steady.
 function FilterActionsBar() {
@@ -1494,13 +1454,14 @@ const INITIATOR_FILTER_OPTIONS: Array<{ value: InitiatorFilter; label: string; c
 
 // Mirrors traceroost-cloud's own `FilterPills` (src/app/(protected)/[org]/traces/traces-table.tsx)
 // almost line for line — both render the shared `.tr-pill` class from pills.css.
-function FilterPills<T extends string>({ options, value, onChange }: {
+function FilterPills<T extends string>({ options, value, onChange, labelledBy }: {
   options: Array<{ value: T; label: string; color: string; title?: string }>
   value: T
   onChange: (v: T) => void
+  labelledBy?: string
 }) {
   return (
-    <div style="display:flex;gap:3px">
+    <div role="group" aria-labelledby={labelledBy} style="display:flex;flex-wrap:wrap;gap:3px">
       {options.map(o => (
         <button
           key={o.value}
@@ -1532,25 +1493,19 @@ const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string; color
   { value: 'abandoned', label: 'Uncommitted', color: 'var(--vscode-editorWarning-foreground, #f6a623)', title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
 ]
 
-// The local-git equivalent of traceroost-cloud's own Outcome filter (same TracesTable this
-// mirrors). Every other pill row on this bar filters on data every session already carries; this
-// one doesn't — classifySessionOutcome (src/gitOutcome.ts) shells out to git per changed file, so
-// it's normally computed lazily, one session at a time, only once that session's Files view opens
-// (see SessionDetail in Sessions.tsx). Turning this filter on needs it for every candidate session
-// up front instead, so it requests git outcomes for the current candidate set here — capped and
-// staggered by requestGitOutcomesFor (state.ts) rather than firing everything at once.
-//
-// Source and From share this row (after Outcome) rather than SearchFilterBar below — this is now
-// the one row that holds every pill-style filter, plus the Repo freeform input ahead of Outcome;
-// SearchFilterBar is left with only the "viewing evidence for a suggestion" banner, and Prompt
-// lives as its own freeform input on TimeRangePicker's row, next to Time and Agent, above.
-function OutcomeFilterBar() {
+// The local-git equivalent of traceroost-cloud's own Outcome filter. Every other filter works on
+// data every session already carries; this one doesn't — classifySessionOutcome (src/gitOutcome.ts)
+// shells out to git per changed file, so it's normally computed lazily, one session at a time, only
+// once that session's Files view opens (see SessionDetail in Sessions.tsx). Turning this filter on
+// needs it for every candidate session up front instead, so it requests git outcomes for the
+// current candidate set here — capped and staggered by requestGitOutcomesFor (state.ts) rather than
+// firing everything at once. Lives in the always-mounted filter bar, not the Filters popover, so it
+// keeps running with the popover closed. Returns how many outcomes are still resolving.
+function useOutcomeResolution(): number {
   const filter = outcomeFilter.value
   const candidates = preOutcomeFilteredSessions.value
   const outcomes = gitOutcomes.value
   const deferred = deferredGitOutcomeSessionIds.value
-  const dsFilter = dataSourceFilter.value
-  const iFilter = initiatorFilter.value
 
   useEffect(() => {
     if (filter === 'all') return
@@ -1566,63 +1521,80 @@ function OutcomeFilterBar() {
   // is fetching.
   const tab = normalizeTabId(activeTab.value)
   const showsOutcomeColumn = tab === 'sessions' && hasAnyWorkspace.value
-  let pendingCount = 0
   // Excludes deferred sessions (still inside their active-session grace window, see
   // deferredGitOutcomeSessionIds in state.ts) — the spinner should reflect actual git CLI
   // classification work in flight, not a session that's just waiting out a timer.
   if (filter !== 'all') {
-    pendingCount = candidates.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
-  } else if (showsOutcomeColumn) {
+    return candidates.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
+  }
+  if (showsOutcomeColumn) {
     const { page, pageSize } = getSessionsPagination(filteredSessions.value.length)
     const pageSessions = filteredSessions.value.slice(page * pageSize, (page + 1) * pageSize)
-    pendingCount = pageSessions.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
+    return pageSessions.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
   }
+  return 0
+}
 
-  // Repo dropdown suggestions — each distinct repo's git-derived name (falling back to a
-  // path-derived guess until its repoInfo resolves), deduplicated since two workspaces can point
-  // at the same repo. A <datalist> keeps the input itself plain freeform text (matchesRepoQuery
-  // still does the actual filtering), it just also offers these as clickable suggestions.
-  const info = repoInfo.value
-  const repoOptions = [...new Set(availableWorkspaces.value.map(ws => info[ws]?.name ?? shortWorkspaceName(ws)))]
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+interface ActiveFilterChip { key: string; label: string; value: string; clear: () => void }
+
+// The secondary filters currently narrowing the traces — the "(n)" on the Filters button and the
+// removable chips beside it. Time and Agent stay in the bar itself, so they aren't counted.
+function activeSecondaryFilters(): ActiveFilterChip[] {
+  const chips: ActiveFilterChip[] = []
+  const prompt = sessionTextFilter.value.trim()
+  if (prompt !== '') chips.push({ key: 'prompt', label: 'Prompt', value: prompt, clear: () => { sessionTextFilter.value = '' } })
+  if (languageFilter.value !== 'all') {
+    const id = languageFilter.value
+    chips.push({ key: 'language', label: 'Language', value: LANGUAGE_LABELS[id as keyof typeof LANGUAGE_LABELS] ?? id, clear: () => { languageFilter.value = 'all' } })
+  }
+  const repo = workspaceFilter.value.trim()
+  if (repo !== '') chips.push({ key: 'repo', label: 'Repo', value: repo, clear: () => { workspaceFilter.value = '' } })
+  if (outcomeFilter.value !== 'all') {
+    const v = outcomeFilter.value
+    chips.push({ key: 'outcome', label: 'Outcome', value: OUTCOME_FILTER_OPTIONS.find(o => o.value === v)?.label ?? v, clear: () => { outcomeFilter.value = 'all' } })
+  }
+  if (dataSourceFilter.value !== 'all') {
+    const v = dataSourceFilter.value
+    chips.push({ key: 'source', label: 'Source', value: DATA_SOURCE_FILTER_OPTIONS.find(o => o.value === v)?.label ?? v, clear: () => { dataSourceFilter.value = 'all' } })
+  }
+  if (initiatorFilter.value !== 'all') {
+    const v = initiatorFilter.value
+    chips.push({ key: 'from', label: 'From', value: INITIATOR_FILTER_OPTIONS.find(o => o.value === v)?.label ?? v, clear: () => { initiatorFilter.value = 'all' } })
+  }
+  return chips
+}
+
+function FiltersControl() {
+  const open = filtersOpen.value
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const pendingCount = useOutcomeResolution()
+  const chips = activeSecondaryFilters()
+  const n = chips.length
+
+  // Resolves each known workspace's git repo hash (repoKey.ts's repoHash, the same one
+  // traceroost-cloud shows in its own Repo column) up front, so the Repo filter can match a pasted
+  // hash as soon as it's typed rather than only after some other view has requested it.
+  useEffect(() => {
+    availableWorkspaces.value.forEach(ws => requestRepoHash(ws))
+  }, [availableWorkspaces.value])
 
   return (
-    <div class="search-filter-controls" role="group" aria-label="Trace filters" style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
-      {/* Repo filter — freeform match against a workspace's git-derived repo name or hash
-          (matchesRepoQuery, state.ts; hashes prefetched by TimeRangePicker's own effect above).
-          Hidden when there's only one workspace since there'd be nothing to narrow. */}
-      {availableWorkspaces.value.length > 1 && (
-        <span style="display:flex;align-items:center;margin-right:3px">
-          <label for="tr-filter-repo" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Repo</label>
-          <input
-            id="tr-filter-repo"
-            type="text"
-            list="tr-repo-options"
-            class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
-            placeholder="All"
-            value={workspaceFilter.value}
-            onInput={e => {
-              // "All" from the list (or typed) means no repo filter, not a repo named "All".
-              const v = (e.target as HTMLInputElement).value
-              workspaceFilter.value = v.trim().toLowerCase() === REPO_ALL.toLowerCase() ? '' : v
-            }}
-            title="All repos by default. Pick one from the list, or type a repo's name or hash to narrow."
-            style="flex:none;width:110px"
-          />
-          <datalist id="tr-repo-options">
-            <option value={REPO_ALL} />
-            {repoOptions.map(name => <option key={name} value={name} />)}
-          </datalist>
-        </span>
-      )}
-      <span style="font-size:10px;color:var(--tr-brand);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Outcome</span>
-      <FilterPills
-        options={OUTCOME_FILTER_OPTIONS}
-        value={filter}
-        onChange={v => { outcomeFilter.value = v }}
-      />
-      {/* Fixed-size slot, always present, so the icon popping in/out while outcomes resolve never
-          shifts Source/From/the trace count next to it. */}
+    <div class="tr-filters" style="display:flex;align-items:center;gap:4px;margin-left:20px">
+      <button
+        ref={btnRef}
+        type="button"
+        class={'tr-filters-btn' + (n > 0 ? ' active' : '')}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? 'tr-filters-popover' : undefined}
+        onClick={() => { filtersOpen.value = !open }}
+        title="Prompt, Language, Repo, Outcome, Source and From filters"
+      >
+        <span>Filters{n > 0 ? ` (${n})` : ''}</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+      {/* Fixed-size slot, always present, so the spinner popping in/out while git outcomes resolve
+          never shifts the chips next to it. */}
       <span
         style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex-shrink:0;color:var(--muted)"
         role={pendingCount > 0 ? 'status' : undefined}
@@ -1631,24 +1603,185 @@ function OutcomeFilterBar() {
       >
         {pendingCount > 0 && <IconSpinner />}
       </span>
-      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;margin-left:8px">Source</span>
-      <FilterPills
-        options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry traces only' : 'Log-file traces only' }))}
-        value={dsFilter}
-        onChange={v => { dataSourceFilter.value = v }}
-      />
-      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;margin-left:20px">From</span>
-      <FilterPills
-        options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : 'Agent-spawned sub-tasks and non-interactive claude -p calls' }))}
-        value={iFilter}
-        onChange={v => { initiatorFilter.value = v }}
-      />
+      {chips.map(c => (
+        <span key={c.key} class="tr-filter-chip">
+          <span class="tr-filter-chip-text" title={`${c.label}: ${c.value}`}>{c.label}: {c.value}</span>
+          <button type="button" aria-label={`Remove ${c.label} filter`} onClick={c.clear}>×</button>
+        </span>
+      ))}
+      {open && <FiltersPopover anchor={btnRef} />}
     </div>
   )
 }
 
-// Only the evidence-view banner remains here — Repo lives on OutcomeFilterBar (ahead of Outcome)
-// and Prompt lives on TimeRangePicker's row (next to Time and Agent), above.
+const FILTERS_POPOVER_WIDTH = 340
+
+// The Filters button's popover. Mounted only while open, so useDialog's focus-in / Tab-wrap /
+// Escape / focus-back-to-the-button run for its whole lifetime. `position: fixed` and measured
+// from the button, like TimeRangeMenu's popover, because .time-range-bar scrolls horizontally and
+// would clip an absolutely-positioned child; it follows the button on resize and page scroll
+// rather than closing, so a phone's on-screen keyboard (a resize) doesn't dismiss it mid-typing.
+function FiltersPopover({ anchor }: { anchor: { current: HTMLElement | null } }) {
+  const close = () => { filtersOpen.value = false }
+  const ref = useDialog<HTMLDivElement>(true, close)
+  function measure(): { top: number; left: number; width: number; maxHeight: number } | null {
+    const rect = anchor.current?.getBoundingClientRect()
+    if (!rect) return null
+    const width = Math.min(FILTERS_POPOVER_WIDTH, window.innerWidth - 16)
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
+    const top = rect.bottom + 4
+    return { top, left, width, maxHeight: Math.max(160, window.innerHeight - top - 8) }
+  }
+  // Measured on the first render, not in an effect: useDialog moves focus in as soon as this
+  // mounts, and a still-hidden popover can't take it.
+  const [pos, setPos] = useState(measure)
+
+  useEffect(() => {
+    function place() {
+      const next = measure()
+      if (next) setPos(next)
+    }
+    function onScroll(e: Event) {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return
+      place()
+    }
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [])
+
+  // A caller that opened this to reach one field (the Advisor's "Choose repo") gets focus there
+  // instead of on the first control — runs after useDialog's own focus-in above.
+  useEffect(() => {
+    const id = filtersFocusField.peek()
+    if (!id) return
+    filtersFocusField.value = null
+    const el = document.getElementById(id) as HTMLElement | null
+    el?.focus({ preventScroll: true })
+  }, [])
+
+  const info = repoInfo.value
+  // Repo suggestions — each distinct repo's git-derived name (falling back to a path-derived guess
+  // until its repoInfo resolves), deduplicated since two workspaces can point at the same repo. A
+  // <datalist> keeps the input itself plain freeform text (matchesRepoQuery still does the actual
+  // filtering), it just also offers these as clickable suggestions.
+  const repoOptions = [...new Set(availableWorkspaces.value.map(ws => info[ws]?.name ?? shortWorkspaceName(ws)))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+
+  return (
+    <>
+      <div class="tr-filters-backdrop" onClick={close} />
+      <div
+        ref={ref}
+        id="tr-filters-popover"
+        class="tr-filters-popover"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tr-filters-title"
+        style={pos ? `top:${pos.top}px;left:${pos.left}px;width:${pos.width}px;max-height:${pos.maxHeight}px` : 'visibility:hidden'}
+      >
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <h2 id="tr-filters-title" class="tr-filters-title">Filters</h2>
+          <button
+            type="button"
+            onClick={close}
+            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
+            title="Close (Esc)"
+            aria-label="Close filters"
+          >×</button>
+        </div>
+        <div class="tr-filters-grid">
+          {/* Prompt — substring match against the trace's captured prompt text, Trace ID or its
+              display hash. */}
+          <label for="tr-filter-prompt">Prompt</label>
+          <input
+            id="tr-filter-prompt"
+            type="text"
+            class={'tr-header-input' + (sessionTextFilter.value.trim() !== '' ? ' active' : '')}
+            placeholder="Text or Trace ID"
+            value={sessionTextFilter.value}
+            onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
+          />
+
+          {/* Language — only the languages loaded traces actually have (availableLanguages), so a
+              <select> rather than pills. Matches a trace whose primary or secondary language is
+              the one picked. */}
+          <label for="tr-filter-language">Language</label>
+          <select
+            id="tr-filter-language"
+            class={'tr-header-input' + (languageFilter.value !== 'all' ? ' active' : '')}
+            value={languageFilter.value}
+            onChange={e => { languageFilter.value = (e.target as HTMLSelectElement).value as LanguageFilter }}
+            title="Traces whose primary or secondary language is this one — derived from the code files the agent read or changed"
+          >
+            <option value="all">All</option>
+            {availableLanguages.value.map(id => <option key={id} value={id}>{LANGUAGE_LABELS[id]}</option>)}
+          </select>
+
+          {/* Repo — freeform match against a workspace's git-derived repo name or hash
+              (matchesRepoQuery, state.ts; hashes prefetched by FiltersControl). Hidden when
+              there's only one workspace since there'd be nothing to narrow. */}
+          {availableWorkspaces.value.length > 1 && (
+            <>
+              <label for="tr-filter-repo">Repo</label>
+              <span>
+                <input
+                  id="tr-filter-repo"
+                  type="text"
+                  list="tr-repo-options"
+                  class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
+                  placeholder="All"
+                  value={workspaceFilter.value}
+                  onInput={e => {
+                    // "All" from the list (or typed) means no repo filter, not a repo named "All".
+                    const v = (e.target as HTMLInputElement).value
+                    workspaceFilter.value = v.trim().toLowerCase() === REPO_ALL.toLowerCase() ? '' : v
+                  }}
+                  title="All repos by default. Pick one from the list, or type a repo's name or hash to narrow."
+                  style="width:100%"
+                />
+                <datalist id="tr-repo-options">
+                  <option value={REPO_ALL} />
+                  {repoOptions.map(name => <option key={name} value={name} />)}
+                </datalist>
+              </span>
+            </>
+          )}
+
+          <span id="tr-filter-outcome-label">Outcome</span>
+          <FilterPills
+            labelledBy="tr-filter-outcome-label"
+            options={OUTCOME_FILTER_OPTIONS}
+            value={outcomeFilter.value}
+            onChange={v => { outcomeFilter.value = v }}
+          />
+
+          <span id="tr-filter-source-label">Source</span>
+          <FilterPills
+            labelledBy="tr-filter-source-label"
+            options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry traces only' : 'Log-file traces only' }))}
+            value={dataSourceFilter.value}
+            onChange={v => { dataSourceFilter.value = v }}
+          />
+
+          <span id="tr-filter-from-label">From</span>
+          <FilterPills
+            labelledBy="tr-filter-from-label"
+            options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : 'Agent-spawned sub-tasks and non-interactive claude -p calls' }))}
+            value={initiatorFilter.value}
+            onChange={v => { initiatorFilter.value = v }}
+          />
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Only the evidence-view banner remains here — every other filter is on TimeRangePicker's row or
+// in its Filters popover (FiltersControl), above.
 function SearchFilterBar() {
   const evIds = evidenceSessionIds.value
   if (evIds === null) return null
