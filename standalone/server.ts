@@ -14,6 +14,7 @@ import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone, type SetupMode } from '../src/autoConfigNode'
+import { changedFiles, describeRemoval, removeAgentSetupFiles } from '../src/agentSetupRemoval'
 import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, agentSetupWaitingLine, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer, type AgentSetupStep } from '../src/agentSetupConsent'
 import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
@@ -1826,6 +1827,34 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
           }
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ claudeCode, codex, copilot }))
+          return
+        } else if (body.type === 'removeAgentSetup') {
+          // Remove agent setup (src/agentSetupRemoval.ts): `dryRun` lists what would go, for the
+          // dashboard's confirmation; a real run records the answer as no.
+          if (AUTOCONFIG_DISABLED || IS_DOCKER) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: IS_DOCKER
+              ? "Running in Docker: TraceRoost can't reach your host's agent settings from here."
+              : 'Agent setup is disabled (TRACEROOST_NO_AUTOCONFIG=1).' }))
+            return
+          }
+          const dryRun = (body as { dryRun?: unknown }).dryRun === true
+          const results = await removeAgentSetupFiles({ dryRun })
+          let summary: string | undefined
+          if (!dryRun) {
+            agentSetupQuestion?.close()
+            agentSetupQuestion = undefined
+            writeAgentSetupAnswer('no')
+            if (agentSetupPending) { agentSetupPending = false; broadcastSse({ type: 'update', agentSetupPending }) }
+            summary = describeRemoval(results)
+            for (const r of results) {
+              if (r.warning) console.warn(`[TraceRoost] ${r.warning}`)
+              if (r.error) console.warn(`[TraceRoost] Could not remove agent setup from ${r.file}: ${r.error}`)
+            }
+            console.log(`[TraceRoost] ${summary}`)
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ results, files: changedFiles(results), summary }))
           return
         }
       } catch (e) { console.warn('[TraceRoost] Malformed /action body:', e) }

@@ -7,7 +7,8 @@ import { detectPortOwner, serviceDashboardUrl } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
-import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, type ConfigResult, type SetupMode } from './autoConfig'
+import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, removeCopilotSetup, type ConfigResult, type SetupMode } from './autoConfig'
+import { changedFiles, describeRemoval, removeAgentSetupFiles, type AgentRemoval } from './agentSetupRemoval'
 import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, leftAloneMessage, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
 import { exportSpans, exportSpansRedacted } from './exportData'
 import { openDatabase, TraceRoostDb } from './database/db'
@@ -452,6 +453,52 @@ export async function activate(context: vscode.ExtensionContext) {
       writeAgentSetupAnswer('yes')
       await runAgentSetup('full', true)
     }),
+  )
+
+  /** Remove agent setup (src/agentSetupRemoval.ts): lists what it would take out, asks, then
+   *  strips exactly that and records the answer as no. Returns what it says it did, or undefined
+   *  when the user backed out. Copilot in this editor goes through the settings API, like its
+   *  setup; every other VS Code-family editor's settings file is edited directly. */
+  const runAgentRemoval = async (): Promise<string | undefined> => {
+    // This editor's own settings.json (…/User/globalStorage/<extension> → …/User) is already
+    // covered by the settings API, so it isn't listed twice.
+    const ownSettings = path.join(path.dirname(path.dirname(context.globalStorageUri.fsPath)), 'settings.json')
+    const run = async (dryRun: boolean): Promise<AgentRemoval[]> => {
+      const copilot = await removeCopilotSetup({ dryRun })
+      const files = (await removeAgentSetupFiles({ dryRun })).filter(r => r.file !== ownSettings)
+      return [{ agent: 'Copilot', file: agentConfigFiles().copilot.label, ...copilot }, ...files]
+    }
+    const preview = changedFiles(await run(true))
+    const REMOVE = 'Remove Agent Setup'
+    const choice = await vscode.window.showWarningMessage('Remove agent setup?', {
+      modal: true,
+      detail: (preview.length > 0
+        ? `TraceRoost will take out the settings it added in:\n${preview.map(f => `• ${f}`).join('\n')}\n\n` +
+          'Everything else in those files stays, and so does any setting that sends to a different collector. '
+        : 'No TraceRoost agent settings were found. ') +
+        "TraceRoost won't set up your agents again unless you choose Set up agents.",
+    }, REMOVE)
+    if (choice !== REMOVE) return undefined
+    const results = await run(false)
+    writeAgentSetupAnswer('no')
+    for (const r of results) {
+      if (r.changed) log(`Remove agent setup: ${r.agent} — removed TraceRoost's settings from ${r.file}`)
+      if (r.warning) log(`Remove agent setup: ${r.warning}`)
+      if (r.error) log(`Remove agent setup: ${r.agent} failed: ${r.error}`)
+    }
+    const summary = describeRemoval(results)
+    const shown = results.some(r => r.error)
+      ? vscode.window.showWarningMessage(`TraceRoost: ${summary}`, SHOW_LOG_BUTTON)
+      : vscode.window.showInformationMessage(`TraceRoost: ${summary}`, SHOW_LOG_BUTTON)
+    void shown.then(c => { if (c === SHOW_LOG_BUTTON) showLog() })
+    return summary
+  }
+  DashboardPanel.removeAgentSetup = runAgentRemoval
+
+  // The undo of Set Up Agents: takes out only what TraceRoost added, and stops it setting agents
+  // up again. Like Set Up Agents, it ignores traceRoost.autoConfigureAgents.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('traceRoost.removeAgentSetup', async () => { await runAgentRemoval() }),
   )
 
   if (traceRoostCfg.get<boolean>('autoConfigureAgents', true)) {

@@ -76,6 +76,9 @@ export class DashboardPanel {
    *  window isn't actually receiving OTel, rather than a one-time toast that's easy to miss or
    *  dismiss and forget about. */
   public static collectorConflict: { owner: 'standalone' | 'foreign'; port: number; extensionId: string } | undefined
+  /** The Remove Agent Setup command's flow (extension.ts) — confirms, removes, reports. Resolves
+   *  with what it says it did, or undefined when the user backed out. */
+  public static removeAgentSetup: (() => Promise<string | undefined>) | undefined
   /** Progress of extension.ts's batched log load (startBatchedLoad); null when none is running.
    *  Inlined into a panel opened mid-load and posted to an open one as it advances, so the
    *  webview shows a progress banner rather than an empty dashboard. */
@@ -273,6 +276,9 @@ export class DashboardPanel {
           autoConfigureCodex(port),
         ])
         this.panel.webview.postMessage({ type: 'reconfigureOtelResult', results: { copilot, claudeCode, codex } })
+      } else if (msg.type === 'removeAgentSetup') {
+        const summary = await DashboardPanel.removeAgentSetup?.()
+        this.panel.webview.postMessage({ type: 'removeAgentSetupResult', summary: summary ?? null })
       } else if (msg.type === 'getInstructionFiles' && msg.workspace) {
         const wsFolders = vscode.workspace.workspaceFolders
         const wsRoot = (wsFolders?.[0]?.uri.fsPath) ?? (msg.workspace as string)

@@ -79,6 +79,10 @@
         "title": "TraceRoost: Set Up Agents…"
       },
       {
+        "command": "traceRoost.removeAgentSetup",
+        "title": "TraceRoost: Remove Agent Setup…"
+      },
+      {
         "command": "traceRoost.exportData",
         "title": "TraceRoost: Export Live OTel Spans (debug)"
       },

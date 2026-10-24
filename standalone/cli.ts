@@ -4,6 +4,8 @@
 // Or installed with Homebrew: brew install traceroost/tap/traceroost, then `traceroost`
 // `traceroost service <install|uninstall|start|stop|restart|status|logs|update>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
+// `traceroost agents <setup|remove>` sets the coding agents up for TraceRoost, or takes out exactly
+// what that added — see standalone/agentsCli.ts.
 // `traceroost org <link|status|verify|leave> [--device|--browser]` links this machine to an org (Cloud, AL 01) —
 // full edition only; the core edition prints "not available" and exits 1 (see cliCloud.ts).
 // `traceroost find <repo hash | trace/session id>` resolves a cloud dashboard hash-handoff
@@ -43,6 +45,11 @@ async function main() {
   if (args[0] === 'service') {
     const { runServiceCli } = await import('./service/index.js')
     process.exitCode = await runServiceCli(args.slice(1))
+    return
+  }
+  if (args[0] === 'agents') {
+    const { runAgentsCli } = await import('./agentsCli.js')
+    process.exitCode = await runAgentsCli(args.slice(1))
     return
   }
   if (args[0] === 'org') {

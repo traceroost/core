@@ -471,10 +471,14 @@ export interface RemoveResult extends ConfigResult {
   file: string
 }
 
+/** `dryRun`: work out what would be removed (`changed`) without writing — for the confirmation
+ *  that lists it first. */
+export interface RemoveOptions { dryRun?: boolean }
+
 /** Claude Code: drops the `"env"` keys setup writes (only where they still hold setup's value),
  *  and `"env"` itself when nothing else is left in it. Edits the text in place, so the rest of
  *  the file keeps its formatting byte for byte. */
-export async function removeClaudeCodeSetup(): Promise<RemoveResult> {
+export async function removeClaudeCodeSetup(opts: RemoveOptions = {}): Promise<RemoveResult> {
   const file = claudeSettingsPath()
   try {
     const raw = await readIfExists(file)
@@ -511,7 +515,7 @@ export async function removeClaudeCodeSetup(): Promise<RemoveResult> {
       text = applyEdits(text, modify(text, ['env'], undefined, JSONC_FORMAT))
     }
     if (text === raw) return { file, changed: false }
-    await writeConfigFile(file, text, true, false)
+    if (!opts.dryRun) await writeConfigFile(file, text, true, false)
     return { file, changed: true }
   } catch (e) {
     return { file, changed: false, error: String(e) }
@@ -524,7 +528,7 @@ const CODEX_SETUP_EXPORTER_RE = /^(exporter|trace_exporter) = \{ otlp-http = \{ 
 /** Codex: drops setup's `exporter` / `trace_exporter` lines from `[otel]`, and `log_user_prompt =
  *  true` with them, then the `[otel]` header itself if nothing is left under it. An exporter line
  *  setup didn't write (another endpoint, extra headers) marks the table as the user's own. */
-export async function removeCodexSetup(): Promise<RemoveResult> {
+export async function removeCodexSetup(opts: RemoveOptions = {}): Promise<RemoveResult> {
   const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
   const file = path.join(codexHome, 'config.toml')
   try {
@@ -566,7 +570,7 @@ export async function removeCodexSetup(): Promise<RemoveResult> {
     }
     const text = rebuilt.join('\n')
     if (text === content) return { file, changed: false }
-    await writeConfigFile(file, text, true, false)
+    if (!opts.dryRun) await writeConfigFile(file, text, true, false)
     return { file, changed: true }
   } catch (e) {
     return { file, changed: false, error: String(e) }
@@ -575,7 +579,7 @@ export async function removeCodexSetup(): Promise<RemoveResult> {
 
 /** Copilot, in every installed VS Code-family IDE's user settings: drops the three settings setup
  *  writes (each only while it holds setup's value) from a file whose endpoint is TraceRoost's. */
-export async function removeCopilotStandaloneSetup(): Promise<RemoveResult[]> {
+export async function removeCopilotStandaloneSetup(opts: RemoveOptions = {}): Promise<RemoveResult[]> {
   const ours = copilotSettings(0)
   const results: RemoveResult[] = []
   for (const file of vscodeUserSettingsPaths()) {
@@ -604,7 +608,7 @@ export async function removeCopilotStandaloneSetup(): Promise<RemoveResult[]> {
         }
       }
       if (text === raw) { results.push({ file, changed: false }); continue }
-      await writeConfigFile(file, text, true, false)
+      if (!opts.dryRun) await writeConfigFile(file, text, true, false)
       results.push({ file, changed: true })
     } catch (e) {
       results.push({ file, changed: false, error: String(e) })

@@ -412,6 +412,7 @@ The VS Code extension and the standalone (`npx`) server both offer to set up Cop
 - **It never takes over your own collector** — a settings file that already sends OpenTelemetry somewhere other than localhost is left exactly as it is.
 - **After the yes, starts only keep the port current** — each later start updates TraceRoost's own endpoint (`http://localhost:<port>`) when it is still there and the port moved, and nothing else: a setting you removed, such as `OTEL_LOG_USER_PROMPTS`, stays removed, and nothing missing is added back. It only notifies (in a VS Code notification and the Output panel) when it changes something. Disable even that with the `traceRoost.autoConfigureAgents` setting.
 - **Changed an agent's OTel settings by hand?** Use the **Set up agents** button in the Settings panel (gear icon), or `TraceRoost: Set Up Agents…`, to write TraceRoost's full set of values again — starts never do that on their own.
+- **Undo it any time** — **Remove agent setup** in Settings, `TraceRoost: Remove Agent Setup…` or `traceroost agents remove` takes out only what TraceRoost added (see [Uninstall](#uninstall)) and records a no. `traceroost agents setup` is the terminal's **Set up agents**.
 - **Docker doesn't set up your host agents** — inside the container it could only reach the container's own files, so it doesn't offer. Use the setup scripts below, or the manual steps per agent.
 - Replace `4318` below with your custom port if you changed `traceRoost.otlpPort`.
 
@@ -760,7 +761,12 @@ did, delete that data directory too: it holds the trace database, the service's 
 instead.
 
 **Remove what auto-configuration wrote into your agents** (skip this if you turned
-auto-configuration off). TraceRoost added or updated the keys below. In Claude Code's
+auto-configuration off). Do this *before* removing TraceRoost: `TraceRoost: Remove Agent Setup…` in
+VS Code, **Remove agent setup** in the dashboard's ⚙ Settings panel, or `traceroost agents remove` in
+a terminal takes out exactly the keys below — only where they still hold TraceRoost's values, in a
+file whose endpoint is TraceRoost's own (`http://localhost:<port>`) — leaves everything else in the
+files, and records your answer as no so nothing sets the agents up again. Each says which files it
+changed. To do it by hand: TraceRoost added or updated the keys below. In Claude Code's
 `settings.json` it also *removed* four older keys from `"env"` — `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`,
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_SEMCONV_STABILITY_OPT_IN` and
 `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` — and a `Stop` hook that earlier versions
@@ -819,6 +825,7 @@ Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for
 | ------- | ----------- |
 | `TraceRoost: Open Dashboard` | Open the full dashboard in an editor panel |
 | `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Skip setup**, or to re-apply the settings now. Running it counts as your yes |
+| `TraceRoost: Remove Agent Setup…` | Take out only the settings TraceRoost added to Claude Code, Codex and Copilot (listed in a confirmation first), and stop setting agents up. Settings that send to a different collector are left alone. Same as `traceroost agents remove` |
 | `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The **Export** dashboard tab exports per-trace summaries instead |
 | `TraceRoost: Export Live OTel Spans, Redacted (debug)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
 | `TraceRoost: Show Storage Stats` | Report local database size, blob storage size, trace count, date range, and current retention setting to the Output panel |

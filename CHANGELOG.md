@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Remove agent setup** — a **Remove agent setup** button next to **Set up agents** in the dashboard's ⚙ Settings panel, `TraceRoost: Remove Agent Setup…` in VS Code, and `traceroost agents remove` in a terminal take out only what TraceRoost's agent setup added: Claude Code's telemetry `env` keys, Codex's `[otel]` exporter lines and `log_user_prompt`, and the Copilot OTel settings in every VS Code-family editor — each only while it still holds TraceRoost's value, in a file whose endpoint is TraceRoost's own. Anything else in those files, and any file that sends to a different collector, is left exactly as it is; it is not a restore of `<file>.traceroost.bak`, so your changes since setup stay. VS Code and the dashboard list the files first and ask; every surface says which files it changed. Your answer is then recorded as no, so nothing sets the agents up again until you choose **Set up agents** (or `traceroost agents setup`)
+
 ### Changed
 
 - **After you say yes to agent setup, starts no longer re-add settings you removed** — every start of the extension, `traceroost` or the background service used to write TraceRoost's whole set of agent settings again, so deleting `OTEL_LOG_USER_PROMPTS` (or Codex's `log_user_prompt`, or Copilot's `otel.enabled`) lasted only until the next start. A start now only moves TraceRoost's own endpoint (`http://localhost:<port>`) to the current port when it is still there; it adds nothing that's missing and creates no file. The first yes, **Set up agents** in Settings and `TraceRoost: Set Up Agents…` still write the full set
