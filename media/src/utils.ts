@@ -1,3 +1,4 @@
+import { agentColorVar, resolveAgentColor } from './agentColors'
 import type { Span, SpanAttribute, SessionSummaryCard } from './types'
 import { sessionSummary, displaySessions } from './state'
 
@@ -224,7 +225,7 @@ export function getDataSourceBadgeHtml(dataSource: 'otel' | 'log' | undefined): 
   const label = ds === 'log' ? 'L' : 'O'
   const color = DATA_SOURCE_COLORS[ds]
   const { name, description } = DATA_SOURCE_TOOLTIP[ds]
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:var(--fs-xs);font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
 }
 
 // 'agent' and 'api' (isSidechain sub-tasks vs. non-interactive `claude -p` calls) collapse into
@@ -239,7 +240,7 @@ export function getInitiatorBadgeHtml(initiator: 'user' | 'agent' | 'api' | unde
   const color = INITIATOR_COLORS[key]
   const label = key === 'user' ? 'U' : 'A'
   const { name, description } = INITIATOR_TOOLTIP[key]
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:var(--fs-xs);font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
 }
 
 // ── Agent label / color helpers ───────────────────────────────────────────────
@@ -252,13 +253,16 @@ export function getAgentSourceLabel(source: string | null | undefined): string {
   return 'Copilot'
 }
 
+/** The agent's colour as #rrggbb for the current theme — for canvas and string-built colours.
+ *  DOM styles should use getAgentColorVar, which follows a theme change without a re-render.
+ *  Both come from agentColors.ts, the one place agent colours are defined. */
 export function getAgentColor(source: string | null | undefined): string {
-  if (source === 'claude_code') return '#FFB085'
-  if (source === 'codex') return '#F0FF42'
-  if (source === 'copilot') return '#00EAFF'
-  if (source === 'opencode') return '#FFFFFF'
-  if (source === 'cursor') return '#B39DDB'
-  return '#90a4ae'
+  return resolveAgentColor(source)
+}
+
+/** The agent's colour as a CSS var() expression, for DOM styles. */
+export function getAgentColorVar(source: string | null | undefined): string {
+  return agentColorVar(source)
 }
 
 // Fixed, visually distinct palette for coloring conversation groups (see getConversationColor) —
@@ -369,7 +373,7 @@ export function buildDisplaySummary(sessionsOverride?: SessionSummaryCard[]) {
 
 export function getAgentDotHtml(source: string | null | undefined): string {
   if (!source) return ''
-  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${getAgentColor(source)};vertical-align:middle" title="${getAgentSourceLabel(source)}"></span>`
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${getAgentColorVar(source)};vertical-align:middle" title="${getAgentSourceLabel(source)}"></span>`
 }
 
 // ── Label formatters ──────────────────────────────────────────────────────────

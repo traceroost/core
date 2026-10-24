@@ -129,7 +129,7 @@ function InsightBlock({ id, title, why, steps, impact }: {
   )
 }
 
-const dsBadgeStyle = 'font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-left:6px'
+const dsBadgeStyle = 'font-size:var(--fs-xs);font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-left:6px'
 
 // Same OTEL(white)/Log(grey) coloring as BadgesSection's trace-row badges, so "where did this
 // number come from" reads consistently everywhere it's shown. 'both' shows both badges rather than
@@ -159,9 +159,9 @@ function LoopBlock({ id, title, signalType, why, caveat, example, steps, impact,
         </dt>
         <dd class="glossary-def" dangerouslySetInnerHTML={{ __html: why }} />
       </div>
-      <div style="padding-left:8px;font-size:10.5px;color:var(--muted);line-height:1.5">{dataSourceNote}</div>
+      <div style="padding-left:8px;font-size:var(--fs-xs);color:var(--muted);line-height:1.5">{dataSourceNote}</div>
       {caveat && (
-        <div style="padding-left:8px;font-size:10.5px;color:var(--muted);font-style:italic;line-height:1.5">
+        <div style="padding-left:8px;font-size:var(--fs-xs);color:var(--muted);font-style:italic;line-height:1.5">
           <span dangerouslySetInnerHTML={{ __html: caveat }} />
         </div>
       )}
@@ -169,8 +169,8 @@ function LoopBlock({ id, title, signalType, why, caveat, example, steps, impact,
       <div style="padding-left:8px;font-size:11px;line-height:1.6">
         <p style="margin:0 0 3px"><strong style="color:var(--fg);font-size:11px">How to fix:</strong></p>
         <ol style="margin:0 0 6px;padding-left:18px;font-size:11px;line-height:1.7;color:var(--muted)" dangerouslySetInnerHTML={{ __html: steps }} />
-        <p style="margin:0 0 6px;font-size:11px;color:var(--muted)"><strong style="color:var(--fg);font-size:11px">Tell the agent: </strong><em>{SIGNAL_FORMULAS[signalType].prompt}</em> <span style="font-size:10px">(what the Insights panel's <strong>Copy</strong> button puts on the clipboard, with the trace's evidence under it)</span></p>
-        <p style="margin:0;font-size:10px;color:var(--muted)"><strong style="color:var(--fg);font-size:10px">Illustrative impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
+        <p style="margin:0 0 6px;font-size:11px;color:var(--muted)"><strong style="color:var(--fg);font-size:11px">Tell the agent: </strong><em>{SIGNAL_FORMULAS[signalType].prompt}</em> <span style="font-size:var(--fs-xs)">(what the Insights panel's <strong>Copy</strong> button puts on the clipboard, with the trace's evidence under it)</span></p>
+        <p style="margin:0;font-size:var(--fs-xs);color:var(--muted)"><strong style="color:var(--fg);font-size:var(--fs-xs)">Illustrative impact: </strong><span dangerouslySetInnerHTML={{ __html: impact }} /></p>
       </div>
     </div>
   )
@@ -225,11 +225,11 @@ function OverviewSection() {
         <p style="font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.75">OTel is captured live, so TraceRoost must be running while the agent works to collect full spans, timing, tool payloads and turn-level detail. If it wasn't running (or OTel wasn't set up yet), TraceRoost backfills from the agent's local logs and databases instead, with less detail.</p>
         <ul style="margin:0 0 10px 18px;padding:0;font-size:12px;color:var(--muted);line-height:1.75">
           <li>
-            <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid #90a4ae;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--vscode-descriptionForeground, #90a4ae)">Log</span>
+            <span style="font-size:var(--fs-xs);font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid #90a4ae;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--vscode-descriptionForeground, #90a4ae)">Log</span>
             traces can have missing or reduced detail in Trace, Flow, Tools, and Files.
           </li>
           <li>
-            <span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid var(--fg, #ffffff);letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--fg, #ffffff)">OTel</span>
+            <span style="font-size:var(--fs-xs);font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid var(--fg, #ffffff);letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px;color:var(--fg, #ffffff)">OTel</span>
             traces usually include fuller timing structure and richer event detail.
           </li>
         </ul>
@@ -513,7 +513,7 @@ function SessionsSection() {
       <h3 class="help-heading">{HELP_SECTIONS.traces.heading}</h3>
       <div class="help-overview-body">
         <p>The Traces tab lists every recorded <a href="#gl-trace">trace</a> — one prompt-to-response cycle — in a sortable table. Each row shows the agent, start time, data source and initiator, then <strong>Model</strong>, <strong>Lang</strong> (<a href="#help-language">language</a>), <strong>Changes</strong> (<a href="#help-changes">change size</a>), <strong>Prompt</strong>, <strong>Repo</strong>, <strong>Out</strong> (<a href="#help-outcome">git outcome</a>), <strong>Sig</strong> (<a href="#help-signals">signals</a>), <strong>Turns</strong>, <strong>Duration</strong>, <strong>Tokens</strong>, <strong>Est Cost</strong> and, on a Claude or ChatGPT plan, <strong>Plan limit</strong> (see <a href="#help-plan-limits">Plan limits</a>). Repo, Out and Plan limit appear only when they have something to show. Click a column header to sort; changing the sort returns to page 1.</p>
-        <p>The filter bar narrows the table by time range, <strong>Agent</strong>, <strong>Language</strong>, <strong>Prompt</strong> text, <strong>Repo</strong>, <strong>Outcome</strong>, <strong>Source</strong> (OTel / Log) and <strong>From</strong> (User / Agent — Agent also covers non-interactive <code>claude -p</code> runs; see <a href="#help-initiator">Initiator</a>). The Agent pills and the Language list offer only the agents and languages your loaded traces contain; the Agent pills are hidden when only one agent has traces. <strong>Clear Filters</strong> resets everything, and the menu beside the pager sets how many traces show per page.</p>
+        <p>The filter bar narrows the table by time range and <strong>Agent</strong>. The <strong>Filters</strong> button beside them opens the rest: <strong>Prompt</strong> text, <strong>Language</strong>, <strong>Repo</strong>, <strong>Outcome</strong>, <strong>Source</strong> (OTel / Log) and <strong>From</strong> (User / Agent — Agent also covers non-interactive <code>claude -p</code> runs; see <a href="#help-initiator">Initiator</a>). Its count says how many of those are on, and each one that is shows as a chip next to the button — click a chip's × to turn just that filter off. The Agent pills and the Language list offer only the agents and languages your loaded traces contain; the Agent pills are hidden when only one agent has traces. <strong>Clear Filters</strong> resets everything, and the menu beside the pager sets how many traces show per page.</p>
         <p>Each row is one prompt and everything the agent did for it. Rows from the same <a href="#gl-conversation">conversation</a> get a matching colored bar on the left edge. Hover the bar for its position (e.g. "Part 2 of 5"); click it to show only that conversation, with a banner naming its first prompt and a <strong>Show all traces</strong> button (or click the bar again). Only rows visible under the current filters get a bar, so a lone colored row never hints at a hidden sibling. Work Claude delegates to subagents is part of the prompt that started it — their tokens and tool calls are in that row, not rows of their own.</p>
         <p>Click any row to expand it in-place. Five sub-tabs appear beneath the row:</p>
 
@@ -576,7 +576,7 @@ function SessionsSection() {
             <dd class="glossary-def" style="display:block">The file still differs from HEAD right now — it just hasn't been committed <em>yet</em>. This is a snapshot of the current moment, not a verdict on the work: it reads exactly the same whether the edit happened five minutes ago or five weeks ago, and flips to Committed (or Merged) automatically the next time it's checked after you commit. TraceRoost also skips checking a session for its first two minutes after it ends, specifically so a brand-new edit isn't caught mid-flight and shown this way before there's been any real chance to commit it.</dd>
           </div>
         </div>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">A trace's outcome is the <em>worst</em> of its files' outcomes — Uncommitted, then Committed, then Merged — so one uncommitted file marks the whole trace Uncommitted even if nine others have merged. When git can't give a verdict (no local repo, a deleted or moved file, or not checked yet), the cell is simply blank and the trace appears only under "All". Outcomes are worked out on demand — for the rows on the current page, when you open a trace's Files sub-tab, or when you turn on the Outcome filter — and cached until something relevant changes: a new commit to that trace's files, or the trunk branch moving (which can turn Committed into Merged, e.g. when a teammate merges the PR). A small spinner next to the Outcome filter shows while visible traces are still being checked.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">A trace's outcome is the <em>worst</em> of its files' outcomes — Uncommitted, then Committed, then Merged — so one uncommitted file marks the whole trace Uncommitted even if nine others have merged. When git can't give a verdict (no local repo, a deleted or moved file, or not checked yet), the cell is simply blank and the trace appears only under "All". Outcomes are worked out on demand — for the rows on the current page, when you open a trace's Files sub-tab, or when you turn on the Outcome filter — and cached until something relevant changes: a new commit to that trace's files, or the trunk branch moving (which can turn Committed into Merged, e.g. when a teammate merges the PR). A small spinner next to the <strong>Filters</strong> button shows while visible traces are still being checked.</p>
 
         <h4 id="help-insights" style={subHeadStyle}>Insights</h4>
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">The Insights panel appears inside the <strong>Overview</strong> sub-tab of each expanded trace row. It surfaces efficiency signals for <a href="#gl-tokens">token</a> waste, <a href="#gl-cache-hit-rate">cache</a> patterns, tool behavior, and prompt shape — the signals meant to help you spend fewer <a href="#gl-turn">turns</a> and fewer tokens on the same work.</p>
@@ -646,7 +646,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.exact_tool_repeat.caveat}
             dataSource={SIGNAL_FORMULAS.exact_tool_repeat.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.exact_tool_repeat.dataSourceNote}
-            example={`The agent ran <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
+            example={`The agent ran <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file src/types.ts</code> forty times in one trace, unchanged each time.`}
             steps={`<li>Add: <em>"After reading a file, do not read it again unless you have modified it."</em></li><li>Scope the task so fewer files are needed.</li><li>If the repeated call is a command whose output changes on its own (a clock, a live log, a poll), it isn't a loop — <strong>Ignore</strong> it.</li><li>Otherwise stop the trace and restart with what was already read.</li>`}
             impact="Stopping this pattern prevents runaway token accumulation. 200K tokens looping → 20K tokens with a direct prompt."
           />
@@ -664,7 +664,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.error_recurrence.caveat}
             dataSource={SIGNAL_FORMULAS.error_recurrence.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.error_recurrence.dataSourceNote}
-            example={`A <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">ModuleNotFoundError</code> appeared five times as the agent tried different import paths for a package not installed.`}
+            example={`A <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">ModuleNotFoundError</code> appeared five times as the agent tried different import paths for a package not installed.`}
             steps={`<li>Stop and verify the root cause yourself.</li><li>Tell the agent explicitly what exists.</li><li>Paste actual API responses or function signatures.</li><li>After 2 failures, resolve the underlying issue before re-prompting.</li>`}
             impact="Intervening after 2 recurrences instead of 6 saves ~120,000 tokens in a 30K-token trace."
           />
@@ -709,7 +709,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.hallucinated_import.caveat}
             dataSource={SIGNAL_FORMULAS.hallucinated_import.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.hallucinated_import.dataSourceNote}
-            example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code> — no such package in package.json or node_modules.`}
+            example={`<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">import { retry } from 'p-retry-async'</code> — no such package in package.json or node_modules.`}
             steps={`<li>Verify the package actually exists and is spelled correctly before asking the agent to use it.</li><li>Add it to the manifest yourself if it's intentional (e.g. you're about to run the install).</li>`}
             impact="Catching this before install/runtime avoids a confusing failure several steps later that looks unrelated to the actual cause."
           />
@@ -727,7 +727,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.tool_call_cycle.caveat}
             dataSource={SIGNAL_FORMULAS.tool_call_cycle.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.tool_call_cycle.dataSourceNote}
-            example={`The agent alternated <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">edit_file src/app.ts</code> → <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">bash npm test</code> six times in a row without changing approach.`}
+            example={`The agent alternated <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">edit_file src/app.ts</code> → <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">bash npm test</code> six times in a row without changing approach.`}
             steps={`<li>Ask the agent to explain what changed between attempts before trying again.</li><li>Supply the missing information yourself — a stack trace, an expected value, a spec.</li><li>Interrupt and restart with a more specific instruction.</li>`}
             impact="Catching the cycle at 5 repeats instead of letting it run to 15+ saves ten or more redundant tool round-trips."
           />
@@ -736,7 +736,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.file_reread.caveat}
             dataSource={SIGNAL_FORMULAS.file_reread.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.file_reread.dataSourceNote}
-            example={`<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">src/schema.ts</code> was read 4 times across the trace, each time in full, with no edits to it in between.`}
+            example={`<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">src/schema.ts</code> was read 4 times across the trace, each time in full, with no edits to it in between.`}
             steps={`<li>Ask the agent to summarize what it already knows about the file instead of rereading it.</li><li>Paste the relevant lines directly into your prompt if it's a small, stable file.</li><li>Split a long session so the file stays in recent context.</li>`}
             impact="Eliminating 3 avoidable rereads of a 40K-token file saves roughly the cost of one extra full LLM call."
           />
@@ -772,7 +772,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.budget_overrun.caveat}
             dataSource={SIGNAL_FORMULAS.budget_overrun.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.budget_overrun.dataSourceNote}
-            example={`A trace cost $9.40 against a configured $5 cap (<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">TRACEROOST_BUDGET_CAP_USD=5</code>) — 1.9× over.`}
+            example={`A trace cost $9.40 against a configured $5 cap (<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">TRACEROOST_BUDGET_CAP_USD=5</code>) — 1.9× over.`}
             steps={`<li>Check whether a loop or retry pattern elsewhere in this list is driving the cost.</li><li>Raise the cap if the task genuinely needed this much work.</li>`}
             impact="Catching an overrun mid-session, rather than after the fact, is the point of setting a cap at all."
           />
@@ -781,7 +781,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.model_tier_mismatch.caveat}
             dataSource={SIGNAL_FORMULAS.model_tier_mismatch.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.model_tier_mismatch.dataSourceNote}
-            example={`A trace ran 14 straight <code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">grep</code>/<code style="font-size:10px;background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file</code> calls on a premium model with no edits and ~80 output tokens per call.`}
+            example={`A trace ran 14 straight <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">grep</code>/<code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file</code> calls on a premium model with no edits and ~80 output tokens per call.`}
             steps={`<li>Give research to a smaller model: in Claude Code, a subagent with <code>model: haiku</code>, or <code>/model</code> for a read-only stretch.</li><li>Reserve the premium model for turns that actually produce edits.</li><li>"Premium" means an input rate above $3/M — Opus-class and the equivalent OpenAI tiers. Sonnet, at $3, doesn't count, so a question-and-answer session on the default model is never flagged.</li>`}
             impact="Switching a read-only stretch from a premium to a mid-tier model can cut that portion's cost 5–10× with no quality loss."
           />
@@ -973,13 +973,13 @@ function SettingsSection() {
     <div class="help-section" id="help-settings">
       <h3 class="help-heading">{HELP_SECTIONS.settings.heading}</h3>
       <div class="help-overview-body">
-        <p>The icons at the right of the tab bar hold everything that isn't a tab: the bell (alert status), the action log (every command TraceRoost has run on your machine, such as <code style={codeStyle}>git</code>), the gear (settings), the <strong>$</strong> icon (the pricing tables behind every cost estimate), the shouting-person icon (<strong>Make a suggestion</strong> — opens TraceRoost's public suggestion page in your browser; the link carries only the TraceRoost version and the current tab's name, never your traces or workspace), and the Help icon (this page). The standalone dashboard also shows an update button when a newer version is on npm.</p>
+        <p>The icons at the right of the tab bar hold everything that isn't a tab: the bell (the Alerts panel), the action log (every command TraceRoost has run on your machine, such as <code style={codeStyle}>git</code>), the gear (settings), the <strong>$</strong> icon (the pricing tables behind every cost estimate), the shouting-person icon (<strong>Make a suggestion</strong> — opens TraceRoost's public suggestion page in your browser; the link carries only the TraceRoost version and the current tab's name, never your traces or workspace), and the Help icon (this page). The standalone dashboard also shows an update button when a newer version is on npm.</p>
 
-        <h4 style={subHeadStyle}>Bell icon — active alert status</h4>
-        <p>The bell icon shows a numbered badge when one or more alert thresholds are currently triggered. Click it to open a status card listing every active alert — severity, name, and detail about which trace tripped it. The card also has a <strong>Configure alerts →</strong> link that jumps straight to the settings panel. When no alerts are firing the bell has no badge.</p>
+        <h4 style={subHeadStyle}>Bell icon — Alerts panel</h4>
+        <p>The bell icon shows a numbered badge when one or more alert thresholds are currently triggered; with none firing it has no badge. Click it to open the slide-in Alerts panel, which has three tabs: <strong>Active</strong> lists every alert firing now — severity, name, and detail about which trace tripped it, with <strong>View trace →</strong> to open that trace and <strong>Adjust threshold →</strong> to jump to its settings; <strong>Configure</strong> turns each <a href="#help-alerts">alert</a> on or off and sets its thresholds; <strong>Automation</strong> sets up the <a href="#help-automation">automations</a>. Close it with the × button or by pressing Escape.</p>
 
         <h4 style={subHeadStyle}>Gear icon — settings panel</h4>
-        <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTel and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Set up agents</strong> button, the <a href="#help-dashboard-port">Dashboard port</a> (standalone only), the MCP server toggle, and two collapsible sections, <strong>Alerts</strong> and <strong>Automation</strong>. Close it with the × button or by pressing Escape.</p>
+        <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTel and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Set up agents</strong> button, the <a href="#help-dashboard-port">Dashboard port</a> (standalone only), and the MCP server toggle. Alerts and Automation have their own panel, under the bell. Close it with the × button or by pressing Escape.</p>
 
         <h4 id="help-dashboard-port" style={subHeadStyle}>My dev server needs port 3000</h4>
         <p>The standalone dashboard uses port 3000 by default, which is also the default for Next.js, Rails, Express and many other dev servers. To move TraceRoost off it, use any of these:</p>
@@ -991,48 +991,48 @@ function SettingsSection() {
         <p>Your agents aren't affected. They send to TraceRoost's OTLP port (4318) and use the MCP port (4316), which don't change. Bookmarks to the old address stop working. In Docker the port is the <code style={codeStyle}>-p &lt;port&gt;:3000</code> mapping on <code style={codeStyle}>docker run</code> instead.</p>
 
         <h4 id="help-alerts" style={subHeadStyle}>Alerts</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts. When a live trace crosses a threshold the bell badge increments and the alert appears in the status card. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts on the Alerts panel's <strong>Configure</strong> tab (bell icon). When a live trace crosses a threshold the bell badge increments and the alert appears on the panel's <strong>Active</strong> tab. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when today's total estimated cost across all agents (UTC day) crosses the configured dollar threshold. Disabled by default. Default threshold: $20/day.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Context Window Filling Up <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Context Window Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when peak input tokens for a trace reaches the per-agent threshold. Defaults: Claude Code 170K, Copilot 108K, Codex 340K. Adjust per agent or raise the shared baseline.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Too Many Turns Per Trace <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Too Many Turns Per Trace <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when the LLM turn count reaches the per-agent threshold. High turn counts often indicate scope creep or a task that should be split. Defaults: 150 / 275 / 450 turns.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Error Spike <span style="font-size:10px;font-weight:400;color:var(--muted)">(error)</span></dt>
+            <dt class="glossary-term">Error Spike <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(error)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when the error count in a trace reaches the per-agent threshold. A spike usually means the agent is stuck in a failure loop. Defaults: 4 / 5 / 6 errors.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Long Active Trace <span style="font-size:10px;font-weight:400;color:var(--muted)">(info)</span></dt>
+            <dt class="glossary-term">Long Active Trace <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(info)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when active LLM/tool compute time exceeds the per-agent threshold. Idle time (waiting for you to respond) does not count. Defaults: 30 / 45 / 60 minutes.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Zero Cache Utilization <span style="font-size:10px;font-weight:400;color:var(--muted)">(info)</span></dt>
+            <dt class="glossary-term">Zero Cache Utilization <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(info)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when a trace above the token gate has 0% cache hit rate. A large uncached trace is paying full price for every token. The gate prevents noise from small traces. Default gate: 30K input tokens for every agent (adjustable per agent).</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Identical Tool Repeat <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Identical Tool Repeat <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when the same tool with identical arguments repeats beyond the per-agent threshold without a file change between repeats — a strong deadlock signal. Defaults: 4 / 5 / 6 repeats.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Weekly Plan Limit Filling Up <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">Weekly Plan Limit Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">Fires when a Claude or ChatGPT plan's weekly window reaches the configured share, once per window. Only appears once Claude Code or Codex has recorded a <a href="#help-plan-limits">plan-limit</a> reading. Default: 80%.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">5-Hour Plan Limit Filling Up <span style="font-size:10px;font-weight:400;color:var(--muted)">(warning)</span></dt>
+            <dt class="glossary-term">5-Hour Plan Limit Filling Up <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
             <dd class="glossary-def" style="display:block">The same for the 5-hour window. Default: 90%.</dd>
           </div>
         </div>
 
         <h4 id="help-automation" style={subHeadStyle}>Automation</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Automations watch live traces and produce a correction prompt when a trace crosses a threshold. TraceRoost never sends that prompt to the agent itself; it reaches you one of three ways:</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 8px">Automations, set up on the Alerts panel's <strong>Automation</strong> tab (bell icon), watch live traces and produce a correction prompt when a trace crosses a threshold. TraceRoost never sends that prompt to the agent itself; it reaches you one of three ways:</p>
         <ul style="font-size:12px;color:var(--muted);margin:0 0 8px;padding-left:18px;line-height:1.7">
           <li><strong style="color:var(--fg)">Notification</strong> (default): a VS Code notification, or an in-page one in standalone mode, with a <strong>Copy Prompt</strong> button — paste the prompt into the agent yourself.</li>
           <li><strong style="color:var(--fg)">Prompts file</strong>: with an automation's <strong>Write prompts file</strong> toggle on, the prompt is appended to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> instead — in the workspace root in the VS Code-family extension, or in TraceRoost's data directory (<code style={codeStyle}>~/.traceroost</code> unless you set <code style={codeStyle}>DATA_DIR</code> / <code style={codeStyle}>--data-dir</code>) for the standalone server. Nothing feeds that file to the agent — it helps only if you, or an instruction in CLAUDE.md/AGENTS.md, tell the agent to check it.</li>
@@ -1290,7 +1290,7 @@ function ImportSection() {
 }
 
 function BadgesSection() {
-  const badgeStyle = 'font-size:9px;font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px'
+  const badgeStyle = 'font-size:var(--fs-xs);font-weight:600;padding:1px 5px;border-radius:2px;border:1px solid;letter-spacing:0.03em;vertical-align:middle;display:inline-block;margin-right:6px'
   return (
     <div class="help-section" id="help-badges">
       <h3 class="help-heading">{HELP_SECTIONS.badges.heading}</h3>

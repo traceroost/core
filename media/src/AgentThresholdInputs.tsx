@@ -1,3 +1,4 @@
+import { getAgentColorVar } from './utils'
 import {
   AGENT_PROFILE_FIELD_META,
   type AgentProfileMetric,
@@ -101,7 +102,7 @@ function AgentName({ source, profiles }: { source: AgentSource; profiles: AgentT
   const profile = profiles[source]
   return (
     <span style="display:flex;align-items:center;gap:5px;white-space:nowrap">
-      <span style={'display:inline-block;width:7px;height:7px;border-radius:50%;background:' + profile.color} />
+      <span style={'display:inline-block;width:7px;height:7px;border-radius:50%;background:' + getAgentColorVar(profile.source)} />
       <span>{profile.label}</span>
     </span>
   )

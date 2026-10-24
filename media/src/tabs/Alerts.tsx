@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { displaySessions, activeTab, focusedSessionId, configOpen } from '../state'
+import { displaySessions, activeTab, focusedSessionId, alertsOpen } from '../state'
 import { buildDisplaySummary, formatMs } from '../utils'
 import {
   fmtUsd,
@@ -355,6 +355,7 @@ function evaluateAlert(
 }
 
 export interface TriggeredAlert {
+  alertId: string
   label: string
   severity: 'error' | 'warning' | 'info'
   detail: string
@@ -369,7 +370,7 @@ export function getTriggeredAlerts(): TriggeredAlert[] {
   for (const cfg of configs) {
     if (!cfg.enabled) continue
     const result = evaluateAlert(cfg, sessions, efficiency, profiles)
-    if (result.triggered) out.push({ label: cfg.label, severity: cfg.severity, detail: result.detail ?? '', sessionId: result.sessionId })
+    if (result.triggered) out.push({ alertId: cfg.id, label: cfg.label, severity: cfg.severity, detail: result.detail ?? '', sessionId: result.sessionId })
   }
   return out
 }
@@ -390,8 +391,8 @@ export interface AlertNotification {
   sessionId?: string
 }
 
-// DOM id of an alert's card in the Alerts section — the target "View Alert" on a firing
-// notification scrolls to (see the switchTab handler in App.tsx).
+// DOM id of an alert's card on the Alerts panel's Configure tab — the target "View Alert" on a
+// firing notification scrolls to (see the switchTab handler in App.tsx and AlertsPanel.tsx).
 export function alertCardId(alertId: string): string {
   return 'alert-card-' + alertId
 }
@@ -512,7 +513,7 @@ export function Alerts() {
               <div class="flex-8">
                 <span style={`font-size:15px;color:${statusColor};line-height:1`}>{statusIcon}</span>
                 <strong style="font-size:13px">{cfg.label}</strong>
-                {triggered && <span style={`font-size:10px;background:${trigColor};color:#000;padding:1px 7px;border-radius:3px;font-weight:700;letter-spacing:.4px`}>TRIGGERED</span>}
+                {triggered && <span style={`font-size:var(--fs-xs);background:${trigColor};color:#000;padding:1px 7px;border-radius:3px;font-weight:700;letter-spacing:.4px`}>TRIGGERED</span>}
               </div>
               <label class="toggle-switch">
                 <input
@@ -537,12 +538,12 @@ export function Alerts() {
                 {sessionId && (
                   <>
                     {' '}
-                    {/* Closes the Settings drawer this list lives in — otherwise the trace opens
+                    {/* Closes the Alerts panel this list lives in — otherwise the trace opens
                         underneath it, out of sight. */}
                     <button
                       type="button"
                       class="link-btn"
-                      onClick={() => { configOpen.value = false; focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
+                      onClick={() => { alertsOpen.value = false; focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
                       style="white-space:nowrap"
                     >View trace →</button>
                   </>

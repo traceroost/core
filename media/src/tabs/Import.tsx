@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { vscode } from '../state'
-import { getAgentColor, getAgentSourceLabel } from '../utils'
+import { getAgentColorVar, getAgentSourceLabel } from '../utils'
 import { CloudNote } from './CloudNote'
 
 type Phase = 'idle' | 'preview' | 'importing' | 'done'
@@ -213,7 +213,7 @@ export function Import() {
               <span
                 key={source}
                 class="import-source-pill"
-                style={`border-color:${getAgentColor(source)};color:${getAgentColor(source)}`}
+                style={`border-color:${getAgentColorVar(source)};color:${getAgentColorVar(source)}`}
               >
                 {getAgentSourceLabel(source)} {count}
               </span>

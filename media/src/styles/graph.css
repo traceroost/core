@@ -1,5 +1,5 @@
 /* Flow graph */
 .flow-graph { overflow: auto; }
-.flow-graph svg text { fill: var(--fg); font-size: 10px; }
+.flow-graph svg text { fill: var(--fg); font-size: var(--fs-xs); }
 .flow-graph svg line { stroke: var(--border); stroke-width: 1; }
 .flow-graph svg circle { stroke: var(--accent); stroke-width: 2; }

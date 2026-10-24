@@ -380,7 +380,7 @@ interface DashboardPortInfo {
   reserved: number[]
 }
 
-const codeStyle = 'font-size:10px;background:var(--card-bg);padding:1px 4px;border-radius:3px'
+const codeStyle = 'font-size:var(--fs-xs);background:var(--card-bg);padding:1px 4px;border-radius:3px'
 
 /** Settings → Dashboard port (standalone only — the VS Code webview has no port). Moves the
  *  running dashboard without a restart; see standalone/dashboardPort.ts for the server half. */
@@ -479,7 +479,7 @@ export function DashboardPortSetting() {
         </form>
       )}
       {error && <div role="alert" style="font-size:11px;color:var(--vscode-testing-iconFailed,#f44);margin-top:6px">{error}</div>}
-      <div style="font-size:10px;color:var(--muted);margin-top:6px">
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">
         From a terminal: <code style={codeStyle}>traceroost service install --ui-port &lt;port&gt;</code>
       </div>
     </div>
@@ -509,10 +509,10 @@ export function McpToggle() {
       </div>
       {enabled && (
         <div style="font-size:11px;color:var(--muted)">
-          Listening at <code style="font-size:10px;background:var(--card-bg);padding:1px 4px;border-radius:3px">http://localhost:{port}/mcp</code>
+          Listening at <code style="font-size:var(--fs-xs);background:var(--card-bg);padding:1px 4px;border-radius:3px">http://localhost:{port}/mcp</code>
         </div>
       )}
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">Restart to apply changes.</div>
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">Restart to apply changes.</div>
     </div>
   )
 }

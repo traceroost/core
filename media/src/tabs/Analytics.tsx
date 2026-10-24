@@ -5,7 +5,7 @@ import {
   requestGitOutcomesFor,
   CHART_MAX, requestSessionTimeline, goToHelp,
 } from '../state'
-import { getAgentColor, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
+import { getAgentColorVar, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
 import { buildDailyCostMap, calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 import { PRICING_LAST_UPDATED } from '../pricing'
@@ -56,9 +56,8 @@ const BREAKDOWN_SOURCES = ['copilot', 'claude_code', 'codex', 'opencode', 'curso
 function AgentCard({ source, sessions }: { source: string; sessions: SessionSummaryCard[] }) {
   const s = computeStats(sessions)
   if (s.sessions === 0) return null
-  // Theme-aware like the Sessions table's agent dot: OpenCode's literal white is invisible on a
-  // light page, so the CSS variable (var(--fg) for OpenCode) wins where one is defined.
-  const color = `var(--agent-${source === 'claude_code' ? 'claude' : source},${getAgentColor(source)})`
+  // The agent's theme colour (agentColors.ts), the same as its dot, pill and chart bars.
+  const color = getAgentColorVar(source)
   const label = getAgentSourceLabel(source)
   // Cursor CLI records no token counts at all — show that as missing rather than as 0 / 0%.
   const hasTokens = s.totalInput > 0 || s.totalOutput > 0 || s.totalCache > 0
@@ -91,7 +90,7 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
         )}
       </div>
       {topTools.length > 0 && (
-        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)">
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:var(--fs-xs);color:var(--muted)">
           <div style="margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Top tools</div>
           {topTools.map(([t, n]) => (
             <div key={t} style="display:flex;justify-content:space-between;margin-bottom:1px">
@@ -427,16 +426,16 @@ export function Analytics() {
           {disclaimer}
 
           {/* Legend: each bar is one trace, coloured by its agent; the line is the daily total. */}
-          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-bottom:6px">
+          <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--muted);margin-bottom:6px">
             {costChartAgents.map(src => (
               <span key={src} style="display:inline-flex;align-items:center;gap:4px">
-                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColor(src)};box-shadow:0 0 0 1px var(--border)`} />
+                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColorVar(src)};box-shadow:0 0 0 1px var(--border)`} />
                 {getAgentSourceLabel(src)}{src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''}
               </span>
             ))}
             <span style="display:inline-flex;align-items:center;gap:4px">
               <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
-                <line x1="0" y1="4" x2="16" y2="4" stroke="rgba(129,199,132,0.9)" stroke-width="1.5" />
+                <line x1="0" y1="4" x2="16" y2="4" stroke="var(--vscode-charts-green, #81c784)" stroke-width="1.5" />
               </svg>
               Daily total (right axis)
             </span>
@@ -450,12 +449,12 @@ export function Analytics() {
               <button
                 onClick={() => setShowZeroCost(s => !s)}
                 title={showZeroCost ? 'Hide $0.00 rows' : 'Show $0.00 rows (included/free models)'}
-                style={`font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:${showZeroCost ? 'var(--hover)' : 'transparent'};color:var(--muted);white-space:nowrap`}
+                style={`font-size:var(--fs-xs);padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:${showZeroCost ? 'var(--hover)' : 'transparent'};color:var(--muted);white-space:nowrap`}
               >Show $0</button>
               <button
                 onClick={() => setAbbrevTokens(a => !a)}
                 title={abbrevTokens ? 'Switch to full numbers' : 'Switch to abbreviated numbers'}
-                style="font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
+                style="font-size:var(--fs-xs);padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
               >{abbrevTokens ? '1.2M' : '1,234'}</button>
               <button
                 onClick={() => {
@@ -487,13 +486,13 @@ export function Analytics() {
                   a.href = url; a.download = 'traceroost-cost.csv'; a.click()
                   URL.revokeObjectURL(url)
                 }}
-                style="font-size:10px;padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
+                style="font-size:var(--fs-xs);padding:2px 8px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);white-space:nowrap"
               >↓ CSV</button>
             </div>
           )}
           {dayRows.length > 0 && (
             <div class="h-scroll-hint" style="margin-bottom:8px">
-              <table style="border-collapse:collapse;font-size:10px;min-width:100%;white-space:nowrap">
+              <table style="border-collapse:collapse;font-size:var(--fs-xs);min-width:100%;white-space:nowrap">
                 <thead>
                   <tr style="border-bottom:1px solid var(--border)">
                     {(['Date','Agent','Model','Input','Output','Cache Create','Cache Read','Total Tokens','Estimated Cost (USD)'] as const).map(h => (
@@ -530,10 +529,10 @@ export function Analytics() {
                             <tr key={day + src} style="border-bottom:1px solid var(--border)">
                               <td style="padding:3px 8px 3px 0" />
                               <td style="padding:3px 8px">
-                                <span style={'display:inline-block;width:5px;height:5px;border-radius:50%;background:' + getAgentColor(src) + ';vertical-align:middle;margin-right:4px'} />
+                                <span style={'display:inline-block;width:5px;height:5px;border-radius:50%;background:' + getAgentColorVar(src) + ';vertical-align:middle;margin-right:4px'} />
                                 {getAgentSourceLabel(src)}
                               </td>
-                              <td style="padding:3px 8px;color:var(--muted);font-size:9px;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={modelFull}>{modelShort}</td>
+                              <td style="padding:3px 8px;color:var(--muted);font-size:var(--fs-xs);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={modelFull}>{modelShort}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.input)}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.output)}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.cacheCreate)}</td>
@@ -568,7 +567,7 @@ export function Analytics() {
 
       {/* Token usage per session */}
       <SectionHead id="analytics-token-usage" title="TOKEN USAGE PER TRACE" />
-      <div style="display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--muted)">
+      <div style="display:flex;gap:12px;margin-bottom:6px;font-size:var(--fs-xs);color:var(--muted)">
         <span><span style="display:inline-block;width:10px;height:3px;background:#FFB74D;border-radius:1px;vertical-align:middle" /> Input tokens</span>
         <span><span style="display:inline-block;width:10px;height:3px;background:#81C784;border-radius:1px;vertical-align:middle" /> Output tokens</span>
       </div>

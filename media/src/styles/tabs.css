@@ -62,7 +62,7 @@
   color: #000;
   border-radius: 8px;
   padding: 1px 4px;
-  font-size: 9px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   min-width: 14px;
   text-align: center;
