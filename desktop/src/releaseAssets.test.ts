@@ -16,7 +16,6 @@ const LINUX_ARM64 = [`TraceRoost-${V}-linux-arm64.deb`, `TraceRoost-${V}-linux-a
 const WIN_X64 = [`TraceRoost-${V}-win-x64.exe`]
 const WIN_ARM64 = [`TraceRoost-${V}-win-arm64.exe`]
 const SUMS = `TraceRoost-desktop-${V}-SHA256SUMS`
-const preview = (name: string) => name.replace(/(\.[^.]+)$/, '-preview$1')
 
 suite('release-assets — attaching desktop builds to a release', () => {
   let dir: string
@@ -88,36 +87,23 @@ suite('release-assets — attaching desktop builds to a release', () => {
     assert.match(r.err, /missing from the build artifacts: .*win-arm64\.exe/)
   })
 
-  test('not yet signed: attached as a preview under a name that says so, with checksums of those names', () => {
+  test('the combined SHA256SUMS lists the attached names, each matching the bytes as built', () => {
     allArtifacts()
-    const r = run('linux,macos-preview,windows-preview')
+    const r = run('linux,macos,windows')
     assert.strictEqual(r.status, 0, r.err)
-    const previewFiles = [...MAC, ...WIN_X64, ...WIN_ARM64].map(preview)
-    assert.deepStrictEqual(released(), [...LINUX_X64, ...LINUX_ARM64, ...previewFiles, SUMS].sort())
-    assert.ok(released().includes(`TraceRoost-${V}-mac-arm64-preview.dmg`))
-    assert.ok(released().includes(`TraceRoost-${V}-win-x64-preview.exe`))
-    // Same bytes as built, and the combined SHA256SUMS lists the attached names.
     const lines = fs.readFileSync(path.join(outDir, SUMS), 'utf8').trim().split('\n')
-    assert.deepStrictEqual(lines.map(l => l.split('  ')[1]), [...LINUX_X64, ...LINUX_ARM64, ...previewFiles].sort())
+    assert.deepStrictEqual(lines.map(l => l.split('  ')[1]), [...LINUX_X64, ...LINUX_ARM64, ...MAC, ...WIN_X64, ...WIN_ARM64].sort())
     for (const line of lines) {
       const [hash, name] = line.split('  ')
       assert.strictEqual(crypto.createHash('sha256').update(fs.readFileSync(path.join(outDir, name))).digest('hex'), hash, name)
     }
-    assert.strictEqual(fs.readFileSync(path.join(outDir, preview(WIN_X64[0])), 'utf8'), WIN_X64[0])
-    assert.match(r.out, /mac-arm64-preview\.dmg {3}\(preview\)/)
+    assert.strictEqual(fs.readFileSync(path.join(outDir, WIN_X64[0]), 'utf8'), WIN_X64[0])
   })
 
-  test('a platform cannot be attached both signed and as a preview', () => {
-    allArtifacts()
-    const r = run('windows,windows-preview')
-    assert.notStrictEqual(r.status, 0)
-    assert.match(r.err, /named both signed and preview/)
-  })
-
-  test('a tampered preview build still fails its checksum', () => {
+  test('a tampered Windows build fails its checksum', () => {
     allArtifacts()
     fs.appendFileSync(path.join(inDir, 'traceroost-desktop-windows-arm64', WIN_ARM64[0]), 'tampered')
-    const r = run('windows-preview')
+    const r = run('windows')
     assert.notStrictEqual(r.status, 0)
     assert.match(r.err, /does not match its checksum/)
     assert.deepStrictEqual(released(), [])
@@ -174,9 +160,9 @@ suite('release-assets — attaching desktop builds to a release', () => {
     assert.match(r.err, /names no platform/)
   })
 
-  test('an unknown platform is refused (and Linux has no preview variant)', () => {
+  test('an unknown platform is refused (and there are no *-preview platforms)', () => {
     allArtifacts()
-    for (const platform of ['linux,win', 'linux-preview']) {
+    for (const platform of ['linux,win', 'linux-preview', 'macos-preview', 'windows-preview']) {
       const r = run(platform)
       assert.notStrictEqual(r.status, 0, platform)
       assert.match(r.err, /unknown platform/)

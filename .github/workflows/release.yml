@@ -370,9 +370,8 @@ jobs:
 
   # The desktop apps (.github/workflows/desktop-release.yml) — only from a tag, only after `package`
   # has passed and created the GitHub release they attach to. Independent of the other publish jobs
-  # in both directions. Linux is attached on every release; macOS and Windows signed once their
-  # signing secrets exist, and until then as `*-preview` builds labelled "(preview)"; the
-  # edition gate and the TRACEROOST_DESKTOP_PLATFORMS switch live in desktop-release.yml.
+  # in both directions. Linux, macOS and Windows are attached on every release under their plain
+  # names, signed or not; the edition gate and the TRACEROOST_DESKTOP_PLATFORMS switch live in desktop-release.yml.
   desktop:
     needs: package
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -401,3 +400,56 @@ jobs:
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
       MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+
+  # The winget package (`winget install TraceRoost.TraceRoost`): manifests for the Windows
+  # installers the desktop job just attached (signed, or `*-preview`), written by
+  # desktop/scripts/winget-manifests.mjs from the bytes the release serves, then opened as a pull
+  # request on microsoft/winget-pkgs by wingetcreate. That repository's moderators and validation
+  # pipeline merge it, usually within a day or two. Skipped until the WINGET_CREATE_GITHUB_TOKEN
+  # secret exists (a classic token with `public_repo`, from the account that owns the
+  # winget-pkgs fork), so a missing token never fails a release. runbooks/RELEASING.md → "winget".
+  publish-winget:
+    needs: desktop
+    runs-on: windows-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.desktop.result == 'success'
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.WINGET_CREATE_GITHUB_TOKEN != ''
+
+      - name: Setup Node.js
+        if: env.WINGET_CREATE_GITHUB_TOKEN != ''
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Write the manifests from the released installers
+        if: env.WINGET_CREATE_GITHUB_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart('v')
+          gh release download "$env:GITHUB_REF_NAME" --pattern 'TraceRoost-*-win-*.exe' --dir winget-assets
+          $dir = node desktop/scripts/winget-manifests.mjs --version $version --assets winget-assets --out winget
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem $dir | ForEach-Object { Write-Host "── $($_.Name)"; Get-Content $_.FullName }
+          "MANIFEST_DIR=$dir" >> $env:GITHUB_ENV
+          "PACKAGE_VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Open the winget-pkgs pull request
+        if: env.WINGET_CREATE_GITHUB_TOKEN != ''
+        run: |
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe submit --prtitle "New version: TraceRoost.TraceRoost version $env:PACKAGE_VERSION" --token $env:WINGET_CREATE_GITHUB_TOKEN $env:MANIFEST_DIR
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Note a skipped winget update
+        if: env.WINGET_CREATE_GITHUB_TOKEN == ''
+        run: Write-Host "::notice::WINGET_CREATE_GITHUB_TOKEN is not set — no winget-pkgs pull request was opened (runbooks/RELEASING.md → winget)."

@@ -5,9 +5,8 @@ name: Desktop (macOS)
 #
 # On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
 # runs it through desktop-release.yml (`workflow_call`), which attaches the macOS files to the
-# GitHub release: under its plain name when `notarized` comes out true, otherwise as a `*-preview`
-# build labelled "(preview)" — until the Apple Developer Program secrets below exist the app is
-# ad-hoc signed, and Gatekeeper refuses an ad-hoc signed download
+# GitHub release under its plain name, notarized or not. Until the Apple Developer Program secrets
+# below exist the app is ad-hoc signed, and Gatekeeper refuses an ad-hoc signed download
 # (right-click → Open gets past it; see desktop/README.md). The build is identical either way.
 #
 # Signing and notarization are switched on by secrets alone (desktop/electron-builder.cjs
@@ -210,8 +209,8 @@ jobs:
 
       # With signing and notarization configured, a build that is not actually Developer ID signed,
       # hardened and stapled is a failure, not a silent fallback; so is half a configuration. With
-      # neither, `notarized=false` attaches the macOS files to a release as a preview
-      # (desktop-release.yml).
+      # neither, `notarized=false` attaches the macOS files unnotarized, with a release-notes line on
+      # opening them (desktop-release.yml).
       - name: Notarization check
         id: notarization
         working-directory: desktop
@@ -224,7 +223,7 @@ jobs:
           [ -n "${CSC_NAME:-}" ] && signing=true
           if [ -n "${APPLE_API_KEY:-}" ] || { [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; }; then notary=true; fi
           if [ "$signing" = false ] && [ "$notary" = false ]; then
-            echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release attaches it as *-preview"
+            echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release attaches it unnotarized"
             echo "notarized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

@@ -15,8 +15,8 @@ name: Desktop (Windows)
 #
 # On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
 # runs it through desktop-release.yml (`workflow_call`), which attaches the Windows files to the
-# GitHub release: under its plain name when `signed` comes out true, otherwise as a `*-preview`
-# build labelled "(preview)".
+# GitHub release under its plain name, signed or not (`signed` decides only whether the release notes
+# explain SmartScreen).
 #
 # Signing is switched on by secrets alone (desktop/electron-builder.cjs reads the environment):
 #
@@ -29,7 +29,7 @@ name: Desktop (Windows)
 #                                   signature names them) and are fixed in electron-builder.cjs.
 #
 # The repository variable TRACEROOST_WINDOWS_SIGNING=off switches signing off with the secrets still
-# in place: the build is unsigned, `signed` is false, and a release attaches it as a preview.
+# in place: the build is unsigned, `signed` is false, and a release attaches it unsigned.
 #
 # An empty secret expands to an empty string, which the config treats as absent. With signing
 # configured, a build whose executables are not validly Authenticode-signed is a failure, not a
