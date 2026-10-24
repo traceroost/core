@@ -912,7 +912,9 @@ export function App() {
   }, [])
 
   const tab = normalizeTabId(activeTab.value)
-  const showFilterBars = tab !== 'help' && tab !== 'pricing'
+  // Import reads a file and ignores every filter, so its tab drops the filter chrome. Export keeps
+  // it: what it exports is the filtered set.
+  const showFilterBars = tab !== 'help' && tab !== 'pricing' && tab !== 'import'
 
   return (
     <>
