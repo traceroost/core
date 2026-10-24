@@ -3,7 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import * as vscode from 'vscode'
 import { OtlpCollector } from './otlpCollector'
-import { detectPortOwner } from './portResolver'
+import { detectPortOwner, serviceDashboardPort } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
@@ -300,18 +300,28 @@ export async function activate(context: vscode.ExtensionContext) {
           `(\`code --uninstall-extension ${context.extension.id}\`), then reload — or, to use VS Code instead, ` +
           `stop the service with \`traceroost service stop\`.`
         )
-        vscode.window.showErrorMessage(
-          `TraceRoost: the background service is already receiving OTel data on port ${port}. This window won't ` +
-          `see live OTel sessions until you stop the service (\`traceroost service stop\`) and reload, or view its ` +
-          `dashboard instead. Run TraceRoost one way per machine — extension, background service, local run, or ` +
-          `Docker, not several at once — and stick to the default ports.`
-        )
+        // One sentence; the full story is in the log above. The buttons are what this window can
+        // do about it — show the service's own dashboard, or say more. Stopping the service is a
+        // terminal command (`traceroost service stop`), named in the log.
+        const OPEN_SERVICE = 'Open Service Dashboard'
+        void vscode.window.showErrorMessage(
+          `TraceRoost: the background service already receives OTel on port ${port}, so this window won't get live traces — use the service's dashboard, or stop the service and reload.`,
+          OPEN_SERVICE, SHOW_LOG_BUTTON,
+        ).then(choice => {
+          if (choice === OPEN_SERVICE) void vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${serviceDashboardPort(port)}`))
+          else if (choice === SHOW_LOG_BUTTON) showLog()
+        })
       } else if (owner === 'foreign') {
         collectorConflict = { owner, port, extensionId: context.extension.id }
         outputChannel.appendLine(`Port ${port} is in use by an unknown process — change traceRoost.otlpPort`)
-        vscode.window.showErrorMessage(
-          `TraceRoost: Port ${port} is already in use by another application. Change the traceRoost.otlpPort setting to use a different port.`
-        )
+        const CHANGE_PORT = 'Change Port'
+        void vscode.window.showErrorMessage(
+          `TraceRoost: port ${port} is in use by another application, so no live traces can arrive. Pick a free port for traceRoost.otlpPort and reload.`,
+          CHANGE_PORT, SHOW_LOG_BUTTON,
+        ).then(choice => {
+          if (choice === CHANGE_PORT) void vscode.commands.executeCommand('workbench.action.openSettings', 'traceRoost.otlpPort')
+          else if (choice === SHOW_LOG_BUTTON) showLog()
+        })
       }
     } else {
       outputChannel.appendLine(`Failed to start OTLP collector on port ${port}: ${err}`)
@@ -1105,6 +1115,9 @@ export async function activate(context: vscode.ExtensionContext) {
   function updateStatusBar() {
     if (collectorConflict) {
       statusBar.text = '$(warning) TraceRoost — not receiving OTel'
+      statusBar.tooltip = collectorConflict.owner === 'standalone'
+        ? `Not receiving live traces: the TraceRoost background service holds port ${collectorConflict.port}. Click to open this window's dashboard (log history only).`
+        : `Not receiving live traces: another application holds port ${collectorConflict.port} — change traceRoost.otlpPort. Click to open the dashboard (log history only).`
       statusBar.color = new vscode.ThemeColor('statusBarItem.warningForeground')
       statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
     } else {

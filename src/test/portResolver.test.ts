@@ -6,7 +6,7 @@ import * as path from 'path'
 import { EventEmitter } from 'events'
 import {
   listenWithFallback, PortScanExhaustedError, isUnavailablePort,
-  readResolvedPorts, writeResolvedPorts, resolvedPortsPath,
+  readResolvedPorts, writeResolvedPorts, resolvedPortsPath, serviceDashboardPort,
   type ResolvedPorts,
 } from '../portResolver'
 
@@ -271,5 +271,19 @@ suite('portResolver', () => {
         PortScanExhaustedError,
       )
     })
+  })
+})
+
+suite('serviceDashboardPort', () => {
+  test('uses the resolved-ports record when it describes the server on that OTLP port', () => {
+    const home = tmpHome()
+    writeResolvedPorts({ ui: 3005, otlp: 4318, mcp: 4316, resolvedAt: new Date().toISOString(), pid: 1 }, home)
+    assert.strictEqual(serviceDashboardPort(4318, home), 3005)
+  })
+  test('falls back to the configured dashboard port otherwise', () => {
+    const home = tmpHome()
+    assert.strictEqual(serviceDashboardPort(4318, home), 3000)
+    writeResolvedPorts({ ui: 3005, otlp: 4320, mcp: 4316, resolvedAt: new Date().toISOString(), pid: 1 }, home)
+    assert.strictEqual(serviceDashboardPort(4318, home), 3000)
   })
 })

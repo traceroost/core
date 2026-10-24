@@ -12,7 +12,7 @@
 import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
-import { defaultDataDir } from './serviceConfig'
+import { defaultDataDir, readServiceConfig } from './serviceConfig'
 import { writeFileAtomic } from './fsAtomic'
 
 export interface ResolvedPorts {
@@ -45,6 +45,16 @@ export function readResolvedPorts(baseHome?: string): ResolvedPorts | undefined 
   } catch {
     return undefined
   }
+}
+
+/** The dashboard port of the TraceRoost server holding `otlpPort` — for the VS Code extension's
+ *  "Open Service Dashboard" button when the background service already has the OTLP port. The
+ *  resolved-ports record wins when it describes that server (its OTLP port matches, so a port
+ *  fallback is accounted for); otherwise the configured dashboard port in config.json. */
+export function serviceDashboardPort(otlpPort: number, baseHome?: string): number {
+  const resolved = readResolvedPorts(baseHome)
+  if (resolved && resolved.otlp === otlpPort && Number.isInteger(resolved.ui)) return resolved.ui
+  return readServiceConfig(baseHome).uiPort
 }
 
 export function writeResolvedPorts(ports: ResolvedPorts, baseHome?: string): void {
