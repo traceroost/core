@@ -519,7 +519,7 @@ export function Analytics() {
                           <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">{fmtN(d.cacheCreate)}</td>
                           <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">{fmtN(d.cacheRead)}</td>
                           <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">{fmtN(dayTotal)}</td>
-                          <td style="padding:3px 8px;text-align:right;color:var(--vscode-charts-green,#81c784);font-weight:600">{fmtUsd(d.cost)}</td>
+                          <td style="padding:3px 8px;text-align:right;color:var(--fg);font-weight:600">{fmtUsd(d.cost)}</td>
                         </tr>
                         {/* Per-agent rows */}
                         {agents.map(([src, ae]) => {
@@ -539,7 +539,7 @@ export function Analytics() {
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.cacheCreate)}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(ae.cacheRead)}</td>
                               <td style="padding:3px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{fmtN(agentTotal)}</td>
-                              <td style="padding:3px 8px;text-align:right;color:var(--vscode-charts-green,#81c784)">{fmtUsd(ae.cost)}</td>
+                              <td style="padding:3px 8px;text-align:right;color:var(--fg)">{fmtUsd(ae.cost)}</td>
                             </tr>
                           )
                         })}
@@ -557,7 +557,7 @@ export function Analytics() {
                     <td style="padding:3px 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{fmtN(grand.cacheCreate)}</td>
                     <td style="padding:3px 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{fmtN(grand.cacheRead)}</td>
                     <td style="padding:3px 8px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{fmtN(grand.input+grand.output+grand.cacheCreate+grand.cacheRead)}</td>
-                    <td style="padding:3px 8px;text-align:right;font-weight:600;color:var(--vscode-charts-green,#81c784)">{fmtUsd(grand.cost)}</td>
+                    <td style="padding:3px 8px;text-align:right;font-weight:600;color:var(--fg)">{fmtUsd(grand.cost)}</td>
                   </tr>
                 </tfoot>
               </table>
