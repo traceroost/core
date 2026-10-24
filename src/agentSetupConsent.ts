@@ -17,6 +17,7 @@
  */
 
 import { readServiceConfig, writeServiceConfig } from './serviceConfig'
+import { AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
 
 export { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
 
@@ -53,4 +54,15 @@ export function leftAloneMessage(agents: string[], port: number): string | undef
   const names = agents.length === 1 ? agents[0] : `${agents.slice(0, -1).join(', ')} and ${agents[agents.length - 1]}`
   const [they, their] = agents.length === 1 ? ['it', 'its'] : ['they', 'their']
   return `TraceRoost: left ${names} alone — ${they} already send${agents.length === 1 ? 's' : ''} OTel to another collector, so ${their} traces won't reach port ${port}. Show Log has the details.`
+}
+
+/** Which terminal question is waiting: the first ("Set up agents? [y/N]") or, after a no, the
+ *  confirmation ("Skip setup? [Y/n]"). */
+export type AgentSetupStep = 'setup' | 'skip'
+
+/** The one line printed when startup output has pushed the terminal question out of sight —
+ *  worded for whichever question is actually waiting. */
+export function agentSetupWaitingLine(step: AgentSetupStep): string {
+  const question = step === 'skip' ? AGENT_SETUP_SKIP_QUESTION : AGENT_SETUP_QUESTION
+  return `[TraceRoost] Still waiting for your answer: ${question} (details above; you can also answer in the dashboard)`
 }

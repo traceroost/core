@@ -2,7 +2,8 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { leftAloneMessage, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer } from '../agentSetupConsent'
+import { agentSetupWaitingLine, leftAloneMessage, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer } from '../agentSetupConsent'
+import { AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_QUESTION } from '../agentSetupText'
 import { readServiceConfig, writeServiceConfig, defaultServiceConfig } from '../serviceConfig'
 
 suite('agentSetupConsent', () => {
@@ -59,5 +60,12 @@ suite('agentSetupConsent', () => {
     const several = leftAloneMessage(['Copilot', 'Claude Code', 'Codex'], 4318) ?? ''
     assert.match(several, /left Copilot, Claude Code and Codex alone — they already send OTel/)
     assert.match(several, /their traces/)
+  })
+
+  test('the terminal re-prompt names whichever question is waiting', () => {
+    assert.ok(agentSetupWaitingLine('setup').includes(AGENT_SETUP_QUESTION))
+    assert.ok(!agentSetupWaitingLine('setup').includes(AGENT_SETUP_SKIP_QUESTION))
+    assert.ok(agentSetupWaitingLine('skip').includes(AGENT_SETUP_SKIP_QUESTION))
+    assert.ok(!agentSetupWaitingLine('skip').includes(AGENT_SETUP_QUESTION))
   })
 })

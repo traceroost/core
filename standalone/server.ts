@@ -14,7 +14,7 @@ import { config as loadDotenv } from 'dotenv'
 import { summarizeSpans } from '../src/spanSummarizer'
 import { calcSessionCostUsd } from '../src/pricing'
 import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone } from '../src/autoConfigNode'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer } from '../src/agentSetupConsent'
+import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, agentSetupWaitingLine, parseSkipConfirmation, parseYesNo, readAgentSetupAnswer, writeAgentSetupAnswer, type AgentSetupAnswer, type AgentSetupStep } from '../src/agentSetupConsent'
 import * as readline from 'readline'
 import { classifyOtlpPayload } from '../src/otlpParser'
 import { OtlpIngest } from '../src/otlpIngest'
@@ -2332,8 +2332,10 @@ async function runAgentSetup(port: number): Promise<void> {
   }
 }
 
-// The terminal question while it waits — closed when the dashboard answers first.
+// The terminal question while it waits — closed when the dashboard answers first — and which of
+// its two questions is showing, so the re-prompt names the right one.
 let agentSetupQuestion: readline.Interface | undefined
+let agentSetupStep: AgentSetupStep = 'setup'
 
 /** Records the user's answer, from the terminal or the dashboard, and acts on it. */
 function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void> {
@@ -2355,7 +2357,7 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
 function repromptAgentSetup(): void {
   const rl = agentSetupQuestion
   if (!rl) return
-  console.log(`\n[TraceRoost] Still waiting for your answer: ${AGENT_SETUP_QUESTION} (details above; you can also answer in the dashboard)`)
+  console.log(`\n${agentSetupWaitingLine(agentSetupStep)}`)
   rl.prompt(true)
 }
 
@@ -2364,13 +2366,16 @@ function askAgentSetupInTerminal(port: number): void {
   agentSetupPending = true
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   agentSetupQuestion = rl
-  // The question and explanation are printed once; only the short "[y/N]" line is the readline
-  // prompt, so repromptAgentSetup can show it again below the startup lines that follow.
+  agentSetupStep = 'setup'
+  // Each question and its explanation are printed once; only the short "[y/N]" / "[Y/n]" line is
+  // the readline prompt, so repromptAgentSetup can show it again below the startup lines that follow.
   console.log(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}`)
   rl.question('Set up agents? [y/N] ', input => {
     if (parseYesNo(input) === 'yes') { void answerAgentSetup('yes', port); return }
     // A no is asked once more, with what skipping costs; Enter keeps the no.
-    rl.question(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}\nSkip setup? [Y/n] `, again => {
+    agentSetupStep = 'skip'
+    console.log(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}`)
+    rl.question('Skip setup? [Y/n] ', again => {
       void answerAgentSetup(parseSkipConfirmation(again), port)
     })
   })
