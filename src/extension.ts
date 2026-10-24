@@ -1128,11 +1128,13 @@ export async function activate(context: vscode.ExtensionContext) {
   } else if (collectorFailed) {
     outputChannel.appendLine('TraceRoost active — collector already running in another VS Code window; sharing its database')
   } else {
-    // The toast only on first activation and after an update — not on every window/startup.
+    // The toast only on the very first activation after install — not after updates or on
+    // every window/startup; the status bar item says it's running from then on. The key still
+    // records the version, so it is set for anyone who saw the toast under the old per-update rule.
     // The Output panel stays where the user left it; the line is there for anyone who looks.
     const version = String(context.extension.packageJSON.version)
     const toastKey = 'traceRoost.activeToastVersion'
-    if (context.globalState.get<string>(toastKey) !== version) {
+    if (context.globalState.get<string>(toastKey) === undefined) {
       void context.globalState.update(toastKey, version)
       vscode.window.showInformationMessage(`TraceRoost active — listening on port ${port}`)
     }
