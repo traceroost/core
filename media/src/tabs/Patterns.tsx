@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'preact/hooks'
-import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode, availableWorkspaces, workspaceFilter } from '../state'
+import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode, availableWorkspaces, workspaceFilter, filtersOpen, filtersFocusField } from '../state'
 import { Instructions, instructionFiles, instructionsAcrossWorkspaces } from './Instructions'
-import { getAgentSourceLabel, formatSessionTime } from '../utils'
+import { getAgentSourceLabel, getAgentColorVar, formatSessionTime } from '../utils'
 import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
@@ -14,12 +14,13 @@ import { SectionNav, type NavSection } from '../SectionNav'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const AGENT_DOT_COLOR: Record<string, string> = {
-  claude_code: '#FFB085',
-  copilot:     '#00EAFF',
-  codex:       '#F0FF42',
-}
-function agentDotColor(source: string): string { return AGENT_DOT_COLOR[source] ?? '#888' }
+function agentDotColor(source: string): string { return getAgentColorVar(source) }
+
+// Efficiency Map dots are coloured by cache reuse, not agent — theme chart colours, so they read on
+// light and dark themes alike.
+const CACHE_GOOD = 'var(--vscode-charts-green, #81c784)'
+const CACHE_MID  = 'var(--vscode-charts-yellow, #f6a623)'
+const CACHE_BAD  = 'var(--vscode-charts-red, #f44747)'
 
 function sessionCost(s: SessionSummaryCard): number {
   return calcSessionCost(s).totalUsd
@@ -96,11 +97,11 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
         Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more turns (model calls). <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth — start there. <strong style="color:var(--vscode-charts-green, #81c784)">Green</strong> = model reused cached context between calls (efficient). <strong style="color:var(--vscode-errorForeground, #f44747)">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
       </div>
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
-        <span style="font-size:10px;color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
-        <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)">
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#81c784" /> cache ≥60%
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f6a623;margin-left:6px" /> 20–60%
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f44747;margin-left:6px" /> &lt;20%
+        <span style="font-size:var(--fs-xs);color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
+        <span style="display:flex;align-items:center;gap:4px;font-size:var(--fs-xs);color:var(--muted)">
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_GOOD}`} /> cache ≥60%
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_MID};margin-left:6px`} /> 20–60%
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_BAD};margin-left:6px`} /> &lt;20%
         </span>
       </div>
       <div style="position:relative">
@@ -115,13 +116,13 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
           ))}
           <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
           <line x1={PAD.left} y1={PAD.top + ch} x2={PAD.left + cw} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
-          <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="10" fill="var(--muted)">Estimated cost (USD)</text>
-          <text x={10} y={PAD.top + ch / 2} text-anchor="middle" font-size="10" fill="var(--muted)"
+          <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="11" fill="var(--muted)">Estimated cost (USD)</text>
+          <text x={10} y={PAD.top + ch / 2} text-anchor="middle" font-size="11" fill="var(--muted)"
             transform={`rotate(-90,10,${PAD.top + ch / 2})`}>Turns</text>
           {xTicks.map(t => (
             <g key={t.v}>
               <line x1={t.x} y1={PAD.top + ch} x2={t.x} y2={PAD.top + ch + 4} stroke="var(--border)" />
-              <text x={t.x} y={PAD.top + ch + 14} text-anchor="middle" font-size="9" fill="var(--muted)">
+              <text x={t.x} y={PAD.top + ch + 14} text-anchor="middle" font-size="11" fill="var(--muted)">
                 {t.v < 0.01 ? '$0' : `$${t.v.toFixed(2)}`}
               </text>
             </g>
@@ -129,18 +130,18 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
           {yTicks.map(t => (
             <g key={t.v}>
               <line x1={PAD.left - 4} y1={t.y} x2={PAD.left} y2={t.y} stroke="var(--border)" />
-              <text x={PAD.left - 6} y={t.y + 4} text-anchor="end" font-size="9" fill="var(--muted)">{t.v}</text>
+              <text x={PAD.left - 6} y={t.y + 4} text-anchor="end" font-size="11" fill="var(--muted)">{t.v}</text>
             </g>
           ))}
           <g clip-path="url(#plot-area)">
             {points.map((p, i) => {
               const inTop = topMatchIds.has(p.s.traceId)
               const cx = xPos(p.cost), cy = yPos(p.turns)
-              const color = p.cacheHitRate >= 0.6 ? '#81c784' : p.cacheHitRate >= 0.2 ? '#f6a623' : '#f44747'
+              const color = p.cacheHitRate >= 0.6 ? CACHE_GOOD : p.cacheHitRate >= 0.2 ? CACHE_MID : CACHE_BAD
               return (
                 <circle key={i} cx={cx} cy={cy} r={inTop ? 5 : 4}
-                  fill={color} opacity={inTop ? 1 : 0.6} style="cursor:pointer"
-                  stroke={clicked === p.s.traceId ? '#fff' : 'none'} stroke-width="2"
+                  opacity={inTop ? 1 : 0.6} style={`cursor:pointer;fill:${color};stroke:${clicked === p.s.traceId ? 'var(--fg)' : 'none'}`}
+                  stroke-width="2"
                   onMouseEnter={() => setTooltip({ x: cx, y: cy, s: p.s })}
                   onMouseLeave={() => setTooltip(null)}
                   onClick={() => {
@@ -162,7 +163,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
               <div style="font-weight:600;color:var(--fg);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
                 {s.userRequest ? s.userRequest.slice(0, 60) + (s.userRequest.length > 60 ? '…' : '') : '—'}
               </div>
-              <div style="color:var(--muted);font-size:10px;line-height:1.6">
+              <div style="color:var(--muted);font-size:var(--fs-xs);line-height:1.6">
                 <div>{getAgentSourceLabel(s.source)} · {s.model?.split('-').slice(-2).join('-')}</div>
                 <div>{s.startTime.slice(0, 10)} · {fmtUsd(sessionCost(s))} · {s.totalLlmCalls} turns</div>
                 <div>cache hit rate: {Math.round((s.cacheHitRate ?? 0) * 100)}%</div>
@@ -172,7 +173,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
         })()}
       </div>
 
-      {sortedMatches.length > 0 && <div style="margin-top:8px;font-size:10px;color:var(--muted)">Top {sortedMatches.length} traces</div>}
+      {sortedMatches.length > 0 && <div style="margin-top:8px;font-size:var(--fs-xs);color:var(--muted)">Top {sortedMatches.length} traces</div>}
       {sortedMatches.length > 0 && (() => {
         const thStyle = (col: MatchSort) =>
           `padding:4px 8px 4px 0;color:${sort.col === col ? 'var(--fg)' : 'var(--muted)'};font-weight:500;white-space:nowrap;cursor:pointer;user-select:none;font-size:11px`
@@ -194,7 +195,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
                   const isClicked = clicked === p.s.traceId
                   return (
                   <tr key={i} style={`border-bottom:1px solid var(--border);${isClicked ? 'background:rgba(79,195,247,0.08);box-shadow:inset 3px 0 0 var(--accent)' : ''}`}>
-                    <td style="padding:4px 8px 4px 0;white-space:nowrap;font-size:10px;font-variant-numeric:tabular-nums">
+                    <td style="padding:4px 8px 4px 0;white-space:nowrap;font-size:var(--fs-xs);font-variant-numeric:tabular-nums">
                       <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${agentDotColor(p.s.source)};margin-right:5px;flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(p.s.source)} />
                       <button type="button" class="link-btn"
                         title="Open in Traces tab"
@@ -286,14 +287,14 @@ function HotFiles({ sessions }: { sessions: SessionSummaryCard[] }) {
             {rows.map((r) => (
               <tr key={r.file} style="border-bottom:1px solid var(--border)">
                 <td style="padding:4px 8px 4px 0;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={r.file}>
-                  <span style="color:var(--muted);font-size:10px">{r.file.replace(basename(r.file), '')}</span>
+                  <span style="color:var(--muted);font-size:var(--fs-xs)">{r.file.replace(basename(r.file), '')}</span>
                   <span style="color:var(--fg)">{basename(r.file)}</span>
                 </td>
                 <td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums">{r.sessionCount}</td>
                 <td style="padding:4px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{r.read || '—'}</td>
                 <td style="padding:4px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{r.changed || '—'}</td>
                 <td style="padding:4px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{r.written || '—'}</td>
-                <td style="padding:4px 8px;text-align:right;color:var(--muted);white-space:nowrap;font-size:10px">{r.lastSeen ? r.lastSeen.slice(0, 10) : '—'}</td>
+                <td style="padding:4px 8px;text-align:right;color:var(--muted);white-space:nowrap;font-size:var(--fs-xs)">{r.lastSeen ? r.lastSeen.slice(0, 10) : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -357,23 +358,22 @@ function actionTipFor(a: CostSavingAction): string | null {
 /** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
  *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
  *  Built only from signals already computed (costSavingActions.ts) — no new heuristics here. */
-/** Suggests narrowing to one repo via the header's REPO filter: instruction-file suggestions are
+/** Suggests narrowing to one repo via the header's Repo filter (in the Filters popover): instruction-file suggestions are
  *  only as specific as the traces behind them. Gone once a repo is chosen, when there's only one
  *  repo (the filter isn't shown), when this window's open folder already scopes them, or in the
  *  standalone dashboard, where they're already grouped per repo and each group applies to its own. */
 function RepoFilterHint() {
   if (workspaceFilter.value.trim() !== '' || availableWorkspaces.value.length < 2 || currentWorkspace.value !== null || instructionsAcrossWorkspaces()) return null
+  // Repo sits in the header's Filters popover: open it with focus on the Repo field.
   const focusRepo = () => {
-    const el = document.getElementById('tr-filter-repo') as HTMLInputElement | null
-    if (!el) return
-    el.scrollIntoView({ block: 'nearest' })
-    el.focus()
+    filtersFocusField.value = 'tr-filter-repo'
+    filtersOpen.value = true
   }
   return (
     <div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;padding:6px 10px;font-size:11px;color:var(--muted);background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-      <span style="flex:1">Tip: pick a repo in <strong style="color:var(--fg)">Repo</strong> in the header above for suggestions tailored to that repo's instruction file.</span>
+      <span style="flex:1">Tip: pick a repo under <strong style="color:var(--fg)">Filters → Repo</strong> in the header above for suggestions tailored to that repo's instruction file.</span>
       <button onClick={focusRepo}
-        style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap">Choose repo ↑</button>
+        style="padding:2px 8px;font-size:var(--fs-xs);border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap">Choose repo ↑</button>
     </div>
   )
 }

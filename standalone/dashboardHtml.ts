@@ -97,7 +97,6 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
        rendering dark even when everything else correctly switched to light. */
     :root {
       color-scheme: light;
-      --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed;
       --vscode-editor-background:       #ffffff;
       --vscode-foreground:              #1f2328;
       --vscode-panel-border:            #d0d7de;
@@ -137,10 +136,16 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
       --vscode-editorInfo-foreground:    #4fc3f7;
       --vscode-editorWarning-foreground: #cca700;
       --vscode-errorForeground:          #f48771;
-      --vscode-charts-blue:              #4fc3f7;
       --vscode-charts-green:             #1a7f37;
       --vscode-charts-red:               #e57373;
-      --vscode-charts-yellow:            #ffb74d;
+      /* Chart palette, as in VS Code's Light Modern theme — also each agent's colour
+         (media/src/agentColors.ts): orange Claude, blue Copilot, purple Codex, foreground
+         OpenCode, yellow Cursor. Redefined for dark below. */
+      --vscode-charts-blue:              #1a85ff;
+      --vscode-charts-yellow:            #bf8803;
+      --vscode-charts-orange:            #d18616;
+      --vscode-charts-purple:            #652d90;
+      --vscode-charts-foreground:        #616161;
     }
 
     /* System preference is dark, and the user hasn't explicitly forced Light. */
@@ -148,7 +153,8 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
       :root:not([data-theme="light"]) {
         color-scheme: dark;
       --vscode-charts-green: #81c784;
-      --agent-copilot: #00EAFF; --agent-claude: #FFB085; --agent-codex: #F0FF42;
+      --vscode-charts-blue: #3794ff; --vscode-charts-yellow: #cca700; --vscode-charts-orange: #d18616;
+      --vscode-charts-purple: #b180d7; --vscode-charts-foreground: #cccccc;
         --vscode-editor-background:       #1e1e1e;
         --vscode-foreground:              #cccccc;
         --vscode-panel-border:            #3e3e42;
@@ -171,7 +177,8 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
     :root[data-theme="dark"] {
       color-scheme: dark;
       --vscode-charts-green: #81c784;
-      --agent-copilot: #00EAFF; --agent-claude: #FFB085; --agent-codex: #F0FF42;
+      --vscode-charts-blue: #3794ff; --vscode-charts-yellow: #cca700; --vscode-charts-orange: #d18616;
+      --vscode-charts-purple: #b180d7; --vscode-charts-foreground: #cccccc;
       --vscode-editor-background:       #1e1e1e;
       --vscode-foreground:              #cccccc;
       --vscode-panel-border:            #3e3e42;

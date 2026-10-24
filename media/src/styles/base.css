@@ -13,6 +13,21 @@
    * hover tint (which the standalone shim switches between light and dark). */
   --panel-bg: var(--vscode-textCodeBlock-background, var(--hover));
 
+  /* Type scale floor: nothing in the dashboard renders below --fs-xs (11px). Use these rather
+   * than a literal for small text; canvas and SVG chart labels, which can't read a variable,
+   * use 11px directly. */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+
+  /* One colour per agent (media/src/agentColors.ts), from VS Code's own chart palette so it
+   * follows the theme. The standalone/desktop shim (standalone/dashboardHtml.ts) defines the
+   * --vscode-charts-* values there; the hex fallbacks are VS Code's dark defaults. */
+  --agent-claude:   var(--vscode-charts-orange, #d18616);
+  --agent-copilot:  var(--vscode-charts-blue, #3794ff);
+  --agent-codex:    var(--vscode-charts-purple, #b180d7);
+  --agent-opencode: var(--vscode-charts-foreground, var(--fg));
+  --agent-cursor:   var(--vscode-charts-yellow, #cca700);
+
   /* The TraceRoost brand teal (Wordmark.tsx, BrandMark.tsx) — used only for the top nav's
    * active-section indicator (.tab.active in tabs.css), not buttons or links. */
   --tr-brand: #0fbfa6;
@@ -128,7 +143,6 @@ button:disabled { cursor: default; opacity: .5; }
 .time-range-bar { overflow-x: auto; min-height: 34px; scrollbar-width: thin; }
 .time-range-bar > * { flex-shrink: 0; }
 .time-range-bar button { white-space: nowrap; }
-.search-filter-controls > * { flex-shrink: 0; }
 .trace-table { table-layout: fixed; min-width: 780px; font-variant-numeric: tabular-nums; }
 /* No height/vertical-overflow here on purpose — `.panel.active` above is the one vertical scroll
  * region now; this box only ever needs its own (horizontal, from .h-scroll-hint) scrollbar for a
@@ -155,8 +169,7 @@ button:disabled { cursor: default; opacity: .5; }
 .link-btn { font: inherit; color: var(--vscode-textLink-foreground, #4fc3f7); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: inherit; }
 .link-btn:hover { color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground, #4fc3f7)); }
 
-/* Freeform filter inputs (App.tsx's TimeRangePicker row — Repo and Prompt, next to Time and
- * Agent) — shared here so every filter box looks and weighs the same by default rather than each
+/* Freeform filter inputs (App.tsx's Filters popover — Prompt, Language and Repo) — shared here so every filter box looks and weighs the same by default rather than each
  * call site redeclaring (and drifting from) the same handful of properties. `.active` is the one
  * state-dependent variant (a filter currently narrowing the table), applied by the call site
  * alongside this class rather than as an inline override. */
@@ -164,7 +177,7 @@ button:disabled { cursor: default; opacity: .5; }
   flex: 1;
   min-width: 0;
   padding: 2px 5px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 400;
   border-radius: 3px;
   background: var(--vscode-input-background, #3c3c3c);
@@ -178,6 +191,71 @@ button:disabled { cursor: default; opacity: .5; }
  * placeholder only; typed text keeps its own explicit color above. */
 .tr-header-input::placeholder { color: var(--fg); opacity: 0.7; }
 
+/* The filter bar's "Filters (n)" button, its active-filter chips and its popover (App.tsx's
+ * FiltersControl/FiltersPopover). The button has a fixed width so "(n)" coming and going never
+ * shifts what follows it. */
+.tr-filters-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 92px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tr-filters-btn:hover { color: var(--fg); background: var(--hover); }
+.tr-filters-btn.active { color: var(--accent); border-color: var(--accent); }
+.tr-filters-btn[aria-expanded="true"] { background: var(--hover); }
+.tr-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 220px;
+  padding: 1px 2px 1px 8px;
+  font-size: 11px;
+  line-height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.tr-filter-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tr-filter-chip button {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tr-filter-chip button:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.tr-filters-backdrop { position: fixed; inset: 0; z-index: 99; }
+.tr-filters-popover {
+  position: fixed;
+  z-index: 100;
+  overflow-y: auto;
+  padding: 8px 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.tr-filters-title { margin: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.tr-filters-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 8px 10px; }
+.tr-filters-grid > label, .tr-filters-grid > span[id] { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; }
+.tr-filters-grid .tr-header-input { width: 100%; font-size: 12px; padding: 3px 6px; }
+
 /* Time-range control (App.tsx's TimeRangePicker/TimeRangeMenu) is an unstyled <details>/<summary>
  * popover trigger, styled inline rather than through a class — see TimeRangeMenu's own comment
  * for why (mirrors traceroost-cloud's equivalent). No .tr-time-pill counterpart here anymore. */
@@ -187,7 +265,7 @@ button:disabled { cursor: default; opacity: .5; }
  * apart from the rest of the bar's controls. */
 .tr-reset-btn {
   padding: 2px 8px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   border-radius: 3px;
   cursor: pointer;
@@ -203,13 +281,11 @@ button:disabled { cursor: default; opacity: .5; }
 .sig-icon svg { width: 11px; height: 11px; }
 .sig-icon.critical { width: 13px; height: 13px; border-radius: 3px; background: var(--error); }
 .sig-icon.critical svg { width: 9px; height: 9px; }
-.sig-more { font-size: 9px; font-weight: 600; color: var(--muted); padding: 0 2px; margin-left: 1px; border-radius: 3px; background: var(--hover); line-height: 13px; flex-shrink: 0; }
+.sig-more { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); padding: 0 2px; margin-left: 1px; border-radius: 3px; background: var(--hover); line-height: 13px; flex-shrink: 0; }
 .trace-expand { color: var(--muted); background: none; border: 0; font: inherit; cursor: pointer; padding: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-.range-status { width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted); margin-left: 8px; }
-body.vscode-light { --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed; --tr-merged: #1a7f37; }
-
-:root { --agent-opencode: var(--fg); }
+.range-status { width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); margin-left: 8px; }
+body.vscode-light { --tr-merged: #1a7f37; }

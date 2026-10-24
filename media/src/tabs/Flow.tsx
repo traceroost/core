@@ -396,7 +396,7 @@ export function FlowCanvas({ sess, height = 520 }: { sess: SessionSummaryCard; h
           ctx.closePath(); ctx.fillStyle = a.color + hexA; ctx.fill()
           if (e.count > 1 && !dimmed) {
             const mx = (sx + ex) / 2, my = (sy + ey) / 2 - 9
-            ctx.font = 'bold 9px sans-serif'; ctx.fillStyle = a.color + 'cc'
+            ctx.font = 'bold 11px sans-serif'; ctx.fillStyle = a.color + 'cc'
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
             ctx.fillText(e.count + '×', mx, my)
           }
@@ -420,19 +420,19 @@ export function FlowCanvas({ sess, height = 520 }: { sess: SessionSummaryCard; h
         ctx.strokeStyle = dimmed ? n.color + '30' : n.color
         ctx.lineWidth = isActive ? 3 : (inHL ? 2.5 : 2); ctx.stroke()
 
-        ctx.font = (isActive ? 'bold ' : '') + '10px sans-serif'
+        ctx.font = (isActive ? 'bold ' : '') + '11px sans-serif'
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
         ctx.fillStyle = dimmed ? muted + '40' : fg
-        ctx.fillText(n.label, n.x, n.y - (n.subLabel ? 4 : 0))
+        ctx.fillText(n.label, n.x, n.y - (n.subLabel ? 6 : 0))
 
         if (n.subLabel) {
-          ctx.font = '8px sans-serif'
+          ctx.font = '11px sans-serif'
           ctx.fillStyle = dimmed ? muted + '30'
             : (n.type === 'llm' ? '#7bb3ff' : n.color === ERR_COLOR ? '#f99' : '#8ec96b')
-          ctx.fillText(n.subLabel, n.x, n.y + 7)
+          ctx.fillText(n.subLabel, n.x, n.y + 8)
         }
 
-        ctx.font = '9px sans-serif'; ctx.fillStyle = dimmed ? muted + '30' : muted
+        ctx.font = '11px sans-serif'; ctx.fillStyle = dimmed ? muted + '30' : muted
         ctx.fillText(n.type === 'llm' ? 'Turn ' + n.turnNum : '', n.x, n.y + r + 11)
       })
 
@@ -470,7 +470,7 @@ export function FlowCanvas({ sess, height = 520 }: { sess: SessionSummaryCard; h
           const lineH = 19, padX = 12, padY = 10
           let labelW = 0, valueW = 0
           lines.forEach(line => {
-            if (line.label) { ctx.font = 'bold 10px sans-serif'; const lw = ctx.measureText(line.label + ':').width; if (lw > labelW) labelW = lw }
+            if (line.label) { ctx.font = 'bold 11px sans-serif'; const lw = ctx.measureText(line.label + ':').width; if (lw > labelW) labelW = lw }
             ctx.font = line.bold ? 'bold 12px sans-serif' : '11px sans-serif'
             const vw = ctx.measureText(line.value).width; if (vw > valueW) valueW = vw
           })
@@ -507,7 +507,7 @@ export function FlowCanvas({ sess, height = 520 }: { sess: SessionSummaryCard; h
                 ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 0.5
                 ctx.beginPath(); ctx.moveTo(boxX + 10, ly - 4); ctx.lineTo(boxX + boxW - 10, ly - 4); ctx.stroke()
               }
-              ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#777'
+              ctx.font = 'bold 11px sans-serif'; ctx.fillStyle = '#777'
               ctx.fillText(line.label + ':', boxX + padX + 4, ly + 1)
               ctx.font = '11px sans-serif'; ctx.fillStyle = line.color || '#ddd'
               ctx.fillText(line.value, boxX + padX + 4 + labelW + gapW, ly)
@@ -659,9 +659,9 @@ export function FlowCanvas({ sess, height = 520 }: { sess: SessionSummaryCard; h
           <option value="800" selected>Normal</option>
           <option value="300">Fast</option>
         </select>
-        <span id={progressId} style="font-size:10px;color:var(--muted)" />
+        <span id={progressId} style="font-size:var(--fs-xs);color:var(--muted)" />
       </div>
-      <div style="display:flex;gap:12px;margin-bottom:6px;font-size:10px;color:var(--muted);flex-wrap:wrap;align-items:center">
+      <div style="display:flex;gap:12px;margin-bottom:6px;font-size:var(--fs-xs);color:var(--muted);flex-wrap:wrap;align-items:center">
         {([
           { color: LLM_COLOR, label: 'LLM turn' },
           { color: TOOL_COLOR, label: 'Tool' },
@@ -766,13 +766,13 @@ export function Flow() {
                     <span style={'display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:2px;background:' + s.color} />
                     <div style="min-width:0">
                       <div style="white-space:nowrap;color:var(--vscode-foreground,#ccc)">{s.time}</div>
-                      {s.snippet && <div style="font-size:9px;color:var(--vscode-descriptionForeground,#888);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{s.snippet}</div>}
+                      {s.snippet && <div style="font-size:var(--fs-xs);color:var(--vscode-descriptionForeground,#888);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{s.snippet}</div>}
                     </div>
                   </div>
                 )
               })}
               {filteredForSearch.length > 30 && (
-                <div style="padding:4px 8px;font-size:10px;color:var(--vscode-descriptionForeground,#888)">
+                <div style="padding:4px 8px;font-size:var(--fs-xs);color:var(--vscode-descriptionForeground,#888)">
                   {filteredForSearch.length - 30} more — refine search
                 </div>
               )}

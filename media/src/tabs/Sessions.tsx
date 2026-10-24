@@ -11,7 +11,7 @@ import {
 } from '../state'
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
-  getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
+  getAgentColorVar, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
   getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash, esc, activateOnKey,
 } from '../utils'
 import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics'
@@ -64,7 +64,7 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   if (!meta) return null
   return (
     <span
-      style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;flex-shrink:0`}
+      style={`display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:var(--fs-xs);font-weight:700;border-radius:3px;border:1px solid ${meta.color};color:${meta.color};vertical-align:middle;cursor:default;flex-shrink:0`}
       // data-tip-html renders this as markup: go.reason names the repo's trunk branch, and a ref
       // name may contain `<`/`>` — escape it, the one non-static piece here.
       title={`<b>${meta.label}</b>\n${meta.description}\n${esc(go.reason)}`}
@@ -150,7 +150,7 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
             data-tip-html
             class={'sig-icon' + (critical ? ' critical' : '')}
           >
-            {Icon ? <Icon color={color} /> : <span style={`font-size:9px;font-weight:700;color:${color}`}>?</span>}
+            {Icon ? <Icon color={color} /> : <span style={`font-size:var(--fs-xs);font-weight:700;color:${color}`}>?</span>}
           </span>
         )
       })}
@@ -182,7 +182,7 @@ function SignalList({ signals }: { signals: LoopSignal[] }) {
   const rows = [...byType.entries()].sort((a, b) => (a[1].severity === b[1].severity ? b[1].count - a[1].count : a[1].severity === 'critical' ? -1 : 1))
   return (
     <div style="margin-bottom:10px">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:6px">Signals</div>
+      <div style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:6px">Signals</div>
       <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px">
         {rows.map(([type, e]) => {
           const Icon = SIGNAL_ICON[LOOP_SIGNAL_ICON_TYPE[type] ?? type]
@@ -214,14 +214,14 @@ function PromptBlock({ text }: { text: string }) {
   const display = truncated ? text.slice(0, PREVIEW_CHARS).trimEnd() + '…' : text
   return (
     <div style="margin-bottom:10px">
-      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:4px">Prompt</div>
+      <div style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:4px">Prompt</div>
       <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-size:11px;white-space:pre-wrap;word-break:break-word;line-height:1.5;color:var(--foreground);max-height:200px;overflow-y:auto">
         {display}
       </div>
       {text.length > PREVIEW_CHARS && (
         <button
           onClick={() => setExpanded(e => !e)}
-          style="margin-top:4px;font-size:10px;color:var(--vscode-textLink-foreground,#4fc3f7);background:none;border:none;cursor:pointer;padding:0"
+          style="margin-top:4px;font-size:var(--fs-xs);color:var(--vscode-textLink-foreground,#4fc3f7);background:none;border:none;cursor:pointer;padding:0"
         >
           {expanded ? 'Show less' : 'Show full prompt'}
         </button>
@@ -486,7 +486,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
       {/* Identity line (Trace ID, Repo) on top, section tabs on their own line beneath it. */}
       <div style="display:flex;align-items:center;gap:0;padding:2px 8px 0;background:var(--vscode-editorWidget-background,var(--bg));overflow-x:auto">
         <span
-          style="display:flex;align-items:center;gap:5px;padding:3px 4px;margin-right:4px;font-size:10px;color:var(--muted);white-space:nowrap"
+          style="display:flex;align-items:center;gap:5px;padding:3px 4px;margin-right:4px;font-size:var(--fs-xs);color:var(--muted);white-space:nowrap"
         >
           <span style="text-transform:uppercase;letter-spacing:.3px">Trace ID</span>
           <span style="font-family:monospace;color:var(--fg)">{traceIdHash}</span>
@@ -494,7 +494,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
         </span>
         {sess.workspace && (
           <span
-            style="display:flex;align-items:center;gap:5px;padding:3px 4px;margin-right:4px;font-size:10px;color:var(--muted);white-space:nowrap"
+            style="display:flex;align-items:center;gap:5px;padding:3px 4px;margin-right:4px;font-size:var(--fs-xs);color:var(--muted);white-space:nowrap"
             title={`${repoTooltipName(sess.workspace, repoInfo.value)}\nLocal: ${sess.workspace}`}
           >
             <span style="text-transform:uppercase;letter-spacing:.3px">Repo (ID)</span>
@@ -600,7 +600,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                 ...(!cost.modelUnknown && cost.totalUsd > 0 ? [{ k: 'Est. cost', v: fmtUsd(cost.totalUsd) }] : []),
               ].map(({ k, v }) => (
                 <div key={k} style="background:var(--card-bg);border:1px solid var(--border);border-radius:4px;padding:5px 8px">
-                  <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px">{k}</div>
+                  <div style="font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.3px">{k}</div>
                   <div style="font-size:14px;font-weight:600;color:var(--accent)">{v}</div>
                 </div>
               ))}
@@ -618,7 +618,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
 
             {sessInsights.length > 0 && (
               <div>
-                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:6px">Insights</div>
+                <div style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:6px">Insights</div>
                 {sessInsights.slice(0, 4).map(ins => (
                   <InsightCard
                     key={ins.title} ins={ins} isIgnored={false} sessions={[sess]}
@@ -748,16 +748,16 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                         {...(vscode ? { role: 'button', tabIndex: 0, onKeyDown: activateOnKey(() => vscode?.postMessage({ type: 'openFile', filePath: f })) } : {})}
                         title={vscode ? 'Click to open in editor' : f}
                       >
-                        <span style="color:var(--vscode-charts-green,#81c784);font-size:10px;flex-shrink:0">M</span>
+                        <span style="color:var(--vscode-charts-green,#81c784);font-size:var(--fs-xs);flex-shrink:0">M</span>
                         <span style={`font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1${vscode ? ';color:var(--accent)' : ''}`}>{f}</span>
                         {meta && (
-                          <span style={`color:${meta.color};font-size:10px;flex-shrink:0`} title={`<b>${meta.label}</b>\n${meta.description}`} data-tip-html>{meta.icon} {meta.label}</span>
+                          <span style={`color:${meta.color};font-size:var(--fs-xs);flex-shrink:0`} title={`<b>${meta.label}</b>\n${meta.description}`} data-tip-html>{meta.icon} {meta.label}</span>
                         )}
                       </div>
                     )
                   })}
                   {sess.filesChangedNote && (
-                    <div style="font-size:10px;color:var(--muted);margin-top:3px">{sess.filesChangedNote}</div>
+                    <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:3px">{sess.filesChangedNote}</div>
                   )}
                 </div>
               )
@@ -920,7 +920,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
   const isFocused = focusedSessionId.value === sess.sessionId
   const rowRef = useRef<HTMLTableRowElement>(null)
   const cost = calcSessionCost(sess)
-  const color = getAgentColor(sess.source)
+  const color = getAgentColorVar(sess.source)
   const prompt = sess.userRequest ?? ''
   const isIsolatedToThisGroup = conversation ? isSameIdSet(evidenceSessionIds.value, conversation.memberIds) : false
 
@@ -1017,7 +1017,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
         </td>
 
         {/* Chevron */}
-        <td style="padding:4px 2px 4px 4px;width:16px;color:var(--muted);font-size:9px;white-space:nowrap">
+        <td style="padding:4px 2px 4px 4px;width:16px;color:var(--muted);font-size:var(--fs-xs);white-space:nowrap">
           <button class="trace-expand" aria-label={expanded ? 'Collapse trace' : 'Expand trace'} aria-expanded={expanded} onClick={e => { e.stopPropagation(); toggle() }}>{expanded ? '▼' : '▶'}</button>
         </td>
 
@@ -1025,19 +1025,19 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
             (colors match the Outcome bar's own Source/From pills — see
             DATA_SOURCE_COLORS/INITIATOR_COLORS in utils.ts) */}
         <td style="padding:4px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-          <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--agent-${sess.source === 'claude_code' ? 'claude' : sess.source},${color});flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(sess.source)} />
-          <span style="margin-left:6px;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums">{formatSessionTime(sess)}</span>
+          <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(sess.source)} />
+          <span style="margin-left:6px;font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums">{formatSessionTime(sess)}</span>
           <span style="margin-left:6px" dangerouslySetInnerHTML={{ __html: getDataSourceBadgeHtml(sess.dataSource ?? 'otel') }} />
           <span dangerouslySetInnerHTML={{ __html: getInitiatorBadgeHtml(sess.initiator) }} />
         </td>
 
         {/* Model */}
-        <td style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);max-width:92px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
+        <td style="padding:4px 2px;white-space:nowrap;font-size:var(--fs-xs);color:var(--muted);max-width:100px;overflow:hidden;text-overflow:ellipsis" title={sess.model || undefined}>
           {sess.model || '—'}
           {(sess.models?.length ?? 0) > 1 && (
             <span
               title={`Multiple models used in this trace: ${sess.models!.join(', ')}`}
-              style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:9px;vertical-align:middle"
+              style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:var(--fs-xs);vertical-align:middle"
             >+{sess.models!.length - 1}</span>
           )}
         </td>
@@ -1045,19 +1045,19 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
         {/* Language — the primary's short form (LANGUAGE_ABBREVIATIONS: "TS", "Py"), since this is a
             compact cell; the full names stay in the title and aria-label. The "+1" badge's own
             title names both full languages. */}
-        <td class="trace-language" style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis" title={sessionLanguageTitle(sess)} aria-label={sessionLanguageAriaLabel(sess)}>
+        <td class="trace-language" style="padding:4px 2px;white-space:nowrap;font-size:var(--fs-xs);color:var(--muted);overflow:hidden;text-overflow:ellipsis" title={sessionLanguageTitle(sess)} aria-label={sessionLanguageAriaLabel(sess)}>
           {languageAbbreviation(sess.language)}
           {sess.languageSecondary && (
             <span
               class="trace-language-secondary"
               title={`Primary: ${languageLabel(sess.language)} · Secondary: ${languageLabel(sess.languageSecondary)}`}
-              style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:9px;vertical-align:middle"
+              style="margin-left:4px;padding:0 4px;border-radius:3px;background:var(--hover);color:var(--muted);font-size:var(--fs-xs);vertical-align:middle"
             >+1</span>
           )}
         </td>
 
         {/* Changes — agent-authored change size (src/editStats.ts), not git stats */}
-        <td class="trace-changes" style="padding:4px 2px;white-space:nowrap;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums" title={sessionChangesTitle(sess)}>
+        <td class="trace-changes" style="padding:4px 2px;white-space:nowrap;font-size:var(--fs-xs);color:var(--muted);overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums" title={sessionChangesTitle(sess)}>
           {sessionChangesText(sess)}
         </td>
 
@@ -1078,7 +1078,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
 
         {showWorkspace && (
           <td
-            style="padding:4px 2px;font-size:10px;color:var(--muted);max-width:110px"
+            style="padding:4px 2px;font-size:var(--fs-xs);color:var(--muted);max-width:110px"
             title={sess.workspace ? `${repoTooltipName(sess.workspace, repoInfo.value)}\nLocal: ${sess.workspace}` : undefined}
           >
             <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
@@ -1102,23 +1102,23 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
         </td>
 
         {/* Turns */}
-        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:10px;color:var(--muted)">
+        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:var(--fs-xs);color:var(--muted)">
           {sess.turns}
           {sess.errors > 0 && <> · <span style="color:var(--error)" title={`${sess.errors} error${sess.errors === 1 ? '' : 's'}`}>{sess.errors}</span></>}
         </td>
 
         {/* Duration */}
-        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:10px;color:var(--muted)">
+        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:var(--fs-xs);color:var(--muted)">
           {formatMs(sess.durationMs)}
         </td>
 
         {/* Tokens */}
-        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:10px;color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in trace detail for actual context window size.' : undefined}>
+        <td style="padding:4px 2px;text-align:left;white-space:nowrap;font-size:var(--fs-xs);color:var(--muted)" title={sess.turns > 1 ? 'Input is accumulated across all turns (cache reads counted each turn). See Peak ctx/turn in trace detail for actual context window size.' : undefined}>
           {formatCompact(sess.inputTokens + sess.outputTokens)}
         </td>
 
         {/* Cost */}
-        <td style="padding:4px 6px 4px 2px;text-align:left;white-space:nowrap;font-size:10px">
+        <td style="padding:4px 6px 4px 2px;text-align:left;white-space:nowrap;font-size:var(--fs-xs)">
           {/* Plain text colour: green read as "good", not "a cost". An unpriced trace shows "—" with
               the reason; its error count stays in the Turns column. */}
           {!cost.modelUnknown && cost.totalUsd > 0
@@ -1134,7 +1134,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
 
         {/* Plan limit — one Claude Code / Codex subscription window (5h, else weekly); blank when there's no value. */}
         {showLimit && (
-          <td style="padding:4px 6px 4px 2px;text-align:left;font-size:10px;color:var(--muted)">
+          <td style="padding:4px 6px 4px 2px;text-align:left;font-size:var(--fs-xs);color:var(--muted)">
             <LimitUsedCell sessionId={sess.sessionId} />
           </td>
         )}
@@ -1178,7 +1178,7 @@ export function Sessions() {
     sessionsPage.value = 0
   }
 
-  const thBase = 'padding:3px 2px;font-size:10px;font-weight:600;white-space:nowrap;user-select:none'
+  const thBase = 'padding:3px 2px;font-size:var(--fs-xs);font-weight:600;white-space:nowrap;user-select:none'
   const thSort = thBase + ';cursor:pointer;color:var(--fg)'
   function sortHeader(key: SortKey, label: string, align: 'left' | 'right' | 'center' = 'left', title?: string) {
     return <th scope="col" aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:' + align + ';' + thSort}>
@@ -1206,13 +1206,13 @@ export function Sessions() {
       {/* Every column but Prompt has a fixed width, so a wide panel's spare space all goes to
           Prompt instead of being spread across the narrow number columns as gaps. min-width
           keeps Prompt at least 160px when every optional column is showing. */}
-      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${712 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 72 : 0) + 160}px`}>
+      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${768 + (showWorkspace ? 110 : 0) + (showOutcome ? 40 : 0) + (showLimit ? 72 : 0) + 160}px`}>
         <colgroup>
-          <col style="width:8px" /><col style="width:18px" /><col style="width:196px" /><col style="width:92px" /><col style="width:64px" /><col style="width:80px" />
+          <col style="width:8px" /><col style="width:18px" /><col style="width:196px" /><col style="width:100px" /><col style="width:64px" /><col style="width:80px" />
           <col />
           {showWorkspace && <col style="width:110px" />}
-          {showOutcome && <col style="width:36px" />}
-          <col style="width:60px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
+          {showOutcome && <col style="width:40px" />}
+          <col style="width:60px" /><col style="width:50px" /><col style="width:66px" /><col style="width:58px" /><col style="width:68px" />
           {showLimit && <col style="width:72px" />}
         </colgroup>
         <thead>

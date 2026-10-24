@@ -265,7 +265,7 @@ export function OrgNoticeBanner() {
 function Section({ title, children }: { title?: string; children: preact.ComponentChildren }) {
   return (
     <div style="padding:12px 14px;border-bottom:1px solid var(--border)">
-      {title && <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">{title}</div>}
+      {title && <div style="font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">{title}</div>}
       {children}
     </div>
   )
@@ -329,7 +329,7 @@ function PayloadPreview() {
       >{busy ? 'Building…' : 'Show example payload'}</button>
       {busy && !previews && <div style="font-size:11px;color:var(--muted);margin-top:6px">Building it from your most recent traces…</div>}
       {previews && previews.length > 0 && (
-        <pre style="margin-top:8px;font-size:10px;line-height:1.45;background:var(--vscode-editorWidget-background);border:1px solid var(--border);border-radius:4px;padding:8px;overflow:auto;max-height:280px;white-space:pre">{previews.map(preview => preview.text).join('\n\n')}</pre>
+        <pre style="margin-top:8px;font-size:var(--fs-xs);line-height:1.45;background:var(--vscode-editorWidget-background);border:1px solid var(--border);border-radius:4px;padding:8px;overflow:auto;max-height:280px;white-space:pre">{previews.map(preview => preview.text).join('\n\n')}</pre>
       )}
     </div>
   )
@@ -356,8 +356,8 @@ function EnvironmentPicker({ st }: { st: OrgStatus }) {
   return (
     <div style="margin-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span style="font-size:10px;color:var(--muted)">Environment</span>
-        <span style="font-size:10px;color:var(--muted)">{environmentSourceNote(st.environmentSource)}</span>
+        <span style="font-size:var(--fs-xs);color:var(--muted)">Environment</span>
+        <span style="font-size:var(--fs-xs);color:var(--muted)">{environmentSourceNote(st.environmentSource)}</span>
       </div>
       {st.environmentEditable ? (
         <div style="display:flex;gap:4px;margin-top:4px">
@@ -403,7 +403,7 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
           onClick={() => { orgBusy.value = 'link'; orgActionError.value = null; vscode?.postMessage({ type: 'orgLinkDevice' }) }}
           style="font-size:12px;padding:6px 10px;margin-left:8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
         >Use a device code</button>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">Opens your browser once. Remote or headless window? Use a device code and approve it from any browser.</div>
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">Opens your browser once. Remote or headless window? Use a device code and approve it from any browser.</div>
         {orgLinkUrl.value && busy === 'link' && !orgDevicePrompt.value && (
           <div style="font-size:11px;color:var(--muted);margin-top:8px;word-break:break-all">
             Browser didn't open? <a href={orgLinkUrl.value} style="color:var(--vscode-textLink-foreground,#4fc3f7)">Open the link page</a>
@@ -510,7 +510,7 @@ function LinkedBody({ st }: { st: OrgStatus }) {
         {orgActionError.value && (
           <div style="font-size:11px;color:var(--vscode-errorForeground, #f14c4c);margin-top:8px">Unlink failed: {orgActionError.value}</div>
         )}
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
       </Section>
     </>
   )
@@ -533,11 +533,11 @@ function TransportStats({ stats }: { stats: TraceSendStats }) {
         {cells.map(c => (
           <div key={c.label} style="background:var(--vscode-editor-background);padding:8px 4px;text-align:center">
             <div style="font-size:16px;font-weight:600;color:var(--fg)">{c.value.toLocaleString()}</div>
-            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px">{c.label}</div>
+            <div style="font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px">{c.label}</div>
           </div>
         ))}
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">Counted locally, from this machine's own send log — never from the cloud.</div>
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">Counted locally, from this machine's own send log — never from the cloud.</div>
     </div>
   )
 }

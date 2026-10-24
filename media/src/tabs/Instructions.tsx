@@ -235,7 +235,7 @@ function FileStatusBar({ files }: { files: InstructionFile[] }) {
       {files.map(f => (
         <span
           key={f.agent}
-          style={`font-size:10px;padding:3px 8px;border-radius:10px;border:1px solid ${f.exists ? '#81c784' : 'var(--border)'};color:${f.exists ? '#81c784' : 'var(--muted)'}`}
+          style={`font-size:var(--fs-xs);padding:3px 8px;border-radius:10px;border:1px solid ${f.exists ? '#81c784' : 'var(--border)'};color:${f.exists ? '#81c784' : 'var(--muted)'}`}
           title={f.exists ? f.relativePath : `Not found: ${f.relativePath}`}
         >
           {f.exists ? '✓' : '✗'} {f.label}
@@ -259,7 +259,7 @@ function TextBlock({ label, text }: { label: string; text: string }) {
         <span style="font-size:11px;color:var(--muted)">{label}</span>
         <button
           onClick={copy}
-          style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap"
+          style="padding:2px 8px;font-size:var(--fs-xs);border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap"
         >{copied ? '✓ Copied' : 'Copy'}</button>
       </div>
       <pre style="margin:0;padding:8px;font-size:11px;font-family:monospace;background:var(--vscode-input-background,#3c3c3c);color:var(--vscode-input-foreground,#ccc);border:1px solid var(--vscode-input-border,#555);border-radius:3px;white-space:pre-wrap;word-break:break-word;line-height:1.5">{text}</pre>
@@ -301,7 +301,7 @@ function SuggestionCardView({
   return (
     <div data-suggestion-id={card.id} style="border:1px solid var(--border);border-radius:6px;margin-bottom:10px;overflow:hidden">
       <div style="padding:10px 12px;display:flex;align-items:flex-start;gap:8px">
-        <span style={`font-size:9px;padding:2px 6px;border-radius:8px;background:${catColor}22;color:${catColor};text-transform:uppercase;letter-spacing:.3px;flex-shrink:0;margin-top:1px`}>
+        <span style={`font-size:var(--fs-xs);padding:2px 6px;border-radius:8px;background:${catColor}22;color:${catColor};text-transform:uppercase;letter-spacing:.3px;flex-shrink:0;margin-top:1px`}>
           {card.category}
         </span>
         <div style="flex:1;min-width:0">
@@ -309,7 +309,7 @@ function SuggestionCardView({
           <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">{card.evidence}</div>
           <div style="display:flex;gap:4px;margin-top:4px">
             {card.targetAgents.map(a => (
-              <span key={a} style="font-size:9px;padding:1px 5px;border-radius:4px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border)">
+              <span key={a} style="font-size:var(--fs-xs);padding:1px 5px;border-radius:4px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border)">
                 {AGENT_LABEL[a] ?? a}
               </span>
             ))}
@@ -318,7 +318,7 @@ function SuggestionCardView({
         {repoLabel && (
           <span
             title={repoTitle}
-            style="font-size:9px;padding:2px 7px;border-radius:8px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border);flex-shrink:0;white-space:nowrap;margin-top:1px"
+            style="font-size:var(--fs-xs);padding:2px 7px;border-radius:8px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border);flex-shrink:0;white-space:nowrap;margin-top:1px"
           >{repoLabel}</span>
         )}
         <button
@@ -339,7 +339,7 @@ function SuggestionCardView({
               evidenceSessionPrompt.value = null
               activeTab.value = 'sessions'
             }}
-            style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap"
+            style="padding:2px 8px;font-size:var(--fs-xs);border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap"
             title="View the traces that triggered this suggestion"
           >View traces ↗</button>
           {files.length > 0 && (
@@ -349,7 +349,7 @@ function SuggestionCardView({
                 value={chosen}
                 disabled={applying}
                 onChange={e => setTargetFile((e.target as HTMLSelectElement).value)}
-                style="padding:2px 4px;font-size:10px;border-radius:3px;border:1px solid var(--border);background:var(--vscode-input-background,transparent);color:var(--muted);cursor:pointer;min-width:0;max-width:180px"
+                style="padding:2px 4px;font-size:var(--fs-xs);border-radius:3px;border:1px solid var(--border);background:var(--vscode-input-background,transparent);color:var(--muted);cursor:pointer;min-width:0;max-width:180px"
               >
                 {files.map(f => (
                   <option key={f.relativePath} value={f.relativePath}>
@@ -361,7 +361,7 @@ function SuggestionCardView({
                 onClick={() => { setApplying(true); onApply(card, chosen) }}
                 disabled={applying || !chosen}
                 aria-busy={applying}
-                style={`padding:2px 8px;font-size:10px;border-radius:3px;cursor:${applying ? 'default' : 'pointer'};border:1px solid var(--border);background:transparent;color:var(--fg);white-space:nowrap;opacity:${applying ? 0.6 : 1}`}
+                style={`padding:2px 8px;font-size:var(--fs-xs);border-radius:3px;cursor:${applying ? 'default' : 'pointer'};border:1px solid var(--border);background:transparent;color:var(--fg);white-space:nowrap;opacity:${applying ? 0.6 : 1}`}
                 title={`Append the recommended addition to ${chosen}`}
               >{applying ? 'Applying…' : 'Apply'}</button>
             </div>
@@ -386,7 +386,7 @@ function ConfidenceBar({ postCount }: { postCount: number }) {
           <div key={i} style={`width:14px;height:4px;border-radius:2px;background:${i < filled ? '#4fc3f7' : 'var(--border)'}`} />
         ))}
       </div>
-      <span style="font-size:10px;color:var(--muted)">{label} ({postCount} traces since)</span>
+      <span style="font-size:var(--fs-xs);color:var(--muted)">{label} ({postCount} traces since)</span>
     </div>
   )
 }
@@ -444,13 +444,13 @@ function AppliedCard({
   return (
     <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
       <div style="padding:10px 12px;display:flex;align-items:flex-start;gap:8px">
-        <span style={`font-size:9px;padding:2px 6px;border-radius:8px;background:${catColor}22;color:${catColor};text-transform:uppercase;letter-spacing:.3px;flex-shrink:0;margin-top:1px`}>
+        <span style={`font-size:var(--fs-xs);padding:2px 6px;border-radius:8px;background:${catColor}22;color:${catColor};text-transform:uppercase;letter-spacing:.3px;flex-shrink:0;margin-top:1px`}>
           {record.category}
         </span>
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;color:var(--fg)">{record.title}</div>
           <div style="font-size:11px;color:var(--muted)">Applied to {record.appliedTo} — {record.appliedAt.slice(0, 10)}</div>
-          <div style="font-size:10px;font-family:monospace;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.4;max-height:48px;overflow:hidden">
+          <div style="font-size:var(--fs-xs);font-family:monospace;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.4;max-height:48px;overflow:hidden">
             {record.appliedText}
           </div>
 
@@ -472,13 +472,13 @@ function AppliedCard({
             {beforeSessions.length > 0 && (
               <button
                 onClick={() => onViewBefore(new Set(beforeSessions.map(s => s.sessionId)))}
-                style="padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted)"
+                style="padding:2px 8px;font-size:var(--fs-xs);border-radius:4px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted)"
               >View before ↗</button>
             )}
             {afterSessions.length > 0 && (
               <button
                 onClick={() => onViewAfter(new Set(afterSessions.map(s => s.sessionId)))}
-                style="padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted)"
+                style="padding:2px 8px;font-size:var(--fs-xs);border-radius:4px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted)"
               >View after ↗</button>
             )}
           </div>
@@ -530,7 +530,7 @@ function sectionLabel(text: string, count: number) {
   return (
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px;display:flex;align-items:center;gap:6px">
       {text}
-      <span style="font-size:10px;background:var(--card-bg);border-radius:8px;padding:1px 6px;border:1px solid var(--border)">{count}</span>
+      <span style="font-size:var(--fs-xs);background:var(--card-bg);border-radius:8px;padding:1px 6px;border:1px solid var(--border)">{count}</span>
     </div>
   )
 }
@@ -711,7 +711,7 @@ function DiagnosticsPanel({ sessions }: { sessions: SessionSummaryCard[] }) {
           <span>Open-ended prompts</span>
           <span style="color:var(--fg)">{diag.scopeMatches}{diag.scopeRatio !== null ? ` (${diag.scopeRatio.toFixed(2)}× avg ${diag.scopeRatioUnit}, need ≥1.4×)` : diag.scopeMatches > 0 ? ' (no cost or turn data)' : ''}</span>
         </div>
-        <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+        <div style="margin-top:8px;font-size:var(--fs-xs);color:var(--muted)">
           Thresholds: hot file ≥20% · loop signal ≥20% · terminal-heavy ≥3 traces · high turns ≥15% at avg≥8 · open-ended prompts ≥2 at 1.4× avg turns
         </div>
       </details>
@@ -735,7 +735,7 @@ function WorkspaceGroup({ view, canApply }: { view: WorkspaceView; canApply: boo
           {workspace ? repoDisplayName(workspace, info) : 'No repo recorded'}
         </span>
         {workspace && (
-          <span style="font-size:10px;font-family:monospace;color:var(--muted);overflow-wrap:anywhere;min-width:0">{workspace}</span>
+          <span style="font-size:var(--fs-xs);font-family:monospace;color:var(--muted);overflow-wrap:anywhere;min-width:0">{workspace}</span>
         )}
       </div>
       {canApply && !missing && <FileStatusBar files={view.files} />}

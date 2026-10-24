@@ -332,7 +332,7 @@ export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel, tlIndex,
             <span class="wf-name">{rowLabel}</span>
             {focusNote
               ? <span class="wf-ev-note">#{mark!.stepNo} · {focusNote.note}</span>
-              : subtitle && <span style="font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px">{subtitle}</span>}
+              : subtitle && <span style="font-size:var(--fs-xs);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px">{subtitle}</span>}
           </span>
         </div>
         <div class="wf-bar-area">
@@ -343,7 +343,7 @@ export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel, tlIndex,
         <div class="wf-info">
           {formatMs(step.durationMs)}
           {entry.type === 'llm' && ((entry.inputTokens ?? 0) > 0 || (entry.outputTokens ?? 0) > 0) && (
-            <div style="font-size:9px;color:var(--muted);margin-top:2px">
+            <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:2px">
               <div style="white-space:nowrap">↑{formatCompact(entry.inputTokens ?? 0)} ↓{formatCompact(entry.outputTokens ?? 0)}</div>
               {(entry.cacheReadTokens ?? 0) > 0 && (
                 <div style="white-space:nowrap">{formatCompact(entry.cacheReadTokens ?? 0)} cached</div>
@@ -351,7 +351,7 @@ export function StepRow({ step, idx, sessIdx, sessionDur, sessionModel, tlIndex,
             </div>
           )}
           {entryCost > 0 && (
-            <div style="font-size:9px;color:var(--muted);white-space:nowrap">~{fmtUsd(entryCost)}</div>
+            <div style="font-size:var(--fs-xs);color:var(--muted);white-space:nowrap">~{fmtUsd(entryCost)}</div>
           )}
         </div>
       </div>
@@ -416,8 +416,8 @@ function SessionBlock({ sess, sessIdx, sessNum, isFirst }: {
         <span>
           <span class="wf-header-chevron">{collapsed ? '▶' : '▼'}</span>
           <span dangerouslySetInnerHTML={{ __html: getAgentDotHtml(sess.source) }} />{' '}
-          <span style="font-size:10px;color:var(--muted);margin-right:4px">#{sessNum}</span>
-          <span style="font-size:10px;color:var(--muted)">{sessionTime}</span>{' '}
+          <span style="font-size:var(--fs-xs);color:var(--muted);margin-right:4px">#{sessNum}</span>
+          <span style="font-size:var(--fs-xs);color:var(--muted)">{sessionTime}</span>{' '}
           {sess.userRequest && sess.userRequest !== '[prompt unavailable]' && sess.userRequest !== '[trace in progress]'
             ? <>"{sess.userRequest.slice(0, 100)}{isLongPrompt ? '…' : ''}"</>
             : <span style="color:var(--muted);font-style:italic">{sess.userRequest || '[no prompt]'}</span>
@@ -482,9 +482,9 @@ function DayGroup({ label, sessions, startNum, focusedId }: {
         onClick={() => setCollapsed(c => !c)}
         onKeyDown={activateOnKey(() => setCollapsed(c => !c))}
       >
-        <span style="font-size:10px;color:var(--muted)">{collapsed ? '▶' : '▼'}</span>
+        <span style="font-size:var(--fs-xs);color:var(--muted)">{collapsed ? '▶' : '▼'}</span>
         <span style="font-size:12px;font-weight:600;color:var(--foreground)">{label}</span>
-        <span style="font-size:10px;color:var(--muted)">{sessions.length} trace{sessions.length !== 1 ? 's' : ''}</span>
+        <span style="font-size:var(--fs-xs);color:var(--muted)">{sessions.length} trace{sessions.length !== 1 ? 's' : ''}</span>
       </div>
       {!collapsed && sessions.map((sess, idx) => (
         <SessionBlock
