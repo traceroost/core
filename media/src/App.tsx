@@ -1063,16 +1063,16 @@ function AgentSetupBanner() {
       .finally(() => setBusy(false))
   }
   return (
-    <div class="collector-conflict-banner" role="region" aria-label="Set up your coding agents">
+    <div class="agent-setup-banner" role="region" aria-label="Set up your coding agents">
       <div style="flex:1">
         <strong>{confirmingSkip ? AGENT_SETUP_SKIP_QUESTION : AGENT_SETUP_QUESTION}</strong>
         <div style="margin-top:2px">{confirmingSkip ? AGENT_SETUP_SKIP_EXPLANATION : AGENT_SETUP_EXPLANATION}</div>
-        {failed && <div style="margin-top:4px">That didn't go through — try again, or use Configure OTEL in Settings.</div>}
+        {failed && <div role="alert" style="margin-top:4px">That didn't go through — try again, or use Set up agents in Settings.</div>}
         <div style="display:flex;gap:8px;margin-top:6px">
-          <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('yes')}>Set up agents</button>
+          <button class="btn-primary" disabled={busy} onClick={() => answer('yes')}>Set up agents</button>
           {confirmingSkip
-            ? <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('no')}>Skip setup</button>
-            : <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => setConfirmingSkip(true)}>Not now</button>}
+            ? <button class="btn-secondary" disabled={busy} onClick={() => answer('no')}>Skip setup</button>
+            : <button class="btn-secondary" disabled={busy} onClick={() => setConfirmingSkip(true)}>Not now</button>}
         </div>
       </div>
     </div>

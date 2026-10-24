@@ -22,6 +22,7 @@ import { Step, StepRow } from './Traces'
 import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
 import { LogIngestionNote } from './IngestionNote'
+import { NoTracesYet } from './GettingStarted'
 import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
@@ -1020,7 +1021,7 @@ export function Sessions() {
           </tr>
         </thead>
         <tbody>
-          {sessions.length === 0 && <tr><td colspan={10 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : logIngestProgress.value ? 'Loading traces from local logs…' : 'No traces recorded yet.'}</div></td></tr>}
+          {sessions.length === 0 && <tr><td colspan={12 + (showWorkspace ? 1 : 0) + (showOutcome ? 1 : 0) + (showLimit ? 1 : 0)}><div class="empty-state" role="status">{hasAny ? 'No traces match the active filters. Change a filter or use Clear Filters to show all traces.' : logIngestProgress.value ? 'Loading traces from local logs…' : <NoTracesYet />}</div></td></tr>}
           {pageSessions.map(sess => (
             <SessionRow key={sess.sessionId} sess={sess} showWorkspace={showWorkspace} showOutcome={showOutcome} showLimit={showLimit} conversation={conversationInfo.get(sess.sessionId)} />
           ))}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { movedDashboardUrl } from '../dashboardPortCarry'
-import { enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSize, setSessionsPageSize, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
+import { scrollBehavior } from '../a11y'
+import { configOpen, enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSize, setSessionsPageSize, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
 
 function sendConfig(key: string, value: boolean) {
   if (vscode) {
@@ -258,6 +259,20 @@ function summarizeReconfigure(result: OtelReconfigureResult): string {
   return `Configured: ${changed.join(', ')}. Restart the agent(s) to start streaming traces.`
 }
 
+const AGENT_SETUP_BUTTON_ID = 'settings-set-up-agents'
+
+/** "Set up agents" from anywhere (empty states, the Advisor): open Settings and bring its
+ *  Set up agents control into view with focus on it, so the next press is the go-ahead. */
+export function openAgentSetup(): void {
+  configOpen.value = true
+  setTimeout(() => {
+    const btn = document.getElementById(AGENT_SETUP_BUTTON_ID)
+    if (!btn) return
+    btn.scrollIntoView({ behavior: scrollBehavior(), block: 'center' })
+    btn.focus({ preventScroll: true })
+  }, 80)
+}
+
 export function OtelReconfigureButton() {
   const [running, setRunning] = useState(false)
   const result = otelReconfigureResult.value
@@ -283,16 +298,17 @@ export function OtelReconfigureButton() {
 
   return (
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
-      <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Configure OTEL</div>
+      <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Set up agents</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
         Sets up Claude Code, Codex and Copilot to send their activity, including prompts and tool output, to TraceRoost on this computer. Pressing it is your go-ahead: TraceRoost then keeps them pointed here each time it starts. A setting that sends to a different collector is left alone.
       </div>
       <button
+        id={AGENT_SETUP_BUTTON_ID}
         onClick={run}
         disabled={running}
         style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)"
       >
-        {running ? 'Configuring…' : 'Configure OTEL'}
+        {running ? 'Setting up…' : 'Set up agents'}
       </button>
       {result && <div style="font-size:11px;color:var(--muted);margin-top:6px">{summarizeReconfigure(result)}</div>}
     </div>

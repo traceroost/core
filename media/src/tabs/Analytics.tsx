@@ -20,6 +20,7 @@ import { OUTCOME_META } from './Sessions'
 import { gitOutcomes, selectedAgentFilter } from '../state'
 import { planUsage, hasPlanData, forAgentFilter, PROVIDER_LABEL } from '../planUsage'
 import { PlanLimitsSection } from './PlanLimits'
+import { NoTracesYet } from './GettingStarted'
 import { buildLanguageBreakdown, LANGUAGE_NOT_REPORTED_LABEL, type CodeChangeTotals, type LanguageBreakdownRow } from './languageBreakdown'
 import { languageLabel } from '../language'
 
@@ -186,7 +187,7 @@ export function Analytics() {
   if (sessions.length === 0) {
     return (
       <div id="analytics-content">
-        <div class="empty-state">{hasAny ? 'No traces match the active filters.' : 'No traces recorded yet.'}</div>
+        <div class="empty-state">{hasAny ? 'No traces match the active filters.' : <NoTracesYet />}</div>
       </div>
     )
   }

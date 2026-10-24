@@ -57,6 +57,7 @@ body { font-family: var(--vscode-font-family); color: var(--fg); background: var
 .panel.active { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 
 .empty-state { text-align: center; padding: 40px; color: var(--muted); font-style: italic; }
+.empty-state-next { margin-top: 8px; font-style: normal; }
 
 .json-key { color: #9cdcfe; }
 .json-string { color: #ce9178; }
