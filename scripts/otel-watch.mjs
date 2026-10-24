@@ -3,7 +3,9 @@
 // reports what changed since the last run — so a renamed span, a new attribute or a retired event
 // reaches a maintainer before a parser in src/ silently stops matching. .github/workflows/otel-watch.yml
 // runs this weekly, keeps the state on the `otel-watch` branch (so main gets no bot commits) and
-// emails the report when something telemetry-related moved.
+// emails the report to the owners (mailSubject): on the first run, so a working mail setup is
+// confirmed; when something telemetry-related moved; and when a source could not be checked, so a
+// watch that has stopped working doesn't go quiet. A week with nothing new sends nothing.
 //
 // Usage: node scripts/otel-watch.mjs <state dir> [--sources <json>] [--no-mail]
 //
@@ -251,6 +253,22 @@ export function renderReport({ agents, results, date, stateRef }) {
   }
   if (stateRef) out.push(`---`, ``, `Snapshots and past reports: ${stateRef}`, "");
   return { text: out.join("\n"), changedAgents, noteworthy, errors };
+}
+
+/**
+ * The subject of this run's email, or null when it sends none. `firstRun`: every source checked was
+ * recording its baseline (a source added later gets one in the report but sends nothing on its own).
+ */
+export function mailSubject({ changedAgents, errors, firstRun, baselines, date }) {
+  const unreadable = errors ? `${errors} source(s) could not be checked` : "";
+  if (firstRun) {
+    return `[TraceRoost] OpenTelemetry watch started: baseline recorded for ${baselines} source(s)${unreadable ? `, ${unreadable}` : ""} (${date})`;
+  }
+  if (changedAgents.length) {
+    return `[TraceRoost] OpenTelemetry upstream changes: ${changedAgents.join(", ")}${unreadable ? ` — ${unreadable}` : ""} (${date})`;
+  }
+  if (errors) return `[TraceRoost] OpenTelemetry watch: ${unreadable} (${date})`;
+  return null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -505,9 +523,11 @@ export async function run({ stateDir, agents, mail, date = new Date().toISOStrin
   fs.writeFileSync(reportFile, report.text + "\n");
   fs.writeFileSync(path.join(stateDir, "latest.md"), report.text + "\n");
 
+  const baselines = results.filter((r) => r.baseline).length;
+  const firstRun = baselines > 0 && results.every((r) => r.baseline || r.error);
+  const subject = mailSubject({ changedAgents: report.changedAgents, errors: report.errors, firstRun, baselines, date });
   let mailed = false;
-  if (changed && mail) {
-    const subject = `[TraceRoost] OpenTelemetry upstream changes: ${report.changedAgents.join(", ")} (${date})`;
+  if (subject && mail) {
     await sendMail({ ...mail, subject, text: report.text });
     mailed = true;
   }

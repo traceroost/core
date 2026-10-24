@@ -214,13 +214,21 @@ suite('scripts/otel-watch.mjs', () => {
   const ghOutput = () => fs.readFileSync(outputFile, 'utf8')
   const state = () => JSON.parse(fs.readFileSync(path.join(dir, 'state', 'state.json'), 'utf8'))
 
-  test('first run records a baseline for every source and sends nothing', async () => {
+  const subjectOf = (data: string) => {
+    const m = /Subject: =\?UTF-8\?B\?([^?]+)\?=/.exec(data)
+    assert.ok(m)
+    return Buffer.from(m[1], 'base64').toString()
+  }
+
+  test('first run records a baseline for every source and mails it once, to confirm mail works', async () => {
     const { stdout } = await runScript(path.join(dir, 'state'), sourcesFile, env)
     assert.match(stdout, /Baseline recorded \(2 lines\)/)
     assert.match(stdout, /Baseline recorded \(latest commit aaaaaaa on 2026-10-01\)/)
     assert.match(stdout, /## Cursor\n\n_Nothing public to watch\._/)
     assert.match(ghOutput(), /changed=false/)
-    assert.strictEqual(received.length, 0)
+    assert.strictEqual(received.length, 1)
+    assert.match(subjectOf(received[0].data), /^\[TraceRoost\] OpenTelemetry watch started: baseline recorded for 3 source\(s\) \(\d{4}-\d{2}-\d{2}\)$/)
+    assert.deepStrictEqual(received[0].to, ['owner@example.com', 'second@example.com'])
     assert.strictEqual(state().sources.docs.status, 200)
     assert.strictEqual(fs.readFileSync(path.join(dir, 'state', 'snapshots', 'docs.txt'), 'utf8').split('\n')[0], 'Each user prompt starts a `claude_code.interaction` root span.')
     assert.strictEqual(state().sources.codex.lastCommit, 'a'.repeat(40))
@@ -240,14 +248,12 @@ suite('scripts/otel-watch.mjs', () => {
     assert.match(stdout, /1 commit\(s\) touched `codex-rs\/otel`:\n  - 2026-10-05 \[`bbbbbbb`\]\(https:\/\/example\.test\/commit\/b+\) otel: rename turn\.id$/m)
     assert.match(ghOutput(), /changed=true/)
 
-    assert.strictEqual(received.length, 1)
-    const mail = received[0]
+    assert.strictEqual(received.length, 2) // the baseline, then this
+    const mail = received[1]
     assert.deepStrictEqual(mail.auth, ['AKIAFAKE', 'secret'])
     assert.strictEqual(mail.from, 'noreply@traceroost.test')
     assert.deepStrictEqual(mail.to, ['owner@example.com', 'second@example.com'])
-    const subject = /Subject: =\?UTF-8\?B\?([^?]+)\?=/.exec(mail.data)
-    assert.ok(subject)
-    assert.match(Buffer.from(subject[1], 'base64').toString(), /^\[TraceRoost\] OpenTelemetry upstream changes: Claude Code, Codex \(\d{4}-\d{2}-\d{2}\)$/)
+    assert.match(subjectOf(mail.data), /^\[TraceRoost\] OpenTelemetry upstream changes: Claude Code, Codex \(\d{4}-\d{2}-\d{2}\)$/)
     assert.match(mail.data, /\+ Each user prompt starts a `claude_code\.turn` root span\./)
 
     // The run after that has nothing new: the commit is not repeated, nothing is mailed.
@@ -255,12 +261,17 @@ suite('scripts/otel-watch.mjs', () => {
     assert.match(again.stdout, /No commits\./)
     assert.match(again.stdout, /No change\./)
     assert.match(ghOutput(), /changed=true\nreport=[^\n]*\nchanged=false\n/)
-    assert.strictEqual(received.length, 1)
+    assert.strictEqual(received.length, 2)
   })
 
-  test('an unrelated change in a matched source, a vanished page and an unreachable source do not mail', async () => {
+  test('an unrelated change stays quiet; a vanished page and an unreachable source mail', async () => {
     await runScript(path.join(dir, 'state'), sourcesFile, env)
+    received.length = 0 // the baseline mail
     pages.changelog += '- Fixed the colour of the spinner\n'
+    const quiet = await runScript(path.join(dir, 'state'), sourcesFile, env)
+    assert.match(quiet.stdout, /Changed, but no line matched the telemetry pattern \(1 line\(s\) differ\)/)
+    assert.strictEqual(received.length, 0)
+    pages.changelog += '- Fixed the colour of the button\n'
     delete pages.docs
     const { stdout } = await runScript(path.join(dir, 'state'), sourcesFile, env)
     assert.match(stdout, /Changed, but no line matched the telemetry pattern \(1 line\(s\) differ\)/)
@@ -274,11 +285,14 @@ suite('scripts/otel-watch.mjs', () => {
     const { stdout: third } = await runScript(path.join(dir, 'state'), sourcesFile, { ...env, OTEL_WATCH_GITHUB_API: 'http://127.0.0.1:1' })
     assert.match(third, /\*\*Could not check:\*\* fetch failed/)
     assert.strictEqual(state().sources.codex.lastCommit, 'a'.repeat(40))
-    assert.strictEqual(received.length, 1)
+    // …and mailed, so a watch that has stopped working doesn't go quiet.
+    assert.strictEqual(received.length, 2)
+    assert.match(subjectOf(received[1].data), /^\[TraceRoost\] OpenTelemetry watch: 1 source\(s\) could not be checked \(\d{4}-\d{2}-\d{2}\)$/)
   })
 
   test('--no-mail stores the report and skips the relay even when something changed', async () => {
     await runScript(path.join(dir, 'state'), sourcesFile, env)
+    received.length = 0 // the baseline mail
     pages.docs += 'A new `gen_ai.usage.input_tokens` attribute.\n'
     await new Promise<void>((resolve, reject) => {
       execFile(process.execPath, [SCRIPT, path.join(dir, 'state'), '--sources', sourcesFile, '--no-mail'], { env: { ...process.env, ...env } }, (err, _stdout, stderr) => {

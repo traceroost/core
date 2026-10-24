@@ -4,15 +4,17 @@ name: OTel upstream watch
 # a new attribute, a retired event — and the parsers in src/ stop matching quietly. This runs
 # scripts/otel-watch.mjs weekly: it diffs each agent's telemetry docs and changelog and lists the
 # commits on the upstream otel code paths since the last run, keeps the snapshots on the
-# `otel-watch` branch (created on first run; main gets no bot commits) and emails the report when
-# something telemetry-related moved. The first run only records a baseline.
+# `otel-watch` branch (created on first run; main gets no bot commits) and emails the report to the
+# owners: on the first run (the baseline, which confirms mail works), when something
+# telemetry-related moved, and when a source could not be checked. A quiet week sends nothing.
 #
 # Mail needs five repository secrets; without them the run still writes the report (to the branch
 # and the step summary) and says "mail not configured":
 #   OTEL_WATCH_SMTP_HOST   e.g. email-smtp.us-east-1.amazonaws.com (implicit TLS on 465)
 #   OTEL_WATCH_SMTP_USER / OTEL_WATCH_SMTP_PASS   SMTP credentials (SES: the IAM SMTP user's pair)
 #   OTEL_WATCH_MAIL_FROM   a verified sender, e.g. "TraceRoost <noreply@traceroost.com>"
-#   OTEL_WATCH_MAIL_TO     recipient(s), comma-separated
+#   OTEL_WATCH_MAIL_TO     recipient(s), comma-separated — the owners (admin@traceroost.com, the same
+#                          address as cloud's OWNER_EMAILS; cloud's EMAILS.md lists this email)
 # The Actions GITHUB_TOKEN is enough for the commit lists (public repos) and the branch push.
 on:
   schedule:
