@@ -121,34 +121,43 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
       .map(t => SIGNAL_FORMULAS[t] ? `${SIGNAL_FORMULAS[t].short}\n<b>What to do:</b> ${SIGNAL_FORMULAS[t].tip}` : undefined)
       .filter(Boolean)
       .join('\n\n')
-  // Up to MAX_SIGNAL_ICONS, drawn small (.sig-icon) so they fit the narrow Sig column instead of
-  // spilling into Turns; anything past the cap is listed in the last icon's tooltip rather than a
-  // "+N" badge there's no room for.
-  const overflowTip = overflow.length > 0
-    ? `\n\n<b>+${overflow.length} more:</b>\n\n` + overflow.map(([, e]) => `<b>${labelFor(e)}</b> (${e.severity})\n${formulaFor(e)}`).join('\n\n')
-    : ''
+  // Up to MAX_SIGNAL_ICONS, drawn small (.sig-icon) so they fit the Signals column; anything past
+  // the cap becomes a "+N" badge whose tooltip lists the rest. Severity isn't colour alone: a
+  // critical signal draws its glyph knocked out of a filled square (.sig-icon.critical), a
+  // warning draws the bare outlined glyph.
+  const overflowTip = overflow.map(([, e]) => `<b>${labelFor(e)}</b> (${e.severity})\n${formulaFor(e)}`).join('\n\n')
+  const plain = (html: string) => html.replace(/<[^>]+>/g, '').replace(/\n+/g, ' ')
   return (
     <span style="display:inline-flex;align-items:center;gap:1px">
-      {shown.map(([type, e], i) => {
-        const color = SIGNAL_SEVERITY_COLOR[e.severity]
+      {shown.map(([type, e]) => {
+        const critical = e.severity === 'critical'
+        const color = critical ? 'var(--vscode-editor-background, #1e1e1e)' : SIGNAL_SEVERITY_COLOR[e.severity]
         const label = labelFor(e)
         const Icon = SIGNAL_ICON[type]
-        const isLast = i === shown.length - 1
         return (
           <span
             key={type}
             role="img"
             tabIndex={0}
-            aria-label={`${label} (${e.severity})${isLast && overflow.length > 0 ? `, and ${overflow.length} more` : ''}`}
-            title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}${isLast ? overflowTip : ''}`}
+            aria-label={`${label} (${e.severity}). ${plain(formulaFor(e))}`}
+            title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}`}
             data-tip-html
-            class="sig-icon"
-            style="display:inline-flex;align-items:center;justify-content:center;width:11px;height:11px;flex-shrink:0"
+            class={'sig-icon' + (critical ? ' critical' : '')}
           >
             {Icon ? <Icon color={color} /> : <span style={`font-size:9px;font-weight:700;color:${color}`}>?</span>}
           </span>
         )
       })}
+      {overflow.length > 0 && (
+        <span
+          role="img"
+          tabIndex={0}
+          aria-label={`${overflow.length} more signal${overflow.length === 1 ? '' : 's'}: ${plain(overflowTip)}`}
+          title={`<b>+${overflow.length} more:</b>\n\n${overflowTip}`}
+          data-tip-html
+          class="sig-more"
+        >+{overflow.length}</span>
+      )}
     </span>
   )
 }
@@ -964,13 +973,13 @@ export function Sessions() {
       {/* Every column but Prompt has a fixed width, so a wide panel's spare space all goes to
           Prompt instead of being spread across the narrow number columns as gaps. min-width
           keeps Prompt at least 160px when every optional column is showing. */}
-      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${694 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 72 : 0) + 160}px`}>
+      <table class="trace-table" style={`width:100%;border-collapse:collapse;font-size:11px;min-width:${712 + (showWorkspace ? 110 : 0) + (showOutcome ? 36 : 0) + (showLimit ? 72 : 0) + 160}px`}>
         <colgroup>
           <col style="width:8px" /><col style="width:18px" /><col style="width:196px" /><col style="width:92px" /><col style="width:64px" /><col style="width:80px" />
           <col />
           {showWorkspace && <col style="width:110px" />}
           {showOutcome && <col style="width:36px" />}
-          <col style="width:42px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
+          <col style="width:60px" /><col style="width:36px" /><col style="width:48px" /><col style="width:42px" /><col style="width:68px" />
           {showLimit && <col style="width:72px" />}
         </colgroup>
         <thead>
@@ -999,7 +1008,7 @@ export function Sessions() {
               </th>
             )}
             <th scope="col" aria-sort={sortKey === 'signals' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--fg);padding-left:0'}>
-              <button class="sort-button" onClick={() => onSortClick('signals')} title={`<b>Signals</b>\nBehavioral signals detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.`} data-tip-html>Sig{sortArrow('signals')}</button>
+              <button class="sort-button" onClick={() => onSortClick('signals')} title={`<b>Signals</b>\nBehavioral signals detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.`} data-tip-html>Signals{sortArrow('signals')}</button>
             </th>
             {sortHeader('turns', 'Turns')}
             {sortHeader('duration_ms', 'Duration')}

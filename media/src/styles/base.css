@@ -195,8 +195,14 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .tr-reset-btn:disabled { cursor: default; }
 /* Sessions.tsx's SignalsCell: the shared 13px signal icons (signalIcons.tsx) drawn smaller so three
- * fit side by side in the narrow Sig column. */
+ * and a "+N" fit side by side in the Signals column. A critical signal is a filled square with the
+ * glyph knocked out of it; a warning is the bare outlined glyph — a shape difference, not just
+ * colour. */
+.sig-icon { display: inline-flex; align-items: center; justify-content: center; width: 11px; height: 11px; flex-shrink: 0; }
 .sig-icon svg { width: 11px; height: 11px; }
+.sig-icon.critical { width: 13px; height: 13px; border-radius: 3px; background: var(--error); }
+.sig-icon.critical svg { width: 9px; height: 9px; }
+.sig-more { font-size: 9px; font-weight: 600; color: var(--muted); padding: 0 2px; margin-left: 1px; border-radius: 3px; background: var(--hover); line-height: 13px; flex-shrink: 0; }
 .trace-expand { color: var(--muted); background: none; border: 0; font: inherit; cursor: pointer; padding: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }
