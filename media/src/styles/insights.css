@@ -61,3 +61,83 @@
 .insight-ignore-btn:hover { background: var(--hover); color: var(--fg); }
 .insight-restore-btn { border-color: var(--accent); color: var(--accent); }
 .insight-restore-btn:hover { background: var(--accent); color: var(--bg); }
+
+/* "Why it fired" — the steps behind an insight (media/src/signalEvidence.tsx) */
+/* A section of the card, not a box inside it: a hairline above, then flat text and rows. */
+.insight-evidence {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border);
+  font-size: 11px; line-height: 1.5;
+}
+.insight-evidence-missing { color: var(--muted); font-style: italic; }
+.insight-evidence-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.insight-evidence-show {
+  background: none; border: none; padding: 0; cursor: pointer; font-size: 11px;
+  color: var(--vscode-textLink-foreground, #4fc3f7);
+}
+.insight-evidence-show:hover { text-decoration: underline; }
+.insight-evidence-trigger { color: var(--fg); margin-bottom: 6px; }
+.insight-evidence-range { color: var(--muted); margin-bottom: 6px; }
+.insight-evidence-list { list-style: none; margin: 0 -4px; padding: 0; max-height: 260px; overflow-y: auto; }
+.insight-evidence-step {
+  display: flex; align-items: baseline; gap: 6px; padding: 2px 4px; border-radius: 4px; min-width: 0;
+}
+.insight-evidence-step + .insight-evidence-step { margin-top: 1px; }
+.insight-evidence-step.ev-link { cursor: pointer; }
+.insight-evidence-step.ev-link:hover { background: var(--hover); }
+.insight-evidence-step.ev-context .ev-label { color: var(--muted); }
+.insight-evidence-step .ev-step-no { color: var(--muted); font-family: monospace; font-size: 10px; flex-shrink: 0; min-width: 28px; }
+.insight-evidence-step .ev-badge {
+  font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 3px; flex-shrink: 0;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.insight-evidence-step .ev-error { color: var(--error); flex-shrink: 0; }
+.insight-evidence-step .ev-label {
+  font-family: monospace; font-size: 10.5px; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; max-width: 66%; min-width: 0;
+}
+/* The command gets up to two thirds of the row; the note takes the rest and sits at the right edge. */
+.insight-evidence-step .ev-note { color: var(--muted); flex: 1 1 0; min-width: 0; text-align: right; }
+@media (max-width: 600px) {
+  .insight-evidence-step .ev-label { flex-basis: calc(100% - 90px); max-width: none; }
+  .insight-evidence-step .ev-note { flex-basis: 100%; max-width: none; padding-left: 34px; text-align: left; }
+}
+.insight-evidence-more { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.insight-evidence-more button {
+  background: none; border: none; padding: 0; cursor: pointer; font-size: 10px;
+  color: var(--vscode-textLink-foreground, #4fc3f7);
+}
+
+/* Stretch summary, step detail excerpts, and the per-call token chart (signalEvidence.tsx) */
+.insight-evidence-stretch { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); margin-bottom: 6px; cursor: help; }
+.insight-evidence-stretch .ev-stretch-steps { color: var(--fg); font-family: monospace; font-size: 10.5px; }
+.insight-evidence-step { flex-direction: column; align-items: stretch; gap: 1px; }
+.insight-evidence-step .ev-step-main { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.insight-evidence-step .ev-detail {
+  font-family: monospace; font-size: 10px; color: var(--muted); padding-left: 34px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.insight-evidence-chart { margin: 4px 0 8px; }
+.ev-chart { display: flex; align-items: flex-end; gap: 2px; padding-top: 10px; border-bottom: 1px solid var(--border); }
+.ev-chart-slot { flex: 1 1 0; min-width: 2px; max-width: 32px; height: 100%; display: flex; align-items: flex-end; justify-content: center; position: relative; }
+.ev-chart-slot.ev-link { cursor: pointer; }
+.ev-chart-col { width: 100%; max-width: 24px; min-height: 2px; display: flex; flex-direction: column; gap: 2px; }
+.ev-seg { min-height: 1px; }
+.ev-seg-fresh { background: var(--accent); opacity: .7; border-radius: 4px 4px 0 0; }
+.ev-seg-cached { background: var(--muted); opacity: .35; }
+.ev-seg-cached:first-child { border-radius: 4px 4px 0 0; }
+.ev-chart-slot.ev-flag .ev-seg-fresh { opacity: 1; }
+.ev-chart-slot:hover .ev-seg { opacity: 1; }
+.ev-chart-slot.ev-flag::before {
+  content: ''; position: absolute; left: 50%; margin-left: -4px; top: -1px;
+  border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--ev-color);
+}
+.ev-chart-slot.ev-flag { padding-top: 10px; }
+.insight-evidence-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 10px; color: var(--muted); }
+.insight-evidence-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.insight-evidence-legend .ev-legend-peak { margin-left: auto; }
+.ev-swatch { display: inline-block; width: 10px; height: 8px; border-radius: 2px; }
+.ev-swatch-flag { width: 0; height: 0; border-radius: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid; }
+@media (max-width: 600px) {
+  .insight-evidence-step .ev-step-main { flex-wrap: wrap; row-gap: 0; }
+  .insight-evidence-step .ev-detail { white-space: normal; word-break: break-word; }
+}
