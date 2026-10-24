@@ -1,9 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 
 /**
- * The Org panel (media/src/cloud/panels/OrgPanel.tsx) names TraceRoost Cloud in its header, and
- * its first row is the link into Cloud — the environment it talks to: stage by default in a
- * development build, or whichever endpoint the linked credential came from.
+ * The Org panel (media/src/cloud/panels/OrgPanel.tsx) names TraceRoost Cloud in its header and
+ * links into Cloud — the environment it talks to: stage by default in a development build, or
+ * whichever endpoint the linked credential came from. Linked, Open Team View is the first row;
+ * unlinked, Open TraceRoost Cloud sits under the Link callout.
  */
 const BASE = {
   clientVersion: '0.0.0', indicator: 'unlinked', environment: 'stage', environmentSource: 'default',
@@ -17,11 +18,14 @@ async function openWith(page: Page, status: Record<string, unknown>) {
   await page.evaluate(s => window.postMessage({ type: 'orgStatus', status: s }, '*'), { ...BASE, ...status })
 }
 
-test('unlinked: header names TraceRoost Cloud and the first row links to the default environment', async ({ page }) => {
+test('unlinked: header names TraceRoost Cloud and the Cloud link sits under the Link button', async ({ page }) => {
   await openWith(page, { linked: false })
   await expect(page.getByText('TraceRoost Cloud · Not linked', { exact: true })).toBeVisible()
   const open = page.getByRole('link', { name: 'Open TraceRoost Cloud →', exact: true })
   await expect(open).toHaveAttribute('href', 'https://stage.traceroost.com')
+  // Below the Link callout, not at the top of the panel.
+  const [openBox, linkBox] = await Promise.all([open.boundingBox(), page.getByRole('button', { name: 'Link this machine', exact: true }).boundingBox()])
+  expect(openBox!.y).toBeGreaterThan(linkBox!.y)
 })
 
 test('linked: Open Team View sits at the top, linking to its environment', async ({ page }) => {
