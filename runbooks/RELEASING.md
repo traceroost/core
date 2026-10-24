@@ -291,8 +291,9 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
 - **Linux** (.deb and AppImage, x64 and arm64) is attached on every release.
 - **macOS is built and tested on every release but attached only when notarized.** It is ad-hoc
   signed until the Apple Developer Program credentials exist, and Gatekeeper refuses an ad-hoc
-  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`,
-  `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, which `desktop-macos.yml` documents),
+  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, plus
+  either `APPLE_API_KEY_P8`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` or
+  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` — [`MACOS_SIGNING.md`](MACOS_SIGNING.md)),
   the same build is signed and notarized with no code change and the next tag attaches it. Before
   announcing it as an install method, open a downloaded, quarantined DMG on a fresh macOS user
   account.

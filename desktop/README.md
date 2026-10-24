@@ -126,7 +126,7 @@ it, so the switch from the current unsigned CI artifact to a shippable one is a 
 | Environment | Effect |
 | --- | --- |
 | nothing | **ad-hoc signed**, hardened runtime off, no notarization. Launches locally; refused by Gatekeeper when downloaded |
-| `CSC_LINK` (base64 `.p12` of a *Developer ID Application* certificate) + `CSC_KEY_PASSWORD`, or `CSC_NAME` naming one already in the login keychain | signed with that identity under the hardened runtime, with [`build/entitlements.mac.plist`](build/entitlements.mac.plist) |
+| `CSC_NAME` naming a *Developer ID Application* identity in the keychain (without the `Developer ID Application: ` prefix; CI imports the `.p12` into a job keychain and passes its SHA-1 plus `CSC_KEYCHAIN`). Not `CSC_LINK`: electron-builder 26.15.3 fails to import a `.p12` that way | signed with that identity under the hardened runtime, with [`build/entitlements.mac.plist`](build/entitlements.mac.plist) |
 | …plus `APPLE_API_KEY` (path to an App Store Connect API `.p8`), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` — or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | …and notarized and stapled |
 
 Ad-hoc is explicit rather than electron-builder's default (which is to skip signing entirely when
@@ -136,9 +136,16 @@ hardened runtime is off on the ad-hoc path because it enforces library validatio
 the pre-signed Electron frameworks under an ad-hoc identity; it is only meaningful with a real one.
 
 The CI job ([`.github/workflows/desktop-macos.yml`](../.github/workflows/desktop-macos.yml))
-maps repository secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY_P8`,
-`APPLE_API_KEY_ID` and `APPLE_API_ISSUER` onto those variables. Until they exist the job builds
-ad-hoc, exactly as a developer's machine does. The membership itself is **US$99/year**
+maps repository secrets onto those variables: `MAC_CSC_LINK` and `MAC_CSC_KEY_PASSWORD` (the
+`.p12`), and either `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER` or `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`. Until they exist the job builds ad-hoc, exactly
+as a developer's machine does; with only half of them it fails. Creating them is
+[`runbooks/MACOS_SIGNING.md`](../runbooks/MACOS_SIGNING.md).
+
+`pnpm run rehearse:mac-signing` (after `pnpm run pack:host`) re-signs the packed app with a
+throwaway self-signed identity under the hardened runtime and the production entitlements, and
+runs the smoke test against it — the signed path, minus what only Apple's certificate can prove
+(notarization, Gatekeeper, library validation). See the script's header. The membership itself is **US$99/year**
 ([Apple](https://developer.apple.com/programs/whats-included/)).
 
 ## Linux
