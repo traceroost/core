@@ -592,6 +592,22 @@ export async function removeCodexSetup(opts: RemoveOptions = {}): Promise<Remove
   }
 }
 
+/** The Copilot settings setup writes, as a VS Code user settings file holds them (keys it doesn't
+ *  have are left out; no file holds none), or undefined when the file can't be read or parsed. */
+export async function readCopilotFileSettings(file: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const raw = await readIfExists(file)
+    if (raw === undefined || raw.trim() === '') return {}
+    const errors: ParseError[] = []
+    const parsed: unknown = parseJsonc(raw, errors, { allowTrailingComma: true, disallowComments: false })
+    if (errors.length > 0 || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    const settings = parsed as Record<string, unknown>
+    return Object.fromEntries(Object.keys(copilotSettings(0)).filter(k => settings[k] !== undefined).map(k => [k, settings[k]]))
+  } catch {
+    return undefined
+  }
+}
+
 /** Copilot, in every installed VS Code-family IDE's user settings: drops the three settings setup
  *  writes (each only while it holds setup's value) from a file whose endpoint is TraceRoost's —
  *  set in the file, or Copilot's default when the file sets none and `opts.port` is 4318. */

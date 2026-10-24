@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import { COPILOT_ENDPOINT_KEY, copilotSettings, isLoopbackEndpoint, isTraceRoostEndpoint, type ConfigResult, type RemoveOptions, type SetupMode } from './autoConfigNode'
 export type { ConfigResult, RemoveOptions, RemoveResult, SetupMode } from './autoConfigNode'
-export { autoConfigureClaudeCode, autoConfigureCodex, removeClaudeCodeSetup, removeCodexSetup, removeCopilotStandaloneSetup } from './autoConfigNode'
+export { autoConfigureClaudeCode, autoConfigureCodex, readCopilotFileSettings, removeClaudeCodeSetup, removeCodexSetup, removeCopilotStandaloneSetup } from './autoConfigNode'
 
 export async function autoConfigureCopilot(port: number, mode: SetupMode = 'full'): Promise<ConfigResult> {
   try {
@@ -51,6 +51,20 @@ export async function autoConfigureCopilot(port: number, mode: SetupMode = 'full
   } catch (e) {
     return { changed: false, error: String(e) }
   }
+}
+
+/** The Copilot settings setup writes, as this editor's settings API sees them at user level (the
+ *  active profile's), in the shape readCopilotFileSettings returns — or undefined without Copilot
+ *  Chat installed, when the API can't change them. */
+export function copilotUserSettings(): Record<string, unknown> | undefined {
+  const config = vscode.workspace.getConfiguration()
+  if (config.inspect(COPILOT_ENDPOINT_KEY)?.defaultValue === undefined) return undefined
+  const values: Record<string, unknown> = {}
+  for (const key of Object.keys(copilotSettings(0))) {
+    const value = config.inspect(key)?.globalValue
+    if (value !== undefined) values[key] = value
+  }
+  return values
 }
 
 /** Remove agent setup (src/autoConfigNode.ts) for this editor's Copilot settings, through the

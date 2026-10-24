@@ -1,13 +1,14 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { isDeepStrictEqual } from 'util'
 import * as vscode from 'vscode'
 import { OtlpCollector } from './otlpCollector'
 import { detectPortOwner, serviceDashboardUrl } from './portResolver'
 import { SessionStore } from './sessionStore'
 import { SidebarPanel } from './sidebarPanel'
 import { DashboardPanel } from './dashboardPanel'
-import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, removeCopilotSetup, type ConfigResult, type SetupMode } from './autoConfig'
+import { autoConfigureCopilot, autoConfigureClaudeCode, autoConfigureCodex, copilotUserSettings, readCopilotFileSettings, removeCopilotSetup, type ConfigResult, type SetupMode } from './autoConfig'
 import { changedFiles, describeRemoval, removeAgentSetupFiles, type AgentRemoval } from './agentSetupRemoval'
 import { detectAgentSetupOwner, postServiceAction, type AgentSetupOwner } from './serviceOwnership'
 import { AGENT_SETUP_DECLINED, AGENT_SETUP_DONT, AGENT_SETUP_EXPLANATION, AGENT_SETUP_NOT_NOW, AGENT_SETUP_QUESTION, AGENT_SETUP_YES, leftAloneMessage, readAgentSetupAnswer, writeAgentSetupAnswer } from './agentSetupConsent'
@@ -491,9 +492,21 @@ export async function activate(context: vscode.ExtensionContext) {
    *  when the user backed out. Copilot in this editor goes through the settings API, like its
    *  setup; every other VS Code-family editor's settings file is edited directly. */
   const runAgentRemoval = async (): Promise<string | undefined> => {
-    // This editor's own settings.json (…/User/globalStorage/<extension> → …/User) is already
-    // covered by the settings API, so it isn't listed twice.
+    // This editor's default-profile settings.json (…/User/globalStorage/<extension> → …/User:
+    // extensions get the default profile's global storage whatever profile is active). The settings
+    // API covers it only while that profile is the active one, and VS Code has no API that names
+    // the active profile or its settings file — so instead of guessing at User/profiles/<id>, it is
+    // left to the settings API only when the API evidently reads it: the Copilot values the API
+    // sees at user level are the ones in the file. Under another profile (values differ), the
+    // file is edited directly like any other editor's, so keys the background service wrote there
+    // still go. A real run edits it anyway when the API pass left TraceRoost's keys in it (equal
+    // values by coincidence); it then shows up as changed.
     const ownSettings = path.join(path.dirname(path.dirname(context.globalStorageUri.fsPath)), 'settings.json')
+    const apiCoversOwnSettings = async (): Promise<boolean> => {
+      const api = copilotUserSettings()
+      const file = await readCopilotFileSettings(ownSettings)
+      return api !== undefined && file !== undefined && isDeepStrictEqual(api, file)
+    }
     const owner = await agentSetupOwner()
     // With the background service running, it removes (and records the no) — this window
     // writes nothing (src/serviceOwnership.ts).
@@ -503,8 +516,10 @@ export async function activate(context: vscode.ExtensionContext) {
         return reply && !reply.error && Array.isArray(reply.results) ? reply.results as AgentRemoval[] : undefined
       }
       : async (dryRun: boolean): Promise<AgentRemoval[] | undefined> => {
+        const covered = await apiCoversOwnSettings()
         const copilot = await removeCopilotSetup({ dryRun, port })
-        const files = (await removeAgentSetupFiles({ dryRun, port })).filter(r => r.file !== ownSettings)
+        const files = (await removeAgentSetupFiles({ dryRun, port }))
+          .filter(r => r.file !== ownSettings || !covered || (!dryRun && r.changed))
         return [{ agent: 'Copilot', file: agentConfigFiles().copilot.label, ...copilot }, ...files]
       }
     const previewResults = await run(true)

@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone, removeClaudeCodeSetup, removeCodexSetup, removeCopilotStandaloneSetup } from '../autoConfigNode'
+import { autoConfigureClaudeCode, autoConfigureCodex, autoConfigureCopilotStandalone, readCopilotFileSettings, removeClaudeCodeSetup, removeCodexSetup, removeCopilotStandaloneSetup } from '../autoConfigNode'
 
 suite('autoConfigNode', () => {
   let home: string
@@ -470,6 +470,15 @@ suite('autoConfigNode', () => {
         'on another port the default endpoint is not TraceRoost\'s')
       assert.deepStrictEqual(await removeCopilotStandaloneSetup({ port: 4318 }), [{ file: vscodeSettings(), changed: true }])
       assert.strictEqual(read(vscodeSettings()), original)
+    })
+
+    test('readCopilotFileSettings: only the Copilot keys setup writes, or undefined when unparseable', async () => {
+      const file = path.join(home, 'profile-settings.json')
+      assert.deepStrictEqual(await readCopilotFileSettings(file), {}, 'no file holds none')
+      write(file, '{\n  // c\n  "editor.fontSize": 14,\n  "github.copilot.chat.otel.enabled": true,\n}\n')
+      assert.deepStrictEqual(await readCopilotFileSettings(file), { 'github.copilot.chat.otel.enabled': true })
+      write(file, '{ nope')
+      assert.strictEqual(await readCopilotFileSettings(file), undefined)
     })
 
     test('Copilot (settings files): leaves another collector\'s endpoint untouched', async function () {

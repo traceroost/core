@@ -1,6 +1,6 @@
 import * as assert from 'assert'
 import * as vscode from 'vscode'
-import { autoConfigureCopilot, removeCopilotSetup } from '../autoConfig'
+import { autoConfigureCopilot, copilotUserSettings, removeCopilotSetup } from '../autoConfig'
 
 type Settings = Record<string, unknown>
 
@@ -172,6 +172,13 @@ suite('autoConfigureCopilot', () => {
       assert.deepStrictEqual(await removeCopilotSetup(), { changed: false }, 'without the port nothing marks it as TraceRoost\'s')
       assert.deepStrictEqual(writes, [])
     }))
+
+  test('copilotUserSettings: the user-level values the settings API sees, undefined without Copilot Chat', async () => {
+    await withConfig({}, {}, async () => { assert.strictEqual(copilotUserSettings(), undefined) })
+    await withConfig(COPILOT_DEFAULTS, { 'github.copilot.chat.otel.enabled': true, 'editor.fontSize': 14 }, async () => {
+      assert.deepStrictEqual(copilotUserSettings(), { 'github.copilot.chat.otel.enabled': true }, 'defaults are not user-level values')
+    })
+  })
 
   test('Remove agent setup leaves the user\'s own collector alone', () =>
     withConfig(COPILOT_DEFAULTS, {
