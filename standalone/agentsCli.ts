@@ -39,6 +39,16 @@ export function setupPort(flagPort: number | undefined, env: NodeJS.ProcessEnv, 
   return configuredPorts(env, readServiceConfig()).otlp
 }
 
+/** `traceroost agents <sub> --help`. */
+const SUBCOMMAND_HELP: Record<'setup' | 'remove', string> = {
+  setup: 'Usage: traceroost agents setup [--otlp-port <port>]\n' +
+    '  Set up Claude Code, Codex and Copilot to send their activity to TraceRoost (your yes).\n' +
+    '  --otlp-port <port>  The port to point them at (default: the port a running TraceRoost\n' +
+    '                      server receives on, else the configured one).',
+  remove: 'Usage: traceroost agents remove\n' +
+    '  Take out only the settings TraceRoost added, and stop setting agents up.',
+}
+
 export async function runAgentsCli(args: string[], io: AgentsCliIo = defaultIo): Promise<number> {
   const [sub, ...rest] = args
   if (sub !== 'setup' && sub !== 'remove') {
@@ -47,11 +57,19 @@ export async function runAgentsCli(args: string[], io: AgentsCliIo = defaultIo):
       '  remove  Take out only the settings TraceRoost added, and stop setting agents up.')
     return sub === '--help' || sub === '-h' ? 0 : 1
   }
+  if (rest.includes('--help') || rest.includes('-h')) { io.log(SUBCOMMAND_HELP[sub]); return 0 }
   let flagPort: number | undefined
   for (let i = 0; i < rest.length; i++) {
-    const n = Number(rest[i + 1])
-    if (sub === 'setup' && rest[i] === '--otlp-port' && Number.isInteger(n) && n >= 1 && n <= 65535) { flagPort = n; i++; continue }
-    io.error(`Unknown option: ${rest[i]}\nUsage: ${AGENTS_USAGE}`)
+    if (sub === 'setup' && rest[i] === '--otlp-port') {
+      const value = rest[i + 1]
+      const n = Number(value)
+      if (value === undefined || !/^\d+$/.test(value) || n < 1 || n > 65535) {
+        io.error(`Invalid --otlp-port: ${value === undefined ? 'no port given' : `"${value}"`} — expected a port from 1 to 65535.`)
+        return 1
+      }
+      flagPort = n; i++; continue
+    }
+    io.error(`Unknown option: ${rest[i]}\n${SUBCOMMAND_HELP[sub]}`)
     return 1
   }
   if (io.env.TRACEROOST_NO_AUTOCONFIG === '1') {

@@ -54,6 +54,33 @@ suite('traceroost agents', () => {
     assert.ok(!fs.existsSync(path.join(home, '.claude')))
   })
 
+  test('--help on a subcommand prints its usage and succeeds, changing nothing', async () => {
+    for (const sub of ['setup', 'remove']) {
+      out.length = 0
+      assert.strictEqual(await runAgentsCli([sub, '--help'], io()), 0, sub)
+      assert.match(out.join('\n'), new RegExp(`^Usage: traceroost agents ${sub}`), sub)
+      assert.ok(!out.some(l => l.startsWith('ERR')), out.join('\n'))
+    }
+    assert.strictEqual(await runAgentsCli(['setup', '-h'], io()), 0)
+    assert.strictEqual(readAgentSetupAnswer(home), undefined)
+    assert.ok(!fs.existsSync(path.join(home, '.claude')))
+  })
+
+  test('a bad --otlp-port is reported as an invalid port, not an unknown option', async () => {
+    for (const args of [['setup', '--otlp-port', 'abc'], ['setup', '--otlp-port', '70000'], ['setup', '--otlp-port']]) {
+      out.length = 0
+      assert.strictEqual(await runAgentsCli(args, io()), 1, args.join(' '))
+      assert.match(out.join('\n'), /Invalid --otlp-port/, args.join(' '))
+      assert.doesNotMatch(out.join('\n'), /Unknown option/)
+    }
+    assert.strictEqual(readAgentSetupAnswer(home), undefined)
+  })
+
+  test('an unknown option is still refused', async () => {
+    assert.strictEqual(await runAgentsCli(['remove', '--force'], io()), 1)
+    assert.match(out.join('\n'), /Unknown option: --force/)
+  })
+
   test('an unknown subcommand prints the usage and fails', async () => {
     assert.strictEqual(await runAgentsCli(['frobnicate'], io()), 1)
     assert.match(out.join('\n'), /traceroost agents <setup\|remove>/)
