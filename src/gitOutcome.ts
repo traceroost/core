@@ -205,16 +205,22 @@ export interface RepoTipsSnapshot {
   /** Re-reads `root`'s tips now and makes that the memoized value for the rest of the pass. */
   refresh(root: string, trunkRef: string | null): Promise<RepoTips>
   /** Every root read so far: whether a refresh() already saw its tips move this pass, and whether
-   *  `current` (a live read taken after the pass) differs from any value handed out during it. */
-  movedRoots(current: (root: string) => Promise<RepoTips>): Promise<Set<string>>
+   *  `current` (a live read taken after the pass) differs from any value handed out during it.
+   *  Roots in `trusted` skip that live read — only a refresh() seeing them move reports them. */
+  movedRoots(current: (root: string) => Promise<RepoTips>, trusted?: ReadonlySet<string>): Promise<Set<string>>
+  /** Each root's tips as last read (or refreshed) this pass. */
+  settled(): Promise<Map<string, RepoTips>>
 }
 
 function sameTips(a: RepoTips, b: RepoTips): boolean {
   return a.head === b.head && a.trunk === b.trunk
 }
 
-export function createRepoTipsSnapshot(): RepoTipsSnapshot {
+/** `seed`: tips the caller already knows are current (e.g. from an earlier pass, with nothing in
+ *  `.git` changed since) — handed out as if read at the start of this pass, without a spawn. */
+export function createRepoTipsSnapshot(seed?: ReadonlyMap<string, RepoTips>): RepoTipsSnapshot {
   const memo = new Map<string, Promise<RepoTips>>()
+  for (const [root, tips] of seed ?? []) memo.set(root, Promise.resolve(tips))
   const moved = new Set<string>()
   const refreshChecks: Array<Promise<void>> = []
   return {
@@ -230,12 +236,17 @@ export function createRepoTipsSnapshot(): RepoTipsSnapshot {
       if (before) refreshChecks.push(Promise.all([before, p]).then(([a, b]) => { if (!sameTips(a, b)) moved.add(root) }))
       return p
     },
-    async movedRoots(current) {
+    async movedRoots(current, trusted) {
       await Promise.all(refreshChecks)
       const result = new Set<string>()
       for (const [root, p] of memo) {
-        if (moved.has(root) || !sameTips(await p, await current(root))) result.add(root)
+        if (moved.has(root) || (!trusted?.has(root) && !sameTips(await p, await current(root)))) result.add(root)
       }
+      return result
+    },
+    async settled() {
+      const result = new Map<string, RepoTips>()
+      for (const [root, p] of memo) result.set(root, await p)
       return result
     },
   }

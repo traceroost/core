@@ -27,7 +27,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { createOutcomeRepoCache } from '../gitOutcome'
+import { createOutcomeRepoCache, type RepoTips } from '../gitOutcome'
 import type { ReconciliationService, ReconcileInput } from './reconciliationService'
 
 export interface WatchableSession {
@@ -45,6 +45,8 @@ export interface BackgroundWatcherDeps {
    *  just the most recent page" contract as DashboardPanel.orgDeps().allLocalSessions. */
   listSessions: () => WatchableSession[]
   log?: (msg: string) => void
+  /** Overrides FALLBACK_POLL_MS (tests). */
+  fallbackPollMs?: number
 }
 
 export interface BackgroundWatcher {
@@ -61,7 +63,9 @@ const FALLBACK_POLL_MS = 60_000
 // one classification batch per repo all at once.
 const MAX_CONCURRENT_REPO_PASSES = 4
 // A workspace's repo root practically never changes, so it's resolved once (one `git rev-parse`
-// per distinct workspace, not per session per pass) and only re-resolved after this long.
+// per distinct workspace, not per session per pass) and only re-resolved after this long. The
+// fallback poll's remembered HEAD/trunk tips (knownTips below) are dropped on the same schedule,
+// which bounds how long a missed watch event can hide a commit from it.
 const ROOT_CACHE_TTL_MS = 10 * 60_000
 // The 60-second fallback poll exists to catch uncommitted working-tree edits; it only re-checks
 // sessions active within this window (or still running). Startup catch-up, refreshNow(), and
@@ -80,8 +84,15 @@ function toReconcileInput(s: WatchableSession): ReconcileInput {
 
 export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): BackgroundWatcher {
   let disposed = false
-  const gitWatchers = new Map<string, fs.FSWatcher>() // repo root -> watcher on its .git dir
+  const gitWatchers = new Map<string, fs.FSWatcher[]>() // repo root -> watchers on its git dir(s)
   const knownRoots = new Set<string>()
+  // HEAD/trunk tips each watched root's last pass ended with. The fallback poll hands them to
+  // reconcileMany as trusted instead of re-reading them every minute: with the root's `.git`
+  // watch live and quiet, they can't have moved. A watch event or watcher error drops the entry.
+  let knownTips = new Map<string, RepoTips>()
+  // Bumped on every watch event for a root, so tips read by a pass that overlapped one are never
+  // remembered as current.
+  const rootGeneration = new Map<string, number>()
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
   let pendingRoots = new Set<string>() // repo roots due for a debounced pass; empty set = "all"
   let repoCache = createOutcomeRepoCache()
@@ -120,6 +131,14 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
     if (Date.now() - repoCacheCreatedAt > ROOT_CACHE_TTL_MS) {
       repoCache = createOutcomeRepoCache()
       repoCacheCreatedAt = Date.now()
+      knownTips = new Map()
+    }
+    const cache = repoCache
+    const generationAtStart = new Map(rootGeneration)
+    const rememberTips = (tips: Map<string, RepoTips>) => {
+      for (const [root, t] of tips) {
+        if (gitWatchers.has(root) && rootGeneration.get(root) === generationAtStart.get(root)) knownTips.set(root, t)
+      }
     }
     const now = Date.now()
     const sessions = deps.listSessions()
@@ -127,7 +146,7 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
     for (const s of sessions) {
       if (recentOnly && !isRecentlyActive(s, now)) continue
       if (!s.workspace) continue
-      const root = await repoCache.root(s.workspace)
+      const root = await cache.root(s.workspace)
       if (!root) continue
       if (roots && !roots.has(root)) continue
       if (!byRoot.has(root)) byRoot.set(root, [])
@@ -139,9 +158,14 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
     let cursor = 0
     async function worker() {
       while (cursor < entries.length) {
-        const [, group] = entries[cursor++]
+        const [root, group] = entries[cursor++]
+        const known = recentOnly ? knownTips.get(root) : undefined
         try {
-          await deps.service.reconcileMany(group.map(toReconcileInput))
+          await deps.service.reconcileMany(group.map(toReconcileInput), {
+            cache,
+            trustedTips: known && new Map([[root, known]]),
+            onTips: rememberTips,
+          })
         } catch (err) {
           deps.log?.(`[TraceRoost] Background reconciliation failed for a repo: ${(err as Error).message}`)
         }
@@ -167,20 +191,51 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
     // watcher nothing will ever close.
     if (disposed || knownRoots.has(root)) return
     knownRoots.add(root)
-    const gitDir = path.join(root, '.git')
+    const watchers: fs.FSWatcher[] = []
     try {
-      // `.git` can itself be a file (a linked worktree or submodule pointer, "gitdir: <path>") —
-      // resolve to the real directory before watching so worktrees are covered, per the
-      // reconciliation contract's "including linked worktrees and packed refs."
-      const target = resolveGitDir(gitDir)
-      if (!target) return
-      const watcher = fs.watch(target, { recursive: true, persistent: false }, () => scheduleDebounced(root))
-      watcher.on('error', () => { /* platform doesn't support this watch mode — fallback poll still covers it */ })
-      gitWatchers.set(root, watcher)
+      for (const dir of gitDirsToWatch(path.join(root, '.git'))) {
+        const watcher = fs.watch(dir, { recursive: true, persistent: false }, () => onGitChange(root))
+        // Platform doesn't support this watch mode — the fallback poll still covers it, now
+        // re-reading this root's tips every time since nothing vouches for them.
+        watcher.on('error', () => dropWatch(root))
+        watchers.push(watcher)
+      }
+      if (watchers.length > 0) gitWatchers.set(root, watchers)
     } catch {
       // fs.watch with { recursive: true } isn't supported everywhere — the 60s fallback poll
       // below is what actually guarantees eventual detection regardless.
+      for (const w of watchers) w.close()
     }
+  }
+
+  function onGitChange(root: string): void {
+    rootGeneration.set(root, (rootGeneration.get(root) ?? 0) + 1)
+    knownTips.delete(root)
+    scheduleDebounced(root)
+  }
+
+  function dropWatch(root: string): void {
+    for (const w of gitWatchers.get(root) ?? []) w.close()
+    gitWatchers.delete(root)
+    knownTips.delete(root)
+  }
+
+  /** The git directory to watch for `root`, plus — for a linked worktree — the main repository's
+   *  common directory, which holds the refs and packed-refs a worktree's own gitdir doesn't (a
+   *  fetch moving origin/main touches only the common one). */
+  function gitDirsToWatch(gitDir: string): string[] {
+    // `.git` can itself be a file (a linked worktree or submodule pointer, "gitdir: <path>") —
+    // resolve to the real directory before watching so worktrees are covered, per the
+    // reconciliation contract's "including linked worktrees and packed refs."
+    const target = resolveGitDir(gitDir)
+    if (!target) return []
+    try {
+      const common = path.resolve(target, fs.readFileSync(path.join(target, 'commondir'), 'utf-8').trim())
+      if (common !== target && fs.statSync(common).isDirectory()) return [target, common]
+    } catch {
+      // No `commondir` file: an ordinary repository, whose git dir already holds everything.
+    }
+    return [target]
   }
 
   function resolveGitDir(gitDir: string): string | null {
@@ -196,7 +251,7 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
     }
   }
 
-  const fallbackTimer = setInterval(() => { requestPass(null, true) }, FALLBACK_POLL_MS)
+  const fallbackTimer = setInterval(() => { requestPass(null, true) }, deps.fallbackPollMs ?? FALLBACK_POLL_MS)
   fallbackTimer.unref?.()
 
   // Startup/resume catch-up: reconcile everything once immediately rather than waiting for the
@@ -212,7 +267,7 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
       clearImmediate(startupPass)
       clearInterval(fallbackTimer)
       if (debounceTimer) clearTimeout(debounceTimer)
-      for (const w of gitWatchers.values()) w.close()
+      for (const ws of gitWatchers.values()) for (const w of ws) w.close()
       gitWatchers.clear()
       knownRoots.clear()
     },

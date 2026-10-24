@@ -13,6 +13,7 @@ import {
   authorHash,
   toRepoRelativePosix,
 } from '../repoKey'
+import { getActionLogHistory } from '../actionLog'
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, {
@@ -113,6 +114,32 @@ suite('repoKey', () => {
     const r = await deriveRepoKey(shallow, 'org-1')
     assert.strictEqual(r.ok, false)
     if (!r.ok) assert.strictEqual(r.reason, 'shallow-clone')
+  })
+
+  test('repeated derivations share one root lookup and still give each org its own key', async () => {
+    const repo = path.join(tmp, 'repo')
+    makeRepo(repo)
+    const lookups = () => getActionLogHistory().filter(e => e.cwd === repo && e.raw.startsWith('git rev-parse --show-toplevel')).length
+    const before = lookups()
+    const [a, b] = await Promise.all([deriveRepoKey(repo, 'org-1'), deriveRepoKey(repo, 'org-1')])
+    const c = await deriveRepoKey(repo, 'org-2')
+    assert.strictEqual(lookups() - before, 1, 'concurrent and later calls reuse the first lookup')
+    assert.ok(a.ok && b.ok && c.ok)
+    if (a.ok && b.ok && c.ok) {
+      assert.strictEqual(repoHash(a.ctx), repoHash(b.ctx))
+      assert.notStrictEqual(repoHash(a.ctx), repoHash(c.ctx))
+    }
+  })
+
+  test('a failed lookup is not remembered: a directory that becomes a repo is keyed next time', async () => {
+    const dir = path.join(tmp, 'later')
+    fs.mkdirSync(dir)
+    const before = await deriveRepoKey(dir, 'org-1')
+    assert.ok(!before.ok)
+    fs.rmSync(dir, { recursive: true })
+    makeRepo(dir)
+    const after = await deriveRepoKey(dir, 'org-1')
+    assert.strictEqual(after.ok, true)
   })
 
   test('a non-repo directory is reported as not-a-repo', async () => {
