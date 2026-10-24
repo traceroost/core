@@ -958,7 +958,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Exports the spans this window's collector holds in memory right now — a debugging aid, not
   // the dashboard's trace export. The files are built first so the dialog can fit them: a save
   // dialog for one file, a folder picker for several (one per agent/endpoint). `target` (a folder)
-  // skips the dialog — the integration tests use it.
+  // skips the dialog — the integration tests use it; folderArg honours it only under test.
   async function runExport(exporter: typeof exportSpans, redacted: boolean, target?: vscode.Uri) {
     const files: Array<{ name: string; data: Uint8Array }> = []
     await exporter(store!.getSpans(), context.globalStorageUri, {
@@ -1007,7 +1007,10 @@ export async function activate(context: vscode.ExtensionContext) {
       else if (choice === REVEAL) void vscode.commands.executeCommand('revealFileInOS', uris[0])
     })
   }
-  const folderArg = (arg: unknown) => arg instanceof vscode.Uri ? arg : undefined
+  // Only the integration tests may skip the dialog: any other extension can run these commands,
+  // and a folder argument would let it write unredacted prompts somewhere without asking.
+  const folderArg = (arg: unknown) =>
+    context.extensionMode === vscode.ExtensionMode.Test && arg instanceof vscode.Uri ? arg : undefined
 
   context.subscriptions.push(
     vscode.commands.registerCommand('traceRoost.exportData', (target?: unknown) => runExport(exportSpans, false, folderArg(target)))
