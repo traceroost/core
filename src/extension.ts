@@ -1147,9 +1147,14 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   }
   // Only the integration tests may skip the dialog: any other extension can run these commands,
-  // and a folder argument would let it write unredacted prompts somewhere without asking.
+  // and a folder argument would let it write unredacted prompts somewhere without asking. The
+  // development-mode suite runs in ExtensionMode.Test; the shipped-VSIX suite
+  // (tests/e2e/vscode/run.mjs) installs the extension normally, so it runs in Production and is
+  // recognised by the TRACEROOST_IT_CONFIG its runner puts in the extension host's environment.
+  const underIntegrationTest = () =>
+    context.extensionMode === vscode.ExtensionMode.Test || !!process.env.TRACEROOST_IT_CONFIG
   const folderArg = (arg: unknown) =>
-    context.extensionMode === vscode.ExtensionMode.Test && arg instanceof vscode.Uri ? arg : undefined
+    underIntegrationTest() && arg instanceof vscode.Uri ? arg : undefined
 
   context.subscriptions.push(
     vscode.commands.registerCommand('traceRoost.exportData', (target?: unknown) => runExport(exportSpans, false, folderArg(target)))
