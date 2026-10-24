@@ -80,11 +80,11 @@
       },
       {
         "command": "traceRoost.exportData",
-        "title": "TraceRoost: Export OTEL Data"
+        "title": "TraceRoost: Export Live OTel Spans (debug)"
       },
       {
         "command": "traceRoost.exportDataRedacted",
-        "title": "TraceRoost: Export OTEL Data (Redacted)"
+        "title": "TraceRoost: Export Live OTel Spans, Redacted (debug)"
       },
       {
         "command": "traceRoost.dumpSpanAttrs",

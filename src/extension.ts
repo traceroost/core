@@ -938,28 +938,65 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   )
 
-  async function runExport(exporter: typeof exportSpans) {
-    const spans = store!.getSpans()
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]
-    const baseUri = workspaceFolder ? workspaceFolder.uri : context.globalStorageUri
-    const writtenFiles = await exporter(spans, baseUri)
-    if (writtenFiles.length === 0) {
-      vscode.window.showInformationMessage('TraceRoost: No trace data to export')
+  // Exports the spans this window's collector holds in memory right now — a debugging aid, not
+  // the dashboard's trace export. The files are built first so the dialog can fit them: a save
+  // dialog for one file, a folder picker for several (one per agent/endpoint). `target` (a folder)
+  // skips the dialog — the integration tests use it.
+  async function runExport(exporter: typeof exportSpans, redacted: boolean, target?: vscode.Uri) {
+    const files: Array<{ name: string; data: Uint8Array }> = []
+    await exporter(store!.getSpans(), context.globalStorageUri, {
+      writeFile: async (uri, data) => { files.push({ name: path.posix.basename(uri.path), data }) },
+    })
+    if (files.length === 0) {
+      vscode.window.showInformationMessage('TraceRoost: no live OTel spans in memory to export.')
       return
     }
-    vscode.window.showInformationMessage(`TraceRoost: Exported to: ${writtenFiles.join(', ')}`)
-    for (const fname of writtenFiles) {
-      const uri = vscode.Uri.joinPath(baseUri, fname)
-      const doc = await vscode.workspace.openTextDocument(uri)
-      vscode.window.showTextDocument(doc, { preview: false })
+    const defaultDir = vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(os.homedir())
+    const what = redacted ? 'live OTel spans (redacted)' : 'live OTel spans — includes prompts and tool output'
+    let uris: vscode.Uri[]
+    if (target) {
+      uris = files.map(f => vscode.Uri.joinPath(target, f.name))
+    } else if (files.length === 1) {
+      const picked = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(defaultDir, files[0].name),
+        filters: { JSON: ['json'] },
+        saveLabel: 'Export',
+        title: `Export ${what}`,
+      })
+      if (!picked) return
+      uris = [picked]
+    } else {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFiles: false, canSelectFolders: true, canSelectMany: false,
+        defaultUri: defaultDir,
+        openLabel: 'Export Here',
+        title: `Export ${what} (${files.length} files, one per agent)`,
+      })
+      if (!picked?.[0]) return
+      uris = files.map(f => vscode.Uri.joinPath(picked[0], f.name))
     }
+    for (let i = 0; i < files.length; i++) await vscode.workspace.fs.writeFile(uris[i], files[i].data)
+
+    const REVEAL = 'Reveal'
+    const OPEN = 'Open'
+    // Not awaited, so the command (and a caller awaiting it) finishes once the files are written.
+    void vscode.window.showInformationMessage(
+      uris.length === 1
+        ? `TraceRoost: exported ${what.split(' — ')[0]} to ${uris[0].fsPath}`
+        : `TraceRoost: exported ${uris.length} files of ${what.split(' — ')[0]} to ${path.dirname(uris[0].fsPath)}`,
+      ...(uris.length === 1 ? [OPEN, REVEAL] : [REVEAL]),
+    ).then(choice => {
+      if (choice === OPEN) void vscode.window.showTextDocument(uris[0], { preview: false })
+      else if (choice === REVEAL) void vscode.commands.executeCommand('revealFileInOS', uris[0])
+    })
   }
+  const folderArg = (arg: unknown) => arg instanceof vscode.Uri ? arg : undefined
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('traceRoost.exportData', () => runExport(exportSpans))
+    vscode.commands.registerCommand('traceRoost.exportData', (target?: unknown) => runExport(exportSpans, false, folderArg(target)))
   )
   context.subscriptions.push(
-    vscode.commands.registerCommand('traceRoost.exportDataRedacted', () => runExport(exportSpansRedacted))
+    vscode.commands.registerCommand('traceRoost.exportDataRedacted', (target?: unknown) => runExport(exportSpansRedacted, true, folderArg(target)))
   )
 
   context.subscriptions.push(

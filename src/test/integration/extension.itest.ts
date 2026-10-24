@@ -136,7 +136,7 @@ suite('TraceRoost extension (end to end)', () => {
 
     const dir = globalStorageDir(cfg, ext)
     const before = new Set(fs.readdirSync(dir))
-    await vscode.commands.executeCommand('traceRoost.exportData')
+    await vscode.commands.executeCommand('traceRoost.exportData', vscode.Uri.file(dir))
     const written = await waitFor('an export file in globalStorage', () =>
       fs.readdirSync(dir).filter(f => !before.has(f) && /^export_.*\.json$/.test(f)), 20_000)
     for (const f of written) {

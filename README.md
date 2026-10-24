@@ -233,7 +233,7 @@ Each format is available both as the full export and as a redacted export (promp
 
 An export contains the traces that match the dashboard's current filters — time range, agent, language, prompt text, repo, source (OTEL / Log) and From (User / Agent). In the extension it draws from the full SQLite trace history, not just the active window, so every matching past trace is included. The standalone dashboard builds the file in the browser from the traces it has loaded, so it holds the matching traces in the server's in-memory history.
 
-> **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export from this tab, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export OTEL Data` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
+> **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export from this tab, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export Live OTel Spans (debug)` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
 
 ### Import
 
@@ -823,8 +823,9 @@ Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for
 | Command | Description |
 | ------- | ----------- |
 | `TraceRoost: Open Dashboard` | Open the full dashboard in an editor panel |
-| `TraceRoost: Export OTEL Data` | Write the raw OTEL spans currently held in memory to JSON files in your workspace root, one per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`). The **Export** dashboard tab exports per-trace summaries instead |
-| `TraceRoost: Export OTEL Data (Redacted)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
+| `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Skip setup**, or to re-apply the settings now. Running it counts as your yes |
+| `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The **Export** dashboard tab exports per-trace summaries instead |
+| `TraceRoost: Export Live OTel Spans, Redacted (debug)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
 | `TraceRoost: Show Storage Stats` | Report local database size, blob storage size, trace count, date range, and current retention setting to the Output panel |
 | `TraceRoost: Dump Span Attributes` | Debugging aid: print the span names and attributes in the live window (one example per Codex span type, the last few Claude spans) to the Output panel |
 
