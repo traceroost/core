@@ -11,7 +11,7 @@ import {
 } from '../state'
 import { PageSizeSelect, SessionsPager } from './Settings'
 import {
-  getAgentColor, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
+  getAgentColorVar, getAgentSourceLabel, formatMs, formatCompact, formatSessionTime,
   getDataSourceBadgeHtml, getInitiatorBadgeHtml, getConversationColor, formatTraceIdHash, esc, activateOnKey,
 } from '../utils'
 import { calcSessionCost, oneShotRate, avgEditsPerFile } from '../sessionMetrics'
@@ -694,7 +694,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
   const isFocused = focusedSessionId.value === sess.sessionId
   const rowRef = useRef<HTMLTableRowElement>(null)
   const cost = calcSessionCost(sess)
-  const color = getAgentColor(sess.source)
+  const color = getAgentColorVar(sess.source)
   const prompt = sess.userRequest ?? ''
   const isIsolatedToThisGroup = conversation ? isSameIdSet(evidenceSessionIds.value, conversation.memberIds) : false
 
@@ -799,7 +799,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
             (colors match the Outcome bar's own Source/From pills — see
             DATA_SOURCE_COLORS/INITIATOR_COLORS in utils.ts) */}
         <td style="padding:4px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-          <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--agent-${sess.source === 'claude_code' ? 'claude' : sess.source},${color});flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(sess.source)} />
+          <span style={`display:inline-block;width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(sess.source)} />
           <span style="margin-left:6px;font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums">{formatSessionTime(sess)}</span>
           <span style="margin-left:6px" dangerouslySetInnerHTML={{ __html: getDataSourceBadgeHtml(sess.dataSource ?? 'otel') }} />
           <span dangerouslySetInnerHTML={{ __html: getInitiatorBadgeHtml(sess.initiator) }} />

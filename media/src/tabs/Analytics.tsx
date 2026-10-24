@@ -5,7 +5,7 @@ import {
   requestGitOutcomesFor,
   CHART_MAX, requestSessionTimeline, goToHelp,
 } from '../state'
-import { getAgentColor, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
+import { getAgentColorVar, getAgentSourceLabel, formatMs, formatCompact } from '../utils'
 import { buildDailyCostMap, calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 import { PRICING_LAST_UPDATED } from '../pricing'
@@ -56,9 +56,8 @@ const BREAKDOWN_SOURCES = ['copilot', 'claude_code', 'codex', 'opencode', 'curso
 function AgentCard({ source, sessions }: { source: string; sessions: SessionSummaryCard[] }) {
   const s = computeStats(sessions)
   if (s.sessions === 0) return null
-  // Theme-aware like the Sessions table's agent dot: OpenCode's literal white is invisible on a
-  // light page, so the CSS variable (var(--fg) for OpenCode) wins where one is defined.
-  const color = `var(--agent-${source === 'claude_code' ? 'claude' : source},${getAgentColor(source)})`
+  // The agent's theme colour (agentColors.ts), the same as its dot, pill and chart bars.
+  const color = getAgentColorVar(source)
   const label = getAgentSourceLabel(source)
   // Cursor CLI records no token counts at all — show that as missing rather than as 0 / 0%.
   const hasTokens = s.totalInput > 0 || s.totalOutput > 0 || s.totalCache > 0
@@ -430,13 +429,13 @@ export function Analytics() {
           <div data-testid="cost-chart-legend" style="display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;font-size:var(--fs-xs);color:var(--muted);margin-bottom:6px">
             {costChartAgents.map(src => (
               <span key={src} style="display:inline-flex;align-items:center;gap:4px">
-                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColor(src)};box-shadow:0 0 0 1px var(--border)`} />
+                <span aria-hidden="true" style={`display:inline-block;width:8px;height:8px;border-radius:2px;background:${getAgentColorVar(src)};box-shadow:0 0 0 1px var(--border)`} />
                 {getAgentSourceLabel(src)}{src === 'copilot' && copilotSess.length > 0 ? ' (token-based)' : ''}
               </span>
             ))}
             <span style="display:inline-flex;align-items:center;gap:4px">
               <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true">
-                <line x1="0" y1="4" x2="16" y2="4" stroke="rgba(129,199,132,0.9)" stroke-width="1.5" />
+                <line x1="0" y1="4" x2="16" y2="4" stroke="var(--vscode-charts-green, #81c784)" stroke-width="1.5" />
               </svg>
               Daily total (right axis)
             </span>
@@ -530,7 +529,7 @@ export function Analytics() {
                             <tr key={day + src} style="border-bottom:1px solid var(--border)">
                               <td style="padding:3px 8px 3px 0" />
                               <td style="padding:3px 8px">
-                                <span style={'display:inline-block;width:5px;height:5px;border-radius:50%;background:' + getAgentColor(src) + ';vertical-align:middle;margin-right:4px'} />
+                                <span style={'display:inline-block;width:5px;height:5px;border-radius:50%;background:' + getAgentColorVar(src) + ';vertical-align:middle;margin-right:4px'} />
                                 {getAgentSourceLabel(src)}
                               </td>
                               <td style="padding:3px 8px;color:var(--muted);font-size:var(--fs-xs);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={modelFull}>{modelShort}</td>

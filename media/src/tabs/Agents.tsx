@@ -1,5 +1,5 @@
 import { sessionSummary, timeRange } from '../state'
-import { formatMs, formatCompact } from '../utils'
+import { formatMs, formatCompact, getAgentColorVar } from '../utils'
 import { oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 
@@ -128,11 +128,11 @@ export function Agents() {
   return (
     <div id="agents-content">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
-        <AgentCol label="GitHub Copilot" accent="#00EAFF" stats={copStats} />
-        <AgentCol label="Claude" accent="#FFB085" stats={cldStats} />
-        <AgentCol label="Codex" accent="#F0FF42" stats={cdxStats} />
-        <AgentCol label="OpenCode" accent="#FFFFFF" stats={ocStats} />
-        <AgentCol label="Cursor" accent="#B39DDB" stats={curStats} />
+        <AgentCol label="GitHub Copilot" accent={getAgentColorVar('copilot')} stats={copStats} />
+        <AgentCol label="Claude" accent={getAgentColorVar('claude_code')} stats={cldStats} />
+        <AgentCol label="Codex" accent={getAgentColorVar('codex')} stats={cdxStats} />
+        <AgentCol label="OpenCode" accent={getAgentColorVar('opencode')} stats={ocStats} />
+        <AgentCol label="Cursor" accent={getAgentColorVar('cursor')} stats={curStats} />
       </div>
     </div>
   )

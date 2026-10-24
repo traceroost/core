@@ -20,7 +20,7 @@ import {
 import { useDialog } from './a11y'
 import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
-import { DATA_SOURCE_COLORS, INITIATOR_COLORS, isHostMessage } from './utils'
+import { DATA_SOURCE_COLORS, INITIATOR_COLORS, isHostMessage, getAgentColorVar } from './utils'
 import { LANGUAGE_LABELS } from './language'
 
 // Tab components
@@ -1022,16 +1022,15 @@ function GitCommandStatusBar() {
 }
 
 // `color` is the pill's identity color — its border in both states, fed to the shared `.tr-pill`
-// class (pills.css) as `--tr-pill-color`. 'all' and 'opencode' use var(--fg) rather than a
-// literal white for their neutral "pop" look, which used to be invisible (white border on a
-// white page) in light mode.
+// class (pills.css) as `--tr-pill-color`. Each agent's is its theme colour from agentColors.ts,
+// the same as its row dot and chart bars; 'all' uses var(--fg).
 const AGENT_FILTER_OPTIONS: Array<{ value: AgentFilter; label: string; color: string }> = [
   { value: 'all',        label: 'All',      color: 'var(--fg)' },
-  { value: 'copilot',    label: 'Copilot',  color: 'var(--agent-copilot,#00EAFF)' },
-  { value: 'claude_code',label: 'Claude',   color: 'var(--agent-claude,#FFB085)' },
-  { value: 'codex',      label: 'Codex',    color: 'var(--agent-codex,#F0FF42)' },
-  { value: 'opencode',   label: 'OpenCode', color: 'var(--fg)' },
-  { value: 'cursor',     label: 'Cursor',   color: 'var(--agent-cursor,#B39DDB)' },
+  { value: 'copilot',    label: 'Copilot',  color: getAgentColorVar('copilot') },
+  { value: 'claude_code',label: 'Claude',   color: getAgentColorVar('claude_code') },
+  { value: 'codex',      label: 'Codex',    color: getAgentColorVar('codex') },
+  { value: 'opencode',   label: 'OpenCode', color: getAgentColorVar('opencode') },
+  { value: 'cursor',     label: 'Cursor',   color: getAgentColorVar('cursor') },
 ]
 
 // `YYYY-MM-DD` date input value + an optional `HH:MM` time input value <-> unix ms, treating both

@@ -4,7 +4,7 @@ import { makeCard } from './fixtures'
 import {
   formatToolLabel, formatLlmLabel, formatToolResult, formatMs, timestampToMs, nanoToMs, sessionDateKey,
   formatSessionTime, getInputTokens, getOutputTokens, getCodexSessionId, extractUserRequest,
-  extractLlmResponseText, isLlmSpanName, isToolSpanName, getAgentSourceLabel, getAgentColor,
+  extractLlmResponseText, isLlmSpanName, isToolSpanName, getAgentSourceLabel, getAgentColor, getAgentColorVar,
   getConversationColor, buildDisplaySummary,
 } from '../../../media/src/utils'
 import {
@@ -101,6 +101,11 @@ suite('media/utils — label formatting', () => {
     assert.strictEqual(getAgentSourceLabel('cursor'), 'Cursor')
     assert.strictEqual(getAgentSourceLabel(undefined), 'Copilot')
     assert.strictEqual(getAgentColor('nope'), '#90a4ae')
+    // One theme-aware colour per agent: its --agent-* token, then the VS Code chart colour it follows.
+    assert.strictEqual(getAgentColorVar('codex'), 'var(--agent-codex, var(--vscode-charts-purple, #b180d7))')
+    assert.strictEqual(getAgentColorVar('claude_code'), 'var(--agent-claude, var(--vscode-charts-orange, #d18616))')
+    // Without a DOM (no theme to read), canvas colours fall back to VS Code's dark defaults.
+    assert.strictEqual(getAgentColor('copilot'), '#3794ff')
     assert.strictEqual(getConversationColor('conv-1'), getConversationColor('conv-1'))
   })
 })

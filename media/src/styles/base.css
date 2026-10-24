@@ -19,6 +19,15 @@
   --fs-xs: 11px;
   --fs-sm: 12px;
 
+  /* One colour per agent (media/src/agentColors.ts), from VS Code's own chart palette so it
+   * follows the theme. The standalone/desktop shim (standalone/dashboardHtml.ts) defines the
+   * --vscode-charts-* values there; the hex fallbacks are VS Code's dark defaults. */
+  --agent-claude:   var(--vscode-charts-orange, #d18616);
+  --agent-copilot:  var(--vscode-charts-blue, #3794ff);
+  --agent-codex:    var(--vscode-charts-purple, #b180d7);
+  --agent-opencode: var(--vscode-charts-foreground, var(--fg));
+  --agent-cursor:   var(--vscode-charts-yellow, #cca700);
+
   /* The TraceRoost brand teal (Wordmark.tsx, BrandMark.tsx) — used only for the top nav's
    * active-section indicator (.tab.active in tabs.css), not buttons or links. */
   --tr-brand: #0fbfa6;
@@ -279,6 +288,4 @@ button:disabled { cursor: default; opacity: .5; }
 }
 
 .range-status { width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); margin-left: 8px; }
-body.vscode-light { --agent-copilot: #087e96; --agent-claude: #c2410c; --agent-codex: #7c3aed; --tr-merged: #1a7f37; }
-
-:root { --agent-opencode: var(--fg); }
+body.vscode-light { --tr-merged: #1a7f37; }

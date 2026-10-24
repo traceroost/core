@@ -1,3 +1,5 @@
+import { resolveAgentColor } from './agentColors'
+
 // Sidebar live session monitor
 // Works in both VS Code webview and standalone (SSE events are normalised to
 // window.message in standalone/server.ts, so the same listener handles both).
@@ -93,13 +95,10 @@ function fmtAgo(ms: number): string {
   return `${Math.floor(mins / 60)}h ago`
 }
 
+// Same colour as the dashboard (agentColors.ts) — the sidebar has no base.css, so this resolves
+// straight from the theme's --vscode-charts-* value.
 function agentColor(source: string): string {
-  if (source === 'claude_code') return '#FFB085'
-  if (source === 'codex') return '#F0FF42'
-  if (source === 'copilot') return '#00EAFF'
-  if (source === 'opencode') return '#FFFFFF'
-  if (source === 'cursor') return '#B39DDB'
-  return '#90a4ae'
+  return resolveAgentColor(source)
 }
 
 function agentLabel(source: string): string {

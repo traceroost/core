@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'preact/hooks'
 import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode, availableWorkspaces, workspaceFilter, filtersOpen, filtersFocusField } from '../state'
 import { Instructions, instructionFiles, instructionsAcrossWorkspaces } from './Instructions'
-import { getAgentSourceLabel, formatSessionTime } from '../utils'
+import { getAgentSourceLabel, getAgentColorVar, formatSessionTime } from '../utils'
 import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
@@ -14,12 +14,13 @@ import { SectionNav, type NavSection } from '../SectionNav'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const AGENT_DOT_COLOR: Record<string, string> = {
-  claude_code: '#FFB085',
-  copilot:     '#00EAFF',
-  codex:       '#F0FF42',
-}
-function agentDotColor(source: string): string { return AGENT_DOT_COLOR[source] ?? '#888' }
+function agentDotColor(source: string): string { return getAgentColorVar(source) }
+
+// Efficiency Map dots are coloured by cache reuse, not agent — theme chart colours, so they read on
+// light and dark themes alike.
+const CACHE_GOOD = 'var(--vscode-charts-green, #81c784)'
+const CACHE_MID  = 'var(--vscode-charts-yellow, #f6a623)'
+const CACHE_BAD  = 'var(--vscode-charts-red, #f44747)'
 
 function sessionCost(s: SessionSummaryCard): number {
   return calcSessionCost(s).totalUsd
@@ -98,9 +99,9 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
         <span style="font-size:var(--fs-xs);color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
         <span style="display:flex;align-items:center;gap:4px;font-size:var(--fs-xs);color:var(--muted)">
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#81c784" /> cache ≥60%
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f6a623;margin-left:6px" /> 20–60%
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f44747;margin-left:6px" /> &lt;20%
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_GOOD}`} /> cache ≥60%
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_MID};margin-left:6px`} /> 20–60%
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_BAD};margin-left:6px`} /> &lt;20%
         </span>
       </div>
       <div style="position:relative">
@@ -136,11 +137,11 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
             {points.map((p, i) => {
               const inTop = topMatchIds.has(p.s.traceId)
               const cx = xPos(p.cost), cy = yPos(p.turns)
-              const color = p.cacheHitRate >= 0.6 ? '#81c784' : p.cacheHitRate >= 0.2 ? '#f6a623' : '#f44747'
+              const color = p.cacheHitRate >= 0.6 ? CACHE_GOOD : p.cacheHitRate >= 0.2 ? CACHE_MID : CACHE_BAD
               return (
                 <circle key={i} cx={cx} cy={cy} r={inTop ? 5 : 4}
-                  fill={color} opacity={inTop ? 1 : 0.6} style="cursor:pointer"
-                  stroke={clicked === p.s.traceId ? '#fff' : 'none'} stroke-width="2"
+                  opacity={inTop ? 1 : 0.6} style={`cursor:pointer;fill:${color};stroke:${clicked === p.s.traceId ? 'var(--fg)' : 'none'}`}
+                  stroke-width="2"
                   onMouseEnter={() => setTooltip({ x: cx, y: cy, s: p.s })}
                   onMouseLeave={() => setTooltip(null)}
                   onClick={() => {

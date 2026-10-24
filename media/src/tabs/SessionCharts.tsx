@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { focusedSessionId, activeTab, COLORS, goToHelp } from '../state'
-import { getAgentColor, getAgentSourceLabel, formatCompact } from '../utils'
+import { getAgentColor, getAgentColorVar, getAgentSourceLabel, formatCompact } from '../utils'
+import { resolveCssColor } from '../agentColors'
 import { dayKeyUtc } from '../sessionMetrics'
 import type { SessionSummaryCard, GitOutcome, FileOutcome } from '../types'
 import { OUTCOME_META } from './Sessions'
@@ -369,18 +370,22 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
     const cs = getComputedStyle(document.body)
     const gridColor = cs.getPropertyValue('--vscode-panel-border').trim() || '#333'
     const fontStr = '11px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
+    // Input and output bars in the theme's chart orange and green (same hues as before, now
+    // readable on a light theme too).
+    const inColor = resolveCssColor('--vscode-charts-orange', '#d18616')
+    const outColor = resolveCssColor('--vscode-charts-green', '#81c784')
 
     ctx.strokeStyle = gridColor; ctx.lineWidth = 0.5
     for (let i = 0; i <= 4; i++) {
       const y = pad.top + chartH * i / 4
       ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + chartW, y); ctx.stroke()
     }
-    ctx.fillStyle = '#FFB74D'; ctx.font = fontStr; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'
+    ctx.fillStyle = inColor; ctx.font = fontStr; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'
     for (let i = 0; i <= 4; i++) {
       const val = maxIn * (4 - i) / 4
       if (val > 0) ctx.fillText(formatCompact(val), pad.left - 4, pad.top + chartH * i / 4)
     }
-    ctx.fillStyle = '#81C784'; ctx.textAlign = 'left'
+    ctx.fillStyle = outColor; ctx.textAlign = 'left'
     for (let i = 0; i <= 4; i++) {
       const val = maxOut * (4 - i) / 4
       if (val > 0) ctx.fillText(formatCompact(val), pad.left + chartW + 4, pad.top + chartH * i / 4)
@@ -403,9 +408,9 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
     sessionData.forEach((s, i) => {
       const slotX = pad.left + i * slotW
       const inH = (s.input / maxIn) * chartH
-      ctx.fillStyle = '#FFB74D'; ctx.fillRect(slotX + barPad, pad.top + chartH - inH, halfBar, inH)
+      ctx.fillStyle = inColor; ctx.fillRect(slotX + barPad, pad.top + chartH - inH, halfBar, inH)
       const outH = (s.output / maxOut) * chartH
-      ctx.fillStyle = '#81C784'; ctx.fillRect(slotX + halfSlot, pad.top + chartH - outH, halfBar, outH)
+      ctx.fillStyle = outColor; ctx.fillRect(slotX + halfSlot, pad.top + chartH - outH, halfBar, outH)
       // Agent color dot below bar
       ctx.beginPath()
       ctx.arc(slotX + slotW / 2, pad.top + chartH + 7, 1.5, 0, Math.PI * 2)
@@ -446,7 +451,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
         <div style="display:flex;gap:10px;justify-content:center;margin-top:4px;flex-wrap:wrap">
           {agentSources.map(src => (
             <span key={src} style="display:flex;align-items:center;gap:4px;font-size:var(--fs-xs);color:var(--muted)">
-              <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--agent-${src === 'claude_code' ? 'claude' : src},${getAgentColor(src)})`} />
+              <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${getAgentColorVar(src)}`} />
               {getAgentSourceLabel(src)}
             </span>
           ))}

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks'
 import { focusedSessionId, activeTab } from '../state'
 import { getAgentColor } from '../utils'
+import { resolveCssColor } from '../agentColors'
 import { calcSessionCost, dayKeyUtc, fmtUsd } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 
@@ -52,6 +53,8 @@ export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
     const gridColor = cs.getPropertyValue('--vscode-panel-border').trim() || '#333'
     const textColor = cs.getPropertyValue('--vscode-descriptionForeground').trim() || '#888'
     const fontStr = '11px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
+    // The daily-total line and its axis — the theme's chart green, so it reads on light and dark.
+    const totalColor = resolveCssColor('--vscode-charts-green', '#81c784')
 
     // Grid
     ctx.strokeStyle = gridColor; ctx.lineWidth = 0.5
@@ -66,7 +69,7 @@ export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
       ctx.fillText('$' + val.toFixed(val < 0.01 ? 3 : 2), pad.left - 4, pad.top + chartH * i / 4)
     }
     // Right Y axis — daily total
-    ctx.fillStyle = 'rgba(129,199,132,0.85)'; ctx.textAlign = 'left'
+    ctx.fillStyle = totalColor; ctx.textAlign = 'left'
     for (let i = 0; i <= 4; i++) {
       const val = maxDailyTotal * (4 - i) / 4
       ctx.fillText('$' + val.toFixed(val < 0.1 ? 3 : 2), pad.left + chartW + 4, pad.top + chartH * i / 4)
@@ -151,7 +154,7 @@ export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
         pts.push({ x: midX, y: lineY })
       }
 
-      ctx.strokeStyle = 'rgba(129,199,132,0.9)'
+      ctx.strokeStyle = totalColor
       ctx.lineWidth = 1.5
       ctx.setLineDash([])
       ctx.beginPath()
@@ -159,7 +162,7 @@ export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
       ctx.stroke()
 
       // Dot at each day midpoint
-      ctx.fillStyle = 'rgba(129,199,132,0.95)'
+      ctx.fillStyle = totalColor
       pts.forEach(p => {
         ctx.beginPath()
         ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2)

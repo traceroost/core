@@ -6,7 +6,7 @@
 
 import { useState } from 'preact/hooks'
 import { activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt } from '../state'
-import { getAgentColor } from '../utils'
+import { getAgentColorVar } from '../utils'
 import { appliedSuggestions } from './Instructions'
 import {
   planUsage, limitUsedLabel, planLimitWindows,
@@ -26,7 +26,7 @@ const CRITICAL = 'var(--vscode-charts-red,#f44747)'
 const TOOLTIP_STYLE = 'position:absolute;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--vscode-panel-border,#333);border-radius:4px;padding:6px 9px;font-size:11px;line-height:1.6;pointer-events:none;z-index:10;white-space:nowrap'
 
 function colorOf(p: LimitProvider): string {
-  return getAgentColor(PROVIDER_SOURCE[p])
+  return getAgentColorVar(PROVIDER_SOURCE[p])
 }
 
 function fmtWhen(ms: number): string {

@@ -1,3 +1,4 @@
+import { agentColorVar, resolveAgentColor } from './agentColors'
 import type { Span, SpanAttribute, SessionSummaryCard } from './types'
 import { sessionSummary, displaySessions } from './state'
 
@@ -252,13 +253,16 @@ export function getAgentSourceLabel(source: string | null | undefined): string {
   return 'Copilot'
 }
 
+/** The agent's colour as #rrggbb for the current theme — for canvas and string-built colours.
+ *  DOM styles should use getAgentColorVar, which follows a theme change without a re-render.
+ *  Both come from agentColors.ts, the one place agent colours are defined. */
 export function getAgentColor(source: string | null | undefined): string {
-  if (source === 'claude_code') return '#FFB085'
-  if (source === 'codex') return '#F0FF42'
-  if (source === 'copilot') return '#00EAFF'
-  if (source === 'opencode') return '#FFFFFF'
-  if (source === 'cursor') return '#B39DDB'
-  return '#90a4ae'
+  return resolveAgentColor(source)
+}
+
+/** The agent's colour as a CSS var() expression, for DOM styles. */
+export function getAgentColorVar(source: string | null | undefined): string {
+  return agentColorVar(source)
 }
 
 // Fixed, visually distinct palette for coloring conversation groups (see getConversationColor) —
@@ -369,7 +373,7 @@ export function buildDisplaySummary(sessionsOverride?: SessionSummaryCard[]) {
 
 export function getAgentDotHtml(source: string | null | undefined): string {
   if (!source) return ''
-  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${getAgentColor(source)};vertical-align:middle" title="${getAgentSourceLabel(source)}"></span>`
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${getAgentColorVar(source)};vertical-align:middle" title="${getAgentSourceLabel(source)}"></span>`
 }
 
 // ── Label formatters ──────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { rangedSessions, COLORS } from '../state'
-import { getAgentColor, getAgentSourceLabel } from '../utils'
+import { getAgentColorVar, getAgentSourceLabel } from '../utils'
 import { LogIngestionNote } from './IngestionNote'
 import type { SessionSummaryCard } from '../types'
 
@@ -87,7 +87,7 @@ export function ToolsChart({ sessions }: { sessions: SessionSummaryCard[] }) {
                 <td class="right">{(callCount / total * 100).toFixed(1)}%</td>
                 <td>
                   {agents.map(a => (
-                    <span key={a} style={'display:inline-block;width:8px;height:8px;border-radius:50%;background:' + getAgentColor(a) + ';vertical-align:middle;margin-right:4px'} title={getAgentSourceLabel(a)} />
+                    <span key={a} style={'display:inline-block;width:8px;height:8px;border-radius:50%;background:' + getAgentColorVar(a) + ';vertical-align:middle;margin-right:4px'} title={getAgentSourceLabel(a)} />
                   ))}
                 </td>
               </tr>
