@@ -835,12 +835,12 @@ The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Mac
 
 | Setting | Default | Description |
 | ------- | ------- | ----------- |
-| `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver |
+| `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver (1024–65535) |
 | `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTEL span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
 | `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI. Disable if you only want OTEL data. |
-| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep their OTEL settings pointed at TraceRoost on every activation. Disabling leaves your agents' configuration untouched — use the **Configure OTEL** button in Settings for a one-off manual apply, or configure OTEL manually (see [Manual Configuration](#manual-configuration)). |
+| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep their OTel settings pointed at TraceRoost each time it starts. Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Configure OTEL** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
 | `traceRoost.enableMcpServer` | `true` | Start the TraceRoost MCP server so Claude Code and other MCP-compatible agents can query your trace history. |
-| `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (when `traceRoost.enableMcpServer` is true) |
+| `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (1024–65535; when `traceRoost.enableMcpServer` is true) |
 | `traceRoost.sessionRetentionDays` | `90` | How many days to keep trace history in the local database (pruned on activation and every 24 hours) |
 
 ## AI Usage Disclosure
