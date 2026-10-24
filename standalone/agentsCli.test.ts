@@ -43,7 +43,7 @@ suite('traceroost agents', () => {
     assert.strictEqual(readAgentSetupAnswer(home), 'no')
     assert.strictEqual(fs.readFileSync(claude, 'utf-8'), claudeOriginal)
     assert.strictEqual(fs.readFileSync(codex, 'utf-8'), codexOriginal)
-    assert.ok(out.some(l => l.includes('~/.claude/settings.json') || l.includes(claude)), out.join('\n'))
+    assert.ok(out.some(l => l.includes(path.join('~', '.claude', 'settings.json')) || l.includes(claude)), out.join('\n'))
     assert.ok(out.some(l => l.includes("won't set up your agents again")), out.join('\n'))
   })
 
