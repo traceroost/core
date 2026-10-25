@@ -580,7 +580,7 @@ function SessionsSection() {
 
         <h4 id="help-insights" style={subHeadStyle}>Insights</h4>
         <p style="font-size:12px;color:var(--muted);margin:0 0 12px">The Insights panel appears inside the <strong>Overview</strong> sub-tab of each expanded trace row. It surfaces efficiency signals for <a href="#gl-tokens">token</a> waste, <a href="#gl-cache-hit-rate">cache</a> patterns, tool behavior, and prompt shape — the signals meant to help you spend fewer <a href="#gl-turn">turns</a> and fewer tokens on the same work.</p>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><strong style="color:var(--fg)">Why it fired.</strong> Every insight and signal on a trace ends with the evidence behind it: the value TraceRoost measured against the threshold it crossed, how long the stretch between its first and last step ran and what the LLM calls in it cost, then the specific turns and tool calls involved, each with what it did (<em>"occurrence 3 of 5"</em>, <em>"undoes the earlier edit to session.ts"</em>) and, where there is one, the text itself: the edit's old → new text, the error line, the import line. The token and cache insights add a chart of input tokens per LLM call, cached against fresh. Click a step, or <strong>Highlight in waterfall</strong>, to open the <strong>Waterfall</strong> sub-tab with that signal's steps lit and the rest dimmed, and step through them with ‹ ›. In the waterfall, the <strong>Signal evidence</strong> chips switch between signals, a dot marks every row that is evidence for one, the ticks under the time ruler show when each step happened, and opening a row lists the signals it is part of. A trace analyzed before evidence was recorded says so instead.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><strong style="color:var(--fg)">Why it fired.</strong> Every insight and signal on a trace ends with the evidence behind it: the value TraceRoost measured against the threshold it crossed, how long the stretch between its first and last step ran and what the model calls in it cost, then the specific turns and tool calls involved, each with what it did (<em>"occurrence 3 of 5"</em>, <em>"undoes the earlier edit to session.ts"</em>) and, where there is one, the text itself: the edit's old → new text, the error line, the import line. The token and cache insights add a chart of the tokens sent on each model call, split into what was reused from the cache and what was processed fresh. Click a step, or <strong>Highlight in waterfall</strong>, to open the <strong>Waterfall</strong> sub-tab with that signal's steps lit and the rest dimmed, and step through them with ‹ ›. In the waterfall, the <strong>Signal evidence</strong> chips switch between signals, a dot marks every row that is evidence for one, the ticks under the time ruler show when each step happened, and opening a row lists the signals it is part of. A trace analyzed before evidence was recorded says so instead.</p>
         <div class="glossary">
           <InsightBlock id="help-context-bloat" title="Context Bloat"
             why="Every LLM turn receives the full conversation so far. When tool results are large — full file reads, wide search outputs — the context balloons quickly. Instruction files that repeat the same guidance across turns are another common cause."
@@ -622,10 +622,10 @@ function SessionsSection() {
             steps={`<li>Create a task-specific <code style="${codeStyle}">.agent.md</code> with only needed tools.</li><li>Disable unused tools for specific task types.</li><li>Check your agent's documentation for tool restriction syntax.</li>`}
             impact="Reducing from 70 to 10 tools saves ~10,000 tokens per LLM call."
           />
-          <InsightBlock id="help-cache-rate" title="Low Cache Hit Rate"
-            why="Prompt caching stores the stable prefix on the model server. The cache breaks when the prefix changes between calls — timestamps, reordered instructions, or modified instruction files."
-            steps={`<li>Keep static content at the <em>top</em> of prompts, identical across calls.</li><li>Avoid timestamps or counters in instruction files.</li><li>Cache rate will be low after editing instruction files until re-cached.</li><li>Ensure system prompt templates are not dynamically generated.</li>`}
-            impact={`Going from 0% to 60% cache hit rate reduces effective cost by 80–90%. TTFT also drops significantly.`}
+          <InsightBlock id="help-cache-rate" title="Low Cache Reuse"
+            why="The model provider keeps a copy of the start of the context (the part that stays the same from call to call) so later calls can reuse it for much less. Reuse stops when that part changes between calls — timestamps, reordered instructions, or modified instruction files."
+            steps={`<li>Keep static content at the <em>top</em> of prompts, identical across calls.</li><li>Avoid timestamps or counters in instruction files.</li><li>Reuse will be low right after you edit instruction files, until the new version has been stored once.</li><li>Ensure system prompt templates are not dynamically generated.</li>`}
+            impact={`Going from 0% to 60% of the context reused reduces effective cost by 80–90%. The time to the first reply also drops significantly.`}
           />
         </div>
 
@@ -682,7 +682,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.token_runaway.caveat}
             dataSource={SIGNAL_FORMULAS.token_runaway.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.token_runaway.dataSourceNote}
-            example="First call: 8K in → 600 out (7.5%). Last call: 65K in → 80 out (0.12%). Five turns reading the same files without edits."
+            example="First call: 8K tokens sent → 600 out (7.5%). Last call: 65K tokens sent → 80 out (0.12%). Five turns reading the same files without edits."
             steps={`<li>Stop immediately — cost compounds with no progress.</li><li>Start fresh with a focused prompt stating what was already read.</li><li>Include the specific target state, not just the problem.</li><li>Use the Traces tab to review what was accomplished.</li>`}
             impact="Catching at 4 calls instead of 10 saves ~390,000 input tokens at peak context size."
           />
@@ -727,7 +727,7 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.tool_call_cycle.caveat}
             dataSource={SIGNAL_FORMULAS.tool_call_cycle.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.tool_call_cycle.dataSourceNote}
-            example={`The agent alternated <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">edit_file src/app.ts</code> → <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">bash npm test</code> six times in a row without changing approach.`}
+            example={`The agent alternated <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">bash npm test</code> → <code style="font-size:var(--fs-xs);background:var(--panel-bg);padding:1px 3px;border-radius:2px">read_file test.log</code> six times in a row, with no edit in between, without changing approach.`}
             steps={`<li>Ask the agent to explain what changed between attempts before trying again.</li><li>Supply the missing information yourself — a stack trace, an expected value, a spec.</li><li>Interrupt and restart with a more specific instruction.</li>`}
             impact="Catching the cycle at 5 repeats instead of letting it run to 15+ saves ten or more redundant tool round-trips."
           />
@@ -745,17 +745,17 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.cache_miss.caveat}
             dataSource={SIGNAL_FORMULAS.cache_miss.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.cache_miss.dataSourceNote}
-            example="A call re-wrote 8,000 of a 120,000-token cached prefix because a tool definition changed between turns — writing it (1.25× the input rate for a 5-minute cache write) cost roughly 12.5× what reading it back (0.1× input) would have."
-            steps={`<li>Don't switch model (<code>/model</code>), effort or thinking settings, or permission mode mid-task — each rebuilds the cached prefix.</li><li>Don't add or remove MCP servers mid-session; their tool definitions sit at the top of every call.</li><li>Check whether a timestamp or counter is embedded in a cached part of the prompt (a status line or hook that stamps the time).</li>`}
-            impact="Avoiding one 8,000-token miss on a cache-write-priced model saves roughly the gap between cache-write and cache-read rates — about 1.15× that many tokens' worth of ordinary input cost (1.9× for 1-hour cache writes)."
+            example="A tool definition changed between turns, so the next call saved 8,000 tokens of context to the cache again instead of reusing the stored copy. Saving cost 1.25× the normal token price (for the 5-minute cache); reusing would have cost 0.1× — about 12.5× less."
+            steps={`<li>Don't switch model (<code>/model</code>), effort or thinking settings, or permission mode mid-task — each forces the stored context to be saved again.</li><li>Don't add or remove MCP servers mid-session; their tool definitions sit at the start of every call.</li><li>Check whether a timestamp or counter is embedded near the start of the context (a status line or hook that stamps the time).</li>`}
+            impact="Avoiding one 8,000-token re-save saves the difference between the saving price and the reuse price — about 1.15× the normal cost of that many tokens (1.9× for the 1-hour cache)."
           />
           <LoopBlock id="help-ttl-expiry" title="Cache TTL Expiry" signalType="ttl_expiry"
             why={formulaHtml(SIGNAL_FORMULAS.ttl_expiry.bullets)}
             caveat={SIGNAL_FORMULAS.ttl_expiry.caveat}
             dataSource={SIGNAL_FORMULAS.ttl_expiry.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.ttl_expiry.dataSourceNote}
-            example="Two turns were 90 minutes apart; the second re-wrote the full prefix even though nothing about the prompt had changed — the cache had simply expired."
-            steps={`<li>Work in tighter bursts if you want to keep benefiting from the cache.</li><li>On an API key or usage credits the cache lives 5 minutes, not an hour: Claude Code lets you choose the 1-hour TTL yourself (its prompt-caching docs), at a higher write price.</li><li>Otherwise accept the re-processing cost for turns that are naturally spaced out — it's a timing effect, not a prompt problem.</li>`}
+            example="Two turns were 90 minutes apart; the second saved the whole context to the cache again even though nothing about the prompt had changed — the stored copy had simply expired."
+            steps={`<li>Work in tighter bursts if you want to keep benefiting from the cache.</li><li>On an API key or usage credits the cache lasts 5 minutes, not an hour: Claude Code lets you choose the 1-hour cache lifetime yourself (its prompt-caching docs), at a higher price for saving.</li><li>Otherwise accept the re-processing cost for turns that are naturally spaced out — it's a timing effect, not a prompt problem.</li>`}
             impact="Recognizing this as a timing effect, not a prompt problem, avoids chasing a caching bug that isn't there."
           />
           <LoopBlock id="help-low-cache-hit-ratio" title="Poor Cache Utilization" signalType="low_cache_hit_ratio"
@@ -763,9 +763,9 @@ function SignalsSection() {
             caveat={SIGNAL_FORMULAS.low_cache_hit_ratio.caveat}
             dataSource={SIGNAL_FORMULAS.low_cache_hit_ratio.dataSource}
             dataSourceNote={SIGNAL_FORMULAS.low_cache_hit_ratio.dataSourceNote}
-            example="A trace read only 12% of its context from cache despite 200,000+ tokens of real cache activity — most of the prefix was being reprocessed every turn."
-            steps={`<li>Check what's changing turn to turn near the top of the prompt — that's usually what's invalidating the cache.</li><li>See Avoidable Cache Miss and Cache TTL Expiry above for the two most common causes.</li>`}
-            impact="Going from a 12% to a 60%+ hit ratio can cut effective input cost dramatically on a long session."
+            example="A trace reused only 12% of its context from the cache despite 200,000+ tokens saved to or reused from it — most of the context was processed fresh every turn."
+            steps={`<li>Check what's changing turn to turn near the start of the context — that's usually what stops the stored copy from being reused.</li><li>See Avoidable Cache Miss and Cache TTL Expiry above for the two most common causes.</li>`}
+            impact="Going from 12% to 60%+ of the context reused can cut the cost of what's sent to the model dramatically on a long session."
           />
           <LoopBlock id="help-budget-overrun" title="Budget Overrun" signalType="budget_overrun"
             why={formulaHtml(SIGNAL_FORMULAS.budget_overrun.bullets)}
