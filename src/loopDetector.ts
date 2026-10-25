@@ -540,7 +540,7 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
       `The most repeated call, "${repeated[0][0].slice(0, 60)}", ran ${topCount} times with no file edit in between,`
       + ' getting the same result whenever one was recorded.'
       + ' Repeating a call that returns the same thing uses time and tokens without making progress.'
-      + ` Flagged at ${EXACT_REPEAT_WARNING_STREAK} repeats; serious at ${EXACT_REPEAT_CRITICAL_STREAK}.`),
+      + ` Flagged at ${EXACT_REPEAT_WARNING_STREAK} repeats; critical at ${EXACT_REPEAT_CRITICAL_STREAK}.`),
   })
 }
 
@@ -669,7 +669,7 @@ export function detectEditRevertCycle(session: SessionSummaryCard, signals: Loop
         ? (revertedFiles.length === 1 ? ' The undo was the file’s last edit' : ' For at least one of them, the undo was its last edit')
           + ', so that change did not survive the trace.'
         : (revertedFiles.length === 1 ? ' The file was' : ' Each was') + ' edited again afterwards, so the agent moved on.')
-      + ' Flagged on any exact undo; serious when the undo is the file’s last edit in the trace.'),
+      + ' Flagged on any exact undo; critical when the undo is the file’s last edit in the trace.'),
   })
 }
 
@@ -737,7 +737,7 @@ export function detectErrorRecurrence(session: SessionSummaryCard, signals: Loop
           + ' No error text was recorded, so the failures were matched by the call itself, and this stays a warning.'
         : `The same error appeared ${top.count} times: "${top.example.slice(0, 100)}${top.example.length > 100 ? '…' : ''}".`)
       + ' A recurring error usually means the fixes aren’t reaching its cause.'
-      + ' Flagged at 3 repeats; serious at 5 when the error text itself matches.'),
+      + ' Flagged at 3 repeats; critical at 5 when the error text itself matches.'),
   })
 }
 
@@ -829,7 +829,7 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
       crossedAt = i
       steps.push(signalStep(timeline, i, `step ${n} — first step past the ${threshold}-step budget for a ${complexity} task`))
     } else if (n === threshold * 2) {
-      steps.push(signalStep(timeline, i, `step ${n} — twice the budget (serious)`))
+      steps.push(signalStep(timeline, i, `step ${n} — twice the budget (critical)`))
     }
   }
   if (crossedAt >= 0 && lastStep > crossedAt) {
@@ -854,7 +854,7 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
       + ` against a budget of ${threshold} for a ${complexity} task.`
       + ` The task was judged ${complexity} from the prompt's wording and the ${plural(filesAffected, 'file')} it touched.`
       + ' That many steps often points to an unclear goal or a growing scope.'
-      + ` Flagged past ${threshold} steps; serious at ${threshold * 2}.`),
+      + ` Flagged past ${threshold} steps; critical at ${threshold * 2}.`),
     ...(crossedAt >= 0 && lastStep > crossedAt
       ? { range: { from: crossedAt, to: lastStep, note: `past the ${threshold}-step budget` } }
       : {}),
@@ -936,7 +936,7 @@ export function detectTokenRunaway(session: SessionSummaryCard, signals: LoopSig
       + ` Meanwhile the model's output fell from ${(earlyRatio * 100).toFixed(1)}% to ${(lateRatio * 100).toFixed(1)}% of what it was sent.`
       + ' The agent is carrying more and more context without producing more.'
       + ' Flagged when the context grows 15,000+ tokens over 4+ calls and that output share drops below 30% of where it started.'
-      + ' Serious once the growth passes 50,000 tokens.'),
+      + ' Critical once the growth passes 50,000 tokens.'),
   })
 }
 
@@ -996,7 +996,7 @@ export function detectChronicToolFailures(session: SessionSummaryCard, signals: 
       `${failedCount} of ${toolEntries.length} tool calls failed (${(rate * 100).toFixed(0)}%).`
       + ' Frequent failures often mean wrong paths or commands that aren’t available, and each one costs a recovery turn.'
       + ` Flagged at ${CHRONIC_FAILURE_WARNING_RATE * 100}% once a trace has ${CHRONIC_FAILURE_MIN_SAMPLE}+ tool calls;`
-      + ` serious at ${CHRONIC_FAILURE_CRITICAL_RATE * 100}%.`),
+      + ` critical at ${CHRONIC_FAILURE_CRITICAL_RATE * 100}%.`),
   })
 }
 
@@ -1044,7 +1044,7 @@ export function detectContextFloodingRisk(session: SessionSummaryCard, signals: 
       `${plural(largeResults.length, 'tool result')} ${largeResults.length === 1 ? 'was' : 'were each'} over ${fmtInt(LARGE_RESULT_CHARS)} characters,`
       + ` ${totalKb.toFixed(0)} KB in all.`
       + ' Everything a tool returns stays in the context for later calls and crowds out other information.'
-      + ` Flagged for any single result over ${fmtInt(LARGE_RESULT_CHARS)} characters; serious once they reach ${LARGE_RESULT_CRITICAL_KB} KB in all.`),
+      + ` Flagged for any single result over ${fmtInt(LARGE_RESULT_CHARS)} characters; critical once they reach ${LARGE_RESULT_CRITICAL_KB} KB in all.`),
   })
 }
 
@@ -1127,7 +1127,7 @@ export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSi
       `The sequence ${found.pattern.map(p => p.split('\u0000')[0].slice(0, 40)).join(' → ')} ran ${found.repeats} times back to back,`
       + ' with the same results each time (where recorded) and no file edit in between.'
       + ' The agent is reacting to the same feedback without changing its approach.'
-      + ` Flagged at ${TOOL_CYCLE_WARNING_REPEATS} rounds; serious at ${TOOL_CYCLE_CRITICAL_REPEATS}.`),
+      + ` Flagged at ${TOOL_CYCLE_WARNING_REPEATS} rounds; critical at ${TOOL_CYCLE_CRITICAL_REPEATS}.`),
   })
 }
 
@@ -1230,7 +1230,7 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
         ? `, and ${plural(reread.length - 1, 'other file')} ${FILE_REREAD_WARNING_COUNT} or more times${reread.length > 2 ? ' each' : ''}`
         : '') + '.'
       + ' Each re-read adds the file to the context again.'
-      + ` Flagged at ${FILE_REREAD_WARNING_COUNT} reads without an edit; serious at ${FILE_REREAD_CRITICAL_COUNT}.`),
+      + ` Flagged at ${FILE_REREAD_WARNING_COUNT} reads without an edit; critical at ${FILE_REREAD_CRITICAL_COUNT}.`),
     ...(wasteUsd > 0 ? { wasteUsd } : {}),
   })
 }
@@ -1314,7 +1314,7 @@ export function detectCacheMiss(session: SessionSummaryCard, signals: LoopSignal
       + ' Saving to the cache costs much more than reusing from it.'
       + ` Flagged when a call re-saves at least ${fmtInt(CACHE_MISS_MIN_TOKENS)} tokens and more than ${CACHE_MISS_MIN_SHARE * 100}% of what it sends.`
       + " A model's first call doesn't count, since nothing is stored yet."
-      + ` Serious once the total reaches ${fmtInt(CACHE_MISS_CRITICAL_TOKENS)} tokens.`),
+      + ` Critical once the total reaches ${fmtInt(CACHE_MISS_CRITICAL_TOKENS)} tokens.`),
     ...(wasteUsd > 0 ? { wasteUsd } : {}),
   })
 }
@@ -1355,7 +1355,7 @@ export function detectTtlExpiry(session: SessionSummaryCard, signals: LoopSignal
       + ' The cache keeps it for about an hour, so the stored copy had likely expired.'
       + ` The longest pause was ${plural(Math.round(Math.max(...expiryGapsMs) / 60_000), 'minute')}.`
       + ` Flagged when a call after such a pause re-saves at least ${fmtInt(CACHE_MISS_MIN_TOKENS)} tokens`
-      + ` and more than ${CACHE_MISS_MIN_SHARE * 100}% of what it sends. Serious at 3 or more such pauses.`),
+      + ` and more than ${CACHE_MISS_MIN_SHARE * 100}% of what it sends. Critical at 3 or more such pauses.`),
   })
 }
 
@@ -1406,7 +1406,7 @@ export function detectLowCacheHitRatio(session: SessionSummaryCard, signals: Loo
       `Only ${(session.cacheHitRate * 100).toFixed(0)}% of the tokens sent to the model across ${plural(session.totalLlmCalls, 'turn')}`
       + ' were reused from the cache. The rest were processed fresh, at full price or more.'
       + ` Flagged under ${LOW_CACHE_HIT_WARNING_RATIO * 100}% once a trace has 2+ turns and at least ${fmtInt(LOW_CACHE_HIT_MIN_ACTIVITY_TOKENS)} tokens`
-      + ` saved to or reused from the cache (this one had ${fmtInt(totalCacheActivity)}). Serious under ${LOW_CACHE_HIT_CRITICAL_RATIO * 100}%.`
+      + ` saved to or reused from the cache (this one had ${fmtInt(totalCacheActivity)}). Critical under ${LOW_CACHE_HIT_CRITICAL_RATIO * 100}%.`
       + (steps.length > 0 ? ' The calls below processed the most tokens fresh.' : '')),
   })
 }
@@ -1453,7 +1453,7 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
     action: LOOP_SIGNAL_ACTIONS.budget_overrun,
     ...withSteps(steps,
       `This trace cost about $${costUsd.toFixed(2)}, over the $${cap.toFixed(2)} budget set in TRACEROOST_BUDGET_CAP_USD.`
-      + ` Flagged above the budget; serious at twice the budget ($${(cap * 2).toFixed(2)}).`
+      + ` Flagged above the budget; critical at twice the budget ($${(cap * 2).toFixed(2)}).`
       + (steps.length > 0 ? ' The most expensive model calls are below.' : '')),
   })
 }

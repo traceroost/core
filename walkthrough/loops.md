@@ -2,7 +2,7 @@ The **Traces** tab continuously scans your traces for sixteen stuck-agent and wa
 
 | Signal | What it detects |
 | --- | --- |
-| **Tool Call Deadlock** | Same tool + arguments called 30+ times in a row — agent not retaining results |
+| **Tool Call Deadlock** | The same tool call (same arguments) ran 30+ times with no file edit in between — the agent isn't using what it already got back |
 | **Edit Reverted** | A file's edit exactly undone by a later edit — often two requirements in conflict |
 | **Repeated Error** | The same error 3+ times — fix attempts not reaching the cause |
 | **Ambiguous Success / Escalating Scope** | Too many steps for task complexity — unclear success criteria |

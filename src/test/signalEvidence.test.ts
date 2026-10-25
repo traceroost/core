@@ -130,7 +130,7 @@ suite('signal evidence: per detector', () => {
     const sig = run(detectExactToolRepeat, makeSession({ timeline }))
     assert.deepStrictEqual(indices(sig), Array.from({ length: 31 }, (_, k) => 6 + k))
     assert.strictEqual(sig.steps![30].note, 'identical call 31 of 31')
-    assert.match(sig.trigger!, /ran 31 times with no file edit in between.*Flagged at 30 repeats; serious at 50\./)
+    assert.match(sig.trigger!, /ran 31 times with no file edit in between.*Flagged at 30 repeats; critical at 50\./)
   })
 
   test('edit_revert_cycle names the undone edit as context and the revert as the trigger', () => {
@@ -302,7 +302,7 @@ suite('signal evidence: plain-language trigger text', () => {
   test('exact_tool_repeat states the count and the 30/50 rule', () => {
     const sig = run(detectExactToolRepeat, makeSession({ timeline: Array.from({ length: 30 }, () => tool('read_file a.ts')) }))
     assert.match(sig.trigger!, /^The most repeated call, "read_file a\.ts", ran 30 times with no file edit in between/)
-    assert.match(sig.trigger!, /Flagged at 30 repeats; serious at 50\.$/)
+    assert.match(sig.trigger!, /Flagged at 30 repeats; critical at 50\.$/)
     assert.strictEqual(sig.evidence, '1 tool call repeated identically 30+ times with no edit in between')
   })
 
@@ -311,7 +311,7 @@ suite('signal evidence: plain-language trigger text', () => {
     assert.strictEqual(sig.trigger,
       '1 file had an edit exactly undone by a later edit, which put the old text back.'
       + ' The undo was the file’s last edit, so that change did not survive the trace.'
-      + ' Flagged on any exact undo; serious when the undo is the file’s last edit in the trace.')
+      + ' Flagged on any exact undo; critical when the undo is the file’s last edit in the trace.')
     assert.strictEqual(sig.evidence, '1 file had an edit undone by a later edit')
   })
 
@@ -325,13 +325,13 @@ suite('signal evidence: plain-language trigger text', () => {
     const sig = run(detectErrorRecurrence, makeSession({ timeline: Array.from({ length: 5 }, () => tool('bash npm test', { isError: true })) }))
     assert.strictEqual(sig.severity, 'warning')
     assert.match(sig.trigger!, /^"bash npm test" failed 5 times\. No error text was recorded/)
-    assert.match(sig.trigger!, /Flagged at 3 repeats; serious at 5 when the error text itself matches\.$/)
+    assert.match(sig.trigger!, /Flagged at 3 repeats; critical at 5 when the error text itself matches\.$/)
   })
 
   test('runaway_steps names steps, turns, tool calls and the tier budget', () => {
     const sig = run(detectRunawaySteps, makeSession({ userRequest: 'fix typo', timeline: [], totalToolCalls: 49, totalLlmCalls: 1 }))
     assert.match(sig.trigger!, /^This trace took 50 steps \(1 turn and 49 tool calls\), against a budget of 45 for a simple task\./)
-    assert.match(sig.trigger!, /Flagged past 45 steps; serious at 90\.$/)
+    assert.match(sig.trigger!, /Flagged past 45 steps; critical at 90\.$/)
     assert.deepStrictEqual(sig.examples.slice(0, 2), ['1 turn', '49 tool calls'])
   })
 
@@ -340,20 +340,20 @@ suite('signal evidence: plain-language trigger text', () => {
     const sig = run(detectTokenRunaway, makeSession({ timeline }))
     assert.match(sig.trigger!, /^The context sent to the model grew by 19,000 tokens across 4 model calls\./)
     assert.match(sig.trigger!, /fell from 50\.0% to 0\.5% of what it was sent/)
-    assert.match(sig.trigger!, /grows 15,000\+ tokens over 4\+ calls and that output share drops below 30% of where it started\. Serious once the growth passes 50,000 tokens\.$/)
+    assert.match(sig.trigger!, /grows 15,000\+ tokens over 4\+ calls and that output share drops below 30% of where it started\. Critical once the growth passes 50,000 tokens\.$/)
   })
 
   test('chronic_tool_failures states the share and the 20%/40% rule', () => {
     const timeline = [tool('a'), tool('b', { isError: true }), tool('c'), tool('d', { isError: true }), tool('e')]
     const sig = run(detectChronicToolFailures, makeSession({ timeline }))
     assert.match(sig.trigger!, /^2 of 5 tool calls failed \(40%\)\./)
-    assert.match(sig.trigger!, /Flagged at 20% once a trace has 5\+ tool calls; serious at 40%\.$/)
+    assert.match(sig.trigger!, /Flagged at 20% once a trace has 5\+ tool calls; critical at 40%\.$/)
   })
 
   test('context_flooding_risk reads in the singular for one result', () => {
     const sig = run(detectContextFloodingRisk, makeSession({ timeline: [tool('read big', { fullResult: 'y'.repeat(12_000) })] }))
     assert.match(sig.trigger!, /^1 tool result was over 10,000 characters, 12 KB in all\./)
-    assert.match(sig.trigger!, /serious once they reach 300 KB in all\.$/)
+    assert.match(sig.trigger!, /critical once they reach 300 KB in all\.$/)
     assert.strictEqual(sig.evidence, '1 tool call returned large results (12 KB in all)')
   })
 
@@ -361,13 +361,13 @@ suite('signal evidence: plain-language trigger text', () => {
     const timeline = Array.from({ length: 5 }, () => [tool('npm test'), tool('cat log')]).flat()
     const sig = run(detectToolCallCycle, makeSession({ timeline }))
     assert.match(sig.trigger!, /^The sequence npm test → cat log ran 5 times back to back/)
-    assert.match(sig.trigger!, /Flagged at 5 rounds; serious at 10\.$/)
+    assert.match(sig.trigger!, /Flagged at 5 rounds; critical at 10\.$/)
   })
 
   test('file_reread states the reads and the 3/6 rule', () => {
     const sig = run(detectFileReread, makeSession({ timeline: Array.from({ length: 3 }, () => tool('read_file src/a.ts')) }))
     assert.match(sig.trigger!, /^a\.ts was read 3 times with no edit to it in between\./)
-    assert.match(sig.trigger!, /Flagged at 3 reads without an edit; serious at 6\.$/)
+    assert.match(sig.trigger!, /Flagged at 3 reads without an edit; critical at 6\.$/)
     assert.strictEqual(sig.steps![1].note, 'read a.ts again (2 of 3), no edit since the first')
   })
 
@@ -382,7 +382,7 @@ suite('signal evidence: plain-language trigger text', () => {
       + ' Saving to the cache costs much more than reusing from it.'
       + ' Flagged when a call re-saves at least 2,000 tokens and more than 5% of what it sends.'
       + " A model's first call doesn't count, since nothing is stored yet."
-      + ' Serious once the total reaches 90,000 tokens.')
+      + ' Critical once the total reaches 90,000 tokens.')
     assert.deepStrictEqual(sig.examples, ['10,000 tokens re-saved across 1 call'])
   })
 
@@ -395,7 +395,7 @@ suite('signal evidence: plain-language trigger text', () => {
     const sig = run(detectTtlExpiry, makeSession({ timeline }))
     assert.match(sig.trigger!, /^1 model call came after a pause of more than 60 minutes and saved the context to the cache again\./)
     assert.match(sig.trigger!, /The longest pause was 90 minutes\./)
-    assert.match(sig.trigger!, /re-saves at least 2,000 tokens and more than 5% of what it sends\. Serious at 3 or more such pauses\.$/)
+    assert.match(sig.trigger!, /re-saves at least 2,000 tokens and more than 5% of what it sends\. Critical at 3 or more such pauses\.$/)
     assert.deepStrictEqual(sig.examples, ['90-minute pause'])
   })
 
@@ -405,7 +405,7 @@ suite('signal evidence: plain-language trigger text', () => {
       timeline, totalLlmCalls: 3, cacheReadTokens: 2_500, cacheCreateTokens: 5_000, cacheHitRate: 0.06,
     }))
     assert.match(sig.trigger!, /^Only 6% of the tokens sent to the model across 3 turns were reused from the cache\./)
-    assert.match(sig.trigger!, /Flagged under 30% once a trace has 2\+ turns and at least 2,000 tokens saved to or reused from the cache \(this one had 7,500\)\. Serious under 10%\./)
+    assert.match(sig.trigger!, /Flagged under 30% once a trace has 2\+ turns and at least 2,000 tokens saved to or reused from the cache \(this one had 7,500\)\. Critical under 10%\./)
   })
 
   test('model_tier_mismatch states the price line and the reply ceiling', () => {
