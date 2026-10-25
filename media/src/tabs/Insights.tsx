@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { filteredSessions, sessionSummary, insightFilter, ignoredInsightKeys } from '../state'
 import { buildDisplaySummary, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
 import type { Insight, InsightFilter, SessionSummaryCard, SignalStep, TimelineEntry } from '../types'
-import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SignalBadge } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { capSteps, evidenceStep, evidenceClipboardLines, InsightEvidence } from '../signalEvidence'
 
@@ -403,17 +403,11 @@ export function generateInsights(
 // (via _loopType) instead of a generic ↺ — same struggle pattern, same glyph, wherever it shows
 // up. Non-loop (efficiency) insights keep the plain ⚠/ℹ they always had; only loop severities
 // have a per-type icon to draw.
-export function InsightIcon({ ins }: { ins: Insight }) {
+export function InsightIcon({ ins, size = 'md' }: { ins: Insight; size?: 'sm' | 'md' }) {
   if (ins.severity.startsWith('loop')) {
     const iconType = ins._loopType ? LOOP_SIGNAL_ICON_TYPE[ins._loopType] : undefined
-    const Icon = iconType ? SIGNAL_ICON[iconType] : undefined
-    if (Icon) {
-      const color = SIGNAL_SEVERITY_COLOR[ins.severity === 'loop-critical' ? 'critical' : 'warning']
-      return (
-        <span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0">
-          <Icon color={color} />
-        </span>
-      )
+    if (iconType && SIGNAL_ICON[iconType]) {
+      return <SignalBadge type={iconType} severity={ins.severity === 'loop-critical' ? 'critical' : 'warning'} size={size} />
     }
     return <>↺</>
   }

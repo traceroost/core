@@ -273,15 +273,31 @@ button:disabled { cursor: default; opacity: .5; }
   transition: background-color 0.1s, color 0.1s, border-color 0.1s;
 }
 .tr-reset-btn:disabled { cursor: default; }
-/* Sessions.tsx's SignalsCell: the shared 13px signal icons (signalIcons.tsx) drawn smaller so three
- * and a "+N" fit side by side in the Signals column. A critical signal is a filled square with the
- * glyph knocked out of it; a warning is the bare outlined glyph — a shape difference, not just
- * colour. */
-.sig-icon { display: inline-flex; align-items: center; justify-content: center; width: 11px; height: 11px; flex-shrink: 0; }
-.sig-icon svg { width: 11px; height: 11px; }
-.sig-icon.critical { width: 13px; height: 13px; border-radius: 3px; background: var(--error); }
-.sig-icon.critical svg { width: 9px; height: 9px; }
-.sig-more { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); padding: 0 2px; margin-left: 1px; border-radius: 3px; background: var(--hover); line-height: 13px; flex-shrink: 0; }
+/* signalIcons.tsx's SignalBadge — every signal glyph in the dashboard sits in this same rounded
+ * tile. Severity is fill weight, so it reads by luminance as well as hue: critical is a solid
+ * tile with the glyph knocked out in the background colour, warning a soft tint with a 1px ring
+ * and an amber glyph, neutral (Help glossary) a faint foreground tint. The warning glyph is the
+ * theme's warning amber pulled 40% toward the foreground, so it darkens on light themes (plain
+ * #cca700 on a pale amber tint is ~2:1) and lightens on dark ones — >= 3:1 against its tile in
+ * both. sm (14px tile, 10px glyph) for dense cells; md (18px, 12px) everywhere else. */
+:root {
+  --sig-critical: var(--error);
+  --sig-critical-fg: var(--bg);
+  --sig-warning: var(--vscode-editorWarning-foreground, #f6a623);
+  --sig-warning-fg: color-mix(in srgb, var(--sig-warning) 60%, var(--fg));
+  --sig-neutral-bg: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.sig-badge { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; vertical-align: middle; background: var(--sig-neutral-bg); color: var(--fg); }
+.sig-badge svg { width: 12px; height: 12px; }
+.sig-badge.sm { width: 14px; height: 14px; border-radius: 3px; }
+.sig-badge.sm svg { width: 10px; height: 10px; }
+.sig-badge.warning { background: color-mix(in srgb, var(--sig-warning) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sig-warning) 35%, transparent); color: var(--sig-warning-fg); }
+.sig-badge.critical { background: var(--sig-critical); color: var(--sig-critical-fg); }
+.sig-badge-fallback { font-size: var(--fs-xs); font-weight: 700; line-height: 1; }
+/* Sessions.tsx's SignalsCell: up to three sm tiles, then this "+N" — the same height, radius and
+ * neutral tint as a tile so the row reads as one set. */
+.sig-cell { display: inline-flex; align-items: center; gap: 2px; }
+.sig-more { display: inline-flex; align-items: center; height: 14px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); padding: 0 2px; border-radius: 3px; background: var(--sig-neutral-bg); line-height: 14px; flex-shrink: 0; }
 .trace-expand { color: var(--muted); background: none; border: 0; font: inherit; cursor: pointer; padding: 3px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; scroll-behavior: auto !important; }

@@ -25,7 +25,7 @@ import { ToolsChart } from './Tools'
 import { LogIngestionNote } from './IngestionNote'
 import { NoTracesYet } from './GettingStarted'
 import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType, Insight } from '../types'
-import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_SEVERITY_COLOR, SIGNAL_ICON } from '../signalIcons'
+import { LOOP_SIGNAL_ICON_TYPE, SignalBadge } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { isNonCodeCategory, languageAbbreviation, languageLabel } from '../language'
 import { planUsage, showLimitColumn } from '../planUsage'
@@ -73,7 +73,7 @@ function GitOutcomeBadge({ sessionId }: { sessionId: string }) {
   )
 }
 
-// LOOP_SIGNAL_ICON_TYPE/SIGNAL_SEVERITY_COLOR/SIGNAL_ICON live in ../signalIcons — shared with
+// LOOP_SIGNAL_ICON_TYPE/SignalBadge live in ../signalIcons — shared with
 // Insights.tsx's InsightCard so a loop signal draws the same glyph whether it's read off this
 // row's Signals column or off the Insights list in this same row's expanded panel.
 //
@@ -127,31 +127,28 @@ function SignalsCell({ signals }: { signals: LoopSignal[] }) {
       .filter(Boolean)
       .join('\n\n')
     + (e.triggers.length > 0 ? `\n\n<b>In this trace:</b> ${e.triggers.map(esc).join('\n')}` : '')
-  // Up to MAX_SIGNAL_ICONS, drawn small (.sig-icon) so they fit the Signals column; anything past
-  // the cap becomes a "+N" badge whose tooltip lists the rest. Severity isn't colour alone: a
-  // critical signal draws its glyph knocked out of a filled square (.sig-icon.critical), a
-  // warning draws the bare outlined glyph.
+  // Up to MAX_SIGNAL_ICONS, drawn as small SignalBadge tiles so they fit the Signals column;
+  // anything past the cap becomes a "+N" badge (same tile height/radius) whose tooltip lists the
+  // rest. Severity isn't colour alone: a critical tile is solid with the glyph knocked out, a
+  // warning tile is a soft tint — same tile, different fill weight.
   const overflowTip = overflow.map(([, e]) => `<b>${labelFor(e)}</b> (${e.severity})\n${formulaFor(e)}`).join('\n\n')
   const plain = (html: string) => html.replace(/<[^>]+>/g, '').replace(/\n+/g, ' ')
   return (
-    <span style="display:inline-flex;align-items:center;gap:1px">
+    <span class="sig-cell">
       {shown.map(([type, e]) => {
-        const critical = e.severity === 'critical'
-        const color = critical ? 'var(--vscode-editor-background, #1e1e1e)' : SIGNAL_SEVERITY_COLOR[e.severity]
         const label = labelFor(e)
-        const Icon = SIGNAL_ICON[type]
         return (
-          <span
+          <SignalBadge
             key={type}
+            type={type}
+            severity={e.severity}
+            size="sm"
             role="img"
             tabIndex={0}
             aria-label={`${label} (${e.severity}). ${plain(formulaFor(e))}`}
             title={`<b>${label}</b> (${e.severity})\n${formulaFor(e)}`}
             data-tip-html
-            class={'sig-icon' + (critical ? ' critical' : '')}
-          >
-            {Icon ? <Icon color={color} /> : <span style={`font-size:var(--fs-xs);font-weight:700;color:${color}`}>?</span>}
-          </span>
+          />
         )
       })}
       {overflow.length > 0 && (
@@ -185,11 +182,10 @@ function SignalList({ signals }: { signals: LoopSignal[] }) {
       <div style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:6px">Signals</div>
       <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px">
         {rows.map(([type, e]) => {
-          const Icon = SIGNAL_ICON[LOOP_SIGNAL_ICON_TYPE[type] ?? type]
           const f = SIGNAL_FORMULAS[type]
           return (
             <li key={type} style="display:flex;gap:8px;align-items:flex-start;font-size:11px;line-height:1.5">
-              <span aria-hidden="true" style="flex-shrink:0;margin-top:2px">{Icon ? <Icon color={SIGNAL_SEVERITY_COLOR[e.severity]} /> : null}</span>
+              <SignalBadge type={type} severity={e.severity} aria-hidden="true" />
               <div>
                 <div>
                   <strong>{e.patternName}</strong>
@@ -835,7 +831,7 @@ function WaterfallEvidenceBar({ evidence, focused, cursor, stepNumber, onFocus, 
             aria-pressed={focused?.key === ev.key}
             onClick={e => { e.stopPropagation(); onFocus(ev) }}
           >
-            <span class="wf-ev-chip-icon"><InsightIcon ins={ev.ins} /></span>
+            <span class="wf-ev-chip-icon"><InsightIcon ins={ev.ins} size="sm" /></span>
             {ev.name}
             <span class="wf-ev-chip-count">{ev.indices.length}</span>
           </button>
@@ -1212,7 +1208,7 @@ export function Sessions() {
           <col />
           {showWorkspace && <col style="width:110px" />}
           {showOutcome && <col style="width:40px" />}
-          <col style="width:60px" /><col style="width:50px" /><col style="width:66px" /><col style="width:58px" /><col style="width:68px" />
+          <col style="width:76px" /><col style="width:50px" /><col style="width:66px" /><col style="width:58px" /><col style="width:68px" />
           {showLimit && <col style="width:72px" />}
         </colgroup>
         <thead>
