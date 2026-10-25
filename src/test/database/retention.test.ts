@@ -4,7 +4,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import { SCHEMA_SQL } from '../../database/schema'
 import { DatabaseWriter } from '../../database/writer'
-import { runRetention } from '../../database/retention'
+import { runRetention, compactTraceSends } from '../../database/retention'
+import { DatabaseReader } from '../../database/reader'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 import type * as vscode from 'vscode'
 import type { SqlStatement } from '../../database/db'
@@ -148,5 +149,58 @@ suite('runRetention', () => {
     await runRetention(db, 30, blobsDir, () => {})
 
     assert.ok(fs.existsSync(blobFile), 'Blob for existing span should NOT be deleted')
+  })
+
+  test('drops the git-outcome cache and revision rows of the sessions it deleted', async () => {
+    const db = await openDb()
+    const w = new DatabaseWriter(db, makeStorageUri(os.tmpdir()), () => {})
+    w.importCards([
+      makeCard('old', new Date(Date.now() - 100 * 86_400_000).toISOString()),
+      makeCard('new', new Date(Date.now() - 1 * 86_400_000).toISOString()),
+    ])
+    for (const id of ['old', 'new']) {
+      db.run(`INSERT INTO git_outcome (session_id, repo_root, head_sha, overall) VALUES (?, '/r', 'k', 'productive')`, [id])
+      db.run(`INSERT INTO git_outcome_key (session_id, repo_root, head_sha, trunk_sha, rel_paths_hash, file_sha, cache_key)
+              VALUES (?, '/r', 'h', 't', 'p', 'f', 'k')`, [id])
+      db.run(`INSERT INTO trace_revision (session_id, revision, fingerprint, checked_at, changed_at)
+              VALUES (?, 1, 'fp', 0, 0)`, [id])
+    }
+    await runRetention(db, 30, path.join(os.tmpdir(), 'traceroost-ret-none'), () => {})
+    for (const table of ['git_outcome', 'git_outcome_key', 'trace_revision']) {
+      assert.deepStrictEqual(db.exec(`SELECT session_id FROM ${table}`)[0].values, [['new']], table)
+    }
+  })
+
+  test('compactTraceSends folds rows older than an hour into one, keeping every count the same', async () => {
+    const db = await openDb()
+    const now = Date.UTC(2026, 5, 1)
+    const sends: Array<[number, number]> = [
+      [now - 30 * 86_400_000, 5], [now - 2 * 86_400_000, 3], [now - 2 * 3_600_000, 2], // folded
+      [now - 30 * 60_000, 7], [now - 2 * 60_000, 1],                                   // kept
+    ]
+    for (const [at, n] of sends) db.run('INSERT INTO trace_sends (sent_at, count) VALUES (?, ?)', [at, n])
+    const reader = new DatabaseReader(db, makeStorageUri(os.tmpdir()))
+    const before = [now, now + 10 * 60_000, now + 2 * 3_600_000].map(t => reader.queryTraceSendStats(t))
+    compactTraceSends(db, now)
+    assert.strictEqual(db.exec('SELECT COUNT(*) FROM trace_sends')[0].values[0][0], 3)
+    assert.deepStrictEqual([now, now + 10 * 60_000, now + 2 * 3_600_000].map(t => reader.queryTraceSendStats(t)), before)
+    assert.deepStrictEqual(before[0], { last5Min: 1, lastHour: 8, allTime: 18 })
+    compactTraceSends(db, now)
+    assert.strictEqual(db.exec('SELECT COUNT(*) FROM trace_sends')[0].values[0][0], 3, 'a second pass changes nothing')
+  })
+
+  test('compacts the file when most of it is free pages after the delete', async () => {
+    const db = await openDb()
+    db.run('PRAGMA foreign_keys = ON')
+    const w = new DatabaseWriter(db, makeStorageUri(os.tmpdir()), () => {})
+    const old = new Date(Date.now() - 100 * 86_400_000).toISOString()
+    w.importCards(Array.from({ length: 3000 }, (_, i) => ({ ...makeCard(`old-${i}`, old), userRequest: 'x'.repeat(2000) })))
+    w.importCards([makeCard('new', new Date().toISOString())])
+    const pages = () => Number(db.exec('PRAGMA page_count')[0].values[0][0])
+    const before = pages()
+    await runRetention(db, 30, path.join(os.tmpdir(), 'traceroost-ret-none'), () => {})
+    assert.strictEqual(countSessions(db), 1)
+    assert.strictEqual(Number(db.exec('PRAGMA freelist_count')[0].values[0][0]), 0)
+    assert.ok(pages() < before / 4, `${before} -> ${pages()} pages`)
   })
 })
