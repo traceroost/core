@@ -123,6 +123,7 @@ module.exports = async function afterPack(context) {
 
   // ── The runtime inside the box ──
   if (process.platform === platform && (archName === process.arch || archName === 'universal')) {
+    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process -- a build script running the app binary it just packed
     const r = spawnSync(binary, ['-p', 'process.versions.node'], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       encoding: 'utf8',

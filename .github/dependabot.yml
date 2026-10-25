@@ -7,3 +7,7 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
+    # Wait a week before proposing a newly published version: a compromised release is usually
+    # caught and pulled within days. Security updates aren't held back by this.
+    cooldown:
+      default-days: 7

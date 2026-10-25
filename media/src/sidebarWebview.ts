@@ -520,6 +520,7 @@ const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : nu
 
 document.getElementById('sb-plan-meters')?.addEventListener('click', () => {
   if (vscode) vscode.postMessage({ type: 'openDashboardTab', tab: 'analytics' })
+  // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration -- posts to this same window, with no data
   else window.postMessage({ type: 'switchTab', tab: 'analytics' }, '*')
 })
 

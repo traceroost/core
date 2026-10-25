@@ -32,6 +32,7 @@ export const systemBrowserOpener: UrlOpener = async (url: string) => {
   await recordAction('system', 'Opening your browser to sign in', `${file} ${args.map(a => JSON.stringify(a)).join(' ')}`, () => new Promise<void>(resolve => {
     // if this fails the caller has already printed the URL to paste manually
     try {
+      // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process -- an argument array, no shell; the URL is one argv entry
       const child = spawn(file, args, { stdio: 'ignore', windowsHide: true })
       child.on('error', () => resolve())
       child.on('exit', () => resolve())
