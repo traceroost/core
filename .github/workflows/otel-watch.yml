@@ -13,8 +13,7 @@ name: OTel upstream watch
 #   OTEL_WATCH_SMTP_HOST   e.g. email-smtp.us-east-1.amazonaws.com (implicit TLS on 465)
 #   OTEL_WATCH_SMTP_USER / OTEL_WATCH_SMTP_PASS   SMTP credentials (SES: the IAM SMTP user's pair)
 #   OTEL_WATCH_MAIL_FROM   a verified sender, e.g. "TraceRoost <noreply@traceroost.com>"
-#   OTEL_WATCH_MAIL_TO     recipient(s), comma-separated — the owners (admin@traceroost.com, the same
-#                          address as cloud's OWNER_EMAILS; cloud's EMAILS.md lists this email)
+#   OTEL_WATCH_MAIL_TO     recipient(s), comma-separated — the owners
 # The Actions GITHUB_TOKEN is enough for the commit lists (public repos) and the branch push.
 on:
   schedule:

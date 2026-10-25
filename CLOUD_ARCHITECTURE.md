@@ -21,8 +21,7 @@ repeating them, and adds the diagrams none of them have yet.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my* machine, *my*
    commits, *my* repositories is free and complete. Cloud is cross-developer aggregation — the one
    thing a local install genuinely cannot do itself. Nothing local is gated behind Cloud. (Cloud
-   has its own Free plan for small teams — `traceroost/cloud`'s `src/lib/entitlements.ts`; that is
-   a Cloud plan, not a limit on the local install.)
+   has its own Free plan for small teams; that is a Cloud plan, not a limit on the local install.)
 
 ## The client owns the contract
 
