@@ -19,7 +19,7 @@ import {
   detectModelTierMismatch,
 } from '../loopDetector'
 import { detectFailedCheckSubmission, detectHallucinatedImports } from '../sessionRiskSignals'
-import { MAX_SIGNAL_STEPS, MAX_STEP_DETAIL_CHARS, editExcerpt, firstLine, oneLine, signalStep, withSteps } from '../signalEvidence'
+import { MAX_SIGNAL_STEPS, MAX_STEP_DETAIL_CHARS, editExcerpt, firstLine, oneLine, plural, signalStep, withSteps } from '../signalEvidence'
 import { SessionSummaryCard, TimelineEntry } from '../spanSummarizer'
 import { LoopSignal } from '../types'
 
@@ -104,6 +104,15 @@ suite('signalEvidence helpers', () => {
     assert.strictEqual(editExcerpt('ttl = 60', 'ttl = 3600'), '"ttl = 60" → "ttl = 3600"')
     assert.strictEqual(firstLine('\n  PASS a\n  FAIL b\n', /FAIL/), 'FAIL b')
     assert.strictEqual(firstLine('\n  PASS a\n  ok b\n', /FAIL/), 'PASS a')
+  })
+
+  test('plural picks the noun by count and formats the number', () => {
+    assert.strictEqual(plural(1, 'call'), '1 call')
+    assert.strictEqual(plural(0, 'call'), '0 calls')
+    assert.strictEqual(plural(4, 'model call'), '4 model calls')
+    assert.strictEqual(plural(1234, 'token'), '1,234 tokens')
+    assert.strictEqual(plural(1, 'miss', 'misses'), '1 miss')
+    assert.strictEqual(plural(3, 'miss', 'misses'), '3 misses')
   })
 
   test('withSteps with no steps leaves steps off but keeps the trigger', () => {

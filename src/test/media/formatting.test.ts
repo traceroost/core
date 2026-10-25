@@ -5,7 +5,7 @@ import {
   formatToolLabel, formatLlmLabel, formatToolResult, formatMs, timestampToMs, nanoToMs, sessionDateKey,
   formatSessionTime, getInputTokens, getOutputTokens, getCodexSessionId, extractUserRequest,
   extractLlmResponseText, isLlmSpanName, isToolSpanName, getAgentSourceLabel, getAgentColor, getAgentColorVar,
-  getConversationColor, buildDisplaySummary,
+  getConversationColor, buildDisplaySummary, plural,
 } from '../../../media/src/utils'
 import {
   fmtUsd, oneShotRate, avgEditsPerFile, buildDailyCostMap, getDailyCostUsd, sessionDisplayName,
@@ -27,6 +27,16 @@ function span(attrs: Record<string, string | number>, name = 'chat x'): Span {
 function tl(o: Partial<TimelineEntry> & { type: TimelineEntry['type'] }): TimelineEntry {
   return { spanId: 'x', label: '', durationMs: 0, isError: false, timestamp: '', ...o } as TimelineEntry
 }
+
+suite('media/utils — plural', () => {
+  test('picks the noun by count and formats the number', () => {
+    assert.strictEqual(plural(1, 'file'), '1 file')
+    assert.strictEqual(plural(2, 'file'), '2 files')
+    assert.strictEqual(plural(0, 'file'), '0 files')
+    assert.strictEqual(plural(2, 'search', 'searches'), '2 searches')
+    assert.strictEqual(plural(12000, 'token'), '12,000 tokens')
+  })
+})
 
 suite('media/utils — label formatting', () => {
   test('formatToolLabel derives a label from Claude-style JSON toolInput', () => {

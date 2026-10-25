@@ -76,6 +76,13 @@ export function formatCompact(n: number): string {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
 }
 
+/** "1 call" / "4 calls" / "1,234 calls" — the webview twin of ../../src/signalEvidence.ts's
+ *  plural, so insight text never needs a "file(s)". Pass `pluralForm` for nouns that don't just
+ *  take an "s". */
+export function plural(n: number, singular: string, pluralForm = singular + 's'): string {
+  return `${Math.round(n).toLocaleString()} ${n === 1 ? singular : pluralForm}`
+}
+
 // ── Span attribute helpers ────────────────────────────────────────────────────
 
 export function getAttr(span: Span, key: string): string | number | boolean | null {
