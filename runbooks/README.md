@@ -11,8 +11,7 @@ automated — there's no cron job or CI check that triggers them.
 
 | Task | Trigger | Instructions |
 | --- | --- | --- |
-| Refresh model pricing | A vendor changes rates, adds/retires a model, or you notice cost estimates look off. Core and TraceRoost Cloud are refreshed together, in the same sitting | [`PRICING_SOURCES.md`](../PRICING_SOURCES.md) for core; the whole two-repo procedure is traceroost/cloud's `runbooks/refresh-model-pricing.md` |
-| Change Cloud plan pricing | The owner changes a TraceRoost Cloud plan's price, allowances or tiers. Core carries no prices, only plan descriptions in docs and one test fixture | traceroost/cloud's `runbooks/change-plan-pricing.md` (step 2 is core's part) |
+| Refresh model pricing | A vendor changes rates, adds/retires a model, or you notice cost estimates look off | [`PRICING_SOURCES.md`](../PRICING_SOURCES.md) |
 | Cut a release | Someone asks for a release (e.g. "release these changes as X.Y.Z") | [`RELEASING.md`](RELEASING.md) |
 | Switch releases from the core to the full edition | TraceRoost Cloud launches (releases are core — no org-link/upload code — until then) | [`RELEASING.md` → Editions](RELEASING.md#editions) |
 | Calibrate loop/malfunction signals | The session corpus has grown since the last pass, or a signal's fire rate looks suspicious (fires on nearly everything, or never fires) | [`SIGNAL_CALIBRATION.md`](SIGNAL_CALIBRATION.md) |
