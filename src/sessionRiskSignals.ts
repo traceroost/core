@@ -21,7 +21,7 @@ import * as path from 'path'
 import { LoopSignal } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import { PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from './loopDetector'
-import { signalStep, withSteps, firstLine } from './signalEvidence'
+import { signalStep, withSteps, firstLine, plural } from './signalEvidence'
 
 // ── Detector: failed check submission ────────────────────────────────────────
 
@@ -67,16 +67,18 @@ export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSi
   return {
     type: 'failed_check_submission',
     severity: 'warning',
-    evidence: 'The last check run in this session reported a failure, with no further fix attempt before the session ended.',
+    evidence: 'The trace ended on a failing test or build check, with no attempt to fix it afterwards.',
     count: 1,
     examples: [invocation.slice(0, 100)],
     patternName: PATTERN_NAMES.failed_check_submission,
     action: LOOP_SIGNAL_ACTIONS.failed_check_submission,
     ...withSteps(
       [signalStep(timeline, lastToolIdx,
-        `the session's last tool call — ${lastTool.isError ? 'it returned an error status' : 'its output reads as a failure'}`,
+        `the trace's last tool call — ${lastTool.isError ? 'it reported an error' : 'its output reports a failure'}`,
         'trigger', lastTool.isError && lastTool.errorMessage ? firstLine(lastTool.errorMessage) : firstLine(resultText, FAILURE_TEXT_PATTERN))],
-      'The last tool call in the session ran a recognized test/build check, the check failed, and no tool call came after it.'),
+      'The trace ended right after a test or build check failed.'
+      + ' No tool ran after it, so the agent didn’t fix the failure or run the check again.'
+      + ' Flagged when the last tool call in a trace is a recognized test or build command and it failed.'),
   }
 }
 
@@ -409,17 +411,21 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
   return {
     type: 'hallucinated_import',
     severity: 'warning',
-    evidence: `${suspects.size} import(s) reference a package not declared in the project's manifest and not present on disk`,
+    evidence: suspects.size === 1
+      ? '1 import of a package that isn’t listed as a dependency or installed'
+      : `${plural(suspects.size, 'import')} of packages that aren’t listed as dependencies or installed`,
     count: suspects.size,
     examples: [...suspects.entries()].slice(0, 3).map(([pkg, file]) => `${pkg} (${file.split('/').pop()})`),
     patternName: PATTERN_NAMES.hallucinated_import,
     action: LOOP_SIGNAL_ACTIONS.hallucinated_import,
     ...withSteps(
       [...suspects.entries()].map(([pkg, file]) => signalStep(session.timeline, suspectAt.get(pkg) ?? 0,
-        `imports "${pkg}" in ${file.split('/').pop() || file} — not in the manifest, not found on disk`, 'trigger', suspectLine.get(pkg))),
+        `imports "${pkg}" in ${file.split('/').pop() || file} — not listed as a dependency, not installed`, 'trigger', suspectLine.get(pkg))),
       `${[...suspects.keys()].slice(0, 5).map(p => `"${p}"`).join(', ')}${suspects.size > 5 ? ` and ${suspects.size - 5} more` : ''}`
-      + ` ${suspects.size === 1 ? 'is' : 'are'} imported by this session's edits but declared in neither package.json nor requirements.txt,`
-      + ' and nothing by that name resolves on disk (node_modules, standard library and local modules excluded).'),
+      + ` ${suspects.size === 1 ? 'is' : 'are'} imported by this trace's edits,`
+      + ` but ${suspects.size === 1 ? 'isn’t' : 'aren’t'} listed in package.json or requirements.txt and ${suspects.size === 1 ? 'isn’t' : 'aren’t'} installed.`
+      + ' Code that imports a missing package fails when it runs.'
+      + ' Flagged for any such import; built-in modules, the standard library and the project’s own modules don’t count.'),
   }
 }
 
