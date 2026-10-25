@@ -64,7 +64,7 @@ export function insightColor(ins: Insight): string {
   return 'var(--accent)'
 }
 
-/** "Tool Call Deadlock" out of "[Trace 12] Tool Call Deadlock — 1 tool call(s) executed…". */
+/** "Tool Call Deadlock" out of "[Trace 12] Tool Call Deadlock — 1 tool call repeated…". */
 export function insightShortName(ins: Insight): string {
   const title = ins.title.replace(/^\[Trace\s+\d+\]\s*/, '')
   const dash = title.indexOf(' — ')
@@ -136,7 +136,7 @@ function stretchSummary(indices: number[], timeline: TimelineEntry[], model: str
     tokens += (e.inputTokens ?? 0) + (e.outputTokens ?? 0)
   }
   if (llm > 0) {
-    parts.push(`${llm} LLM call${llm === 1 ? '' : 's'} in between${tokens > 0 ? ` (${formatCompact(tokens)} tokens)` : ''}`)
+    parts.push(`${llm} model call${llm === 1 ? '' : 's'} in between${tokens > 0 ? ` (${formatCompact(tokens)} tokens)` : ''}`)
     if (usd > 0) parts.push(`~${fmtUsd(usd)}`)
   }
   return parts.length > 0 ? parts.join(' · ') : null
@@ -148,7 +148,7 @@ function stretchSummary(indices: number[], timeline: TimelineEntry[], model: str
  *  explains. Matched by loop type, or by title for the efficiency checks in Insights.tsx. */
 export function wantsTokenChart(ins: Insight): boolean {
   if (ins._loopType) return ['token_runaway', 'cache_miss', 'ttl_expiry', 'low_cache_hit_ratio'].includes(ins._loopType)
-  return /Context grew|Starts with .* input tokens|Low prompt cache hit rate/.test(ins.title)
+  return /Context grew|Starts with .* tokens of context|Low cache reuse/.test(ins.title)
 }
 
 const CHART_H = 64
@@ -175,7 +175,7 @@ function TokenChart({ ins, timeline, stepNumber, flagged, onPick }: {
   return (
     <div class="insight-evidence-chart" style={`--ev-color:${color}`}>
       <div class="ev-chart" style={`height:${CHART_H}px`} role="img"
-        aria-label={`Input tokens per LLM call, ${calls.length} calls, peak ${formatCompact(max)}`}>
+        aria-label={`Tokens sent per model call, ${calls.length} calls, peak ${formatCompact(max)}`}>
         {calls.map(({ e, i }, k) => {
           const input = e.inputTokens ?? 0
           const cached = Math.min(input, e.cacheReadTokens ?? 0)
@@ -183,10 +183,10 @@ function TokenChart({ ins, timeline, stepNumber, flagged, onPick }: {
           const isFlag = flagged.has(i)
           const no = stepNumber?.(i)
           const tip = [
-            `${no !== undefined ? `Step ${no} · ` : ''}LLM call ${k + 1} of ${calls.length}`,
-            `${input.toLocaleString()} input → ${(e.outputTokens ?? 0).toLocaleString()} output`,
-            `${cached.toLocaleString()} read from cache · ${fresh.toLocaleString()} processed fresh`
-              + ((e.cacheCreateTokens ?? 0) > 0 ? ` (${(e.cacheCreateTokens ?? 0).toLocaleString()} written to cache)` : ''),
+            `${no !== undefined ? `Step ${no} · ` : ''}Model call ${k + 1} of ${calls.length}`,
+            `${input.toLocaleString()} tokens sent → ${(e.outputTokens ?? 0).toLocaleString()} out`,
+            `${cached.toLocaleString()} reused from the cache · ${fresh.toLocaleString()} processed fresh`
+              + ((e.cacheCreateTokens ?? 0) > 0 ? ` (${(e.cacheCreateTokens ?? 0).toLocaleString()} saved to the cache)` : ''),
             isFlag ? 'Named by this insight' : '',
           ].filter(Boolean).join('\n')
           return (
@@ -206,9 +206,9 @@ function TokenChart({ ins, timeline, stepNumber, flagged, onPick }: {
       </div>
       <div class="insight-evidence-legend">
         <span><i class="ev-swatch" style="background:var(--accent);opacity:.7" />processed fresh</span>
-        <span><i class="ev-swatch" style="background:var(--muted);opacity:.35" />read from cache</span>
+        <span><i class="ev-swatch" style="background:var(--muted);opacity:.35" />reused from cache</span>
         <span><i class="ev-swatch ev-swatch-flag" style={`border-top-color:${color}`} />named above</span>
-        <span class="ev-legend-peak">peak {formatCompact(max)} input tokens</span>
+        <span class="ev-legend-peak">peak {formatCompact(max)} tokens sent</span>
       </div>
     </div>
   )
@@ -276,7 +276,7 @@ export function InsightEvidence({ ins, timeline, model, stepNumber, onShowSteps 
         </div>
       )}
       {stretch && (
-        <div class="insight-evidence-stretch" title="The part of the trace between this insight's first and last step: how long it ran and what the LLM calls inside it cost. The cost of that stretch, not a claim the signal caused all of it.">
+        <div class="insight-evidence-stretch" title="The part of the trace between this insight's first and last step: how long it ran and what the model calls inside it cost. The cost of that stretch, not a claim the signal caused all of it.">
           {stretchFrom !== undefined && stretchTo !== undefined && <span class="ev-stretch-steps">Steps #{stretchFrom}–#{stretchTo}</span>}
           <span>{stretch}</span>
         </div>
