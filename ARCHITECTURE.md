@@ -121,7 +121,7 @@ sequenceDiagram
         COL-->>EXT: listening on :4318
     else EADDRINUSE
         COL-->>EXT: error — detect owner (plugin/standalone/foreign)
-        EXT->>EXT: poll last-write.json every 2s<br/>reload DB snapshot on change
+        EXT->>EXT: poll last-write.json every 3s<br/>reload DB snapshot on change
     end
     alt traceRoost.enableLogIngestion = true (default)
         EXT->>LR: new LogReader(log)
@@ -661,11 +661,11 @@ sequenceDiagram
 
 ### Cross-window sync
 
-When two VS Code windows are open and one holds the OTLP collector (port 4318), the other cannot collect spans. The non-collector window polls `last-write.json` every 2 seconds and reloads a fresh DB snapshot via `openReadonlySnapshot()` when the timestamp advances.
+When two VS Code windows are open and one holds the OTLP collector (port 4318), the other cannot collect spans. The non-collector window polls `last-write.json` every 3 seconds and reloads a fresh DB snapshot via `openReadonlySnapshot()` when the timestamp advances.
 
 ### Storage management
 
-`traceRoost.sessionRetentionDays` (default 90) controls how long sessions are kept. `runRetention` is called at activation and every 24 hours. After deleting old rows it scans `blobs/` and removes any file whose span ID is no longer in `timeline_entries`.
+`traceRoost.sessionRetentionDays` (default 90) controls how long sessions are kept. `runRetention` is called at activation and every 24 hours. After deleting old rows it drops the `git_outcome` / `git_outcome_key` cache rows and `trace_revision` rows of sessions no longer stored, folds `trace_sends` rows older than an hour into one (the Team panel's counts are unchanged), VACUUMs when at least a quarter of the file is free pages (every save exports the whole file, free pages included), then scans `blobs/` and removes any file whose span ID is no longer in `timeline_entries`.
 
 `traceRoost.showStorageStats` reports DB file size, blob directory size, session count, and date range to the Output channel.
 

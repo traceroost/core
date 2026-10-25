@@ -38,7 +38,7 @@ const OWNER_LOCK_SUFFIX = '.owner'
 // and rewrites the whole database (well over 100 MB for a long history, ~0.4 s of blocked
 // extension host each), and ingestion used to ask for one per OTLP payload and per 10 log files.
 // Kept equal to the other windows' last-write poll interval so they don't see changes any later.
-const SAVE_COALESCE_MS = 2_000
+const SAVE_COALESCE_MS = 3_000
 
 /**
  * Opens (or creates) the TraceRoost SQLite database at storagePath/traceroost.db

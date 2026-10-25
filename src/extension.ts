@@ -999,7 +999,7 @@ export async function activate(context: vscode.ExtensionContext) {
           provider.refresh()
         }
       }
-    }, 2000)
+    }, 3000)
     context.subscriptions.push({ dispose: () => clearInterval(pollTimer) })
   }
 
