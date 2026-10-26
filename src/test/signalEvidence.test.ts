@@ -303,7 +303,7 @@ suite('signal evidence: plain-language trigger text', () => {
     const sig = run(detectExactToolRepeat, makeSession({ timeline: Array.from({ length: 30 }, () => tool('read_file a.ts')) }))
     assert.match(sig.trigger!, /^The most repeated call, "read_file a\.ts", ran 30 times with no file edit in between/)
     assert.match(sig.trigger!, /Flagged at 30 repeats; critical at 50\.$/)
-    assert.strictEqual(sig.evidence, '1 tool call repeated identically 30+ times with no edit in between')
+    assert.strictEqual(sig.evidence, '1 tool call made with the same arguments 30+ times with no edit in between')
   })
 
   test('edit_revert_cycle reads in the singular for one file, and says when the undo stuck', () => {

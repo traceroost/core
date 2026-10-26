@@ -15,6 +15,7 @@
 
 import * as path from 'path'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
+import { normalizeToolInput, toolCallKey } from './toolCallIdentity'
 
 // ── Agent profiles (mirrors media/src/agentProfiles.ts defaults) ───────────────
 
@@ -72,25 +73,6 @@ const AUTOMATION_RECENCY_MS = 120_000 // only evaluate sessions with activity in
 
 // ── Session-metric helpers (ported from media/src/sessionMetrics.ts) ───────────
 
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']'
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>
-    return '{' + Object.keys(obj).sort().map(k => JSON.stringify(k) + ':' + stableJson(obj[k])).join(',') + '}'
-  }
-  return JSON.stringify(value)
-}
-
-function normalizeToolInput(input: string | undefined): string {
-  const raw = (input ?? '').trim()
-  if (!raw) return ''
-  try {
-    return stableJson(JSON.parse(raw))
-  } catch {
-    return raw.replace(/\s+/g, ' ')
-  }
-}
-
 function toolName(entry: TimelineEntry): string {
   return (entry.label ?? '').trim().split(/\s+/)[0] || 'tool'
 }
@@ -106,10 +88,12 @@ function getIdenticalToolRepeat(timeline: TimelineEntry[]): { display: string; c
   let best: { display: string; count: number } | null = null
   let fileChangeGeneration = 0
   for (const entry of timeline) {
-    if (entry.type === 'tool') {
+    const key = entry.type === 'tool' ? toolCallKey(entry) : null
+    // A tool entry with no identity (bare tool name, no arguments, no result — toolCallIdentity.ts)
+    // can't be said to repeat anything, so it neither extends nor starts a count.
+    if (key) {
       const tool = toolName(entry)
       const normalizedInput = normalizeToolInput(entry.toolInput)
-      const key = tool + '\n' + (normalizedInput || (entry.label ?? '').trim())
       const current = counts.get(key)
       const count = current && current.fileChangeGeneration === fileChangeGeneration ? current.count + 1 : 1
       const display = normalizedInput ? tool + ' ' + normalizedInput.slice(0, 90) : (entry.label ?? tool)

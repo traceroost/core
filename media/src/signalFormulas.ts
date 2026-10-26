@@ -26,16 +26,17 @@ export const SIGNAL_FORMULAS: Record<
 > = {
   exact_tool_repeat: {
     bullets: [
-      'Warning when the same tool call (same tool and arguments, and the same result whenever both runs recorded one) runs 30+ times with no file edit in between. Other calls in between don’t reset the count.',
+      'Warning when the same tool is called with the same arguments (and gets the same result whenever both runs recorded one) 30+ times with no file edit in between. Other calls in between don’t reset the count.',
+      'A call whose arguments weren’t recorded never counts as a repeat on its tool name alone: different Bash commands are different calls, not one call made many times.',
       'Critical at 50+ times.',
     ],
     caveat: 'Tuned on real sessions: 30 and 50 sit near the top of how long these repeats normally run.',
-    short: 'The same tool call ran 30+ times with no edit in between.',
+    short: 'The same tool call, with the same arguments, ran 30+ times with no edit in between.',
     tip: 'Stop it and try a different approach; repeating it won’t change the result.',
     prompt: 'You have called the same tool with the same arguments many times and the result has not changed. Stop repeating it. State what you learned from the last result, then take a different action or tell me what you are missing.',
     dataSource: 'both',
     dataSourceNote:
-      'Works from Claude Code, OpenCode and Cursor log files. Codex, Copilot CLI and Copilot Chat logs don’t record individual tool calls, so those agents need live OTel telemetry for this.',
+      'Needs each call’s arguments (OTel with tool details on, or OpenCode’s log) or its recorded result. A source that records only the tool name can’t show two calls were the same, so this never fires from it. Codex, Copilot CLI and Copilot Chat logs don’t record individual tool calls, so those agents need live OTel telemetry for this.',
   },
   edit_revert_cycle: {
     bullets: [
@@ -143,7 +144,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   tool_call_cycle: {
     bullets: [
-      'Warning when a sequence of 2 to 5 tool calls repeats 5+ times back to back, with the same calls (and the same results, where recorded) each round and no file edit in between.',
+      'Warning when a sequence of 2 to 5 tool calls repeats 5+ times back to back, with the same calls (same tools with the same arguments, and the same results where recorded) each round and no file edit in between.',
       'Critical at 10+ rounds.',
     ],
     caveat: 'Experimental: not tuned on real sessions yet. The 5 and 10 cutoffs come from Gemini CLI’s own default.',

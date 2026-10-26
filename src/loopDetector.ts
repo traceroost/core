@@ -4,7 +4,7 @@
  * Detects 14 signal types that indicate an agent is stuck, spiraling, or working unreliably or
  * wastefully:
  *
- *   1. exact_tool_repeat     — identical tool call (by label) executed 30+ times with no edit in between
+ *   1. exact_tool_repeat     — the same tool call (same tool, same arguments — toolCallIdentity.ts) executed 30+ times with no edit in between
  *   2. edit_revert_cycle     — a file was edited then reverted to a prior state
  *   3. error_recurrence      — the same error message appearing 3+ times
  *   4. runaway_steps         — too many steps relative to inferred task complexity
@@ -49,6 +49,7 @@ import type { GitOutcome } from './gitOutcome'
 import { calcAggregateTokenCostUsd, calcEntryCostUsd, calcSessionCostUsd, lookupRates } from './pricing'
 import { signalStep, withSteps, fmtInt, editExcerpt, firstLine, plural } from './signalEvidence'
 import type { SignalStep } from './types'
+import { toolCallKey, describeToolCall } from './toolCallIdentity'
 
 // ── Pattern taxonomy names ───────────────────────────────────────────────────
 
@@ -194,16 +195,17 @@ export const SIGNAL_FORMULAS: Record<
 > = {
   exact_tool_repeat: {
     bullets: [
-      'Warning when the same tool call (same tool and arguments, and the same result whenever both runs recorded one) runs 30+ times with no file edit in between. Other calls in between don’t reset the count.',
+      'Warning when the same tool is called with the same arguments (and gets the same result whenever both runs recorded one) 30+ times with no file edit in between. Other calls in between don’t reset the count.',
+      'A call whose arguments weren’t recorded never counts as a repeat on its tool name alone: different Bash commands are different calls, not one call made many times.',
       'Critical at 50+ times.',
     ],
     caveat: 'Tuned on real sessions: 30 and 50 sit near the top of how long these repeats normally run.',
-    short: 'The same tool call ran 30+ times with no edit in between.',
+    short: 'The same tool call, with the same arguments, ran 30+ times with no edit in between.',
     tip: 'Stop it and try a different approach; repeating it won’t change the result.',
     prompt: 'You have called the same tool with the same arguments many times and the result has not changed. Stop repeating it. State what you learned from the last result, then take a different action or tell me what you are missing.',
     dataSource: 'both',
     dataSourceNote:
-      'Works from Claude Code, OpenCode and Cursor log files. Codex, Copilot CLI and Copilot Chat logs don’t record individual tool calls, so those agents need live OTel telemetry for this.',
+      'Needs each call’s arguments (OTel with tool details on, or OpenCode’s log) or its recorded result. A source that records only the tool name can’t show two calls were the same, so this never fires from it. Codex, Copilot CLI and Copilot Chat logs don’t record individual tool calls, so those agents need live OTel telemetry for this.',
   },
   edit_revert_cycle: {
     bullets: [
@@ -311,7 +313,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   tool_call_cycle: {
     bullets: [
-      'Warning when a sequence of 2 to 5 tool calls repeats 5+ times back to back, with the same calls (and the same results, where recorded) each round and no file edit in between.',
+      'Warning when a sequence of 2 to 5 tool calls repeats 5+ times back to back, with the same calls (same tools with the same arguments, and the same results where recorded) each round and no file edit in between.',
       'Critical at 10+ rounds.',
     ],
     caveat: 'Experimental: not tuned on real sessions yet. The 5 and 10 cutoffs come from Gemini CLI’s own default.',
@@ -450,9 +452,11 @@ export function temperLoopSignalSeverity(signals: LoopSignal[], outcome: GitOutc
 // ── Detector 1: Exact tool repeat ────────────────────────────────────────────
 
 /**
- * Counts tool call labels verbatim. The label already encodes tool name + key
- * arguments (e.g. "read_file types.ts L1-50"), so an identical label means
- * the agent is making the exact same call again.
+ * Counts repeats of the same tool call — the same tool with the same arguments, as toolCallKey()
+ * (toolCallIdentity.ts) defines it. The label alone used to be the key, on the assumption it
+ * encoded the arguments ("read_file types.ts L1-50"); on Claude Code's OTel spans it is the bare
+ * tool name, so every `Bash` call in a session looked like one call repeated. An entry that
+ * captured neither arguments nor a result has no identity and is never counted as a repeat.
  *
  * A streak only counts toward the threshold if nothing changed between repeats — any file edit
  * anywhere in the session resets every label's streak, since that's forward progress, not
@@ -490,6 +494,7 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
   const maxStreaks = new Map<string, number>()
   const bestIdx = new Map<string, number[]>()
   const lastResult = new Map<string, string | undefined>()
+  const display = new Map<string, string>()
   let run = 0
 
   const timeline = session.timeline
@@ -497,8 +502,9 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
     const entry = timeline[i]
     if (entry.editDetails && entry.editDetails.length > 0) { run++ }
     if (entry.type !== 'tool') { continue }
-    const key = (entry.label || '').trim()
+    const key = toolCallKey(entry)
     if (!key) { continue }
+    if (!display.has(key)) { display.set(key, describeToolCall(entry)) }
 
     const prevResult = lastResult.get(key)
     const contentChanged = prevResult !== undefined && entry.fullResult !== undefined && entry.fullResult !== prevResult
@@ -531,13 +537,13 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
   signals.push({
     type: 'exact_tool_repeat',
     severity: topCount >= EXACT_REPEAT_CRITICAL_STREAK ? 'critical' : 'warning',
-    evidence: `${plural(repeated.length, 'tool call')} repeated identically ${EXACT_REPEAT_WARNING_STREAK}+ times with no edit in between`,
+    evidence: `${plural(repeated.length, 'tool call')} made with the same arguments ${EXACT_REPEAT_WARNING_STREAK}+ times with no edit in between`,
     count: topCount,
-    examples: repeated.slice(0, 3).map(([label, n]) => `"${label.slice(0, 60)}" ×${n}`),
+    examples: repeated.slice(0, 3).map(([key, n]) => `"${(display.get(key) ?? key).slice(0, 60)}" ×${n}`),
     patternName: PATTERN_NAMES.exact_tool_repeat,
     action: LOOP_SIGNAL_ACTIONS.exact_tool_repeat,
     ...withSteps(steps,
-      `The most repeated call, "${repeated[0][0].slice(0, 60)}", ran ${topCount} times with no file edit in between,`
+      `The most repeated call, "${(display.get(repeated[0][0]) ?? repeated[0][0]).slice(0, 60)}", ran ${topCount} times with no file edit in between,`
       + ' getting the same result whenever one was recorded.'
       + ' Repeating a call that returns the same thing uses time and tokens without making progress.'
       + ` Flagged at ${EXACT_REPEAT_WARNING_STREAK} repeats; critical at ${EXACT_REPEAT_CRITICAL_STREAK}.`),
@@ -689,10 +695,12 @@ function normalizeErrorMessage(msg: string): string {
 }
 
 /**
- * Groups error timeline entries by normalized errorMessage content. Falls back to tool label when
- * errorMessage is absent — but a label-fallback grouping can merge unrelated errors that happen to
- * share a tool (three different Bash failures, say), so it's inherently less certain than a real
- * errorMessage match and is capped below critical regardless of count.
+ * Groups error timeline entries by normalized errorMessage content. Falls back to the call itself
+ * (describeToolCall: tool plus its identifying argument, `Bash: pnpm test`) when errorMessage is
+ * absent — so three different failing commands are three groups, not one. When the arguments
+ * weren't captured either, the fallback is the bare tool name and can still merge unrelated
+ * errors that happen to share a tool, so a fallback grouping is inherently less certain than a
+ * real errorMessage match and is capped below critical regardless of count.
  *
  * Thresholds: 3+ occurrences → warning, 5+ (with a real errorMessage match) → critical.
  */
@@ -700,8 +708,8 @@ export function detectErrorRecurrence(session: SessionSummaryCard, signals: Loop
   const groups: Record<string, { count: number; example: string; fromFallback: boolean; idx: number[]; msgs: string[] }> = {}
   session.timeline.forEach((entry, i) => {
     if (!entry.isError) { return }
-    const raw = (entry.errorMessage || entry.label || 'unknown error').trim()
     const fromFallback = !entry.errorMessage
+    const raw = (fromFallback ? describeToolCall(entry) : entry.errorMessage!).trim() || 'unknown error'
     const key = normalizeErrorMessage(raw).slice(0, 200)
     if (!groups[key]) { groups[key] = { count: 0, example: raw.slice(0, 200), fromFallback, idx: [], msgs: [] } }
     groups[key].count++
@@ -1079,6 +1087,7 @@ export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSi
   // segIdx parallels segments: the timeline position of each call.
   const segments: string[][] = [[]]
   const segIdx: number[][] = [[]]
+  const display = new Map<string, string>()
   session.timeline.forEach((entry, i) => {
     if (entry.editDetails && entry.editDetails.length > 0) {
       segments.push([])
@@ -1086,9 +1095,10 @@ export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSi
       return
     }
     if (entry.type !== 'tool') { return }
-    const key = (entry.label || '').trim()
+    const key = toolCallKey(entry)
     if (!key) { return }
-    segments[segments.length - 1].push(`${key}\u0000${entry.fullResult ?? ''}`)
+    display.set(key, describeToolCall(entry))
+    segments[segments.length - 1].push(`${key}\u0001${entry.fullResult ?? ''}`)
     segIdx[segIdx.length - 1].push(i)
   })
 
@@ -1120,11 +1130,11 @@ export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSi
     severity: best.repeats >= TOOL_CYCLE_CRITICAL_REPEATS ? 'critical' : 'warning',
     evidence: `A ${best.period}-step sequence of tool calls repeated ${best.repeats} times in a row with no edit in between`,
     count: best.repeats,
-    examples: best.pattern.map(p => p.split('\u0000')[0].slice(0, 60)),
+    examples: best.pattern.map(p => { const key = p.split('\u0001')[0]; return (display.get(key) ?? key).slice(0, 60) }),
     patternName: PATTERN_NAMES.tool_call_cycle,
     action: LOOP_SIGNAL_ACTIONS.tool_call_cycle,
     ...withSteps(steps,
-      `The sequence ${found.pattern.map(p => p.split('\u0000')[0].slice(0, 40)).join(' → ')} ran ${found.repeats} times back to back,`
+      `The sequence ${found.pattern.map(p => { const key = p.split('\u0001')[0]; return (display.get(key) ?? key).slice(0, 40) }).join(' → ')} ran ${found.repeats} times back to back,`
       + ' with the same results each time (where recorded) and no file edit in between.'
       + ' The agent is reacting to the same feedback without changing its approach.'
       + ` Flagged at ${TOOL_CYCLE_WARNING_REPEATS} rounds; critical at ${TOOL_CYCLE_CRITICAL_REPEATS}.`),
