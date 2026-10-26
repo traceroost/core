@@ -988,7 +988,7 @@ flowchart TD
 
 `contextWindowTokens` (stored in `src/pricing.ts`) enables the `Projection` calculation: given current session token usage and burn rate, estimate time to context exhaustion and final cost.
 
-Pricing data covers: OpenAI (GPT-4.1 through GPT-6.1), Anthropic (Claude Haiku 3.5/4.5/5.5, Sonnet 4.x/5/5.5, Opus 4.x/5/5.5 and their `-fast` variants, Fable 5/5.1, Mythos 5/5.1), Google (Gemini 2.5–3.8), Codex, third-party Copilot-marketplace models (Grok 4.5–4.7, Kimi, MAI-Code), OpenCode Zen free models, and fine-tuned models. Some models also carry a per-model tiered "long context" surcharge above a token-per-call threshold — see `PRICING_SOURCES.md`. Refreshed per the runbook in `PRICING_SOURCES.md`. Last updated: 2026-10-11.
+The models and rates themselves live only in `src/pricing.ts` (its `PRICING_LAST_UPDATED` comment dates the table) and are sourced and explained in `PRICING_SOURCES.md`; this document does not repeat the list, so a pricing refresh (`runbooks/README.md`) never has to touch it.
 
 ---
 
