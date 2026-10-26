@@ -43,13 +43,6 @@ and revert independently if a source turns out to have been misread.
 6. Run `tsc --noEmit` (both configs), `eslint src media/src`, and `mocha` to confirm nothing broke.
 7. If a rate or model can't be confirmed from a source, add it to that section's "Known gaps"
    instead of guessing.
-8. Update TraceRoost Cloud in the same sitting. Cloud prices every org's rollups from its own
-   `central_default_rates` table, so a refresh that lands only here makes the same trace cost
-   different amounts locally and in Cloud, and leaves a new model unpriced ($0) there. In a
-   traceroost/cloud checkout next to this one, follow its `runbooks/refresh-model-pricing.md`:
-   `pnpm rates:from-core` diffs `src/pricing.ts`'s `RATES` against Cloud's migrations and drafts the
-   migration. Open the core PR and the Cloud PR together, linking each other, and merge them back to
-   back. That runbook copies steps 1–7 above; this file stays the authority on them.
 
 ---
 
@@ -159,7 +152,6 @@ aiCredits = cost / 0.01
 - **`claude-sonnet-5-5` corrected 2026-10-11**: its cache-read rate is $0.10 (0.05x base input, the
   same exception as Opus 5.5), not $0.20 — the 2026-09-28 pass added it at Sonnet 5's rate on the
   assumption that the two models matched. Anthropic's pricing page and this page both list $0.10.
-  Cloud's `central_default_rates` had already been corrected ahead of core (migration 0016).
 - **`gpt-6.1-sol`, `claude-haiku-5-5`, `grok-4.7`**: added 2026-10-11, all listed on this page.
   `gpt-6.1-sol` is three-way confirmed (this page, OpenAI's API page, Codex credits 50/2.5/250 ÷ 25);
   same shape as `gpt-6-sol` (cache-write 1.25x input, long-context tier above 272K) except the
