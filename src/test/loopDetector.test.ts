@@ -102,6 +102,10 @@ function makeErrorTool(label: string, errorMessage: string): TimelineEntry {
   return makeTool(label, true, errorMessage)
 }
 
+function makeInputTool(label: string, toolInput: string, fullResult?: string): TimelineEntry {
+  return { ...makeTool(label), toolInput, fullResult }
+}
+
 function makeResultTool(label: string, fullResult: string): TimelineEntry {
   return {
     type: 'tool',
@@ -248,11 +252,11 @@ suite('detectExactToolRepeat', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       timeline: [
-        makeTool('run_tests'),
+        makeTool('run_tests all'),
         makeEdit('src/a.ts', 'x', 'y'),
-        makeTool('run_tests'),
+        makeTool('run_tests all'),
         makeEdit('src/a.ts', 'y', 'z'),
-        makeTool('run_tests'),
+        makeTool('run_tests all'),
       ],
     })
     detectExactToolRepeat(session, signals)
@@ -263,11 +267,11 @@ suite('detectExactToolRepeat', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       timeline: [
-        ...Array.from({ length: 20 }, () => makeTool('run_tests')),
+        ...Array.from({ length: 20 }, () => makeTool('run_tests all')),
         makeEdit('src/a.ts', 'x', 'y'),
-        makeTool('lint'),
+        makeTool('lint src'),
         makeEdit('src/a.ts', 'y', 'z'),
-        ...Array.from({ length: 30 }, () => makeTool('run_tests')),
+        ...Array.from({ length: 30 }, () => makeTool('run_tests all')),
       ],
     })
     detectExactToolRepeat(session, signals)
@@ -280,11 +284,11 @@ suite('detectExactToolRepeat', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
       timeline: [
-        makeTool('run_tests'),
-        makeTool('run_tests'),
+        makeTool('run_tests all'),
+        makeTool('run_tests all'),
         makeEdit('src/a.ts', 'x', 'y'),
-        makeTool('run_tests'),
-        makeTool('run_tests'),
+        makeTool('run_tests all'),
+        makeTool('run_tests all'),
       ],
     })
     detectExactToolRepeat(session, signals)
@@ -334,6 +338,56 @@ suite('detectExactToolRepeat', () => {
     const session = makeSession({
       timeline: Array(30).fill(null).map(() => makeTool('bash ls -la')),
     })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 30)
+  })
+
+  test('different commands under one bare tool label are different calls, not one repeated call', () => {
+    // The real case this guards: 74 distinct Bash commands on Claude Code's OTel spans, every one
+    // labelled just "Bash", used to read as one call made 74 times.
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array.from({ length: 74 }, (_, i) =>
+        makeInputTool('Bash', JSON.stringify({ command: `grep -n "step ${i}" src/loopDetector.ts`, description: 'Look' }))),
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('the same command under a bare tool label is the same call, however its description is worded', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array.from({ length: 30 }, (_, i) =>
+        makeInputTool('Bash', JSON.stringify({ description: `attempt ${i}`, command: 'pnpm test' }))),
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 30)
+    assert.deepStrictEqual(signals[0].examples, ['"Bash: pnpm test" ×30'])
+  })
+
+  test('argument key order does not make two identical calls different', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array.from({ length: 30 }, (_, i) =>
+        makeInputTool('Read', i % 2 === 0 ? '{"file_path":"/a.ts","limit":50}' : '{"limit":50,"file_path":"/a.ts"}')),
+    })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].count, 30)
+  })
+
+  test('a bare tool name with no arguments and no result captured is never a repeat', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({ timeline: Array(60).fill(null).map(() => makeTool('Bash')) })
+    detectExactToolRepeat(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('a bare tool name still counts when its results were captured and never changed', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({ timeline: Array(30).fill(null).map(() => makeResultTool('Bash', 'same output')) })
     detectExactToolRepeat(session, signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].count, 30)
@@ -561,6 +615,26 @@ suite('getFileEditCounts', () => {
 // ── detectErrorRecurrence ────────────────────────────────────────────────────
 
 suite('detectErrorRecurrence', () => {
+  test('without an error message, different failing commands are different errors', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: ['pnpm test', 'pnpm lint', 'pnpm build'].map(c => ({ ...makeInputTool('Bash', JSON.stringify({ command: c })), isError: true })),
+    })
+    detectErrorRecurrence(session, signals)
+    assert.strictEqual(signals.length, 0)
+  })
+
+  test('without an error message, the same failing command three times names the command', () => {
+    const signals: LoopSignal[] = []
+    const session = makeSession({
+      timeline: Array.from({ length: 3 }, () => ({ ...makeInputTool('Bash', '{"command":"pnpm test"}'), isError: true })),
+    })
+    detectErrorRecurrence(session, signals)
+    assert.strictEqual(signals.length, 1)
+    assert.strictEqual(signals[0].severity, 'warning')
+    assert.deepStrictEqual(signals[0].examples, ['"Bash: pnpm test" ×3'])
+  })
+
   test('no signal when errors are all unique', () => {
     const signals: LoopSignal[] = []
     const session = makeSession({
@@ -1113,7 +1187,7 @@ suite('detectToolCallCycle', () => {
   test('no signal below the warning repeat threshold', () => {
     const signals: LoopSignal[] = []
     const timeline: TimelineEntry[] = []
-    for (let i = 0; i < 4; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    for (let i = 0; i < 4; i++) { timeline.push(makeTool('run_tests all'), makeTool('lint src')) }
     detectToolCallCycle(makeSession({ timeline }), signals)
     assert.strictEqual(signals.length, 0)
   })
@@ -1121,7 +1195,7 @@ suite('detectToolCallCycle', () => {
   test('warning on a 2-step cycle repeated 5+ times with no edit in between', () => {
     const signals: LoopSignal[] = []
     const timeline: TimelineEntry[] = []
-    for (let i = 0; i < 5; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    for (let i = 0; i < 5; i++) { timeline.push(makeTool('run_tests all'), makeTool('lint src')) }
     detectToolCallCycle(makeSession({ timeline }), signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].type, 'tool_call_cycle')
@@ -1132,7 +1206,7 @@ suite('detectToolCallCycle', () => {
   test('critical on a 2-step cycle repeated 10+ times', () => {
     const signals: LoopSignal[] = []
     const timeline: TimelineEntry[] = []
-    for (let i = 0; i < 10; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    for (let i = 0; i < 10; i++) { timeline.push(makeTool('run_tests all'), makeTool('lint src')) }
     detectToolCallCycle(makeSession({ timeline }), signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].severity, 'critical')
@@ -1141,10 +1215,23 @@ suite('detectToolCallCycle', () => {
   test('detects a 3-step cycle', () => {
     const signals: LoopSignal[] = []
     const timeline: TimelineEntry[] = []
-    for (let i = 0; i < 5; i++) { timeline.push(makeTool('read a'), makeTool('edit_check'), makeTool('run_tests')) }
+    for (let i = 0; i < 5; i++) { timeline.push(makeTool('read a'), makeTool('edit_check src'), makeTool('run_tests all')) }
     detectToolCallCycle(makeSession({ timeline }), signals)
     assert.strictEqual(signals.length, 1)
     assert.strictEqual(signals[0].count, 5)
+  })
+
+  test('alternating two different commands under one bare label is a cycle; alternating two unknown calls is nothing', () => {
+    const a = () => makeInputTool('Bash', '{"command":"pnpm test"}')
+    const b = () => makeInputTool('Bash', '{"command":"tail -n 20 test.log"}')
+    const signals: LoopSignal[] = []
+    detectToolCallCycle(makeSession({ timeline: Array.from({ length: 6 }, () => [a(), b()]).flat() }), signals)
+    assert.strictEqual(signals.length, 1)
+    assert.deepStrictEqual(signals[0].examples, ['Bash: pnpm test', 'Bash: tail -n 20 test.log'])
+
+    const bare: LoopSignal[] = []
+    detectToolCallCycle(makeSession({ timeline: Array.from({ length: 6 }, () => [makeTool('Bash'), makeTool('Read')]).flat() }), bare)
+    assert.strictEqual(bare.length, 0)
   })
 
   test('does not fire on a pure length-1 streak — that is exact_tool_repeat\'s signal', () => {
@@ -1159,9 +1246,9 @@ suite('detectToolCallCycle', () => {
   test('resets on a file edit, so runs on either side of it don\'t combine', () => {
     const signals: LoopSignal[] = []
     const timeline: TimelineEntry[] = []
-    for (let i = 0; i < 3; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    for (let i = 0; i < 3; i++) { timeline.push(makeTool('run_tests all'), makeTool('lint src')) }
     timeline.push(makeEdit('src/a.ts', 'x', 'y'))
-    for (let i = 0; i < 3; i++) { timeline.push(makeTool('run_tests'), makeTool('lint')) }
+    for (let i = 0; i < 3; i++) { timeline.push(makeTool('run_tests all'), makeTool('lint src')) }
     detectToolCallCycle(makeSession({ timeline }), signals)
     assert.strictEqual(signals.length, 0)
   })

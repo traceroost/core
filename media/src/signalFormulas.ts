@@ -26,16 +26,17 @@ export const SIGNAL_FORMULAS: Record<
 > = {
   exact_tool_repeat: {
     bullets: [
-      'Same tool call (same label, and same result when both occurrences captured one) repeated 30+ times in a row with no file edit in between → warning',
+      'The same tool called with the same arguments (and the same result, when both occurrences captured one) 30+ times in a row with no file edit in between → warning',
+      'A call whose arguments weren’t captured never counts as a repeat on its tool name alone — different Bash commands are different calls, not one call made many times',
       '50+ → critical',
     ],
     caveat: 'Tuned on real sessions: the 30/50 cutoffs sit near the upper end of how long these streaks actually run.',
-    short: 'Same tool call repeated 30+ times in a row with no edit.',
+    short: 'Same tool call (same arguments) repeated 30+ times in a row with no edit.',
     tip: 'Stop it and change approach — repeating won’t change the result.',
     prompt: 'You have called the same tool with the same arguments many times and the result has not changed. Stop repeating it. State what you learned from the last result, then take a different action or tell me what you are missing.',
     dataSource: 'both',
     dataSourceNote:
-      'Log-capable from Claude Code, OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all — those need live OTel from that agent instead.',
+      'Needs each call’s arguments (OTel with tool details on, or OpenCode’s log) or its captured result; a source that records only the tool name can’t say two calls were the same, so this never fires from it. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all — those need live OTel from that agent instead.',
   },
   edit_revert_cycle: {
     bullets: [
@@ -143,7 +144,7 @@ export const SIGNAL_FORMULAS: Record<
   },
   tool_call_cycle: {
     bullets: [
-      'A 2-to-5-step tool-call sequence (same labels, and same results when captured) repeats 5+ times in a row with no file edit in between → warning',
+      'A 2-to-5-step tool-call sequence (same tools with the same arguments, and same results when captured) repeats 5+ times in a row with no file edit in between → warning',
       '10+ repeats → critical',
     ],
     caveat: 'Experimental — thresholds not yet tuned on real sessions. The 5/10-repeat cutoffs are borrowed from Gemini CLI’s own default.',

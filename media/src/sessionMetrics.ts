@@ -200,10 +200,15 @@ export function getIdenticalToolRepeat(session: SessionSummaryCard): IdenticalTo
   let best: IdenticalToolRepeat | null = null
   let fileChangeGeneration = 0
   for (const entry of session.timeline ?? []) {
-    if (entry.type === 'tool') {
+    // Mirrors src/toolCallIdentity.ts's toolCallKey(): a call is identified by its tool and its
+    // arguments. A bare tool-name label with no arguments and no result captured (every Claude
+    // Code OTel span is labelled just `Bash`) has no identity and is never counted as a repeat.
+    const label = (entry.label ?? '').trim()
+    const normalizedInput = entry.type === 'tool' ? normalizeToolInput(entry.toolInput) : ''
+    const identified = entry.type === 'tool' && label !== '' && (normalizedInput !== '' || /[\s:]/.test(label) || entry.fullResult !== undefined)
+    if (identified) {
       const tool = toolName(entry)
-      const normalizedInput = normalizeToolInput(entry.toolInput)
-      const key = tool + '\n' + (normalizedInput || (entry.label ?? '').trim())
+      const key = tool + '\n' + (normalizedInput || label)
       const current = counts.get(key)
       const count = current && current.fileChangeGeneration === fileChangeGeneration ? current.count + 1 : 1
       counts.set(key, {
