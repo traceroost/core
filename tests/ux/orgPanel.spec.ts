@@ -29,14 +29,14 @@ test('unlinked: header names TraceRoost Cloud and the Cloud link sits under the 
 })
 
 test('linked: Open Team View sits at the top, linking to its environment', async ({ page }) => {
-  await openWith(page, { linked: true, indicator: 'reporting', orgId: 'o1', orgName: 'rogerjreed (personal)', role: 'admin', email: 'dev@example.com' })
-  await expect(page.getByText('TraceRoost Cloud · rogerjreed (personal)', { exact: true })).toBeVisible()
+  await openWith(page, { linked: true, indicator: 'reporting', orgId: 'o1', orgName: 'acme (personal)', role: 'admin', email: 'dev@example.com' })
+  await expect(page.getByText('TraceRoost Cloud · acme (personal)', { exact: true })).toBeVisible()
   const teamView = page.getByRole('button', { name: 'Open Team View →', exact: true })
   await expect(teamView).toHaveCount(1)
   await expect(teamView).toHaveAttribute('title', 'https://stage.traceroost.com')
   // Who sees what is the role's tooltip, not a paragraph in the panel.
   const role = page.getByText('an admin', { exact: true })
-  await expect(role).toHaveAttribute('title', /Admins of rogerjreed \(personal\) see org totals only/)
+  await expect(role).toHaveAttribute('title', /Admins of acme \(personal\) see org totals only/)
   await expect(page.getByText(/see org totals only/)).toHaveCount(0)
   // Above the Status section, not at the bottom of the panel.
   const [viewBox, statusBox] = await Promise.all([teamView.boundingBox(), page.getByText('Status', { exact: true }).boundingBox()])
