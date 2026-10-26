@@ -56,7 +56,7 @@ Note: for the plain (non-`story`) scenario matrix, `--agents` still *filters* ra
 
 **`--cdp`** — by default every `demo:show`/`demo:tour` run opens a brand new Chromium window. `--cdp` attaches to a browser this script already left open instead, over the Chrome DevTools Protocol, so repeated runs reuse the same window/tab rather than piling up new ones. There's no port to hunt for: it always uses the same fixed port (`9223`, override with `--cdp-port`), so the first `--cdp` run finds nothing there yet and just launches a fresh window with that debug port open; every run after that attaches to it. Ctrl+C in `--cdp` mode leaves the browser running for next time instead of closing it. This can only attach to a browser started this way — it can't reach into an arbitrary Chrome window you already had open without a debug port exposed.
 
-`--tour` walks: the Traces tab → expands the most recent trace and steps through its Overview / Waterfall / Flow / Tools / Files detail nav → Analytics → the Settings (gear) panel, where Alerts and Automation actually live (they aren't top-level tabs) → Advisor → Export → Import, then returns to Traces and leaves the browser open.
+`--tour` walks: the Traces tab → expands the most recent trace and steps through its Overview / Waterfall / Flow / Tools / Files detail nav → Analytics → the Alerts panel behind the header bell, where Alerts and Automation live (they aren't top-level tabs) → Advisor → Export → Import, then returns to Traces and leaves the browser open.
 
 Requires `npx playwright install chromium` once. The browser window stays open after replay finishes; close it manually or `Ctrl+C` the terminal.
 
@@ -113,7 +113,7 @@ node scripts/redact-spans.js
 pnpm run demo -- --file /path/to/export_redacted_claude_main_20260522_152343.json
 ```
 
-Accepts three kinds of JSON file: a trace summary export from the dashboard's **Export** tab (full or redacted), a raw span file from the `TraceRoost: Export OTEL Data` command (like the example above), or a capture fixture. CSV and Markdown exports aren't supported as replay input. Without `--speed`, a file is sent all at once rather than paced.
+Accepts three kinds of JSON file: a trace summary export from the dashboard's **Export** tab (full or redacted), a raw span file from the `TraceRoost: Export Live OTel Spans (debug)` command (like the example above), or a capture fixture. CSV and Markdown exports aren't supported as replay input. Without `--speed`, a file is sent all at once rather than paced.
 
 > A trace summary export can't reconstruct the original per-turn timeline — it carries the trace's aggregate fields, not raw OTEL spans — so each trace is replayed as approximate synthetic spans. Use a raw span export or a capture fixture when the timeline matters.
 

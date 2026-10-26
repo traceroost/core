@@ -1,4 +1,4 @@
-TraceRoost gives you local observability into your AI agent traces — see what GitHub Copilot, Claude Code, and Codex are doing, how efficiently, and when they get stuck. Your traces stay on your machine.
+TraceRoost gives you local observability into your AI agent traces — see what GitHub Copilot, Claude Code, Codex, OpenCode and Cursor CLI are doing, how efficiently, and when they get stuck. Your traces stay on your machine.
 
 ## Two data sources, one dashboard
 
