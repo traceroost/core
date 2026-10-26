@@ -682,7 +682,10 @@ Stage 4, not started:
 Smaller, genuinely open items:
 
 - **Windows, beyond CI** ([what CI proves](#what-ci-proves)): code signing (the Azure Artifact
-  Signing account and profile exist; the three service-principal secrets are not set in CI yet), a human check of the tray icon, menu
+  Signing account, profile and service-principal secrets exist, but signing is **paused** by the
+  owner's choice since 2026-10-26 with `TRACEROOST_WINDOWS_SIGNING=off`, after Azure began
+  answering `403 Forbidden`; releases attach the Windows builds unsigned until it is switched back
+  on — [`WINDOWS_SIGNING.md`](../runbooks/WINDOWS_SIGNING.md)), a human check of the tray icon, menu
   and close-to-tray on a real desktop, SmartScreen on a downloaded copy, the all-users install,
   log-off with the app running, automatic updates, and a Microsoft Store listing. winget is
   wired into releases but the first `microsoft/winget-pkgs` pull request has not been opened

@@ -14,6 +14,8 @@ claude
 codex
 ```
 
+**OpenCode** and **Cursor CLI** need no setup: their runs appear from local history (Log badge), without live telemetry.
+
 The sidebar updates in real time as spans arrive. Each trace is one prompt-to-response cycle: a user prompt plus every LLM call and tool invocation the agent made.
 
 Past traces are also already shown — loaded from local log files on startup as a fallback.
