@@ -258,7 +258,7 @@ export function describeLockHolder(dataDir: string, holder: DataDirLockInfo | nu
       lines.push(`  - Or stop it on ${holder.hostname}. If nothing runs there any more, its lock is taken over automatically ${REMOTE_STALE_MS / 1000}s after its last heartbeat.`)
     }
   }
-  lines.push('  - Or run this one against its own data directory and ports, e.g. DATA_DIR=~/traceroost-2 UI_PORT=3001 OTLP_PORT=4319 MCP_PORT=4317 (or `traceroost service install --data-dir <dir>`).')
+  lines.push('  - Or run this one against its own data directory and ports, e.g. DATA_DIR=~/traceroost-2 UI_PORT=3001 OTLP_PORT=4319 MCP_PORT=4320 (or `traceroost service install --data-dir <dir>`).')
   lines.push(`  The lock (${lockPath}) is removed when that server exits; a crashed server's lock is taken over on the next start.`)
   return lines.join('\n')
 }

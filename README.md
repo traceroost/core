@@ -66,9 +66,13 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
 - [Local Mode Options](#local-mode-options)
   - [Native process (recommended for local use)](#native-process-recommended-for-local-use)
   - [Background Service (macOS / Windows / Linux)](#background-service-macos--windows--linux)
+  - [Headless forwarder (servers, VMs, SSH-only boxes)](#headless-forwarder-servers-vms-ssh-only-boxes)
+  - [My dev server needs port 3000](#my-dev-server-needs-port-3000)
   - [Docker (OTel only)](#docker-otel-only-1)
   - [Node.js (from source)](#nodejs-from-source)
   - [Editions](#editions)
+- [Network](#network)
+- [Uninstall](#uninstall)
 - [Automation Prompts File](#automation-prompts-file)
   - [How it works](#how-it-works)
 - [VS Code Commands](#vs-code-commands)
@@ -144,7 +148,7 @@ The general picture above is the same for every agent — OTel is richer, logs a
 Each file is one conversation, and each prompt in it is one trace, keyed by the prompt's own `promptId` — so the OTel copy of the same prompt lands on the same row instead of a second one, and a resumed session updates the turns it copied rather than duplicating them. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks. Subagent transcripts (`<session-uuid>/subagents/agent-*.jsonl`) are counted in the prompt that started them, not as traces of their own.
 
 Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written. Several signals can fire from this log alone (repeated tool calls, edit/revert cycles, runaway steps, hallucinated imports, degraded runaway-cost detection).
-Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, context flooding, failed check submission) — those need OTel. See the in-app Help tab's Signals section for the per-signal breakdown.
+Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, failed check submission) — those need OTel. Context Flooding Risk never fires for Claude Code from either source: Claude Code doesn't report a tool result's full size. See the in-app Help tab's Signals section for the per-signal breakdown.
 
 **OTel** (richer, requires env config) — trace spans via `/v1/traces` and supplemental log records via `/v1/logs`.
 
@@ -537,7 +541,7 @@ or `scripts/configure-agents.sh --host <host> --token <token>`. MCP clients: sen
 the same `DATA_DIR` (say, while the background service is running) refuses to start and names the
 running one: its pid, its dashboard URL, and how to stop it. To run a second instance on purpose,
 give it its own data directory and ports, e.g.
-`DATA_DIR=~/traceroost-2 UI_PORT=3001 OTLP_PORT=4319 MCP_PORT=4317 npx traceroost@latest`. The lock
+`DATA_DIR=~/traceroost-2 UI_PORT=3001 OTLP_PORT=4319 MCP_PORT=4320 npx traceroost@latest`. The lock
 (`<data dir>/server.lock`) is removed when the server exits; one left by a crash is taken over
 automatically on the next start. The background service, if blocked this way, waits and starts as
 soon as the other server stops. The VS Code extension keeps its own data and isn't affected.

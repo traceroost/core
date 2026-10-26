@@ -191,7 +191,7 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    the VS Code Marketplace, Open VSX, npm (via OIDC trusted publishing) and Docker Hub / ghcr (its
    `docker` job) — a public, essentially
    irreversible action once it lands (npm doesn't allow unpublishing after the fact in the general
-   case). The commit from step 5 landing on `main` does **not** publish anything by itself — that
+   case; if a release turns out broken, [`WITHDRAW_RELEASE.md`](WITHDRAW_RELEASE.md)). The commit from step 5 landing on `main` does **not** publish anything by itself — that
    part alone is safe and doesn't need a separate confirmation. Ask explicitly before the tag push,
    e.g. "push the vX.Y.Z tag now to trigger the actual publish (npm, Docker, VS Code Marketplace, Open
    VSX) as the core edition?" — say which edition it ships (see [Editions](#editions)), since
@@ -244,8 +244,8 @@ traceroost/tap/traceroost`.
 ## winget
 
 `winget install TraceRoost.TraceRoost` installs the desktop app's per-user NSIS installer (x64 or
-arm64) from the GitHub release: the signed `TraceRoost-<v>-win-<arch>.exe` when there is one, the
-`*-preview.exe` otherwise. `winget upgrade` updates it, including a copy installed from a downloaded
+arm64) from the GitHub release: `TraceRoost-<v>-win-<arch>.exe`, signed or not (every build is
+attached under the name it was built as). `winget upgrade` updates it, including a copy installed from a downloaded
 .exe, because the manifest names the installer's uninstall key (`ProductCode`). Unsigned installers
 are accepted; winget checks every download against the sha256 in the manifest.
 
@@ -297,24 +297,31 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
   the same build is signed and notarized with no code change and the next tag attaches it. Before
   announcing it as an install method, open a downloaded, quarantined DMG on a fresh macOS user
   account.
-- **Windows** (NSIS installer and portable zip, x64 and arm64) is built and tested on every release
-  and **attached when Authenticode-signed**. Signing switches on from secrets, with no code change:
+- **Windows** (NSIS installer and portable zip, x64 and arm64) is built, tested and attached on
+  every release, Authenticode-signed when signing is configured. Signing switches on from secrets, with no code change:
   either a code-signing certificate (`WIN_CSC_LINK` = base64 .pfx, `WIN_CSC_KEY_PASSWORD`) or Azure
   Artifact Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`: a service principal
   with the *Artifact Signing Certificate Profile Signer* role; the account `TraceRoost`, profile
   `traceroost-public` and publisher `Roger Reed` are in `desktop/electron-builder.cjs`, not
-  secrets). The client secret expires (24 months at most): renew it before then, or Windows
-  releases fall back to previews. `desktop-windows.yml` documents them and fails a configured
-  build whose executables are not validly signed. `release.yml` passes each by name.
-- **Preview builds**: until the signing secrets exist, a macOS build that is not notarized
-  (ad-hoc signed) and a Windows build that is not signed are attached as previews:
-  `TraceRoost-<v>-mac-<arch>-preview.dmg` and `TraceRoost-<v>-win-<arch>-preview.exe`, labelled
-  "(preview)" on the release page, covered by the same SHA256SUMS and attestations, and the
-  release notes get a section on getting past Gatekeeper (right-click → Open) and SmartScreen
-  (More info → Run anyway). Once a platform's secrets exist, its signed build is attached under the
-  plain name instead — nothing to switch.
+  secrets). The client secret expires (24 months at most): renew it before then. With signing
+  configured, `desktop-windows.yml` **fails** a build whose executables are not validly signed —
+  an expired secret or a missing role assignment (Azure answers `403 Forbidden`) turns the
+  release's Windows job red and attaches no Windows installer, so `publish-winget` has nothing to
+  submit. Before tagging while signing is broken, pause it: `gh variable set
+  TRACEROOST_WINDOWS_SIGNING --body off` (the build is then attached unsigned), and delete the
+  variable once Azure signs again. **Signing is paused this way as of 2026-10-26** (the owner's
+  choice after Azure began answering 403); triage, rotation and resuming are in
+  [`WINDOWS_SIGNING.md`](WINDOWS_SIGNING.md). `release.yml` passes each secret by name.
+- **Unsigned builds**: a macOS build that is not notarized (ad-hoc signed) and a Windows build
+  that is not signed are still attached, under the plain name they were built as
+  (`TraceRoost-<v>-mac-<arch>.dmg`, `TraceRoost-<v>-win-<arch>.exe`) — there is no `-preview`
+  suffix. They are covered by the same SHA256SUMS and attestations, and the release notes get a
+  section on getting past Gatekeeper (right-click → Open) and SmartScreen (More info → Run
+  anyway). Once a platform's secrets exist, the same names carry signed builds — nothing to
+  switch.
 - **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default
-  `linux,macos,windows`) turns a platform off without a code change; a non-`core`
+  `linux,macos,windows`) turns a platform off without a code change; `TRACEROOST_WINDOWS_SIGNING=off`
+  pauses Windows signing with the secrets left in place; a non-`core`
   `TRACEROOST_RELEASE_EDITION` skips desktop with a notice (the app is core-only).
 - **minisign**: with `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` set, the checksums file gets a
   `.minisig`. No key exists yet; publish the public key in `desktop/README.md` when one is made.
