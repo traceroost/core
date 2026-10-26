@@ -139,10 +139,17 @@ export function toWireOutcome(v: string): WireOutcome {
   }
 }
 
-/** Tool name → the schema's `^[a-z_]{1,40}$` key form. Unmappable names collapse to `other`. */
+/** Tool name → the schema's `^[a-z_]{1,40}$` key form. Unmappable names collapse to `other`.
+ *
+ *  An MCP tool's name embeds the name the developer gave its server (Claude Code's
+ *  `mcp__<server>__<tool>`, Copilot's `mcp_<server>_<tool>`) — free text that is often a repository,
+ *  product or customer name, which NEVER_SENT (org/privacy.ts) promises stays local. Every MCP tool
+ *  is therefore counted as plain `mcp`; built-in tool names (Bash, Read, apply_patch, …) are kept. */
 export function toWireToolName(tool: string): string {
-  const slug = tool.toLowerCase().replace(/[^a-z_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
-  return slug.length > 0 ? slug : 'other'
+  const slug = tool.toLowerCase().replace(/[^a-z_]+/g, '_').replace(/^_+|_+$/g, '')
+  if (slug === 'mcp' || slug.startsWith('mcp_')) return 'mcp'
+  const capped = slug.slice(0, 40)
+  return capped.length > 0 ? capped : 'other'
 }
 
 /** Model id → the schema's `^[A-Za-z0-9._:@/-]{1,80}$` form. Strips anything else (notably
