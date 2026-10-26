@@ -75,3 +75,10 @@ export function withSteps(steps: SignalStep[], trigger: string): Pick<LoopSignal
 export function fmtInt(n: number): string {
   return Math.round(n).toLocaleString()
 }
+
+/** "1 call" / "4 calls" / "1,234 calls" — a count with its noun in the right number, so evidence
+ *  text never needs a "call(s)". Pass `pluralForm` for nouns that don't just take an "s"
+ *  ("miss" → "misses"). */
+export function plural(n: number, singular: string, pluralForm = singular + 's'): string {
+  return `${fmtInt(n)} ${n === 1 ? singular : pluralForm}`
+}

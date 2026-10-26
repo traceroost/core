@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import clsx from 'clsx'
 import { filteredSessions, sessionSummary, insightFilter, ignoredInsightKeys } from '../state'
-import { buildDisplaySummary, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime } from '../utils'
+import { buildDisplaySummary, getAgentSourceLabel, getSessionGlobalNumber, formatSessionTime, plural } from '../utils'
 import type { Insight, InsightFilter, SessionSummaryCard, SignalStep, TimelineEntry } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
@@ -47,9 +47,9 @@ function summarizeTakeaways(insights: Insight[]): InsightTakeaways {
     const title = insight.title.toLowerCase()
     if (insight.category === 'loop') summary.loopCount++
     if (title.includes('context grew') || title.includes('starts with')) summary.hasContextBloat = true
-    if (title.includes('cache hit')) summary.hasCacheIssue = true
+    if (title.includes('cache reuse')) summary.hasCacheIssue = true
     if (title.includes('tool definitions') || (insight._loopType && TOOL_ISSUE_LOOP_TYPES.has(insight._loopType))) summary.hasToolIssue = true
-    if (title.includes('files read multiple') || title.includes('duplicate searches') || title.includes('files appear')) summary.hasRepeatedOperations = true
+    if (title.includes('files read multiple') || title.includes('duplicate searches') || /\bfiles? appears? in most traces/.test(title)) summary.hasRepeatedOperations = true
   }
 
   return summary
@@ -66,21 +66,21 @@ const HELP_WHY: Record<string, string> = {
   'help-tool-failures':        'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
   'help-large-results':        'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
   'help-tool-overhead':        'Every LLM call includes all tool JSON schemas. 70+ tools = 8,000–15,000 overhead tokens per call that cannot be reduced by shortening your prompt.',
-  'help-cache-rate':           'Cached tokens cost roughly 10× less than fresh tokens. Going from 0% to 60% cache hit rate cuts trace cost by 80–90% with no change to model behavior.',
+  'help-cache-rate':           'Tokens reused from the cache cost roughly 10× less than tokens processed fresh. Going from 0% to 60% reused cuts trace cost by 80–90% with no change to model behavior.',
   'help-tool-deadlock':        'The agent is burning tokens repeating identical calls with zero progress. This loop runs until the context limit is hit — entire trace cost with nothing accomplished.',
   'help-state-spiral':         'Conflicting constraints cause the agent to undo its own work. Each oscillation adds both the edit and the revert to context, accelerating cost with each cycle.',
   'help-hallucination':        'Each failed fix attempt adds the error to context, which anchors the model further from the real solution — the longer it runs, the harder it self-corrects.',
   'help-runaway-steps':        'Scope creep compounds: each extra step the agent takes grows context for all future steps. 90-step traces can cost 10–20× a well-scoped 5-step equivalent.',
-  'help-context-accumulation': 'Input tokens are growing while output shrinks — cost per call is compounding with diminishing returns. Continuing will likely hit the context limit with nothing saved.',
+  'help-context-accumulation': 'The context sent to the model is growing while its output shrinks — cost per call is compounding with diminishing returns. Continuing will likely hit the context limit with nothing saved.',
   'help-chronic-tool-unreliability': 'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
   'help-context-flooding-risk': 'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
   'help-fabricated-dependency': 'An import of a package that isn\'t installed fails several steps later, at install or at runtime, with an error that looks unrelated — and the agent then spends turns chasing the wrong cause.',
   'help-unverified-submission': 'A session that ends on a failing check looks finished. The failure surfaces later, in CI or in review, after the context that would have made it a one-line fix is gone.',
   'help-tool-call-cycle':      'Each repeat of the sequence appends the same results to context again. The agent is reacting to identical feedback without new information, so the cycle only ends when something external changes.',
   'help-file-reread':          'Each re-read appends the full file to context again. Three avoidable re-reads of a large file cost about one extra full LLM call.',
-  'help-cache-miss':           'Writing a prefix to cache costs 1.25× the input rate; reading it back costs 0.1×. One changed byte near the top of the prompt re-writes everything after it.',
-  'help-ttl-expiry':           'The cache lives an hour on a subscription and five minutes on an API key or usage credits. A turn after a longer gap re-processes the whole prefix at the write rate, whatever the prompt did.',
-  'help-low-cache-hit-ratio':  'Cached tokens cost roughly 10× less than fresh tokens. A session reading little from cache is paying full price for the same context on every turn.',
+  'help-cache-miss':           'Saving context to the cache costs 1.25× the normal token price; reusing it from the cache costs 0.1×. One changed character near the start of the context means everything after it is saved again.',
+  'help-ttl-expiry':           'The cache keeps context for an hour on a subscription and five minutes on an API key or usage credits. After a longer pause, the next turn saves the whole context again at the higher price, whatever the prompt did.',
+  'help-low-cache-hit-ratio':  'Tokens reused from the cache cost roughly 10× less than tokens processed fresh. A trace that reuses little is paying full price for the same context on every turn.',
   'help-budget-overrun':       'A cap you set is the one signal whose threshold is yours. Crossing it mid-session is the moment to look for the loop that is driving the cost, not after the bill.',
   'help-model-tier-mismatch':  'Read-only research (grep, read, list) produces short output a smaller model handles as well. On a premium model that stretch costs 5–10× what it needs to.',
 }
@@ -116,28 +116,29 @@ export function generateInsights(
         // The baseline, the end point, and the three calls whose context jumped most — where the
         // growth actually came from.
         const steps: SignalStep[] = [
-          evidenceStep(timeline, llmIdx[0], 'baseline: ' + first.toLocaleString() + ' input tokens', 'context'),
-          evidenceStep(timeline, llmIdx[llmIdx.length - 1], 'last call: ' + last.toLocaleString() + ' input tokens'),
+          evidenceStep(timeline, llmIdx[0], 'first call: ' + first.toLocaleString() + ' tokens sent', 'context'),
+          evidenceStep(timeline, llmIdx[llmIdx.length - 1], 'last call: ' + last.toLocaleString() + ' tokens sent'),
         ]
         llmEntries.slice(1)
           .map((e, k) => ({ i: llmIdx[k + 1], d: (e.inputTokens ?? 0) - (llmEntries[k].inputTokens ?? 0) }))
           .filter(j => j.d > 0)
           .sort((a, b) => b.d - a.d)
           .slice(0, 3)
-          .forEach(j => steps.push(evidenceStep(timeline, j.i, 'context +' + j.d.toLocaleString() + ' tokens over the previous call')))
+          .forEach(j => steps.push(evidenceStep(timeline, j.i, 'context grew ' + j.d.toLocaleString() + ' tokens over the previous call')))
         insights.push({
           severity: 'warning', category: 'efficiency', sessionIdx: idx,
           helpId: 'help-context-bloat',
           title: '[Trace ' + globalNum + '] Context grew ' + growthPct.toFixed(0) + '%',
-          detail: 'Input tokens grew from ' + first.toLocaleString() + ' to ' + last.toLocaleString()
-            + ' (+' + growth.toLocaleString() + ' tokens) across ' + llmEntries.length + ' turns'
+          detail: 'The tokens sent to the model grew from ' + first.toLocaleString() + ' to ' + last.toLocaleString()
+            + ' (+' + growth.toLocaleString() + ') across ' + plural(llmEntries.length, 'model call')
             + (reqSnippet ? ' for "' + reqSnippet + '"' : '') + '.',
           action: 'The first call used ' + first.toLocaleString() + ' tokens — audit your instruction files '
             + '(CLAUDE.md, .agent.md, system prompt). Remove verbose examples and anything the agent '
             + 'can discover via tools. Target <5,000 tokens for combined static instructions.',
-          trigger: 'Input per call went from ' + first.toLocaleString() + ' to ' + last.toLocaleString() + ' tokens (+'
-            + growth.toLocaleString() + ', ' + growthPct.toFixed(0) + '%) across ' + llmEntries.length
-            + ' LLM calls. Fires above 20% and 2,000 tokens of growth.',
+          trigger: 'The tokens sent to the model per call grew from ' + first.toLocaleString() + ' to ' + last.toLocaleString()
+            + ' (+' + growth.toLocaleString() + ', or ' + growthPct.toFixed(0) + '%) across ' + plural(llmEntries.length, 'model call') + '.'
+            + ' Each call sends the whole conversation so far, so this growth is sent again with every later call.'
+            + ' Flagged when the growth is over 20% and over 2,000 tokens.',
           ...capSteps(steps),
         })
       }
@@ -155,7 +156,7 @@ export function generateInsights(
     if (repeats.length > 0) {
       const topFile = repeats.sort((a, b) => fileReads[b] - fileReads[a])[0]
       const steps = repeats.flatMap(f => fileReadIdx[f].map((i, k) => evidenceStep(timeline, i,
-        k === 0 ? 'first read of ' + f : 'read ' + (k + 1) + ' of ' + fileReads[f] + ' of ' + f, k === 0 ? 'context' : 'trigger')))
+        k === 0 ? 'first read of ' + f : 'read ' + f + ' again (' + (k + 1) + ' of ' + fileReads[f] + ')', k === 0 ? 'context' : 'trigger')))
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-files-repeated',
@@ -166,8 +167,10 @@ export function generateInsights(
             + 'Mention its path explicitly at the start of your prompt so the agent finds it without re-reading.'
           : 'The agent re-read ' + repeats.length + ' files, most often ' + topFile + ' (' + fileReads[topFile] + '×). '
             + 'Try opening with the key paths listed: e.g. "The main files are: ' + repeats.slice(0, 2).join(', ') + '".',
-        trigger: repeats.length + ' file(s) were read with read_file more than once in this trace; ' + topFile
-          + ' most often (' + fileReads[topFile] + '×). Fires on any second read.',
+        trigger: plural(repeats.length, 'file') + (repeats.length === 1 ? ' was' : ' were') + ' read more than once in this trace (with read_file); '
+          + topFile + ' most often, ' + fileReads[topFile] + ' times.'
+          + ' Each re-read adds the whole file to the context again.'
+          + ' Flagged on any second read of a file.',
         ...capSteps(steps),
       })
     }
@@ -180,13 +183,13 @@ export function generateInsights(
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-high-turns',
-        trigger: sess.totalLlmCalls + ' turns for a ' + (sess.userRequest ?? '').length
-          + '-character prompt. Fires above 8 turns when the prompt is under 80 characters, a sign the agent explored '
-          + 'what a longer prompt would have told it.',
-        ...capSteps(llmIdx.map((i, k) => evidenceStep(timeline, i, 'LLM call ' + (k + 1) + ' of ' + llmIdx.length))),
+        trigger: sess.totalLlmCalls + ' turns for a ' + (sess.userRequest ?? '').length + '-character prompt.'
+          + ' A short prompt often leaves the agent to discover what a longer one would have told it.'
+          + ' Flagged above 8 turns when the prompt is under 80 characters.',
+        ...capSteps(llmIdx.map((i, k) => evidenceStep(timeline, i, 'model call ' + (k + 1) + ' of ' + llmIdx.length))),
         title: '[Trace ' + globalNum + '] ' + sess.totalLlmCalls + ' turns',
-        detail: '"' + reqSnippet + '" required ' + sess.totalLlmCalls + ' turns and '
-          + sess.totalToolCalls + ' tool calls' + (topTools ? ' (' + topTools + ')' : '') + '.',
+        detail: '"' + reqSnippet + '" took ' + sess.totalLlmCalls + ' turns and '
+          + plural(sess.totalToolCalls, 'tool call') + (topTools ? ' (' + topTools + ')' : '') + '.',
         action: 'For ' + sess.totalLlmCalls + '-turn trace, break the task into smaller pieces with '
           + 'explicit stopping conditions. Provide specific file paths and line numbers so the agent '
           + 'spends turns doing instead of exploring.',
@@ -199,12 +202,14 @@ export function generateInsights(
       insights.push({
         severity: 'warning', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-large-context',
-        trigger: 'The first LLM call already carried ' + (firstLlm.inputTokens ?? 0).toLocaleString()
-          + ' input tokens, before any tool result was added. Fires above 15,000.',
-        ...capSteps([evidenceStep(timeline, llmIdx[0], (firstLlm.inputTokens ?? 0).toLocaleString() + ' input tokens on the first call')]),
-        title: '[Trace ' + globalNum + '] Starts with ' + (firstLlm.inputTokens ?? 0).toLocaleString() + ' input tokens',
-        detail: 'The very first LLM call already has ' + (firstLlm.inputTokens ?? 0).toLocaleString()
-          + ' tokens before any tool results are added.',
+        trigger: 'The first model call already sent ' + (firstLlm.inputTokens ?? 0).toLocaleString()
+          + ' tokens to the model, before any tool result was added.'
+          + ' That starting context is sent again with every later call.'
+          + ' Flagged above 15,000 tokens.',
+        ...capSteps([evidenceStep(timeline, llmIdx[0], (firstLlm.inputTokens ?? 0).toLocaleString() + ' tokens sent on the first call')]),
+        title: '[Trace ' + globalNum + '] Starts with ' + (firstLlm.inputTokens ?? 0).toLocaleString() + ' tokens of context',
+        detail: 'The very first model call already sent ' + (firstLlm.inputTokens ?? 0).toLocaleString()
+          + ' tokens, before any tool results were added.',
         action: 'Audit your instruction files — ' + (firstLlm.inputTokens ?? 0).toLocaleString()
           + ' tokens before the first tool call is the baseline overhead. Remove verbose examples '
           + 'and information the agent can discover via tools. Target <5,000 tokens for combined instructions.',
@@ -235,10 +240,12 @@ export function generateInsights(
       insights.push({
         severity: 'info', category: 'efficiency', sessionIdx: idx,
         helpId: 'help-duplicate-searches',
-        trigger: dupes.length + ' search pattern(s) were run more than once with identical text. Fires on any repeat.',
+        trigger: plural(dupes.length, 'search', 'searches') + (dupes.length === 1 ? ' was' : ' were') + ' run more than once with exactly the same text.'
+          + ' Each repeat adds the same results to the context again.'
+          + ' Flagged on any repeat.',
         ...capSteps(steps),
         title: '[Trace ' + globalNum + '] Duplicate searches',
-        detail: dupes.length + ' search pattern(s) repeated: ' + examples.join(', ') + '.',
+        detail: plural(dupes.length, 'search', 'searches') + ' repeated: ' + examples.join(', ') + '.',
         action: 'These repeated searches suggest the agent was uncertain where to look. '
           + 'Include directory names or specific file paths in your prompt — e.g. '
           + '"search in src/api/" instead of a broad pattern.',
@@ -313,8 +320,9 @@ export function generateInsights(
       insights.push({
         severity: 'warning', category: 'efficiency',
         helpId: 'help-files-repeated',
-        title: troubleFiles.length + ' file(s) appear in most traces with errors or loops',
-        trigger: 'Each file below was touched in 3+ traces, and 60%+ of those traces had an error or a signal.',
+        title: plural(troubleFiles.length, 'file') + (troubleFiles.length === 1 ? ' appears' : ' appear') + ' in most traces with errors or loops',
+        trigger: (troubleFiles.length === 1 ? 'The file below was' : 'Each file below was') + ' read, searched or changed in 3+ traces,'
+          + ' and 60%+ of those traces had an error or a signal.',
         detail: troubleFiles.map(([f, v]) =>
           (f.split('/').pop() || f) + ': ' + v.problems + '/' + v.total + ' traces had issues'
         ).join('\n'),
@@ -337,11 +345,13 @@ export function generateInsights(
         insights.push({
           severity: 'warning', category: 'efficiency',
           helpId: 'help-cache-rate',
-          title: 'Cache hit rate declining — ' + (avgOlder * 100).toFixed(0) + '% → ' + (avgRecent * 100).toFixed(0) + '%',
-          detail: 'Average cache hit rate dropped ' + (drop * 100).toFixed(0)
-            + '% over your last ' + recentN + ' traces.',
-          trigger: 'The last ' + recentN + ' traces averaged ' + (avgRecent * 100).toFixed(0) + '% from cache against '
-            + (avgOlder * 100).toFixed(0) + '% before them. Fires on a 15-point drop from a 30%+ starting point.',
+          title: 'Cache reuse declining — ' + (avgOlder * 100).toFixed(0) + '% → ' + (avgRecent * 100).toFixed(0) + '%',
+          detail: 'The average share of context reused from the cache dropped ' + (drop * 100).toFixed(0)
+            + ' points over your last ' + recentN + ' traces.',
+          trigger: 'Your last ' + recentN + ' traces reused ' + (avgRecent * 100).toFixed(0) + '% of their context from the cache on average,'
+            + ' down from ' + (avgOlder * 100).toFixed(0) + '% in the traces before them.'
+            + ' Reused context costs much less than fresh context, so a drop raises cost.'
+            + ' Flagged on a drop of more than 15 points from a starting point above 30%.',
           action: 'Cache hit rate drops when the stable prefix of your prompts changes. '
             + 'Recent changes to your instruction files (CLAUDE.md, .agent.md, system prompt) '
             + 'may be invalidating cached context. Keep static content at the top of prompts '
@@ -360,8 +370,10 @@ export function generateInsights(
       title: 'Tool definitions consuming ~' + (eff.toolDefWaste * 100).toFixed(0) + '% of context',
       detail: 'A significant portion of each prompt is spent describing available tool schemas to the model.',
       action: 'Use tool restrictions in your .agent.md files with "tools:" to limit which tools are available.',
-      trigger: 'Tool schemas are ~' + (eff.toolDefWaste * 100).toFixed(0) + '% of the prompt across every recorded call, '
-        + 'not one step in particular. Fires above 25%.',
+      trigger: 'Descriptions of the available tools take up about ' + (eff.toolDefWaste * 100).toFixed(0) + '% of what is sent to the model,'
+        + ' across every recorded call rather than one step in particular.'
+        + ' They are sent with every call, whether the tools are used or not.'
+        + ' Flagged above 25%.',
     })
   }
 
@@ -376,14 +388,16 @@ export function generateInsights(
     insights.push({
       severity: 'warning', category: 'efficiency',
       helpId: 'help-cache-rate',
-      title: 'Low prompt cache hit rate (' + (eff.cacheHitRate * 100).toFixed(0) + '%)',
-      detail: 'Less than half of input tokens are being served from cache.',
+      title: 'Low cache reuse (' + (eff.cacheHitRate * 100).toFixed(0) + '%)',
+      detail: 'Less than half of the tokens sent to the model were reused from the cache.',
       action: 'Cache works best when the beginning of the prompt stays stable across turns. Keep static content at the top of your prompts.',
-      trigger: (eff.cacheHitRate * 100).toFixed(0) + '% of ' + eff.totalInputTokens.toLocaleString() + ' input tokens across '
-        + eff.totalLlmCalls + ' LLM calls came from cache. Fires under 50% once there are more than 3 calls.'
-        + (worst.length > 0 ? ' The calls below re-processed the most input.' : ''),
+      trigger: (eff.cacheHitRate * 100).toFixed(0) + '% of the ' + eff.totalInputTokens.toLocaleString() + ' tokens sent to the model across '
+        + plural(eff.totalLlmCalls, 'turn') + ' were reused from the cache.'
+        + ' Reusing costs much less than processing the same tokens fresh.'
+        + ' Flagged under 50% once there are more than 3 turns.'
+        + (worst.length > 0 ? ' The calls below processed the most tokens fresh.' : ''),
       ...capSteps(worst.map(({ e, i, uncached }) => evidenceStep(one, i,
-        uncached.toLocaleString() + ' of ' + (e.inputTokens ?? 0).toLocaleString() + ' input tokens not read from cache'))),
+        uncached.toLocaleString() + ' of ' + (e.inputTokens ?? 0).toLocaleString() + ' tokens sent were not reused from the cache'))),
     })
   }
 
@@ -596,10 +610,10 @@ export function Insights() {
               </li>
             )}
             {takeaways.hasContextBloat && (
-              <li style="margin-bottom:2px">Context bloat detected — input tokens growing significantly across turns</li>
+              <li style="margin-bottom:2px">Context bloat detected — the tokens sent to the model grow significantly across turns</li>
             )}
             {takeaways.hasCacheIssue && (
-              <li style="margin-bottom:2px">Low prompt cache hit rate — tokens are being re-processed instead of cached</li>
+              <li style="margin-bottom:2px">Low cache reuse — context is being processed fresh instead of reused from the cache</li>
             )}
             {takeaways.hasToolIssue && (
               <li style="margin-bottom:2px">Tool inefficiency detected</li>
