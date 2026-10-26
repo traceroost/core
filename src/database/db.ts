@@ -4,6 +4,7 @@ import { SCHEMA_SQL } from './schema'
 import { dropStaleTraceStore, TRACE_STORE_REBUILT_MESSAGE, TRACE_STORE_VERSION } from './traceStore'
 import { ensureColumns, storeDowngradeWarning, type ColumnMigration } from './schemaEvolution'
 import { takeoverStep } from '../ownerGate'
+import { writeAllSync } from '../fsAtomic'
 export { ensureColumn, ensureColumns, storeDowngradeWarning, type ColumnMigration } from './schemaEvolution'
 
 // Minimal sql.js surface we use — avoids pulling in @types/sql.js
@@ -313,7 +314,8 @@ export class TraceRoostDb {
       const fd = fs.openSync(tmpPath, 'w')
       try {
         // Straight from the exported bytes — Buffer.from(data) copied the whole database first.
-        fs.writeSync(fd, data)
+        // Every byte or a throw: a short write (disk full) must never be renamed over the file.
+        writeAllSync(fd, data)
         fs.fsyncSync(fd)
       } finally {
         fs.closeSync(fd)

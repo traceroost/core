@@ -31,8 +31,7 @@ export function writeFileAtomic(file: string, data: string | Uint8Array, opts: W
   try {
     const fd = fs.openSync(tmp, 'w', opts.mode)
     try {
-      if (typeof data === 'string') fs.writeSync(fd, data, null, 'utf-8')
-      else fs.writeSync(fd, data)
+      writeAllSync(fd, typeof data === 'string' ? Buffer.from(data, 'utf-8') : data)
       fs.fsyncSync(fd)
     } finally {
       fs.closeSync(fd)
@@ -45,6 +44,29 @@ export function writeFileAtomic(file: string, data: string | Uint8Array, opts: W
   } catch (err) {
     try { fs.rmSync(tmp, { force: true }) } catch { /* ignore */ }
     throw err
+  }
+}
+
+/**
+ * Writes every byte of `data` to `fd`, or throws. `fs.writeSync` makes one write(2) call and returns
+ * how many bytes it wrote; on a nearly full disk that can be fewer than asked, with no error. A
+ * short write here used to be fsynced and renamed over the good file — a truncated database or
+ * spans.json in place of the user's history. `write` is injectable for tests.
+ */
+export function writeAllSync(
+  fd: number,
+  data: Uint8Array,
+  write: (fd: number, buf: Uint8Array, offset: number, length: number) => number = (f, b, o, l) => fs.writeSync(f, b, o, l),
+): void {
+  let offset = 0
+  while (offset < data.byteLength) {
+    const n = write(fd, data, offset, data.byteLength - offset)
+    if (!(n > 0)) {
+      const err = new Error(`short write: ${offset} of ${data.byteLength} bytes written (disk full?)`) as NodeJS.ErrnoException
+      err.code = 'ENOSPC'
+      throw err
+    }
+    offset += n
   }
 }
 

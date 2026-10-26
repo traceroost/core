@@ -244,8 +244,8 @@ traceroost/tap/traceroost`.
 ## winget
 
 `winget install TraceRoost.TraceRoost` installs the desktop app's per-user NSIS installer (x64 or
-arm64) from the GitHub release: the signed `TraceRoost-<v>-win-<arch>.exe` when there is one, the
-`*-preview.exe` otherwise. `winget upgrade` updates it, including a copy installed from a downloaded
+arm64) from the GitHub release: `TraceRoost-<v>-win-<arch>.exe`, signed or not (an older release's
+`*-preview.exe` is still recognised). `winget upgrade` updates it, including a copy installed from a downloaded
 .exe, because the manifest names the installer's uninstall key (`ProductCode`). Unsigned installers
 are accepted; winget checks every download against the sha256 in the manifest.
 
@@ -289,30 +289,30 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
 `gh attestation verify <file> --repo traceroost/core`.
 
 - **Linux** (.deb and AppImage, x64 and arm64) is attached on every release.
-- **macOS is built and tested on every release but attached only when notarized.** It is ad-hoc
-  signed until the Apple Developer Program credentials exist, and Gatekeeper refuses an ad-hoc
-  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, plus
+- **macOS is built, tested and attached on every release.** It is ad-hoc signed (not notarized)
+  until the Apple Developer Program credentials exist, so Gatekeeper refuses the first open of a
+  download until the user right-clicks → Open (the release notes say so). Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, plus
   either `APPLE_API_KEY_P8`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` or
   `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` — [`MACOS_SIGNING.md`](MACOS_SIGNING.md)),
-  the same build is signed and notarized with no code change and the next tag attaches it. Before
+  the same build is signed and notarized with no code change from the next tag on. Before
   announcing it as an install method, open a downloaded, quarantined DMG on a fresh macOS user
   account.
-- **Windows** (NSIS installer and portable zip, x64 and arm64) is built and tested on every release
-  and **attached when Authenticode-signed**. Signing switches on from secrets, with no code change:
+- **Windows** (NSIS installer and portable zip, x64 and arm64) is built, tested and attached on
+  every release, Authenticode-signed when the secrets below exist and unsigned otherwise. Signing switches on from secrets, with no code change:
   either a code-signing certificate (`WIN_CSC_LINK` = base64 .pfx, `WIN_CSC_KEY_PASSWORD`) or Azure
   Artifact Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`: a service principal
   with the *Artifact Signing Certificate Profile Signer* role; the account `TraceRoost`, profile
   `traceroost-public` and publisher `Roger Reed` are in `desktop/electron-builder.cjs`, not
   secrets). The client secret expires (24 months at most): renew it before then, or Windows
-  releases fall back to previews. `desktop-windows.yml` documents them and fails a configured
+  releases fall back to unsigned builds. `desktop-windows.yml` documents them and fails a configured
   build whose executables are not validly signed. `release.yml` passes each by name.
-- **Preview builds**: until the signing secrets exist, a macOS build that is not notarized
-  (ad-hoc signed) and a Windows build that is not signed are attached as previews:
-  `TraceRoost-<v>-mac-<arch>-preview.dmg` and `TraceRoost-<v>-win-<arch>-preview.exe`, labelled
-  "(preview)" on the release page, covered by the same SHA256SUMS and attestations, and the
-  release notes get a section on getting past Gatekeeper (right-click → Open) and SmartScreen
-  (More info → Run anyway). Once a platform's secrets exist, its signed build is attached under the
-  plain name instead — nothing to switch.
+- **Unsigned builds**: until the signing secrets exist, a macOS build that is not notarized
+  (ad-hoc signed) and a Windows build that is not signed are attached under the same plain names
+  as signed ones (`TraceRoost-<v>-mac-<arch>.dmg`, `TraceRoost-<v>-win-<arch>.exe`), covered by the
+  same SHA256SUMS and attestations, and the release notes get a section on getting past
+  Gatekeeper (right-click → Open) and SmartScreen (More info → Run anyway)
+  (`desktop-release.yml`'s "Note unsigned downloads" step). Once a platform's secrets exist, its
+  build is signed with no other change. (0.20.0 named these `*-preview` instead.)
 - **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default
   `linux,macos,windows`) turns a platform off without a code change; a non-`core`
   `TRACEROOST_RELEASE_EDITION` skips desktop with a notice (the app is core-only).
