@@ -12,6 +12,17 @@ export interface ConfigResult {
 }
 
 /**
+ * How much an autoConfigure* call may write:
+ *  - `'full'` — the consented setup: the first yes, the Settings panel's Set up agents button, the
+ *    Set Up Agents command. Writes every setting the agent needs.
+ *  - `'maintain'` — every later start after a yes. Only keeps TraceRoost's own endpoint current
+ *    (its port can move after a port fallback): an endpoint key is updated when it exists and
+ *    still points at TraceRoost (isTraceRoostEndpoint). Nothing missing is added back, so a key
+ *    the user deleted — OTEL_LOG_USER_PROMPTS, say — stays deleted.
+ */
+export type SetupMode = 'full' | 'maintain'
+
+/**
  * Reads a config file, distinguishing "doesn't exist" (→ `undefined`, safe to create) from every
  * other read failure (permissions, EISDIR, …), which is thrown so the caller skips the file instead
  * of clobbering something it couldn't see.
@@ -30,15 +41,17 @@ async function readIfExists(filePath: string): Promise<string | undefined> {
  * file already existed, a one-time `<file>.traceroost.bak` copy of the original is kept first —
  * never overwritten afterwards, so it always holds the user's pre-TraceRoost version.
  */
-async function writeConfigFile(filePath: string, content: string, existed: boolean): Promise<void> {
+async function writeConfigFile(filePath: string, content: string, existed: boolean, backup = true): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
   let mode: number | undefined
-  if (existed) {
+  if (existed && backup) {
     try {
       await fs.copyFile(filePath, `${filePath}.traceroost.bak`, fs.constants.COPYFILE_EXCL)
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') { throw e }
     }
+  }
+  if (existed) {
     try { mode = (await fs.stat(filePath)).mode & 0o777 } catch { /* keep default */ }
   }
   const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`
@@ -62,7 +75,18 @@ export function isLoopbackEndpoint(value: string): boolean {
   }
 }
 
-export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
+/** True for an endpoint in the exact form TraceRoost writes (`http://localhost:<port>`). Only
+ *  these are TraceRoost's: a later start may move their port, and Remove agent setup takes them
+ *  out. Any other endpoint — loopback ones included, such as a local OpenTelemetry Collector on
+ *  `http://127.0.0.1:4317` — belongs to the user. */
+export function isTraceRoostEndpoint(value: unknown): value is string {
+  return typeof value === 'string' && /^http:\/\/localhost:\d{1,5}\/?$/.test(value)
+}
+
+/** `http://localhost:<port>` inside a Codex exporter line, the endpoint TraceRoost writes there. */
+const CODEX_TRACEROOST_ENDPOINT_RE = /(\bendpoint\s*=\s*)(["'])http:\/\/localhost:\d{1,5}\/?\2/
+
+export async function autoConfigureCodex(port: number, mode: SetupMode = 'full'): Promise<ConfigResult> {
   const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
   const configPath = path.join(codexHome, 'config.toml')
   const endpoint = `http://localhost:${port}`
@@ -78,6 +102,7 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
 
   try {
     const content = await readIfExists(configPath)
+    if (mode === 'maintain') return content === undefined ? { changed: false } : await maintainCodexEndpoint(configPath, content, endpoint)
     if (content === undefined) {
       const block = requiredOtelKeys.map(k => k.line).join('\n')
       await writeConfigFile(configPath, `[otel]\n${block}\n`, false)
@@ -101,7 +126,8 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
 
     // `[otel]` may carry a trailing comment or inner spaces — an exact-string match missed those
     // and appended a second [otel] table, which TOML rejects.
-    const otelIdx = lines.findIndex(l => /^\[\s*otel\s*\]\s*(#.*)?$/.test(l.trim()))
+    const section = codexOtelSection(lines)
+    const otelIdx = section.otelIdx
 
     if (otelIdx === -1) {
       const block = requiredOtelKeys.map(k => k.line).join('\n')
@@ -110,19 +136,14 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
       return { changed: true }
     }
 
-    let sectionEnd = lines.length
-    for (let i = otelIdx + 1; i < lines.length; i++) {
-      if (lines[i].trim().startsWith('[')) { sectionEnd = i; break }
-    }
+    let sectionEnd = section.sectionEnd
 
     // An [otel] exporter the user aimed at a collector of their own makes the whole section
     // theirs: nothing is changed, above all not `log_user_prompt` — turning that on next to their
     // exporter would send prompt text to their collector because of TraceRoost.
-    for (let i = otelIdx + 1; i < sectionEnd; i++) {
-      const ep = /\bendpoint\s*=\s*["']([^"']+)["']/.exec(lines[i])?.[1]
-      if (ep !== undefined && !isLoopbackEndpoint(ep)) {
-        return { changed: false, warning: `[otel] in ${configPath} exports to ${ep}; left untouched (TraceRoost listens on ${endpoint})` }
-      }
+    const foreign = foreignCodexEndpoint(lines, otelIdx, sectionEnd)
+    if (foreign !== undefined) {
+      return { changed: false, warning: `[otel] in ${configPath} exports to ${foreign}; left untouched (TraceRoost listens on ${endpoint})` }
     }
 
     // Insert or update each required key within the [otel] section. A key may be spread over
@@ -166,6 +187,51 @@ export async function autoConfigureCodex(port: number): Promise<ConfigResult> {
   }
 }
 
+/** The `[otel]` table of a Codex config split into lines: its header's index (-1 when there is
+ *  none) and the index of the line after its last (the next table's header, or the end). */
+function codexOtelSection(lines: string[]): { otelIdx: number; sectionEnd: number } {
+  // `[otel]` may carry a trailing comment or inner spaces.
+  const otelIdx = lines.findIndex(l => /^\[\s*otel\s*\]\s*(#.*)?$/.test(l.trim()))
+  let sectionEnd = lines.length
+  if (otelIdx !== -1) {
+    for (let i = otelIdx + 1; i < lines.length; i++) {
+      if (lines[i].trim().startsWith('[')) { sectionEnd = i; break }
+    }
+  }
+  return { otelIdx, sectionEnd }
+}
+
+/** The first endpoint in `[otel]` that isn't on this machine — the user's own collector. */
+function foreignCodexEndpoint(lines: string[], otelIdx: number, sectionEnd: number): string | undefined {
+  for (let i = otelIdx + 1; i < sectionEnd; i++) {
+    const ep = /\bendpoint\s*=\s*["']([^"']+)["']/.exec(lines[i])?.[1]
+    if (ep !== undefined && !isLoopbackEndpoint(ep)) return ep
+  }
+  return undefined
+}
+
+/** SetupMode 'maintain' for Codex: moves the port of an `exporter` / `trace_exporter` line still
+ *  aimed at TraceRoost, in place (anything else on the line — an auth header — stays). Adds
+ *  nothing: no `[otel]` table, no missing exporter, no `log_user_prompt`. */
+async function maintainCodexEndpoint(configPath: string, content: string, endpoint: string): Promise<ConfigResult> {
+  const lines = content.split('\n')
+  const { otelIdx, sectionEnd } = codexOtelSection(lines)
+  if (otelIdx === -1) return { changed: false }
+  const foreign = foreignCodexEndpoint(lines, otelIdx, sectionEnd)
+  if (foreign !== undefined) {
+    return { changed: false, warning: `[otel] in ${configPath} exports to ${foreign}; left untouched (TraceRoost listens on ${endpoint})` }
+  }
+  let changed = false
+  for (let i = otelIdx + 1; i < sectionEnd; i++) {
+    if (!/^\s*(trace_exporter|exporter|"trace_exporter"|"exporter"|'trace_exporter'|'exporter')\s*[=.]/.test(lines[i])) continue
+    const updated = lines[i].replace(CODEX_TRACEROOST_ENDPOINT_RE, (_m, prefix: string, quote: string) => `${prefix}${quote}${endpoint}${quote}`)
+    if (updated !== lines[i]) { lines[i] = updated; changed = true }
+  }
+  if (!changed) return { changed: false }
+  await writeConfigFile(configPath, lines.join('\n'), true)
+  return { changed: true }
+}
+
 // Earlier versions installed a Claude Code Stop hook that printed ~/.traceroost/pending-prompt.txt
 // into the session. Nothing writes that file any more, and any local process could, so the hook
 // is no longer installed and existing copies are removed below.
@@ -202,10 +268,13 @@ export function removeLegacyStopHook(settings: Record<string, unknown>): boolean
   return true
 }
 
-export async function autoConfigureClaudeCode(port: number): Promise<ConfigResult> {
-  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json')
+function claudeSettingsPath(): string {
+  return path.join(os.homedir(), '.claude', 'settings.json')
+}
 
-  const requiredEnv: Record<string, string> = {
+/** The `"env"` keys TraceRoost's Claude Code setup writes, with their values. */
+function claudeCodeEnv(port: number): Record<string, string> {
+  return {
     CLAUDE_CODE_ENABLE_TELEMETRY: '1',
     CLAUDE_CODE_ENHANCED_TELEMETRY_BETA: '1',
     OTEL_TRACES_EXPORTER: 'otlp',
@@ -215,6 +284,14 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
     OTEL_LOG_TOOL_CONTENT: '1',
     OTEL_LOG_USER_PROMPTS: '1',
   }
+}
+
+export async function autoConfigureClaudeCode(port: number, mode: SetupMode = 'full'): Promise<ConfigResult> {
+  const settingsPath = claudeSettingsPath()
+
+  // 'maintain' writes only the endpoint, and only where TraceRoost's own already is.
+  const endpoint = `http://localhost:${port}`
+  const requiredEnv: Record<string, string> = mode === 'full' ? claudeCodeEnv(port) : {}
 
   const staleKeys = [
     'OTEL_EXPORTER_OTLP_TRACES_PROTOCOL',
@@ -261,10 +338,18 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
         changed = true
       }
     }
-    for (const key of staleKeys) {
-      if (key in existingEnv) {
-        delete existingEnv[key]
+    if (mode === 'maintain') {
+      const current = existingEnv.OTEL_EXPORTER_OTLP_ENDPOINT
+      if (isTraceRoostEndpoint(current) && current !== endpoint) {
+        existingEnv.OTEL_EXPORTER_OTLP_ENDPOINT = endpoint
         changed = true
+      }
+    } else {
+      for (const key of staleKeys) {
+        if (key in existingEnv) {
+          delete existingEnv[key]
+          changed = true
+        }
       }
     }
 
@@ -274,7 +359,7 @@ export async function autoConfigureClaudeCode(port: number): Promise<ConfigResul
       return { changed: false }
     }
 
-    settings.env = existingEnv
+    if (settings.env !== undefined || Object.keys(existingEnv).length > 0) settings.env = existingEnv
     await writeConfigFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', raw !== undefined)
 
     return { changed: true }
@@ -296,12 +381,26 @@ function vscodeUserSettingsPaths(): string[] {
   return VSCODE_FAMILY_IDE_NAMES.map(v => path.join(base, v, 'User', 'settings.json'))
 }
 
-export async function autoConfigureCopilotStandalone(port: number): Promise<ConfigResult[]> {
-  const required: Record<string, unknown> = {
+/** The Copilot settings TraceRoost's setup writes, with their values. */
+export function copilotSettings(port: number): Record<string, unknown> {
+  return {
     'github.copilot.chat.otel.enabled':      true,
     'github.copilot.chat.otel.exporterType': 'otlp-http',
     'github.copilot.chat.otel.otlpEndpoint': `http://localhost:${port}`,
   }
+}
+
+export const COPILOT_ENDPOINT_KEY = 'github.copilot.chat.otel.otlpEndpoint'
+
+/** The endpoint Copilot Chat uses while none is set (its package.json default for
+ *  github.copilot.chat.otel.otlpEndpoint; exporterType defaults to 'otlp-http'). On TraceRoost's
+ *  default port, a user settings file holding only `otel.enabled: true` already sends there. */
+export const COPILOT_DEFAULT_ENDPOINT = 'http://localhost:4318'
+
+const JSONC_FORMAT = { formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' } }
+
+export async function autoConfigureCopilotStandalone(port: number, mode: SetupMode = 'full'): Promise<ConfigResult[]> {
+  const required: Record<string, unknown> = mode === 'full' ? copilotSettings(port) : {}
 
   const results: ConfigResult[] = []
 
@@ -338,11 +437,15 @@ export async function autoConfigureCopilotStandalone(port: number): Promise<Conf
       for (const [key, value] of Object.entries(required)) {
         const current = settings[key]
         if (current !== value) {
-          text = applyEdits(text, modify(text, [key], value, {
-            formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' },
-          }))
+          text = applyEdits(text, modify(text, [key], value, JSONC_FORMAT))
           changed = true
         }
+      }
+      // 'maintain': only TraceRoost's own endpoint, and only when it is already there.
+      const endpoint = `http://localhost:${port}`
+      if (mode === 'maintain' && isTraceRoostEndpoint(ownEndpoint) && ownEndpoint !== endpoint) {
+        text = applyEdits(text, modify(text, [COPILOT_ENDPOINT_KEY], endpoint, JSONC_FORMAT))
+        changed = true
       }
 
       if (!changed) { results.push({ changed: false }); continue }
@@ -358,3 +461,192 @@ export async function autoConfigureCopilotStandalone(port: number): Promise<Conf
   return results
 }
 
+
+// ── Remove agent setup ───────────────────────────────────────────────────────
+//
+// Takes out exactly what the setup above wrote, and nothing else — not a restore of
+// <file>.traceroost.bak, which would also undo every change the user made since. What counts as
+// TraceRoost's: a setting whose value is the one setup writes, in a file whose endpoint is
+// TraceRoost's own (isTraceRoostEndpoint). A file exporting anywhere else — another collector,
+// remote or local — is left exactly as it is. Settings setup *removed* (Claude Code's stale keys,
+// the legacy Stop hook) are not put back.
+
+/** One agent settings file's outcome, naming the file so the caller can say what changed. */
+export interface RemoveResult extends ConfigResult {
+  file: string
+  /** Left alone (see `warning`) not because it sends elsewhere but because it sends to TraceRoost
+   *  in a form setup didn't write — a Codex exporter with an auth header, say. Only the user can
+   *  tell whether that is theirs, so it is theirs to remove. */
+  customized?: boolean
+}
+
+/** `dryRun`: work out what would be removed (`changed`) without writing — for the confirmation
+ *  that lists it first. `port`: TraceRoost's OTLP port. With it, Copilot's removal also recognises
+ *  settings that set no endpoint of their own but reach TraceRoost through Copilot's built-in
+ *  default (COPILOT_DEFAULT_ENDPOINT) — what an earlier setup on port 4318 left behind, when it
+ *  wrote only `otel.enabled`. */
+export interface RemoveOptions { dryRun?: boolean; port?: number }
+
+/** Claude Code: drops the `"env"` keys setup writes (only where they still hold setup's value),
+ *  and `"env"` itself when nothing else is left in it. Edits the text in place, so the rest of
+ *  the file keeps its formatting byte for byte. */
+export async function removeClaudeCodeSetup(opts: RemoveOptions = {}): Promise<RemoveResult> {
+  const file = claudeSettingsPath()
+  try {
+    const raw = await readIfExists(file)
+    if (raw === undefined || raw.trim() === '') return { file, changed: false }
+    let settings: unknown
+    try {
+      settings = JSON.parse(raw)
+    } catch (e) {
+      return { file, changed: false, error: `${file} is not valid JSON (${(e as Error).message}) — left untouched` }
+    }
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+      return { file, changed: false, error: `${file} is not a JSON object — left untouched` }
+    }
+    const env = (settings as Record<string, unknown>).env
+    if (!env || typeof env !== 'object' || Array.isArray(env)) return { file, changed: false }
+    const envVars = env as Record<string, unknown>
+
+    for (const key of ['OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT']) {
+      const current = envVars[key]
+      if (typeof current === 'string' && current && !isTraceRoostEndpoint(current)) {
+        return { file, changed: false, warning: `${key} in ${file} points at ${current}, not TraceRoost; left untouched` }
+      }
+    }
+    const endpoint = envVars.OTEL_EXPORTER_OTLP_ENDPOINT
+    // No TraceRoost endpoint: nothing marks the remaining telemetry keys as TraceRoost's.
+    if (!isTraceRoostEndpoint(endpoint)) return { file, changed: false }
+
+    const ours = claudeCodeEnv(0)
+    const remove = Object.keys(ours).filter(key =>
+      key === 'OTEL_EXPORTER_OTLP_ENDPOINT' || (key in envVars && envVars[key] === ours[key]))
+    let text = raw
+    for (const key of remove) text = applyEdits(text, modify(text, ['env', key], undefined, JSONC_FORMAT))
+    if (Object.keys(envVars).every(key => remove.includes(key))) {
+      text = applyEdits(text, modify(text, ['env'], undefined, JSONC_FORMAT))
+    }
+    if (text === raw) return { file, changed: false }
+    if (!opts.dryRun) await writeConfigFile(file, text, true, false)
+    return { file, changed: true }
+  } catch (e) {
+    return { file, changed: false, error: String(e) }
+  }
+}
+
+/** The exact `exporter` / `trace_exporter` line Codex setup writes, for any port. */
+const CODEX_SETUP_EXPORTER_RE = /^(exporter|trace_exporter) = \{ otlp-http = \{ endpoint = "http:\/\/localhost:\d{1,5}", protocol = "json" \} \}\s*$/
+
+/** Codex: drops setup's `exporter` / `trace_exporter` lines from `[otel]`, and `log_user_prompt =
+ *  true` with them, then the `[otel]` header itself if nothing is left under it. An exporter line
+ *  setup didn't write (another endpoint, extra headers) marks the table as the user's own. */
+export async function removeCodexSetup(opts: RemoveOptions = {}): Promise<RemoveResult> {
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
+  const file = path.join(codexHome, 'config.toml')
+  try {
+    const content = await readIfExists(file)
+    if (content === undefined) return { file, changed: false }
+    const lines = content.split('\n')
+    const { otelIdx, sectionEnd } = codexOtelSection(lines)
+    if (otelIdx === -1) return { file, changed: false }
+    const foreign = foreignCodexEndpoint(lines, otelIdx, sectionEnd)
+    if (foreign !== undefined) {
+      return { file, changed: false, warning: `[otel] in ${file} exports to ${foreign}, not TraceRoost; left untouched` }
+    }
+
+    const section = lines.slice(otelIdx + 1, sectionEnd)
+    const isExporterLine = (l: string) => /^\s*("|')?(trace_exporter|exporter)("|')?\s*[=.]/.test(l)
+    const ourExporters = section.filter(l => CODEX_SETUP_EXPORTER_RE.test(l))
+    if (ourExporters.length === 0) return { file, changed: false }
+    const otherExporter = section.find(l => isExporterLine(l) && !CODEX_SETUP_EXPORTER_RE.test(l))
+    if (otherExporter !== undefined) {
+      // TraceRoost's endpoint with extras (headers, other options) vs. another local collector.
+      return CODEX_TRACEROOST_ENDPOINT_RE.test(otherExporter)
+        ? { file, changed: false, customized: true, warning: `[otel] in ${file} has a custom exporter sending to TraceRoost that setup didn't write (${otherExporter.trim()}), such as one with headers; left unchanged — remove it by hand if you no longer want it` }
+        : { file, changed: false, warning: `[otel] in ${file} has an exporter TraceRoost didn't write (${otherExporter.trim()}); left untouched` }
+    }
+
+    const kept = section.filter(l => !CODEX_SETUP_EXPORTER_RE.test(l) && !/^log_user_prompt = true\s*$/.test(l))
+    let before = lines.slice(0, otelIdx)
+    const after = lines.slice(sectionEnd)
+    let rebuilt: string[]
+    if (kept.every(l => l.trim() === '')) {
+      // Nothing of the user's under [otel]: the header goes too. Setup appended it as
+      // "\n\n[otel]\n…" after the file's last line, so at the end of the file the blank line
+      // before it goes with it.
+      if (after.length === 0) {
+        while (before.length > 0 && before[before.length - 1].trim() === '') before = before.slice(0, -1)
+        rebuilt = before.length > 0 ? [...before, ''] : []
+      } else {
+        rebuilt = [...before, ...after]
+      }
+    } else {
+      rebuilt = [...before, lines[otelIdx], ...kept, ...after]
+    }
+    const text = rebuilt.join('\n')
+    if (text === content) return { file, changed: false }
+    if (!opts.dryRun) await writeConfigFile(file, text, true, false)
+    return { file, changed: true }
+  } catch (e) {
+    return { file, changed: false, error: String(e) }
+  }
+}
+
+/** The Copilot settings setup writes, as a VS Code user settings file holds them (keys it doesn't
+ *  have are left out; no file holds none), or undefined when the file can't be read or parsed. */
+export async function readCopilotFileSettings(file: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const raw = await readIfExists(file)
+    if (raw === undefined || raw.trim() === '') return {}
+    const errors: ParseError[] = []
+    const parsed: unknown = parseJsonc(raw, errors, { allowTrailingComma: true, disallowComments: false })
+    if (errors.length > 0 || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    const settings = parsed as Record<string, unknown>
+    return Object.fromEntries(Object.keys(copilotSettings(0)).filter(k => settings[k] !== undefined).map(k => [k, settings[k]]))
+  } catch {
+    return undefined
+  }
+}
+
+/** Copilot, in every installed VS Code-family IDE's user settings: drops the three settings setup
+ *  writes (each only while it holds setup's value) from a file whose endpoint is TraceRoost's —
+ *  set in the file, or Copilot's default when the file sets none and `opts.port` is 4318. */
+export async function removeCopilotStandaloneSetup(opts: RemoveOptions = {}): Promise<RemoveResult[]> {
+  const ours = copilotSettings(0)
+  const results: RemoveResult[] = []
+  for (const file of vscodeUserSettingsPaths()) {
+    try { await fs.access(path.dirname(file)) } catch { continue }
+    try {
+      const raw = await readIfExists(file)
+      if (raw === undefined || raw.trim() === '') { results.push({ file, changed: false }); continue }
+      const errors: ParseError[] = []
+      const parsed: unknown = parseJsonc(raw, errors, { allowTrailingComma: true, disallowComments: false })
+      if (errors.length > 0 || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        const why = errors.length > 0 ? printParseErrorCode(errors[0].error) : 'not an object'
+        results.push({ file, changed: false, error: `${file} could not be parsed (${why}) — left untouched` })
+        continue
+      }
+      const settings = parsed as Record<string, unknown>
+      const endpoint = settings[COPILOT_ENDPOINT_KEY]
+      if (typeof endpoint === 'string' && endpoint && !isTraceRoostEndpoint(endpoint)) {
+        results.push({ file, changed: false, warning: `${COPILOT_ENDPOINT_KEY} in ${file} points at ${endpoint}, not TraceRoost; left untouched` })
+        continue
+      }
+      // No endpoint in the file: Copilot falls back to its default, TraceRoost's when it is on 4318.
+      const viaDefault = endpoint === undefined && opts.port !== undefined && COPILOT_DEFAULT_ENDPOINT === `http://localhost:${opts.port}`
+      if (!isTraceRoostEndpoint(endpoint) && !viaDefault) { results.push({ file, changed: false }); continue }
+      let text = raw
+      for (const key of Object.keys(ours)) {
+        if (key === COPILOT_ENDPOINT_KEY ? endpoint !== undefined : settings[key] === ours[key]) {
+          text = applyEdits(text, modify(text, [key], undefined, JSONC_FORMAT))
+        }
+      }
+      if (text === raw) { results.push({ file, changed: false }); continue }
+      if (!opts.dryRun) await writeConfigFile(file, text, true, false)
+      results.push({ file, changed: true })
+    } catch (e) {
+      results.push({ file, changed: false, error: String(e) })
+    }
+  }
+  return results
+}

@@ -7,11 +7,12 @@ reconciliation paths (queue drain, trace manifest, on-demand backfill). It is th
 the machine's side.
 
 It deliberately does **not** describe the service — its data model, entitlement, crons or
-views — nor the client internals that aren't part of the interface:
+views (core is public and its docs stay core-only) — nor the client internals that aren't part
+of the interface:
 
 | For | See |
 | --- | --- |
-| The service itself (ingest, replace order, retirement, plans, crons, infrastructure) | `traceroost/cloud`'s `ARCHITECTURE.md`; the wire fields as the service stores them, `docs/ROLLUP_SCHEMA.md` there |
+| The service itself (ingest, replace order, retirement, plans, crons, infrastructure) | TraceRoost Cloud's own documentation — not this repository |
 | The module map of `src/cloud/`, the editions split, surfaces (Org panel, CLI, command palette, deep links), the free/paid boundary and the free attribution/turnover engine | [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-cloud--org-link) |
 | Why `src/cloud/` is one directory under its own license | [`src/cloud/README.md`](src/cloud/README.md), [`NOTICE.md`](NOTICE.md) |
 | The exact wire contract | [`schema/rollup.v1.json`](schema/rollup.v1.json) |
@@ -23,11 +24,11 @@ views — nor the client internals that aren't part of the interface:
    code to travel in even if a bug tried to send it.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my* machine, *my*
    commits, *my* repositories is free and complete. Cloud is cross-developer aggregation — the one
-   thing a local install genuinely cannot do itself. Nothing local is gated behind Cloud. Cloud's
-   own plans (a Free plan for small teams, Team beyond it) and their limits are the service's
-   business, defined in `traceroost/cloud`; the only one the client ever sees is the daily rollup
-   ceiling, which reaches it as a `429` with `X-TraceRoost-Ceiling: daily` (below) — a guard that
-   defers, never drops.
+   thing a local install genuinely cannot do itself. Nothing local is gated behind Cloud. (Cloud
+   has its own Free plan for small teams; that is a Cloud plan, not a limit on the local install.)
+   Cloud's plans and their limits are the service's business; the only one the client ever sees
+   is the daily rollup ceiling, which reaches it as a `429` with `X-TraceRoost-Ceiling: daily`
+   (below) — a guard that defers, never drops.
 
 ## The client owns the contract
 

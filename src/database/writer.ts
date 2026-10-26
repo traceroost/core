@@ -141,19 +141,26 @@ export class DatabaseWriter {
 
   /** The stored row's source rank (inferred for a row written before ranks existed), or null. */
   private _storedRank(sessionId: string): number | null {
+    return this._storedRow(sessionId)?.rank ?? null
+  }
+
+  /** What a write needs to know about the stored row, in one lookup: its source rank, and — for an
+   *  OTEL row — its call count (see _isDowngradeOfStoredOtelRow). Null when there is no row. */
+  private _storedRow(sessionId: string): { rank: number; otelCalls: number | null } | null {
     const rows = this.db.exec(
-      'SELECT source_rank, data_source, total_llm_calls, input_tokens, output_tokens FROM sessions WHERE session_id = ?',
+      'SELECT source_rank, data_source, total_llm_calls, input_tokens, output_tokens, total_tool_calls FROM sessions WHERE session_id = ?',
       [sessionId],
     )
     const row = rows[0]?.values[0]
     if (!row) return null
-    return sourceRankOf({
+    const rank = sourceRankOf({
       sourceRank: (row[0] as number | null) ?? undefined,
       dataSource: row[1] === 'log' ? 'log' : 'otel',
       totalLlmCalls: Number(row[2] ?? 0),
       inputTokens: Number(row[3] ?? 0),
       outputTokens: Number(row[4] ?? 0),
     })
+    return { rank, otelCalls: row[1] === 'otel' ? Number(row[2] ?? 0) + Number(row[5] ?? 0) : null }
   }
 
   /** A lower-rank card that lost to the stored row still carries what only its source knows: the
@@ -171,13 +178,18 @@ export class DatabaseWriter {
 
   /** Removes any synthetic placeholder session (session_id LIKE 'synth-%') for the given traceId. */
   deleteSynthSession(traceId: string): void {
+    // Runs for every persisted live card. LIKE is case-insensitive, so it can't use the primary-key
+    // index and scanned the whole table (~7 ms at 20k sessions, almost always to delete nothing);
+    // the range on session_id ('.' sorts right after '-') confines it to the synth- ids.
     try {
       this.db.run(
-        `DELETE FROM sessions WHERE trace_id = ? AND session_id LIKE 'synth-%'`,
+        `DELETE FROM sessions WHERE session_id >= 'synth-' AND session_id < 'synth.'
+          AND session_id LIKE 'synth-%' AND trace_id = ?`,
         [traceId],
       )
+      // Only a real delete invalidates the listSessions() memo.
+      if (Number(this.db.exec('SELECT changes()')[0]?.values[0]?.[0] ?? 0) > 0) bumpSessionsVersion(this.db)
     } catch { /* ignore — non-fatal */ }
-    bumpSessionsVersion(this.db)
   }
 
   /**
@@ -292,23 +304,21 @@ export class DatabaseWriter {
    * ever lost part of a run (the store's hard memory cap), the new card would have fewer calls
    * than the row already stored — never let it replace that richer row.
    */
-  private _isDowngradeOfStoredOtelRow(card: SessionSummaryCard): boolean {
-    if (card.dataSource !== 'otel') return false
-    const rows = this.db.exec(
-      `SELECT total_llm_calls + total_tool_calls FROM sessions WHERE session_id = ? AND data_source = 'otel'`,
-      [card.sessionId],
-    )
-    const stored = Number(rows[0]?.values[0]?.[0] ?? -1)
-    return stored > card.totalLlmCalls + card.totalToolCalls
+  private _isDowngradeOfStoredOtelRow(card: SessionSummaryCard, stored: { otelCalls: number | null } | null): boolean {
+    if (card.dataSource !== 'otel' || stored === null || stored.otelCalls === null) return false
+    return stored.otelCalls > card.totalLlmCalls + card.totalToolCalls
   }
 
   private async _writeOnce(card: SessionSummaryCard, workspace: string): Promise<void> {
-    if (this._isDowngradeOfStoredOtelRow(card)) {
+    // One lookup of the stored row serves the downgrade check, the precedence check and the
+    // unchanged-row check below (three separate SELECTs per card before).
+    const stored = this._storedRow(card.sessionId)
+    if (this._isDowngradeOfStoredOtelRow(card, stored)) {
       this.log(`DatabaseWriter: kept stored session ${card.sessionId} — incoming card has fewer calls`)
       return
     }
     // Precedence again at write time: a higher-rank card may have been written since enqueue.
-    const storedRank = this._storedRank(card.sessionId)
+    const storedRank = stored?.rank ?? null
     if (storedRank !== null && storedRank > sourceRankOf(card)) {
       this._backfillFrom(card)
       return
@@ -323,7 +333,7 @@ export class DatabaseWriter {
     const fingerprint = crypto.createHash('sha1')
       .update(JSON.stringify([sessionParams, timelineParams, editParams]))
       .digest('base64')
-    const unchanged = this.writtenFingerprints.get(card.sessionId) === fingerprint && this._sessionRowExists(card.sessionId)
+    const unchanged = this.writtenFingerprints.get(card.sessionId) === fingerprint && stored !== null
     this.writtenFingerprints.delete(card.sessionId)
 
     const stmts = new StatementCache(this.db)
@@ -356,7 +366,9 @@ export class DatabaseWriter {
       try { this.db.run('ROLLBACK') } catch { /* ignore rollback errors */ }
       throw err
     } finally {
-      bumpSessionsVersion(this.db)
+      // The unchanged path only refreshes created_at, which no session card carries — keeping the
+      // listSessions() memo valid instead of re-reading every stored row on the next refresh.
+      if (!unchanged) bumpSessionsVersion(this.db)
     }
     if (unchanged) {
       this.writtenFingerprints.set(card.sessionId, fingerprint)
@@ -369,11 +381,6 @@ export class DatabaseWriter {
       if (!await this._writeBlobsForEntry(entry)) blobsWritten = false
     }
     if (blobsWritten) this.writtenFingerprints.set(card.sessionId, fingerprint)
-  }
-
-  private _sessionRowExists(sessionId: string): boolean {
-    const rows = this.db.exec('SELECT 1 FROM sessions WHERE session_id = ?', [sessionId])
-    return (rows[0]?.values.length ?? 0) > 0
   }
 
   private _writeSessionRow(stmts: StatementCache, card: SessionSummaryCard, workspace: string): void {

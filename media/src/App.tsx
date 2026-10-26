@@ -1,9 +1,8 @@
 import { signal } from '@preact/signals'
 import { useEffect, useRef, useState } from 'preact/hooks'
-import type { ComponentChildren } from 'preact'
 import {
   sessionSummary, toolCalls,
-  selectedAgentFilter, availableAgents, showAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab, focusedSessionId,
+  selectedAgentFilter, availableAgents, showAgentFilter, languageFilter, availableLanguages, initiatorFilter, dataSourceFilter, sessionLimit, activeTab,
   receiveSessionTimeline, gitOutcomes, outcomeFilter, preOutcomeFilteredSessions, requestGitOutcomesFor, gitOutcomeRequestSettled,
   runningGitCommands, deferredGitOutcomeSessionIds, actionLog,
   repoInfo,
@@ -15,29 +14,32 @@ import {
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending,
-  getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp,
+  getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp, riskSignals,
+  configOpen, alertsOpen, filtersOpen, filtersFocusField,
 } from './state'
-import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
+import { useDialog } from './a11y'
+import type { TimelineEntry, AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, OutcomeFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, LoopSignal, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
 import { Wordmark } from './Wordmark'
-import { DATA_SOURCE_COLORS, INITIATOR_COLORS, isHostMessage } from './utils'
+import { DATA_SOURCE_COLORS, INITIATOR_COLORS, isHostMessage, getAgentColorVar } from './utils'
 import { LANGUAGE_LABELS } from './language'
 
 // Tab components
 import { Sessions } from './tabs/Sessions'
 import { Analytics } from './tabs/Analytics'
-import { Alerts, computeAlertCount, getTriggeredAlerts, checkAlerts, type TriggeredAlert } from './tabs/Alerts'
+import { computeAlertCount, checkAlerts } from './tabs/Alerts'
+import { AlertsPanel, openAlertsPanel, openAlertCard } from './AlertsPanel'
 import { Export } from './tabs/Export'
 import { Import } from './tabs/Import'
 import { Help } from './tabs/Help'
 import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
-import { Automation, checkAutomations } from './tabs/Automation'
+import { checkAutomations } from './tabs/Automation'
 import { receiveInstructionMessage } from './tabs/Instructions'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSetting, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
 import { suggestionUrl } from './suggest'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION } from './agentSetupText'
+import { AGENT_SETUP_DECLINED, AGENT_SETUP_DONT, AGENT_SETUP_EXPLANATION, AGENT_SETUP_NOT_NOW, AGENT_SETUP_QUESTION, AGENT_SETUP_YES } from './agentSetupText'
 
 /** The REPO filter's empty state, shown as its placeholder and first list entry. */
 const REPO_ALL = 'All'
@@ -47,9 +49,7 @@ const REPO_ALL = 'All'
 // duplicates content already visible in the main dashboard. VS Code's native
 // sidebar (toggled via workbench commands, not this panel) defaults to open.
 const sidebarOpen = signal(window.__STANDALONE__ !== true)
-const configOpen = signal(false)
 const actionLogOpen = signal(false)
-const bellOpen = signal(false)
 const versionCheckOpen = signal(false)
 const versionCheck = signal<VersionCheckResponse | null>(null)
 
@@ -85,48 +85,27 @@ function normalizeTabId(tab: string): string {
   return tab
 }
 
-function CollapsibleSection({ title, children }: { title: string; children: ComponentChildren }) {
-  const [open, setOpen] = useState(true)
-  return (
-    <div style="border-bottom:1px solid var(--border)">
-      <button
-        onClick={() => setOpen(o => !o)}
-        style="display:flex;align-items:center;gap:6px;width:100%;padding:10px 14px;background:none;border:none;cursor:pointer;text-align:left;color:var(--fg)"
-      >
-        <span style={`color:var(--muted);font-size:9px;display:inline-block;transition:transform 0.15s;transform:rotate(${open ? 90 : 0}deg)`}>▶</span>
-        <span style="font-size:12px;font-weight:600">{title}</span>
-      </button>
-      {open && (
-        <div style="padding:0 14px 14px">
-          {children}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function ConfigPanel() {
   const open = configOpen.value
-
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') configOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+  const ref = useDialog<HTMLDivElement>(open, () => { configOpen.value = false })
 
   return (
     <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-drawer-title"
       inert={!open}
       aria-hidden={!open}
       style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
     >
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Settings</span>
+        <h2 id="settings-drawer-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">Settings</h2>
         <button
           onClick={() => configOpen.value = false}
           style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
           title="Close (Esc)"
+          aria-label="Close settings"
         >×</button>
       </div>
       {window.__STANDALONE__ === true && <ThemeToggle />}
@@ -135,12 +114,6 @@ function ConfigPanel() {
       <OtelReconfigureButton />
       {window.__STANDALONE__ === true && <DashboardPortSetting />}
       <McpToggle />
-      <CollapsibleSection title="Alerts">
-        <Alerts />
-      </CollapsibleSection>
-      <CollapsibleSection title="Automation">
-        <Automation />
-      </CollapsibleSection>
     </div>
   )
 }
@@ -162,7 +135,7 @@ function ActionLogRow({ entry }: { entry: ActionLogEntry }) {
     <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted)">
         <span>{relativeTime(entry.startedAt)}</span>
-        {running ? <span style="color:#4fc3f7">running…</span> : entry.failed ? <span style="color:#f44747">failed</span> : null}
+        {running ? <span style="color:var(--vscode-textLink-foreground, #4fc3f7)">running…</span> : entry.failed ? <span style="color:var(--vscode-errorForeground, #f44747)">failed</span> : null}
       </div>
       <div style="color:var(--fg);margin-top:2px">{entry.gloss ?? entry.raw}</div>
       <div style="color:var(--muted);font-family:var(--vscode-editor-font-family,monospace);margin-top:2px;overflow-wrap:break-word">
@@ -176,40 +149,33 @@ function ActionLogRow({ entry }: { entry: ActionLogEntry }) {
 // right now" footer ticker — this panel is the persistent history, that ticker stays as-is.
 function ActionLogPanel() {
   const open = actionLogOpen.value
-
-  useEffect(() => {
-    if (!open) return
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') actionLogOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+  const ref = useDialog<HTMLDivElement>(open, () => { actionLogOpen.value = false })
 
   const entries = actionLog.value
   return (
     <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="action-log-title"
       inert={!open}
       aria-hidden={!open}
       style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
     >
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Action log</span>
+        <h2 id="action-log-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">Action log</h2>
         <button
           onClick={() => actionLogOpen.value = false}
           style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
           title="Close (Esc)"
+          aria-label="Close action log"
         >×</button>
       </div>
       {entries.length === 0
-        ? <div style="padding:14px;font-size:11px;color:var(--muted)">Nothing has run yet this session.</div>
+        ? <div style="padding:14px;font-size:11px;color:var(--muted)">Nothing has run yet since TraceRoost started.</div>
         : [...entries].reverse().map(e => <ActionLogRow key={e.id} entry={e} />)}
     </div>
   )
-}
-
-const SEV_COLOR: Record<string, string> = {
-  error:   '#f44747',
-  warning: '#f6a623',
-  info:    '#4fc3f7',
 }
 
 function IconBell() {
@@ -231,7 +197,7 @@ function IconGear() {
 }
 
 // Fixed 12x12 so a status icon appearing/disappearing next to it never reflows neighboring
-// controls — used by OutcomeFilterBar while git outcomes are still resolving.
+// controls — used beside the Filters button while git outcomes are still resolving.
 function IconSpinner() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="display:block;animation:tr-spin 0.8s linear infinite">
@@ -292,76 +258,23 @@ function IconUpdate() {
   )
 }
 
-function AlertStatusCard({ alerts }: { alerts: TriggeredAlert[] }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') bellOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
-  return (
-    <>
-      {/* Backdrop — click outside to close */}
-      <div style="position:fixed;inset:0;z-index:199" onClick={() => bellOpen.value = false} />
-      <div style="position:fixed;top:35px;right:8px;width:min(400px,calc(100vw - 16px));background:var(--vscode-editor-background);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.5);z-index:200;overflow:hidden">
-        <div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">
-          Active Alerts
-        </div>
-        {alerts.length === 0 ? (
-          <div style="padding:14px 12px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px">
-            <span style="color:#81c784;font-size:14px">✓</span> All clear — no alerts triggered
-          </div>
-        ) : (
-          <div>
-            {alerts.map((a, i) => {
-              const color = SEV_COLOR[a.severity] ?? '#f6a623'
-              return (
-                <div key={i} style={`padding:10px 12px;border-left:3px solid ${color};${i > 0 ? 'border-top:1px solid var(--border)' : ''}`}>
-                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-                    <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0`} />
-                    <span style={`font-size:12px;font-weight:600;color:${color}`}>{a.label}</span>
-                  </div>
-                  {a.detail && <div style="font-size:11px;color:var(--muted);line-height:1.4">{a.detail}</div>}
-                  {a.sessionId && (
-                    <span
-                      role="link"
-                      tabIndex={0}
-                      onClick={() => { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false }}
-                      onKeyDown={e => { if (e.key === 'Enter') { focusedSessionId.value = a.sessionId!; activeTab.value = 'sessions'; bellOpen.value = false } }}
-                      style="display:inline-block;margin-top:4px;font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline"
-                    >View trace →</span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-        <div style="padding:8px 12px;border-top:1px solid var(--border)">
-          <button
-            style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer;padding:0"
-            onClick={() => { bellOpen.value = false; configOpen.value = true }}
-          >Configure alerts →</button>
-        </div>
-      </div>
-    </>
-  )
-}
-
 function BellButton() {
   void displaySessions.value
   const count = computeAlertCount()
-  const open = bellOpen.value
+  const open = alertsOpen.value
+  // Opens the Alerts panel (AlertsPanel.tsx) on its Active tab: what's firing now, with the
+  // alert and automation settings one tab over.
   return (
     <div style="position:relative;display:flex;align-items:center">
       <button
         class={'icon-btn' + (open ? ' active' : '')}
         title={count > 0 ? `Alerts — ${count} triggered` : 'Alerts'}
         aria-label={count > 0 ? `Alerts (${count})` : 'Alerts'}
+        aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => { bellOpen.value = !bellOpen.value }}
+        onClick={() => { if (open) alertsOpen.value = false; else openAlertsPanel('active') }}
       ><IconBell /></button>
       {count > 0 && <span class="alert-badge">{count}</span>}
-      {open && <AlertStatusCard alerts={getTriggeredAlerts()} />}
     </div>
   )
 }
@@ -382,22 +295,31 @@ function UpdateStatusCard({ info }: { info: VersionCheckResponse }) {
         </div>
         <div style="padding:12px;font-size:12px;color:var(--fg);line-height:1.5">
           <div style="margin-bottom:8px">
-            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available on npm.
+            Running <strong>v{info.currentVersion}</strong> — <strong>v{info.latestVersion}</strong> is available{info.isDesktop ? '' : ' on npm'}.
           </div>
-          <div style="margin-bottom:8px;color:var(--muted)">
-            {info.isService
-              ? 'Update the background service:'
-              : info.isDocker
-                ? 'Pull the new image:'
-                : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTEL data is never lost. Install it (this also updates you to the latest version):"}
-          </div>
-          <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
+          {info.isDesktop && info.recommendedUrl ? (
+            <div style="margin-bottom:6px">
+              <a href={info.recommendedUrl} target="_blank" rel="noreferrer">Download the new desktop app from GitHub Releases</a>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Install it over this one; your traces and settings are kept.</div>
+            </div>
+          ) : (
+            <>
+              <div style="margin-bottom:8px;color:var(--muted)">
+                {info.isService
+                  ? 'Update the background service:'
+                  : info.isDocker
+                    ? 'Pull the new image:'
+                    : "TraceRoost isn't running as a background service — the recommended way to run it, so incoming OTel data is never lost. Install it (this also updates you to the latest version):"}
+              </div>
+              <code style="display:block;padding:6px 8px;background:var(--hover);border-radius:3px;font-size:11px;margin-bottom:6px;user-select:all">{info.recommendedCommand}</code>
+            </>
+          )}
           {info.isDocker && (
             <div style="font-size:11px;color:var(--muted)">
               Then stop and remove this container and start a new one with your usual <code>docker run</code> command (with <code>--pull=always</code>, that run alone also fetches the new image). Mount a volume on <code>/data</code> to keep your traces and access token across containers.
             </div>
           )}
-          {!info.isService && !info.isDocker && (
+          {!info.isService && !info.isDocker && !info.isDesktop && (
             <div style="font-size:11px;color:var(--muted)">
               Or for a quick one-off look: <code>npx traceroost@latest</code> · Homebrew: <code>brew upgrade traceroost</code> · Docker: <code>docker pull traceroost/traceroost</code> and re-run your <code>docker run</code> command.
             </div>
@@ -502,14 +424,18 @@ export function App() {
   // [title] tooltip — native title tooltips take ~1s+ (OS/browser-controlled, not something CSS
   // or JS can shorten) to appear, which reads as sluggish given how many small badges/pills
   // throughout this app rely on title text to explain themselves. This shows the same styled
-  // tooltip for either attribute after one short, consistent delay. The native title is
-  // temporarily removed while hovered (restored on mouseout) so it can't also pop in later,
+  // tooltip for either attribute after one short, consistent delay — on hover, and on keyboard
+  // focus so tooltip-only meaning is reachable without a mouse. The native title is temporarily
+  // removed while hovered/focused (restored on mouseout/focusout) so it can't also pop in later,
   // stacked on top of this one.
   useEffect(() => {
     const HOVER_DELAY_MS = 150
     let tipEl: HTMLDivElement | null = null
     let showTimer: ReturnType<typeof setTimeout> | null = null
     let activeTarget: HTMLElement | null = null
+    // The target whose tooltip Escape dismissed: it stays dismissed while the pointer or focus is
+    // still on it (moving over its children fires mouseover again), and shows again once left.
+    let dismissedTarget: HTMLElement | null = null
 
     function clearTimer() {
       if (showTimer !== null) { clearTimeout(showTimer); showTimer = null }
@@ -551,9 +477,14 @@ export function App() {
       }
     }
 
-    function show(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('[data-tip], [title]') as HTMLElement | null
-      if (!target || target === activeTarget) return
+    function show(e: MouseEvent | FocusEvent) {
+      const el = e.target as HTMLElement | null
+      if (!el?.closest) return
+      // Keyboard focus shows the same tooltip as hover. Focus from a mouse click doesn't — the
+      // pointer is already hovering it, and a click-focused button shouldn't re-trigger it.
+      if (e.type === 'focusin' && !el.matches(':focus-visible')) return
+      const target = el.closest('[data-tip], [title]') as HTMLElement | null
+      if (!target || target === activeTarget || target === dismissedTarget) return
       clearTimer()
       activeTarget = target
       // Suppress the native tooltip right away (not after the delay) so it never gets a chance
@@ -569,13 +500,16 @@ export function App() {
       }, HOVER_DELAY_MS)
     }
 
-    function hide(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('[data-tip], [data-native-title]') as HTMLElement | null
+    function hide(e: MouseEvent | FocusEvent) {
+      const el = e.target as HTMLElement | null
+      if (!el?.closest) return
+      const related = e.relatedTarget as Node | null
+      if (dismissedTarget?.contains(el) && !(related && dismissedTarget.contains(related))) dismissedTarget = null
+      const target = el.closest('[data-tip], [data-native-title]') as HTMLElement | null
       if (!target) return
       // Moving onto a child of the same target (e.g. an icon inside a titled pill) isn't a real
       // leave — mouseout/mouseover delegation fires for that boundary too, and without this
       // check the tooltip would flicker hidden-then-rescheduled on every such internal move.
-      const related = e.relatedTarget as Node | null
       if (related && target.contains(related)) return
       restoreNativeTitle(target)
       clearTimer()
@@ -583,11 +517,29 @@ export function App() {
       if (tipEl) tipEl.style.display = 'none'
     }
 
+    // Escape dismisses a showing tooltip without moving focus or the pointer (WCAG 1.4.13).
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape' || !activeTarget) return
+      restoreNativeTitle(activeTarget)
+      clearTimer()
+      // Forget it as the active target, or show() would ignore it for good and its styled
+      // tooltip would never appear again.
+      dismissedTarget = activeTarget
+      activeTarget = null
+      if (tipEl) tipEl.style.display = 'none'
+    }
+
     document.addEventListener('mouseover', show)
     document.addEventListener('mouseout', hide)
+    document.addEventListener('focusin', show)
+    document.addEventListener('focusout', hide)
+    document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('mouseover', show)
       document.removeEventListener('mouseout', hide)
+      document.removeEventListener('focusin', show)
+      document.removeEventListener('focusout', hide)
+      document.removeEventListener('keydown', onKey)
       clearTimer()
       if (tipEl) { tipEl.remove(); tipEl = null }
     }
@@ -644,6 +596,7 @@ export function App() {
         sessionId?: string
         timeline?: TimelineEntry[]
         outcome?: GitOutcome | null
+        riskSignals?: LoopSignal[]
         outcomes?: Record<string, GitOutcome>
         workspace?: string
         name?: string | null
@@ -700,7 +653,7 @@ export function App() {
           sessionRev = msg.rev
         }
         // Warm the git-outcome cache in the background as soon as sessions load, rather than
-        // waiting for the Outcome filter to be engaged (OutcomeFilterBar below) or the Outcome
+        // waiting for the Outcome filter to be engaged (useOutcomeResolution below) or the Outcome
         // column to scroll into view (Sessions.tsx). Both of those still fire their own request
         // on top of this — requestGitOutcomesFor already skips anything already resolved or
         // in flight, so that's a cheap no-op once this has run. This is what makes turning the
@@ -732,7 +685,7 @@ export function App() {
             }
             const alertNotifications = checkAlerts()
             for (const a of alertNotifications) {
-              vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
+              vscode?.postMessage({ type: 'alert', alertId: a.alertId, label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
             }
           }, 0)
         }
@@ -760,6 +713,14 @@ export function App() {
         }
         pendingOutcomes[msg.sessionId] = msg.outcome ?? null
         settledOutcomeIds.add(msg.sessionId)
+        // Only an array is an answer: the host leaves the field off when it had no timeline to
+        // check (a stored VS Code trace), which mustn't erase what an earlier reply found.
+        if (Array.isArray(msg.riskSignals)) {
+          const prev = riskSignals.value[msg.sessionId]
+          if (msg.riskSignals.length > 0 || (prev && prev.length > 0)) {
+            riskSignals.value = { ...riskSignals.value, [msg.sessionId]: msg.riskSignals }
+          }
+        }
       } else if (msg.type === 'gitOutcomeDeferred' && msg.sessionId) {
         // Session is still inside its active-session grace window — no git classification ran or
         // will run for it yet, so it shouldn't count toward the Outcome filter's "resolving N
@@ -780,7 +741,7 @@ export function App() {
           const alertNotifications = checkAlerts()
           if (first) return
           for (const a of alertNotifications) {
-            vscode?.postMessage({ type: 'alert', label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
+            vscode?.postMessage({ type: 'alert', alertId: a.alertId, label: a.label, detail: a.detail, severity: a.severity, sessionId: a.sessionId })
           }
         }, 0)
       } else if (msg.type === 'repoHash' && msg.workspace !== undefined) {
@@ -788,8 +749,11 @@ export function App() {
         repoInfo.value = { ...repoInfo.value, [msg.workspace]: entry }
       } else if (msg.type === 'switchTab' && msg.tab) {
         const tab = normalizeTabId(msg.tab)
-        if (tab === 'alerts' || tab === 'automation' || tab === 'settings-automation') {
-          configOpen.value = true
+        if (tab === 'alerts') {
+          if (typeof msg.anchor === 'string') openAlertCard(msg.anchor)
+          else openAlertsPanel('active')
+        } else if (tab === 'automation' || tab === 'settings-automation') {
+          openAlertsPanel('automation')
         } else if (tab === 'help' && typeof msg.anchor === 'string') {
           goToHelp(msg.anchor)
         } else {
@@ -860,7 +824,9 @@ export function App() {
   }, [])
 
   const tab = normalizeTabId(activeTab.value)
-  const showFilterBars = tab !== 'help' && tab !== 'pricing'
+  // Import reads a file and ignores every filter, so its tab drops the filter chrome. Export keeps
+  // it: what it exports is the filtered set.
+  const showFilterBars = tab !== 'help' && tab !== 'pricing' && tab !== 'import'
 
   return (
     <>
@@ -883,8 +849,12 @@ export function App() {
         >
           {sidebarOpen.value ? '◄' : '►'}
         </button>
-        {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
-        <div style="margin-left:auto;display:flex;align-items:center;border-left:1px solid var(--border);padding-left:2px">
+        {/* Only the tab buttons scroll on a narrow panel; the icon cluster after them never
+            shrinks, so Settings, Help and the Alerts bell stay reachable at any width. */}
+        <div class="tabs-scroll">
+          {TABS.map(t => <Tab key={t.id} id={t.id} label={t.label} />)}
+        </div>
+        <div class="tabs-icons">
           <OrgButton />
           {window.__STANDALONE__ === true && <UpdateButton />}
           <BellButton />
@@ -902,7 +872,6 @@ export function App() {
       <LogIngestBanner />
       {showFilterBars && <TimeRangePicker />}
       {showFilterBars && <SearchFilterBar />}
-      {showFilterBars && <OutcomeFilterBar />}
       {showFilterBars && <FilterActionsBar />}
       <div class="panel active h-scroll-hint">
         <ActivePanel />
@@ -910,6 +879,7 @@ export function App() {
       </div>
 
       <ConfigPanel />
+      <AlertsPanel />
       <ActionLogPanel />
       <OrgPanel />
     </>
@@ -958,7 +928,7 @@ function CollectorConflictBanner() {
           <>
             <strong>Not receiving OTel</strong> — the background service already holds port <code>{port}</code>.
             <ul style="margin:2px 0 0;padding-left:16px">
-              <li>New sessions here come from log files only (no prompt/tool content).</li>
+              <li>New traces here come from log files only (no prompt/tool content).</li>
               <li>Run TraceRoost one way per machine — background service, VS Code extension, or Docker. Recommended: the background service — it starts at login and keeps capturing OTel even when VS Code is closed, so nothing gets missed. Install with <code>npx traceroost@latest service install</code> (macOS/Linux/Windows all use the same command), or with Homebrew: <code>brew install traceroost/tap/traceroost</code> then <code>traceroost service install</code>.</li>
               <li>The service already holds this port, so: keep it and uninstall this extension (<code>code --uninstall-extension {extensionId}</code>), then reload — or, to use VS Code instead, stop the service with <code>traceroost service stop</code>.</li>
             </ul>
@@ -992,35 +962,48 @@ function CollectorConflictBanner() {
   )
 }
 
-// Asks once, on the background/npx service, whether TraceRoost may set up the user's coding agents
-// (src/agentSetupConsent.ts); VS Code asks with a notification instead. The answer is stored by the
-// server and shared with every other TraceRoost host on the machine.
+// Asks, on the background/npx service, whether TraceRoost may set up the user's coding agents
+// (src/agentSetupConsent.ts); VS Code asks with a notification instead. A yes or "Don't set up" is
+// stored by the server and shared with every other TraceRoost host on the machine; "Not now" only
+// hides the banner for this page, so it is back on the next load until answered.
 function AgentSetupBanner() {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
-  // "Not now" first shows what skipping costs; only "Skip setup" records the no.
-  const [confirmingSkip, setConfirmingSkip] = useState(false)
-  if (!agentSetupPending.value) return null
+  const [notNow, setNotNow] = useState(false)
+  // After Don't set up: what skipping costs, until dismissed.
+  const [declined, setDeclined] = useState(false)
+  if (declined) {
+    return (
+      <div class="agent-setup-banner" role="status">
+        <div style="flex:1">{AGENT_SETUP_DECLINED}</div>
+        <button aria-label="Dismiss" class="btn-secondary" onClick={() => setDeclined(false)}>OK</button>
+      </div>
+    )
+  }
+  if (!agentSetupPending.value || notNow) return null
   const answer = (choice: 'yes' | 'no') => {
     setBusy(true)
     setFailed(false)
     fetch('/action', { method: 'POST', body: JSON.stringify({ type: 'agentSetup', answer: choice }),
       headers: { 'Content-Type': 'application/json' } })
-      .then(r => { if (!r.ok) throw new Error(String(r.status)); agentSetupPending.value = false })
+      .then(r => {
+        if (!r.ok) throw new Error(String(r.status))
+        agentSetupPending.value = false
+        if (choice === 'no') setDeclined(true)
+      })
       .catch(() => setFailed(true))
       .finally(() => setBusy(false))
   }
   return (
-    <div class="collector-conflict-banner" role="region" aria-label="Set up your coding agents">
+    <div class="agent-setup-banner" role="region" aria-label="Set up your coding agents">
       <div style="flex:1">
-        <strong>{confirmingSkip ? AGENT_SETUP_SKIP_QUESTION : AGENT_SETUP_QUESTION}</strong>
-        <div style="margin-top:2px">{confirmingSkip ? AGENT_SETUP_SKIP_EXPLANATION : AGENT_SETUP_EXPLANATION}</div>
-        {failed && <div style="margin-top:4px">That didn't go through — try again, or use Configure OTEL in Settings.</div>}
-        <div style="display:flex;gap:8px;margin-top:6px">
-          <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('yes')}>Set up agents</button>
-          {confirmingSkip
-            ? <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => answer('no')}>Skip setup</button>
-            : <button style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)" disabled={busy} onClick={() => setConfirmingSkip(true)}>Not now</button>}
+        <strong>{AGENT_SETUP_QUESTION}</strong>
+        <div style="margin-top:2px">{AGENT_SETUP_EXPLANATION}</div>
+        {failed && <div role="alert" style="margin-top:4px">That didn't go through — try again, or use Set up agents in Settings.</div>}
+        <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn-primary" disabled={busy} onClick={() => answer('yes')}>{AGENT_SETUP_YES}</button>
+          <button class="btn-secondary" disabled={busy} onClick={() => setNotNow(true)}>{AGENT_SETUP_NOT_NOW}</button>
+          <button class="btn-secondary" disabled={busy} onClick={() => answer('no')}>{AGENT_SETUP_DONT}</button>
         </div>
       </div>
     </div>
@@ -1051,7 +1034,7 @@ function GitCommandStatusBar() {
   return (
     <div
       role="status"
-      style="position:sticky;bottom:0;flex-shrink:0;display:flex;align-items:center;gap:5px;padding:2px 8px;font-size:10px;font-family:var(--vscode-editor-font-family,monospace);color:var(--muted);background:var(--vscode-editor-background);border-top:1px solid var(--vscode-panel-border);overflow:hidden;white-space:nowrap"
+      style="position:sticky;bottom:0;flex-shrink:0;display:flex;align-items:center;gap:5px;padding:2px 8px;font-size:var(--fs-xs);font-family:var(--vscode-editor-font-family,monospace);color:var(--muted);background:var(--vscode-editor-background);border-top:1px solid var(--vscode-panel-border);overflow:hidden;white-space:nowrap"
       title={commands.join('\n')}
     >
       <span style="overflow:hidden;text-overflow:ellipsis">{current}</span>
@@ -1061,16 +1044,15 @@ function GitCommandStatusBar() {
 }
 
 // `color` is the pill's identity color — its border in both states, fed to the shared `.tr-pill`
-// class (pills.css) as `--tr-pill-color`. 'all' and 'opencode' use var(--fg) rather than a
-// literal white for their neutral "pop" look, which used to be invisible (white border on a
-// white page) in light mode.
+// class (pills.css) as `--tr-pill-color`. Each agent's is its theme colour from agentColors.ts,
+// the same as its row dot and chart bars; 'all' uses var(--fg).
 const AGENT_FILTER_OPTIONS: Array<{ value: AgentFilter; label: string; color: string }> = [
   { value: 'all',        label: 'All',      color: 'var(--fg)' },
-  { value: 'copilot',    label: 'Copilot',  color: 'var(--agent-copilot,#00EAFF)' },
-  { value: 'claude_code',label: 'Claude',   color: 'var(--agent-claude,#FFB085)' },
-  { value: 'codex',      label: 'Codex',    color: 'var(--agent-codex,#F0FF42)' },
-  { value: 'opencode',   label: 'OpenCode', color: 'var(--fg)' },
-  { value: 'cursor',     label: 'Cursor',   color: 'var(--agent-cursor,#B39DDB)' },
+  { value: 'copilot',    label: 'Copilot',  color: getAgentColorVar('copilot') },
+  { value: 'claude_code',label: 'Claude',   color: getAgentColorVar('claude_code') },
+  { value: 'codex',      label: 'Codex',    color: getAgentColorVar('codex') },
+  { value: 'opencode',   label: 'OpenCode', color: getAgentColorVar('opencode') },
+  { value: 'cursor',     label: 'Cursor',   color: getAgentColorVar('cursor') },
 ]
 
 // `YYYY-MM-DD` date input value + an optional `HH:MM` time input value <-> unix ms, treating both
@@ -1230,10 +1212,10 @@ function TimeRangeMenu({ range, onSelectPreset, onApplyCustom }: {
           ))}
         </div>
         <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:8px">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Custom range</div>
+          <div style="font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px">Custom range</div>
           <div style="display:flex;flex-direction:column;gap:6px">
             <div style="display:flex;flex-direction:column;gap:2px">
-              <span style="font-size:10px;color:var(--muted)">Since</span>
+              <span style="font-size:var(--fs-xs);color:var(--muted)">Since</span>
               <div style="display:flex;gap:4px">
                 <input
                   type="date"
@@ -1255,7 +1237,7 @@ function TimeRangeMenu({ range, onSelectPreset, onApplyCustom }: {
               </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:2px">
-              <span style="font-size:10px;color:var(--muted)">Until</span>
+              <span style="font-size:var(--fs-xs);color:var(--muted)">Until</span>
               <div style="display:flex;gap:4px">
                 <input
                   type="date"
@@ -1342,13 +1324,6 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
     }
   }, [rangedSearchResults.value])
 
-  // Resolves each known workspace's git repo hash (repoKey.ts's repoHash, the same one
-  // traceroost-cloud shows in its own Repo column) up front, so the Repo filter below can match a
-  // pasted hash as soon as it's typed rather than only after some other view has requested it.
-  useEffect(() => {
-    availableWorkspaces.value.forEach(ws => requestRepoHash(ws))
-  }, [availableWorkspaces.value])
-
   // Agent pills: "All" plus only the agents loaded traces have (state.ts availableAgents, which
   // also keeps a selected agent listed), in AGENT_FILTER_OPTIONS order. The row is hidden when
   // there is nothing to choose between — see showAgentFilter.
@@ -1359,7 +1334,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
     <div class="time-range-bar" role="group" aria-label="Time and agent filters" style="display:flex;align-items:center;gap:0;padding:0 8px 6px;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
       {/* Time presets + custom range, collapsed into one popover trigger so a custom
           date range never widens this bar — see TimeRangeMenu above. */}
-      <span style="font-size:10px;color:var(--muted);margin-right:6px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Time</span>
+      <span style="font-size:var(--fs-xs);color:var(--muted);margin-right:6px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Time</span>
       <TimeRangeMenu
         range={range}
         onSelectPreset={selectPreset}
@@ -1374,7 +1349,7 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
           and no agent is selected (showAgentFilter). */}
       {!hideAgentFilter && showAgentFilter.value && (
         <div class="tr-agent-filter" style="display:flex;gap:3px;align-items:center;margin-left:20px">
-          <span style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
+          <span style="font-size:var(--fs-xs);color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Agent</span>
           {agentOptions.map(o => (
             <button
               key={o.value}
@@ -1387,41 +1362,9 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
         </div>
       )}
 
-      {/* Language filter — only the languages loaded traces actually have (availableLanguages), so a
-          <select> rather than pills.
-          Matches a trace whose primary or secondary language is the one picked. */}
-      {!hideAgentFilter && (
-        <div style="display:flex;align-items:center;margin-left:20px">
-          <label for="tr-filter-language" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Language</label>
-          <select
-            id="tr-filter-language"
-            class={'tr-header-input' + (languageFilter.value !== 'all' ? ' active' : '')}
-            value={languageFilter.value}
-            onChange={e => { languageFilter.value = (e.target as HTMLSelectElement).value as LanguageFilter }}
-            title="Traces whose primary or secondary language is this one — derived from the code files the agent read or changed"
-            style="flex:none;width:auto"
-          >
-            <option value="all">All</option>
-            {availableLanguages.value.map(id => <option key={id} value={id}>{LANGUAGE_LABELS[id]}</option>)}
-          </select>
-        </div>
-      )}
-
-      {/* Prompt filter — substring match against the trace's captured prompt text. */}
-      {!hideAgentFilter && (
-        <div style="display:flex;align-items:center;margin-left:20px">
-          <label for="tr-filter-prompt" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Prompt</label>
-          <input
-            id="tr-filter-prompt"
-            type="text"
-            class={'tr-header-input' + (sessionTextFilter.value.trim() !== '' ? ' active' : '')}
-            placeholder="Text or Trace ID"
-            value={sessionTextFilter.value}
-            onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
-            style="flex:none;width:180px"
-          />
-        </div>
-      )}
+      {/* Every other filter (Prompt, Language, Repo, Outcome, Source, From) sits behind one
+          "Filters (n)" button, with the active ones as removable chips beside it. */}
+      {!hideAgentFilter && <FiltersControl />}
 
       {/* Search status/loading stay grouped together, immediately after the last filter control
           (no margin-left:auto) so there's no dead gap before them. Clear Filters and trace paging
@@ -1443,8 +1386,8 @@ function TimeRangePicker({ hideAgentFilter = false }: { hideAgentFilter?: boolea
 }
 
 // Clear Filters + trace paging, on their own row directly above the table — pulled out of
-// TimeRangePicker's trailing controls (where they used to live) so they sit under every filter bar
-// (Time, Agent, Prompt, Source, From, Outcome) instead of looking scoped to just the top row.
+// TimeRangePicker's trailing controls (where they used to live) so they read as acting on every
+// filter (Time, Agent and everything behind the Filters button) instead of on just one of them.
 // Paging mirrors the table's own footer in Sessions.tsx exactly (same styling, same sessionsPage
 // signal) so the two never disagree; kept mounted for short/empty results so the row stays steady.
 function FilterActionsBar() {
@@ -1520,7 +1463,7 @@ function FilterActionsBar() {
 
 const DATA_SOURCE_FILTER_OPTIONS: Array<{ value: DataSourceFilter; label: string; color: string }> = [
   { value: 'all',  label: 'All',  color: DATA_SOURCE_COLORS.all },
-  { value: 'otel', label: 'OTEL', color: DATA_SOURCE_COLORS.otel },
+  { value: 'otel', label: 'OTel', color: DATA_SOURCE_COLORS.otel },
   { value: 'log',  label: 'Log',  color: DATA_SOURCE_COLORS.log },
 ]
 
@@ -1532,13 +1475,14 @@ const INITIATOR_FILTER_OPTIONS: Array<{ value: InitiatorFilter; label: string; c
 
 // Mirrors traceroost-cloud's own `FilterPills` (src/app/(protected)/[org]/traces/traces-table.tsx)
 // almost line for line — both render the shared `.tr-pill` class from pills.css.
-function FilterPills<T extends string>({ options, value, onChange }: {
+function FilterPills<T extends string>({ options, value, onChange, labelledBy }: {
   options: Array<{ value: T; label: string; color: string; title?: string }>
   value: T
   onChange: (v: T) => void
+  labelledBy?: string
 }) {
   return (
-    <div style="display:flex;gap:3px">
+    <div role="group" aria-labelledby={labelledBy} style="display:flex;flex-wrap:wrap;gap:3px">
       {options.map(o => (
         <button
           key={o.value}
@@ -1567,28 +1511,22 @@ const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string; color
   { value: 'all',       label: 'All',         color: 'var(--fg)',        title: 'Show all traces' },
   { value: 'merged',    label: 'Merged',      color: 'var(--tr-merged)', title: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history" },
   { value: 'committed', label: 'Committed',   color: 'var(--accent)',    title: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally" },
-  { value: 'abandoned', label: 'Uncommitted', color: '#f6a623',          title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
+  { value: 'abandoned', label: 'Uncommitted', color: 'var(--vscode-editorWarning-foreground, #f6a623)', title: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress" },
 ]
 
-// The local-git equivalent of traceroost-cloud's own Outcome filter (same TracesTable this
-// mirrors). Every other pill row on this bar filters on data every session already carries; this
-// one doesn't — classifySessionOutcome (src/gitOutcome.ts) shells out to git per changed file, so
-// it's normally computed lazily, one session at a time, only once that session's Files view opens
-// (see SessionDetail in Sessions.tsx). Turning this filter on needs it for every candidate session
-// up front instead, so it requests git outcomes for the current candidate set here — capped and
-// staggered by requestGitOutcomesFor (state.ts) rather than firing everything at once.
-//
-// Source and From share this row (after Outcome) rather than SearchFilterBar below — this is now
-// the one row that holds every pill-style filter, plus the Repo freeform input ahead of Outcome;
-// SearchFilterBar is left with only the "viewing evidence for a suggestion" banner, and Prompt
-// lives as its own freeform input on TimeRangePicker's row, next to Time and Agent, above.
-function OutcomeFilterBar() {
+// The local-git equivalent of traceroost-cloud's own Outcome filter. Every other filter works on
+// data every session already carries; this one doesn't — classifySessionOutcome (src/gitOutcome.ts)
+// shells out to git per changed file, so it's normally computed lazily, one session at a time, only
+// once that session's Files view opens (see SessionDetail in Sessions.tsx). Turning this filter on
+// needs it for every candidate session up front instead, so it requests git outcomes for the
+// current candidate set here — capped and staggered by requestGitOutcomesFor (state.ts) rather than
+// firing everything at once. Lives in the always-mounted filter bar, not the Filters popover, so it
+// keeps running with the popover closed. Returns how many outcomes are still resolving.
+function useOutcomeResolution(): number {
   const filter = outcomeFilter.value
   const candidates = preOutcomeFilteredSessions.value
   const outcomes = gitOutcomes.value
   const deferred = deferredGitOutcomeSessionIds.value
-  const dsFilter = dataSourceFilter.value
-  const iFilter = initiatorFilter.value
 
   useEffect(() => {
     if (filter === 'all') return
@@ -1604,63 +1542,80 @@ function OutcomeFilterBar() {
   // is fetching.
   const tab = normalizeTabId(activeTab.value)
   const showsOutcomeColumn = tab === 'sessions' && hasAnyWorkspace.value
-  let pendingCount = 0
   // Excludes deferred sessions (still inside their active-session grace window, see
   // deferredGitOutcomeSessionIds in state.ts) — the spinner should reflect actual git CLI
   // classification work in flight, not a session that's just waiting out a timer.
   if (filter !== 'all') {
-    pendingCount = candidates.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
-  } else if (showsOutcomeColumn) {
+    return candidates.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
+  }
+  if (showsOutcomeColumn) {
     const { page, pageSize } = getSessionsPagination(filteredSessions.value.length)
     const pageSessions = filteredSessions.value.slice(page * pageSize, (page + 1) * pageSize)
-    pendingCount = pageSessions.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
+    return pageSessions.filter(s => outcomes[s.sessionId] === undefined && !deferred.has(s.sessionId)).length
   }
+  return 0
+}
 
-  // Repo dropdown suggestions — each distinct repo's git-derived name (falling back to a
-  // path-derived guess until its repoInfo resolves), deduplicated since two workspaces can point
-  // at the same repo. A <datalist> keeps the input itself plain freeform text (matchesRepoQuery
-  // still does the actual filtering), it just also offers these as clickable suggestions.
-  const info = repoInfo.value
-  const repoOptions = [...new Set(availableWorkspaces.value.map(ws => info[ws]?.name ?? shortWorkspaceName(ws)))]
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+interface ActiveFilterChip { key: string; label: string; value: string; clear: () => void }
+
+// The secondary filters currently narrowing the traces — the "(n)" on the Filters button and the
+// removable chips beside it. Time and Agent stay in the bar itself, so they aren't counted.
+function activeSecondaryFilters(): ActiveFilterChip[] {
+  const chips: ActiveFilterChip[] = []
+  const prompt = sessionTextFilter.value.trim()
+  if (prompt !== '') chips.push({ key: 'prompt', label: 'Prompt', value: prompt, clear: () => { sessionTextFilter.value = '' } })
+  if (languageFilter.value !== 'all') {
+    const id = languageFilter.value
+    chips.push({ key: 'language', label: 'Language', value: LANGUAGE_LABELS[id as keyof typeof LANGUAGE_LABELS] ?? id, clear: () => { languageFilter.value = 'all' } })
+  }
+  const repo = workspaceFilter.value.trim()
+  if (repo !== '') chips.push({ key: 'repo', label: 'Repo', value: repo, clear: () => { workspaceFilter.value = '' } })
+  if (outcomeFilter.value !== 'all') {
+    const v = outcomeFilter.value
+    chips.push({ key: 'outcome', label: 'Outcome', value: OUTCOME_FILTER_OPTIONS.find(o => o.value === v)?.label ?? v, clear: () => { outcomeFilter.value = 'all' } })
+  }
+  if (dataSourceFilter.value !== 'all') {
+    const v = dataSourceFilter.value
+    chips.push({ key: 'source', label: 'Source', value: DATA_SOURCE_FILTER_OPTIONS.find(o => o.value === v)?.label ?? v, clear: () => { dataSourceFilter.value = 'all' } })
+  }
+  if (initiatorFilter.value !== 'all') {
+    const v = initiatorFilter.value
+    chips.push({ key: 'from', label: 'From', value: INITIATOR_FILTER_OPTIONS.find(o => o.value === v)?.label ?? v, clear: () => { initiatorFilter.value = 'all' } })
+  }
+  return chips
+}
+
+function FiltersControl() {
+  const open = filtersOpen.value
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const pendingCount = useOutcomeResolution()
+  const chips = activeSecondaryFilters()
+  const n = chips.length
+
+  // Resolves each known workspace's git repo hash (repoKey.ts's repoHash, the same one
+  // traceroost-cloud shows in its own Repo column) up front, so the Repo filter can match a pasted
+  // hash as soon as it's typed rather than only after some other view has requested it.
+  useEffect(() => {
+    availableWorkspaces.value.forEach(ws => requestRepoHash(ws))
+  }, [availableWorkspaces.value])
 
   return (
-    <div class="search-filter-controls" role="group" aria-label="Trace filters" style="display:flex;align-items:center;gap:5px;padding:4px 8px 6px;flex-wrap:wrap;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
-      {/* Repo filter — freeform match against a workspace's git-derived repo name or hash
-          (matchesRepoQuery, state.ts; hashes prefetched by TimeRangePicker's own effect above).
-          Hidden when there's only one workspace since there'd be nothing to narrow. */}
-      {availableWorkspaces.value.length > 1 && (
-        <span style="display:flex;align-items:center;margin-right:3px">
-          <label for="tr-filter-repo" style="font-size:10px;color:var(--muted);margin-right:4px;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Repo</label>
-          <input
-            id="tr-filter-repo"
-            type="text"
-            list="tr-repo-options"
-            class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
-            placeholder="All"
-            value={workspaceFilter.value}
-            onInput={e => {
-              // "All" from the list (or typed) means no repo filter, not a repo named "All".
-              const v = (e.target as HTMLInputElement).value
-              workspaceFilter.value = v.trim().toLowerCase() === REPO_ALL.toLowerCase() ? '' : v
-            }}
-            title="All repos by default. Pick one from the list, or type a repo's name or hash to narrow."
-            style="flex:none;width:110px"
-          />
-          <datalist id="tr-repo-options">
-            <option value={REPO_ALL} />
-            {repoOptions.map(name => <option key={name} value={name} />)}
-          </datalist>
-        </span>
-      )}
-      <span style="font-size:10px;color:var(--tr-brand);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px">Outcome</span>
-      <FilterPills
-        options={OUTCOME_FILTER_OPTIONS}
-        value={filter}
-        onChange={v => { outcomeFilter.value = v }}
-      />
-      {/* Fixed-size slot, always present, so the icon popping in/out while outcomes resolve never
-          shifts Source/From/the trace count next to it. */}
+    <div class="tr-filters" style="display:flex;align-items:center;gap:4px;margin-left:20px">
+      <button
+        ref={btnRef}
+        type="button"
+        class={'tr-filters-btn' + (n > 0 ? ' active' : '')}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? 'tr-filters-popover' : undefined}
+        onClick={() => { filtersOpen.value = !open }}
+        title="Prompt, Language, Repo, Outcome, Source and From filters"
+      >
+        <span>Filters{n > 0 ? ` (${n})` : ''}</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+      {/* Fixed-size slot, always present, so the spinner popping in/out while git outcomes resolve
+          never shifts the chips next to it. */}
       <span
         style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;flex-shrink:0;color:var(--muted)"
         role={pendingCount > 0 ? 'status' : undefined}
@@ -1669,40 +1624,201 @@ function OutcomeFilterBar() {
       >
         {pendingCount > 0 && <IconSpinner />}
       </span>
-      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;margin-left:8px">Source</span>
-      <FilterPills
-        options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry traces only' : 'Log-file traces only' }))}
-        value={dsFilter}
-        onChange={v => { dataSourceFilter.value = v }}
-      />
-      <span style="font-size:10px;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;margin-left:20px">From</span>
-      <FilterPills
-        options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : 'Agent-spawned sub-tasks and non-interactive claude -p calls' }))}
-        value={iFilter}
-        onChange={v => { initiatorFilter.value = v }}
-      />
+      {chips.map(c => (
+        <span key={c.key} class="tr-filter-chip">
+          <span class="tr-filter-chip-text" title={`${c.label}: ${c.value}`}>{c.label}: {c.value}</span>
+          <button type="button" aria-label={`Remove ${c.label} filter`} onClick={c.clear}>×</button>
+        </span>
+      ))}
+      {open && <FiltersPopover anchor={btnRef} />}
     </div>
   )
 }
 
-// Only the evidence-view banner remains here — Repo lives on OutcomeFilterBar (ahead of Outcome)
-// and Prompt lives on TimeRangePicker's row (next to Time and Agent), above.
+const FILTERS_POPOVER_WIDTH = 340
+
+// The Filters button's popover. Mounted only while open, so useDialog's focus-in / Tab-wrap /
+// Escape / focus-back-to-the-button run for its whole lifetime. `position: fixed` and measured
+// from the button, like TimeRangeMenu's popover, because .time-range-bar scrolls horizontally and
+// would clip an absolutely-positioned child; it follows the button on resize and page scroll
+// rather than closing, so a phone's on-screen keyboard (a resize) doesn't dismiss it mid-typing.
+function FiltersPopover({ anchor }: { anchor: { current: HTMLElement | null } }) {
+  const close = () => { filtersOpen.value = false }
+  const ref = useDialog<HTMLDivElement>(true, close)
+  function measure(): { top: number; left: number; width: number; maxHeight: number } | null {
+    const rect = anchor.current?.getBoundingClientRect()
+    if (!rect) return null
+    const width = Math.min(FILTERS_POPOVER_WIDTH, window.innerWidth - 16)
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
+    const top = rect.bottom + 4
+    return { top, left, width, maxHeight: Math.max(160, window.innerHeight - top - 8) }
+  }
+  // Measured on the first render, not in an effect: useDialog moves focus in as soon as this
+  // mounts, and a still-hidden popover can't take it.
+  const [pos, setPos] = useState(measure)
+
+  useEffect(() => {
+    function place() {
+      const next = measure()
+      if (next) setPos(next)
+    }
+    function onScroll(e: Event) {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return
+      place()
+    }
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [])
+
+  // A caller that opened this to reach one field (the Advisor's "Choose repo") gets focus there
+  // instead of on the first control — runs after useDialog's own focus-in above.
+  useEffect(() => {
+    const id = filtersFocusField.peek()
+    if (!id) return
+    filtersFocusField.value = null
+    const el = document.getElementById(id) as HTMLElement | null
+    el?.focus({ preventScroll: true })
+  }, [])
+
+  const info = repoInfo.value
+  // Repo suggestions — each distinct repo's git-derived name (falling back to a path-derived guess
+  // until its repoInfo resolves), deduplicated since two workspaces can point at the same repo. A
+  // <datalist> keeps the input itself plain freeform text (matchesRepoQuery still does the actual
+  // filtering), it just also offers these as clickable suggestions.
+  const repoOptions = [...new Set(availableWorkspaces.value.map(ws => info[ws]?.name ?? shortWorkspaceName(ws)))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+
+  return (
+    <>
+      <div class="tr-filters-backdrop" onClick={close} />
+      <div
+        ref={ref}
+        id="tr-filters-popover"
+        class="tr-filters-popover"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tr-filters-title"
+        style={pos ? `top:${pos.top}px;left:${pos.left}px;width:${pos.width}px;max-height:${pos.maxHeight}px` : 'visibility:hidden'}
+      >
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <h2 id="tr-filters-title" class="tr-filters-title">Filters</h2>
+          <button
+            type="button"
+            onClick={close}
+            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
+            title="Close (Esc)"
+            aria-label="Close filters"
+          >×</button>
+        </div>
+        <div class="tr-filters-grid">
+          {/* Prompt — substring match against the trace's captured prompt text, Trace ID or its
+              display hash. */}
+          <label for="tr-filter-prompt">Prompt</label>
+          <input
+            id="tr-filter-prompt"
+            type="text"
+            class={'tr-header-input' + (sessionTextFilter.value.trim() !== '' ? ' active' : '')}
+            placeholder="Text or Trace ID"
+            value={sessionTextFilter.value}
+            onInput={e => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null; sessionTextFilter.value = (e.target as HTMLInputElement).value }}
+          />
+
+          {/* Language — only the languages loaded traces actually have (availableLanguages), so a
+              <select> rather than pills. Matches a trace whose primary or secondary language is
+              the one picked. */}
+          <label for="tr-filter-language">Language</label>
+          <select
+            id="tr-filter-language"
+            class={'tr-header-input' + (languageFilter.value !== 'all' ? ' active' : '')}
+            value={languageFilter.value}
+            onChange={e => { languageFilter.value = (e.target as HTMLSelectElement).value as LanguageFilter }}
+            title="Traces whose primary or secondary language is this one — derived from the code files the agent read or changed"
+          >
+            <option value="all">All</option>
+            {availableLanguages.value.map(id => <option key={id} value={id}>{LANGUAGE_LABELS[id]}</option>)}
+          </select>
+
+          {/* Repo — freeform match against a workspace's git-derived repo name or hash
+              (matchesRepoQuery, state.ts; hashes prefetched by FiltersControl). Hidden when
+              there's only one workspace since there'd be nothing to narrow. */}
+          {availableWorkspaces.value.length > 1 && (
+            <>
+              <label for="tr-filter-repo">Repo</label>
+              <span>
+                <input
+                  id="tr-filter-repo"
+                  type="text"
+                  list="tr-repo-options"
+                  class={'tr-header-input' + (workspaceFilter.value.trim() !== '' ? ' active' : '')}
+                  placeholder="All"
+                  value={workspaceFilter.value}
+                  onInput={e => {
+                    // "All" from the list (or typed) means no repo filter, not a repo named "All".
+                    const v = (e.target as HTMLInputElement).value
+                    workspaceFilter.value = v.trim().toLowerCase() === REPO_ALL.toLowerCase() ? '' : v
+                  }}
+                  title="All repos by default. Pick one from the list, or type a repo's name or hash to narrow."
+                  style="width:100%"
+                />
+                <datalist id="tr-repo-options">
+                  <option value={REPO_ALL} />
+                  {repoOptions.map(name => <option key={name} value={name} />)}
+                </datalist>
+              </span>
+            </>
+          )}
+
+          <span id="tr-filter-outcome-label">Outcome</span>
+          <FilterPills
+            labelledBy="tr-filter-outcome-label"
+            options={OUTCOME_FILTER_OPTIONS}
+            value={outcomeFilter.value}
+            onChange={v => { outcomeFilter.value = v }}
+          />
+
+          <span id="tr-filter-source-label">Source</span>
+          <FilterPills
+            labelledBy="tr-filter-source-label"
+            options={DATA_SOURCE_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all data sources' : o.value === 'otel' ? 'OpenTelemetry traces only' : 'Log-file traces only' }))}
+            value={dataSourceFilter.value}
+            onChange={v => { dataSourceFilter.value = v }}
+          />
+
+          <span id="tr-filter-from-label">From</span>
+          <FilterPills
+            labelledBy="tr-filter-from-label"
+            options={INITIATOR_FILTER_OPTIONS.map(o => ({ ...o, title: o.value === 'all' ? 'Show all traces' : o.value === 'user' ? 'Human-typed prompts only' : 'Agent-spawned sub-tasks and non-interactive claude -p calls' }))}
+            value={initiatorFilter.value}
+            onChange={v => { initiatorFilter.value = v }}
+          />
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Only the evidence-view banner remains here — every other filter is on TimeRangePicker's row or
+// in its Filters popover (FiltersControl), above.
 function SearchFilterBar() {
   const evIds = evidenceSessionIds.value
   if (evIds === null) return null
 
   return (
     <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:#4fc3f711;border-bottom:1px solid #4fc3f733;flex-shrink:0">
-      <span style="font-size:10px;color:#4fc3f7;white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
+      <span style="font-size:var(--fs-xs);color:var(--vscode-textLink-foreground, #4fc3f7);white-space:nowrap;flex-shrink:0">Showing {evIds.size} trace{evIds.size !== 1 ? 's' : ''} {evidenceSessionLabel.value}</span>
       {evidenceSessionPrompt.value && (
         <span
-          style="font-size:10px;color:#4fc3f7;opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
+          style="font-size:var(--fs-xs);color:var(--vscode-textLink-foreground, #4fc3f7);opacity:0.75;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0"
           title={evidenceSessionPrompt.value}
         >— "{evidenceSessionPrompt.value}"</span>
       )}
       <button
         onClick={() => { evidenceSessionIds.value = null; evidenceSessionPrompt.value = null }}
-        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:#4fc3f7;cursor:pointer;font-size:10px;padding:2px 8px;white-space:nowrap"
+        style="margin-left:auto;flex-shrink:0;background:none;border:1px solid #4fc3f766;border-radius:3px;color:var(--vscode-textLink-foreground, #4fc3f7);cursor:pointer;font-size:var(--fs-xs);padding:2px 8px;white-space:nowrap"
       >Show all traces</button>
     </div>
   )

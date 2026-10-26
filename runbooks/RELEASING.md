@@ -15,6 +15,7 @@ accumulated since the last one. Check what's landed since the last tag before as
 | npm | `traceroost` | `package.json` `name` | none (OIDC trusted publishing) |
 | Docker | `traceroost/traceroost` + `ghcr.io/traceroost/core` | `docker.yml`, called by `release.yml`'s `docker` job | `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` (Docker Hub); `GITHUB_TOKEN` (ghcr) |
 | Homebrew | `traceroost/tap/traceroost` (formula `Formula/traceroost.rb` in `traceroost/homebrew-tap`) | `release.yml`'s `publish-homebrew` job, after `publish-npm`: `scripts/homebrew-formula.mjs` writes the formula from the tarball npm serves | `HOMEBREW_TAP_TOKEN` (the job is skipped, with a notice, until it exists) |
+| winget | `TraceRoost.TraceRoost` (manifests under `manifests/t/TraceRoost/TraceRoost/` in `microsoft/winget-pkgs`) | `release.yml`'s `publish-winget` job, after `desktop`: `desktop/scripts/winget-manifests.mjs` writes the manifests from the Windows installers the release serves, and `wingetcreate submit` opens the pull request; winget-pkgs moderators merge it | `WINGET_CREATE_GITHUB_TOKEN` (the job is skipped, with a notice, until it exists) |
 | VS Code Marketplace + Open VSX | **`agentlens.agentlens-dashboard`** | `vsce-identity.json` — the `package` job patches `name`/`publisher` into `package.json` for the VSIX build only | `VSCE_PAT` / `OVSX_PAT` (the existing AgentLens publisher tokens) |
 
 **Why the extension keeps the old id:** the marketplace id is sticky infrastructure users never
@@ -31,6 +32,7 @@ every installed AgentLens extension updates in place — no reinstall, no "both 
 | Docker Hub `traceroost/traceroost` | create the repo under the `traceroost` account; add `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` repo secrets |
 | VS Code / Open VSX | nothing new — `VSCE_PAT` / `OVSX_PAT` already exist for publisher `agentlens` |
 | Homebrew tap | create the public repo `traceroost/homebrew-tap` (the `homebrew-` prefix is what makes `brew install traceroost/tap/traceroost` work) with an empty `Formula/` directory; add a fine-grained token with **Contents: read and write on that repo only** as this repo's `HOMEBREW_TAP_TOKEN` secret. To seed it before the next release: `node scripts/homebrew-formula.mjs <current version> --out Formula/traceroost.rb` in the tap checkout, commit, push |
+| winget | a **classic** token with only the `public_repo` scope, from the GitHub user who opens the pull requests (currently the maintainer's personal account; a bot account with no access to the traceroost org is safer once there are collaborators), as this repo's `WINGET_CREATE_GITHUB_TOKEN` secret — set 2026-10-23; renew it before it expires. wingetcreate uses (and creates, if missing) the fork `<token owner>/winget-pkgs` and syncs it with upstream before each submission; an organization fork such as `traceroost/winget-pkgs` is never used. The first pull request is reviewed by a moderator; later ones mostly merge automatically once validation passes. See [winget](#winget) |
 
 `TR_VSCE_PAT` / `TR_OVSX_PAT` are **not used** right now. They exist for the eventual extension
 cutover (below).
@@ -239,6 +241,34 @@ into a local tap, `traceroost/local`, and installs it in place of any Homebrew c
 formula: `brew uninstall traceroost && brew untap traceroost/local && brew install
 traceroost/tap/traceroost`.
 
+## winget
+
+`winget install TraceRoost.TraceRoost` installs the desktop app's per-user NSIS installer (x64 or
+arm64) from the GitHub release: the signed `TraceRoost-<v>-win-<arch>.exe` when there is one, the
+`*-preview.exe` otherwise. `winget upgrade` updates it, including a copy installed from a downloaded
+.exe, because the manifest names the installer's uninstall key (`ProductCode`). Unsigned installers
+are accepted; winget checks every download against the sha256 in the manifest.
+
+Each `v*` tag's `publish-winget` job writes the three manifests
+(`desktop/scripts/winget-manifests.mjs`, hashing the installers it downloads from the release) and
+opens a pull request on microsoft/winget-pkgs with `wingetcreate submit`. The package appears in
+`winget search traceroost` once that pull request merges — usually within a day or two, longer for
+the first one.
+
+**Try the manifests before a release** (on Windows): download a release's installers, write the
+manifests and install from them locally, without the public repository:
+
+```powershell
+gh release download v<v> -R traceroost/core --pattern 'TraceRoost-*-win-*.exe' --dir winget-assets
+$dir = node desktop/scripts/winget-manifests.mjs --version <v> --assets winget-assets --out winget
+winget settings --enable LocalManifestFiles   # once, from an administrator prompt
+winget validate --manifest $dir
+winget install --manifest $dir
+```
+
+**First submission by hand** (instead of waiting for the next tag): the same two first lines, then
+`wingetcreate submit --token <classic token> $dir`.
+
 ## Desktop app
 
 The desktop app under `desktop/` (see `desktop/README.md`) ships the same core-edition collector
@@ -261,8 +291,9 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
 - **Linux** (.deb and AppImage, x64 and arm64) is attached on every release.
 - **macOS is built and tested on every release but attached only when notarized.** It is ad-hoc
   signed until the Apple Developer Program credentials exist, and Gatekeeper refuses an ad-hoc
-  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`,
-  `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, which `desktop-macos.yml` documents),
+  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, plus
+  either `APPLE_API_KEY_P8`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` or
+  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` — [`MACOS_SIGNING.md`](MACOS_SIGNING.md)),
   the same build is signed and notarized with no code change and the next tag attaches it. Before
   announcing it as an install method, open a downloaded, quarantined DMG on a fresh macOS user
   account.

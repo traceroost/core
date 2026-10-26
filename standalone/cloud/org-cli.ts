@@ -173,7 +173,7 @@ async function runVerify(): Promise<number> {
   console.log(
     `\n${gap} trace${gap === 1 ? '' : 's'} local but not (yet) in cloud. If you were mid-session ` +
       'just now, that alone can explain a small gap — an in-progress trace has nothing to send ' +
-      'until it ends, and a just-finished OTEL-only one needs a few idle minutes before it\'s ' +
+      'until it ends, and a just-finished OTel-only one needs a few idle minutes before it\'s ' +
       'eligible. If the gap stays the same size a few minutes from now, run `traceroost org ' +
       'status` and check the queue depth and last-trace time for what\'s actually stuck.',
   )

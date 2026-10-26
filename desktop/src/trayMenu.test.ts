@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import { type CollectorState } from './collector'
 import { type CollectorIdentity } from './handshake'
 import { type ShellMode } from './mode'
-import { buildMenuModel, describeCollectorState, type MenuItemId, type MenuItemModel } from './trayMenu'
+import { buildMenuModel, collectionProblem, describeCollectorState, shortErrorText, type MenuItemId, type MenuItemModel } from './trayMenu'
 
 function identity(over: Partial<CollectorIdentity> = {}): CollectorIdentity {
   return {
@@ -165,5 +165,39 @@ suite('trayMenu — AppImage launcher entry', () => {
     assert.strictEqual(item(on, 'applications-menu')?.checked, true)
     const off = buildMenuModel({ shell: { mode: 'own' }, collector: RUNNING, launchAtLogin: false, version: '0.19.1', inApplicationsMenu: false })
     assert.strictEqual(item(off, 'applications-menu')?.checked, false)
+  })
+})
+
+suite('trayMenu — the failure reason is visible', () => {
+  const longError = 'the collector exited with code 1 before it was ready because port 3000 and every port after it were busy\n[TraceRoost] UI server error: EADDRINUSE'
+
+  test('a failed collector shows a short error line and Show Error…', () => {
+    const m = model({ mode: 'own' }, { status: 'failed', lastError: longError })
+    const line = item(m, 'error-summary')
+    assert.ok(line, 'error line present')
+    assert.strictEqual(line.enabled, false)
+    assert.ok(line.label.length <= 60, line.label)
+    assert.match(line.label, /^the collector exited with code 1/)
+    assert.strictEqual(item(m, 'show-error')?.enabled, true)
+    assert.deepStrictEqual(collectionProblem({ mode: 'own' }, { status: 'failed', lastError: longError }), { title: 'Collection failed', detail: longError })
+  })
+
+  test('a blocked data dir shows why, too', () => {
+    const m = model({ mode: 'blocked', detail: 'Another collector on this machine holds the data directory.' }, { status: 'stopped' })
+    assert.strictEqual(item(m, 'error-summary')?.label, 'Another collector on this machine holds the data directory.')
+    assert.ok(item(m, 'show-error'))
+  })
+
+  test('nothing extra while things are fine', () => {
+    for (const m of [model({ mode: 'own' }, RUNNING), model({ mode: 'own' }, { status: 'stopped' }), model({ mode: 'attach', identity: identity() }, { status: 'stopped' })]) {
+      assert.strictEqual(item(m, 'error-summary'), undefined)
+      assert.strictEqual(item(m, 'show-error'), undefined)
+    }
+  })
+
+  test('shortErrorText keeps the first non-empty line and truncates it', () => {
+    assert.strictEqual(shortErrorText('\n  boom  \nmore'), 'boom')
+    assert.strictEqual(shortErrorText(''), 'Unknown error')
+    assert.strictEqual(shortErrorText('x'.repeat(100), 20), `${'x'.repeat(19)}…`)
   })
 })

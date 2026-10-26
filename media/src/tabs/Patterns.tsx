@@ -1,24 +1,26 @@
 import { useState, useRef, useEffect } from 'preact/hooks'
-import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode, availableWorkspaces, workspaceFilter } from '../state'
+import { filteredSessions, activeTab, focusedSessionId, sessionTextFilter, currentWorkspace, vscode, availableWorkspaces, workspaceFilter, filtersOpen, filtersFocusField } from '../state'
 import { Instructions, instructionFiles, instructionsAcrossWorkspaces } from './Instructions'
-import { getAgentSourceLabel, formatSessionTime } from '../utils'
+import { getAgentSourceLabel, getAgentColorVar, formatSessionTime } from '../utils'
 import { calcSessionCost } from '../sessionMetrics'
 import { fmtUsd } from './Cost'
 import type { SessionSummaryCard } from '../types'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
 import { planUsage } from '../planUsage'
-import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
+import { showLimitTraces } from './PlanLimits'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SignalBadge } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { SectionNav, type NavSection } from '../SectionNav'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const AGENT_DOT_COLOR: Record<string, string> = {
-  claude_code: '#FFB085',
-  copilot:     '#00EAFF',
-  codex:       '#F0FF42',
-}
-function agentDotColor(source: string): string { return AGENT_DOT_COLOR[source] ?? '#888' }
+function agentDotColor(source: string): string { return getAgentColorVar(source) }
+
+// Efficiency Map dots are coloured by cache reuse, not agent — theme chart colours, so they read on
+// light and dark themes alike.
+const CACHE_GOOD = 'var(--vscode-charts-green, #81c784)'
+const CACHE_MID  = 'var(--vscode-charts-yellow, #f6a623)'
+const CACHE_BAD  = 'var(--vscode-charts-red, #f44747)'
 
 function sessionCost(s: SessionSummaryCard): number {
   return calcSessionCost(s).totalUsd
@@ -65,7 +67,13 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
   const yPos = (turns: number) => PAD.top  + ch - (turns / maxTurns) * ch
 
   const xTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ v: f * maxCost, x: PAD.left + f * cw }))
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ v: Math.round(f * maxTurns), y: PAD.top + ch - f * ch }))
+  // Distinct integer ticks: rounding evenly spaced fractions of a small max (e.g. 1.15) gave
+  // repeated labels (0, 0, 1, 1, 1). Step through whole turns instead, at most ~4 intervals.
+  const rawStep = Math.max(1, maxTurns / 4)
+  const mag = 10 ** Math.floor(Math.log10(rawStep))
+  const yStep = [1, 2, 5, 10].map(m => m * mag).find(s => s >= rawStep) ?? 10 * mag
+  const yTicks: Array<{ v: number; y: number }> = []
+  for (let v = 0; v <= maxTurns; v += yStep) yTicks.push({ v, y: yPos(v) })
 
   const sortedMatches = (() => {
     const m = [...points]
@@ -86,14 +94,14 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
   return (
     <div>
       <div style="margin-bottom:8px;padding:8px 10px;font-size:11px;color:var(--muted);line-height:1.6;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more model calls. <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth — start there. <strong style="color:#81c784">Green</strong> = model reused cached context between calls (efficient). <strong style="color:#f44747">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
+        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more turns (model calls). <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth — start there. <strong style="color:var(--vscode-charts-green, #81c784)">Green</strong> = model reused cached context between calls (efficient). <strong style="color:var(--vscode-errorForeground, #f44747)">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
       </div>
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
-        <span style="font-size:10px;color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
-        <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)">
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#81c784" /> cache ≥60%
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f6a623;margin-left:6px" /> 20–60%
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f44747;margin-left:6px" /> &lt;20%
+        <span style="font-size:var(--fs-xs);color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
+        <span style="display:flex;align-items:center;gap:4px;font-size:var(--fs-xs);color:var(--muted)">
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_GOOD}`} /> cache ≥60%
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_MID};margin-left:6px`} /> 20–60%
+          <span style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${CACHE_BAD};margin-left:6px`} /> &lt;20%
         </span>
       </div>
       <div style="position:relative">
@@ -108,13 +116,13 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
           ))}
           <line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
           <line x1={PAD.left} y1={PAD.top + ch} x2={PAD.left + cw} y2={PAD.top + ch} stroke="var(--border)" stroke-width="1" />
-          <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="10" fill="var(--muted)">Estimated cost (USD)</text>
-          <text x={10} y={PAD.top + ch / 2} text-anchor="middle" font-size="10" fill="var(--muted)"
-            transform={`rotate(-90,10,${PAD.top + ch / 2})`}>LLM calls</text>
+          <text x={PAD.left + cw / 2} y={H - 2} text-anchor="middle" font-size="11" fill="var(--muted)">Estimated cost (USD)</text>
+          <text x={10} y={PAD.top + ch / 2} text-anchor="middle" font-size="11" fill="var(--muted)"
+            transform={`rotate(-90,10,${PAD.top + ch / 2})`}>Turns</text>
           {xTicks.map(t => (
             <g key={t.v}>
               <line x1={t.x} y1={PAD.top + ch} x2={t.x} y2={PAD.top + ch + 4} stroke="var(--border)" />
-              <text x={t.x} y={PAD.top + ch + 14} text-anchor="middle" font-size="9" fill="var(--muted)">
+              <text x={t.x} y={PAD.top + ch + 14} text-anchor="middle" font-size="11" fill="var(--muted)">
                 {t.v < 0.01 ? '$0' : `$${t.v.toFixed(2)}`}
               </text>
             </g>
@@ -122,18 +130,18 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
           {yTicks.map(t => (
             <g key={t.v}>
               <line x1={PAD.left - 4} y1={t.y} x2={PAD.left} y2={t.y} stroke="var(--border)" />
-              <text x={PAD.left - 6} y={t.y + 4} text-anchor="end" font-size="9" fill="var(--muted)">{t.v}</text>
+              <text x={PAD.left - 6} y={t.y + 4} text-anchor="end" font-size="11" fill="var(--muted)">{t.v}</text>
             </g>
           ))}
           <g clip-path="url(#plot-area)">
             {points.map((p, i) => {
               const inTop = topMatchIds.has(p.s.traceId)
               const cx = xPos(p.cost), cy = yPos(p.turns)
-              const color = p.cacheHitRate >= 0.6 ? '#81c784' : p.cacheHitRate >= 0.2 ? '#f6a623' : '#f44747'
+              const color = p.cacheHitRate >= 0.6 ? CACHE_GOOD : p.cacheHitRate >= 0.2 ? CACHE_MID : CACHE_BAD
               return (
                 <circle key={i} cx={cx} cy={cy} r={inTop ? 5 : 4}
-                  fill={color} opacity={inTop ? 1 : 0.6} style="cursor:pointer"
-                  stroke={clicked === p.s.traceId ? '#fff' : 'none'} stroke-width="2"
+                  opacity={inTop ? 1 : 0.6} style={`cursor:pointer;fill:${color};stroke:${clicked === p.s.traceId ? 'var(--fg)' : 'none'}`}
+                  stroke-width="2"
                   onMouseEnter={() => setTooltip({ x: cx, y: cy, s: p.s })}
                   onMouseLeave={() => setTooltip(null)}
                   onClick={() => {
@@ -155,7 +163,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
               <div style="font-weight:600;color:var(--fg);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
                 {s.userRequest ? s.userRequest.slice(0, 60) + (s.userRequest.length > 60 ? '…' : '') : '—'}
               </div>
-              <div style="color:var(--muted);font-size:10px;line-height:1.6">
+              <div style="color:var(--muted);font-size:var(--fs-xs);line-height:1.6">
                 <div>{getAgentSourceLabel(s.source)} · {s.model?.split('-').slice(-2).join('-')}</div>
                 <div>{s.startTime.slice(0, 10)} · {fmtUsd(sessionCost(s))} · {s.totalLlmCalls} turns</div>
                 <div>cache hit rate: {Math.round((s.cacheHitRate ?? 0) * 100)}%</div>
@@ -165,7 +173,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
         })()}
       </div>
 
-      {sortedMatches.length > 0 && <div style="margin-top:8px;font-size:10px;color:var(--muted)">Top {sortedMatches.length} traces</div>}
+      {sortedMatches.length > 0 && <div style="margin-top:8px;font-size:var(--fs-xs);color:var(--muted)">Top {sortedMatches.length} traces</div>}
       {sortedMatches.length > 0 && (() => {
         const thStyle = (col: MatchSort) =>
           `padding:4px 8px 4px 0;color:${sort.col === col ? 'var(--fg)' : 'var(--muted)'};font-weight:500;white-space:nowrap;cursor:pointer;user-select:none;font-size:11px`
@@ -175,11 +183,11 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
             <table style="width:100%;border-collapse:collapse;font-size:11px">
               <thead>
                 <tr style="border-bottom:1px solid var(--border)">
-                  <th style={thStyle('time')}   onClick={() => toggleSort('time')}>Start Time{arrow('time')}</th>
-                  <th style={thStyle('prompt')} onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</th>
-                  <th style={`${thStyle('cost')};text-align:right`}  onClick={() => toggleSort('cost')}>Estimated cost{arrow('cost')}</th>
-                  <th style={`${thStyle('turns')};text-align:right`} onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</th>
-                  <th style={`${thStyle('cache')};text-align:right`} onClick={() => toggleSort('cache')}>Cache hit{arrow('cache')}</th>
+                  <th style={thStyle('time')}   aria-sort={sort.col === 'time' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('time')}>Start Time{arrow('time')}</button></th>
+                  <th style={thStyle('prompt')} aria-sort={sort.col === 'prompt' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('prompt')}>Prompt{arrow('prompt')}</button></th>
+                  <th style={`${thStyle('cost')};text-align:right`}  aria-sort={sort.col === 'cost' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('cost')}>Estimated cost{arrow('cost')}</button></th>
+                  <th style={`${thStyle('turns')};text-align:right`} aria-sort={sort.col === 'turns' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('turns')}>Turns{arrow('turns')}</button></th>
+                  <th style={`${thStyle('cache')};text-align:right`} aria-sort={sort.col === 'cache' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" class="sort-button" onClick={() => toggleSort('cache')}>Cache hit{arrow('cache')}</button></th>
                 </tr>
               </thead>
               <tbody>
@@ -187,12 +195,12 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
                   const isClicked = clicked === p.s.traceId
                   return (
                   <tr key={i} style={`border-bottom:1px solid var(--border);${isClicked ? 'background:rgba(79,195,247,0.08);box-shadow:inset 3px 0 0 var(--accent)' : ''}`}>
-                    <td style="padding:4px 8px 4px 0;white-space:nowrap;font-size:10px;font-variant-numeric:tabular-nums">
+                    <td style="padding:4px 8px 4px 0;white-space:nowrap;font-size:var(--fs-xs);font-variant-numeric:tabular-nums">
                       <span style={`display:inline-block;width:7px;height:7px;border-radius:50%;background:${agentDotColor(p.s.source)};margin-right:5px;flex-shrink:0;vertical-align:middle`} title={getAgentSourceLabel(p.s.source)} />
-                      <span style="color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px"
+                      <button type="button" class="link-btn"
                         title="Open in Traces tab"
                         onClick={() => { activeTab.value = 'sessions'; focusedSessionId.value = p.s.sessionId }}
-                      >{formatSessionTime(p.s)}</span>
+                      >{formatSessionTime(p.s)}</button>
                     </td>
                     <td style="padding:4px 8px 4px 0;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)">{p.s.userRequest?.slice(0, 80) ?? '—'}</td>
                     <td style="padding:4px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">{fmtUsd(p.cost)}</td>
@@ -279,14 +287,14 @@ function HotFiles({ sessions }: { sessions: SessionSummaryCard[] }) {
             {rows.map((r) => (
               <tr key={r.file} style="border-bottom:1px solid var(--border)">
                 <td style="padding:4px 8px 4px 0;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={r.file}>
-                  <span style="color:var(--muted);font-size:10px">{r.file.replace(basename(r.file), '')}</span>
+                  <span style="color:var(--muted);font-size:var(--fs-xs)">{r.file.replace(basename(r.file), '')}</span>
                   <span style="color:var(--fg)">{basename(r.file)}</span>
                 </td>
                 <td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums">{r.sessionCount}</td>
                 <td style="padding:4px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{r.read || '—'}</td>
                 <td style="padding:4px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{r.changed || '—'}</td>
                 <td style="padding:4px 8px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums">{r.written || '—'}</td>
-                <td style="padding:4px 8px;text-align:right;color:var(--muted);white-space:nowrap;font-size:10px">{r.lastSeen ? r.lastSeen.slice(0, 10) : '—'}</td>
+                <td style="padding:4px 8px;text-align:right;color:var(--muted);white-space:nowrap;font-size:var(--fs-xs)">{r.lastSeen ? r.lastSeen.slice(0, 10) : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -324,16 +332,15 @@ function IconFileText({ color }: { color: string }) {
 
 // Loop-signal actions draw the exact same glyph the traces table's Signals column uses for that
 // pattern (same convention as Insights.tsx's InsightIcon) so "how to spend less" and the Signals
-// column always agree on what a given struggle pattern looks like. Non-loop kinds get a plain
-// neutral icon since they have no traces-table equivalent.
+// column always agree on what a given struggle pattern looks like — in the same SignalBadge tile.
+// Non-loop kinds have no traces-table equivalent, so they get a plain icon on the neutral tile, so
+// every row of the list carries the same tile shape.
 function ActionIcon({ a }: { a: CostSavingAction }) {
   if (a.kind === 'loop_signal') {
     const iconType = a.loopSignalType ? LOOP_SIGNAL_ICON_TYPE[a.loopSignalType] : undefined
-    const Icon = iconType ? SIGNAL_ICON[iconType] : undefined
-    if (Icon) return <Icon color={SIGNAL_SEVERITY_COLOR[a.loopSignalSeverity ?? 'warning']} />
+    if (iconType && SIGNAL_ICON[iconType]) return <SignalBadge type={iconType} severity={a.loopSignalSeverity ?? 'warning'} />
   }
-  if (a.kind === 'cache_rate') return <IconZap color="var(--fg)" />
-  return <IconFileText color="var(--fg)" />
+  return <span class="sig-badge neutral md">{a.kind === 'cache_rate' ? <IconZap color="currentColor" /> : <IconFileText color="currentColor" />}</span>
 }
 
 // Loop-signal rows get the same bold-heading-plus-"What to do" hover as the Signals column's own
@@ -350,23 +357,22 @@ function actionTipFor(a: CostSavingAction): string | null {
 /** Pulls loop-signal actions, hot-file suggestions, and cache hit rate — each already computed
  *  elsewhere in this tab or in Insights — into one ranked "do these things to spend less" list.
  *  Built only from signals already computed (costSavingActions.ts) — no new heuristics here. */
-/** Suggests narrowing to one repo via the header's REPO filter: instruction-file suggestions are
+/** Suggests narrowing to one repo via the header's Repo filter (in the Filters popover): instruction-file suggestions are
  *  only as specific as the traces behind them. Gone once a repo is chosen, when there's only one
  *  repo (the filter isn't shown), when this window's open folder already scopes them, or in the
  *  standalone dashboard, where they're already grouped per repo and each group applies to its own. */
 function RepoFilterHint() {
   if (workspaceFilter.value.trim() !== '' || availableWorkspaces.value.length < 2 || currentWorkspace.value !== null || instructionsAcrossWorkspaces()) return null
+  // Repo sits in the header's Filters popover: open it with focus on the Repo field.
   const focusRepo = () => {
-    const el = document.getElementById('tr-filter-repo') as HTMLInputElement | null
-    if (!el) return
-    el.scrollIntoView({ block: 'nearest' })
-    el.focus()
+    filtersFocusField.value = 'tr-filter-repo'
+    filtersOpen.value = true
   }
   return (
     <div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;padding:6px 10px;font-size:11px;color:var(--muted);background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-      <span style="flex:1">Tip: pick a repo in <strong style="color:var(--fg)">Repo</strong> in the header above for suggestions tailored to that repo's instruction file.</span>
+      <span style="flex:1">Tip: pick a repo under <strong style="color:var(--fg)">Filters → Repo</strong> in the header above for suggestions tailored to that repo's instruction file.</span>
       <button onClick={focusRepo}
-        style="padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap">Choose repo ↑</button>
+        style="padding:2px 8px;font-size:var(--fs-xs);border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);white-space:nowrap">Choose repo ↑</button>
     </div>
   )
 }
@@ -398,8 +404,8 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
           return (
             <div key={a.id} style="display:flex;gap:8px;align-items:flex-start;font-size:12px">
               <span
-                style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0;margin-top:2px"
-                {...(tip ? { title: tip, 'data-tip-html': true } : {})}
+                style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"
+                {...(tip ? { title: tip, 'data-tip-html': true, tabIndex: 0, role: 'img', 'aria-label': tip.replace(/<[^>]+>/g, '').replace(/\n/g, ' ') } : {})}
               >
                 <ActionIcon a={a} />
               </span>
@@ -407,13 +413,21 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
                 <div style="font-weight:600">
                   {a.title}
                   {a.limitPts !== undefined
-                    ? <span style="font-weight:400;color:var(--muted);margin-left:6px" title="Estimated waste converted into points of your weekly plan limit, from how much of the window your past sessions used per dollar of work">≈ {fmtPts(a.limitPts)} of weekly limit</span>
+                    ? <span style="font-weight:400;color:var(--muted);margin-left:6px" title="Estimated waste converted into points of your weekly plan limit, from how much of the window your past traces used per dollar of work">≈ {fmtPts(a.limitPts)} of weekly limit</span>
                     : a.estimatedUsd !== undefined
                       ? <span style="font-weight:400;color:var(--muted);margin-left:6px">≈ ${a.estimatedUsd.toFixed(2)}</span>
                       : null}
                 </div>
                 <div style="color:var(--muted);margin:2px 0">{a.evidence}</div>
                 <div>{a.action}</div>
+                {a.sessionIds.length > 0 && (
+                  <button
+                    type="button"
+                    class="link-btn"
+                    style="margin-top:3px;font-size:11px"
+                    onClick={() => showLimitTraces(a.sessionIds, `for “${a.title}”`)}
+                  >Show {a.sessionIds.length} trace{a.sessionIds.length === 1 ? '' : 's'} →</button>
+                )}
               </div>
             </div>
           )
@@ -421,7 +435,7 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
       </div>
       {actions.length > 3 && (
         <button
-          class="btn-link"
+          class="link-btn"
           style="margin-top:8px;font-size:11px"
           onClick={() => setExpanded(e => !e)}
         >

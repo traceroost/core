@@ -6,7 +6,7 @@
 
 import { useState } from 'preact/hooks'
 import { activeTab, evidenceSessionIds, evidenceSessionLabel, evidenceSessionPrompt } from '../state'
-import { getAgentColor } from '../utils'
+import { getAgentColorVar } from '../utils'
 import { appliedSuggestions } from './Instructions'
 import {
   planUsage, limitUsedLabel, planLimitWindows,
@@ -26,7 +26,7 @@ const CRITICAL = 'var(--vscode-charts-red,#f44747)'
 const TOOLTIP_STYLE = 'position:absolute;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--vscode-panel-border,#333);border-radius:4px;padding:6px 9px;font-size:11px;line-height:1.6;pointer-events:none;z-index:10;white-space:nowrap'
 
 function colorOf(p: LimitProvider): string {
-  return getAgentColor(PROVIDER_SOURCE[p])
+  return getAgentColorVar(PROVIDER_SOURCE[p])
 }
 
 function fmtWhen(ms: number): string {
@@ -88,7 +88,7 @@ function MeterCard({ meter, now }: { meter: PlanMeter; now: number }) {
         <strong>{PROVIDER_LABEL[meter.provider]}</strong>
         {meter.planType && <span style="color:var(--muted)">{planLabel(meter.planType)}</span>}
         <span style="flex:1" />
-        <span style={`font-size:10px;color:var(--muted);${stale ? 'opacity:.6' : ''}`}
+        <span style={`font-size:var(--fs-xs);color:var(--muted);${stale ? 'opacity:.6' : ''}`}
           title={meter.provider === 'claude' ? "Claude Code's own cached reading. It refreshes only when Claude Code fetches it; run /usage in Claude Code to refresh it now" : 'From the latest Codex turn'}>
           as of {fmtAge(meter.observedAt, now)}
         </span>
@@ -98,18 +98,18 @@ function MeterCard({ meter, now }: { meter: PlanMeter; now: number }) {
           <span style="width:48px;color:var(--muted)">{WINDOW_LABEL[w.windowKind]}</span>
           <MeterBar pct={w.usedPct} />
           <span style="min-width:34px;text-align:right;font-variant-numeric:tabular-nums"><strong>{w.resetSinceReading ? '—' : fmtPct(w.usedPct)}</strong></span>
-          <span style="min-width:96px;color:var(--muted);font-size:10px">
+          <span style="min-width:96px;color:var(--muted);font-size:var(--fs-xs)">
             {w.resetSinceReading ? 'reset since reading' : w.resetsAt ? `resets ${fmtIn(w.resetsAt, now)}` : ''}
           </span>
         </div>
       ))}
       {perModel.length > 0 && (
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">
           {perModel.map(w => `${WINDOW_LABEL[w.windowKind]} ${w.resetSinceReading ? 'reset' : fmtPct(w.usedPct)}`).join(' · ')}
         </div>
       )}
       {now - meter.observedAt > REFRESH_HINT_AFTER_MS && (
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">
           {meter.provider === 'claude'
             ? <>Claude Code refreshes this rarely. Run <code>/usage</code> in Claude Code to update it.</>
             : 'Updates on your next Codex turn.'}
@@ -132,7 +132,7 @@ function PlanStatusCard({ status, now }: { status: PlanStatus; now: number }) {
         <strong>{PROVIDER_LABEL[status.provider]}</strong>
         {status.planType && <span style="color:var(--muted)">{planLabel(status.planType)}</span>}
         <span style="flex:1" />
-        <span style="font-size:10px;color:var(--muted)" title="From the latest Codex turn">as of {fmtAge(status.observedAt, now)}</span>
+        <span style="font-size:var(--fs-xs);color:var(--muted)" title="From the latest Codex turn">as of {fmtAge(status.observedAt, now)}</span>
       </div>
       {status.limitReached && (
         <div style={`font-size:11px;font-weight:600;color:${CRITICAL};margin-bottom:4px`}>Spend limit reached</div>
@@ -216,11 +216,11 @@ function LimitLineChart({ view, snapshot, now }: { view: Chart1View; snapshot: P
         {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
             <line x1={PAD.left} y1={y(v)} x2={W - PAD.right} y2={y(v)} stroke={GRID} stroke-width="0.5" />
-            <text x={PAD.left - 6} y={y(v)} text-anchor="end" dominant-baseline="middle" font-size="9" fill={MUTED}>{v}%</text>
+            <text x={PAD.left - 6} y={y(v)} text-anchor="end" dominant-baseline="middle" font-size="11" fill={MUTED}>{v}%</text>
           </g>
         ))}
         {dayTicks.map(t => (
-          <text key={t} x={x(t)} y={PAD.top + PLOT_H + 12} text-anchor="middle" font-size="9" fill={MUTED}>{fmtDay(t)}</text>
+          <text key={t} x={x(t)} y={PAD.top + PLOT_H + 12} text-anchor="middle" font-size="11" fill={MUTED}>{fmtDay(t)}</text>
         ))}
 
         {/* Blocked time: hit → reset (5-hour view only; a weekly block would cover most of the chart). */}
@@ -255,7 +255,7 @@ function LimitLineChart({ view, snapshot, now }: { view: Chart1View; snapshot: P
           return labels.map(l => {
             const right = l.x > W - PAD.right - 60
             return (
-              <text key={l.provider} x={right ? W - PAD.right + 4 : l.x + 6} y={l.y} dominant-baseline="middle" font-size="9" fill="var(--fg,#ccc)">{l.text}</text>
+              <text key={l.provider} x={right ? W - PAD.right + 4 : l.x + 6} y={l.y} dominant-baseline="middle" font-size="11" fill="var(--fg,#ccc)">{l.text}</text>
             )
           })
         })()}
@@ -347,7 +347,7 @@ function WeeklyPeaksChart({ rollups }: { rollups: WindowRollup[] }) {
         {[0, 25, 50, 75, 100].map(v => (
           <g key={v}>
             <line x1={PAD.left} y1={y(v)} x2={W - PAD.right} y2={y(v)} stroke={GRID} stroke-width="0.5" />
-            <text x={PAD.left - 6} y={y(v)} text-anchor="end" dominant-baseline="middle" font-size="9" fill={MUTED}>{v}%</text>
+            <text x={PAD.left - 6} y={y(v)} text-anchor="end" dominant-baseline="middle" font-size="11" fill={MUTED}>{v}%</text>
           </g>
         ))}
         {ends.map((end, i) => {
@@ -380,7 +380,7 @@ function WeeklyPeaksChart({ rollups }: { rollups: WindowRollup[] }) {
                 )
               })}
               {(ends.length <= 8 || i % 2 === 0 || i === ends.length - 1) && (
-                <text x={cx} y={PAD.top + PLOT_H + 12} text-anchor="middle" font-size="9" fill={MUTED}>Wk of {fmtDay(end)}</text>
+                <text x={cx} y={PAD.top + PLOT_H + 12} text-anchor="middle" font-size="11" fill={MUTED}>Wk of {fmtDay(end)}</text>
               )}
             </g>
           )
@@ -475,7 +475,7 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
               <div role="tablist" aria-label="Plan window" style="display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden">
                 {views.map(v => (
                   <button key={v} role="tab" aria-selected={v === view} onClick={() => choose(v)}
-                    style={`font-size:10px;padding:2px 8px;border:none;cursor:pointer;background:${v === view ? 'var(--hover)' : 'transparent'};color:${v === view ? 'var(--fg)' : 'var(--muted)'}`}>
+                    style={`font-size:var(--fs-xs);padding:2px 8px;border:none;cursor:pointer;background:${v === view ? 'var(--hover)' : 'transparent'};color:${v === view ? 'var(--fg)' : 'var(--muted)'}`}>
                     {v === 'weekly' ? 'Weekly' : '5-hour'}
                   </button>
                 ))}
@@ -542,7 +542,7 @@ export function PlanLimitDetail({ sessionId }: { sessionId: string }) {
   const clock = (ms: number) => new Date(ms).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })
   return (
     <div data-testid="plan-limit-detail" style="margin:8px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:11px;line-height:1.6">
-      <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-right:8px">Plan limit</span>
+      <span style="font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-right:8px">Plan limit</span>
       {windows.map(w => (
         <span key={w.label} style="margin-right:12px;white-space:nowrap">
           {w.label} <strong>{u?.approximate ? '≈ ' : ''}{w.pct}</strong>
@@ -580,7 +580,7 @@ export function LimitHitBanner({ sessionId }: { sessionId: string }) {
         {hits.length > 1 ? ` · ${hits.length} limit hits in this trace` : ''}
       </div>
       <button onClick={() => { activeTab.value = 'patterns' }}
-        style="margin-top:4px;padding:2px 8px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--fg)">
+        style="margin-top:4px;padding:2px 8px;font-size:var(--fs-xs);border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--fg)">
         See how to use less of your limit →
       </button>
     </div>

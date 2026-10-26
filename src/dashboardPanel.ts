@@ -76,6 +76,13 @@ export class DashboardPanel {
    *  window isn't actually receiving OTel, rather than a one-time toast that's easy to miss or
    *  dismiss and forget about. */
   public static collectorConflict: { owner: 'standalone' | 'foreign'; port: number; extensionId: string } | undefined
+  /** The Remove Agent Setup command's flow (extension.ts) — confirms, removes, reports. Resolves
+   *  with what it says it did, or undefined when the user backed out. */
+  public static removeAgentSetup: (() => Promise<string | undefined>) | undefined
+  /** Set by extension.ts: while the background service runs, Settings → Set up agents is sent to
+   *  it (src/serviceOwnership.ts) and this resolves with its reply; undefined means set them up
+   *  here. */
+  public static setUpAgentsElsewhere: (() => Promise<Record<string, unknown> | undefined>) | undefined
   /** Progress of extension.ts's batched log load (startBatchedLoad); null when none is running.
    *  Inlined into a panel opened mid-load and posted to an open one as it advances, so the
    *  webview shows a progress banner rather than an empty dashboard. */
@@ -210,7 +217,7 @@ export class DashboardPanel {
       } else if (msg.type === 'getRepoHash' && msg.workspace) {
         void this.sendRepoHash(msg.workspace as string)
       } else if (msg.type === 'alert' && msg.label) {
-        handleAlertNotification(msg as { label: string; detail?: string; severity: string; sessionId?: string }, context, repo, sidebarProvider, rawDb)
+        handleAlertNotification(msg as { alertId?: string; label: string; detail?: string; severity: string; sessionId?: string }, context, repo, sidebarProvider, rawDb)
       } else if (msg.type === 'automation' && msg.prompt) {
         handleAutomation(msg as { label: string; writePromptsFile: boolean; agent: string; sessionTitle: string; prompt: string })
       } else if (msg.type === 'openFile' && typeof msg.filePath === 'string' && msg.filePath) {
@@ -252,7 +259,7 @@ export class DashboardPanel {
         vscode.commands.executeCommand('workbench.action.closeSidebar')
       } else if (msg.type === 'confirmClear') {
         const answer = await vscode.window.showWarningMessage(
-          'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
+          'Clear all TraceRoost data? OTel trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).',
           { modal: true },
           'Clear All'
         )
@@ -263,7 +270,12 @@ export class DashboardPanel {
         if (!isDeclaredSettingUpdate(this.context.extension.packageJSON, msg.key, msg.value)) { return }
         void vscode.workspace.getConfiguration('traceRoost').update(msg.key as string, msg.value, vscode.ConfigurationTarget.Global)
       } else if (msg.type === 'reconfigureOtel') {
-        // Pressing Configure OTEL is the user's yes (src/agentSetupConsent.ts) — remembered, so
+        const elsewhere = await DashboardPanel.setUpAgentsElsewhere?.()
+        if (elsewhere) {
+          this.panel.webview.postMessage({ type: 'reconfigureOtelResult', results: elsewhere })
+          return
+        }
+        // Pressing Set up agents is the user's yes (src/agentSetupConsent.ts) — remembered, so
         // later activations keep the agents pointed at this port.
         writeAgentSetupAnswer('yes')
         const port = vscode.workspace.getConfiguration('traceRoost').get<number>('otlpPort', 4318)
@@ -273,6 +285,9 @@ export class DashboardPanel {
           autoConfigureCodex(port),
         ])
         this.panel.webview.postMessage({ type: 'reconfigureOtelResult', results: { copilot, claudeCode, codex } })
+      } else if (msg.type === 'removeAgentSetup') {
+        const summary = await DashboardPanel.removeAgentSetup?.()
+        this.panel.webview.postMessage({ type: 'removeAgentSetupResult', summary: summary ?? null })
       } else if (msg.type === 'getInstructionFiles' && msg.workspace) {
         const wsFolders = vscode.workspace.workspaceFolders
         const wsRoot = (wsFolders?.[0]?.uri.fsPath) ?? (msg.workspace as string)
@@ -382,7 +397,9 @@ export class DashboardPanel {
       for (const result of pending.values()) {
         const card = cards.get(result.sessionId)
         if (!card) continue
-        const riskSignals = detectSessionRiskSignals(card, card.workspace)
+        // A stored card's timeline is empty (it loads lazily), so the detectors can't tell —
+        // leave the field off rather than send an "all clear" (the webview keeps what it had).
+        const riskSignals = card.timeline.length > 0 ? detectSessionRiskSignals(card, card.workspace) : undefined
         const temperedLoopSignals = temperLoopSignalSeverity(card.loopSignals ?? [], result.outcome)
         this.panel.webview.postMessage({
           type: 'gitOutcome', sessionId: result.sessionId, outcome: result.outcome, riskSignals, temperedLoopSignals,
@@ -585,7 +602,7 @@ export class DashboardPanel {
     // known, same lifecycle as git-outcome classification — computed here rather than eagerly
     // for every session. See sessionRiskSignals.ts and temperLoopSignalSeverity's docstring.
     const card = this.repo.listSessions().find(s => s.sessionId === sessionId) ?? null
-    const riskSignals = card ? detectSessionRiskSignals(card, workspace) : []
+    const riskSignals = card && card.timeline.length > 0 ? detectSessionRiskSignals(card, workspace) : undefined
     const temperedLoopSignals = card ? temperLoopSignalSeverity(card.loopSignals ?? [], outcome) : null
     this.panel.webview.postMessage({ type: 'gitOutcome', sessionId, outcome, riskSignals, temperedLoopSignals, revision })
   }
@@ -883,7 +900,7 @@ function buildEfficiency(sessions: SessionSummaryCard[]) {
 // ── Alert / automation helpers (unchanged) ────────────────────────────────────
 
 async function handleAlertNotification(
-  msg: { label: string; detail?: string; severity: string; sessionId?: string },
+  msg: { alertId?: string; label: string; detail?: string; severity: string; sessionId?: string },
   context: vscode.ExtensionContext,
   repo: SessionRepository,
   sidebarProvider?: SidebarPanel,
@@ -899,8 +916,8 @@ async function handleAlertNotification(
 
   // Most alerts point at one offending trace (evaluateAlert's `worst` session) — jump straight to
   // it in the Sessions tab instead of the generic Alerts tab. Aggregate alerts (e.g. daily_cost)
-  // have no single trace responsible, so those still fall back to the Alerts tab.
-  const viewLabel = msg.sessionId ? 'View Trace' : 'View Alerts'
+  // have no single trace responsible, so those open the Alerts section scrolled to that alert.
+  const viewLabel = msg.sessionId ? 'View Trace' : 'View Alert'
 
   let promise: Thenable<string | undefined>
   if (msg.severity === 'error') {
@@ -918,7 +935,7 @@ async function handleAlertNotification(
           DashboardPanel.switchToTab('sessions')
           DashboardPanel.sendFilter(undefined, undefined, undefined, msg.sessionId)
         } else {
-          DashboardPanel.switchToTab('alerts')
+          DashboardPanel.switchToTab('alerts', msg.alertId)
         }
       }, 250)
     } else if (action === 'Copy Prompt') {

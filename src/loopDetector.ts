@@ -46,16 +46,23 @@ import { LoopSignal, LoopSignalType } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import type { TimelineEntry } from './summarizers/summarizerTypes'
 import type { GitOutcome } from './gitOutcome'
-import { calcAggregateTokenCostUsd, calcSessionCostUsd, lookupRates } from './pricing'
+import { calcAggregateTokenCostUsd, calcEntryCostUsd, calcSessionCostUsd, lookupRates } from './pricing'
+import { signalStep, withSteps, fmtInt, editExcerpt, firstLine, plural } from './signalEvidence'
+import type { SignalStep } from './types'
 
 // ── Pattern taxonomy names ───────────────────────────────────────────────────
 
+// Three names were plainer-ed on 2026-10-22 (owner's call, signal review): 'State Corruption
+// Spiral' → 'Edit Reverted', 'Hallucination Amplification Loop' → 'Repeated Error', 'Infinite
+// Loop — Context Accumulation' → 'Context Runaway'. Each old name promised more than its detector
+// measures (one revert, three recurring errors, a ratio drop across four calls), and an alarm that
+// overclaims on a session that shipped costs trust in the whole column. Help ids are unchanged.
 export const PATTERN_NAMES: Record<LoopSignalType, string> = {
   exact_tool_repeat: 'Tool Call Deadlock',
-  edit_revert_cycle: 'State Corruption Spiral',
-  error_recurrence:  'Hallucination Amplification Loop',
+  edit_revert_cycle: 'Edit Reverted',
+  error_recurrence:  'Repeated Error',
   runaway_steps:     'Ambiguous Success / Escalating Scope',
-  token_runaway:     'Infinite Loop — Context Accumulation',
+  token_runaway:     'Context Runaway',
   chronic_tool_failures: 'Chronic Tool Unreliability',
   context_flooding_risk: 'Context Flooding Risk',
   hallucinated_import:     'Fabricated Dependency',
@@ -94,7 +101,7 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     + 'Avoid open-ended instructions like "fix all the bugs" or "clean up the code" with no stopping condition.',
 
   token_runaway:
-    'Input context is growing rapidly while useful output is declining — the agent is accumulating context without making forward progress. '
+    'The context sent to the model is growing rapidly while useful output is declining — the agent is accumulating context without making forward progress. '
     + 'This pattern often accompanies tool-call loops or repeated failed fixes. '
     + 'Start a fresh session with a focused prompt, or explicitly tell the agent what it has already tried and what to do differently.',
 
@@ -108,9 +115,9 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     + 'Use narrower reads — specify line ranges instead of whole files, tighten search patterns, or pipe command output through something that limits it.',
 
   hallucinated_import:
-    'An edit imports a package that is not declared in the project\'s manifest (package.json, requirements.txt) and does not resolve on disk — '
-    + 'a likely hallucinated dependency that will fail at install or runtime. '
-    + 'Verify the package actually exists and is spelled correctly before asking the agent to use it, or add it to the manifest yourself if it is intentional.',
+    'An edit imports a package that isn\'t listed in the project\'s package.json or requirements.txt and isn\'t installed — '
+    + 'likely a made-up dependency that will fail at install or when the code runs. '
+    + 'Verify the package actually exists and is spelled correctly before asking the agent to use it, or add it to package.json / requirements.txt yourself if it is intentional.',
 
   failed_check_submission:
     'The last test/build check run in this session reported a failure, with no further fix attempt before the session ended. '
@@ -127,17 +134,17 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
     + 'Ask it to summarize what it already knows about the file before reading it again, or split the session so the file stays in recent context.',
 
   cache_miss:
-    'A call re-wrote a meaningful share of its prompt prefix instead of reading it from cache, at real dollar cost. '
-    + 'This usually means something upstream of the cached content changed — tool definitions, system prompt, thinking/effort settings, or images. '
+    'A model call saved a meaningful share of its context to the cache again instead of reusing the stored copy, at real dollar cost. '
+    + 'This usually means something near the start of the context changed — tool definitions, the system prompt, thinking/effort settings, or images. '
     + 'Keep those stable across turns in the same session where possible.',
 
   ttl_expiry:
-    'A cache miss followed a gap long enough for the prefix cache to expire, not a changed prompt. '
-    + 'If turns in this session are naturally spaced out, consider that the cache will not survive the gap — there is no fix beyond accepting the re-processing cost or working in tighter bursts.',
+    'Context was saved to the cache again after a pause long enough for the stored copy to expire — a timing effect, not a changed prompt. '
+    + 'If turns in this session are naturally spaced out, the cache will not survive the gaps; there is no fix beyond accepting the extra cost or working in tighter bursts.',
 
   low_cache_hit_ratio:
-    'Little of this session\'s context came from cache relative to how much was re-processed. '
-    + 'Check whether something in the request is varying turn to turn in a way that invalidates the cached prefix (see cache_miss), or whether the session is naturally short-lived and caching was never going to help much.',
+    'Little of this session\'s context was reused from the cache; most of it was processed fresh. '
+    + 'Check whether something near the start of the request changes turn to turn and invalidates the stored copy (see Avoidable Cache Miss), or whether the session is naturally short-lived and caching was never going to help much.',
 
   budget_overrun:
     'This session\'s cost exceeded the cap configured for it. '
@@ -161,7 +168,11 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
 // and `tip` are the condensed one-line versions shown in the hover tooltip (bullets/caveat are too
 // long for a title attribute) — `short` restates the trigger, `tip` is what to actually do about
 // it; the fuller LOOP_SIGNAL_ACTIONS paragraph above stays reserved for Help.tsx's "how to fix"
-// list. `dataSource` is NOT "every entry reads from both, no source-gated branch" — that's true of
+// list. `prompt` is the one thing in this map addressed to the *agent* rather than the person: a
+// paste-ready instruction the Insights panel's Copy button puts on the clipboard (with the
+// trace's evidence under it) and the Help tab shows under "Tell the agent". `tip` and
+// LOOP_SIGNAL_ACTIONS stay addressed to the person, who decides whether to paste it.
+// `dataSource` is NOT "every entry reads from both, no source-gated branch" — that's true of
 // the detector *code* (no `if (dataSource === 'otel')` anywhere below) but false as a claim about
 // whether a signal can actually *fire*: several log sub-parsers in logReader.ts never build a tool
 // timeline at all (Codex, Copilot CLI, Copilot Chat), several TimelineEntry fields these detectors
@@ -179,200 +190,218 @@ export const LOOP_SIGNAL_ACTIONS: Record<LoopSignalType, string> = {
 // hand-typed paraphrase again.
 export const SIGNAL_FORMULAS: Record<
   LoopSignalType,
-  { bullets: string[]; caveat?: string; short: string; tip: string; dataSource: 'otel' | 'both'; dataSourceNote: string }
+  { bullets: string[]; caveat?: string; short: string; tip: string; prompt: string; dataSource: 'otel' | 'both'; dataSourceNote: string }
 > = {
   exact_tool_repeat: {
     bullets: [
-      'Same tool call (same label, and same result when both occurrences captured one) repeated 30+ times in a row with no file edit in between → warning',
-      '50+ → critical',
+      'Warning when the same tool call (same tool and arguments, and the same result whenever both runs recorded one) runs 30+ times with no file edit in between. Other calls in between don’t reset the count.',
+      'Critical at 50+ times.',
     ],
-    caveat: 'Tuned on real sessions: the 30/50 cutoffs sit near the upper end of how long these streaks actually run.',
-    short: 'Same tool call repeated 30+ times in a row with no edit.',
-    tip: 'Stop it and change approach — repeating won’t change the result.',
+    caveat: 'Tuned on real sessions: 30 and 50 sit near the top of how long these repeats normally run.',
+    short: 'The same tool call ran 30+ times with no edit in between.',
+    tip: 'Stop it and try a different approach; repeating it won’t change the result.',
+    prompt: 'You have called the same tool with the same arguments many times and the result has not changed. Stop repeating it. State what you learned from the last result, then take a different action or tell me what you are missing.',
     dataSource: 'both',
     dataSourceNote:
-      'Log-capable from Claude Code, OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all — those need live OTel from that agent instead.',
+      'Works from Claude Code, OpenCode and Cursor log files. Codex, Copilot CLI and Copilot Chat logs don’t record individual tool calls, so those agents need live OTel telemetry for this.',
   },
   edit_revert_cycle: {
     bullets: [
-      'A file’s (old→new) edit is exactly reversed by a later edit on the same file → warning',
-      'critical only if that revert was the file’s last edit before the session ended',
+      'Warning when a later edit exactly undoes an earlier edit to the same file, putting the old text back.',
+      'Critical only when that undo is the file’s last edit before the trace ended.',
     ],
     caveat: 'Fires rarely (about 1 session in 20), too rarely to tune further, so the threshold is still the original setting.',
-    short: 'A file’s edit was exactly undone by a later edit.',
+    short: 'A later edit exactly undid an earlier one.',
     tip: 'Give the agent one clear final target instead of iterating.',
+    prompt: 'You edited a file and then put it back the way it was. Before touching it again, tell me the two requirements you are trying to satisfy and why they conflict. Do not change the file until I say which one wins.',
     dataSource: 'both',
     dataSourceNote:
-      'Log-capable only from Claude Code’s own log file. Never fires for Codex — from OTel or log — since Codex never records the old/new edit content this needs.',
+      'From log files, only Claude Code’s works. Never fires for Codex, from telemetry or logs, because Codex doesn’t record the before-and-after text of an edit.',
   },
   error_recurrence: {
     bullets: [
-      'The same error message (after stripping temp paths, timestamps, and hashes) recurs 3+ times → warning',
-      '5+ times with a real error-message match (not a tool-label fallback) → critical',
+      'Warning when the same error message comes back 3+ times. Temp-file paths, timestamps and long IDs are ignored when comparing messages.',
+      'Critical at 5+ times, but only when the error text itself matched. If no error text was recorded, failures are grouped by the tool call instead, and that never goes past a warning.',
     ],
-    caveat: 'Experimental — thresholds not yet tuned on real sessions.',
-    short: 'The same error message recurred 3+ times.',
-    tip: 'Step in with the actual fix — retrying isn’t resolving it.',
+    caveat: 'Experimental: the thresholds aren’t tuned on real sessions yet.',
+    short: 'The same error came back 3+ times.',
+    tip: 'Step in with the real fix; retrying isn’t solving it.',
+    prompt: 'The same error has come back several times, so your fixes are not reaching the cause. Stop retrying. Quote the exact error, list what you have already tried, and tell me what you think the root cause is before changing anything else.',
     dataSource: 'otel',
     dataSourceNote:
-      'Needs per-tool error status that Claude, Codex, Copilot CLI/Chat, and Cursor logs don’t capture. OpenCode’s log is the one exception.',
+      'Needs to know which tool calls failed, which Claude Code, Codex, Copilot CLI/Chat and Cursor logs don’t record. OpenCode’s log is the one exception; other agents need live OTel telemetry.',
   },
   runaway_steps: {
     bullets: [
-      'Total LLM + tool steps exceed a complexity-tiered threshold (simple 45 / medium 110 / complex 250 steps, complexity inferred from the prompt’s wording and how many files were touched) → warning',
-      '2× that threshold → critical',
+      'Warning when turns plus tool calls go past a budget for the task’s size: 45 steps for a simple task, 110 for a medium one, 250 for a complex one. Size is judged from the prompt’s wording and how many files the trace touched.',
+      'Critical at twice the budget.',
     ],
-    caveat: 'Thresholds were raised about 3x after the originals fired on over half of sessions with no link to how the session actually went.',
+    caveat: 'Thresholds were raised about 3× after the originals fired on over half of sessions with no link to how the session actually went.',
     short: 'Far more steps than expected for a task this size.',
     tip: 'Break the task into smaller, explicitly scoped steps.',
+    prompt: 'This task has taken far more steps than it should. Stop. Summarize what is done, what is left and what you are unsure about. Then finish only the original request; do not widen the scope without asking me first.',
     dataSource: 'both',
     dataSourceNote:
-      'The one signal that’s genuinely source-agnostic — it only reads session-level step/file counts every source populates. Complexity inference is coarser on sources that don’t capture file paths.',
+      'Works from every source: it only needs a trace’s total turns, tool calls and files, which every source records. The task-size guess is rougher on sources that don’t record file paths.',
   },
   token_runaway: {
     bullets: [
-      'Across 4+ LLM calls, input tokens grow 15,000+ while the output/input ratio collapses to under 30% of its first-call value → warning',
-      'input growth over 50,000 tokens → critical',
+      'Warning when, across 4+ model calls, the tokens sent to the model grow by 15,000+ from the first call to the last, while the model’s output as a share of what it was sent drops below 30% of where it started.',
+      'Critical when that growth passes 50,000 tokens.',
     ],
     caveat: 'Fires rarely (about 1 session in 25), too rarely to confirm how well it predicts trouble.',
-    short: 'Context is ballooning while output isn’t improving.',
+    short: 'The context keeps growing while the model’s output shrinks.',
     tip: 'Start a fresh session instead of continuing this one.',
+    prompt: 'Your context keeps growing but your output is not making progress. In five lines, summarize what you have learned and what remains. I will start a fresh session from that summary.',
     dataSource: 'both',
     dataSourceNote:
-      'Log-capable from Claude Code (degraded — undercounts calls that also used a tool) and OpenCode. Not available from Codex, Copilot CLI/Chat, or Cursor logs — none of those capture per-call token counts.',
+      'Works from Claude Code log files (less precisely: calls that also used a tool are undercounted) and from OpenCode’s log. Codex, Copilot CLI/Chat and Cursor logs don’t record tokens per call.',
   },
   chronic_tool_failures: {
     bullets: [
-      'At least 5 tool calls are made in the session and 20%+ of them fail → warning',
-      '40%+ → critical',
+      'Warning when a trace makes at least 5 tool calls and 20%+ of them fail.',
+      'Critical at 40%+.',
     ],
-    caveat: 'Experimental — no real session has reached this threshold yet, so it isn’t tuned.',
-    short: '20%+ of this session’s tool calls failed.',
-    tip: 'Double-check the paths/commands you gave the agent.',
+    caveat: 'Experimental: no real session has reached this threshold yet, so it isn’t tuned.',
+    short: '20%+ of this trace’s tool calls failed.',
+    tip: 'Double-check the paths and commands you gave the agent.',
+    prompt: 'Many of your tool calls are failing. Before the next command, confirm the path or command exists (list the directory, or check which binary is installed), and say which package manager and runtime this project uses.',
     dataSource: 'otel',
     dataSourceNote:
-      'Same gap as error_recurrence: needs per-tool error status Claude, Codex, Copilot CLI/Chat, and Cursor logs don’t capture. OpenCode’s log is the one exception.',
+      'Same gap as Repeated Error: needs to know which tool calls failed, which Claude Code, Codex, Copilot CLI/Chat and Cursor logs don’t record. OpenCode’s log is the one exception.',
   },
   context_flooding_risk: {
     bullets: [
-      'Any single tool result exceeds 10,000 characters → warning',
-      'the total across all such large results reaches 300KB or more → critical',
+      'Warning when any single tool result is over 10,000 characters (roughly 2,500 tokens).',
+      'Critical once all such large results add up to 300 KB or more.',
     ],
-    caveat: 'Experimental — no real session has reached this threshold yet, so it isn’t tuned.',
-    short: 'A tool result was too large and crowded out context.',
+    caveat: 'Experimental: no real session has reached this threshold yet, so it isn’t tuned.',
+    short: 'A tool returned so much text that it crowds the context.',
     tip: 'Ask for narrower reads — line ranges, not whole files.',
+    prompt: 'A tool result was far too large to keep in context. From now on read files with a line range, use narrower search patterns, and pipe long command output through head or a filter.',
     dataSource: 'otel',
     dataSourceNote:
-      'Never fires for Claude Code, from OTel or log, at any configuration level — Claude’s telemetry doesn’t capture full tool-result size. Works from Codex or Copilot OTel, or from OpenCode’s log.',
+      'Never fires for Claude Code, from telemetry or logs, because Claude Code doesn’t report the full size of a tool’s result. Works from Codex or Copilot OTel telemetry, or from OpenCode’s log.',
   },
   hallucinated_import: {
     bullets: [
-      'An edit imports a package name that isn’t declared in the project’s manifest (package.json / requirements.txt) and doesn’t resolve on disk (node_modules, stdlib/builtins excluded) → warning',
-      'Checked once an edit is complete, not mid-session like most of the other signals in this list',
+      'Warning when an edit imports a package that isn’t listed in the project’s package.json or requirements.txt and isn’t installed (not found in node_modules). Built-in modules, the standard library and the project’s own modules don’t count.',
+      'Checked once an edit is complete, not while the trace runs like most other signals in this list.',
     ],
     caveat: 'The best-validated signal so far: sessions where it fires end badly noticeably more often than average.',
-    short: 'Imports a package that isn’t installed or declared.',
+    short: 'Imports a package that isn’t installed or listed as a dependency.',
     tip: 'Verify the package name exists before trusting this edit.',
+    prompt: 'You imported a package that is not in this project\'s manifest and is not installed. Check the manifest and the installed packages before importing anything; if the package is missing, stop and ask me whether to add it.',
     dataSource: 'both',
     dataSourceNote:
-      'Log-capable only from Claude Code’s own log file — same reason as edit_revert_cycle. Never fires for Codex in either form.',
+      'From log files, only Claude Code’s works, for the same reason as Edit Reverted. Never fires for Codex, from telemetry or logs.',
   },
   failed_check_submission: {
     bullets: [
-      'The last tool call in the session invoked a recognized test/build runner and its result reads as a failure (an error status, or "fail"/"✗" in the output), with nothing after it → warning',
-      'Only the session’s very last tool call is checked, so a failing check followed by more edits does not trigger this',
+      'Warning when the trace’s last tool call ran a recognized test or build command and it failed: it reported an error, or its output says "fail" or "✗". A summary like "0 failed" or "no failures" doesn’t count, though a test whose name contains the word still can.',
+      'Only the very last tool call is checked, so a failing check followed by more tool calls doesn’t trigger this.',
     ],
     caveat: 'Built to be precise rather than catch everything, so it rarely fires: few sessions run a check and then stop right after it fails.',
-    short: 'Session ended right after a failing test/build check.',
+    short: 'The trace ended right after a failing test or build.',
     tip: 'Re-run the check and confirm it passes before merging.',
+    prompt: 'The last test or build you ran failed and you stopped there. Re-run it, read the failure and fix it. Do not report the task as done until that check passes.',
     dataSource: 'otel',
     dataSourceNote:
-      'Needs captured tool output Claude, Codex, Copilot CLI/Chat, and Cursor logs don’t provide. OpenCode’s log is the one exception.',
+      'Needs the tool’s output, which Claude Code, Codex, Copilot CLI/Chat and Cursor logs don’t record. OpenCode’s log is the one exception; other agents need live OTel telemetry.',
   },
   tool_call_cycle: {
     bullets: [
-      'A 2-to-5-step tool-call sequence (same labels, and same results when captured) repeats 5+ times in a row with no file edit in between → warning',
-      '10+ repeats → critical',
+      'Warning when a sequence of 2 to 5 tool calls repeats 5+ times back to back, with the same calls (and the same results, where recorded) each round and no file edit in between.',
+      'Critical at 10+ rounds.',
     ],
-    caveat: 'Experimental — thresholds not yet tuned on real sessions. The 5/10-repeat cutoffs are borrowed from Gemini CLI’s own default.',
-    short: 'A multi-step sequence (e.g. edit → build → edit → build) repeated 5+ times.',
+    caveat: 'Experimental: not tuned on real sessions yet. The 5 and 10 cutoffs come from Gemini CLI’s own default.',
+    short: 'A sequence of steps (e.g. run tests → read log → run tests → read log) repeated 5+ times.',
     tip: 'Explain what changed between attempts, or step in with the missing information.',
+    prompt: 'You are repeating the same sequence of actions and getting the same result. Explain what changed between the last two attempts. If nothing did, stop and tell me what information you need from me.',
     dataSource: 'both',
     dataSourceNote:
-      'Same fields as exact_tool_repeat (label + fullResult), so the same source constraint applies: log-capable from Claude Code, OpenCode, and Cursor logs. Codex, Copilot CLI, and Copilot Chat logs never build a tool timeline at all.',
+      'Reads the same data as Tool Call Deadlock, so the same limits apply: works from Claude Code, OpenCode and Cursor log files. Codex, Copilot CLI and Copilot Chat logs don’t record individual tool calls.',
   },
   file_reread: {
     bullets: [
-      'The same file is read 3+ times with no write to it in between (matched by path, not literal call label, so a different line range still counts) → warning',
-      '6+ times → critical',
+      'Warning when the same file is read 3+ times with no edit to it in between. Reads are matched by file path, so reading a different part of the file still counts.',
+      'Critical at 6+ times.',
     ],
-    caveat: 'Experimental — thresholds not yet tuned on real sessions. File paths are detected heuristically, so some re-reads may be missed on agents that don’t report a clean path.',
-    short: 'The same file was read 3+ times with no write in between.',
+    caveat: 'Experimental: not tuned on real sessions yet. File paths are picked out of each call by a best guess, so some re-reads may be missed on agents that don’t report a clean path.',
+    short: 'The same file was read 3+ times with no edit in between.',
     tip: 'Ask the agent to summarize what it already knows instead of rereading.',
+    prompt: 'You have read the same file several times without editing it. Summarize what you already know about it and do not read it again unless you have changed it.',
     dataSource: 'otel',
     dataSourceNote:
-      'Needs a parseable per-call path (toolInput JSON, or a path embedded in the label). Log-capable only from OpenCode\'s log, which captures both. Claude Code\'s own log batches multiple tool calls into one message-level entry with no per-call path, so this can\'t fire from it; Cursor\'s log captures only tool name+count, not paths.',
+      'Needs the file path of each read. From log files, only OpenCode’s records it. Claude Code’s log groups several tool calls into one entry without per-call paths, and Cursor’s log only counts tool calls by name.',
   },
   cache_miss: {
     bullets: [
-      'An LLM call re-writes 5%+ of its prefix as new cache-write tokens, and that re-written share is 2,000+ tokens → warning (the first call on each model is skipped — nothing is cached yet, so writing its prefix is the normal cold start, not a miss)',
-      '90,000+ re-written tokens → critical',
+      'Warning when a model call saves at least 2,000 tokens of context to the cache again, and that is more than 5% of everything it sent. (The cache keeps context the model has already processed, so later calls can reuse it for far less than saving it again costs.)',
+      'A model’s first call doesn’t count: nothing is stored yet, so saving then is normal.',
+      'Critical once the re-saved tokens reach 90,000 across the trace.',
     ],
     caveat: 'Tuned on real sessions. This is a cost signal, not a sign the session went wrong: sessions where it fires don’t end badly more often than others.',
-    short: 'A call re-wrote context it could plausibly have read from cache.',
-    tip: 'Keep tool definitions, system prompt, and thinking/effort settings stable across turns.',
+    short: 'A call re-saved context to the cache instead of reusing the stored copy.',
+    tip: 'Keep tools, the system prompt and thinking/effort settings unchanged mid-task; changing them forces a re-save.',
+    prompt: 'Finish this task without changing model, effort or thinking settings, permission mode, or the set of MCP tools; each of those rebuilds the cached context and costs more than the work itself.',
     dataSource: 'both',
     dataSourceNote:
-      'Same per-call cache-token fields as token_runaway: log-capable from Claude Code (degraded) and OpenCode. Not available from Codex, Copilot CLI/Chat, or Cursor logs — none of those capture per-call cache-token counts.',
+      'Needs cache token counts for each call, like Context Runaway: works from Claude Code log files (less precisely) and OpenCode’s log. Codex, Copilot CLI/Chat and Cursor logs don’t record them.',
   },
   ttl_expiry: {
     bullets: [
-      'A cache_miss (above) where the gap since the previous LLM call exceeds a 1-hour TTL → warning',
-      '3+ such gaps in one session → critical',
+      'Warning when, more than 1 hour after the previous model call, a call re-saves at least 2,000 tokens and more than 5% of what it sent (the same test as Avoidable Cache Miss). By then the stored copy has expired.',
+      'Critical at 3+ such pauses in one trace.',
     ],
-    caveat: 'Experimental — not yet tuned on real sessions. It assumes the 1-hour cache lifetime of a Claude Code subscription, because TraceRoost can’t tell subscription from API-key use; an API-key session’s shorter 5-minute cache can expire without being flagged, but a still-live cache is never labeled expired.',
-    short: 'A cache miss followed a gap longer than the cache\'s TTL.',
-    tip: 'Work in tighter bursts, or accept the re-processing cost for spaced-out turns.',
+    caveat: 'Experimental: not tuned on real sessions yet. It assumes a Claude Code subscription’s 1-hour cache lifetime, because TraceRoost can’t tell a subscription from an API key. With an API key the cache lasts only 5 minutes, so some expiries go unflagged, but a cache that’s still live is never called expired.',
+    short: 'The cache expired during a long pause, so context was saved again.',
+    tip: 'Work in tighter bursts, or accept the extra cost when turns are far apart.',
+    prompt: 'There was a long pause and the cached context expired. Finish the remaining steps in one go rather than one at a time, and if you need my input, ask all your questions at once.',
     dataSource: 'both',
     dataSourceNote:
-      'Same constraint as cache_miss/token_runaway — needs per-call cache tokens and timestamps. Claude Code (degraded) and OpenCode logs; not Codex, Copilot CLI/Chat, or Cursor logs.',
+      'Same limits as Avoidable Cache Miss: needs cache token counts and times for each call. Works from Claude Code log files (less precisely) and OpenCode’s log; not from Codex, Copilot CLI/Chat or Cursor logs.',
   },
   low_cache_hit_ratio: {
     bullets: [
-      'The session reports at least 2,000 combined cache-read + cache-write tokens (real cache activity, not just a source that never reports caching), and cache-read tokens are under 30% of the session’s total input tokens → warning',
-      'under 10% → critical',
+      'Warning when under 30% of the tokens sent to the model across the trace were reused from the cache.',
+      'Only checked once the trace has 2+ turns (a single call has nothing to reuse yet) and at least 2,000 tokens saved to or reused from the cache (so a source that never reports caching isn’t mistaken for poor caching).',
+      'Critical under 10%.',
     ],
-    caveat: 'Experimental — the 30%/10% cutoffs and the 2,000-token activity floor are not yet tuned on real sessions.',
-    short: 'Little of this session\'s context came from cache.',
-    tip: 'Check what\'s invalidating the cached prefix turn to turn.',
+    caveat: 'Experimental: the 30% and 10% cutoffs and the 2,000-token floor aren’t tuned on real sessions yet.',
+    short: 'Little of this trace’s context was reused from the cache.',
+    tip: 'Check what changes near the start of the context from turn to turn.',
+    prompt: 'Little of your context is being served from cache. Keep the start of the conversation stable: do not change tools or settings mid-task, and batch your questions to me instead of asking one per turn.',
     dataSource: 'both',
     dataSourceNote:
-      'Reads only the session-level cache totals every OTel summarizer and the Claude Code / OpenCode log parsers already accumulate. The 2,000-token activity floor exists specifically because a source that never reports caching at all (Cursor, Copilot CLI/Chat) would otherwise read as a 0% hit ratio — "no data" is not "zero cache hits."',
+      'Only needs a trace’s total cache counts, which every OTel source and the Claude Code and OpenCode log readers record. The 2,000-token floor exists because sources that never report caching (Cursor, Copilot CLI/Chat) would otherwise look like 0% reuse, and "no data" isn’t "nothing reused".',
   },
   budget_overrun: {
     bullets: [
-      'Session cost (each LLM call priced at its own model’s rate where per-call tokens exist, otherwise the session’s token totals at flat rates) exceeds a configured cap → warning',
-      '2× that cap → critical',
-      'Disabled unless TRACEROOST_BUDGET_CAP_USD is set — there is no default cap',
+      'Warning when the trace’s estimated cost goes over the budget you set. Each model call is priced at its own model’s rate where per-call token counts exist; otherwise the trace’s token totals are priced at flat rates.',
+      'Critical at twice the budget.',
+      'Off unless TRACEROOST_BUDGET_CAP_USD is set; there is no default budget.',
     ],
-    caveat: 'There is no default cap to tune: the right limit is a dollar figure you choose for yourself (SWE-agent’s own default of $3 per task is one reference point).',
-    short: 'Session cost exceeded the configured budget cap.',
+    caveat: 'There is no default budget to tune: the right limit is a dollar figure you choose for yourself (SWE-agent’s own default of $3 per task is one reference point).',
+    short: 'The trace cost more than the budget you set.',
     tip: 'Check whether a loop or retry pattern elsewhere in this list is driving the cost.',
+    prompt: 'This session has passed its cost budget. Stop and summarize what is done and what remains, with the smallest useful next step. Do not continue until I confirm.',
     dataSource: 'both',
     dataSourceNote:
-      'Reads only session-level token totals and model, the same source-agnostic fields runaway_steps uses — every source populates these. Precision degrades wherever the underlying cost estimate does (sources that don\'t split cache buckets cleanly).',
+      'Only needs a trace’s token totals and model, which every source records. The estimate is less precise on sources that don’t separate cached tokens cleanly.',
   },
   model_tier_mismatch: {
     bullets: [
-      'No file was edited this session, 3+ tool calls were made and 90%+ of them are read-only (grep/search/glob/list/read), the model\'s input rate is $3+/M tokens, and average output per LLM call is under 300 tokens → warning',
-      'No critical tier — this is a cost-optimization tip, not a malfunction',
+      'Warning when no file was edited, at least 3 tool calls were made and 90%+ of them only read or searched (read, grep, search, list and similar), the model charges more than $3 per million tokens sent (Opus-class; Sonnet, at $3, doesn’t count), and replies averaged 300 tokens or fewer per model call.',
+      'Never critical: this is a cost-saving tip, not a malfunction.',
     ],
-    caveat: 'Experimental — every cutoff here (the 90% read-only share, the $3/M input-rate line, the 300-token output ceiling) is not yet tuned on real sessions.',
-    short: 'A premium-tier model ran a read-only, low-output stretch of 3+ tool calls.',
-    tip: 'Route read/search-heavy turns to a smaller model.',
+    caveat: 'Experimental: none of the cutoffs (the 90% read-only share, the over-$3-per-million price line, the 300-token reply limit) are tuned on real sessions yet.',
+    short: 'A premium model did read-only work with short replies.',
+    tip: 'Send reading and searching to a smaller model.',
+    prompt: 'This stretch was read-only research. For searching and reading, use a smaller model (in Claude Code, a subagent with model: haiku); use the main model only for turns that edit.',
     dataSource: 'both',
     dataSourceNote:
-      'Needs per-call model tags and output tokens, the same constraint token_runaway has: log-capable from Claude Code (degraded) and OpenCode, not from Codex, Copilot CLI/Chat, or Cursor logs.',
+      'Needs the model and output tokens for each call, like Context Runaway: works from Claude Code log files (less precisely) and OpenCode’s log; not from Codex, Copilot CLI/Chat or Cursor logs.',
   },
 }
 
@@ -455,12 +484,17 @@ const EXACT_REPEAT_CRITICAL_STREAK = 50
 export function detectExactToolRepeat(session: SessionSummaryCard, signals: LoopSignal[]): void {
   // An edit resets every label's streak. Rather than zeroing each one (O(labels) per edit), a
   // streak only counts while it was last extended in the current edit-free run (`run`).
-  const streaks = new Map<string, { n: number; run: number }>()
+  // `idx` holds the timeline positions of the current streak; `bestIdx` keeps the array of each
+  // label's longest one (a new streak gets a fresh array, so a shorter later streak can't overwrite it).
+  const streaks = new Map<string, { n: number; run: number; idx: number[] }>()
   const maxStreaks = new Map<string, number>()
+  const bestIdx = new Map<string, number[]>()
   const lastResult = new Map<string, string | undefined>()
   let run = 0
 
-  for (const entry of session.timeline) {
+  const timeline = session.timeline
+  for (let i = 0; i < timeline.length; i++) {
+    const entry = timeline[i]
     if (entry.editDetails && entry.editDetails.length > 0) { run++ }
     if (entry.type !== 'tool') { continue }
     const key = (entry.label || '').trim()
@@ -469,10 +503,16 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
     const prevResult = lastResult.get(key)
     const contentChanged = prevResult !== undefined && entry.fullResult !== undefined && entry.fullResult !== prevResult
 
-    const streak = streaks.get(key)
-    const n = contentChanged ? 1 : (streak && streak.run === run ? streak.n : 0) + 1
-    if (streak) { streak.n = n; streak.run = run } else { streaks.set(key, { n, run }) }
-    maxStreaks.set(key, Math.max(maxStreaks.get(key) || 0, n))
+    let streak = streaks.get(key)
+    if (!contentChanged && streak && streak.run === run) {
+      streak.n++
+      streak.idx.push(i)
+    } else {
+      streak = { n: 1, run, idx: [i] }
+      streaks.set(key, streak)
+    }
+    if (streak.n > (maxStreaks.get(key) || 0)) { bestIdx.set(key, streak.idx) }
+    maxStreaks.set(key, Math.max(maxStreaks.get(key) || 0, streak.n))
     lastResult.set(key, entry.fullResult)
   }
 
@@ -483,14 +523,24 @@ export function detectExactToolRepeat(session: SessionSummaryCard, signals: Loop
   if (repeated.length === 0) { return }
 
   const topCount = repeated[0][1]
+  const steps: SignalStep[] = []
+  for (const [label] of repeated.slice(0, 3)) {
+    const idx = bestIdx.get(label) ?? []
+    idx.forEach((i, k) => steps.push(signalStep(timeline, i, `identical call ${k + 1} of ${idx.length}`)))
+  }
   signals.push({
     type: 'exact_tool_repeat',
     severity: topCount >= EXACT_REPEAT_CRITICAL_STREAK ? 'critical' : 'warning',
-    evidence: `${repeated.length} tool call(s) executed identically ${EXACT_REPEAT_WARNING_STREAK}+ times with no edit in between`,
+    evidence: `${plural(repeated.length, 'tool call')} repeated identically ${EXACT_REPEAT_WARNING_STREAK}+ times with no edit in between`,
     count: topCount,
     examples: repeated.slice(0, 3).map(([label, n]) => `"${label.slice(0, 60)}" ×${n}`),
     patternName: PATTERN_NAMES.exact_tool_repeat,
     action: LOOP_SIGNAL_ACTIONS.exact_tool_repeat,
+    ...withSteps(steps,
+      `The most repeated call, "${repeated[0][0].slice(0, 60)}", ran ${topCount} times with no file edit in between,`
+      + ' getting the same result whenever one was recorded.'
+      + ' Repeating a call that returns the same thing uses time and tokens without making progress.'
+      + ` Flagged at ${EXACT_REPEAT_WARNING_STREAK} repeats; critical at ${EXACT_REPEAT_CRITICAL_STREAK}.`),
   })
 }
 
@@ -505,17 +555,20 @@ function toOrderedRecord(map: Map<string, number>): Record<string, number> {
 
 // ── Shared: per-file edit extraction ─────────────────────────────────────────
 
-function collectEditDetails(session: SessionSummaryCard, type: 'llm' | 'tool'): Record<string, Array<{ old: string; new: string }>> {
-  const fileEdits: Record<string, Array<{ old: string; new: string }>> = {}
+/** One edit pair, with `index` = the timeline position of the entry that made it. */
+export interface FileEdit { old: string; new: string; index: number }
 
-  for (const entry of session.timeline) {
-    if (entry.type !== type || !entry.editDetails) { continue }
+function collectEditDetails(session: SessionSummaryCard, type: 'llm' | 'tool'): Record<string, FileEdit[]> {
+  const fileEdits: Record<string, FileEdit[]> = {}
+
+  session.timeline.forEach((entry, index) => {
+    if (entry.type !== type || !entry.editDetails) { return }
     for (const detail of entry.editDetails) {
       if (!detail.filePath || !detail.oldString || !detail.newString) { continue }
       if (!fileEdits[detail.filePath]) { fileEdits[detail.filePath] = [] }
-      fileEdits[detail.filePath].push({ old: detail.oldString, new: detail.newString })
+      fileEdits[detail.filePath].push({ old: detail.oldString, new: detail.newString, index })
     }
-  }
+  })
 
   return fileEdits
 }
@@ -535,7 +588,7 @@ function collectEditDetails(session: SessionSummaryCard, type: 'llm' | 'tool'): 
  * original behavior here) silently dropped the primary source, reading zero edits for any session
  * that only had the former.
  */
-export function getFileEditCounts(session: SessionSummaryCard): Record<string, Array<{ old: string; new: string }>> {
+export function getFileEditCounts(session: SessionSummaryCard): Record<string, FileEdit[]> {
   const fromLlm = collectEditDetails(session, 'llm')
   if (Object.keys(fromLlm).length > 0) { return fromLlm }
   return collectEditDetails(session, 'tool')
@@ -563,27 +616,40 @@ export function detectEditRevertCycle(session: SessionSummaryCard, signals: Loop
   const fileEdits = getFileEditCounts(session)
 
   const revertedFiles: string[] = []
+  const steps: SignalStep[] = []
   let anyStillReverted = false
 
   for (const [file, edits] of Object.entries(fileEdits)) {
     if (edits.length < 2) { continue }
-    const isRevert = (j: number): boolean => {
+    // The earlier edit that edits[j] exactly reverses, or -1.
+    const revertedBy = (j: number): number => {
       for (let i = 0; i < j; i++) {
-        if (edits[j].old === edits[i].new && edits[j].new === edits[i].old) { return true }
+        if (edits[j].old === edits[i].new && edits[j].new === edits[i].old) { return i }
       }
-      return false
+      return -1
+    }
+    const name = file.split('/').pop() || file
+    const record = (i: number, j: number, final: boolean): void => {
+      steps.push(signalStep(session.timeline, edits[i].index, `edit to ${name}, later undone`, 'context',
+        editExcerpt(edits[i].old, edits[i].new)))
+      steps.push(signalStep(session.timeline, edits[j].index,
+        `undoes the earlier edit to ${name}` + (final ? ' (its last edit in this trace)' : ''), 'trigger',
+        editExcerpt(edits[j].old, edits[j].new)))
     }
     // The final edit is checked on its own, not just "the first revert found": a file reverted
     // early on and then reverted AGAIN as its last edit is still stuck, and stopping at the first
     // match used to miss that.
     const last = edits.length - 1
-    if (isRevert(last)) {
+    const lastReverts = revertedBy(last)
+    if (lastReverts >= 0) {
       revertedFiles.push(file)
+      record(lastReverts, last, true)
       anyStillReverted = true
       continue
     }
     for (let j = 1; j < last; j++) {
-      if (isRevert(j)) { revertedFiles.push(file); break }
+      const i = revertedBy(j)
+      if (i >= 0) { revertedFiles.push(file); record(i, j, false); break }
     }
   }
 
@@ -592,11 +658,18 @@ export function detectEditRevertCycle(session: SessionSummaryCard, signals: Loop
   signals.push({
     type: 'edit_revert_cycle',
     severity: anyStillReverted ? 'critical' : 'warning',
-    evidence: `${revertedFiles.length} file(s) were edited then reverted to a prior state`,
+    evidence: `${plural(revertedFiles.length, 'file')} had an edit undone by a later edit`,
     count: revertedFiles.length,
     examples: revertedFiles.slice(0, 3).map(f => f.split('/').pop() || f),
     patternName: PATTERN_NAMES.edit_revert_cycle,
     action: LOOP_SIGNAL_ACTIONS.edit_revert_cycle,
+    ...withSteps(steps,
+      `${plural(revertedFiles.length, 'file')} had an edit exactly undone by a later edit, which put the old text back.`
+      + (anyStillReverted
+        ? (revertedFiles.length === 1 ? ' The undo was the file’s last edit' : ' For at least one of them, the undo was its last edit')
+          + ', so that change did not survive the trace.'
+        : (revertedFiles.length === 1 ? ' The file was' : ' Each was') + ' edited again afterwards, so the agent moved on.')
+      + ' Flagged on any exact undo; critical when the undo is the file’s last edit in the trace.'),
   })
 }
 
@@ -624,16 +697,18 @@ function normalizeErrorMessage(msg: string): string {
  * Thresholds: 3+ occurrences → warning, 5+ (with a real errorMessage match) → critical.
  */
 export function detectErrorRecurrence(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const groups: Record<string, { count: number; example: string; fromFallback: boolean }> = {}
-  for (const entry of session.timeline) {
-    if (!entry.isError) { continue }
+  const groups: Record<string, { count: number; example: string; fromFallback: boolean; idx: number[]; msgs: string[] }> = {}
+  session.timeline.forEach((entry, i) => {
+    if (!entry.isError) { return }
     const raw = (entry.errorMessage || entry.label || 'unknown error').trim()
     const fromFallback = !entry.errorMessage
     const key = normalizeErrorMessage(raw).slice(0, 200)
-    if (!groups[key]) { groups[key] = { count: 0, example: raw.slice(0, 200), fromFallback } }
+    if (!groups[key]) { groups[key] = { count: 0, example: raw.slice(0, 200), fromFallback, idx: [], msgs: [] } }
     groups[key].count++
+    groups[key].idx.push(i)
+    groups[key].msgs.push(entry.errorMessage ? firstLine(entry.errorMessage) : '')
     if (fromFallback) { groups[key].fromFallback = true }
-  }
+  })
 
   const recurring = Object.entries(groups)
     .filter(([, g]) => g.count >= 3)
@@ -642,14 +717,27 @@ export function detectErrorRecurrence(session: SessionSummaryCard, signals: Loop
   if (recurring.length === 0) { return }
 
   const top = recurring[0][1]
+  const steps: SignalStep[] = []
+  // The trigger quotes the top error; the notes only repeat a message when several errors recur.
+  for (const [, g] of recurring.slice(0, 3)) {
+    const which = recurring.length > 1 ? `: "${g.example.slice(0, 50)}${g.example.length > 50 ? '…' : ''}"` : ''
+    g.idx.forEach((i, k) => steps.push(signalStep(session.timeline, i, `occurrence ${k + 1} of ${g.count}${which}`, 'trigger', g.msgs[k])))
+  }
   signals.push({
     type: 'error_recurrence',
     severity: top.count >= 5 && !top.fromFallback ? 'critical' : 'warning',
-    evidence: `${recurring.length} error(s) recurring 3+ times`,
+    evidence: `${plural(recurring.length, 'error')} came back 3+ times`,
     count: recurring.reduce((s, [, g]) => s + g.count, 0),
     examples: recurring.slice(0, 3).map(([, g]) => `"${g.example.slice(0, 60)}" ×${g.count}`),
     patternName: PATTERN_NAMES.error_recurrence,
     action: LOOP_SIGNAL_ACTIONS.error_recurrence,
+    ...withSteps(steps,
+      (top.fromFallback
+        ? `"${top.example.slice(0, 100)}${top.example.length > 100 ? '…' : ''}" failed ${top.count} times.`
+          + ' No error text was recorded, so the failures were matched by the call itself, and this stays a warning.'
+        : `The same error appeared ${top.count} times: "${top.example.slice(0, 100)}${top.example.length > 100 ? '…' : ''}".`)
+      + ' A recurring error usually means the fixes aren’t reaching its cause.'
+      + ' Flagged at 3 repeats; critical at 5 when the error text itself matches.'),
   })
 }
 
@@ -725,18 +813,51 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
 
   if (totalSteps <= threshold) { return }
 
+  // The step counters are session totals; the timeline is walked separately to find where it
+  // crossed the line. They can disagree (a source whose timeline is partial), in which case the
+  // crossing just isn't marked rather than marked somewhere wrong.
+  const timeline = session.timeline
+  const steps: SignalStep[] = []
+  let n = 0
+  let crossedAt = -1
+  let lastStep = -1
+  for (let i = 0; i < timeline.length; i++) {
+    if (timeline[i].type !== 'llm' && timeline[i].type !== 'tool') { continue }
+    n++
+    lastStep = i
+    if (n === threshold + 1) {
+      crossedAt = i
+      steps.push(signalStep(timeline, i, `step ${n} — first step past the ${threshold}-step budget for a ${complexity} task`))
+    } else if (n === threshold * 2) {
+      steps.push(signalStep(timeline, i, `step ${n} — twice the budget (critical)`))
+    }
+  }
+  if (crossedAt >= 0 && lastStep > crossedAt) {
+    steps.push(signalStep(timeline, lastStep, `step ${n} — the trace's last step`, 'context'))
+  }
+  const filesAffected = new Set([...session.filesRead, ...session.filesChanged, ...session.filesSearched]).size
+
   signals.push({
     type: 'runaway_steps',
     severity: totalSteps >= threshold * 2 ? 'critical' : 'warning',
-    evidence: `${totalSteps} steps for a ${complexity} task (threshold: ${threshold})`,
+    evidence: `${totalSteps} steps for a ${complexity} task (budget: ${threshold})`,
     count: totalSteps,
     examples: [
-      `${session.totalLlmCalls} LLM calls`,
-      `${session.totalToolCalls} tool calls`,
+      plural(session.totalLlmCalls, 'turn'),
+      plural(session.totalToolCalls, 'tool call'),
       `"${(session.userRequest || '').slice(0, 60)}"`,
     ],
     patternName: PATTERN_NAMES.runaway_steps,
     action: LOOP_SIGNAL_ACTIONS.runaway_steps,
+    ...withSteps(steps,
+      `This trace took ${totalSteps} steps (${plural(session.totalLlmCalls, 'turn')} and ${plural(session.totalToolCalls, 'tool call')}),`
+      + ` against a budget of ${threshold} for a ${complexity} task.`
+      + ` The task was judged ${complexity} from the prompt's wording and the ${plural(filesAffected, 'file')} it touched.`
+      + ' That many steps often points to an unclear goal or a growing scope.'
+      + ` Flagged past ${threshold} steps; critical at ${threshold * 2}.`),
+    ...(crossedAt >= 0 && lastStep > crossedAt
+      ? { range: { from: crossedAt, to: lastStep, note: `past the ${threshold}-step budget` } }
+      : {}),
   })
 }
 
@@ -764,9 +885,9 @@ export function detectRunawaySteps(session: SessionSummaryCard, signals: LoopSig
  * not a verdict either way). Threshold left unchanged; revisit once the corpus is bigger.
  */
 export function detectTokenRunaway(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const llmCalls = session.timeline.filter(
-    e => e.type === 'llm' && (e.inputTokens ?? 0) > 0,
-  )
+  const llmIdx: number[] = []
+  session.timeline.forEach((e, i) => { if (e.type === 'llm' && (e.inputTokens ?? 0) > 0) { llmIdx.push(i) } })
+  const llmCalls = llmIdx.map(i => session.timeline[i])
   if (llmCalls.length < 4) { return }
 
   const inputs  = llmCalls.map(e => e.inputTokens  ?? 0)
@@ -782,19 +903,40 @@ export function detectTokenRunaway(session: SessionSummaryCard, signals: LoopSig
 
   if (!ratioDrop) { return }
 
+  const pct = (out: number, inp: number): string => `${((out / Math.max(inp, 1)) * 100).toFixed(1)}%`
+  const last = llmCalls.length - 1
+  const steps: SignalStep[] = [
+    signalStep(session.timeline, llmIdx[0],
+      `first call: ${fmtInt(inputs[0])} tokens sent → ${fmtInt(outputs[0])} out (${pct(outputs[0], inputs[0])})`, 'context'),
+    signalStep(session.timeline, llmIdx[last],
+      `last call: ${fmtInt(inputs[last])} tokens sent → ${fmtInt(outputs[last])} out (${pct(outputs[last], inputs[last])})`),
+  ]
+  // The three calls whose context jumped most over the call before — where the growth came from.
+  const jumps = inputs.slice(1).map((v, k) => ({ k: k + 1, d: v - inputs[k] })).filter(j => j.d > 0)
+  jumps.sort((a, b) => b.d - a.d)
+  for (const j of jumps.slice(0, 3)) {
+    steps.push(signalStep(session.timeline, llmIdx[j.k], `context grew ${fmtInt(j.d)} tokens over the previous call`))
+  }
+
   signals.push({
     type: 'token_runaway',
     severity: inputGrowth > 50000 ? 'critical' : 'warning',
     evidence:
-      `Input grew ${inputGrowth.toLocaleString()} tokens across ${llmCalls.length} LLM calls`
-      + ` while output ratio collapsed (${(earlyRatio * 100).toFixed(1)}% → ${(lateRatio * 100).toFixed(1)}%)`,
+      `Context grew ${inputGrowth.toLocaleString()} tokens across ${llmCalls.length} model calls`
+      + ` while output fell from ${(earlyRatio * 100).toFixed(1)}% to ${(lateRatio * 100).toFixed(1)}% of what was sent`,
     count: llmCalls.length,
     examples: [
-      `First call: ${inputs[0].toLocaleString()} in → ${outputs[0].toLocaleString()} out`,
-      `Last call:  ${inputs[inputs.length - 1].toLocaleString()} in → ${outputs[outputs.length - 1].toLocaleString()} out`,
+      `First call: ${inputs[0].toLocaleString()} tokens sent → ${outputs[0].toLocaleString()} out`,
+      `Last call: ${inputs[inputs.length - 1].toLocaleString()} tokens sent → ${outputs[outputs.length - 1].toLocaleString()} out`,
     ],
     patternName: PATTERN_NAMES.token_runaway,
     action: LOOP_SIGNAL_ACTIONS.token_runaway,
+    ...withSteps(steps,
+      `The context sent to the model grew by ${fmtInt(inputGrowth)} tokens across ${plural(llmCalls.length, 'model call')}.`
+      + ` Meanwhile the model's output fell from ${(earlyRatio * 100).toFixed(1)}% to ${(lateRatio * 100).toFixed(1)}% of what it was sent.`
+      + ' The agent is carrying more and more context without producing more.'
+      + ' Flagged when the context grows 15,000+ tokens over 4+ calls and that output share drops below 30% of where it started.'
+      + ' Critical once the growth passes 50,000 tokens.'),
   })
 }
 
@@ -825,13 +967,16 @@ export function detectChronicToolFailures(session: SessionSummaryCard, signals: 
   if (toolEntries.length < CHRONIC_FAILURE_MIN_SAMPLE) { return }
 
   const failedByLabel: Record<string, number> = {}
+  const steps: SignalStep[] = []
   let failedCount = 0
-  for (const entry of toolEntries) {
-    if (!entry.isError) { continue }
+  session.timeline.forEach((entry, i) => {
+    if (entry.type !== 'tool' || !entry.isError) { return }
     failedCount++
     const key = (entry.label || '').split(' ')[0] || 'unknown'
     failedByLabel[key] = (failedByLabel[key] || 0) + 1
-  }
+    const msg = entry.errorMessage ? firstLine(entry.errorMessage) : ''
+    steps.push(signalStep(session.timeline, i, msg ? 'failed' : 'failed (no error message recorded)', 'trigger', msg))
+  })
   if (failedCount === 0) { return }
 
   const rate = failedCount / toolEntries.length
@@ -847,6 +992,11 @@ export function detectChronicToolFailures(session: SessionSummaryCard, signals: 
     examples: topFailing.slice(0, 3).map(([tool, n]) => `${tool} ×${n}`),
     patternName: PATTERN_NAMES.chronic_tool_failures,
     action: LOOP_SIGNAL_ACTIONS.chronic_tool_failures,
+    ...withSteps(steps,
+      `${failedCount} of ${toolEntries.length} tool calls failed (${(rate * 100).toFixed(0)}%).`
+      + ' Frequent failures often mean wrong paths or commands that aren’t available, and each one costs a recovery turn.'
+      + ` Flagged at ${CHRONIC_FAILURE_WARNING_RATE * 100}% once a trace has ${CHRONIC_FAILURE_MIN_SAMPLE}+ tool calls;`
+      + ` critical at ${CHRONIC_FAILURE_CRITICAL_RATE * 100}%.`),
   })
 }
 
@@ -868,11 +1018,15 @@ const LARGE_RESULT_CRITICAL_KB = 300
  */
 export function detectContextFloodingRisk(session: SessionSummaryCard, signals: LoopSignal[]): void {
   const largeResults: Array<{ tool: string; size: number }> = []
-  for (const entry of session.timeline) {
-    if (entry.type !== 'tool' || !entry.fullResult) { continue }
-    if (entry.fullResult.length <= LARGE_RESULT_CHARS) { continue }
+  const steps: SignalStep[] = []
+  session.timeline.forEach((entry, i) => {
+    if (entry.type !== 'tool' || !entry.fullResult) { return }
+    if (entry.fullResult.length <= LARGE_RESULT_CHARS) { return }
     largeResults.push({ tool: (entry.label || '').split(' ')[0] || 'unknown', size: entry.fullResult.length })
-  }
+    steps.push(signalStep(session.timeline, i,
+      `returned ${fmtInt(entry.fullResult.length)} characters (~${fmtInt(entry.fullResult.length / 4)} tokens) into the context`,
+      'trigger', 'begins: ' + firstLine(entry.fullResult)))
+  })
   if (largeResults.length === 0) { return }
 
   largeResults.sort((a, b) => b.size - a.size)
@@ -881,11 +1035,16 @@ export function detectContextFloodingRisk(session: SessionSummaryCard, signals: 
   signals.push({
     type: 'context_flooding_risk',
     severity: totalKb >= LARGE_RESULT_CRITICAL_KB ? 'critical' : 'warning',
-    evidence: `${largeResults.length} tool call(s) returned large results (${totalKb.toFixed(0)}KB total)`,
+    evidence: `${plural(largeResults.length, 'tool call')} returned large results (${totalKb.toFixed(0)} KB in all)`,
     count: largeResults.length,
     examples: largeResults.slice(0, 3).map(r => `${r.tool} (${(r.size / 1024).toFixed(1)}KB)`),
     patternName: PATTERN_NAMES.context_flooding_risk,
     action: LOOP_SIGNAL_ACTIONS.context_flooding_risk,
+    ...withSteps(steps,
+      `${plural(largeResults.length, 'tool result')} ${largeResults.length === 1 ? 'was' : 'were each'} over ${fmtInt(LARGE_RESULT_CHARS)} characters,`
+      + ` ${totalKb.toFixed(0)} KB in all.`
+      + ' Everything a tool returns stays in the context for later calls and crowds out other information.'
+      + ` Flagged for any single result over ${fmtInt(LARGE_RESULT_CHARS)} characters; critical once they reach ${LARGE_RESULT_CRITICAL_KB} KB in all.`),
   })
 }
 
@@ -917,20 +1076,25 @@ function periodicSuffixRepeats(seg: string[], period: number): number {
 export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSignal[]): void {
   // Same segmentation as detectExactToolRepeat: any file edit is forward progress and resets
   // tracking, so a cycle is only ever measured within one edit-free run.
+  // segIdx parallels segments: the timeline position of each call.
   const segments: string[][] = [[]]
-  for (const entry of session.timeline) {
+  const segIdx: number[][] = [[]]
+  session.timeline.forEach((entry, i) => {
     if (entry.editDetails && entry.editDetails.length > 0) {
       segments.push([])
-      continue
+      segIdx.push([])
+      return
     }
-    if (entry.type !== 'tool') { continue }
+    if (entry.type !== 'tool') { return }
     const key = (entry.label || '').trim()
-    if (!key) { continue }
+    if (!key) { return }
     segments[segments.length - 1].push(`${key}\u0000${entry.fullResult ?? ''}`)
-  }
+    segIdx[segIdx.length - 1].push(i)
+  })
 
-  let best: { period: number; repeats: number; pattern: string[] } | null = null
-  for (const seg of segments) {
+  let best: { period: number; repeats: number; pattern: string[]; seg: number } | null = null
+  for (let segN = 0; segN < segments.length; segN++) {
+    const seg = segments[segN]
     for (let period = TOOL_CYCLE_MIN_PERIOD; period <= TOOL_CYCLE_MAX_PERIOD; period++) {
       const repeats = periodicSuffixRepeats(seg, period)
       if (repeats < TOOL_CYCLE_WARNING_REPEATS) { continue }
@@ -939,20 +1103,31 @@ export function detectToolCallCycle(session: SessionSummaryCard, signals: LoopSi
       // longer period's clothes — that's detectExactToolRepeat's signal, not this one.
       if (new Set(pattern).size < 2) { continue }
       if (!best || repeats * period > best.repeats * best.period) {
-        best = { period, repeats, pattern }
+        best = { period, repeats, pattern, seg: segN }
       }
     }
   }
   if (!best) { return }
+  const found = best
+
+  // The cycle is the segment's tail: its last period × repeats calls.
+  const cycleIdx = segIdx[found.seg].slice(-(found.period * found.repeats))
+  const steps = cycleIdx.map((i, k) => signalStep(session.timeline, i,
+    `round ${Math.floor(k / found.period) + 1} of ${found.repeats}, step ${(k % found.period) + 1} of ${found.period}`))
 
   signals.push({
     type: 'tool_call_cycle',
     severity: best.repeats >= TOOL_CYCLE_CRITICAL_REPEATS ? 'critical' : 'warning',
-    evidence: `A ${best.period}-step tool-call sequence repeated ${best.repeats}+ times in a row with no edit in between`,
+    evidence: `A ${best.period}-step sequence of tool calls repeated ${best.repeats} times in a row with no edit in between`,
     count: best.repeats,
     examples: best.pattern.map(p => p.split('\u0000')[0].slice(0, 60)),
     patternName: PATTERN_NAMES.tool_call_cycle,
     action: LOOP_SIGNAL_ACTIONS.tool_call_cycle,
+    ...withSteps(steps,
+      `The sequence ${found.pattern.map(p => p.split('\u0000')[0].slice(0, 40)).join(' → ')} ran ${found.repeats} times back to back,`
+      + ' with the same results each time (where recorded) and no file edit in between.'
+      + ' The agent is reacting to the same feedback without changing its approach.'
+      + ` Flagged at ${TOOL_CYCLE_WARNING_REPEATS} rounds; critical at ${TOOL_CYCLE_CRITICAL_REPEATS}.`),
   })
 }
 
@@ -992,23 +1167,28 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
   const counts: Record<string, number> = {}
   const maxCounts: Record<string, number> = {}
   const sizeSamples: Record<string, number[]> = {}
+  // Timeline positions of each path's current write-free run of reads, and of its longest one.
+  const runIdx: Record<string, number[]> = {}
+  const bestIdx: Record<string, number[]> = {}
 
-  for (const entry of session.timeline) {
+  session.timeline.forEach((entry, i) => {
     if (entry.editDetails) {
       for (const d of entry.editDetails) {
-        if (d.filePath) { counts[d.filePath] = 0 }
+        if (d.filePath) { counts[d.filePath] = 0; runIdx[d.filePath] = [] }
       }
     }
-    if (entry.type !== 'tool') { continue }
+    if (entry.type !== 'tool') { return }
     const label = (entry.label || '').trim()
-    if (!READ_TOOL_LABEL_PATTERN.test(label)) { continue }
+    if (!READ_TOOL_LABEL_PATTERN.test(label)) { return }
     const filePath = extractReadPath(entry)
-    if (!filePath) { continue }
+    if (!filePath) { return }
     counts[filePath] = (counts[filePath] || 0) + 1
+    ;(runIdx[filePath] ??= []).push(i)
+    if (counts[filePath] > (maxCounts[filePath] || 0)) { bestIdx[filePath] = runIdx[filePath] }
     maxCounts[filePath] = Math.max(maxCounts[filePath] || 0, counts[filePath])
     const size = (entry.fullResult ?? entry.resultSummary ?? '').length
     if (size > 0) { (sizeSamples[filePath] ??= []).push(size) }
-  }
+  })
 
   const reread = Object.entries(maxCounts)
     .filter(([, n]) => n >= FILE_REREAD_WARNING_COUNT)
@@ -1027,15 +1207,30 @@ export function detectFileReread(session: SessionSummaryCard, signals: LoopSigna
   const wasteUsd = avoidableTokens > 0 ? calcAggregateTokenCostUsd(avoidableTokens, 0, 0, 0, session.model) : 0
 
   const topCount = reread[0][1]
+  const steps: SignalStep[] = []
+  for (const [path] of reread.slice(0, 5)) {
+    const idx = bestIdx[path] ?? []
+    const name = path.split('/').pop() || path
+    idx.forEach((i, k) => steps.push(signalStep(session.timeline, i,
+      k === 0 ? `first read of ${name}` : `read ${name} again (${k + 1} of ${idx.length}), no edit since the first`,
+      k === 0 ? 'context' : 'trigger')))
+  }
   signals.push({
     type: 'file_reread',
     severity: topCount >= FILE_REREAD_CRITICAL_COUNT ? 'critical' : 'warning',
-    evidence: `${reread.length} file(s) read ${FILE_REREAD_WARNING_COUNT}+ times with no write in between`
-      + (wasteUsd > 0 ? ` (~$${wasteUsd.toFixed(3)} in avoidable rereads)` : ''),
+    evidence: `${plural(reread.length, 'file')} read ${FILE_REREAD_WARNING_COUNT}+ times with no edit in between`
+      + (wasteUsd > 0 ? ` (~$${wasteUsd.toFixed(3)} spent re-reading)` : ''),
     count: topCount,
     examples: reread.slice(0, 3).map(([path, n]) => `${path.split('/').pop() || path} ×${n}`),
     patternName: PATTERN_NAMES.file_reread,
     action: LOOP_SIGNAL_ACTIONS.file_reread,
+    ...withSteps(steps,
+      `${reread[0][0].split('/').pop() || reread[0][0]} was read ${topCount} times with no edit to it in between`
+      + (reread.length > 1
+        ? `, and ${plural(reread.length - 1, 'other file')} ${FILE_REREAD_WARNING_COUNT} or more times${reread.length > 2 ? ' each' : ''}`
+        : '') + '.'
+      + ' Each re-read adds the file to the context again.'
+      + ` Flagged at ${FILE_REREAD_WARNING_COUNT} reads without an edit; critical at ${FILE_REREAD_CRITICAL_COUNT}.`),
     ...(wasteUsd > 0 ? { wasteUsd } : {}),
   })
 }
@@ -1074,18 +1269,29 @@ function isCacheMissEntry(e: TimelineEntry): boolean {
   return totalPrefix > 0 && cacheCreate >= CACHE_MISS_MIN_TOKENS && cacheCreate / totalPrefix > CACHE_MISS_MIN_SHARE
 }
 
+/** "re-saved 18,402 tokens to the cache (42% of the 43,800 tokens sent)". */
+function cacheMissStep(timeline: TimelineEntry[], i: number, verb: string, lead = ''): SignalStep {
+  const e = timeline[i]
+  const cacheCreate = e.cacheCreateTokens ?? 0
+  const prefix = Math.max(e.inputTokens ?? 0, cacheCreate + (e.cacheReadTokens ?? 0))
+  return signalStep(timeline, i,
+    `${lead}${verb} ${fmtInt(cacheCreate)} tokens to the cache (${Math.round((cacheCreate / Math.max(prefix, 1)) * 100)}% of the ${fmtInt(prefix)} tokens sent)`)
+}
+
 export function detectCacheMiss(session: SessionSummaryCard, signals: LoopSignal[]): void {
-  const llmCalls = session.timeline.filter(e => e.type === 'llm')
   // The first call on each model has nothing cached yet — writing its prefix to cache is the
   // cold start every session pays, not a miss. Caches are per-model, so a subagent or /model
   // switch gets its own cold first call too.
   const seenModels = new Set<string>()
-  const misses = llmCalls.filter(e => {
+  const missIdx: number[] = []
+  session.timeline.forEach((e, i) => {
+    if (e.type !== 'llm') { return }
     const model = e.model || session.model || ''
     const first = !seenModels.has(model)
     seenModels.add(model)
-    return !first && isCacheMissEntry(e)
+    if (!first && isCacheMissEntry(e)) { missIdx.push(i) }
   })
+  const misses = missIdx.map(i => session.timeline[i])
   if (misses.length === 0) { return }
 
   const totalWasted = misses.reduce((s, e) => s + (e.cacheCreateTokens ?? 0), 0)
@@ -1096,12 +1302,19 @@ export function detectCacheMiss(session: SessionSummaryCard, signals: LoopSignal
   signals.push({
     type: 'cache_miss',
     severity: totalWasted >= CACHE_MISS_CRITICAL_TOKENS ? 'critical' : 'warning',
-    evidence: `${misses.length} LLM call(s) re-wrote ${totalWasted.toLocaleString()} tokens of context that could plausibly have been read from cache instead`
-      + (wasteUsd > 0 ? ` (~$${wasteUsd.toFixed(3)} wasted)` : ''),
+    evidence: `${plural(misses.length, 'model call')} re-saved ${totalWasted.toLocaleString()} tokens of context instead of reusing the cached copy`
+      + (wasteUsd > 0 ? ` (~$${wasteUsd.toFixed(3)} extra)` : ''),
     count: misses.length,
-    examples: [`${totalWasted.toLocaleString()} cache-write tokens across ${misses.length} call(s)`],
+    examples: [`${totalWasted.toLocaleString()} tokens re-saved across ${plural(misses.length, 'call')}`],
     patternName: PATTERN_NAMES.cache_miss,
     action: LOOP_SIGNAL_ACTIONS.cache_miss,
+    ...withSteps(missIdx.map(i => cacheMissStep(session.timeline, i, 're-saved')),
+      `${plural(misses.length, 'later model call')} saved ${fmtInt(totalWasted)} tokens of context to the model's cache again,`
+      + ' where reusing the stored copy was likely possible.'
+      + ' Saving to the cache costs much more than reusing from it.'
+      + ` Flagged when a call re-saves at least ${fmtInt(CACHE_MISS_MIN_TOKENS)} tokens and more than ${CACHE_MISS_MIN_SHARE * 100}% of what it sends.`
+      + " A model's first call doesn't count, since nothing is stored yet."
+      + ` Critical once the total reaches ${fmtInt(CACHE_MISS_CRITICAL_TOKENS)} tokens.`),
     ...(wasteUsd > 0 ? { wasteUsd } : {}),
   })
 }
@@ -1111,24 +1324,38 @@ export function detectTtlExpiry(session: SessionSummaryCard, signals: LoopSignal
   if (llmCalls.length < 2) { return }
 
   let prevTs: number | null = null
+  let prevIdx = -1
   const expiryGapsMs: number[] = []
-  for (const e of llmCalls) {
+  const steps: SignalStep[] = []
+  session.timeline.forEach((e, i) => {
+    if (e.type !== 'llm') { return }
     const ts = Date.parse(e.timestamp)
     if (isCacheMissEntry(e) && prevTs !== null && !Number.isNaN(ts) && ts - prevTs > CACHE_TTL_MS) {
+      const gapMin = Math.round((ts - prevTs) / 60_000)
       expiryGapsMs.push(ts - prevTs)
+      steps.push(signalStep(session.timeline, prevIdx, `last call before a ${gapMin}-minute pause`, 'context'))
+      steps.push(cacheMissStep(session.timeline, i, 're-saved', `${gapMin} minutes after the previous call; `))
     }
-    if (!Number.isNaN(ts)) { prevTs = ts }
-  }
+    if (!Number.isNaN(ts)) { prevTs = ts; prevIdx = i }
+  })
   if (expiryGapsMs.length === 0) { return }
 
   signals.push({
     type: 'ttl_expiry',
     severity: expiryGapsMs.length >= 3 ? 'critical' : 'warning',
-    evidence: `${expiryGapsMs.length} cache miss(es) followed a gap longer than the cache's TTL (~${Math.round(CACHE_TTL_MS / 60_000)} min) — waiting too long, not a changed prompt`,
+    evidence: `${plural(expiryGapsMs.length, 'model call')} re-saved the context after a pause of over ${Math.round(CACHE_TTL_MS / 60_000)} minutes`
+      + ' (a timing effect, not a changed prompt)',
     count: expiryGapsMs.length,
-    examples: expiryGapsMs.slice(0, 3).map(ms => `${Math.round(ms / 60_000)} min gap`),
+    examples: expiryGapsMs.slice(0, 3).map(ms => `${Math.round(ms / 60_000)}-minute pause`),
     patternName: PATTERN_NAMES.ttl_expiry,
     action: LOOP_SIGNAL_ACTIONS.ttl_expiry,
+    ...withSteps(steps,
+      `${plural(expiryGapsMs.length, 'model call')} came after a pause of more than ${Math.round(CACHE_TTL_MS / 60_000)} minutes`
+      + ' and saved the context to the cache again.'
+      + ' The cache keeps it for about an hour, so the stored copy had likely expired.'
+      + ` The longest pause was ${plural(Math.round(Math.max(...expiryGapsMs) / 60_000), 'minute')}.`
+      + ` Flagged when a call after such a pause re-saves at least ${fmtInt(CACHE_MISS_MIN_TOKENS)} tokens`
+      + ` and more than ${CACHE_MISS_MIN_SHARE * 100}% of what it sends. Critical at 3 or more such pauses.`),
   })
 }
 
@@ -1145,21 +1372,42 @@ const LOW_CACHE_HIT_WARNING_RATIO = 0.3
 const LOW_CACHE_HIT_CRITICAL_RATIO = 0.1
 
 export function detectLowCacheHitRatio(session: SessionSummaryCard, signals: LoopSignal[]): void {
+  // A session with one LLM call has nothing to read from cache yet — its only cache activity is
+  // the cold-start write every session pays (the same exemption detectCacheMiss gives a model's
+  // first call), so a 0% ratio there is the normal case, not poor caching.
+  if (session.totalLlmCalls < 2) { return }
   const totalCacheActivity = session.cacheReadTokens + session.cacheCreateTokens
   if (totalCacheActivity < LOW_CACHE_HIT_MIN_ACTIVITY_TOKENS) { return }
   if (session.cacheHitRate >= LOW_CACHE_HIT_WARNING_RATIO) { return }
 
+  // The session-level ratio has no single cause; the calls that re-processed the most input
+  // without reading it from cache are where it went.
+  const worst = session.timeline
+    .map((e, i) => ({ e, i, uncached: Math.max(0, (e.inputTokens ?? 0) - (e.cacheReadTokens ?? 0)) }))
+    .filter(x => x.e.type === 'llm' && x.uncached > 0)
+    .sort((a, b) => b.uncached - a.uncached)
+    .slice(0, 5)
+  const steps = worst.map(({ e, i, uncached }) => signalStep(session.timeline, i,
+    `${fmtInt(uncached)} of ${fmtInt(e.inputTokens ?? 0)} tokens sent were not reused from the cache`
+    + ` (${Math.round(((e.cacheReadTokens ?? 0) / Math.max(e.inputTokens ?? 0, 1)) * 100)}% reused)`))
+
   signals.push({
     type: 'low_cache_hit_ratio',
     severity: session.cacheHitRate < LOW_CACHE_HIT_CRITICAL_RATIO ? 'critical' : 'warning',
-    evidence: `Only ${(session.cacheHitRate * 100).toFixed(0)}% of this session's context came from cache`,
+    evidence: `Only ${(session.cacheHitRate * 100).toFixed(0)}% of this trace's context was reused from the cache`,
     count: Math.round(session.cacheHitRate * 100),
     examples: [
-      `${session.cacheReadTokens.toLocaleString()} cache-read tokens`,
-      `${session.cacheCreateTokens.toLocaleString()} cache-write tokens`,
+      `${session.cacheReadTokens.toLocaleString()} tokens reused from the cache`,
+      `${session.cacheCreateTokens.toLocaleString()} tokens saved to the cache`,
     ],
     patternName: PATTERN_NAMES.low_cache_hit_ratio,
     action: LOOP_SIGNAL_ACTIONS.low_cache_hit_ratio,
+    ...withSteps(steps,
+      `Only ${(session.cacheHitRate * 100).toFixed(0)}% of the tokens sent to the model across ${plural(session.totalLlmCalls, 'turn')}`
+      + ' were reused from the cache. The rest were processed fresh, at full price or more.'
+      + ` Flagged under ${LOW_CACHE_HIT_WARNING_RATIO * 100}% once a trace has 2+ turns and at least ${fmtInt(LOW_CACHE_HIT_MIN_ACTIVITY_TOKENS)} tokens`
+      + ` saved to or reused from the cache (this one had ${fmtInt(totalCacheActivity)}). Critical under ${LOW_CACHE_HIT_CRITICAL_RATIO * 100}%.`
+      + (steps.length > 0 ? ' The calls below processed the most tokens fresh.' : '')),
   })
 }
 
@@ -1187,14 +1435,26 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
   const costUsd = calcSessionCostUsd(session)
   if (costUsd <= cap) { return }
 
+  const priciest = session.timeline
+    .map((e, i) => ({ i, usd: e.type === 'llm' ? calcEntryCostUsd(e, session.model) : 0 }))
+    .filter(x => x.usd > 0)
+    .sort((a, b) => b.usd - a.usd)
+    .slice(0, 5)
+  const steps = priciest.map(({ i, usd }) => signalStep(session.timeline, i,
+    `~$${usd.toFixed(2)} — ${Math.round((usd / costUsd) * 100)}% of the trace's cost`))
+
   signals.push({
     type: 'budget_overrun',
     severity: costUsd >= cap * 2 ? 'critical' : 'warning',
-    evidence: `Session cost ~$${costUsd.toFixed(2)} exceeded the configured $${cap.toFixed(2)} cap`,
+    evidence: `Trace cost ~$${costUsd.toFixed(2)}, over the $${cap.toFixed(2)} budget`,
     count: Math.round(costUsd * 100),
-    examples: [`$${costUsd.toFixed(2)} total`, `cap: $${cap.toFixed(2)}`],
+    examples: [`$${costUsd.toFixed(2)} total`, `budget: $${cap.toFixed(2)}`],
     patternName: PATTERN_NAMES.budget_overrun,
     action: LOOP_SIGNAL_ACTIONS.budget_overrun,
+    ...withSteps(steps,
+      `This trace cost about $${costUsd.toFixed(2)}, over the $${cap.toFixed(2)} budget set in TRACEROOST_BUDGET_CAP_USD.`
+      + ` Flagged above the budget; critical at twice the budget ($${(cap * 2).toFixed(2)}).`
+      + (steps.length > 0 ? ' The most expensive model calls are below.' : '')),
   })
 }
 
@@ -1207,6 +1467,11 @@ export function detectBudgetOverrun(session: SessionSummaryCard, signals: LoopSi
 
 const READ_ONLY_TOOL_LABEL_PATTERN = /^(read_file|read|cat|view|show_file|show|grep|search|glob|find|list|ls|get)\b/i
 const TIER_MISMATCH_MIN_READ_ONLY_SHARE = 0.9
+// Strictly above this rate counts as premium. Sonnet sits exactly at $3/M and is Claude Code's
+// default model, so an inclusive bar flagged every no-edit question-and-answer session on it and
+// offered only Haiku as the fix — the most-ignored signal in the list. Above $3 the signal means
+// Opus-class (and the equivalent OpenAI tiers), where the same read-only stretch is a genuine
+// several-fold overspend and the advice gets acted on (owner's decision, 2026-10-22).
 const TIER_MISMATCH_PREMIUM_INPUT_RATE_PER_MTOK = 3
 const TIER_MISMATCH_MAX_AVG_OUTPUT_TOKENS = 300
 const TIER_MISMATCH_MIN_TOOL_CALLS = 3
@@ -1216,11 +1481,15 @@ export function detectModelTierMismatch(session: SessionSummaryCard, signals: Lo
 
   const toolEntries = session.timeline.filter(e => e.type === 'tool')
   if (toolEntries.length < TIER_MISMATCH_MIN_TOOL_CALLS) { return }
-  const readOnlyCount = toolEntries.filter(e => READ_ONLY_TOOL_LABEL_PATTERN.test((e.label || '').trim())).length
+  const readOnlyIdx: number[] = []
+  session.timeline.forEach((e, i) => {
+    if (e.type === 'tool' && READ_ONLY_TOOL_LABEL_PATTERN.test((e.label || '').trim())) { readOnlyIdx.push(i) }
+  })
+  const readOnlyCount = readOnlyIdx.length
   if (readOnlyCount / toolEntries.length < TIER_MISMATCH_MIN_READ_ONLY_SHARE) { return }
 
   const rates = lookupRates(session.model)
-  if (!rates || rates.inputPerMTok < TIER_MISMATCH_PREMIUM_INPUT_RATE_PER_MTOK) { return }
+  if (!rates || rates.inputPerMTok <= TIER_MISMATCH_PREMIUM_INPUT_RATE_PER_MTOK) { return }
 
   const llmCalls = session.timeline.filter(e => e.type === 'llm')
   const avgOutput = llmCalls.length > 0
@@ -1231,11 +1500,20 @@ export function detectModelTierMismatch(session: SessionSummaryCard, signals: Lo
   signals.push({
     type: 'model_tier_mismatch',
     severity: 'warning',
-    evidence: `A premium-tier model (${session.model}) ran ${readOnlyCount} of ${toolEntries.length} read-only tool calls with no edits and short output`,
+    evidence: `A premium model (${session.model}) did read-only work: ${readOnlyCount} of ${toolEntries.length} tool calls only read or searched,`
+      + ' with no edits and short replies',
     count: readOnlyCount,
-    examples: [`model: ${session.model}`, `avg output: ${Math.round(avgOutput)} tokens/call`],
+    examples: [`model: ${session.model}`, `average reply: ${plural(Math.round(avgOutput), 'token')} per call`],
     patternName: PATTERN_NAMES.model_tier_mismatch,
     action: LOOP_SIGNAL_ACTIONS.model_tier_mismatch,
+    ...withSteps(readOnlyIdx.map(i => signalStep(session.timeline, i, `read-only call on ${session.model}`)),
+      `${readOnlyCount} of ${toolEntries.length} tool calls only read or searched, and no file was edited.`
+      + ` The model, ${session.model}, charges $${rates.inputPerMTok} per million tokens sent,`
+      + ` and its replies averaged ${plural(Math.round(avgOutput), 'token')} per call.`
+      + ' A cheaper model usually handles this kind of work as well.'
+      + ` Flagged when nothing is edited, there are ${TIER_MISMATCH_MIN_TOOL_CALLS}+ tool calls, and at least ${TIER_MISMATCH_MIN_READ_ONLY_SHARE * 100}% of them are read-only.`
+      + ` The model must also charge more than $${TIER_MISMATCH_PREMIUM_INPUT_RATE_PER_MTOK} per million tokens sent,`
+      + ` with replies averaging ${TIER_MISMATCH_MAX_AVG_OUTPUT_TOKENS} tokens or fewer.`),
   })
 }
 

@@ -167,6 +167,7 @@ function runInstaller(file, args, env = process.env) {
   const started = Date.now()
   // Generous: on the windows-11-arm runner the x86 NSIS stub runs emulated and a fresh install
   // takes about four minutes (an upgrade, which first runs the old uninstaller, longer).
+  // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process -- a CI check running the installer it just built
   const r = spawnSync(file, args, { env, stdio: 'inherit', timeout: 900_000 })
   const seconds = Math.round((Date.now() - started) / 1000)
   if (r.status === null) {

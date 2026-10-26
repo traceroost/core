@@ -16,7 +16,6 @@ export interface AgentThresholdProfile {
   source: AgentSource
   label: string
   shortLabel: string
-  color: string
   contextWindowTokens: number
   turnNudge: number
   turnAlert: number
@@ -36,7 +35,6 @@ export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
     source: 'claude_code',
     label: 'Claude',
     shortLabel: 'CL',
-    color: '#FFB085',
     contextWindowTokens: 200000,
     turnNudge: 80,
     turnAlert: 150,
@@ -50,7 +48,6 @@ export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
     source: 'copilot',
     label: 'Copilot',
     shortLabel: 'CP',
-    color: '#00EAFF',
     contextWindowTokens: 128000,
     turnNudge: 150,
     turnAlert: 275,
@@ -64,7 +61,6 @@ export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
     source: 'codex',
     label: 'Codex',
     shortLabel: 'CX',
-    color: '#F0FF42',
     contextWindowTokens: 400000,
     turnNudge: 250,
     turnAlert: 450,
@@ -78,7 +74,6 @@ export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
     source: 'opencode',
     label: 'OpenCode',
     shortLabel: 'OC',
-    color: '#FFFFFF',
     contextWindowTokens: 200000,
     turnNudge: 80,
     turnAlert: 150,
@@ -97,7 +92,6 @@ export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
     source: 'cursor',
     label: 'Cursor',
     shortLabel: 'CU',
-    color: '#B39DDB',
     contextWindowTokens: 200000,
     turnNudge: 80,
     turnAlert: 150,

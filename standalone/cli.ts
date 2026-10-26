@@ -4,6 +4,8 @@
 // Or installed with Homebrew: brew install traceroost/tap/traceroost, then `traceroost`
 // `traceroost service <install|uninstall|start|stop|restart|status|logs|update>` manages running this
 // as an OS-native background service instead — see standalone/service/index.ts.
+// `traceroost agents <setup|remove>` sets the coding agents up for TraceRoost, or takes out exactly
+// what that added — see standalone/agentsCli.ts.
 // `traceroost org <link|status|verify|leave> [--device|--browser]` links this machine to an org (Cloud, AL 01) —
 // full edition only; the core edition prints "not available" and exits 1 (see cliCloud.ts).
 // `traceroost find <repo hash | trace/session id>` resolves a cloud dashboard hash-handoff
@@ -12,10 +14,11 @@
 // and `traceroost patterns --repo <hash|name>` run either half of `find` directly.
 // Any other bare word is an unknown subcommand, and any other flag an unknown option: print usage
 // and exit non-zero rather than silently starting the server (which also auto-configures agents).
-// `--help`/`-h` prints the usage, `--version`/`-v` the version. Only no arguments at all starts
-// the server (see cliArgs.ts).
+// `help`/`--help`/`-h` prints the usage, `--version`/`-v` the version. Only no arguments at all,
+// or only the bare run's own flags (`--ui-port`, `--otlp-port`, `--mcp-port`, `--data-dir`,
+// `--no-open`), starts the server (see cliArgs.ts).
 
-import { topLevelAction, usageText } from './cliArgs'
+import { parseServerFlags, topLevelAction, usageText } from './cliArgs'
 
 // TraceRoost Cloud (org link + upload) subcommands and the cloud step of local ones come only
 // through this seam — see cliCloud.ts. The core edition's build swaps in inert stubs. Loaded
@@ -42,6 +45,11 @@ async function main() {
   if (args[0] === 'service') {
     const { runServiceCli } = await import('./service/index.js')
     process.exitCode = await runServiceCli(args.slice(1))
+    return
+  }
+  if (args[0] === 'agents') {
+    const { runAgentsCli } = await import('./agentsCli.js')
+    process.exitCode = await runAgentsCli(args.slice(1))
     return
   }
   if (args[0] === 'org') {
@@ -93,10 +101,15 @@ async function main() {
     }
   }
   if (action !== 'server') {
-    console.error(`Unknown option: ${args[0]}\n\n${USAGE}`)
+    const parsed = parseServerFlags(args)
+    console.error(`${parsed.ok ? `Unknown option: ${args[0]}` : parsed.error}\n\n${USAGE}`)
     process.exitCode = 1
     return
   }
+  // The bare run's flags are its environment variables by another name (cliArgs.ts's
+  // SERVER_FLAGS) — set before server.js reads them, so a flag wins over the shell's value.
+  const flags = parseServerFlags(args)
+  if (flags.ok) Object.assign(process.env, flags.env)
   await import('./server.js')
 }
 

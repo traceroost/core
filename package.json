@@ -1,7 +1,7 @@
 {
   "name": "traceroost",
   "displayName": "TraceRoost - Agentic AI Monitoring & Observability",
-  "description": "Agentic AI monitoring and observability — OTEL traces and local log file ingestion for Copilot, Claude Code, Codex, OpenCode, and Cursor CLI. VS Code extension, npx, and Docker.",
+  "description": "Agentic AI monitoring and observability — OTel traces and local log file ingestion for Copilot, Claude Code, Codex, OpenCode, and Cursor CLI. VS Code extension, npx, and Docker.",
   "version": "0.20.0",
   "publisher": "traceroost",
   "license": "(MIT AND BUSL-1.1)",
@@ -75,16 +75,24 @@
         "icon": "$(graph)"
       },
       {
+        "command": "traceRoost.setUpAgents",
+        "title": "TraceRoost: Set Up Agents…"
+      },
+      {
+        "command": "traceRoost.removeAgentSetup",
+        "title": "TraceRoost: Remove Agent Setup…"
+      },
+      {
         "command": "traceRoost.exportData",
-        "title": "TraceRoost: Export OTEL Data"
+        "title": "TraceRoost: Export Live OTel Spans (debug)"
       },
       {
         "command": "traceRoost.exportDataRedacted",
-        "title": "TraceRoost: Export OTEL Data (Redacted)"
+        "title": "TraceRoost: Export Live OTel Spans, Redacted (debug)"
       },
       {
         "command": "traceRoost.dumpSpanAttrs",
-        "title": "TraceRoost: Dump Span Attributes"
+        "title": "TraceRoost: Dump Span Attributes (debug)"
       },
       {
         "command": "traceRoost.showStorageStats",
@@ -112,6 +120,10 @@
         {
           "command": "traceRoost.clearSessions",
           "when": "false"
+        },
+        {
+          "command": "traceRoost.dumpSpanAttrs",
+          "when": "traceRoost.debugCommands"
         }
       ],
       "view/title": [
@@ -141,11 +153,14 @@
           },
           {
             "id": "traceroost.autoConfig",
-            "title": "Agents Are Ready",
-            "description": "Once you choose Set up agents, TraceRoost configures your agents to send telemetry to the local collector. Restart any running agents to start collecting traces. Past trace history is already loading from local log files — no restart needed to see it.",
+            "title": "Connect your agents",
+            "description": "Past trace history loads from your agents' local log files with no setup. For live traces, TraceRoost asks before it points Claude Code, Codex and Copilot at its local collector — skipped that, or want to re-apply it? Run Set Up Agents, then restart any running agents.\n\n[Set Up Agents](command:traceRoost.setUpAgents)",
             "media": {
               "markdown": "walkthrough/agents.md"
-            }
+            },
+            "completionEvents": [
+              "onCommand:traceRoost.setUpAgents"
+            ]
           },
           {
             "id": "traceroost.startSession",
@@ -183,22 +198,24 @@
         "traceRoost.otlpPort": {
           "type": "number",
           "default": 4318,
-          "description": "Local port for OTLP trace receiver"
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Local port for the OTLP trace receiver (1024–65535). Your agents send live traces here; Set Up Agents points them at it."
         },
         "traceRoost.autoConfigureAgents": {
           "type": "boolean",
           "default": true,
-          "description": "Offer to set up Claude Code (~/.claude/settings.json), Codex (~/.codex/config.toml) and GitHub Copilot to send their activity — including prompts and tool output — to TraceRoost on this computer. TraceRoost asks once before changing anything (the answer is shared with the background service); after a yes it keeps them pointed here on every activation, rewriting a file only when a setting is missing or differs. A file that already sends to a different collector is never changed. Disabling this leaves your agents' configuration untouched — you can still trigger it manually with the Configure OTEL button in Settings, configure OTEL by hand (see the Help tab's Setup section), or rely on traceRoost.enableLogIngestion alone. Codex and Copilot CLI traces have little to show without OTEL: their log files carry only aggregate totals, no per-turn tool calls or responses."
+          "description": "Offer to set up Claude Code, Codex and GitHub Copilot to send their activity — including prompts and tool output — to TraceRoost on this computer. It asks first; after a yes, each start keeps TraceRoost's port in their settings current (it never re-adds a setting you removed). Turn this off to leave agent settings alone on startup — you can still run TraceRoost: Set Up Agents… (or use the dashboard's ⚙ Settings panel) at any time."
         },
         "traceRoost.enableOtelIngestion": {
           "type": "boolean",
           "default": true,
-          "description": "Accept incoming OTEL span data. The OTLP server keeps listening on traceRoost.otlpPort regardless; disabling this silently drops received payloads without storing them."
+          "description": "Accept incoming OTel span data. The OTLP server keeps listening on traceRoost.otlpPort regardless; disabling this silently drops received payloads without storing them."
         },
         "traceRoost.enableLogIngestion": {
           "type": "boolean",
           "default": true,
-          "description": "Read the local logs and databases Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI write as a data source. Log data has lower fidelity than OTEL — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. When OTEL captured the same trace (always detected for Claude Code), the OTEL entry wins and the log entry is dropped; otherwise the two can appear as separate entries. Loading is done incrementally in the background and will not block the UI."
+          "description": "Read the local logs and databases Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI write as a data source. Log data has lower fidelity than OTel — timing, speed, and loop signals are not available for Codex and Copilot CLI, whose log files carry only aggregate totals. When OTel captured the same trace (always detected for Claude Code), the OTel entry wins and the log entry is dropped; otherwise the two can appear as separate entries. Loading is done incrementally in the background and will not block the UI."
         },
         "traceRoost.enableMcpServer": {
           "type": "boolean",
@@ -208,7 +225,9 @@
         "traceRoost.mcpPort": {
           "type": "number",
           "default": 4316,
-          "description": "Local port for the TraceRoost MCP server (when traceRoost.enableMcpServer is true). Register it with Claude Code with: claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp"
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Local port for the TraceRoost MCP server (1024–65535; when traceRoost.enableMcpServer is true). Register it with Claude Code with: claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp"
         },
         "traceRoost.sessionRetentionDays": {
           "type": "number",

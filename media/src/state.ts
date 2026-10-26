@@ -2,6 +2,7 @@ import { signal, computed } from '@preact/signals'
 import { calcSessionCost } from './sessionMetrics'
 import { formatTraceIdHash } from './hash'
 import { LANGUAGE_IDS, type SessionLanguage } from './language'
+import { scrollBehavior } from './a11y'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
@@ -178,6 +179,21 @@ export function receiveSessionTimeline(sessionId: string, timeline: TimelineEntr
 // (no git repo, no changed files, etc). Absent key = not yet requested. See gitOutcome.ts.
 export const gitOutcomes = signal<Record<string, GitOutcome | null>>({})
 
+// The two post-hoc signals (hallucinated_import, failed_check_submission — src/sessionRiskSignals.ts)
+// aren't in a card's loopSignals: the host computes them on demand and sends them with a session's
+// git outcome. sessionId → what it last sent. Absent key = never sent (or sent as "can't tell").
+export const riskSignals = signal<Record<string, LoopSignal[]>>({})
+
+/** A session's own loop signals plus any post-hoc risk signals received for it — what the Sig
+ *  column and the expanded trace's Insights show. A type already in loopSignals isn't added twice. */
+export function sessionSignals(sess: SessionSummaryCard): LoopSignal[] {
+  const extra = riskSignals.value[sess.sessionId]
+  const own = sess.loopSignals ?? []
+  if (!extra || extra.length === 0) return own
+  const have = new Set(own.map(s => s.type))
+  return [...own, ...extra.filter(s => !have.has(s.type))]
+}
+
 // Sessions the host has told us are "deferred" — still inside their active-session grace window
 // (reconciliationService.ts's ACTIVE_GRACE_MS), so no git classification has run or will run for
 // them yet. Kept separate from `gitOutcomes` (which means "resolved, here's the answer") so the
@@ -331,6 +347,18 @@ export const workspaceFilter = signal<WorkspaceFilter>('')
 export const currentWorkspace = signal<string | null>(null)
 export const outcomeFilter = signal<OutcomeFilter>('all')
 export const activeTab = signal('sessions')
+// The Settings drawer (App.tsx's ConfigPanel) and the Alerts panel (AlertsPanel.tsx, opened from
+// the header bell) with its current tab — here rather than in App.tsx so a tab (Alerts' "View
+// trace", an empty state's "Set up agents") can close or open them.
+export const configOpen = signal(false)
+export type AlertsPanelTab = 'active' | 'configure' | 'automation'
+export const alertsOpen = signal(false)
+export const alertsPanelTab = signal<AlertsPanelTab>('active')
+// The filter bar's "Filters (n)" popover (App.tsx's FiltersControl), and a field inside it to
+// focus when it opens — set by a caller that sends the user to one filter (the Advisor's "Choose
+// repo"), cleared once used.
+export const filtersOpen = signal(false)
+export const filtersFocusField = signal<string | null>(null)
 
 // ── Ingestion settings ────────────────────────────────────────────────────────
 
@@ -464,7 +492,7 @@ export function goToHelp(anchor: string): void {
   activeTab.value = 'help'
   setTimeout(() => {
     const el = document.getElementById(anchor)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (el) el.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
   }, 80)
 }
 

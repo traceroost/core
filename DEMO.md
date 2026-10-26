@@ -35,7 +35,7 @@ pnpm run demo -- --scenario story                # 10-trace petstore build-out (
 **Scenarios** (each runs once per requested agent, except `compaction`):
 
 - `normal` — clean multi-turn task. Populates a trace's Overview, Waterfall, Flow, Tools and Files sub-tabs, plus Analytics.
-- `loop` — the same failing command repeated several times. Triggers the Loop Breaker automation and the "Tool Call Deadlock" / "Hallucination Amplification Loop" signals.
+- `loop` — the same failing command repeated several times. Triggers the Loop Breaker automation and the "Tool Call Deadlock" / "Repeated Error" signals.
 - `errors` — a type error followed by a fix. Populates the error counts and Insights in a trace's Overview sub-tab.
 - `compaction` — input tokens grow ~4x per turn (Claude only). Triggers the Context Compaction automation.
 - `all` — every scenario above, in sequence.

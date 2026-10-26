@@ -7,6 +7,7 @@ import { calcTokenCostUsd } from '../../pricing'
 import type { SessionSummaryCard } from '../../summarizers/summarizerTypes'
 import type { SqlStatement } from '../../database/db'
 import { traceKey, claudeInteractionKey } from '../../traceIdentity'
+import { sessionsVersion } from '../../database/sessionsVersion'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -537,6 +538,18 @@ suite('DatabaseWriter — unchanged rewrites are skipped', () => {
     db.close()
   })
 
+  test('an identical card does not invalidate the listSessions() memo', async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    await write(w, withTimeline())
+    const v = sessionsVersion(db)
+    await write(w, withTimeline())
+    assert.strictEqual(sessionsVersion(db), v)
+    await write(w, withTimeline({ inputTokens: 4321 }))
+    assert.ok(sessionsVersion(db) > v, 'a changed card must bump the version')
+    db.close()
+  })
+
   test('any change to the card, or the fallback workspace it resolves to, is written', async () => {
     const db = await openInMemoryDb()
     const w = new DatabaseWriter(db, makeStorageUri(), () => {})
@@ -587,6 +600,30 @@ suite('DatabaseWriter — unchanged rewrites are skipped', () => {
     fail = false
     await write(w, card())
     assert.ok(written.some(p => p.includes('sp-retry-response.txt')))
+    db.close()
+  })
+})
+
+suite('DatabaseWriter — deleteSynthSession', () => {
+  test("removes only the trace's synth- row, through the primary-key index", async () => {
+    const db = await openInMemoryDb()
+    const w = new DatabaseWriter(db, makeStorageUri(), () => {})
+    w.importCards([
+      makeCard({ sessionId: 'synth-aaa', traceId: 'trace-a' }),
+      makeCard({ sessionId: 'real-a', traceId: 'trace-a' }),
+      makeCard({ sessionId: 'synth-bbb', traceId: 'trace-b' }),
+      makeCard({ sessionId: 'synthesis', traceId: 'trace-a' }),
+    ])
+    const v = sessionsVersion(db)
+    w.deleteSynthSession('trace-none')
+    assert.strictEqual(sessionsVersion(db), v, 'nothing deleted — the memo stays valid')
+    w.deleteSynthSession('trace-a')
+    assert.ok(sessionsVersion(db) > v)
+    const ids = db.exec('SELECT session_id FROM sessions ORDER BY session_id')[0].values.map(r => r[0])
+    assert.deepStrictEqual(ids, ['real-a', 'synth-bbb', 'synthesis'])
+    const plan = db.exec(`EXPLAIN QUERY PLAN DELETE FROM sessions WHERE session_id >= 'synth-' AND session_id < 'synth.'
+      AND session_id LIKE 'synth-%' AND trace_id = 'x'`)[0].values.map(r => String(r[3])).join(' ')
+    assert.ok(!/SCAN sessions/.test(plan), plan)
     db.close()
   })
 })

@@ -7,8 +7,9 @@
  * them out as code is clearer than a config that silently means different things on different
  * machines:
  *
- *  1. **Signing.** With a Developer ID available (`CSC_LINK` + `CSC_KEY_PASSWORD` for a .p12 in
- *     CI, or `CSC_NAME` naming a certificate already in the login keychain), the app is signed
+ *  1. **Signing.** With a Developer ID available (`CSC_NAME` naming a certificate in the keychain
+ *     — CI imports its .p12 into a job keychain and adds `CSC_KEYCHAIN`; `CSC_LINK` is honoured but
+ *     broken in electron-builder 26.15.3, see desktop-macos.yml), the app is signed
  *     with it under the hardened runtime, which is what notarization requires. Without one, the
  *     app is **ad-hoc signed** (`identity: "-"`). electron-builder has no automatic ad-hoc
  *     fallback — unsigned is the default — and an unsigned bundle whose resources differ from
@@ -90,6 +91,10 @@ const hasNotaryCredentials =
  *  2. A code-signing certificate — `WIN_CSC_LINK` (base64 or path of a .pfx/.p12) and
  *     `WIN_CSC_KEY_PASSWORD`, which electron-builder reads itself and hands to signtool.
  *  3. Neither — unsigned. Every Windows build until the owner has one of the above.
+ *
+ * `TRACEROOST_WINDOWS_SIGNING=off` overrides all of it: unsigned even with the credentials
+ * present, so signing can be paused (CI: the repository variable of that name) without deleting
+ * the secrets.
  */
 const AZURE_SIGNING_PROFILE = {
   endpoint: process.env.AZURE_TRUSTED_SIGNING_ENDPOINT || 'https://eus.codesigning.azure.net/',
@@ -98,12 +103,17 @@ const AZURE_SIGNING_PROFILE = {
   // Must equal the certificate's subject CN exactly: the identity validated as an individual.
   publisherName: process.env.AZURE_TRUSTED_SIGNING_PUBLISHER || 'Roger Reed',
 }
-const azureSigning = ['AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET'].every(k => process.env[k])
-const certificateSigning = Boolean(process.env.WIN_CSC_LINK)
+const windowsSigningOff = process.env.TRACEROOST_WINDOWS_SIGNING === 'off'
+const azureSigning = !windowsSigningOff && ['AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET'].every(k => process.env[k])
+const certificateSigning = !windowsSigningOff && Boolean(process.env.WIN_CSC_LINK)
+// electron-builder would still find a certificate in WIN_CSC_LINK on its own.
+if (windowsSigningOff) for (const name of ['WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD']) delete process.env[name]
 const windowsSigning = azureSigning ? 'azure' : certificateSigning ? 'certificate' : 'none'
 
 if (process.platform === 'win32') {
-  console.log(windowsSigning === 'none'
+  console.log(windowsSigningOff
+    ? 'electron-builder.config: Windows signing switched off (TRACEROOST_WINDOWS_SIGNING=off) — unsigned; SmartScreen will warn on first run'
+    : windowsSigning === 'none'
     ? 'electron-builder.config: no Windows signing credentials (WIN_CSC_LINK, or AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET) — unsigned; SmartScreen will warn on first run'
     : `electron-builder.config: Windows signing with ${windowsSigning === 'azure' ? `Azure Artifact Signing (${AZURE_SIGNING_PROFILE.codeSigningAccountName}/${AZURE_SIGNING_PROFILE.certificateProfileName})` : 'the WIN_CSC_LINK certificate'}`)
 }

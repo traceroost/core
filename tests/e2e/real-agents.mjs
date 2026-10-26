@@ -122,6 +122,9 @@ async function standaloneStage() {
   const captureDir = path.join(outDir, 'capture-real-agents-standalone')
   try {
     await waitFor('the standalone server', async () => (await request('GET', `${base}/health`)).status === 200, { timeoutMs: 60_000 })
+    // Set up agents, as the Settings button does: a start after a recorded yes only keeps an
+    // existing TraceRoost endpoint current (SetupMode 'maintain'), it writes nothing new.
+    await request('POST', `${base}/action`, { body: { type: 'reconfigureOtel' } })
     await waitFor('auto-config of both agents', () =>
       fs.readFileSync(path.join(t.home, '.claude', 'settings.json'), 'utf8').includes(`localhost:${otlp}`)
       && fs.readFileSync(path.join(t.home, '.codex', 'config.toml'), 'utf8').includes(`localhost:${otlp}`), { timeoutMs: 30_000 })

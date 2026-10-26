@@ -1,3 +1,5 @@
+import { resolveAgentColor } from './agentColors'
+
 // Sidebar live session monitor
 // Works in both VS Code webview and standalone (SSE events are normalised to
 // window.message in standalone/server.ts, so the same listener handles both).
@@ -93,13 +95,10 @@ function fmtAgo(ms: number): string {
   return `${Math.floor(mins / 60)}h ago`
 }
 
+// Same colour as the dashboard (agentColors.ts) — the sidebar has no base.css, so this resolves
+// straight from the theme's --vscode-charts-* value.
 function agentColor(source: string): string {
-  if (source === 'claude_code') return '#FFB085'
-  if (source === 'codex') return '#F0FF42'
-  if (source === 'copilot') return '#00EAFF'
-  if (source === 'opencode') return '#FFFFFF'
-  if (source === 'cursor') return '#B39DDB'
-  return '#90a4ae'
+  return resolveAgentColor(source)
 }
 
 function agentLabel(source: string): string {
@@ -125,7 +124,7 @@ function drawSparkline(canvas: HTMLCanvasElement, tokens: number[], color: strin
 
   const cs = getComputedStyle(document.body)
   const mutedColor = cs.getPropertyValue('--vscode-descriptionForeground').trim() || '#888'
-  const fontStr = '9px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
+  const fontStr = '11px ' + (cs.getPropertyValue('--vscode-font-family').trim() || 'sans-serif')
 
   if (tokens.length < 2) {
     if (tokens.length === 1) {
@@ -323,7 +322,7 @@ function render() {
     statusText.style.color = isActive ? 'var(--vscode-foreground)' : 'var(--vscode-descriptionForeground)'
   }
   const sessionLabel = document.getElementById('sb-session-label')
-  if (sessionLabel) sessionLabel.textContent = isActive ? 'current session' : ''
+  if (sessionLabel) sessionLabel.textContent = isActive ? 'current trace' : ''
   if (agoEl) agoEl.textContent = isActive ? '' : (lastActivityMs ? fmtAgo(lastActivityMs) : '')
 
   // Current session block
@@ -377,6 +376,12 @@ function render() {
   if (canvas) {
     if (hasSparklineData) {
       canvas.style.display = 'block'
+      // A canvas has no text of its own — name what it plots for screen readers.
+      const t = currentSession.turnInputTokens
+      canvas.setAttribute('role', 'img')
+      canvas.setAttribute('aria-label', t.length === 1
+        ? `Input tokens, turn 1: ${fmt(t[0])}`
+        : `Input tokens per turn, ${t.length} turns: from ${fmt(t[0])} at turn 1 to ${fmt(t[t.length - 1])} at turn ${t.length}, peak ${fmt(Math.max(...t))}`)
       drawSparkline(canvas, currentSession.turnInputTokens, color, isActive)
     } else {
       canvas.style.display = 'none'
@@ -406,18 +411,18 @@ function render() {
       const outPct = Math.min(100, Math.round(out / outScale * 100))
       tokenBars.innerHTML =
         `<div style="display:flex;flex-direction:column;gap:3px">` +
-        `<div style="display:flex;align-items:center;gap:5px;font-size:10px">` +
-        `<span style="width:36px;color:#FFB74D;text-align:right;font-variant-numeric:tabular-nums">${fmt(inp)}</span>` +
+        `<div style="display:flex;align-items:center;gap:5px;font-size:11px">` +
+        `<span style="width:36px;color:var(--vscode-charts-orange, #FFB74D);text-align:right;font-variant-numeric:tabular-nums">${fmt(inp)}</span>` +
         `<div style="flex:1;height:5px;background:var(--vscode-panel-border);border-radius:2px">` +
         `<div style="width:${inPct}%;height:100%;background:#FFB74D;border-radius:2px"></div></div>` +
-        `<span style="color:var(--muted);font-size:9px">in</span>` +
-        `<span style="color:var(--muted);font-size:9px;opacity:0.6">avg ${fmt(Math.round(avgInputTokens))}</span></div>` +
-        `<div style="display:flex;align-items:center;gap:5px;font-size:10px">` +
-        `<span style="width:36px;color:#81C784;text-align:right;font-variant-numeric:tabular-nums">${fmt(out)}</span>` +
+        `<span style="color:var(--muted);font-size:11px">in</span>` +
+        `<span style="color:var(--muted);font-size:11px;opacity:0.6">avg ${fmt(Math.round(avgInputTokens))}</span></div>` +
+        `<div style="display:flex;align-items:center;gap:5px;font-size:11px">` +
+        `<span style="width:36px;color:var(--vscode-charts-green, #81C784);text-align:right;font-variant-numeric:tabular-nums">${fmt(out)}</span>` +
         `<div style="flex:1;height:5px;background:var(--vscode-panel-border);border-radius:2px">` +
         `<div style="width:${outPct}%;height:100%;background:#81C784;border-radius:2px"></div></div>` +
-        `<span style="color:var(--muted);font-size:9px">out</span>` +
-        `<span style="color:var(--muted);font-size:9px;opacity:0.6">avg ${fmt(Math.round(avgOutputTokens))}</span></div></div>`
+        `<span style="color:var(--muted);font-size:11px">out</span>` +
+        `<span style="color:var(--muted);font-size:11px;opacity:0.6">avg ${fmt(Math.round(avgOutputTokens))}</span></div></div>`
     }
   } else {
     if (tokenBars) tokenBars.innerHTML = ''
@@ -515,6 +520,7 @@ const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : nu
 
 document.getElementById('sb-plan-meters')?.addEventListener('click', () => {
   if (vscode) vscode.postMessage({ type: 'openDashboardTab', tab: 'analytics' })
+  // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration -- posts to this same window, with no data
   else window.postMessage({ type: 'switchTab', tab: 'analytics' }, '*')
 })
 

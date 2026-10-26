@@ -8,41 +8,34 @@
 [![E2E](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
 
-![TraceRoost dashboard showing OTEL traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.a83a52c7ce2b.gif)
+![TraceRoost dashboard showing OTel traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.a83a52c7ce2b.gif)
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. TraceRoost keeps your traces on your machine and uploads nothing unless you link it to TraceRoost Cloud.
 
-TraceRoost supports **Claude Code, Codex, GitHub Copilot, OpenCode, and Cursor CLI**. It receives **OpenTelemetry traces** from Claude Code, Codex, and GitHub Copilot in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** and Cursor CLI's transcript files — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTEL takes precedence when available.
+TraceRoost supports **Claude Code, Codex, GitHub Copilot, OpenCode, and Cursor CLI**. It receives **OpenTelemetry traces** from Claude Code, Codex, and GitHub Copilot in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** and Cursor CLI's transcript files — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTel takes precedence when available.
 
 Two things it does that a usage dashboard doesn't:
 
 - **Catches agents that are stuck.** Sixteen named signals — repeated tool calls, oscillating edits, recurring errors, runaway scope, hallucinated dependencies, unverified test runs, avoidable cache misses, and more — each with a correction prompt you can paste straight into the session. [See the full list →](#recommendations--signals)
 - **Tells you what to fix in your instructions file.** The Advisor reads across traces and suggests concrete additions to your CLAUDE.md or AGENTS.md — including hot files the agent rediscovers from scratch on every run. [More →](#features)
 
-**Quick start** (requires Node.js 24+):
+**Quick start — pick one:**
 
-The recommended way to run TraceRoost is as a background service — it starts automatically and keeps running without a terminal open, so incoming OTEL data from your agents is never silently lost:
+| Way to run | Get it | Then |
+| --- | --- | --- |
+| **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar |
+| **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
+| **Terminal** (Node.js 24+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:3000> |
 
-```bash
-npx traceroost@latest service install
-```
+Each one asks before it sets your agents up. History appears immediately; restart your agents for live traces.
 
-Or with Homebrew (macOS or Linux; brings its own Node.js):
-
-```bash
-brew install traceroost/tap/traceroost
-traceroost service install
-```
-
-Open <http://localhost:3000> — that's it. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or manage it later (`traceroost service status`, `service stop`, `service uninstall`, etc.). Does a dev server of yours need port 3000? [Move the dashboard](#my-dev-server-needs-port-3000) in one step.
-
-Just want a quick look first? Run it directly in a terminal instead — closing the terminal stops it, and if TraceRoost isn't running when an agent sends OTEL data, that data has nowhere to go and is lost, no retry:
+**Keep it running** (terminal installs). A terminal run stops when you close the terminal — and if TraceRoost isn't running when an agent sends OTel data, that data has nowhere to go and is lost, no retry. Install it as a background service that starts at login instead (the recommended way to run it from a terminal):
 
 ```bash
-npx traceroost@latest
+npx traceroost@latest service install     # with Homebrew: traceroost service install
 ```
 
-See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker options.
+Manage it later with `traceroost service status`, `service stop`, `service uninstall`, etc. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or for Docker. Does a dev server of yours need port 3000? [Move the dashboard](#my-dev-server-needs-port-3000) in one step.
 
 - [Features](#features)
 - [Data Sources](#data-sources)
@@ -60,9 +53,10 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
   - [Import](#import)
 - [Recommendations \& Signals](#recommendations--signals)
 - [Ways to Run](#ways-to-run)
-  - [Local (OTEL and log files)](#local-otel-and-log-files)
-  - [VS Code Extension (OTEL and log files)](#vs-code-extension-otel-and-log-files)
-  - [Docker (OTEL only)](#docker-otel-only)
+  - [Local (OTel and log files)](#local-otel-and-log-files)
+  - [VS Code Extension (OTel and log files)](#vs-code-extension-otel-and-log-files)
+  - [Desktop app (macOS, Linux, Windows)](#desktop-app-macos-linux-windows)
+  - [Docker (OTel only)](#docker-otel-only)
     - [Configuring Agents for Local / Docker](#configuring-agents-for-local--docker)
 - [Upgrading from AgentLens](#upgrading-from-agentlens)
 - [Manual Configuration](#manual-configuration)
@@ -72,7 +66,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - [Local Mode Options](#local-mode-options)
   - [Native process (recommended for local use)](#native-process-recommended-for-local-use)
   - [Background Service (macOS / Windows / Linux)](#background-service-macos--windows--linux)
-  - [Docker (OTEL only)](#docker-otel-only-1)
+  - [Docker (OTel only)](#docker-otel-only-1)
   - [Node.js (from source)](#nodejs-from-source)
   - [Editions](#editions)
 - [Automation Prompts File](#automation-prompts-file)
@@ -85,8 +79,8 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 
 ## Features
 
-- **OpenTelemetry collection** — Built-in OTEL receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; TraceRoost asks once before setting your agents up, then keeps them pointed at it
-- **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, and Cursor CLI, and OpenCode's SQLite database — backfilling history when OTEL isn't configured (VS Code-family IDEs and native process only)
+- **OpenTelemetry collection** — Built-in OTel receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; TraceRoost asks before setting your agents up, then keeps its port in their settings current
+- **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, and Cursor CLI, and OpenCode's SQLite database — backfilling history when OTel isn't configured (VS Code-family IDEs and native process only)
 - **Traces Table** — Drill into any trace: expand a row to see a full span waterfall, turn-to-tool flow graph, tool distribution chart, and modified files — all without leaving the trace list. Filter by agent, language, repo, git outcome, data source, initiator, time range or text; the agent pills and language list offer only what your traces contain, and changing the sort returns to page 1
 - **Files Changed** — The Files sub-tab tracks every file created or modified by a trace, organized with inline before/after diffs. A git-outcome banner then classifies each file as Merged (reached the trunk branch), Committed, or still Uncommitted by comparing against local git history after the fact — answers "did this trace's changes actually survive?" The same verdict drives the Traces table's **Out** column and Outcome filter (VS Code extension and native process; not available in Docker mode — same host git-repo access limitation as log file ingestion)
 - **Language & Change Size** — Each trace gets a primary (and, when it touched more than one, secondary) programming language from a fixed list — TypeScript, JavaScript, Python, Go, Rust, Java, C#, C/C++, Ruby, PHP, Swift, Kotlin, Dart, Shell, SQL, HTML and CSS, plus Other code (e.g. PowerShell, Scala, Lua) — derived from the extensions of the files the agent read and changed (each distinct file counted once; Vue/Svelte components count as TypeScript when the trace touched TypeScript, else JavaScript). A trace that touched no code file is named by the kind of file it did touch instead: Docs, Config (including lockfiles), Data or Assets; No code means it touched only files of no recognised kind, and No files means it read or changed no file at all (shown blank in the Lang column). Alongside it, the agent's own change size: files changed and lines added/removed by its edit and write tool calls (agent-authored edits, not git stats; every file counts here, code or not). Shown as the Traces table's **Lang** and **Changes** columns and in the expanded trace, filterable with the **Language** filter, broken down in Analytics, and included in exports. Traces stored before this existed show "—"
@@ -97,7 +91,7 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 - **Cost Estimation** — Estimates trace cost for Copilot, Claude Code, Codex, and OpenCode (all token-based), broken down by model in a day-grouped table; Cursor CLI records no token counts, so its traces carry no cost
 - **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and sixteen signals with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for context-window size, turns, errors, active time, zero cache use, repeat tool calls, plan-limit windows, and estimated daily cost — per-agent or shared
-- **Automated Prompts** — The gear-icon Settings panel's Automation section configures threshold-based automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up) that trigger a correction prompt when a trace crosses a limit — delivered as a notification or written to a file for agent consumption; agents can also poll for them via the MCP server's `check_automation_triggers` tool
+- **Automated Prompts** — The Alerts panel's Automation tab (bell icon) configures threshold-based automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up) that trigger a correction prompt when a trace crosses a limit — delivered as a notification or written to a file for agent consumption; agents can also poll for them via the MCP server's `check_automation_triggers` tool
 - **Export** — Export filtered traces as JSON, CSV, or Markdown (full or redacted); respects the active time range, agent, language, prompt text, repo, source, and From (initiator) filters. The extension writes the file to your workspace root; the standalone dashboard downloads it in your browser
 - **Import** — Import traces from a previous TraceRoost JSON export; drag-drop or file-pick, shows a preview with trace count by source and date range, imports with live progress and automatic deduplication (existing traces are skipped)
 - **MCP Server** — Exposes your own trace history to Claude Code (or any MCP-compatible agent) so it can query its recent work, cost, and recurring file/loop patterns before starting a task, instead of you checking the dashboard yourself. Runs by default on port `4316`; register it with `claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp` (the in-app Help tab's MCP section has the full setup and tool list)
@@ -107,17 +101,17 @@ See [Ways to Run](#ways-to-run) below for the VS Code extension and Docker optio
 
 A **trace** is one prompt-to-response cycle of an agent. A turn is a single, complete unit of back-and-forth communication with a large language model: one input message and its corresponding response. In TraceRoost that is one LLM call, so a trace can contain many turns; the Traces table's Turns column counts them.
 
-TraceRoost collects data from two independent sources per agent. Each trace row shows a badge — **OTEL** or **Log** — indicating where its data came from. If both capture the same trace, OTEL always wins and the badge upgrades automatically.
+TraceRoost collects data from two independent sources per agent. Each trace row shows a badge — **OTel** or **Log** — indicating where its data came from. If both capture the same trace, OTel always wins and the badge upgrades automatically.
 
 ### OpenTelemetry traces (primary source)
 
-The VS Code extension runs a built-in OTEL HTTP receiver on port `4318` and, once you say yes, configures each agent to send to it. The native process and Docker modes also expose the same receiver. OTEL data is the richest source: real-time span timing, time-to-first-token, per-tool latency, loop detection signals, file diff content, and streaming speed. Traces from OTEL show an **OTEL** badge.
+The VS Code extension runs a built-in OTel HTTP receiver on port `4318` and, once you say yes, configures each agent to send to it. The native process and Docker modes also expose the same receiver. OTel data is the richest source: real-time span timing, time-to-first-token, per-tool latency, loop detection signals, file diff content, and streaming speed. Traces from OTel show an **OTel** badge.
 
-See [Manual Configuration](#manual-configuration) for the specific settings each agent needs. OTEL is the only data source available in Docker mode.
+See [Manual Configuration](#manual-configuration) for the specific settings each agent needs. OTel is the only data source available in Docker mode.
 
 ### Log file ingestion (fallback source, VS Code-family IDEs and native process only)
 
-TraceRoost also reads the local log files that Claude Code, Codex, GitHub Copilot (Copilot CLI and Copilot Chat), OpenCode, and Cursor CLI write automatically to your home directory. This requires no configuration and backfills trace history that predates OTEL setup. Log-sourced traces show a **Log** badge. **Not available in Docker mode** — the container cannot access host log directories without explicit volume mounts for every agent path.
+TraceRoost also reads the local log files that Claude Code, Codex, GitHub Copilot (Copilot CLI and Copilot Chat), OpenCode, and Cursor CLI write automatically to your home directory. This requires no configuration and backfills trace history that predates OTel setup. Log-sourced traces show a **Log** badge. **Not available in Docker mode** — the container cannot access host log directories without explicit volume mounts for every agent path.
 
 | Agent | Log file location (Mac/Linux) | Windows |
 | --- | --- | --- |
@@ -141,18 +135,18 @@ To disable log ingestion: set `traceRoost.enableLogIngestion` to `false` in VS C
 
 ### What each agent gives you, source by source
 
-The general picture above is the same for every agent — OTEL is richer, logs are zero-config. The specifics (exact fields, what's missing without OTEL, which config unlocks what) differ enough per agent to be worth stating individually:
+The general picture above is the same for every agent — OTel is richer, logs are zero-config. The specifics (exact fields, what's missing without OTel, which config unlocks what) differ enough per agent to be worth stating individually:
 
 #### Claude Code
 
 **Log files** (automatic, no setup) — `~/.claude/projects/<project>/<session-uuid>.jsonl`
 
-Each file is one conversation, and each prompt in it is one trace, keyed by the prompt's own `promptId` — so the OTEL copy of the same prompt lands on the same row instead of a second one, and a resumed session updates the turns it copied rather than duplicating them. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks. Subagent transcripts (`<session-uuid>/subagents/agent-*.jsonl`) are counted in the prompt that started them, not as traces of their own.
+Each file is one conversation, and each prompt in it is one trace, keyed by the prompt's own `promptId` — so the OTel copy of the same prompt lands on the same row instead of a second one, and a resumed session updates the turns it copied rather than duplicating them. `assistant` entries carry per-turn token counts (input, output, cache read/write). `user` entries carry the prompt text. Tool calls are embedded in message content blocks. Subagent transcripts (`<session-uuid>/subagents/agent-*.jsonl`) are counted in the prompt that started them, not as traces of their own.
 
 Available from logs: prompt, model, workspace, timestamps, all token counts, tool names, files read/written. Several signals can fire from this log alone (repeated tool calls, edit/revert cycles, runaway steps, hallucinated imports, degraded runaway-cost detection).
-Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, context flooding, failed check submission) — those need OTEL. See the in-app Help tab's Signals section for the per-signal breakdown.
+Not in logs: TTFT, per-tool latency, streaming speed, or the signals that need per-tool error/result detail (error recurrence, chronic tool failures, context flooding, failed check submission) — those need OTel. See the in-app Help tab's Signals section for the per-signal breakdown.
 
-**OTEL** (richer, requires env config) — trace spans via `/v1/traces` and supplemental log records via `/v1/logs`.
+**OTel** (richer, requires env config) — trace spans via `/v1/traces` and supplemental log records via `/v1/logs`.
 
 With the recommended configuration (all three `OTEL_LOG_*` vars): prompt text, token counts, model, tool names, tool arguments, file paths, and full file diff content are all available. The three `OTEL_LOG_*` vars are not enabled by default — without them, tool arguments are absent and prompt text is omitted.
 
@@ -160,16 +154,16 @@ With the recommended configuration (all three `OTEL_LOG_*` vars): prompt text, t
 
 **Log files** (automatic, no setup) — `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
 
-`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format. Each prompt-to-response cycle (what Codex calls a turn) is one trace, keyed by Codex's own `turn_id` — the same key its OTEL copy gets.
+`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format. Each prompt-to-response cycle (what Codex calls a turn) is one trace, keyed by Codex's own `turn_id` — the same key its OTel copy gets.
 
 Available from logs: model, timestamps, token counts (input, output, cache read).
 Not in logs: prompt text, tool names, TTFT, latency.
 
-**OTEL** (richer, requires config) — primarily flat OTLP log records (`/v1/logs`); adding `trace_exporter` also emits timing spans. With `log_user_prompt = true` and both exporters: prompt text, token counts, model, TTFT, tool names and results, and span timing are all present.
+**OTel** (richer, requires config) — primarily flat OTLP log records (`/v1/logs`); adding `trace_exporter` also emits timing spans. With `log_user_prompt = true` and both exporters: prompt text, token counts, model, TTFT, tool names and results, and span timing are all present.
 
 #### GitHub Copilot
 
-Two surfaces, two formats: the **CLI** writes `events.jsonl` logs; **Copilot Chat** (the VS Code-family extension) writes per-conversation `chatSessions/` files (see the table above), both read with no setup. The OTEL guidance below applies to both.
+Two surfaces, two formats: the **CLI** writes `events.jsonl` logs; **Copilot Chat** (the VS Code-family extension) writes per-conversation `chatSessions/` files (see the table above), both read with no setup. The OTel guidance below applies to both.
 
 **CLI log files** (automatic, no setup) — `~/.copilot/session-state/<session-uuid>/events.jsonl`
 
@@ -178,17 +172,17 @@ Two surfaces, two formats: the **CLI** writes `events.jsonl` logs; **Copilot Cha
 Available from logs: prompt, model, workspace, timestamps, output tokens, total context size, tool names.
 Not in logs: input tokens per turn (estimated from shutdown totals), TTFT, cache token breakdown.
 
-**OTEL** (richer, requires VS Code settings) — trace spans via Copilot's built-in OTEL exporter. Prompt text, token counts (input, output, cache read), model, TTFT, tool names, arguments, and results are all present natively. Cache write counts are not exposed — Copilot manages cache creation server-side.
+**OTel** (richer, requires VS Code settings) — trace spans via Copilot's built-in OTel exporter. Prompt text, token counts (input, output, cache read), model, TTFT, tool names, arguments, and results are all present natively. Cache write counts are not exposed — Copilot manages cache creation server-side.
 
 #### OpenCode
 
-**SQLite database** (automatic, no OTEL setup needed) — `~/.local/share/opencode/opencode.db`
+**SQLite database** (automatic, no OTel setup needed) — `~/.local/share/opencode/opencode.db`
 
-OpenCode stores all trace data in a local SQLite database. TraceRoost reads this directly — no agent configuration or OTEL setup is required. The database uses WAL (Write-Ahead Log) mode; TraceRoost merges the WAL at read time so traces are visible immediately after each run.
+OpenCode stores all trace data in a local SQLite database. TraceRoost reads this directly — no agent configuration or OTel setup is required. The database uses WAL (Write-Ahead Log) mode; TraceRoost merges the WAL at read time so traces are visible immediately after each run.
 
 Each user message and the replies to it are one trace. Available from the database: trace ID, user prompt, model name, workspace directory, timestamps, all token counts (input, output, cache read/write), tool calls with names, inputs/outputs, and per-tool error status. Unlike every other log source, that per-tool error status means most signals can actually fire from OpenCode's database alone — it's the one log-only exception noted throughout the in-app Help tab's Signals section.
 
-Not available: time-to-first-token, per-tool execution timing, or streaming speed (no span timing data: TraceRoost reads OpenCode's database, not its telemetry — OpenCode's OpenTelemetry export is experimental and not yet documented, so TraceRoost doesn't ingest it). Two signals still don't fire here — edit/revert cycles and hallucinated imports need before/after edit content only Claude Code (its own log, or OTEL) and Copilot (OTEL) capture; OpenCode's parser never records it. Traces show a **Log** badge and a blue info banner in the Overview tab noting the timing limitations.
+Not available: time-to-first-token, per-tool execution timing, or streaming speed (no span timing data: TraceRoost reads OpenCode's database, not its telemetry — OpenCode's OpenTelemetry export is experimental and not yet documented, so TraceRoost doesn't ingest it). Two signals still don't fire here — edit/revert cycles and hallucinated imports need before/after edit content only Claude Code (its own log, or OTel) and Copilot (OTel) capture; OpenCode's parser never records it. Traces show a **Log** badge and a blue info banner in the Overview tab noting the timing limitations.
 
 Override the default database location with the `OPENCODE_DATA_DIR` environment variable (comma-separated for multiple directories).
 
@@ -231,9 +225,9 @@ The formats:
 
 Each format is available both as the full export and as a redacted export (prompt text and file paths replaced with `[redacted]`) — filenames follow `export_sessions_<timestamp>.<ext>` (or `export_redacted_sessions_<timestamp>.<ext>` for the redacted version), with `<ext>` matching the format chosen (`json`, `csv`, or `md`).
 
-An export contains the traces that match the dashboard's current filters — time range, agent, language, prompt text, repo, source (OTEL / Log) and From (User / Agent). In the extension it draws from the full SQLite trace history, not just the active window, so every matching past trace is included. The standalone dashboard builds the file in the browser from the traces it has loaded, so it holds the matching traces in the server's in-memory history.
+An export contains the traces that match the dashboard's current filters — time range, agent, language, prompt text, repo, source (OTel / Log) and From (User / Agent). In the extension it draws from the full SQLite trace history, not just the active window, so every matching past trace is included. The standalone dashboard builds the file in the browser from the traces it has loaded, so it holds the matching traces in the server's in-memory history.
 
-> **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export from this tab, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export OTEL Data` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
+> **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export from this tab, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export Live OTel Spans (debug)` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
 
 ### Import
 
@@ -257,32 +251,32 @@ The **Traces** tab (Overview sub-tab) and **Analytics** tab surface two categori
 - Tool failures, high turn count, oversized starting context
 - Low cache hit rate, tool definition overhead
 
-**Signals** — behavioral patterns indicating the agent is stuck or spiraling. These appear first in the list with a ↺ icon:
+**Signals** — behavioral patterns indicating the agent is stuck or spiraling, plus cache and cost patterns that spend more than the work needed. These appear first in the list with a ↺ icon. Every signal names what you do about it and carries a one-line instruction written for the agent; **Copy** puts that instruction on the clipboard with the trace's evidence under it, ready to paste into the session.
 
-| Signal | Description | Trigger |
-| ------ | ----------- | ------- |
-| **Tool Call Deadlock** | Same tool + arguments called 30+ times (critical at 50+) | Agent not retaining tool results |
-| **State Corruption Spiral** | A file edited then reverted to a prior state | Agent oscillating between conflicting constraints |
-| **Hallucination Amplification Loop** | Same error recurring 3+ times | Fix attempts not resolving the root cause |
-| **Ambiguous Success / Escalating Scope** | Too many steps for the task complexity | No clear completion condition |
-| **Infinite Loop — Context Accumulation** | Input tokens growing while output ratio collapses 70%+ | Agent stuck, accumulating context without progress |
-| **Chronic Tool Unreliability** | 20%+ of tool calls failed (5+ calls made) — many different one-off failures, not one repeating | Agent guessing at file locations, commands, or available tools |
-| **Context Flooding Risk** | A tool result over 10,000 characters landed in context | Missing line ranges or scope on a read/search |
-| **Fabricated Dependency** | An edit imports a package absent from the manifest and unresolvable on disk | Hallucinated package name |
-| **Unverified Submission** | The session's last test/build check failed with no fix attempt after | Session ended before confirming the fix |
-| **Multi-Step Oscillation** | A multi-step tool sequence (e.g. run tests → read log) repeated 5+ times with no edit | Agent retrying the same approach without new information |
-| **Redundant Context Reload** | The same file read 3+ times with no write in between | Agent losing track of what it already read |
-| **Avoidable Cache Miss** | A call re-wrote context it could plausibly have read from cache | Tool definitions, system prompt or settings changing between turns |
-| **Cache TTL Expiry** | A cache miss followed a gap longer than the cache's TTL | Turns spaced further apart than the cache lives |
-| **Poor Cache Utilization** | Little of the trace's context came from cache | Something invalidating the cached prefix every turn |
-| **Budget Overrun** | Trace cost exceeded the cap set in `TRACEROOST_BUDGET_CAP_USD` (off unless set) | A loop or retry pattern driving cost, or an under-sized cap |
-| **Model Tier Mismatch** | A premium model ran a read-only, low-output stretch of 3+ tool calls with no edits | Read/search work that a cheaper model could do |
+| Signal | Fires when | What to do |
+| ------ | ---------- | ---------- |
+| **Tool Call Deadlock** | The same tool call (same arguments, same result) ran 30+ times with no file edit in between; other calls in between don't reset the count (critical at 50+) | Stop the session; tell the agent what the last result said and to change approach. A command whose output changes by itself (a clock, a live log) isn't a loop — Ignore it |
+| **Edit Reverted** | A file's edit is exactly undone by a later edit (critical if that revert was the file's last edit) | State the one final result you want, with priorities, rather than iterating; check whether two tests contradict each other |
+| **Repeated Error** | The same error message (temp paths, timestamps and hashes stripped) recurs 3+ times (critical at 5+) | Find the cause yourself and tell the agent what actually exists; after two failed fixes, stop retrying |
+| **Ambiguous Success / Escalating Scope** | More LLM + tool steps than a task of that size should take (45 / 110 / 250 by inferred complexity; critical at 2×) | Add a stopping condition and a scope (files, functions); split the task |
+| **Context Runaway** | Over 4+ LLM calls, input grows 15,000+ tokens while the output ratio collapses to under 30% of its first value (critical past 50,000) | Stop and start a fresh session from a short summary of what was learned |
+| **Chronic Tool Unreliability** | 5+ tool calls and 20%+ of them failed, many different one-off failures (critical at 40%) | Give exact paths, commands, package manager and runtime up front |
+| **Context Flooding Risk** | One tool result over 10,000 characters (critical when such results total 300 KB) | Read with line ranges, tighten searches, filter long command output |
+| **Fabricated Dependency** | An edit imports a package that is in no package.json or requirements.txt between the file and the workspace root, and not installed | Check the package exists and is spelled right; add it to the manifest if intended |
+| **Unverified Submission** | The session's last tool call ran a test or build and it failed (a "0 failed" summary doesn't count), with nothing after it | Re-run the check and fix it before treating the work as done |
+| **Multi-Step Oscillation** | A 2–5-step tool sequence (run tests → read log → …) repeats 5+ times with no edit (critical at 10+) | Ask what changed between attempts; supply the missing stack trace, value or spec |
+| **Redundant Context Reload** | The same file read 3+ times with no write to it in between (critical at 6+) | Have the agent summarize what it knows; paste small stable files into the prompt; split long sessions |
+| **Avoidable Cache Miss** | A call re-saved context to the model's cache instead of reusing the stored copy: at least 2,000 tokens and more than 5% of what it sent. A model's first call doesn't count; critical once the total reaches 90,000 tokens | Don't switch model, effort, permission mode or MCP servers mid-task; look for a timestamp stamped into the prompt |
+| **Cache TTL Expiry** | After a pause longer than the cache keeps a stored copy (1 hour assumed), the context had to be saved again (critical at 3+ such pauses) | Work in bursts; on an API key the cache lives 5 minutes unless you choose the 1-hour TTL. A timing effect, not a prompt problem |
+| **Poor Cache Utilization** | 2+ LLM calls, 2,000+ tokens of real cache activity, and under 30% of input read from cache (critical under 10%) | Find what changes near the top of the prompt turn to turn; see the two cache signals above |
+| **Budget Overrun** | Trace cost exceeds `TRACEROOST_BUDGET_CAP_USD` (critical at 2×; off unless set) | Look for a loop elsewhere in the list; raise the cap if the task needed it |
+| **Model Tier Mismatch** | No edits, 3+ tool calls of which 90%+ are read-only, an Opus-class model (above $3/M input; Sonnet doesn't count), under 300 output tokens per call | Send research to a smaller model (a `model: haiku` subagent in Claude Code); keep the premium model for edits. Warning only — a cost tip, not a fault |
 
-Each signal includes a specific recommended action and a **Copy** button that copies the recommendation prompt to your clipboard so you can paste it into your agent. Use the **Ignore** button to dismiss signals that represent intentional behavior. The in-app Help tab's Signals section has each signal's exact trigger thresholds and which data source (OTEL or logs) it needs.
+Not every signal can fire from every source: most need live OpenTelemetry, and the Help tab's Signals section says for each one which agents' local logs are enough. It also states how well each threshold has been checked against real sessions — some are calibrated, several are still first guesses that have rarely fired. Use **Ignore** to dismiss a signal that represents intentional behavior.
 
 ## Ways to Run
 
-### Local (OTEL and log files)
+### Local (OTel and log files)
 
 The fastest way to get started — run directly on your machine with no install required. Because it runs natively it has full access to your local log files. Requires Node.js 24+.
 
@@ -311,17 +305,17 @@ Open <http://localhost:3000> after the server starts. The OTLP receiver listens 
 
 > **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, OpenCode's SQLite database at `~/.local/share/opencode/`, and Cursor CLI's transcripts at `~/.cursor/projects/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
 >
-> **Running this in a terminal only lasts until you close it.** If TraceRoost isn't running when an agent sends OTEL data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
+> **Running this in a terminal only lasts until you close it.** If TraceRoost isn't running when an agent sends OTel data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
 
-### VS Code Extension (OTEL and log files)
+### VS Code Extension (OTel and log files)
 
-The extension receives OTEL traces in real time **and** reads local log files, so you get both live telemetry and full trace history automatically.
+The extension receives OTel traces in real time **and** reads local log files, so you get both live telemetry and full trace history automatically.
 
 Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
 
-1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)**
+1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)** (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was [kept from the rename](#upgrading-from-agentlens))
 2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
-3. TraceRoost asks whether to set up Copilot, Claude Code, and Codex — choose **Set up agents**, then restart any running agents to start streaming traces
+3. TraceRoost asks whether to set up Copilot, Claude Code, and Codex — choose **Set up agents**, then restart any running agents to start streaming traces (skipped it? run **TraceRoost: Set Up Agents…** from the Command Palette)
 4. Past trace history loads automatically from local log files — no extra setup needed
 
 ### Desktop app (macOS, Linux, Windows)
@@ -331,16 +325,16 @@ The same local collector and dashboard as a normal desktop app with a menu bar /
 | Platform | Download | Notes |
 | --- | --- | --- |
 | Linux (x64, arm64) | `TraceRoost-<version>-linux-amd64.deb` / `-arm64.deb`, or the `.AppImage` | `sudo apt install ./TraceRoost-*.deb` |
-| Windows 10/11 (x64, arm64) | `TraceRoost-<version>-win-x64.exe` / `-win-arm64.exe` (installer) | installs for your user only, no administrator needed. Until the builds are code-signed they are attached as `*-preview` (preview) and SmartScreen warns on first run: **More info → Run anyway** |
-| macOS 12+ (Apple Silicon, Intel) | `TraceRoost-<version>-mac-arm64.dmg` / `-mac-x64.dmg` | until notarized, attached as `*-preview` (preview), which opens with right-click → **Open** |
+| Windows 10/11 (x64, arm64) | `TraceRoost-<version>-win-x64.exe` / `-win-arm64.exe` (installer) | installs for your user only, no administrator needed. The builds are not code-signed, so SmartScreen warns on first run: **More info → Run anyway** |
+| macOS 12+ (Apple Silicon, Intel) | `TraceRoost-<version>-mac-arm64.dmg` / `-mac-x64.dmg` | until notarized, Gatekeeper refuses the first open: right-click → **Open** |
 
 It uses the same `~/.traceroost` data and settings as `npx traceroost` and the background service, and uses a running background service instead of starting a second collector. Check a download with the release's `TraceRoost-desktop-<version>-SHA256SUMS`. Details, including uninstalling: [desktop/README.md](desktop/README.md).
 
-### Docker (OTEL only)
+### Docker (OTel only)
 
 > **Docker is the least capable way to run TraceRoost — prefer the [background service](#background-service-macos--windows--linux) or the [VS Code extension](#vs-code-extension-otel-and-log-files).** The container is isolated from your host, so:
 >
-> - **No log file ingestion** — it receives OTEL traces only, with no log-file backfill of past history or of sessions sent while it wasn't running.
+> - **No log file ingestion** — it receives OTel traces only, with no log-file backfill of past history or of sessions sent while it wasn't running.
 > - **No agent auto-configuration** — auto-config writes to the *container's* filesystem, not your host's agent configs. Run the [setup scripts](#configuring-agents-for-local--docker) or follow [Manual Configuration](#manual-configuration).
 > - **No git outcomes** — it can't see your local git repos.
 
@@ -406,7 +400,7 @@ TraceRoost was renamed from AgentLens — several unrelated projects already use
 
 1. Remove the old service: `agentlens service uninstall`
 2. Install the new one: `npx traceroost@latest service install`
-3. Let auto-config rewrite your agents' OTEL settings on the next start (or use **Configure OTEL** in Settings)
+3. Let auto-config rewrite your agents' OTel settings on the next start (or use **Set up agents** in Settings)
 
 Trace history stored under the old `~/.agentlens` directory is not migrated automatically — point `DATA_DIR` (or `service install --data-dir`) at it if you need it.
 
@@ -414,10 +408,12 @@ Trace history stored under the old `~/.agentlens` directory is not migrated auto
 
 The VS Code extension and the standalone (`npx`) server both offer to set up Copilot, Claude Code, and Codex, so you shouldn't need any of this by default. It's here for when you do:
 
-- **It asks first, once** — before TraceRoost changes any agent's settings, it asks: a notification in VS Code, a yes/no question in the terminal (`traceroost`, `traceroost service install`), or a banner in the dashboard when it runs as a background service. Saying yes lets it edit `~/.claude/settings.json`, `~/.codex/config.toml` and your editors' Copilot settings so the agents send their activity — including prompts and tool output — to TraceRoost on this computer. Saying no asks once more, with what skipping costs — without setup the agents send no live traces, so TraceRoost sees only what their log files record. The answer is kept in `~/.traceroost/config.json` (`agentSetup`) and shared by every TraceRoost on the machine; **Configure OTEL** in Settings counts as a yes.
+- **It asks first** — before TraceRoost changes any agent's settings, it asks: a notification in VS Code, a question in the terminal (`traceroost`, `traceroost service install`), or a banner in the dashboard when it runs as a background service. Each offers **Set up agents**, **Not now** and **Don't set up** (in the terminal: `y`, Enter, or `never`). **Set up agents** lets it edit `~/.claude/settings.json`, `~/.codex/config.toml` and your editors' Copilot settings so the agents send their activity — including prompts and tool output — to TraceRoost on this computer. **Not now** records nothing, so it asks again the next time it starts. **Don't set up** stops asking — without setup the agents send no live traces, so TraceRoost sees only what their log files record. A yes or a don't-set-up is kept in `~/.traceroost/config.json` (`agentSetup`: `yes` / `no`) and shared by every TraceRoost on the machine; **Set up agents** in Settings counts as a yes, **Remove agent setup** as a no.
 - **It never takes over your own collector** — a settings file that already sends OpenTelemetry somewhere other than localhost is left exactly as it is.
-- **It's idempotent and quiet** — only rewrites a config file when something's actually missing or different, and only notifies (once, in a VS Code notification and the Output panel) when it changes something. Disable it entirely with the `traceRoost.autoConfigureAgents` setting.
-- **Changed an agent's OTEL settings by hand?** Use the **Configure OTEL** button in the Settings panel (gear icon) to reapply TraceRoost's values immediately, instead of waiting for the next restart.
+- **After the yes, starts only keep the port current** — each later start updates TraceRoost's own endpoint (`http://localhost:<port>`) when it is still there and the port moved, and nothing else: a setting you removed, such as `OTEL_LOG_USER_PROMPTS`, stays removed, and nothing missing is added back. It only notifies (in a VS Code notification and the Output panel) when it changes something. Disable even that with the `traceRoost.autoConfigureAgents` setting.
+- **Changed an agent's OTel settings by hand?** Use the **Set up agents** button in the Settings panel (gear icon), or `TraceRoost: Set Up Agents…`, to write TraceRoost's full set of values again — starts never do that on their own.
+- **The background service always wins** — while a standalone TraceRoost runs on this machine (the background service, `traceroost` in a terminal, or the desktop app), the VS Code extension never changes agent settings itself, not even on startup, so the two never fight over which port the agents send to. Its `Set Up Agents…` and `Remove Agent Setup…` commands ask the service to do it instead (or, if it can't answer, point you at the service's dashboard).
+- **Undo it any time** — **Remove agent setup** in Settings, `TraceRoost: Remove Agent Setup…` or `traceroost agents remove` takes out only what TraceRoost added (see [Uninstall](#uninstall)) and records a no. `traceroost agents setup` is the terminal's **Set up agents**.
 - **Docker doesn't set up your host agents** — inside the container it could only reach the container's own files, so it doesn't offer. Use the setup scripts below, or the manual steps per agent.
 - Replace `4318` below with your custom port if you changed `traceRoost.otlpPort`.
 
@@ -500,7 +496,7 @@ TraceRoost runs as a local web server outside VS Code — useful for CI, remote 
 
 Runs directly on your machine — no Docker required. Gives the server full access to the local filesystem, which is required for log file ingestion. Quick-start commands are in [Ways to Run](#local-otel-and-log-files) above.
 
-Environment variables (the first five predate the `TRACEROOST_` prefix and keep their unprefixed names):
+Environment variables (the first five predate the `TRACEROOST_` prefix and keep their unprefixed names). A terminal run also takes the common ones as flags — `traceroost --ui-port 3100 --otlp-port 4400 --mcp-port 4401 --data-dir <path> --no-open` — and a flag wins over its variable; `traceroost --help` lists both:
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -509,11 +505,12 @@ Environment variables (the first five predate the `TRACEROOST_` prefix and keep 
 | `MCP_PORT` | `4316` | MCP endpoint for Claude Code and other MCP-compatible agents |
 | `DATA_DIR` | `~/.traceroost` | Directory for persistent span data |
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
+| `TRACEROOST_NO_OPEN` | unset | Set to `1` so a terminal run doesn't open the dashboard in your browser (same as `--no-open`) |
 | `TRACEROOST_MAX_SPANS` | `50000` | Cap on in-memory/persisted spans; oldest spans are dropped once exceeded |
-| `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Configure OTEL** button reports that it's disabled) |
+| `TRACEROOST_NO_AUTOCONFIG` | unset | Set to `1` to leave every agent's configuration untouched (no auto-configure on startup, and the **Set up agents** button reports that it's disabled) |
 | `TRACEROOST_NO_UPDATE_CHECK` | unset | Set to `1` to stop the standalone server, npx, service and Docker builds from checking registry.npmjs.org for a newer version (the check sends nothing from your traces or settings) |
 | `TRACEROOST_BUDGET_CAP_USD` | unset | Per-trace dollar cap for the **Budget Overrun** signal; the signal is off until this is set (also read by the VS Code extension from its environment) |
-| `TRACEROOST_LOG_LEVEL` | `info` | Set to `debug` for routine per-tick detail — forwarding and trace-manifest counts, which are quiet at `info` (also read by the VS Code extension; its output goes to the TraceRoost output channel) |
+| `TRACEROOST_LOG_LEVEL` | `info` | Set to `debug` for routine per-tick detail — forwarding and trace-manifest counts, and one `Ingested N spans` line per OTLP payload, which are quiet at `info` (also read by the VS Code extension; its output goes to the TraceRoost output channel) |
 
 **`.env` files and the data directory.** Development builds (`pnpm run local`) load a `.env`
 from the current directory; released builds (`npx traceroost`, the background service, Docker)
@@ -553,7 +550,7 @@ OTLP_PORT=4319 UI_PORT=3001 bunx traceroost@latest
 
 ### Background Service (macOS / Windows / Linux)
 
-> **If TraceRoost isn't running, incoming OTEL data has nowhere to go and is lost** — agents don't
+> **If TraceRoost isn't running, incoming OTel data has nowhere to go and is lost** — agents don't
 > queue or retry failed exports. A terminal you forgot to reopen, a closed laptop lid, or a reboot
 > all mean a gap in your trace history. Running TraceRoost as a background service avoids this:
 > it starts automatically and keeps running without a terminal open.
@@ -673,9 +670,9 @@ Agents aren't affected: they send to the OTLP port (4318) and use the MCP port (
 the same. Bookmarks to the old address stop working. In Docker the port is the `-p <port>:3000`
 mapping on `docker run`.
 
-### Docker (OTEL only)
+### Docker (OTel only)
 
-> **Docker receives OTEL only.** The container is isolated from the host filesystem, so there's no log file ingestion, no agent auto-configuration (use the [setup scripts](#configuring-agents-for-local--docker)), and no git outcomes. Use the native process option above unless you specifically need a container.
+> **Docker receives OTel only.** The container is isolated from the host filesystem, so there's no log file ingestion, no agent auto-configuration (use the [setup scripts](#configuring-agents-for-local--docker)), and no git outcomes. Use the native process option above unless you specifically need a container.
 
 Quick-start commands are in [Ways to Run](#docker-otel-only). Additional options:
 
@@ -720,7 +717,7 @@ pnpm run local
 
 TraceRoost is built in two editions from the same source:
 
-- **core** — everything in this README: the dashboard, log/OTEL ingestion, the MCP server, the
+- **core** — everything in this README: the dashboard, log/OTel ingestion, the MCP server, the
   Advisor, and the local CLI analysis (`find`, `trace`, `patterns`, `cohort`, `advise`). It
   contains **no** TraceRoost Cloud (org link + upload) code at all — not disabled, not built in.
   Released builds (VSIX, npm, Docker) are core until TraceRoost Cloud launches.
@@ -765,7 +762,12 @@ did, delete that data directory too: it holds the trace database, the service's 
 instead.
 
 **Remove what auto-configuration wrote into your agents** (skip this if you turned
-auto-configuration off). TraceRoost added or updated the keys below. In Claude Code's
+auto-configuration off). Do this *before* removing TraceRoost: `TraceRoost: Remove Agent Setup…` in
+VS Code, **Remove agent setup** in the dashboard's ⚙ Settings panel, or `traceroost agents remove` in
+a terminal takes out exactly the keys below — only where they still hold TraceRoost's values, in a
+file whose endpoint is TraceRoost's own (`http://localhost:<port>`) — leaves everything else in the
+files, and records your answer as no so nothing sets the agents up again. Each says which files it
+changed. To do it by hand: TraceRoost added or updated the keys below. In Claude Code's
 `settings.json` it also *removed* four older keys from `"env"` — `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`,
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_SEMCONV_STABILITY_OPT_IN` and
 `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` — and a `Stop` hook that earlier versions
@@ -823,10 +825,12 @@ Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for
 | Command | Description |
 | ------- | ----------- |
 | `TraceRoost: Open Dashboard` | Open the full dashboard in an editor panel |
-| `TraceRoost: Export OTEL Data` | Write the raw OTEL spans currently held in memory to JSON files in your workspace root, one per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`). The **Export** dashboard tab exports per-trace summaries instead |
-| `TraceRoost: Export OTEL Data (Redacted)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
+| `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Don't set up**, or to write them all again the settings now. Running it counts as your yes |
+| `TraceRoost: Remove Agent Setup…` | Take out only the settings TraceRoost added to Claude Code, Codex and Copilot (listed in a confirmation first), and stop setting agents up. Settings that send to a different collector are left alone. Same as `traceroost agents remove` |
+| `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The **Export** dashboard tab exports per-trace summaries instead |
+| `TraceRoost: Export Live OTel Spans, Redacted (debug)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
 | `TraceRoost: Show Storage Stats` | Report local database size, blob storage size, trace count, date range, and current retention setting to the Output panel |
-| `TraceRoost: Dump Span Attributes` | Debugging aid: print the span names and attributes in the live window (one example per Codex span type, the last few Claude spans) to the Output panel |
+| `TraceRoost: Dump Span Attributes (debug)` | Debugging aid: print the span names and attributes in the live window (one example per Codex span type, the last few Claude spans) to the Output panel. Listed in the Command Palette only when VS Code was started with `TRACEROOST_LOG_LEVEL=debug` |
 
 The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Machine to an Org (Cloud)`, `TraceRoost: Org Link Status (Cloud)` and `TraceRoost: Unlink (Cloud)`; released builds are the core edition and don't include them.
 
@@ -834,12 +838,12 @@ The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Mac
 
 | Setting | Default | Description |
 | ------- | ------- | ----------- |
-| `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver |
-| `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTEL span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
-| `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI. Disable if you only want OTEL data. |
-| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep their OTEL settings pointed at TraceRoost on every activation. Disabling leaves your agents' configuration untouched — use the **Configure OTEL** button in Settings for a one-off manual apply, or configure OTEL manually (see [Manual Configuration](#manual-configuration)). |
+| `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver (1024–65535) |
+| `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTel span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
+| `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI. Disable if you only want OTel data. |
+| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep TraceRoost's port in their OTel settings current each time it starts (a setting you removed stays removed). Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Set up agents** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
 | `traceRoost.enableMcpServer` | `true` | Start the TraceRoost MCP server so Claude Code and other MCP-compatible agents can query your trace history. |
-| `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (when `traceRoost.enableMcpServer` is true) |
+| `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (1024–65535; when `traceRoost.enableMcpServer` is true) |
 | `traceRoost.sessionRetentionDays` | `90` | How many days to keep trace history in the local database (pruned on activation and every 24 hours) |
 
 ## AI Usage Disclosure

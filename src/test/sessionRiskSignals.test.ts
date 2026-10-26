@@ -123,6 +123,26 @@ suite('detectFailedCheckSubmission', () => {
     assert.strictEqual(detectFailedCheckSubmission(session), null)
   })
 
+  test('a passing run that prints "0 failed" (cargo, Go, Jest summaries) is not a failure', () => {
+    for (const out of [
+      'test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured',
+      'Tests: 12 passed, 12 total, 0 failed',
+      'ok  	example.com/pkg	0.012s\n0 failures',
+    ]) {
+      const session = makeSession({
+        timeline: [makeToolCall({ label: 'bash', toolInput: 'cargo test', resultSummary: out })],
+      })
+      assert.strictEqual(detectFailedCheckSubmission(session), null, out)
+    }
+  })
+
+  test('a run that prints a real failure count alongside a zero is still a failure', () => {
+    const session = makeSession({
+      timeline: [makeToolCall({ label: 'bash', toolInput: 'cargo test', resultSummary: 'test result: FAILED. 12 passed; 2 failed; 0 ignored' })],
+    })
+    assert.ok(detectFailedCheckSubmission(session))
+  })
+
   test('detects a pytest failure via result text even without isError set', () => {
     const session = makeSession({
       timeline: [makeToolCall({ label: 'bash', toolInput: 'pytest tests/', resultSummary: '2 failed, 8 passed' })],
@@ -200,6 +220,26 @@ suite('detectHallucinatedImports', () => {
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: {} }))
     const session = makeSession({ timeline: [makeToolCall({ label: 'read_file' })] })
     assert.strictEqual(detectHallucinatedImports(session, dir), null)
+  })
+
+  test('does not flag a dependency declared by the nearest package.json in a monorepo package (pnpm layout)', () => {
+    const dir = tmpWorkspace()
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: {} }))
+    fs.mkdirSync(path.join(dir, 'packages', 'web', 'src'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'packages', 'web', 'package.json'), JSON.stringify({ dependencies: { zod: '^3.0.0' } }))
+    // pnpm links a workspace package's own deps under its own node_modules, never the root's
+    fs.mkdirSync(path.join(dir, 'packages', 'web', 'node_modules', 'preact'), { recursive: true })
+    const session = makeSession({
+      timeline: [
+        makeEdit('packages/web/src/a.ts', "import { z } from 'zod'"),
+        makeEdit('packages/web/src/b.ts', "import { h } from 'preact'"),
+        makeEdit('packages/web/src/c.ts', "import nope from 'not-a-real-package-xyz'"),
+      ],
+    })
+    const signal = detectHallucinatedImports(session, dir)
+    assert.ok(signal)
+    assert.strictEqual(signal!.count, 1)
+    assert.ok(signal!.examples[0].startsWith('not-a-real-package-xyz'))
   })
 
   test('null when workspaceRoot is empty', () => {

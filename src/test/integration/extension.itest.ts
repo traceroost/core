@@ -50,8 +50,11 @@ suite('TraceRoost extension (end to end)', () => {
     else assert.ok(org.length >= 3, 'full edition registers the Org commands')
   })
 
-  // run.mjs records the user's yes to agent setup in the temp home first (answerAgentSetupYes).
-  test('auto-configures Claude Code and Codex under the (temp) home directory', async () => {
+  // run.mjs records the user's yes to agent setup in the temp home first (answerAgentSetupYes), so
+  // Set Up Agents runs without its first-time question. Activation alone writes nothing new after
+  // a yes (SetupMode 'maintain'): the command is what writes the full set.
+  test('Set Up Agents configures Claude Code and Codex under the (temp) home directory', async () => {
+    await vscode.commands.executeCommand('traceRoost.setUpAgents')
     const endpoint = `http://localhost:${cfg.otlpPort}`
     const settings = await waitFor('~/.claude/settings.json', () => {
       const s = JSON.parse(fs.readFileSync(path.join(cfg.home, '.claude', 'settings.json'), 'utf8')) as { env?: Record<string, string> }
@@ -129,14 +132,14 @@ suite('TraceRoost extension (end to end)', () => {
   test('storage stats and export work against the real storage directory', async () => {
     await vscode.commands.executeCommand('traceRoost.showStorageStats')
     const stats = await waitFor('storage stats in the Output channel', () => {
-      const m = /Database:\s+[\d.]+ MB\s+\((\d+) sessions/.exec(outputChannelText(cfg))
+      const m = /Database:\s+[\d.]+ MB\s+\((\d+) traces/.exec(outputChannelText(cfg))
       return m ? m : undefined
     }, 20_000)
     assert.ok(Number(stats[1]) >= 1, `storage stats count the session (${stats[0]})`)
 
     const dir = globalStorageDir(cfg, ext)
     const before = new Set(fs.readdirSync(dir))
-    await vscode.commands.executeCommand('traceRoost.exportData')
+    await vscode.commands.executeCommand('traceRoost.exportData', vscode.Uri.file(dir))
     const written = await waitFor('an export file in globalStorage', () =>
       fs.readdirSync(dir).filter(f => !before.has(f) && /^export_.*\.json$/.test(f)), 20_000)
     for (const f of written) {

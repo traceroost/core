@@ -21,12 +21,21 @@ import * as path from 'path'
 import { LoopSignal } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import { PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from './loopDetector'
+import { signalStep, withSteps, firstLine, plural } from './signalEvidence'
 
 // ── Detector: failed check submission ────────────────────────────────────────
 
 const TEST_RUNNER_PATTERN =
   /\b(npm\s+(run\s+)?test|yarn\s+test|pnpm\s+test|pytest|python3?\s+-m\s+pytest|go\s+test|cargo\s+test|jest|vitest|mvn\s+test|rspec)\b/i
-const FAILURE_TEXT_PATTERN = /\bfail(ed|ure|ing)?\b|✗|✘|✖/i
+const FAILURE_TEXT_PATTERN = /\bfail(ed|ure|ures|ing)?\b|✗|✘|✖/i
+// A passing run can still print the word: cargo always ends with "0 failed; 0 ignored", Go and
+// Jest summaries say "0 failures" / "0 failed", and a suite name can contain "failing". Strip
+// those before looking for a failure, so a green check isn't read as a red one.
+const ZERO_FAILURE_PATTERN = /\b(0|no|zero)\s+(tests?\s+)?fail(ed|ures?|ing)?\b/gi
+
+function readsAsFailure(text: string): boolean {
+  return FAILURE_TEXT_PATTERN.test(text.replace(ZERO_FAILURE_PATTERN, ''))
+}
 
 /**
  * Precision-good, recall-poor by design: most sessions never invoke a test runner unless
@@ -42,8 +51,9 @@ const FAILURE_TEXT_PATTERN = /\bfail(ed|ure|ing)?\b|✗|✘|✖/i
 export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSignal | null {
   const timeline = session.timeline
   let lastTool: SessionSummaryCard['timeline'][number] | null = null
+  let lastToolIdx = -1
   for (let i = timeline.length - 1; i >= 0; i--) {
-    if (timeline[i].type === 'tool') { lastTool = timeline[i]; break }
+    if (timeline[i].type === 'tool') { lastTool = timeline[i]; lastToolIdx = i; break }
   }
   if (!lastTool) { return null }
 
@@ -51,17 +61,24 @@ export function detectFailedCheckSubmission(session: SessionSummaryCard): LoopSi
   if (!TEST_RUNNER_PATTERN.test(invocation)) { return null }
 
   const resultText = lastTool.resultSummary || lastTool.fullResult || ''
-  const failed = lastTool.isError || FAILURE_TEXT_PATTERN.test(resultText)
+  const failed = lastTool.isError || readsAsFailure(resultText)
   if (!failed) { return null }
 
   return {
     type: 'failed_check_submission',
     severity: 'warning',
-    evidence: 'The last check run in this session reported a failure, with no further fix attempt before the session ended.',
+    evidence: 'The trace ended on a failing test or build check, with no attempt to fix it afterwards.',
     count: 1,
     examples: [invocation.slice(0, 100)],
     patternName: PATTERN_NAMES.failed_check_submission,
     action: LOOP_SIGNAL_ACTIONS.failed_check_submission,
+    ...withSteps(
+      [signalStep(timeline, lastToolIdx,
+        `the trace's last tool call — ${lastTool.isError ? 'it reported an error' : 'its output reports a failure'}`,
+        'trigger', lastTool.isError && lastTool.errorMessage ? firstLine(lastTool.errorMessage) : firstLine(resultText, FAILURE_TEXT_PATTERN))],
+      'The trace ended right after a test or build check failed.'
+      + ' No tool ran after it, so the agent didn’t fix the failure or run the check again.'
+      + ' Flagged when the last tool call in a trace is a recognized test or build command and it failed.'),
   }
 }
 
@@ -265,12 +282,50 @@ function readPythonManifestDeps(workspaceRoot: string): Set<string> | null {
   }
 }
 
-function nodeModulesHasPackage(workspaceRoot: string, pkg: string): boolean {
+function nodeModulesHasPackage(dir: string, pkg: string): boolean {
   try {
-    return fs.existsSync(path.join(workspaceRoot, 'node_modules', pkg))
+    return fs.existsSync(path.join(dir, 'node_modules', pkg))
   } catch {
     return false
   }
+}
+
+/** The directories a Node resolver would consult for a file at `filePath`: its own directory up
+ *  to (and including) the workspace root. A monorepo package declares its dependencies in its own
+ *  package.json, and pnpm links them under its own node_modules rather than hoisting them to the
+ *  root — checking the root alone flagged every workspace-local dependency as fabricated. */
+function ancestorDirs(workspaceRoot: string, filePath: string): string[] {
+  const root = path.resolve(workspaceRoot)
+  const fileAbs = path.isAbsolute(filePath) ? filePath : path.join(root, filePath)
+  const dirs: string[] = []
+  let dir = path.dirname(path.resolve(fileAbs))
+  const rel = path.relative(root, dir)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) { return [root] }
+  while (true) {
+    dirs.push(dir)
+    if (dir === root) { break }
+    const parent = path.dirname(dir)
+    if (parent === dir) { break }
+    dir = parent
+  }
+  return dirs
+}
+
+/** True when `pkg` is declared in any package.json between the importing file and the workspace
+ *  root, or resolves under any node_modules on that path. `manifestCache` memoizes per directory
+ *  across one session's edits. */
+function jsPackageResolves(
+  workspaceRoot: string,
+  filePath: string,
+  pkg: string,
+  manifestCache: Map<string, Set<string> | null>,
+): boolean {
+  for (const dir of ancestorDirs(workspaceRoot, filePath)) {
+    if (!manifestCache.has(dir)) { manifestCache.set(dir, readJsManifestDeps(dir)) }
+    if (manifestCache.get(dir)?.has(pkg)) { return true }
+    if (nodeModulesHasPackage(dir, pkg)) { return true }
+  }
+  return false
 }
 
 /**
@@ -285,6 +340,10 @@ function nodeModulesHasPackage(workspaceRoot: string, pkg: string): boolean {
  *     package.json's declared fields — covers monorepo workspace packages (`@myorg/shared`
  *     resolved via workspace protocol) without needing to parse workspace globs, a real
  *     false-positive source this project's own repo shape would hit otherwise.
+ *   - Checks the manifest and node_modules of every directory from the edited file up to the
+ *     workspace root, not just the root: a pnpm workspace package declares its own dependencies
+ *     in `packages/x/package.json` and gets them linked under `packages/x/node_modules`, so a
+ *     root-only check flagged every one of them (2026-10 review).
  *
  * Calibration check (scripts/calibrateSignals.ts, see runbooks/SIGNAL_CALIBRATION.md): the
  * best-validated signal in the whole taxonomy so far — fired on 15% of 236 real sessions checked,
@@ -304,7 +363,13 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
   if (!jsDeps && !pyDeps) { return null }
 
   const suspects = new Map<string, string>()
+  const suspectAt = new Map<string, number>()
+  // The import line itself, so the card can show what was written.
+  const suspectLine = new Map<string, string>()
+  const lineImporting = (code: string, pkg: string): string =>
+    code.split('\n').find(l => l.includes(pkg) && /\b(import|require|from)\b/.test(l))?.trim() ?? ''
   const aliasPrefixes = jsDeps ? readTsPathAliases(workspaceRoot) : []
+  const manifestCache = new Map<string, Set<string> | null>([[path.resolve(workspaceRoot), jsDeps]])
   // Python modules this session itself created/edited (`utils.py` → `utils`, `pkg/__init__.py` → `pkg`).
   const sessionPyModules = new Set<string>()
   for (const entry of session.timeline) {
@@ -315,7 +380,8 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
     }
   }
 
-  for (const entry of session.timeline) {
+  for (let entryIdx = 0; entryIdx < session.timeline.length; entryIdx++) {
+    const entry = session.timeline[entryIdx]
     if (!entry.editDetails) { continue }
     for (const detail of entry.editDetails) {
       const code = detail.newString || detail.content || ''
@@ -324,9 +390,8 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
 
       if (jsDeps && JS_TS_EXTENSIONS.has(ext)) {
         for (const pkg of extractJsTsPackageNames(code, aliasPrefixes)) {
-          if (jsDeps.has(pkg)) { continue }
-          if (nodeModulesHasPackage(workspaceRoot, pkg)) { continue }
-          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath) }
+          if (jsPackageResolves(workspaceRoot, detail.filePath, pkg, manifestCache)) { continue }
+          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath); suspectAt.set(pkg, entryIdx); suspectLine.set(pkg, lineImporting(code, pkg)) }
         }
       }
       if (pyDeps && PYTHON_EXTENSIONS.has(ext)) {
@@ -335,7 +400,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
           // A bare `import helpers` is as likely a sibling module as a package — only flag it when
           // nothing by that name exists in the project on disk.
           if (pythonModuleIsLocal(workspaceRoot, detail.filePath, pkg, sessionPyModules)) { continue }
-          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath) }
+          if (!suspects.has(pkg)) { suspects.set(pkg, detail.filePath); suspectAt.set(pkg, entryIdx); suspectLine.set(pkg, lineImporting(code, pkg)) }
         }
       }
     }
@@ -346,11 +411,21 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
   return {
     type: 'hallucinated_import',
     severity: 'warning',
-    evidence: `${suspects.size} import(s) reference a package not declared in the project's manifest and not present on disk`,
+    evidence: suspects.size === 1
+      ? '1 import of a package that isn’t listed as a dependency or installed'
+      : `${plural(suspects.size, 'import')} of packages that aren’t listed as dependencies or installed`,
     count: suspects.size,
     examples: [...suspects.entries()].slice(0, 3).map(([pkg, file]) => `${pkg} (${file.split('/').pop()})`),
     patternName: PATTERN_NAMES.hallucinated_import,
     action: LOOP_SIGNAL_ACTIONS.hallucinated_import,
+    ...withSteps(
+      [...suspects.entries()].map(([pkg, file]) => signalStep(session.timeline, suspectAt.get(pkg) ?? 0,
+        `imports "${pkg}" in ${file.split('/').pop() || file} — not listed as a dependency, not installed`, 'trigger', suspectLine.get(pkg))),
+      `${[...suspects.keys()].slice(0, 5).map(p => `"${p}"`).join(', ')}${suspects.size > 5 ? ` and ${suspects.size - 5} more` : ''}`
+      + ` ${suspects.size === 1 ? 'is' : 'are'} imported by this trace's edits,`
+      + ` but ${suspects.size === 1 ? 'isn’t' : 'aren’t'} listed in package.json or requirements.txt and ${suspects.size === 1 ? 'isn’t' : 'aren’t'} installed.`
+      + ' Code that imports a missing package fails when it runs.'
+      + ' Flagged for any such import; built-in modules, the standard library and the project’s own modules don’t count.'),
   }
 }
 

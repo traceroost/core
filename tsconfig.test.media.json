@@ -22,6 +22,7 @@
     "media/src/agentProfiles.ts",
     "media/src/pricing.ts",
     "media/src/dashboardPortCarry.ts",
+    "media/src/dialogStack.ts",
     "standalone/dashboardPort.ts",
     "src/test/media/**/*.ts"
   ]

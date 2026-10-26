@@ -1,5 +1,5 @@
 import { rangedSessions, COLORS } from '../state'
-import { getAgentColor, getAgentSourceLabel } from '../utils'
+import { getAgentColorVar, getAgentSourceLabel } from '../utils'
 import { LogIngestionNote } from './IngestionNote'
 import type { SessionSummaryCard } from '../types'
 
@@ -61,7 +61,7 @@ export function ToolsChart({ sessions }: { sessions: SessionSummaryCard[] }) {
               : <path key={sl.name} d={arcPath(sl.startA, sl.endA)} fill="none" stroke={sl.color} stroke-width={sw} stroke-linecap="butt" />
           )}
           <text x={cx} y={cy} text-anchor="middle" dy="4" font-size="16" font-weight="bold" fill="var(--fg)">{total}</text>
-          <text x={cx} y={cy + 14} text-anchor="middle" font-size="9" fill="var(--muted)" opacity="0.7">total</text>
+          <text x={cx} y={cy + 14} text-anchor="middle" font-size="11" fill="var(--muted)" opacity="0.7">total</text>
         </svg>
         <div class="donut-legend">
           {slices.map(sl => (
@@ -87,7 +87,7 @@ export function ToolsChart({ sessions }: { sessions: SessionSummaryCard[] }) {
                 <td class="right">{(callCount / total * 100).toFixed(1)}%</td>
                 <td>
                   {agents.map(a => (
-                    <span key={a} style={'display:inline-block;width:8px;height:8px;border-radius:50%;background:' + getAgentColor(a) + ';vertical-align:middle;margin-right:4px'} title={getAgentSourceLabel(a)} />
+                    <span key={a} style={'display:inline-block;width:8px;height:8px;border-radius:50%;background:' + getAgentColorVar(a) + ';vertical-align:middle;margin-right:4px'} title={getAgentSourceLabel(a)} />
                   ))}
                 </td>
               </tr>

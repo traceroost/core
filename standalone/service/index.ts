@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as readline from 'node:readline/promises'
-import { AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_SKIP_EXPLANATION, AGENT_SETUP_SKIP_QUESTION, parseSkipConfirmation, parseYesNo, type AgentSetupAnswer } from '../../src/agentSetupConsent'
+import { AGENT_SETUP_DECLINED, AGENT_SETUP_EXPLANATION, AGENT_SETUP_QUESTION, AGENT_SETUP_TERMINAL_PROMPT, parseAgentSetupInput, type AgentSetupAnswer } from '../../src/agentSetupConsent'
 import * as os from 'os'
 import * as path from 'path'
 import { isIPv6 } from 'net'
@@ -164,7 +164,7 @@ Commands:
   status            Check whether the service is running and reachable.
   logs [--follow]   Print (or tail) the service's log file.
 
-If TraceRoost isn't running, incoming OTEL data has nowhere to go and is lost —
+If TraceRoost isn't running, incoming OTel data has nowhere to go and is lost —
 agents don't queue or retry failed exports. Running as a background service
 avoids gaps in your trace history from forgetting to start it, closing the
 terminal, or a reboot.`)
@@ -365,16 +365,16 @@ function printLogs(program: ServiceProgram, platformService: PlatformService, fo
 }
 
 /** Asks the agent-setup question when there is someone to answer it, or returns undefined (the
- *  dashboard asks instead). TRACEROOST_NO_AUTOCONFIG=1 never asks. */
+ *  dashboard asks instead) — also for "not now", which records nothing. TRACEROOST_NO_AUTOCONFIG=1
+ *  never asks. */
 async function askAgentSetupInTerminal(): Promise<AgentSetupAnswer | undefined> {
   if (process.env.TRACEROOST_NO_AUTOCONFIG === '1' || !process.stdin.isTTY || !process.stdout.isTTY) return undefined
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   try {
-    const input = await rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\nSet up agents? [y/N] `)
-    if (parseYesNo(input) === 'yes') return 'yes'
-    // A no is asked once more, with what skipping costs; Enter keeps the no.
-    const again = await rl.question(`\n${AGENT_SETUP_SKIP_QUESTION} ${AGENT_SETUP_SKIP_EXPLANATION}\nSkip setup? [Y/n] `)
-    return parseSkipConfirmation(again)
+    const answer = parseAgentSetupInput(await rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\n${AGENT_SETUP_TERMINAL_PROMPT}`))
+    if (answer === 'no') console.log(`[TraceRoost] ${AGENT_SETUP_DECLINED}`)
+    else if (answer === undefined) console.log("[TraceRoost] Not now — the service's dashboard will ask again.")
+    return answer
   } catch {
     return undefined  // Ctrl-D: unanswered
   } finally {

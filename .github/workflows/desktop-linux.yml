@@ -12,6 +12,11 @@ name: Desktop (Linux)
 #             profile, and the app never runs unsandboxed); with it off, it must run sandboxed and
 #             pass the smoke test on the runner and on Fedora, openSUSE Tumbleweed and Arch.
 #
+# On a pull request that doesn't touch desktop/ (or this workflow), deb and appimage check on the
+# runner only — the distro containers test the packaging, and a dashboard or collector change can't
+# break that without also failing on the runner. A desktop/ change, a push to main, a manual run and
+# a release run the full matrix. See the `scope` job.
+#
 # On its own this is a CI build: artifacts are uploaded for 14 days and published nowhere. A `v*`
 # tag runs it through desktop-release.yml (`workflow_call`), which attaches the installers to the
 # GitHub release once every job here has passed. SHA256SUMS is signed with minisign when the MINISIGN_SECRET_KEY secret exists (README.md →
@@ -52,6 +57,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Which distro targets deb and appimage run on. `full` unless this is a pull request whose changes
+  # stay outside desktop/ and this workflow. Under workflow_call, github.event_name is the caller's
+  # (a tag push), so a release always runs the full matrix.
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      deb: ${{ steps.decide.outputs.deb }}
+      appimage: ${{ steps.decide.outputs.appimage }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          # A pull request checks out its merge commit; its first parent is the base, so depth 2 is
+          # enough to diff the pull request's own changes.
+          fetch-depth: 2
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          full=true
+          if [ "$EVENT" = pull_request ] && ! git diff --name-only HEAD^1 HEAD | grep -qE '^(desktop/|\.github/workflows/desktop-linux\.yml$)'; then
+            full=false
+            echo "::notice::No desktop/ change: deb and appimage check on the runner only (the full distro matrix runs on main and releases)"
+          fi
+          if [ "$full" = true ]; then
+            echo 'deb=["host","ubuntu:22.04","ubuntu:24.04","debian:12"]' >> "$GITHUB_OUTPUT"
+            echo 'appimage=["host","fedora:42","opensuse/tumbleweed","archlinux:latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'deb=["host"]' >> "$GITHUB_OUTPUT"
+            echo 'appimage=["host"]' >> "$GITHUB_OUTPUT"
+          fi
+
   package:
     # Native on each architecture, so afterPack can run the packaged Electron as Node (the bundled
     # runtime check) rather than skip it as a cross-build must.
@@ -137,12 +174,12 @@ jobs:
           retention-days: 14
 
   deb:
-    needs: package
+    needs: [package, scope]
     strategy:
       fail-fast: false
       matrix:
         arch: [x64, arm64]
-        target: ['host', 'ubuntu:22.04', 'ubuntu:24.04', 'debian:12']
+        target: ${{ fromJSON(needs.scope.outputs.deb) }}
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     steps:
@@ -185,12 +222,12 @@ jobs:
             ${{ matrix.target }} /desktop/scripts/check-deb.sh "/dist/$(cd dist && ls TraceRoost-*.deb)"
 
   appimage:
-    needs: package
+    needs: [package, scope]
     strategy:
       fail-fast: false
       matrix:
         arch: [x64, arm64]
-        target: ['host', 'fedora:42', 'opensuse/tumbleweed', 'archlinux:latest']
+        target: ${{ fromJSON(needs.scope.outputs.appimage) }}
         exclude:
           # Arch Linux publishes no official arm64 image.
           - arch: arm64
