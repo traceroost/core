@@ -141,13 +141,13 @@ sequenceDiagram
         end
         EXT->>EXT: setInterval(logReader.scan, 30_000ms)
     end
-    par Auto-configure agents
-        EXT->>CFG: autoConfigureCopilot(port)
-        EXT->>CFG: autoConfigureClaudeCode(port)
-        EXT->>CFG: autoConfigureCodex(port)
+    par Auto-configure agents — only with the user's recorded yes (agentSetup in ~/.traceroost/config.json) and only when no standalone TraceRoost owns the data dir or OTLP port (serviceOwnership.ts, §12)
+        EXT->>CFG: autoConfigureCopilot(port, mode)
+        EXT->>CFG: autoConfigureClaudeCode(port, mode)
+        EXT->>CFG: autoConfigureCodex(port, mode)
     end
     EXT->>VS: registerWebviewViewProvider('traceRoost.dashboard')
-    EXT->>VS: registerCommand('traceRoost.openDashboard')<br/>registerCommand('traceRoost.clearSessions')<br/>registerCommand('traceRoost.showStorageStats')<br/>registerCommand('traceRoost.exportData')<br/>registerCommand('traceRoost.exportDataRedacted')<br/>registerCommand('traceRoost.dumpSpanAttrs')<br/>registerCommand('traceRoost.orgLink' · 'traceRoost.orgStatus' · 'traceRoost.orgLeave')
+    EXT->>VS: registerCommand('traceRoost.openDashboard')<br/>registerCommand('traceRoost.clearSessions')<br/>registerCommand('traceRoost.showStorageStats')<br/>registerCommand('traceRoost.exportData')<br/>registerCommand('traceRoost.exportDataRedacted')<br/>registerCommand('traceRoost.dumpSpanAttrs')<br/>registerCommand('traceRoost.setUpAgents' · 'traceRoost.removeAgentSetup')<br/>registerCommand('traceRoost.orgLink' · 'traceRoost.orgStatus' · 'traceRoost.orgLeave')<br/>registerUriHandler (deep links, §15)
     EXT->>VS: createStatusBarItem → 'traceRoost.openDashboard'
 ```
 
@@ -566,7 +566,7 @@ erDiagram
 
 Large string fields (`responseText`, `thinking`, `toolInput`, `fullResult`, `oldString`, `newString`) above 512 bytes are stored as files at `globalStorageUri/blobs/<spanId>-<field>.txt` rather than inline in the DB. The `has_blob` flag indicates when to read from disk instead.
 
-The diagram shows the trace tables only. The same database also holds `trace_sends` (the delivery record behind `queryTraceSendStats`), `trace_revision` / `trace_revision_counter` (live reconciliation, §File Map), `git_outcome` / `git_outcome_key`, `file_blame`, `commit_attribution` and `cohort_turnover` (the §15 caches), `claude_join` (the Claude OTEL↔transcript join) and the `limit_*` tables (`src/planUsage/`) — 19 tables in `SCHEMA_SQL`.
+The diagram shows the trace tables only. The same database also holds `trace_sends` (the delivery record behind `queryTraceSendStats`), `trace_revision` / `trace_revision_counter` (live reconciliation, §File Map), `git_outcome` / `git_outcome_key`, `file_blame`, `commit_attribution` and `cohort_turnover` (the §15 caches), `claude_join` (the Claude OTEL↔transcript join) and the `limit_*` tables (`src/planUsage/`) — 18 tables in `SCHEMA_SQL`.
 
 `one_shot_stats` (added for the one-shot/retry-rate metric) and `instruction_applied`/`instruction_dismissed` (added for the Advisor tab's instruction-suggestion tracking) are not tied to `sessions` by a foreign key in the diagram above — the former is a column on `sessions`, the latter two are keyed by `workspace` (a free-text column, not `sessions.workspace` as an FK) since suggestions are workspace-scoped, not session-scoped.
 
@@ -684,7 +684,7 @@ classDiagram
         +sourceRank?: number
         +subagentCount?: number
         +keyPending?: boolean
-        +initiator?: string
+        +initiator?: user, agent, api
         +gitBranch?: string
         +claudeSessionId?: string
         +workspace: string
@@ -709,14 +709,14 @@ classDiagram
         +totalToolCalls: number
         +totalLlmCalls: number
         +errors: number
-        +outcome: string
+        +outcome: text_response, tool_calls, unknown
         +timeline: TimelineEntry[]
         +backgroundSpans: BackgroundSpanSummary[]
         +loopSignals: LoopSignal[]
         +peakContextPerTurn?: number
         +oneShotStats?: OneShotStats
         +language?: SessionLanguage
-        +languageSecondary?: CodeLanguage | null
+        +languageSecondary?: SecondaryLanguage | null
         +filesChangedCount?: number
         +linesAdded?: number
         +linesRemoved?: number
@@ -730,7 +730,7 @@ classDiagram
     }
 
     class TimelineEntry {
-        +type: llm, tool, background
+        +type: llm, tool, user_input, background
         +spanId: string
         +label: string
         +model?: string
@@ -804,7 +804,6 @@ graph TD
         SIG_SUM[sessionSummary<br/>FullSummary or null]
         SIG_TOOLS[toolCalls<br/>Record of string to number]
         SIG_TL[sessionTimelines<br/>sessionId to TimelineEntry array]
-        SIG_BLOB[blobCache<br/>spanId:field to string]
         SIG_DS[dailyStats<br/>DailyStatRow array]
         SIG_LS[lifetimeStats<br/>LifetimeStats or null]
         SIG_BR[burnRateData<br/>BurnRateData or null]
@@ -813,12 +812,13 @@ graph TD
     end
 
     subgraph uicontrols["UI controls"]
-        SIG_LIM[sessionLimit<br/>number, default 10]
+        SIG_LIM[sessionLimit<br/>number, default 25]
         SIG_AGT[selectedAgentFilter<br/>AgentFilter, default all]
-        SIG_WS[workspaceFilter<br/>WorkspaceFilter, default all]
+        SIG_LANG[languageFilter · dataSourceFilter<br/>initiatorFilter · outcomeFilter<br/>each default all]
+        SIG_WS[workspaceFilter<br/>WorkspaceFilter — repo name or hash, default empty]
         SIG_TAB[activeTab<br/>string, default sessions]
         SIG_TF[sessionTextFilter<br/>string]
-        SIG_SK[sessionSortKey<br/>start_time · total_tokens · duration_ms<br/>errors · prompt · model · source · cost]
+        SIG_SK[sessionSortKey<br/>start_time · total_tokens · duration_ms · errors<br/>prompt · model · source · cost · workspace<br/>turns · outcome · signals · language · lines]
         SIG_SD[sessionSortDir<br/>asc or desc]
         SIG_TR[timeRange<br/>preset + optional since/until]
         SIG_INF[insightFilter<br/>all · loop · efficiency]
@@ -836,6 +836,7 @@ graph TD
 
     SIG_SUM --> COMP_AF
     SIG_AGT --> COMP_AF
+    SIG_LANG --> COMP_AF
     SIG_WS --> COMP_AF
     SIG_SUM --> COMP_AWS
     COMP_AF --> COMP_DISP
@@ -852,7 +853,6 @@ graph TD
     COMP_FS --> TAB_COMPS[Tab components]
     COMP_DISP --> TAB_COMPS
     SIG_TL --> TAB_COMPS
-    SIG_BLOB --> TAB_COMPS
     SIG_DS --> TAB_COMPS
     SIG_LS --> TAB_COMPS
     SIG_BR --> TAB_COMPS
@@ -862,18 +862,18 @@ graph TD
 
 **Key computed signal semantics:**
 
-- `agentFilteredSessions` — all in-memory sessions filtered by agent pill, data source, and workspace dropdown. No limit applied. This is the root filter — all downstream computeds derive from it, so the workspace filter automatically scopes every tab.
+- `agentFilteredSessions` — all in-memory sessions filtered by agent pill, language, data source, and the Repo box (`workspaceFilter`, a name or hash matched through `repoInfo`). No limit applied. This is the root filter — all downstream computeds derive from it, so the workspace filter automatically scopes every tab.
 - `availableWorkspaces` — sorted list of unique workspace paths from all loaded sessions. Drives the workspace dropdown options.
 - `availableLanguages` / `availableAgents` — the Language dropdown's options and the Agent pills: only languages (primary or secondary) and agents (`source`) that at least one loaded session has, in allowlist / `AGENT_FILTER_ORDER` order, read from every loaded session rather than the filtered set; a selected value stays listed even with no data. `showAgentFilter` hides the pill row when only one agent has data and nothing is selected.
 - `displaySessions` — `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Traces table.
 - `rangedSessions` — for bounded presets (7d/30d/…): merges `rangedSearchResults` (DB) with in-memory sessions that fall in the window. For "All": returns `agentFilteredSessions` directly.
-- `filteredSessions` — `rangedSessions` with text filter and sort applied. Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (ESTIMATED COST, TOKEN USAGE PER TRACE, CONTEXT GROWTH) source from `rangedSessions` directly.
+- `filteredSessions` — `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter — it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (ESTIMATED COST, TOKEN USAGE PER TRACE, CONTEXT GROWTH) source from `rangedSessions` directly.
 
 **Workspace field flow:** `workspace` is stored in the `sessions` SQLite table (always present, `NOT NULL`). `project_path` is an optional secondary path some OTEL exporters populate. Both are mapped by `DatabaseReader.listSessions` into `SessionSummaryCard`. For OTEL-sourced sessions, `workspace` is stamped onto the card by `DatabaseWriter.enqueue` (the summarizers produce `workspace: ''` as a placeholder). For log-sourced sessions, `_buildCard` receives and records the workspace at parse time.
 
 ### Tab component overview
 
-Five tabs in the sticky tab bar (Traces — routing id `sessions` — Analytics, Advisor, Export, Import). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx` — the rate tables behind it), a "Make a suggestion" link (`media/src/suggest.ts` — TraceRoost Cloud's public `/suggest` page with `?from=core&context=<version · tab>`, opened in the browser; in both editions), and Help. Alerts and Automation are not tabs — they're collapsible sections inside a gear-icon slide-in Settings panel (`ConfigPanel` in `App.tsx`), alongside the OTEL/log ingestion toggles. The bell icon shows a live popover of currently-triggered alerts with a shortcut into the same Settings panel. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
+Five tabs in the sticky tab bar (Traces — routing id `sessions` — Analytics, Advisor, Export, Import). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx` — the rate tables behind it), a "Make a suggestion" link (`media/src/suggest.ts` — TraceRoost Cloud's public `/suggest` page with `?from=core&context=<version · tab>`, opened in the browser; in both editions), and Help. Alerts and Automation are not tabs — the bell opens its own slide-in Alerts panel (`media/src/AlertsPanel.tsx`) with three tabs: **Active** (what's firing now, with a way to the trace behind each and to its threshold), **Configure** (`Alerts.tsx`) and **Automation** (`Automation.tsx`). The gear opens the separate Settings panel (`ConfigPanel` in `App.tsx`: ingestion toggles, agent setup/removal, page size, theme and dashboard port in standalone). Only the topmost of two open drawers handles keys (`media/src/dialogStack.ts`). The filter bar keeps Time and Agent visible; Prompt, Language, Repo, Outcome, Source and From sit behind a **Filters (n)** button (`filtersOpen`), each active one shown as a removable chip. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
 
 ```mermaid
 graph LR
@@ -898,8 +898,10 @@ graph LR
     T5[Import<br/>preview + import a TraceRoost JSON export]
     T6[Help<br/>sticky TOC nav · glossary · OTEL setup]
 
-    GEAR[Gear icon<br/>ConfigPanel — slide-in] --> S1[Alerts<br/>configurable threshold alerts, incl. daily cost<br/>VS Code notification with View Alerts + Copy Prompt]
-    GEAR --> S2[Automation<br/>loop breaker · turn wrap-up<br/>error cascade · context compaction]
+    BELL[Bell icon<br/>AlertsPanel — slide-in] --> S0[Active<br/>what's firing now · View trace → · Adjust threshold →]
+    BELL --> S1[Configure<br/>configurable threshold alerts, incl. daily cost<br/>VS Code notification with View Alert + Copy Prompt]
+    BELL --> S2[Automation<br/>loop breaker · turn wrap-up<br/>error cascade · context compaction]
+    GEAR[Gear icon<br/>ConfigPanel — slide-in<br/>ingestion toggles · agent setup · page size]
 ```
 
 **Chart data isolation:** Analytics charts (`CostBarChart`, `SessionTokenChart`, `ContextGrowthChart`) source from `rangedSessions` (always newest-first by time) so the Traces table sort key has no effect on their order.
@@ -915,33 +917,41 @@ sequenceDiagram
     EXT->>WV: HTML with window.__INITIAL_SESSION_SUMMARY__<br/>window.__INITIAL_TOOL_CALLS__
 
     Note over EXT,WV: Live updates (onUpdate + 10s heartbeat)
-    EXT->>WV: {type:'update', summary, sessionSummary,<br/>analyticsData:{dailyStats,lifetimeStats},<br/>burnRate:{sessionId,burnRate,projection}}
+    EXT->>WV: {type:'update', summary, …sessions delta (webviewSessionSync.ts),<br/>analyticsData:{dailyStats,lifetimeStats},<br/>burnRate:{sessionId,burnRate,projection},<br/>ingestion toggles, otlpPort, collectorConflict, currentWorkspace}
+    EXT->>WV: {type:'planUsage' | 'logIngest' | 'actionLog' | 'runningGitCommands', …}
+    WV->>EXT: {type:'requestFullUpdate'}
 
     Note over EXT,WV: Lazy timeline loading
     WV->>EXT: {type:'loadSessionDetail', sessionId}
     EXT->>WV: {type:'sessionDetail', sessionId, timeline}
 
-    Note over EXT,WV: Lazy blob loading
-    WV->>EXT: {type:'loadBlob', spanId, field, editIndex?}
-    EXT->>WV: {type:'blobContent', spanId, field, content}
+    Note over EXT,WV: No blob message exists — see §9, lazy timeline loading
 
     Note over EXT,WV: Git outcome (on-demand, cached per panel lifetime)
     WV->>EXT: {type:'getGitOutcome', sessionId, workspace, filesChanged, startTime, endTime}
-    EXT->>WV: {type:'gitOutcome', sessionId, outcome: GitOutcome | null}
+    EXT->>WV: {type:'gitOutcome', sessionId, outcome: GitOutcome | null,<br/>riskSignals, temperedLoopSignals, revision}
+    WV->>EXT: {type:'getGitOutcomes', sessionIds}
+    EXT->>WV: {type:'gitOutcomeCache' | 'gitOutcomeCacheBatch' | 'gitOutcomeDeferred', …}
+    WV->>EXT: {type:'getRepoHash', workspace}
+    EXT->>WV: {type:'repoHash', workspace, name, hash, githubUrl}
 
     Note over EXT,WV: Session search
     WV->>EXT: {type:'searchSessions', query:SearchQuery}
     EXT->>WV: {type:'searchResults', sessions, totalCount, offset}
 
     Note over EXT,WV: UI actions
-    WV->>EXT: {type:'clearAll'}
-    WV->>EXT: {type:'askAI', prompt, agent}
+    WV->>EXT: {type:'confirmClear'}
     WV->>EXT: {type:'openFile', filePath}
     WV->>EXT: {type:'exportSessionData' | 'exportSessionDataRedacted', sessionIds?, format: 'json'|'csv'|'markdown'}
+    WV->>EXT: {type:'importSessionData', sessions}
+    EXT->>WV: {type:'importProgress' | 'importDone' | 'importError', …}
+    WV->>EXT: {type:'setVsCodeConfig', key, value} · {type:'reconfigureOtel'} · {type:'removeAgentSetup'}
+    WV->>EXT: {type:'getInstructionFiles' | 'getAppliedSuggestions' | 'getDismissedSuggestions'<br/>| 'applyInstructionSuggestion' | 'dismissInstructionSuggestion' | 'removeInstructionSuggestion', workspace, id?}
+    WV->>EXT: {type:'getOrgStatus'} and every 'org*' message → CloudBridge.handleOrgMessage (§15)
     WV->>EXT: {type:'openSidebar' | 'closeSidebar'}
     WV->>EXT: {type:'automation', automationId, agent, prompt, ...}
     WV->>EXT: {type:'alert', label, detail, severity}
-    Note over EXT: showWarning/Error/InformationMessage<br/>with 'View Alerts' + 'Copy Prompt' buttons<br/>Copy Prompt writes AI-ready text to clipboard
+    Note over EXT: showWarning/Error/InformationMessage<br/>with 'View Alert' (+ 'View Trace' for a single-trace alert) and 'Copy Prompt' buttons<br/>Copy Prompt writes the signal's agent instruction + evidence to the clipboard
 ```
 
 ---
@@ -951,7 +961,7 @@ sequenceDiagram
 Cost is computed in two places:
 
 1. **Extension host** (`src/pricing.ts`) — at write time; `cost_usd` is stored in the `sessions` row and used for all aggregate queries (`SUM(cost_usd)`, `queryDailyStats`, `queryBurnRate`).
-2. **Browser** (`media/src/pricing.ts`) — at display time; per-turn cost shown in the Cost tab and Flow tooltip. The two rate tables are kept in sync manually.
+2. **Browser** (`media/src/pricing.ts`) — at display time; per-turn and per-trace cost shown in the expanded trace (waterfall rows, Flow tooltip, Overview tiles), the Analytics charts and the Advisor (`media/src/sessionMetrics.ts`'s `calcSessionCost` / `calcEntryCost`). The two rate tables are kept in sync manually. In the full edition a linked install overlays the org's own rates from TraceRoost Cloud on both tables (`src/cloud/org/pricingSync.ts`; every failure falls back to the local table), and the header's `$` icon (`Pricing.tsx`) shows which is in effect.
 
 ```mermaid
 flowchart TD
@@ -965,8 +975,8 @@ flowchart TD
         LR --> RATES{Rates found?}
         RATES -- no  --> ZERO[cost=0, modelUnknown=true]
         RATES -- yes --> TC[calcTokenCost<br/>input/cacheRead/cacheWrite/output<br/>per-MTok rate / 1,000,000]
-        TC --> ENTRY_COST[calcEntryCost - Flow tooltip]
-        TC --> SESS_COST[calcSessionCost - Cost tab table]
+        TC --> ENTRY_COST[calcEntryCost - waterfall row · Flow tooltip]
+        TC --> SESS_COST[calcSessionCost - trace Overview · Analytics · Advisor]
     end
 
     subgraph analytics["Analytics - query time"]
@@ -978,33 +988,52 @@ flowchart TD
 
 `contextWindowTokens` (stored in `src/pricing.ts`) enables the `Projection` calculation: given current session token usage and burn rate, estimate time to context exhaustion and final cost.
 
-Pricing data covers: OpenAI (GPT-4.1 through GPT-6.1), Anthropic (Claude Haiku 3.5/4.5/5.5, Sonnet 4.x/5/5.5, Opus 4.x/5/5.5, Fable 5/5.1, Mythos 5/5.1), Google (Gemini 2.5–3.8), Codex, third-party Copilot-marketplace models (Grok 4.5–4.7, Kimi, MAI-Code), OpenCode Zen free models, and fine-tuned models. Some models also carry a per-model tiered "long context" surcharge above a token-per-call threshold — see `PRICING_SOURCES.md`. Refreshed per the runbook in `PRICING_SOURCES.md`. Last updated: 2026-10-11.
+Pricing data covers: OpenAI (GPT-4.1 through GPT-6.1), Anthropic (Claude Haiku 3.5/4.5/5.5, Sonnet 4.x/5/5.5, Opus 4.x/5/5.5 and their `-fast` variants, Fable 5/5.1, Mythos 5/5.1), Google (Gemini 2.5–3.8), Codex, third-party Copilot-marketplace models (Grok 4.5–4.7, Kimi, MAI-Code), OpenCode Zen free models, and fine-tuned models. Some models also carry a per-model tiered "long context" surcharge above a token-per-call threshold — see `PRICING_SOURCES.md`. Refreshed per the runbook in `PRICING_SOURCES.md`. Last updated: 2026-10-11.
 
 ---
 
 ## 12. Auto-Configuration
 
-When the extension activates it attempts to configure each agent automatically.
+When the extension activates it configures each agent — but only with the user's consent, and only
+if it owns the job. TraceRoost asks once, in plain words, what it will change and what that turns on
+(`src/agentSetupConsent.ts`, wording in `src/agentSetupText.ts`; **Set up agents** / **Not now** /
+**Don't set up** — "Not now" records nothing and the question returns next start). The answer is shared
+by every TraceRoost on the machine as `agentSetup` in `~/.traceroost/config.json`; `TraceRoost: Set Up
+Agents…`, the Settings button and `traceroost agents setup` count as a yes. With a standalone
+TraceRoost (background service, `traceroost`, the desktop app's collector) holding the data directory
+or the OTLP port, the extension leaves agent settings alone and hands the job to the service
+(`src/serviceOwnership.ts` — "the background service always wins"). The first yes writes the full set
+(`SetupMode` `'full'`); every later start runs `'maintain'`, which only moves TraceRoost's own
+`http://localhost:<port>` endpoint to the current port when it is still there and adds nothing the
+user deleted. A file whose endpoint already names a different collector is left untouched entirely,
+with a warning. `TraceRoost: Remove Agent Setup…`, the Settings button and `traceroost agents remove`
+(`src/agentSetupRemoval.ts`) take out only what setup added, each key only while it still holds
+TraceRoost's value, and record a no.
 
 ```mermaid
 flowchart TD
     ACT[Extension activate] --> PAR[Run in parallel]
 
-    PAR --> CP_CFG[autoConfigureCopilot<br/>VSCode global settings API]
+    PAR --> CP_CFG[autoConfigureCopilot<br/>VS Code global settings API<br/>standalone: autoConfigureCopilotStandalone writes every<br/>VS Code-family editor's settings.json — vscodeFamilyIdes.ts]
     PAR --> CC_CFG[autoConfigureClaudeCode<br/>~/.claude/settings.json]
     PAR --> CX_CFG[autoConfigureCodex<br/>~/.codex/config.toml]
 
     CP_CFG --> CP_KEYS["github.copilot.chat.otel.enabled = true<br/>exporterType = 'otlp-http'<br/>otlpEndpoint = http://localhost:{port}"]
     CP_KEYS --> CP_OUT{Changed?}
-    CP_OUT -- yes --> RELOAD[Show 'Reload VSCode' prompt]
+    CP_OUT -- yes --> RELOAD["'Reload VS Code to start tracing Copilot' prompt"]
 
-    CC_CFG --> CC_KEYS["env block:<br/>CLAUDE_CODE_ENABLE_TELEMETRY=1<br/>OTEL_TRACES_EXPORTER=otlp<br/>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:{port}<br/>OTELlog flags for tool details + user prompts"]
+    CC_CFG --> CC_KEYS["env block:<br/>CLAUDE_CODE_ENABLE_TELEMETRY=1<br/>OTEL_TRACES_EXPORTER=otlp<br/>OTEL_EXPORTER_OTLP_PROTOCOL=http/json<br/>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:{port}<br/>OTEL_LOG_TOOL_DETAILS=1 · OTEL_LOG_TOOL_CONTENT=1<br/>OTEL_LOG_USER_PROMPTS=1"]
 
-    CX_CFG --> CX_KEYS["toml otel section:<br/>log_user_prompt = true<br/>exporter otlp-http endpoint=...<br/>trace_exporter otlp-http endpoint=..."]
+    CX_CFG --> CX_KEYS["[otel] table:<br/>log_user_prompt = true<br/>exporter = { otlp-http = { endpoint, protocol = 'json' } }<br/>trace_exporter = { otlp-http = { endpoint, protocol = 'json' } }"]
 
-    CC_KEYS --> RESTART[Requires Claude Code restart]
+    CC_KEYS --> RESTART["'Restart Claude Code / Codex in your terminal' prompt"]
     CX_KEYS --> RESTART
 ```
+
+The standalone server runs the same three at startup (`standalone/autoConfigLog.ts` prints every
+warning), and a terminal asks the consent question itself: Enter is **Not now**, `y` is yes, `never`
+is **Don't set up** (`standalone/agentsCli.ts`). Docker never touches agent settings — it could only
+reach the container's own files.
 
 ---
 
@@ -1068,12 +1097,18 @@ rather than the Cellar keg, which `brew upgrade` deletes. The formula has no `se
 `TRACEROOST_NO_OPEN=1`, without a TTY, over SSH, or on Linux without a display;
 `shouldAutoOpen` in `standalone/openBrowser.ts`); the service process itself never opens a browser.
 
-`standalone/server.ts` reads `~/.traceroost/config.json` at startup as a fallback underneath the
-existing `OTLP_PORT`/`UI_PORT`/`MCP_PORT`/`BIND_HOST`/`DATA_DIR` env vars (env var still wins if
-set), so an ad-hoc `npx`/`node standalone/server.js` run and a service install share one config
-story instead of diverging. `service install` writes `config.json` just before registering the
-service (the freshly started server reads it immediately) and, if registration fails, rolls the
-service back and restores whatever `config.json` held before.
+`standalone/server.ts` reads `~/.traceroost/config.json` at startup, so an ad-hoc `npx`/`node
+standalone/server.js` run and a service install share one config story instead of diverging.
+`config.json` decides the ports: the `OTLP_PORT`/`UI_PORT`/`MCP_PORT` env vars win for a manual
+run but not for the background service (`configuredPorts` in `src/serviceConfig.ts` — a service
+definition written by an older version can't override a port changed later); `BIND_HOST` and
+`DATA_DIR` env vars still win when set. The file also carries `sessionRetentionDays` (default 90,
+`standalone/sessionRetention.ts`), the `agentSetup` answer (§12), the `install_id` and the auth
+token. `service install` writes `config.json` just before registering the service (the freshly
+started server reads it immediately) and, if registration fails, rolls the service back and
+restores whatever `config.json` held before. Re-running `install` keeps existing settings: a flag
+(`--otlp-port`, `--retention-days`, …) changes only its own setting, and the command prints what it
+kept.
 
 **One server per data dir.** Before it reads or writes anything in its data dir, the server takes
 an exclusive lock, `<dataDir>/server.lock` (`standalone/dataDirLock.ts`): created with O_EXCL,
@@ -1153,6 +1188,19 @@ itself; the server is reached only through `import('./server.js')`, which `esbui
 external so the npm package ships one copy of the server (`standalone/server.js`) rather than a
 second one inlined into the CLI.
 
+**The desktop app** (`desktop/`, its own npm project — deliberately outside the pnpm workspace) is a
+sixth, separate build: `desktop/esbuild.mjs` bundles `desktop/src/main.ts` to `desktop/out/main.js`
+(`electron` external); `desktop/scripts/stage-resources.mjs` builds the **core edition** at the repo
+root and copies what the app ships into `desktop/resources/collector/`;
+`desktop/scripts/third-party-notices.mjs` writes its notices; `desktop/electron-builder.cjs` packs a
+DMG, a `.deb`/AppImage or an NSIS per-user installer (`pnpm run pack`, `pack:linux`, `pack:win`, plus
+`checksums.mjs`). Signing is decided from the environment: macOS signs with a Developer ID
+(`CSC_NAME` / `CSC_LINK`) and notarizes when an Apple credential set is present; Windows signs with a
+certificate (`WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`) or, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`
+and `AZURE_CLIENT_SECRET` are set, Azure Artifact Signing with the account, profile and publisher
+named in `electron-builder.cjs` (they are not secrets — every signature carries them). An unsigned
+build is still attached to the release under its plain name. See `desktop/README.md`.
+
 ### Type-check vs bundle
 
 ```mermaid
@@ -1175,10 +1223,13 @@ tests for `pnpm run test:unit` (`compile-tests:standalone`).
 
 ## 15. TraceRoost Cloud — org link
 
-Everything in `src/cloud/org/` is the **client half of TraceRoost Cloud** — an optional layer that lets an
-org admin see cross-developer aggregates. The rest of the codebase reaches it only through
+Everything in `src/cloud/` (`org/` for the link, `forward/` for the upload) is the **client half of
+TraceRoost Cloud** — an optional layer that lets an org admin see cross-developer aggregates. The rest of the codebase reaches it only through
 `src/cloudBridge.ts` (implemented by `src/cloud/bridge.ts`), `media/src/orgPanel.ts` and
-`standalone/cliCloud.ts`, so the core edition (§14) can be built without any of it. It is built against two rules:
+`standalone/cliCloud.ts`, so the core edition (§14) can be built without any of it. The wire
+contract, every endpoint a linked machine calls, the end-to-end send and the trace manifest are in
+CLOUD_ARCHITECTURE.md; this section is the module map, the surfaces and the free/paid boundary. It is
+built against two rules:
 
 1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
    TraceRoost service — no version ping, no "do you have an org" check. `getOrgStatus()` and
@@ -1193,15 +1244,24 @@ org admin see cross-developer aggregates. The rest of the codebase reaches it on
 
 | Module | Responsibility |
 |---|---|
-| `src/cloud/org/config.ts` | The one list of every URL the client can contact; `OrgCredentials` shape |
+| `src/cloud/bridge.ts` | The full edition's `CloudBridge` — the only module outside `src/cloud/` reaches cloud code through it (`src/cloudBridge.ts` is the interface; `cloudBridge.core.ts` the inert stub) |
+| `src/cloud/org/config.ts` | The one list of every URL the client can contact; `OrgCredentials` shape; `resolveOrgEnvironment()` (`TRACEROOST_ORG_URL` / `TRACEROOST_ORG_ENV`, else the picker's saved choice) |
+| `src/cloud/org/environmentSelection.ts` | The *unlinked* Org panel's persisted environment pick; a linked machine uses the endpoint baked into its credential instead |
 | `src/cloud/org/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
 | `src/cloud/org/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
 | `src/cloud/org/credentials.ts` | `~/.traceroost/team.json`, mode 0600, keychain-ready via `CredentialStore` |
 | `src/cloud/org/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
+| `src/cloud/org/tokenRefresh.ts` | The one way a linked machine rotates its tokens: refresh-then-save under the credential file's lock, re-read after acquiring, so two hosts sharing `team.json` never present an already-rotated token; counts unanswered presentations (`MAX_UNANSWERED_PRESENTATIONS`) and treats a network failure as no answer |
+| `src/cloud/org/browser.ts` | Opens a URL in the default browser with no shell in between (one argv entry; Windows goes through the URL handler, not `cmd /c start`) |
 | `src/cloud/org/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
-| `src/cloud/org/status.ts` | `getOrgStatus()` — local-only status for the panel, dot and CLI |
+| `src/cloud/org/status.ts` | `getOrgStatus()` — local-only status for the panel, dot and CLI, including the daily-ceiling notice |
+| `src/cloud/org/linkWatcher.ts` | Notices a link or leave made outside this process (`traceroost org link`, another window or server sharing `~/.traceroost`) and starts/stops the scheduler and queues history accordingly |
+| `src/cloud/org/reconcileUnsent.ts` | "Queue everything this install hasn't delivered yet" — right after a link, the panel's **Check for unsent traces** button and `linkWatcher`; a bounded `RECONCILE_CONCURRENCY` (6) worker pool over `maybeEnqueueSession`, which checks the delivery ledger before building anything |
+| `src/cloud/org/pricingSync.ts` | Fetches the linked org's own rate table and overlays it on `lookupRates()` (§11); every failure leaves the local table in effect |
+| `src/cloud/org/clusterResolve.ts` | `traceroost cluster --repo <hash> --id <id>`: resolves a Repeat-work cluster's opaque session ids back to local sessions — only the machine that produced them can |
+| `src/cloud/org/resolveRepoHash.ts` | Hash → local clone for the hand-off; not an oracle, no network |
 | `src/cloud/org/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
-| `src/cloud/org/panelController.ts` | Transport-agnostic handler for `org*` webview messages; `reconcileLocalSessions` runs a bounded 6-worker pool, not serially |
+| `src/cloud/org/panelController.ts` | Transport-agnostic handler for `org*` webview messages (link, status, leave, environment, payload preview, reconcile); `reconcileLocalSessions` delegates to `reconcileUnsent.ts` |
 | `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
 | `src/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
 | `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
@@ -1211,17 +1271,26 @@ org admin see cross-developer aggregates. The rest of the codebase reaches it on
 | `src/cloud/org/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
 | `src/cloud/org/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
 | `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
-| `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked |
+| `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked; `maybeEnqueueSession` is ledger-gated |
+| `src/cloud/org/contentChangeForward.ts` | Re-forwards a session whenever its built rollup *content* changed (`src/reconcile/payloadHash.ts`) — the live-update path (`src/sessionForwarder.ts`, the standalone log scan), not the restart rediscovery, which keeps the cheap ledger short-circuit |
 | `src/cloud/org/hostIdentity.ts` | This host's `host_id` — a random UUID kept in its own trace store (`cloud-host-id`), created on first linked use; the extension and the standalone server each have one |
-| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped, 0600; eviction past the cap is logged, not silent |
-| `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table |
+| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped (`DEFAULT_MAX_ITEMS` 5000, oldest-first eviction), 0600; eviction past the cap is logged, not silent |
+| `src/cloud/forward/deliveryLedger.ts` | `~/.traceroost/delivered.json` — which queue items were confirmed delivered, so a restart's log rediscovery doesn't re-send a machine's history; `dropped.json` records rollups the cloud refused for good (400 schema-rejected, 413 too large) so the trace manifest leaves their keys out instead of waiting on them forever |
+| `src/cloud/forward/fileLock.ts` | Cross-process advisory lock around the read-modify-write of the shared per-machine files (queue, ledgers, credential) — the extension, the server and a CLI run can all hold them at once |
+| `src/cloud/forward/forwardState.ts` | Small persisted record of how forwarding is going (last send, pause until, the persistent notice — re-link, update required, daily ceiling) — read by `org status`, the dot and `getOrgStatus()`; kept apart from the queue so the two never contend |
+| `src/cloud/forward/currentQueueStats.ts` | `getQueueStats()` — queue depth and stuck items (`STUCK_ATTEMPTS_THRESHOLD`) for the panel, the dot and `org status`; local files only |
+| `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table in its header: 401 (refresh once; `invalid_grant` clears credential and queue; too many unanswered presentations clears the credential but keeps the queue), 403 `install revoked` (clears credential and queue; any other 403 is transient), 426 `client_upgrade_required` (pause, keep queue), 409 `session_owned_elsewhere` (re-key and re-queue), 429 (`Retry-After`; with `X-TraceRoost-Ceiling: daily`, pause until `Retry-After` but never past midnight UTC, one notice per UTC day) |
+| `src/cloud/forward/sessionRekey.ts` | Per-owner wire ids: a trace another member or org already holds is recorded in `~/.traceroost/rekeyed.json` and re-queued under an owner-salted id; every wire-id consumer (payload build, ledger, manifest, cluster resolution, `find`) follows the re-key |
+| `src/cloud/forward/preview.ts` | `stableStringify` — shared by `--explain-payload` and the panel's **Show the exact payload**, so the two never disagree |
+| `src/cloud/forward/wireAttribution.ts` | Attribution enum passthrough with a safe `unknown` default, shared by the commit and turnover builders |
 | `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
 | `src/cloud/forward/traceManifest.ts` | The trace-key manifest — per-day chunks of the keys this host holds, tagged with its `host_id`, sent after a drain by the store's single writer (each host for its own rows); full sweep on startup/(re-)link, changed days otherwise |
 | `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
 
 **The split that makes instruction suggestions genuinely a Cloud feature:** the cloud finds the pattern (some file is read in
 62% of sessions by four of six developers), the machine writes the text (which file, and the
-sentence). `getHotFileSuggestions` already fires at 40% over *one* person's sessions; pooling
+sentence). The local hot-file rule (`src/suggestionRules.ts`) already fires at 20% of *one*
+person's sessions (high priority at 40%); pooling
 raises it to "four of you do, and none of your instruction files mention it," which no local
 install can reach. The local Advisor is free and unchanged. `suggestedText` / `evidence` /
 `title` never leave the machine — only `suggestion_id` (hashed), the enums, and the numeric
@@ -1244,13 +1313,18 @@ is **not** in the payload — the service derives identity from the bearer token
 ### Surfaces
 
 - **Org panel** (`media/src/cloud/panels/OrgPanel.tsx`) — a slide-in beside Settings, opened from a
-  new tab-bar icon carrying a state dot (grey unlinked / green reporting / amber queued or
-  degraded). The unlinked state is what almost every install shows forever; it states plainly
+  header icon carrying a state dot (grey not linked / green synced, blinking while a drain is in
+  flight / amber queued or paused; the tooltip names the state). Its header reads "TraceRoost Cloud ·
+  <org>" and its first row opens the Cloud team view, or the Cloud site when unlinked. The unlinked state is what almost every install shows forever; it states plainly
   that nothing is sent and offers `Show the exact payload` *before* linking.
-- **CLI** — `traceroost org <link|status|verify|leave> [--device]` (`standalone/cloud/org-cli.ts`).
+- **CLI** — `traceroost org <link [--device|--browser]|status|verify|leave>` (`standalone/cloud/org-cli.ts`).
+  `link` picks the device flow (RFC 8628: a URL and a code to approve from any device) wherever
+  `service install` wouldn't open a browser — SSH, no display, non-TTY, `--no-open` /
+  `TRACEROOST_NO_OPEN` (`chooseLinkFlow`, the same test as `shouldAutoOpen`); `--device` /
+  `--browser` force either.
 - **Command palette** — `TraceRoost: Link This Machine to an Org (Cloud)`, `TraceRoost: Org Link Status (Cloud)`,
   `TraceRoost: Unlink (Cloud)`.
-- **Standalone server** — `GET/POST /api/org`, dispatched through the same `panelController`.
+- **Standalone server** — `GET/POST /api/org` (full edition only), dispatched through the same `panelController`.
 
 ### The free/paid boundary
 
@@ -1279,13 +1353,15 @@ directories, and they are MIT-licensed like the rest of the tool.
 |---|---|
 | `src/attribution/commitScan.ts` | `git log --numstat` for a repo/window; detects an agent trailer, then discards the message |
 | `src/attribution/sessionJoin.ts` | Candidate-session lookup (workspace in repo, span ends ≤ commit within a 72h lookback) |
+| `src/attribution/fromSessions.ts` / `types.ts` | `toAttributionSessions()` — the narrow view of a card the join needs (no prompt or response text); `Confidence`, `ScannedCommit`, `CommitAttribution` |
 | `src/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
 | `src/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
 | `src/database/attributionRepository.ts` | SQLite cache — a commit's attribution never changes once computed |
 | `src/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed` — a cohort is measured only once its window fully elapses |
 | `src/turnover/survival.ts` | One `git blame HEAD` per file, bucketed by originating commit; proportional surviving-AI-lines estimate |
 | `src/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
-| `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day ~22%) — one place to change them |
+| `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day 20–24%, healthy <22%) — one place to change them |
+| `src/turnover/cached.ts` | `computeTurnover` behind a "recompute only when HEAD, the date or the local sessions moved" rule wired to SQLite |
 | `src/database/turnoverRepository.ts` | One row per repo; recompute skipped when `HEAD` is unmoved |
 
 There was previously a dedicated free **Outcomes** dashboard tab (`media/src/cloud/tabs/Outcomes.tsx`)
@@ -1327,13 +1403,29 @@ traceroost/
 │   ├── dashboardPanel.ts         # Full dashboard webview, message protocol, alert notifications
 │   ├── mcpServer.ts              # MCP server — exposes session history to Claude Code / MCP clients
 │   ├── autoConfig.ts             # Copilot VS Code settings
-│   ├── autoConfigNode.ts         # Claude/Codex file-based config
+│   ├── autoConfigNode.ts         # Claude/Codex file-based config + Copilot settings.json for every VS Code-family editor; removal counterparts
+│   ├── agentSetupConsent.ts      # The agent-setup yes/no (`agentSetup` in ~/.traceroost/config.json), shared by every TraceRoost on the machine
+│   ├── agentSetupRemoval.ts      # Remove agent setup — takes out only what setup added, per file
+│   ├── agentSetupText.ts         # The setup question's wording, Node-free so the dashboard banner shows the same words
+│   ├── serviceOwnership.ts       # Who may write agent settings when the extension and a standalone server both run (the service wins)
+│   ├── ownerGate.ts              # Which parts of the extension a VS Code window runs, from what it knows of the shared database (pure)
 │   ├── vscodeFamilyIdes.ts       # App-directory names for VS Code-family IDEs (Copilot Chat log discovery)
 │   ├── exportData.ts             # JSON export helpers
 │   ├── exportFormats.ts          # CSV + Markdown export serialization
 │   ├── gitOutcome.ts             # On-demand git-outcome classification (merged/committed/abandoned — shown as Uncommitted — /ambiguous)
 │   ├── oneShotRate.ts            # One-shot / retry-rate metric — per-file edit-count aggregation
 │   ├── logReader.ts              # LogReader — local log ingestion (Claude/Codex/Copilot CLI/Copilot Chat JSONL+JSON/OpenCode SQLite/Cursor CLI JSONL)
+│   ├── logFileState.ts           # Per-file parse state (LOG_FILE_STATE_VERSION) so activation doesn't re-parse every historical log
+│   ├── historyReadiness.ts       # "Store is complete" gate the trace manifest waits on — true once a historical log pass completed
+│   ├── traceHorizon.ts           # Evidence horizon of a host's trace store (earliest instant it still holds every trace)
+│   ├── otlpIngest.ts             # OTLP span/log/metric parsing + Codex cross-payload state, shared by the collector and the standalone server
+│   ├── sessionForwarder.ts       # Forward a changed session's rollup to Cloud — no-op unless linked (live OTLP update, periodic log scan)
+│   ├── editStats.ts              # Agent-authored change size (files changed, lines +/−) from the agent's own edit/write calls — not git
+│   ├── language.ts               # Per-session language allowlist + derivation — byte-identical copy of media/src/language.ts
+│   ├── signalEvidence.ts         # Per-step evidence a LoopSignal carries (steps, trigger) so the waterfall can highlight them
+│   ├── fsAtomic.ts               # Crash-safe file replacement (tmp + rename) for every on-disk store
+│   ├── logLevel.ts               # TRACEROOST_LOG_LEVEL (info | debug), read on every call
+│   ├── workspacePath.ts          # "Is this workspace the repo root or inside it" — path-segment aware, so /repo-old never matches /repo
 │   ├── loopDetector.ts           # Loop signal detection; shares getFileEditCounts with oneShotRate.ts
 │   ├── instructionAdvisor.ts     # Advisor tab analysis — hot files, loop patterns, high turn counts
 │   ├── instructionEffectiveness.ts # Before/after baseline metrics for applied instruction suggestions
@@ -1341,7 +1433,7 @@ traceroost/
 │   ├── serviceConfig.ts          # Background-service config file + launchd/systemd/Windows-task generators (pure, tested)
 │   ├── httpSecurity.ts           # Shared hardening for the 3 standalone servers (UI/OTLP/MCP): Host-header validation (anti-DNS-rebinding) + bearer-token auth
 │   ├── portResolver.ts           # Requested-vs-actually-bound port tracking so no consumer (auto-configure, dashboard URL, MCP endpoint) points at a dead port
-│   ├── repoRemote.ts             # Local-only GitHub remote lookup for the Sessions repo-column tooltip — never sent to traceroost-cloud
+│   ├── repoRemote.ts             # Local-only GitHub remote lookup for the Sessions repo-column tooltip — never sent to TraceRoost Cloud
 │   ├── sessionRiskSignals.ts     # Post-hoc, on-demand risk detectors (session detail view) — malfunction patterns visible only once a session is complete
 │   ├── automationEngine.ts       # Server-side port of Automation's threshold evaluation for MCP tools — hand-kept in sync with media/src/tabs/Automation.tsx's own copy
 │   ├── claudeUsageLines.ts       # Selects whole cumulative usage snapshots from growing Claude Code output lines
@@ -1378,10 +1470,12 @@ traceroost/
 │   │   ├── outcomeKeyRepository.ts # What each session's git-outcome cache key was built from — lets reconcile skip `git log`
 │   │   ├── attributionRepository.ts / turnoverRepository.ts # Caches for the attribution/turnover engines (§15)
 │   │   ├── sessionsVersion.ts    # Write counter for the sessions table — cheap staleness check for SessionRepository's memo
+│   │   ├── schemaEvolution.ts    # Adds missing columns in place for both SQLite stores (CREATE TABLE IF NOT EXISTS never does)
+│   │   ├── claudeJoinRepository.ts # Persisted Claude OTEL↔transcript join decisions (`claude_join`)
 │   │   └── types.ts              # Shared DB types
 │   ├── attribution/              # Free, local commit attribution — git + session records, no network (§15)
 │   ├── turnover/                 # Free, local cohort/survival engine built on attribution/ (§15)
-│   ├── cloud/                    # TraceRoost Cloud client — org link (org/) + upload (forward/); BSL, see NOTICE.md (§15)
+│   ├── cloud/                    # TraceRoost Cloud client — org link (org/) + upload (forward/); BSL, see NOTICE.md; module map in §15
 │   ├── cloudBridge.ts            # The one seam to cloud/ (interface + full impl via cloud/bridge.ts); §14 Editions
 │   ├── cloudBridge.core.ts       # Core edition's inert CloudBridge — swapped in by `esbuild.js --edition=core`
 │   ├── summarizers/
@@ -1398,7 +1492,15 @@ traceroost/
 │   │   ├── dashboard.tsx         # Entry point — mounts App into the webview DOM
 │   │   ├── App.tsx               # Preact root, message handler, tab router, sticky tab bar, header icons
 │   │   │                         #   (bell · action log · gear ConfigPanel · $ Pricing · suggest · Help; Org/update where applicable)
-│   │   ├── state.ts              # Signals: sessions, timelines, blobs, analytics, sort, time range, gitOutcomes
+│   │   ├── state.ts              # Signals: sessions, timelines, analytics, filters, sort, time range, gitOutcomes, riskSignals, panels
+│   │   ├── AlertsPanel.tsx       # Bell's slide-in Alerts panel — Active · Configure (Alerts.tsx) · Automation (Automation.tsx)
+│   │   ├── dialogStack.ts        # The open drawers, topmost last — only the topmost traps Tab / closes on Escape
+│   │   ├── a11y.ts               # prefersReducedMotion, useDialog
+│   │   ├── agentColors.ts        # One VS Code chart colour per agent, everywhere (pills, dots, charts, Flow, sidebar)
+│   │   ├── agentSetupText.ts     # Mirror of src/agentSetupText.ts for the dashboard's agent-setup banner
+│   │   ├── language.ts           # Byte-identical copy of src/language.ts
+│   │   ├── signalEvidence.tsx    # Step-level evidence for an insight (which timeline entries made it fire; efficiency checks recomputed here)
+│   │   ├── dashboardPortCarry.ts # Settings → Dashboard port: the address to move to, preferences carried in the fragment (standalone/dashboardPort.ts's twin)
 │   │   ├── types.ts              # Frontend types mirroring backend + analytics types
 │   │   ├── pricing.ts            # Browser pricing: rate table, lookupRates, calcTokenCost
 │   │   ├── sessionMetrics.ts     # calcSessionCost, calcEntryCost, fmtUsd, buildDailyCostMap, getDailyCostUsd
@@ -1440,6 +1542,9 @@ traceroost/
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)
 │   │       ├── Analytics.tsx     # AGENT BREAKDOWN (incl. one-shot rate) · BY LANGUAGE · PLAN LIMITS · OUTCOME & TOKEN SPEND · CODE CHANGES · ESTIMATED COST · TOKEN USAGE · CONTEXT GROWTH
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
+│   │       ├── languageBreakdown.ts # BY LANGUAGE cut + agent-authored change-size totals (traces without line data never count as 0)
+│   │       ├── GettingStarted.tsx # "Nothing recorded yet" empty state's next steps, shared by Traces and Analytics
+│   │       ├── CloudNote.tsx     # "Link to Cloud" note that opens the Org panel (full edition)
 │   │       ├── outcomeTrend.ts   # Day/week binning (dayBins) for OUTCOME & TOKEN SPEND OVER TIME
 │   │       ├── codeChanges.ts    # CODE CHANGES OVER TIME bins — agent-authored lines/files, traces without line data excluded
 │   │       ├── Insights.tsx      # InsightCard component + generateInsights; clipboard copy icon
@@ -1464,10 +1569,27 @@ traceroost/
 │   └── sidebar.js                # Compiled sidebar script
 ├── standalone/
 │   ├── server.ts                 # Standalone HTTP server (no VS Code)
-│   ├── cli.ts                    # npx entrypoint: `traceroost` — dispatches `service`, `org`,
+│   ├── cli.ts                    # npx entrypoint: `traceroost` — dispatches `service`, `agents`, `org`,
 │   │                              #   `find`/`trace`/`patterns`, `advise`/`cluster`, `cohort`,
 │   │                              #   `--explain-payload`; no args (or flags only) starts the server;
 │   │                              #   any other word prints usage and exits 1
+│   ├── cliArgs.ts                # Pure half of that dispatch: usage text per edition, what a flag-led argument list means
+│   ├── agentsCli.ts              # `traceroost agents <setup|remove>` — the agent-setup answer from a terminal
+│   ├── autoConfigLog.ts          # What the server prints after auto-configuring the three agents
+│   ├── agentLabels.ts            # Display names + log locations per LogReader agent key (startup "Loaded N traces" line)
+│   ├── dataDirLock.ts            # One server per data dir: <dataDir>/server.lock (O_EXCL, heartbeat, takeover rules — §13)
+│   ├── openBrowser.ts            # shouldAutoOpen (TTY, SSH, display, --no-open) + openInBrowser
+│   ├── dashboardHtml.ts          # The dashboard page's HTML shell served at `/` (DashboardHtmlVars — no server state in the template)
+│   ├── dashboardCsp.ts           # Content-Security-Policy for that page
+│   ├── dashboardPort.ts          # Settings → Dashboard port: moving the UI port while the server runs
+│   ├── sessionRetention.ts       # Retention for the server's in-memory log-sourced cards (sessionRetentionDays)
+│   ├── sqlWasm.ts                # Where the server finds sql.js's wasm (its own dist/, never node_modules)
+│   ├── instructionActions.ts     # The server's half of the Instructions tab (same messages dashboardPanel.ts handles)
+│   ├── promptsFile.ts            # Where an automation prompt is appended when "Write prompts file" is on
+│   ├── otelForwardGate.ts        # When an OTEL-built card is settled enough to forward to Cloud
+│   ├── revisionForwardBatcher.ts # Batches reconciliation results into cloud forwards (extension.ts's pendingRevisions twin)
+│   ├── ownerChannel.ts           # Private pipe the desktop app uses to ask its spawned collector to shut down cleanly
+│   ├── requestBody.ts / requestGuards.ts / pathGuard.ts  # Bounded body reads (413), pure request guards, strict path containment
 │   ├── local/                    # Free, local-only CLI analysis — no cloud imports (MIT)
 │   │   ├── sessionLoader.ts      # Loads recorded sessions without starting the server
 │   │   ├── traceCli.ts / patternsCli.ts / findCli.ts  # `trace`, `patterns`, `find`
@@ -1485,11 +1607,20 @@ traceroost/
 │   │   ├── clusterCli.ts         # `cluster`
 │   │   └── adviseTelemetry.ts    # advise --apply's ledger + SuggestionEvent step
 │   └── service/
-│       ├── index.ts              # `traceroost service <cmd>` dispatch, npx-bootstrap, logs/status
+│       ├── index.ts              # `traceroost service <cmd>` dispatch, npx-bootstrap, logs/status, readGlobalVersion
+│       ├── globalInstall.ts      # Is the running cli.js inside the global npm install? (canonical paths)
+│       ├── homebrew.ts           # Recognise a Homebrew keg; `brew upgrade` path and opt-prefix service paths (§13)
 │       ├── health.ts             # HTTP probe used by `service status` on all 3 platforms
 │       ├── macos.ts              # launchd install/uninstall/start/stop/restart
 │       ├── linux.ts              # systemd --user install/uninstall/start/stop/restart
 │       └── windows.ts            # Scheduled Task install/uninstall/start/stop/restart
+├── desktop/                      # Electron menu-bar/tray app (own npm project; ships the core-edition collector — §14)
+│   ├── src/main.ts               # Main process: window, tray (tray*.ts), collector supervision (collector.ts, handshake.ts, backoff.ts), autostart, prefs
+│   ├── esbuild.mjs               # Bundles src/main.ts → out/main.js (electron external)
+│   ├── electron-builder.cjs      # DMG / deb / AppImage / NSIS packaging; macOS + Windows signing decided from the environment
+│   └── scripts/                  # stage-resources.mjs (builds core at the repo root), checksums, smoke-packaged, winget manifests, …
+├── schema/rollup.v1.json         # The Cloud wire format as JSON Schema (§15)
+├── scripts/                      # check-edition.mjs, prepare-edition.mjs, homebrew-formula.mjs, configure-*.sh/.ps1, third-party-notices.mjs, …
 ├── esbuild.js                    # Build configuration (5 targets; `--edition=full|core`)
 ├── package.json                  # VS Code manifest + scripts
 └── ARCHITECTURE.md               # This file
