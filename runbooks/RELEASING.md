@@ -191,7 +191,7 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    the VS Code Marketplace, Open VSX, npm (via OIDC trusted publishing) and Docker Hub / ghcr (its
    `docker` job) — a public, essentially
    irreversible action once it lands (npm doesn't allow unpublishing after the fact in the general
-   case). The commit from step 5 landing on `main` does **not** publish anything by itself — that
+   case; if a release turns out broken, [`WITHDRAW_RELEASE.md`](WITHDRAW_RELEASE.md)). The commit from step 5 landing on `main` does **not** publish anything by itself — that
    part alone is safe and doesn't need a separate confirmation. Ask explicitly before the tag push,
    e.g. "push the vX.Y.Z tag now to trigger the actual publish (npm, Docker, VS Code Marketplace, Open
    VSX) as the core edition?" — say which edition it ships (see [Editions](#editions)), since
@@ -309,7 +309,9 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
   release's Windows job red and attaches no Windows installer, so `publish-winget` has nothing to
   submit. Before tagging while signing is broken, pause it: `gh variable set
   TRACEROOST_WINDOWS_SIGNING --body off` (the build is then attached unsigned), and delete the
-  variable once Azure signs again. `release.yml` passes each secret by name.
+  variable once Azure signs again. **Signing is paused this way as of 2026-10-26** (the owner's
+  choice after Azure began answering 403); triage, rotation and resuming are in
+  [`WINDOWS_SIGNING.md`](WINDOWS_SIGNING.md). `release.yml` passes each secret by name.
 - **Unsigned builds**: a macOS build that is not notarized (ad-hoc signed) and a Windows build
   that is not signed are still attached, under the plain name they were built as
   (`TraceRoost-<v>-mac-<arch>.dmg`, `TraceRoost-<v>-win-<arch>.exe`) — there is no `-preview`
