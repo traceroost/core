@@ -28,6 +28,7 @@ export function browserCommand(url: string, platform: NodeJS.Platform = process.
 export function openInBrowser(url: string, onError?: (err: Error) => void): void {
   const { file, args } = browserCommand(url)
   try {
+    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process -- an argument array, no shell; the URL is one argv entry
     const child = spawn(file, args, { stdio: 'ignore', detached: false, windowsHide: true })
     child.on('error', err => onError?.(err))
     child.on('exit', code => { if (code !== 0 && code !== null) onError?.(new Error(`${file} exited with code ${code}`)) })

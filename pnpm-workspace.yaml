@@ -1,2 +1,7 @@
 allowBuilds:
   esbuild: true
+
+# Never resolve a version published less than 7 days ago (minutes) — a compromised release is
+# usually caught and pulled by then. Frozen installs (CI) aren't affected; for an urgent fix younger
+# than that, list the package in minimumReleaseAgeExclude for that one update.
+minimumReleaseAge: 10080
