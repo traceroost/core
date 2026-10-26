@@ -177,7 +177,7 @@ jobs:
           '
 
       - name: Install vsce
-        run: pnpm add -g @vscode/vsce
+        run: pnpm add -g @vscode/vsce@4.0.0
 
       - name: Package VSIX
         run: vsce package --no-dependencies
@@ -227,7 +227,7 @@ jobs:
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
         run: |
-          npm install -g @vscode/vsce
+          npm install -g @vscode/vsce@4.0.0
           set +e
           vsce publish --packagePath *.vsix > out.txt 2>&1
           EXIT=$?
@@ -242,7 +242,7 @@ jobs:
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
         run: |
-          npm install -g ovsx
+          npm install -g ovsx@1.3.0
           set +e
           ovsx publish *.vsix > out.txt 2>&1
           EXIT=$?
@@ -282,8 +282,9 @@ jobs:
 
       - name: Upgrade npm for OIDC Trusted Publishing
         # OIDC Trusted Publishing requires npm 11.x+; keep this in sync with
-        # whatever version ships bundled with the node-version above.
-        run: npm install -g npm@latest
+        # whatever version ships bundled with the node-version above. Pinned (like every
+        # tool installed in a job holding publish credentials) — bump deliberately.
+        run: npm install -g npm@12.2.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
