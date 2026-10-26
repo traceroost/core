@@ -1,0 +1,78 @@
+name: OTel upstream watch
+
+# Each supported agent changes what it sends over OpenTelemetry without telling us — a renamed span,
+# a new attribute, a retired event — and the parsers in src/ stop matching quietly. This runs
+# scripts/otel-watch.mjs weekly: it diffs each agent's telemetry docs and changelog and lists the
+# commits on the upstream otel code paths since the last run, keeps the snapshots on the
+# `otel-watch` branch (created on first run; main gets no bot commits) and emails the report to the
+# owners: on the first run (the baseline, which confirms mail works), when something
+# telemetry-related moved, and when a source could not be checked. A quiet week sends nothing.
+#
+# Mail needs five repository secrets; without them the run still writes the report (to the branch
+# and the step summary) and says "mail not configured":
+#   OTEL_WATCH_SMTP_HOST   e.g. email-smtp.us-east-1.amazonaws.com (implicit TLS on 465)
+#   OTEL_WATCH_SMTP_USER / OTEL_WATCH_SMTP_PASS   SMTP credentials (SES: the IAM SMTP user's pair)
+#   OTEL_WATCH_MAIL_FROM   a verified sender, e.g. "TraceRoost <noreply@traceroost.com>"
+#   OTEL_WATCH_MAIL_TO     recipient(s), comma-separated — the owners
+# The Actions GITHUB_TOKEN is enough for the commit lists (public repos) and the branch push.
+on:
+  schedule:
+    - cron: "41 6 * * 1" # Monday 06:41 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: otel-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/otel-watch.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Check out the otel-watch branch
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # The full ref: a bare `otel-watch` pattern also matches any branch ending in it
+          # (feat/otel-watch), which made the first run try to clone a branch that wasn't there.
+          if git ls-remote --exit-code "$url" refs/heads/otel-watch >/dev/null; then
+            git clone --depth 1 --branch otel-watch "$url" state
+          else
+            git init -b otel-watch state
+            git -C state remote add origin "$url"
+            printf '# OpenTelemetry upstream watch\n\nSnapshots of each agent'"'"'s telemetry docs and the last commit seen on its otel code paths, plus one report per run (`reports/`, newest in `latest.md`), written by `.github/workflows/otel-watch.yml` on main.\n' > state/README.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check upstream telemetry sources
+        id: watch
+        run: node scripts/otel-watch.mjs state >> "$GITHUB_STEP_SUMMARY"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OTEL_WATCH_SMTP_HOST: ${{ secrets.OTEL_WATCH_SMTP_HOST }}
+          OTEL_WATCH_SMTP_USER: ${{ secrets.OTEL_WATCH_SMTP_USER }}
+          OTEL_WATCH_SMTP_PASS: ${{ secrets.OTEL_WATCH_SMTP_PASS }}
+          OTEL_WATCH_MAIL_FROM: ${{ secrets.OTEL_WATCH_MAIL_FROM }}
+          OTEL_WATCH_MAIL_TO: ${{ secrets.OTEL_WATCH_MAIL_TO }}
+
+      - name: Commit
+        working-directory: state
+        run: |
+          git add -A
+          if git diff --cached --quiet; then echo 'No change.'; exit 0; fi
+          git commit -m "OTel watch $(date -u +%F) (changed: ${{ steps.watch.outputs.changed }})"
+          git push origin otel-watch

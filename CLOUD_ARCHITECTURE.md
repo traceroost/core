@@ -1,17 +1,21 @@
-# TraceRoost Cloud Architecture
+# TraceRoost Cloud — the client's interface
 
-This is the entry point for the **cloud / org** feature set — the client half of TraceRoost
-Cloud that ships in the full edition. It indexes the deep-dive docs that already exist rather than
-repeating them, and adds the diagrams none of them have yet.
+This document covers **only what this repository needs to know to talk to TraceRoost Cloud**:
+the two rules the client is built against, the wire contract it owns, every endpoint a linked
+machine calls and how each answer is handled, what a session looks like on the wire, and the
+reconciliation paths (queue drain, trace manifest, on-demand backfill). It is the contract from
+the machine's side.
 
-**Start here, then go deep:**
+It deliberately does **not** describe the service — its data model, entitlement, crons or
+views (core is public and its docs stay core-only) — nor the client internals that aren't part
+of the interface:
 
-| Doc | Covers |
+| For | See |
 | --- | --- |
-| [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-cloud--org-link) | The full module map, every file, the free/paid boundary, the outcome-metric engines, feature by feature |
-| [`src/cloud/README.md`](src/cloud/README.md) | Why this code lives in one directory, and under a different license |
-| [`NOTICE.md`](NOTICE.md) | The exact license split for this repository |
-| [`schema/rollup.v1.json`](schema/rollup.v1.json) | The exact wire contract |
+| The service itself (ingest, replace order, retirement, plans, crons, infrastructure) | TraceRoost Cloud's own documentation — not this repository |
+| The module map of `src/cloud/`, the editions split, surfaces (Org panel, CLI, command palette, deep links), the free/paid boundary and the free attribution/turnover engine | [ARCHITECTURE.md §15](ARCHITECTURE.md#15-traceroost-cloud--org-link) |
+| Why `src/cloud/` is one directory under its own license | [`src/cloud/README.md`](src/cloud/README.md), [`NOTICE.md`](NOTICE.md) |
+| The exact wire contract | [`schema/rollup.v1.json`](schema/rollup.v1.json) |
 
 ## The two rules everything below answers to
 
@@ -21,8 +25,10 @@ repeating them, and adds the diagrams none of them have yet.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my* machine, *my*
    commits, *my* repositories is free and complete. Cloud is cross-developer aggregation — the one
    thing a local install genuinely cannot do itself. Nothing local is gated behind Cloud. (Cloud
-   has its own Free plan for small teams — `traceroost/cloud`'s `src/lib/entitlements.ts`; that is
-   a Cloud plan, not a limit on the local install.)
+   has its own Free plan for small teams; that is a Cloud plan, not a limit on the local install.)
+   Cloud's plans and their limits are the service's business; the only one the client ever sees
+   is the daily rollup ceiling, which reaches it as a `429` with `X-TraceRoost-Ceiling: daily`
+   (below) — a guard that defers, never drops.
 
 ## The client owns the contract
 
@@ -71,69 +77,6 @@ credential — `ENQ`, `SCHED`, and `SEND` all check that first and return before
 network otherwise. `--explain-payload` (`standalone/cloud/explainPayload.ts`) prints exactly what
 `SCHEMA` would build for a real session, so the claim above is checkable without an org at all.
 
-## The free tier: fully local, no such diagram needed for privacy — but here's the pipeline
-
-`src/attribution/` and `src/turnover/` have no network path in their dependency graph at all —
-not gated, not disabled, structurally absent. (They lived under `src/cloud/` until they were moved
-out so a core-only build can drop every cloud directory without losing them — see "What ships
-where" below.) It's free, and reachable directly via
-`traceroost cohort` — no org link required to run it yourself. There was previously a dedicated
-free **Outcomes** dashboard tab surfacing it automatically; retired in commit `0ee7842` in favor of
-inline git-outcome signal (merged/committed/abandoned) in the Traces tab's Files sub-tab instead
-(see `ARCHITECTURE.md` §10). The engine's only current caller is the cohort hand-off below.
-
-```mermaid
-graph LR
-    GIT[("git log --numstat<br/>git blame --line-porcelain")] --> SCAN["attribution/commitScan.ts"]
-    SCAN --> JOIN["attribution/sessionJoin.ts<br/>match commits to local sessions"]
-    JOIN --> BLAME["attribution/blame.ts"]
-    BLAME --> ATTR["attribution/index.ts<br/>attributeRepository()"]
-    ATTR --> ADB[("attributionRepository<br/>SQLite cache")]
-    ADB --> COH["turnover/cohorts.ts<br/>monthly cohorts"]
-    COH --> SURV["turnover/survival.ts<br/>surviving-AI-lines estimate"]
-    SURV --> COMP["turnover/index.ts<br/>computeTurnover()"]
-    COMP --> TDB[("turnoverRepository<br/>one row per repo")]
-    TDB --> CLI["standalone/local/cohortCli.ts<br/>traceroost cohort"]
-```
-
-`computeTurnover()` returns `TurnoverResult | InsufficientData` — never a bare percentage without
-a line/commit count and date range attached, and a cohort is only measured once its window has
-fully elapsed (`measurableAt` / `isWindowElapsed`). Confidence per commit is **certain** (agent
-trailer, or the commit lands inside a session's own span), **probable** (session lists the file,
-commit within a 72h lookback), or **unknown** — most commits on a real repo, and excluded from
-the denominator rather than guessed at.
-
-## What ships where
-
-The Cloud rows below ship in the **full** edition only. The **core** edition (`node esbuild.js
---edition=core` — what releases are until Cloud launches; see runbooks/RELEASING.md → Editions)
-contains none of it: the rest of the codebase reaches this feature set only through three seams —
-`src/cloudBridge.ts`, `media/src/orgPanel.ts`, `standalone/cliCloud.ts` — whose core stubs are
-inert (never linked, nothing queued or sent, Org panel renders nothing, `org` /
-`--explain-payload` / `cluster` print "not available in the TraceRoost core edition" and exit 1).
-The core build refuses to bundle any module under a `cloud/` directory, and
-`scripts/check-edition.mjs` greps the shipped bundles for Cloud markers afterwards — allowing
-exactly one: the header's "Make a suggestion" link (`media/src/suggest.ts`), a public `/suggest`
-URL the browser opens — `https://traceroost.com/suggest` in a release build, the default
-environment's `https://stage.traceroost.com/suggest` otherwise — carrying only `from=core` and the version
-and tab name; it is not Cloud code and sends nothing. The free rows
-(marked *free*) work identically in both editions, except that a cloud `repo_hash` only resolves in
-full.
-
-| Surface | Entry point | Notes |
-| --- | --- | --- |
-| VS Code command palette | `TraceRoost: Link This Machine to an Org (Cloud)` / `TraceRoost: Org Link Status (Cloud)` / `TraceRoost: Unlink (Cloud)` | `registerOrgCommands` in `src/extension.ts` (calls `cloud.*` from `src/cloudBridge.ts`; not registered, and not in the core `package.json`, in core) |
-| VS Code webview | Org panel, a slide-in beside Settings | `media/src/cloud/panels/OrgPanel.tsx` (via `media/src/orgPanel.ts`) + `src/cloud/org/panelController.ts` (via `src/cloud/bridge.ts`) |
-| Dashboard tab (free) | Traces → Files sub-tab: git outcome banner + per-file badges | `gitOutcome.ts`; no dedicated tab today — see `ARCHITECTURE.md` §10. Retired the earlier **Outcomes** tab (`0ee7842`) |
-| CLI | `traceroost org <link\|status\|verify\|leave> [--device]` | `standalone/cloud/org-cli.ts`, dispatched through `standalone/cliCloud.ts` → `standalone/cloud/cliBridge.ts` |
-| CLI | `traceroost --explain-payload [--last\|--all\|--session <id>\|--since <date>] [--dry-run]` | `standalone/cloud/explainPayload.ts` (same seam) |
-| CLI (free) | `traceroost advise <--list\|--apply <id>>` | `standalone/local/adviseCli.ts` — regenerates instruction text with real paths and appends it. The cloud step (suggestion ledger + the updated instruction-file state when linked) is `standalone/cloud/adviseTelemetry.ts`, passed in by `cli.ts` through `standalone/cliCloud.ts` (absent in core) |
-| CLI (Cloud) | `traceroost cluster --repo <hash> --id <id>` | `standalone/cloud/clusterCli.ts` — resolves a Repeat work cluster via `GET /api/clusters/resolve`, matched against local sessions |
-| CLI (free) | `traceroost cohort --repo <hash\|name> --merged <YYYY-MM> [--window]` | `standalone/local/cohortCli.ts` — the "show me an example" hand-off, answered on the machine that has the repo. A 64-hex `repo_hash` resolves through `src/cloud/org/resolveRepoHash.ts`, injected by `cli.ts` through `standalone/cliCloud.ts` (`standalone/local/repoResolve.ts`; absent in core); a repo name needs nothing from `cloud/` |
-| CLI (free) | `traceroost find <hash>` | `standalone/local/findCli.ts` — classifies a hash as a session/trace or a repo and dispatches to `traceCli.ts` (`--id`) or `patternsCli.ts` accordingly; both share `sessionLoader.ts`, all under `standalone/local/`. Repo-hash resolution is injected the same way as `cohort` |
-| Standalone HTTP | `GET/POST /api/org` | `standalone/server.ts`, dispatched through the same `panelController` as the VS Code webview (via `src/cloudBridge.ts`; the route doesn't exist in core) |
-| Deep links | `vscode://agentlens.agentlens-dashboard/advise?id=…`, `vscode://agentlens.agentlens-dashboard/cohort?repo=…&merged=…&window=…` | Editor / example hand-off from a team view, without the service holding source. Routed through VS Code's own URI scheme, not a custom-registered one — see `src/extension.ts`'s "Deep links" comment |
-
 ## Every endpoint a linked machine calls
 
 The full list — `src/cloud/org/config.ts` names each URL. All bearer calls authenticate with the
@@ -145,10 +88,10 @@ scopes, so the endpoint list below *is* what a token can do.
 | Endpoint | Caller | What it's for |
 | --- | --- | --- |
 | `GET /oauth/authorize` → loopback callback, `POST /oauth/token` (`authorization_code`) | `link.ts` (`linkInteractive`) | PKCE link. Mints a fresh install on every link. |
-| `POST /oauth/device/code`, `POST /oauth/device/token` | `link.ts` (`linkViaDevice`) | RFC 8628 fallback for headless boxes. |
+| `POST /oauth/device/code`, `POST /oauth/device/token` | `link.ts` (`linkViaDevice`) | RFC 8628 flow — chosen automatically on a headless machine, or with `--device` (the Org panel's "Use a device code" button). |
 | `POST /oauth/token` (`refresh_token`) | `tokenRefresh.ts` | Rotates the pair. Under the credential file's lock, re-reading it first, so two hosts on one machine never rotate the same token (the loser's `invalid_grant` would otherwise unlink the machine). Proactive when `accessTokenExpiresAt` is within a minute. |
 | `POST /oauth/revoke` | `link.ts` (`leave`) | Best-effort, after the local credential and queue are already gone; also revokes the install. |
-| `POST /api/ingest/batch`, `POST /api/ingest` (fallback on 404) | `sender.ts` | Rollup delivery. 401 = expired/unknown token (refresh and retry once; a transient refresh failure retries within ~30 s); 403 `{error:"install revoked"}` = stop, clear credential and queue, show a "re-link" notice — any other 403 backs off; 426 `client_upgrade_required` = pause, keep the queue, ask for an update; 400/413 drop a record only with the service's own error body; 413 = too large (split / drop); 409 `session_owned_elsewhere` (per record, only to a client sending `X-TraceRoost-Accepts: session-owner-conflict`) = another member or org already holds the session's id — re-queue it under an id salted with this org and member (`sessionRekey.ts`), which every later build, ledger check, manifest and hand-off of that session then uses. |
+| `POST /api/ingest/batch`, `POST /api/ingest` (fallback on 404) | `sender.ts` | Rollup delivery. 401 = expired/unknown token (refresh and retry once; a transient refresh failure retries within ~30 s); 403 `{error:"install revoked"}` = stop, clear credential and queue, show a "re-link" notice — any other 403 backs off; 426 `client_upgrade_required` = pause, keep the queue, ask for an update; 400/413 drop a record only with the service's own error body; 413 = too large (split / drop); 429 = the per-install rate limit (pause for `Retry-After`, keep the queue) or, with `X-TraceRoost-Ceiling: daily`, the org's daily rollup ceiling (pause for `Retry-After` but never past midnight UTC, keep the queue, one notice per UTC day — `forwardState.ts`'s `ceiling` notice, shown in the Org panel until a send goes through); 409 `session_owned_elsewhere` (per record, only to a client sending `X-TraceRoost-Accepts: session-owner-conflict`) = another member or org already holds the session's id — re-queue it under an id salted with this org and member (`sessionRekey.ts`, ledger `~/.traceroost/rekeyed.json`, scoped by owner and kept across `leave`), which every later build, ledger check, manifest and hand-off of that session then uses; an owner id refused again is dropped, never re-salted. Bodies are gzipped (`Content-Encoding: gzip`) once large enough; a cloud that answers that with "invalid JSON" turns gzip off for good. |
 | `POST /api/ingest/manifest` | `traceManifest.ts` | The trace manifest (below). 429 = wait out `Retry-After`; 5xx / network failure / anything else unexpected = back off; 400/413 = skip that day until its keys change; 401/403 as above. |
 | `GET /api/roster/me` | `oauthClient.ts` (`fetchRosterSelf`) | Org name, own role (`admin`/`developer`) and email for the Org panel. |
 | `GET /api/installs/me` | `traceroost org verify` | How many sessions the service holds for *this install* — compared against the local count. A re-link's backfill moves already-stored sessions to the new install, so the counts line up again. |
@@ -176,8 +119,8 @@ token/turn/tool/error counts, models, hashes, outcome and loop signals:
 | `revision` | integer ≥ 1 | Replace-ordering for re-sent snapshots. Optional: absent on a first send from the rediscovery path (no revision recorded yet), which the cloud orders lowest. |
 | `source_rank` | 1–3 | How much evidence the snapshot carries (3 OTEL with usage, 2 full transcript, 1 partial); a lower rank never replaces a higher one, and within a rank the newer `revision` wins. Always sent — the schema requires it. |
 | `host_id` | uuid | Which TraceRoost host sent it (`src/cloud/org/hostIdentity.ts`): the extension and the standalone server share one install but each keeps its own trace store, so each has its own id — a random UUID generated once per store (`<store>/cloud-host-id`; the extension's global storage, the server's data dir), never derived from a hostname, path or anything else identifying. Lets a trace manifest retire only its own host's rows. Always sent; an unlinked preview shows a placeholder and writes no file. |
-| `language` | one of `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none` | Primary programming language, derived locally from file extensions (`src/language.ts`). Only the id leaves the machine. Absent for sessions built before language tracking. Cloud reads an id it doesn't know yet (a newer client) as `other` rather than rejecting the session. |
-| `language_secondary` | the same ids minus `none`, or `null` | Runner-up language. Core omits it when only one language was touched. |
+| `language` | one of `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other`, a non-code category `docs` `config` `data` `assets` (only when no code file was touched), `none` (files touched, none recognised) or `no_files` (no path recorded at all) | Primary programming language, derived locally from file extensions (`src/language.ts`). Only the id leaves the machine. Absent for sessions built before language tracking. Cloud reads an id it doesn't know yet (a newer client) as `other` rather than rejecting the session. |
+| `language_secondary` | the same ids minus `none` and `no_files`, in the primary's own tier (code with code, non-code with non-code), or `null` | Runner-up language. Core omits it when only one language was touched. |
 | `files_changed` | count | Distinct files the agent edited or wrote (any file type). |
 | `lines_added` / `lines_removed` | count | Lines the agent's own edit/write tool calls added/removed (`src/editStats.ts`). Agent-authored edits, not git stats. Omitted when the agent's data records no edit contents. |
 
@@ -197,16 +140,21 @@ with them, and `--explain-payload` prints a line saying so.
 4. `ForwardQueue.enqueue()` appends it to `~/.traceroost/forward-queue.jsonl` (0600) if the
    idempotency key isn't already queued.
 5. On its own timer — started only while linked — `drainQueue()` (`src/cloud/forward/sender.ts`) sends
-   eligible items in batches (at most 25 items and ~400 KiB per request, under the service's
-   512 KiB body cap), refreshing the access token just before it expires or on a 401, backing off
+   eligible items in batches (25 items and ~400 KiB per request to start, under the service's
+   512 KiB wire cap; the batch route advertises its real limits — 50 items, 1 MiB inflated — in
+   `limits`, which the sender adopts), refreshing the access token just before it expires or on a
+   401, backing off
    with jitter on failure, dropping (never retrying) a 400 the schema rejects, splitting a batch
-   the service answers 413 and dropping a single record that is too large on its own, and
+   the service answers 413 and dropping a single record that is too large on its own, pausing
+   on a 429 (until `Retry-After`; the daily rollup ceiling's never past midnight UTC), and
    stopping entirely with one notice when the credential is gone for good — a 403 (the service's
    answer for a revoked install: an admin unlinked it, the member was removed, or the machine
    left) or a refresh rejected with `invalid_grant`. Both of those also **clear the queue**: every
    queued rollup was hashed with that org's salt and must never ship to the next org this machine
    links to (reconciliation re-enqueues after a re-link, hashed for the new org). `leave()` clears
-   it the same way.
+   it the same way. (One exception keeps it: a refresh token presented twice with no answer at
+   all — a local inference, not the cloud's word — clears the credential but holds the queue, and
+   the next link keeps it only for the same org and member.)
 6. A 2xx removes the item from the queue. If the service is unreachable indefinitely, the queue
    just grows (capped at 5,000 items, oldest-first eviction — logged when it happens, not silent)
    — the developer's local dashboard is completely unaffected either way.
@@ -223,7 +171,8 @@ the cloud retire those: one `POST /api/ingest/manifest` chunk per UTC day of the
 bounds and the trace keys that host still holds there — the same UUIDs that already travel as
 `session_id`, nothing else (`$defs/trace_manifest`). The cloud retires only rows of *this install*
 whose last sender was *this host* (`session.host_id`) started in that window whose key isn't listed,
-and a retired key that is sent again later comes back.
+and a retired key comes back only on a later send that strictly outranks its tombstone in
+`(source_rank, revision)` order.
 
 - **Who sends:** only a linked install, only the process that owns writes to its store (the standalone server's
   data-dir lock, the extension window that owns the database) once that store has finished its
@@ -255,11 +204,15 @@ and a retired key that is sent again later comes back.
 
 ## "Check for unsent traces" (on-demand reconcile)
 
-The Org panel's button (also run automatically right after linking, and on every log-file
-rediscovery) calls `reconcileLocalSessions` (`panelController.ts`), which runs steps 2–4 above for
+The Org panel's button (also run automatically right after linking, and by `linkWatcher.ts` when
+a link made outside this process — `traceroost org link` in a terminal, the other host — is
+noticed) calls `reconcileLocalSessions` (`panelController.ts`) → `queueUnsentSessions`
+(`reconcileUnsent.ts`), which runs steps 2–4 above for
 *every* local session the host knows about, not just the one that just closed — so a newly linked
 machine (or one that was offline) backfills its whole history instead of only reporting forward
-from the link moment.
+from the link moment. (The log-file rediscovery on every process restart reaches step 2 for each
+session on its own; the delivery ledger is what keeps that from rebuilding and resending
+history.)
 
 - **Runs a bounded 6-worker pool**, not one session at a time — `maybeEnqueueSession` calls for
   independent sessions overlap instead of fully serializing.

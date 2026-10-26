@@ -1,7 +1,17 @@
+import { agentColorVar, resolveAgentColor } from './agentColors'
 import type { Span, SpanAttribute, SessionSummaryCard } from './types'
 import { sessionSummary, displaySessions } from './state'
 
 // ── HTML escape ───────────────────────────────────────────────────────────────
+
+/** onKeyDown for a non-button element given role="button": Enter or Space activates it, as on a
+ *  real <button>. Use a real <button> where the markup allows one (not inside a <tr>/<table> row). */
+export function activateOnKey(fn: () => void): (e: KeyboardEvent) => void {
+  return (e: KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn() }
+  }
+}
 
 export function esc(s: unknown): string {
   if (!s) return ''
@@ -64,6 +74,13 @@ export function formatMs(ms: number): string {
 
 export function formatCompact(n: number): string {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
+}
+
+/** "1 call" / "4 calls" / "1,234 calls" — the webview twin of ../../src/signalEvidence.ts's
+ *  plural, so insight text never needs a "file(s)". Pass `pluralForm` for nouns that don't just
+ *  take an "s". */
+export function plural(n: number, singular: string, pluralForm = singular + 's'): string {
+  return `${Math.round(n).toLocaleString()} ${n === 1 ? singular : pluralForm}`
 }
 
 // ── Span attribute helpers ────────────────────────────────────────────────────
@@ -206,7 +223,7 @@ export const INITIATOR_COLORS = { all: 'var(--fg)', user: '#4a90d9', agent: '#90
 // name/description split (not one sentence) so the tooltip can state the value first, as a bold
 // heading, then what it means — matching the Signals column's tooltip format.
 const DATA_SOURCE_TOOLTIP = {
-  otel: { name: 'OTEL', description: 'Full telemetry: timing, speed, TTFT, loop signals' },
+  otel: { name: 'OTel', description: 'Full telemetry: timing, speed, TTFT, loop signals' },
   log:  { name: 'Log',  description: 'Conversation logs: tokens, tool calls, messages (no timing or speed data)' },
 }
 
@@ -215,7 +232,7 @@ export function getDataSourceBadgeHtml(dataSource: 'otel' | 'log' | undefined): 
   const label = ds === 'log' ? 'L' : 'O'
   const color = DATA_SOURCE_COLORS[ds]
   const { name, description } = DATA_SOURCE_TOOLTIP[ds]
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:var(--fs-xs);font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
 }
 
 // 'agent' and 'api' (isSidechain sub-tasks vs. non-interactive `claude -p` calls) collapse into
@@ -230,7 +247,7 @@ export function getInitiatorBadgeHtml(initiator: 'user' | 'agent' | 'api' | unde
   const color = INITIATOR_COLORS[key]
   const label = key === 'user' ? 'U' : 'A'
   const { name, description } = INITIATOR_TOOLTIP[key]
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:9px;font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;font-size:var(--fs-xs);font-weight:700;border-radius:3px;border:1px solid ${color};color:${color};vertical-align:middle;cursor:default;margin-left:3px" title="<b>${name}</b>&#10;${description}" data-tip-html>${label}</span>`
 }
 
 // ── Agent label / color helpers ───────────────────────────────────────────────
@@ -243,13 +260,16 @@ export function getAgentSourceLabel(source: string | null | undefined): string {
   return 'Copilot'
 }
 
+/** The agent's colour as #rrggbb for the current theme — for canvas and string-built colours.
+ *  DOM styles should use getAgentColorVar, which follows a theme change without a re-render.
+ *  Both come from agentColors.ts, the one place agent colours are defined. */
 export function getAgentColor(source: string | null | undefined): string {
-  if (source === 'claude_code') return '#FFB085'
-  if (source === 'codex') return '#F0FF42'
-  if (source === 'copilot') return '#00EAFF'
-  if (source === 'opencode') return '#FFFFFF'
-  if (source === 'cursor') return '#B39DDB'
-  return '#90a4ae'
+  return resolveAgentColor(source)
+}
+
+/** The agent's colour as a CSS var() expression, for DOM styles. */
+export function getAgentColorVar(source: string | null | undefined): string {
+  return agentColorVar(source)
 }
 
 // Fixed, visually distinct palette for coloring conversation groups (see getConversationColor) —
@@ -360,7 +380,7 @@ export function buildDisplaySummary(sessionsOverride?: SessionSummaryCard[]) {
 
 export function getAgentDotHtml(source: string | null | undefined): string {
   if (!source) return ''
-  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${getAgentColor(source)};vertical-align:middle" title="${getAgentSourceLabel(source)}"></span>`
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${getAgentColorVar(source)};vertical-align:middle" title="${getAgentSourceLabel(source)}"></span>`
 }
 
 // ── Label formatters ──────────────────────────────────────────────────────────

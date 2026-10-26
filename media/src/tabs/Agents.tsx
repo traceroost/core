@@ -1,5 +1,5 @@
 import { sessionSummary, timeRange } from '../state'
-import { formatMs, formatCompact } from '../utils'
+import { formatMs, formatCompact, getAgentColorVar } from '../utils'
 import { oneShotRate, avgEditsPerFile } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 
@@ -54,7 +54,7 @@ function KV({ k, v, accent }: { k: string; v: string | number; accent: string })
   return (
     <div style="padding:5px 8px;background:var(--panel-bg);border-radius:4px">
       <div style={'font-size:18px;font-weight:bold;color:' + accent}>{v}</div>
-      <div style="font-size:10px;color:var(--muted)">{k}</div>
+      <div style="font-size:var(--fs-xs);color:var(--muted)">{k}</div>
     </div>
   )
 }
@@ -71,12 +71,12 @@ function AgentCol({ label, accent, stats }: { label: string; accent: string; sta
         <strong style="font-size:13px">{label}</strong>
       </div>
       {stats.sessions === 0 ? (
-        <div class="empty-state" style="font-size:12px;padding:12px 0">No agent traces recorded — start a {label} session</div>
+        <div class="empty-state" style="font-size:12px;padding:12px 0">No {label} traces in this time range</div>
       ) : (
         <>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
             <KV k="Traces" v={stats.sessions} accent={accent} />
-            <KV k="LLM Calls" v={stats.totalLlm} accent={accent} />
+            <KV k="Turns" v={stats.totalLlm} accent={accent} />
             <KV k="Input Tokens" v={formatCompact(stats.totalInput)} accent={accent} />
             <KV k="Output Tokens" v={formatCompact(stats.totalOutput)} accent={accent} />
             {stats.totalCache > 0 && <KV k="Cache Tokens" v={formatCompact(stats.totalCache)} accent={accent} />}
@@ -87,7 +87,7 @@ function AgentCol({ label, accent, stats }: { label: string; accent: string; sta
           </div>
           {topTools.length > 0 && (
             <>
-              <div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:5px;text-transform:uppercase">Top Tools</div>
+              <div style="font-size:var(--fs-xs);color:var(--muted);font-weight:600;margin-bottom:5px;text-transform:uppercase">Top Tools</div>
               <div style="display:flex;flex-wrap:wrap;gap:4px">
                 {topTools.map(t => (
                   <span key={t} style="padding:2px 7px;background:var(--panel-bg);border-radius:3px;font-size:11px">
@@ -116,7 +116,7 @@ export function Agents() {
         return ms >= (range.since ?? 0) && ms <= (range.until ?? Date.now())
       })
   if (!allSessions.length) {
-    return <div id="agents-content"><div class="empty-state">No agent traces recorded — start a Copilot, Claude, Codex, OpenCode, or Cursor session</div></div>
+    return <div id="agents-content"><div class="empty-state">No traces recorded yet — run Copilot, Claude, Codex, OpenCode or Cursor to record one</div></div>
   }
 
   const copStats = computeStats(allSessions.filter(s => s.source === 'copilot'))
@@ -128,11 +128,11 @@ export function Agents() {
   return (
     <div id="agents-content">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
-        <AgentCol label="GitHub Copilot" accent="#00EAFF" stats={copStats} />
-        <AgentCol label="Claude" accent="#FFB085" stats={cldStats} />
-        <AgentCol label="Codex" accent="#F0FF42" stats={cdxStats} />
-        <AgentCol label="OpenCode" accent="#FFFFFF" stats={ocStats} />
-        <AgentCol label="Cursor" accent="#B39DDB" stats={curStats} />
+        <AgentCol label="GitHub Copilot" accent={getAgentColorVar('copilot')} stats={copStats} />
+        <AgentCol label="Claude" accent={getAgentColorVar('claude_code')} stats={cldStats} />
+        <AgentCol label="Codex" accent={getAgentColorVar('codex')} stats={cdxStats} />
+        <AgentCol label="OpenCode" accent={getAgentColorVar('opencode')} stats={ocStats} />
+        <AgentCol label="Cursor" accent={getAgentColorVar('cursor')} stats={curStats} />
       </div>
     </div>
   )

@@ -15,6 +15,7 @@ accumulated since the last one. Check what's landed since the last tag before as
 | npm | `traceroost` | `package.json` `name` | none (OIDC trusted publishing) |
 | Docker | `traceroost/traceroost` + `ghcr.io/traceroost/core` | `docker.yml`, called by `release.yml`'s `docker` job | `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` (Docker Hub); `GITHUB_TOKEN` (ghcr) |
 | Homebrew | `traceroost/tap/traceroost` (formula `Formula/traceroost.rb` in `traceroost/homebrew-tap`) | `release.yml`'s `publish-homebrew` job, after `publish-npm`: `scripts/homebrew-formula.mjs` writes the formula from the tarball npm serves | `HOMEBREW_TAP_TOKEN` (the job is skipped, with a notice, until it exists) |
+| winget | `TraceRoost.TraceRoost` (manifests under `manifests/t/TraceRoost/TraceRoost/` in `microsoft/winget-pkgs`) | `release.yml`'s `publish-winget` job, after `desktop`: `desktop/scripts/winget-manifests.mjs` writes the manifests from the Windows installers the release serves, and `wingetcreate submit` opens the pull request; winget-pkgs moderators merge it | `WINGET_CREATE_GITHUB_TOKEN` (the job is skipped, with a notice, until it exists) |
 | VS Code Marketplace + Open VSX | **`agentlens.agentlens-dashboard`** | `vsce-identity.json` — the `package` job patches `name`/`publisher` into `package.json` for the VSIX build only | `VSCE_PAT` / `OVSX_PAT` (the existing AgentLens publisher tokens) |
 
 **Why the extension keeps the old id:** the marketplace id is sticky infrastructure users never
@@ -31,6 +32,7 @@ every installed AgentLens extension updates in place — no reinstall, no "both 
 | Docker Hub `traceroost/traceroost` | create the repo under the `traceroost` account; add `TR_DOCKERHUB_USERNAME` / `TR_DOCKERHUB_TOKEN` repo secrets |
 | VS Code / Open VSX | nothing new — `VSCE_PAT` / `OVSX_PAT` already exist for publisher `agentlens` |
 | Homebrew tap | create the public repo `traceroost/homebrew-tap` (the `homebrew-` prefix is what makes `brew install traceroost/tap/traceroost` work) with an empty `Formula/` directory; add a fine-grained token with **Contents: read and write on that repo only** as this repo's `HOMEBREW_TAP_TOKEN` secret. To seed it before the next release: `node scripts/homebrew-formula.mjs <current version> --out Formula/traceroost.rb` in the tap checkout, commit, push |
+| winget | a **classic** token with only the `public_repo` scope, from the GitHub user who opens the pull requests (currently the maintainer's personal account; a bot account with no access to the traceroost org is safer once there are collaborators), as this repo's `WINGET_CREATE_GITHUB_TOKEN` secret — set 2026-10-23; renew it before it expires. wingetcreate uses (and creates, if missing) the fork `<token owner>/winget-pkgs` and syncs it with upstream before each submission; an organization fork such as `traceroost/winget-pkgs` is never used. The first pull request is reviewed by a moderator; later ones mostly merge automatically once validation passes. See [winget](#winget) |
 
 `TR_VSCE_PAT` / `TR_OVSX_PAT` are **not used** right now. They exist for the eventual extension
 cutover (below).
@@ -189,7 +191,7 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    the VS Code Marketplace, Open VSX, npm (via OIDC trusted publishing) and Docker Hub / ghcr (its
    `docker` job) — a public, essentially
    irreversible action once it lands (npm doesn't allow unpublishing after the fact in the general
-   case). The commit from step 5 landing on `main` does **not** publish anything by itself — that
+   case; if a release turns out broken, [`WITHDRAW_RELEASE.md`](WITHDRAW_RELEASE.md)). The commit from step 5 landing on `main` does **not** publish anything by itself — that
    part alone is safe and doesn't need a separate confirmation. Ask explicitly before the tag push,
    e.g. "push the vX.Y.Z tag now to trigger the actual publish (npm, Docker, VS Code Marketplace, Open
    VSX) as the core edition?" — say which edition it ships (see [Editions](#editions)), since
@@ -239,6 +241,34 @@ into a local tap, `traceroost/local`, and installs it in place of any Homebrew c
 formula: `brew uninstall traceroost && brew untap traceroost/local && brew install
 traceroost/tap/traceroost`.
 
+## winget
+
+`winget install TraceRoost.TraceRoost` installs the desktop app's per-user NSIS installer (x64 or
+arm64) from the GitHub release: `TraceRoost-<v>-win-<arch>.exe`, signed or not (every build is
+attached under the name it was built as). `winget upgrade` updates it, including a copy installed from a downloaded
+.exe, because the manifest names the installer's uninstall key (`ProductCode`). Unsigned installers
+are accepted; winget checks every download against the sha256 in the manifest.
+
+Each `v*` tag's `publish-winget` job writes the three manifests
+(`desktop/scripts/winget-manifests.mjs`, hashing the installers it downloads from the release) and
+opens a pull request on microsoft/winget-pkgs with `wingetcreate submit`. The package appears in
+`winget search traceroost` once that pull request merges — usually within a day or two, longer for
+the first one.
+
+**Try the manifests before a release** (on Windows): download a release's installers, write the
+manifests and install from them locally, without the public repository:
+
+```powershell
+gh release download v<v> -R traceroost/core --pattern 'TraceRoost-*-win-*.exe' --dir winget-assets
+$dir = node desktop/scripts/winget-manifests.mjs --version <v> --assets winget-assets --out winget
+winget settings --enable LocalManifestFiles   # once, from an administrator prompt
+winget validate --manifest $dir
+winget install --manifest $dir
+```
+
+**First submission by hand** (instead of waiting for the next tag): the same two first lines, then
+`wingetcreate submit --token <classic token> $dir`.
+
 ## Desktop app
 
 The desktop app under `desktop/` (see `desktop/README.md`) ships the same core-edition collector
@@ -261,29 +291,37 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
 - **Linux** (.deb and AppImage, x64 and arm64) is attached on every release.
 - **macOS is built and tested on every release but attached only when notarized.** It is ad-hoc
   signed until the Apple Developer Program credentials exist, and Gatekeeper refuses an ad-hoc
-  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`,
-  `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, which `desktop-macos.yml` documents),
+  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, plus
+  either `APPLE_API_KEY_P8`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` or
+  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` — [`MACOS_SIGNING.md`](MACOS_SIGNING.md)),
   the same build is signed and notarized with no code change and the next tag attaches it. Before
   announcing it as an install method, open a downloaded, quarantined DMG on a fresh macOS user
   account.
-- **Windows** (NSIS installer and portable zip, x64 and arm64) is built and tested on every release
-  and **attached when Authenticode-signed**. Signing switches on from secrets, with no code change:
+- **Windows** (NSIS installer and portable zip, x64 and arm64) is built, tested and attached on
+  every release, Authenticode-signed when signing is configured. Signing switches on from secrets, with no code change:
   either a code-signing certificate (`WIN_CSC_LINK` = base64 .pfx, `WIN_CSC_KEY_PASSWORD`) or Azure
   Artifact Signing (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`: a service principal
   with the *Artifact Signing Certificate Profile Signer* role; the account `TraceRoost`, profile
   `traceroost-public` and publisher `Roger Reed` are in `desktop/electron-builder.cjs`, not
-  secrets). The client secret expires (24 months at most): renew it before then, or Windows
-  releases fall back to previews. `desktop-windows.yml` documents them and fails a configured
-  build whose executables are not validly signed. `release.yml` passes each by name.
-- **Preview builds**: until the signing secrets exist, a macOS build that is not notarized
-  (ad-hoc signed) and a Windows build that is not signed are attached as previews:
-  `TraceRoost-<v>-mac-<arch>-preview.dmg` and `TraceRoost-<v>-win-<arch>-preview.exe`, labelled
-  "(preview)" on the release page, covered by the same SHA256SUMS and attestations, and the
-  release notes get a section on getting past Gatekeeper (right-click → Open) and SmartScreen
-  (More info → Run anyway). Once a platform's secrets exist, its signed build is attached under the
-  plain name instead — nothing to switch.
+  secrets). The client secret expires (24 months at most): renew it before then. With signing
+  configured, `desktop-windows.yml` **fails** a build whose executables are not validly signed —
+  an expired secret or a missing role assignment (Azure answers `403 Forbidden`) turns the
+  release's Windows job red and attaches no Windows installer, so `publish-winget` has nothing to
+  submit. Before tagging while signing is broken, pause it: `gh variable set
+  TRACEROOST_WINDOWS_SIGNING --body off` (the build is then attached unsigned), and delete the
+  variable once Azure signs again. **Signing is paused this way as of 2026-10-26** (the owner's
+  choice after Azure began answering 403); triage, rotation and resuming are in
+  [`WINDOWS_SIGNING.md`](WINDOWS_SIGNING.md). `release.yml` passes each secret by name.
+- **Unsigned builds**: a macOS build that is not notarized (ad-hoc signed) and a Windows build
+  that is not signed are still attached, under the plain name they were built as
+  (`TraceRoost-<v>-mac-<arch>.dmg`, `TraceRoost-<v>-win-<arch>.exe`) — there is no `-preview`
+  suffix. They are covered by the same SHA256SUMS and attestations, and the release notes get a
+  section on getting past Gatekeeper (right-click → Open) and SmartScreen (More info → Run
+  anyway). Once a platform's secrets exist, the same names carry signed builds — nothing to
+  switch.
 - **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default
-  `linux,macos,windows`) turns a platform off without a code change; a non-`core`
+  `linux,macos,windows`) turns a platform off without a code change; `TRACEROOST_WINDOWS_SIGNING=off`
+  pauses Windows signing with the secrets left in place; a non-`core`
   `TRACEROOST_RELEASE_EDITION` skips desktop with a notice (the app is core-only).
 - **minisign**: with `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` set, the checksums file gets a
   `.minisig`. No key exists yet; publish the public key in `desktop/README.md` when one is made.

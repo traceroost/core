@@ -12,7 +12,9 @@
 import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
-import { defaultDataDir } from './serviceConfig'
+import { isIPv6 } from 'net'
+import { isLoopbackHost, isWildcardHost } from './httpSecurity'
+import { defaultDataDir, readServiceConfig } from './serviceConfig'
 import { writeFileAtomic } from './fsAtomic'
 
 export interface ResolvedPorts {
@@ -25,6 +27,10 @@ export interface ResolvedPorts {
    *  to read stale: `service status` only uses this record to decide what to print/probe, never
    *  to decide liveness on its own. */
   pid: number
+  /** The data directory that process serves (absolute) — its `server.lock` is there. Usually
+   *  config.json's dataDir, but a DATA_DIR override moves it, so readers that look for the lock
+   *  (src/serviceOwnership.ts) look here too. Absent from records older servers wrote. */
+  dataDir?: string
 }
 
 /** How far past the requested port to scan before giving up. Matches the doc's "+1 through +20". */
@@ -45,6 +51,56 @@ export function readResolvedPorts(baseHome?: string): ResolvedPorts | undefined 
   } catch {
     return undefined
   }
+}
+
+/** True when a TraceRoost dashboard answers `GET /health` on `host:port` within `timeoutMs` — the
+ *  same unauthenticated probe `traceroost service status` uses, so it works on a token-protected
+ *  (non-loopback) server too. */
+export function isDashboardListening(port: number, host = '127.0.0.1', timeoutMs = 800): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get({ host, port, path: '/health', timeout: timeoutMs }, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
+      res.on('end', () => {
+        try {
+          resolve(res.statusCode === 200 && (JSON.parse(Buffer.concat(chunks).toString()) as { status?: unknown }).status === 'ok')
+        } catch {
+          resolve(false)
+        }
+      })
+    })
+    req.on('error', () => resolve(false))
+    req.on('timeout', () => { req.destroy(); resolve(false) })
+  })
+}
+
+/** The dashboard address of the TraceRoost server holding `otlpPort` — for the VS Code extension's
+ *  "Open Service Dashboard" button when the background service already has the OTLP port — or
+ *  `undefined` when no dashboard answers where it should be.
+ *
+ *  Candidates, in order: the resolved-ports record when it describes that server (its OTLP port
+ *  matches, so a port fallback is accounted for), then the configured dashboard port in
+ *  config.json. ports.json can be stale (left by an earlier run), so each is probed and the first
+ *  that answers wins. On a non-loopback bind the server requires the access token, so the URL
+ *  carries it the way `traceroost service status` prints it (standalone/service/index.ts). */
+export async function serviceDashboardUrl(otlpPort: number, baseHome?: string, timeoutMs?: number): Promise<string | undefined> {
+  const config = readServiceConfig(baseHome)
+  const resolved = readResolvedPorts(baseHome)
+  const candidates = [...new Set([
+    ...(resolved && resolved.otlp === otlpPort && Number.isInteger(resolved.ui) ? [resolved.ui] : []),
+    config.uiPort,
+  ])]
+  // Loopback or every interface: talk to it on this machine. A specific LAN address: there.
+  const bindHost = config.bindHost || '127.0.0.1'
+  const local = isLoopbackHost(bindHost) || isWildcardHost(bindHost)
+  const probeHost = local ? (bindHost === '::1' ? '::1' : '127.0.0.1') : bindHost.replace(/^\[|\]$/g, '')
+  const urlHost = local ? 'localhost' : (isIPv6(probeHost) ? `[${probeHost}]` : probeHost)
+  for (const port of candidates) {
+    if (!(await isDashboardListening(port, probeHost, timeoutMs))) continue
+    const needsToken = !!config.authToken && !isLoopbackHost(bindHost)
+    return `http://${urlHost}:${port}` + (needsToken ? `/?token=${config.authToken}` : '')
+  }
+  return undefined
 }
 
 export function writeResolvedPorts(ports: ResolvedPorts, baseHome?: string): void {
@@ -133,23 +189,38 @@ export async function listenWithFallback(
 // way — used both when the VS Code extension's own collector loses a bind race (extension.ts) and
 // when the standalone/service path falls back to a different port (standalone/server.ts).
 
-function probePort(port: number, probePath: string): Promise<boolean> {
+/** The identity reply on `port` at `probePath` — a JSON object with `traceroost: true` — or
+ *  undefined when nothing TraceRoost answers there. */
+function probeIdentity(port: number, probePath: string): Promise<Record<string, unknown> | undefined> {
   return new Promise((resolve) => {
     const req = http.get(`http://127.0.0.1:${port}${probePath}`, (res) => {
       const chunks: Buffer[] = []
       res.on('data', (chunk: Buffer) => chunks.push(chunk))
       res.on('end', () => {
         try {
-          const json = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>
-          resolve(json.traceroost === true)
+          const json = JSON.parse(Buffer.concat(chunks).toString()) as unknown
+          const ok = !!json && typeof json === 'object' && (json as Record<string, unknown>).traceroost === true
+          resolve(ok ? json as Record<string, unknown> : undefined)
         } catch {
-          resolve(false)
+          resolve(undefined)
         }
       })
     })
-    req.on('error', () => resolve(false))
-    req.setTimeout(1000, () => { req.destroy(); resolve(false) })
+    req.on('error', () => resolve(undefined))
+    req.setTimeout(1000, () => { req.destroy(); resolve(undefined) })
   })
+}
+
+function probePort(port: number, probePath: string): Promise<boolean> {
+  return probeIdentity(port, probePath).then(identity => identity !== undefined)
+}
+
+/** What a standalone server on `port` says about itself (`GET /traceroost/standalone`):
+ *  `{ traceroost: true, kind: 'standalone', managesAgentSetup, docker }`, or undefined when no
+ *  standalone server answers. `managesAgentSetup` is false where setting agents up from that
+ *  server would not reach this machine's agents (Docker); older servers leave it out. */
+export function standaloneIdentity(port: number): Promise<Record<string, unknown> | undefined> {
+  return probeIdentity(port, '/traceroost/standalone')
 }
 
 export async function detectPortOwner(port: number): Promise<'plugin' | 'standalone' | 'foreign'> {

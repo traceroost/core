@@ -33,10 +33,15 @@ export async function runRetention(
     bumpSessionsVersion(db)
   }
 
+  pruneOrphanedOutcomeRows(db, log)
+  compactTraceSends(db, Date.now(), log)
+
   // The blob sweep below reads every timeline row (over a second on a large history), so it runs
   // on a later turn of the event loop: everything above has already happened, synchronously, by
   // the time runRetention() returns its promise — activation doesn't wait for the sweep.
   await new Promise<void>(resolve => setImmediate(resolve))
+
+  vacuumIfMostlyFree(db, log)
 
   // Blob eviction: collect all span IDs still in timeline_entries, then delete orphans.
   try {
@@ -69,6 +74,75 @@ export async function runRetention(
     }
   } catch (err) {
     log(`TraceRoost retention: blob eviction error — ${err}`)
+  }
+}
+
+/**
+ * The per-session git-outcome caches (git_outcome, git_outcome_key) and the cloud revision ledger
+ * (trace_revision) have no foreign key to `sessions`, so a session removed by retention (or as a
+ * retired log key) left its rows behind for the life of the install. Nothing reads them for a
+ * session that's gone: a session that comes back is classified again, and its next forward takes a
+ * fresh, higher revision — which Cloud orders after anything it holds (rank first, then
+ * revision), so a resend replaces the same row and never outranks a better one.
+ */
+function pruneOrphanedOutcomeRows(db: RetentionDb, log: (msg: string) => void): void {
+  for (const table of ['git_outcome', 'git_outcome_key', 'trace_revision']) {
+    try {
+      db.run(`DELETE FROM ${table} WHERE session_id NOT IN (SELECT session_id FROM sessions)`)
+    } catch (err) {
+      log(`TraceRoost retention: could not prune ${table} — ${err}`)
+    }
+  }
+}
+
+/** The narrowest window DatabaseReader.queryTraceSendStats sums over, besides all time. */
+const TRACE_SEND_WINDOW_MS = 60 * 60_000
+
+/**
+ * trace_sends gains one row per forwarding drain, forever, and the Team panel's all-time count
+ * sums all of them. Rows older than the last-hour window only ever feed that all-time sum, so they
+ * are folded into a single row (at the newest of their timestamps — still outside every window):
+ * every count the panel shows stays exactly the same.
+ */
+export function compactTraceSends(db: RetentionDb, now: number, log: (msg: string) => void = () => { /* silent */ }): void {
+  const cutoff = Math.floor(now - TRACE_SEND_WINDOW_MS)
+  try {
+    const row = db.exec(`SELECT COUNT(*), COALESCE(SUM(count), 0), MAX(sent_at) FROM trace_sends WHERE sent_at < ${cutoff}`)[0]?.values[0]
+    if (!row || Number(row[0]) <= 1) return
+    db.run('BEGIN')
+    try {
+      db.run('DELETE FROM trace_sends WHERE sent_at < ?', [cutoff])
+      db.run('INSERT INTO trace_sends (sent_at, count) VALUES (?, ?)', [Number(row[2]), Number(row[1])])
+      db.run('COMMIT')
+    } catch (err) {
+      try { db.run('ROLLBACK') } catch { /* ignore */ }
+      throw err
+    }
+  } catch (err) {
+    log(`TraceRoost retention: could not compact trace_sends — ${err}`)
+  }
+}
+
+// VACUUM only when at least this share of the file is free pages, and at least this many of them.
+const VACUUM_FREE_RATIO = 0.25
+const VACUUM_MIN_FREE_PAGES = 2_048
+
+/**
+ * Deleted rows leave free pages that every save still serializes and writes (sql.js exports the
+ * whole file). New rows reuse them, so in steady state — a day's worth deleted, a day's worth
+ * added — there are few. After a large one-off delete (a shorter retention setting, a long idle
+ * gap) there can be many, and they would otherwise be copied on every save until refilled; VACUUM
+ * (a second or two on a large history, once) shrinks the file instead.
+ */
+function vacuumIfMostlyFree(db: RetentionDb, log: (msg: string) => void): void {
+  try {
+    const pages = Number(db.exec('PRAGMA page_count')[0]?.values[0]?.[0] ?? 0)
+    const free = Number(db.exec('PRAGMA freelist_count')[0]?.values[0]?.[0] ?? 0)
+    if (free < VACUUM_MIN_FREE_PAGES || free < pages * VACUUM_FREE_RATIO) return
+    db.run('VACUUM')
+    log(`TraceRoost retention: compacted the database (${free} of ${pages} pages were free)`)
+  } catch (err) {
+    log(`TraceRoost retention: vacuum skipped — ${err}`)
   }
 }
 

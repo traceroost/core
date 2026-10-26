@@ -36,6 +36,7 @@ import {
   createOutcomeRepoCache,
   createRepoTipsSnapshot,
   readRepoTips,
+  type RepoTips,
   type GitOutcome,
   type OutcomeRepoCache,
   type RepoTipsSnapshot,
@@ -167,14 +168,23 @@ export class ReconciliationService {
   }
 
   /** Convenience for the background watcher (Stage 2): reconciles many sessions sharing one
-   *  short-lived root/trunk-ref cache, since a burst of retained sessions after a commit almost
-   *  always shares a handful of repos. The cache is deliberately not retained by the service
-   *  itself -- see gitOutcome.ts's OutcomeRepoCache doc comment on why it's scoped per burst. */
-  async reconcileMany(inputs: ReconcileInput[]): Promise<ReconcileResult[]> {
-    const cache = createOutcomeRepoCache()
+   *  root/trunk-ref cache, since a burst of retained sessions after a commit almost always shares
+   *  a handful of repos. The cache is deliberately not retained by the service itself -- see
+   *  gitOutcome.ts's OutcomeRepoCache doc comment on why it's scoped per burst -- but a caller
+   *  that bounds its lifetime (the background watcher's TTL) can pass its own in `opts.cache`.
+   *
+   *  `opts.trustedTips`: HEAD/trunk tips the caller vouches are still current (it watches those
+   *  roots' `.git` and drops a root's entry on any change). They're used without a spawn and
+   *  skip the end-of-pass recheck. `opts.onTips` receives each root's tips as the pass ended, for
+   *  the caller to trust next time. */
+  async reconcileMany(
+    inputs: ReconcileInput[],
+    opts: { cache?: OutcomeRepoCache; trustedTips?: ReadonlyMap<string, RepoTips>; onTips?: (tips: Map<string, RepoTips>) => void } = {},
+  ): Promise<ReconcileResult[]> {
+    const cache = opts.cache ?? createOutcomeRepoCache()
     // HEAD and the trunk tip are read once per repo root for the whole pass, not per session; with
     // each session's stored key (OutcomeKeyRepository), an unchanged session costs no git spawn.
-    const snapshot = createRepoTipsSnapshot()
+    const snapshot = createRepoTipsSnapshot(opts.trustedTips)
     const results: ReconcileResult[] = new Array(inputs.length)
     await this.runPool(inputs.map((_, i) => i), async i => {
       results[i] = await this.reconcile(inputs[i], { cache, snapshot })
@@ -185,17 +195,27 @@ export class ReconciliationService {
     // once (one spawn each) and redo that root's sessions against the new tips, so a pass's
     // results always end up matching the repo as it is when the pass finishes — independent of
     // the background watcher's .git watch firing a follow-up pass.
-    const moved = await snapshot.movedRoots(async root => readRepoTips(root, await cache.trunkRef(root)))
+    const trusted = new Set(opts.trustedTips?.keys())
+    const moved = await snapshot.movedRoots(async root => readRepoTips(root, await cache.trunkRef(root)), trusted)
+    let fresh: RepoTipsSnapshot | undefined
     if (moved.size > 0) {
       const redo: number[] = []
       for (const [i, input] of inputs.entries()) {
         const root = input.workspace ? await cache.root(input.workspace) : null
         if (root && moved.has(root) && !results[i].deferred) redo.push(i)
       }
-      const fresh = createRepoTipsSnapshot()
+      const redoSnapshot = createRepoTipsSnapshot()
+      fresh = redoSnapshot
       await this.runPool(redo, async i => {
-        results[i] = await this.reconcile(inputs[i], { cache, snapshot: fresh })
+        results[i] = await this.reconcile(inputs[i], { cache, snapshot: redoSnapshot })
       })
+    }
+    if (opts.onTips) {
+      // A moved root's pass-start tips are stale; only the redo's fresh read of it is current.
+      const tips = await snapshot.settled()
+      for (const root of moved) tips.delete(root)
+      for (const [root, t] of await fresh?.settled() ?? []) tips.set(root, t)
+      opts.onTips(tips)
     }
     return results
   }

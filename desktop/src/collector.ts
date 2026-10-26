@@ -132,6 +132,10 @@ export class OwnedCollector {
         // The app shows the dashboard in its own window; the collector must not also open a
         // browser tab on every start, as it does when run from a terminal.
         TRACEROOST_NO_OPEN: '1',
+        // Tells the collector it belongs to the desktop app, so its update notice points at a new
+        // app download (GitHub Releases) rather than an npm/service command this user has no
+        // Node to run (standalone/versionCheck.ts's updateAdvice).
+        TRACEROOST_DESKTOP: '1',
       },
       // The fourth entry is the IPC channel: a pipe only this process and the child hold — no
       // port, no token, nothing a web page or another user could reach.

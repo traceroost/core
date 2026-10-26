@@ -67,6 +67,6 @@ export async function runCohortCli(args: string[], resolveHash?: RepoHashResolve
   console.log(`Benchmark:  ${(result.benchmark.low * 100).toFixed(0)}–${(result.benchmark.high * 100).toFixed(0)}% — ${result.benchmark.verdict}\n`)
   console.log('The commits behind this number (resolved to real SHAs locally):')
   for (const sha of result.cohortShas.slice(0, 40)) console.log(`  ${sha}`)
-  console.log('\nOpen the Outcomes tab in the editor for the file- and session-level breakdown.')
+  console.log('\nOpen the Outcomes tab in the editor for the file- and trace-level breakdown.')
   return 0
 }

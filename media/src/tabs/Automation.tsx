@@ -530,7 +530,7 @@ export function Automation() {
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
               <div class="flex-8">
                 <strong style="font-size:13px">{cfg.label}</strong>
-                <span style={`font-size:10px;padding:1px 6px;border-radius:3px;background:${sevColor};color:#000;font-weight:700;letter-spacing:.4px`}>
+                <span style={`font-size:var(--fs-xs);padding:1px 6px;border-radius:3px;background:${sevColor};color:#000;font-weight:700;letter-spacing:.4px`}>
                   {sev.toUpperCase()}
                 </span>
               </div>

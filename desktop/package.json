@@ -23,12 +23,13 @@
     "pack:win:host": "pnpm run build:release && electron-builder --win && pnpm run checksums",
     "checksums": "node scripts/checksums.mjs",
     "smoke": "node scripts/smoke-packaged.mjs",
+    "rehearse:mac-signing": "bash scripts/rehearse-mac-signing.sh",
     "runtime-check": "ELECTRON_RUN_AS_NODE=1 electron -e \"console.log(process.versions.node)\""
   },
   "devDependencies": {
     "electron": "44.7.1",
     "electron-builder": "26.15.3"
   },
-  "author": "Roger Reed",
+  "author": "TraceRoost",
   "homepage": "https://github.com/traceroost/core"
 }

@@ -2,10 +2,10 @@
 
 If you're browsing the tree wondering why this exists outside the rest of
 `src/`, this is the short answer. For the deep architecture, see
-[CLOUD_ARCHITECTURE.md](../../CLOUD_ARCHITECTURE.md) and
-[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-cloud--org-link). For
-what shipped feature-by-feature, see CLOUD_ARCHITECTURE.md's "What ships
-where" table.
+[ARCHITECTURE.md §15](../../ARCHITECTURE.md#15-traceroost-cloud--org-link)
+(module map, editions, surfaces, the free/paid boundary) and
+[CLOUD_ARCHITECTURE.md](../../CLOUD_ARCHITECTURE.md) (the wire contract and
+every endpoint a linked machine calls).
 
 ## What's in here
 

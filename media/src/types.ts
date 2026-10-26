@@ -61,6 +61,25 @@ export interface LoopSignal {
   /** Estimated avoidable cost in USD, for the signals that can price it (file_reread,
    *  cache_miss). The Advisor converts it to plan-limit points for subscription users. */
   wasteUsd?: number
+  /** Mirrors src/types.ts — the measured value against the threshold it crossed. Absent on
+   *  signals stored before evidence tracking existed. */
+  trigger?: string
+  /** Mirrors src/types.ts — the timeline entries behind the signal (see src/signalEvidence.ts). */
+  steps?: SignalStep[]
+  stepsTotal?: number
+  range?: { from: number; to: number; note: string }
+}
+
+/** Mirrors src/types.ts's SignalStep. `index` is a position in the session's full timeline
+ *  (background entries included), `spanId` confirms it — see resolveStepIndex in signalEvidence.tsx. */
+export interface SignalStep {
+  index: number
+  spanId: string
+  label: string
+  note: string
+  role: 'trigger' | 'context'
+  /** The thing itself, excerpted — the edit's old → new text, the error line, the import line. */
+  detail?: string
 }
 
 // Mirrors src/gitOutcome.ts. Fetched lazily per session (see sessionTimelines in state.ts for the
@@ -280,6 +299,14 @@ export interface Insight {
    *  signals only; the efficiency insights' `action` is written for the person. */
   agentPrompt?: string
   _loopType?: LoopSignalType
+  /** Why it fired: the measured value against its threshold. Loop insights copy their signal's;
+   *  the efficiency checks in Insights.tsx write their own. */
+  trigger?: string
+  /** The timeline entries that made it fire — listed on the card and highlighted in the trace's
+   *  waterfall. Same shape for both kinds of insight. */
+  steps?: SignalStep[]
+  stepsTotal?: number
+  range?: { from: number; to: number; note: string }
 }
 
 // Response shape of GET /api/version-check (standalone only — see standalone/versionCheck.ts).
@@ -293,7 +320,11 @@ export interface VersionCheckResponse {
   isService: boolean
   /** Running in the TraceRoost Docker image — update by pulling the image and re-running it. */
   isDocker?: boolean
+  /** The desktop app's own collector — update by downloading the new app (recommendedUrl). */
+  isDesktop?: boolean
   recommendedCommand: string
+  /** A download page to link to instead of a command (the desktop app). */
+  recommendedUrl?: string
 }
 
 /** 'standalone' — the background/npx service holds the OTLP port (seen from the VS Code

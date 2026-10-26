@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { movedDashboardUrl } from '../dashboardPortCarry'
-import { enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSize, setSessionsPageSize, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
+import { scrollBehavior } from '../a11y'
+import { configOpen, enableOtelIngestion, enableLogIngestion, otlpPort, vscode, otelReconfigureResult, type OtelReconfigureResult, themePreference, setThemePreference, type ThemePreference, sessionsPage, sessionsPageSize, setSessionsPageSize, SESSIONS_PAGE_SIZE_OPTIONS } from '../state'
 
 function sendConfig(key: string, value: boolean) {
   if (vscode) {
@@ -8,7 +9,7 @@ function sendConfig(key: string, value: boolean) {
   }
 }
 
-const CLEAR_ALL_CONFIRM_TEXT = 'Clear all TraceRoost data? OTEL trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).'
+const CLEAR_ALL_CONFIRM_TEXT = 'Clear all TraceRoost data? OTel trace data is deleted permanently. TraceRoost log cache is cleared and will be rebuilt from your local agent log files (the log files themselves are not deleted).'
 
 export function sendConfirmClear() {
   if (vscode) {
@@ -224,7 +225,7 @@ export function IngestionToggles() {
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:6px">Data Ingestion</div>
       <ToggleRow
-        label="Accept OTEL spans"
+        label="Accept OTel spans"
         description={`Server stays running on port ${port}; turning this off silently drops incoming data.`}
         checked={otelOn}
         onChange={v => sendConfig('enableOtelIngestion', v)}
@@ -258,12 +259,72 @@ function summarizeReconfigure(result: OtelReconfigureResult): string {
   return `Configured: ${changed.join(', ')}. Restart the agent(s) to start streaming traces.`
 }
 
+const AGENT_SETUP_BUTTON_ID = 'settings-set-up-agents'
+
+/** "Set up agents" from anywhere (empty states, the Advisor): open Settings and bring its
+ *  Set up agents control into view with focus on it, so the next press is the go-ahead. */
+export function openAgentSetup(): void {
+  configOpen.value = true
+  setTimeout(() => {
+    const btn = document.getElementById(AGENT_SETUP_BUTTON_ID)
+    if (!btn) return
+    btn.scrollIntoView({ behavior: scrollBehavior(), block: 'center' })
+    btn.focus({ preventScroll: true })
+  }, 80)
+}
+
+/** POST /action on the standalone server, for Remove agent setup. */
+function removeAgentSetupAction(dryRun: boolean): Promise<{ files?: string[]; summary?: string; error?: string }> {
+  return fetch('/action', { method: 'POST', body: JSON.stringify({ type: 'removeAgentSetup', dryRun }),
+    headers: { 'Content-Type': 'application/json' } }).then(r => r.json())
+}
+
 export function OtelReconfigureButton() {
   const [running, setRunning] = useState(false)
   const result = otelReconfigureResult.value
+  // Remove agent setup: takes out only what TraceRoost added (src/agentSetupRemoval.ts). VS Code
+  // confirms and reports with its own modal and notification; the browser lists what would go
+  // (a dry run) and asks first.
+  const [removing, setRemoving] = useState(false)
+  const [removeSummary, setRemoveSummary] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!vscode) return
+    const onMessage = (e: MessageEvent) => {
+      const msg = e.data as { type?: string; summary?: string | null } | undefined
+      if (msg?.type !== 'removeAgentSetupResult') return
+      setRemoving(false)
+      if (msg.summary) setRemoveSummary(msg.summary)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  function remove() {
+    setRemoving(true)
+    setRemoveSummary(null)
+    otelReconfigureResult.value = null
+    if (vscode) {
+      vscode.postMessage({ type: 'removeAgentSetup' })
+      return
+    }
+    removeAgentSetupAction(true)
+      .then(preview => {
+        if (preview.error) { setRemoveSummary(preview.error); return }
+        const files = preview.files ?? []
+        const question = 'Remove agent setup?\n\n' + (files.length > 0
+          ? `TraceRoost will take out the settings it added in:\n${files.map(f => `• ${f}`).join('\n')}\n\nEverything else in those files stays, and so does any setting that sends to a different collector. `
+          : 'No TraceRoost agent settings were found. ') + "TraceRoost won't set up your agents again unless you choose Set up agents."
+        if (!confirm(question)) return
+        return removeAgentSetupAction(false).then(done => setRemoveSummary(done.summary ?? done.error ?? null))
+      })
+      .catch(e => setRemoveSummary(`Failed: ${String(e)}`))
+      .finally(() => setRemoving(false))
+  }
 
   function run() {
     setRunning(true)
+    setRemoveSummary(null)
     otelReconfigureResult.value = null
     if (vscode) {
       vscode.postMessage({ type: 'reconfigureOtel' })
@@ -283,18 +344,29 @@ export function OtelReconfigureButton() {
 
   return (
     <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
-      <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Configure OTEL</div>
+      <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:4px">Set up agents</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-        Sets up Claude Code, Codex and Copilot to send their activity, including prompts and tool output, to TraceRoost on this computer. Pressing it is your go-ahead: TraceRoost then keeps them pointed here each time it starts. A setting that sends to a different collector is left alone.
+        Sets up Claude Code, Codex and Copilot to send their activity, including prompts and tool output, to TraceRoost on this computer. Pressing it is your go-ahead and writes every setting again; later starts only keep TraceRoost's port in them current. A setting that sends to a different collector is left alone. Remove agent setup takes out only what TraceRoost added and stops it setting agents up.
       </div>
-      <button
-        onClick={run}
-        disabled={running}
-        style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)"
-      >
-        {running ? 'Configuring…' : 'Configure OTEL'}
-      </button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button
+          id={AGENT_SETUP_BUTTON_ID}
+          onClick={run}
+          disabled={running || removing}
+          style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)"
+        >
+          {running ? 'Setting up…' : 'Set up agents'}
+        </button>
+        <button
+          onClick={remove}
+          disabled={running || removing}
+          style="padding:3px 10px;font-size:11px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--fg)"
+        >
+          {removing ? 'Removing…' : 'Remove agent setup'}
+        </button>
+      </div>
       {result && <div style="font-size:11px;color:var(--muted);margin-top:6px">{summarizeReconfigure(result)}</div>}
+      {removeSummary && <div role="status" style="font-size:11px;color:var(--muted);margin-top:6px">{removeSummary}</div>}
     </div>
   )
 }
@@ -308,7 +380,7 @@ interface DashboardPortInfo {
   reserved: number[]
 }
 
-const codeStyle = 'font-size:10px;background:var(--card-bg);padding:1px 4px;border-radius:3px'
+const codeStyle = 'font-size:var(--fs-xs);background:var(--card-bg);padding:1px 4px;border-radius:3px'
 
 /** Settings → Dashboard port (standalone only — the VS Code webview has no port). Moves the
  *  running dashboard without a restart; see standalone/dashboardPort.ts for the server half. */
@@ -407,7 +479,7 @@ export function DashboardPortSetting() {
         </form>
       )}
       {error && <div role="alert" style="font-size:11px;color:var(--vscode-testing-iconFailed,#f44);margin-top:6px">{error}</div>}
-      <div style="font-size:10px;color:var(--muted);margin-top:6px">
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">
         From a terminal: <code style={codeStyle}>traceroost service install --ui-port &lt;port&gt;</code>
       </div>
     </div>
@@ -437,10 +509,10 @@ export function McpToggle() {
       </div>
       {enabled && (
         <div style="font-size:11px;color:var(--muted)">
-          Listening at <code style="font-size:10px;background:var(--card-bg);padding:1px 4px;border-radius:3px">http://localhost:{port}/mcp</code>
+          Listening at <code style="font-size:var(--fs-xs);background:var(--card-bg);padding:1px 4px;border-radius:3px">http://localhost:{port}/mcp</code>
         </div>
       )}
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">Restart to apply changes.</div>
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">Restart to apply changes.</div>
     </div>
   )
 }

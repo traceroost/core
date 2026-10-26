@@ -62,7 +62,9 @@ for (const result of trivy.Results ?? []) {
       line: s.StartLine,
     })
   }
-  for (const m of result.Misconfigurations ?? []) {
+  // A dependency's own Dockerfile or CI config isn't ours to fix.
+  const inDependency = result.Target.split('/').includes('node_modules')
+  for (const m of inDependency ? [] : (result.Misconfigurations ?? [])) {
     misconfigs.push({
       severity: (m.Severity ?? 'UNKNOWN').toUpperCase(),
       id: m.ID,

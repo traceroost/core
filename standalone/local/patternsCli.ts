@@ -81,12 +81,12 @@ export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard
 
   const sessions = loadSessionsForWorkspace(root, allSessions)
   if (sessions.length === 0) {
-    console.log(`\nRepository: ${root}\nNo recorded sessions for this repo on this machine yet.`)
+    console.log(`\nRepository: ${root}\nNo recorded traces for this repo on this machine yet.`)
     return 0
   }
 
   console.log(`\nRepository: ${root}`)
-  console.log(`${sessions.length} recorded session${sessions.length === 1 ? '' : 's'} on this machine\n`)
+  console.log(`${sessions.length} recorded trace${sessions.length === 1 ? '' : 's'} on this machine\n`)
 
   const files = topTouchedFiles(sessions)
   console.log('Most-touched files (read + changed + written):')
@@ -99,11 +99,11 @@ export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard
   const signals = groupedSignals(sessions)
   console.log('\nBehavioral patterns detected:')
   if (signals.length === 0) {
-    console.log('  None — no loop or malfunction signals across these sessions.')
+    console.log('  None — no loop or malfunction signals across these traces.')
   } else {
     for (const g of signals) {
       console.log(`\n  ${PATTERN_NAMES[g.type]} (${g.type})`)
-      console.log(`    ${g.sessions} session${g.sessions === 1 ? '' : 's'}, ${g.count} occurrence${g.count === 1 ? '' : 's'}`)
+      console.log(`    ${g.sessions} trace${g.sessions === 1 ? '' : 's'}, ${g.count} occurrence${g.count === 1 ? '' : 's'}`)
       console.log(`    ${LOOP_SIGNAL_ACTIONS[g.type]}`)
     }
   }

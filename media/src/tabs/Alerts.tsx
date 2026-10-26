@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { displaySessions, activeTab, focusedSessionId } from '../state'
+import { displaySessions, activeTab, focusedSessionId, alertsOpen } from '../state'
 import { buildDisplaySummary, formatMs } from '../utils'
 import {
   fmtUsd,
@@ -355,6 +355,7 @@ function evaluateAlert(
 }
 
 export interface TriggeredAlert {
+  alertId: string
   label: string
   severity: 'error' | 'warning' | 'info'
   detail: string
@@ -369,7 +370,7 @@ export function getTriggeredAlerts(): TriggeredAlert[] {
   for (const cfg of configs) {
     if (!cfg.enabled) continue
     const result = evaluateAlert(cfg, sessions, efficiency, profiles)
-    if (result.triggered) out.push({ label: cfg.label, severity: cfg.severity, detail: result.detail ?? '', sessionId: result.sessionId })
+    if (result.triggered) out.push({ alertId: cfg.id, label: cfg.label, severity: cfg.severity, detail: result.detail ?? '', sessionId: result.sessionId })
   }
   return out
 }
@@ -383,10 +384,17 @@ export function computeAlertCount(): number {
 const firedAlertKeys = new Set<string>()
 
 export interface AlertNotification {
+  alertId: string
   label: string
   detail?: string
   severity: 'error' | 'warning' | 'info'
   sessionId?: string
+}
+
+// DOM id of an alert's card on the Alerts panel's Configure tab — the target "View Alert" on a
+// firing notification scrolls to (see the switchTab handler in App.tsx and AlertsPanel.tsx).
+export function alertCardId(alertId: string): string {
+  return 'alert-card-' + alertId
 }
 
 export function checkAlerts(): AlertNotification[] {
@@ -412,7 +420,7 @@ export function checkAlerts(): AlertNotification[] {
       activeKeys.add(key)
       if (firedAlertKeys.has(key)) { continue }
       firedAlertKeys.add(key)
-      notifications.push({ label: cfg.label, detail: result.detail, severity: cfg.severity, sessionId: result.sessionId })
+      notifications.push({ alertId: cfg.id, label: cfg.label, detail: result.detail, severity: cfg.severity, sessionId: result.sessionId })
     }
   }
   for (const key of Array.from(firedAlertKeys)) {
@@ -483,9 +491,9 @@ export function Alerts() {
         </div>
       ) : (
         <div style="background:rgba(129,199,132,0.1);border:1px solid #81c784;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
-          <span style="font-size:18px;color:#81c784">✓</span>
+          <span style="font-size:18px;color:var(--vscode-charts-green, #81c784)">✓</span>
           <div>
-            <strong style="color:#81c784">All clear</strong>
+            <strong style="color:var(--vscode-charts-green, #81c784)">All clear</strong>
             <span style="color:var(--muted);font-size:12px;margin-left:8px">no alerts triggered for current traces</span>
           </div>
         </div>
@@ -493,23 +501,24 @@ export function Alerts() {
 
       {results.map(({ config: cfg, triggered, detail, sessionId }) => {
         const sev = cfg.severity
-        const trigColor = sev === 'error' ? 'var(--error)' : sev === 'info' ? '#4fc3f7' : '#f6a623'
+        const trigColor = sev === 'error' ? 'var(--error)' : sev === 'info' ? 'var(--vscode-editorInfo-foreground, #4fc3f7)' : 'var(--vscode-editorWarning-foreground, #f6a623)'
         const borderColor = triggered ? trigColor : 'var(--border)'
         const statusIcon = !cfg.enabled ? '○' : triggered ? (sev === 'error' ? '⛔' : sev === 'info' ? 'ℹ' : '⚠') : '✓'
-        const statusColor = !cfg.enabled ? 'var(--muted)' : triggered ? trigColor : '#81c784'
+        const statusColor = !cfg.enabled ? 'var(--muted)' : triggered ? trigColor : 'var(--vscode-charts-green, #81c784)'
         const profileMetrics = alertProfileMetrics(cfg)
 
         return (
-          <div key={cfg.id} style={`border:1px solid ${borderColor};border-left:4px solid ${borderColor};border-radius:6px;padding:12px 14px;margin-bottom:10px`}>
+          <div key={cfg.id} id={alertCardId(cfg.id)} style={`border:1px solid ${borderColor};border-left:4px solid ${borderColor};border-radius:6px;padding:12px 14px;margin-bottom:10px`}>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
               <div class="flex-8">
                 <span style={`font-size:15px;color:${statusColor};line-height:1`}>{statusIcon}</span>
                 <strong style="font-size:13px">{cfg.label}</strong>
-                {triggered && <span style={`font-size:10px;background:${trigColor};color:#000;padding:1px 7px;border-radius:3px;font-weight:700;letter-spacing:.4px`}>TRIGGERED</span>}
+                {triggered && <span style={`font-size:var(--fs-xs);background:${trigColor};color:#000;padding:1px 7px;border-radius:3px;font-weight:700;letter-spacing:.4px`}>TRIGGERED</span>}
               </div>
               <label class="toggle-switch">
                 <input
                   type="checkbox"
+                  aria-label={`${cfg.label} alert enabled`}
                   checked={cfg.enabled}
                   onChange={e => updateConfig(cfg.id, { enabled: (e.target as HTMLInputElement).checked })}
                 />
@@ -520,7 +529,7 @@ export function Alerts() {
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5">
               {cfg.description}
               {ALERT_TOOLTIPS[cfg.id] && (
-                <> {' '}<span data-tip={ALERT_TOOLTIPS[cfg.id]} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);border-bottom:1px dotted currentColor;cursor:help;white-space:nowrap">Why?</span></>
+                <> {' '}<span tabIndex={0} aria-label={`Why: ${ALERT_TOOLTIPS[cfg.id]}`} data-tip={ALERT_TOOLTIPS[cfg.id]} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);border-bottom:1px dotted currentColor;cursor:help;white-space:nowrap">Why?</span></>
               )}
             </div>
             {triggered && detail && (
@@ -529,13 +538,14 @@ export function Alerts() {
                 {sessionId && (
                   <>
                     {' '}
-                    <span
-                      role="link"
-                      tabIndex={0}
-                      onClick={() => { focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
-                      onKeyDown={e => { if (e.key === 'Enter') { focusedSessionId.value = sessionId; activeTab.value = 'sessions' } }}
-                      style="color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline;white-space:nowrap"
-                    >View trace →</span>
+                    {/* Closes the Alerts panel this list lives in — otherwise the trace opens
+                        underneath it, out of sight. */}
+                    <button
+                      type="button"
+                      class="link-btn"
+                      onClick={() => { alertsOpen.value = false; focusedSessionId.value = sessionId; activeTab.value = 'sessions' }}
+                      style="white-space:nowrap"
+                    >View trace →</button>
                   </>
                 )}
               </div>

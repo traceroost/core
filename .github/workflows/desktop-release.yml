@@ -15,15 +15,13 @@ name: Desktop release
 #   edition    desktop is core-only. Any other release edition skips desktop with a notice.
 #   platforms  the repository variable TRACEROOST_DESKTOP_PLATFORMS (default `linux,macos,windows`).
 #              Remove a platform there to stop releasing it without touching this file.
-#   macOS      notarized: attached as is. Not notarized (no Apple Developer Program secrets yet):
-#              attached as a preview — `TraceRoost-<v>-mac-<arch>-preview.dmg`.
-#   Windows    Authenticode-signed (a WIN_CSC_LINK certificate or Azure Artifact Signing): attached
-#              as is. Not signed: attached as a preview — `TraceRoost-<v>-win-<arch>-preview.exe`.
-#   preview    the builds CI tested, byte for byte, under names that say they are not yet signed
-#              (desktop/scripts/release-assets.mjs). Each is labelled "(preview)" on the release
-#              page and the release notes get a section on opening them (Gatekeeper: right-click →
-#              Open; SmartScreen: More info → Run anyway). Once the signing secrets exist, the
-#              signed build is attached under the plain name instead, with no other change.
+#   names      every build is attached under the name it was built as (`TraceRoost-<v>-mac-<arch>.dmg`,
+#              `TraceRoost-<v>-win-<arch>.exe`), signed or not — the builds CI tested, byte for byte.
+#   unsigned   a macOS build that is not notarized (no Apple Developer Program secrets) or a Windows
+#              build that is not Authenticode-signed (no signing secrets, or
+#              TRACEROOST_WINDOWS_SIGNING=off) is still attached, and the release notes get a
+#              section on opening it (Gatekeeper: right-click → Open; SmartScreen: More info → Run
+#              anyway).
 #   failures   platforms are independent: if one platform's build fails, the others are still
 #              attached and the failed one is a notice (plus its red job).
 #
@@ -53,6 +51,12 @@ on:
       APPLE_API_KEY_ID:
         required: false
       APPLE_API_ISSUER:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_APP_SPECIFIC_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
         required: false
       WIN_CSC_LINK:
         required: false
@@ -110,6 +114,9 @@ jobs:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   linux:
     needs: gate
@@ -169,13 +176,17 @@ jobs:
           platforms=""
           if [ "$LINUX_RESULT" = success ]; then platforms="linux"
           elif [ "$LINUX_RESULT" != skipped ]; then echo "::warning::The Linux desktop build did not pass ($LINUX_RESULT); Linux is not attached."; fi
-          if [ "$MACOS_RESULT" = success ] && [ "$NOTARIZED" = true ]; then platforms="${platforms:+$platforms,}macos"
-          elif [ "$MACOS_RESULT" = success ]; then platforms="${platforms:+$platforms,}macos-preview"; echo "::notice::macOS is not notarized (no Apple Developer secrets yet); attaching the ad-hoc signed build as *-preview."
+          unsigned=""
+          if [ "$MACOS_RESULT" = success ]; then
+            platforms="${platforms:+$platforms,}macos"
+            if [ "$NOTARIZED" != true ]; then unsigned="${unsigned:+$unsigned,}macos"; echo "::notice::macOS is not notarized (no Apple Developer secrets); attaching the ad-hoc signed build."; fi
           elif [ "$MACOS_RESULT" != skipped ]; then echo "::warning::The macOS desktop build did not pass ($MACOS_RESULT); macOS is not attached."; fi
-          if [ "$WINDOWS_RESULT" = success ] && [ "$WINDOWS_SIGNED" = true ]; then platforms="${platforms:+$platforms,}windows"
-          elif [ "$WINDOWS_RESULT" = success ]; then platforms="${platforms:+$platforms,}windows-preview"; echo "::notice::Windows is not signed (no WIN_CSC_LINK / Azure Artifact Signing secrets, or TRACEROOST_WINDOWS_SIGNING=off); attaching the unsigned build as *-preview."
+          if [ "$WINDOWS_RESULT" = success ]; then
+            platforms="${platforms:+$platforms,}windows"
+            if [ "$WINDOWS_SIGNED" != true ]; then unsigned="${unsigned:+$unsigned,}windows"; echo "::notice::Windows is not signed (no WIN_CSC_LINK / Azure Artifact Signing secrets, or TRACEROOST_WINDOWS_SIGNING=off); attaching the unsigned build."; fi
           elif [ "$WINDOWS_RESULT" != skipped ]; then echo "::warning::The Windows desktop build did not pass ($WINDOWS_RESULT); Windows is not attached."; fi
           echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
+          echo "unsigned=$unsigned" >> "$GITHUB_OUTPUT"
           if [ -z "$platforms" ]; then echo "::notice::No desktop platform to attach to this release."; fi
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -215,9 +226,7 @@ jobs:
             if [ "$IS_RELEASE" = true ]; then echo "Attaching to release \`$GITHUB_REF_NAME\`:"; else echo "Dry run — would attach:"; fi
             echo
             for f in release/*; do
-              name="$(basename "$f")"
-              case "$name" in *-preview.*) tag=" — preview" ;; *) tag="" ;; esac
-              echo "- \`$name\` ($(du -h "$f" | cut -f1))$tag"
+              echo "- \`$(basename "$f")\` ($(du -h "$f" | cut -f1))"
             done
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$GITHUB_STEP_SUMMARY"
@@ -248,9 +257,6 @@ jobs:
                 echo "::error::$name is already on $GITHUB_REF_NAME with different contents; not replacing a shipped file. Delete that asset by hand if replacing it is really intended."
                 fail=1
               fi
-            elif [[ "$name" == *-preview.* ]]; then
-              # The label is what the release page shows in place of the file name.
-              upload+=("$f#$name (preview)")
             else
               upload+=("$f")
             fi
@@ -260,29 +266,29 @@ jobs:
           fi
           exit "$fail"
 
-      # Say in the release notes which downloads are previews and how to open them. Added once (a
+      # Say in the release notes how to open the downloads that are not code-signed. Added once (a
       # re-run finds the marker and leaves the notes alone).
-      - name: Note preview downloads in the release notes
-        if: contains(steps.plan.outputs.platforms, '-preview') && env.IS_RELEASE == 'true'
+      - name: Note unsigned downloads in the release notes
+        if: steps.plan.outputs.unsigned != '' && env.IS_RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          PLATFORMS: ${{ steps.plan.outputs.platforms }}
+          UNSIGNED: ${{ steps.plan.outputs.unsigned }}
         run: |
-          marker='<!-- traceroost-desktop-preview -->'
+          marker='<!-- traceroost-desktop-unsigned -->'
           body="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
-          if grep -qF "$marker" <<<"$body"; then echo "release notes already carry the preview note"; exit 0; fi
+          if grep -qF "$marker" <<<"$body"; then echo "release notes already carry the unsigned-downloads note"; exit 0; fi
           {
             printf '%s\n\n' "$body"
             echo "$marker"
-            echo "### Desktop app downloads (preview)"
+            echo "### Opening the desktop app"
             echo
-            echo "Files named \`*-preview\` are not yet code-signed. They are the builds CI tested, byte for byte (\`TraceRoost-desktop-*-SHA256SUMS\`), but your OS will warn before opening them:"
+            echo "These downloads are not code-signed. They are the builds CI tested, byte for byte (\`TraceRoost-desktop-*-SHA256SUMS\`), but your OS will warn before opening them:"
             echo
-            if [[ ",$PLATFORMS," == *",macos-preview,"* ]]; then
-              echo "- **macOS** (\`TraceRoost-*-mac-*-preview.dmg\`) (preview): ad-hoc signed, not notarized. Gatekeeper refuses the first open; right-click the app → **Open**, then **Open** again (or \`xattr -d com.apple.quarantine /Applications/TraceRoost.app\`)."
+            if [[ ",$UNSIGNED," == *",macos,"* ]]; then
+              echo "- **macOS** (\`TraceRoost-*-mac-*.dmg\`): ad-hoc signed, not notarized. Gatekeeper refuses the first open; right-click the app → **Open**, then **Open** again (or \`xattr -d com.apple.quarantine /Applications/TraceRoost.app\`)."
             fi
-            if [[ ",$PLATFORMS," == *",windows-preview,"* ]]; then
-              echo "- **Windows** (\`TraceRoost-*-win-*-preview.exe\` installer) (preview): not code-signed. SmartScreen shows \"Windows protected your PC\"; click **More info → Run anyway**."
+            if [[ ",$UNSIGNED," == *",windows,"* ]]; then
+              echo "- **Windows** (\`TraceRoost-*-win-*.exe\` installer): not code-signed. SmartScreen shows \"Windows protected your PC\"; click **More info → Run anyway**."
             fi
           } > "$RUNNER_TEMP/notes.md"
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"

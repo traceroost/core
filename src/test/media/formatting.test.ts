@@ -4,8 +4,8 @@ import { makeCard } from './fixtures'
 import {
   formatToolLabel, formatLlmLabel, formatToolResult, formatMs, timestampToMs, nanoToMs, sessionDateKey,
   formatSessionTime, getInputTokens, getOutputTokens, getCodexSessionId, extractUserRequest,
-  extractLlmResponseText, isLlmSpanName, isToolSpanName, getAgentSourceLabel, getAgentColor,
-  getConversationColor, buildDisplaySummary,
+  extractLlmResponseText, isLlmSpanName, isToolSpanName, getAgentSourceLabel, getAgentColor, getAgentColorVar,
+  getConversationColor, buildDisplaySummary, plural,
 } from '../../../media/src/utils'
 import {
   fmtUsd, oneShotRate, avgEditsPerFile, buildDailyCostMap, getDailyCostUsd, sessionDisplayName,
@@ -27,6 +27,16 @@ function span(attrs: Record<string, string | number>, name = 'chat x'): Span {
 function tl(o: Partial<TimelineEntry> & { type: TimelineEntry['type'] }): TimelineEntry {
   return { spanId: 'x', label: '', durationMs: 0, isError: false, timestamp: '', ...o } as TimelineEntry
 }
+
+suite('media/utils — plural', () => {
+  test('picks the noun by count and formats the number', () => {
+    assert.strictEqual(plural(1, 'file'), '1 file')
+    assert.strictEqual(plural(2, 'file'), '2 files')
+    assert.strictEqual(plural(0, 'file'), '0 files')
+    assert.strictEqual(plural(2, 'search', 'searches'), '2 searches')
+    assert.strictEqual(plural(12000, 'token'), '12,000 tokens')
+  })
+})
 
 suite('media/utils — label formatting', () => {
   test('formatToolLabel derives a label from Claude-style JSON toolInput', () => {
@@ -101,6 +111,11 @@ suite('media/utils — label formatting', () => {
     assert.strictEqual(getAgentSourceLabel('cursor'), 'Cursor')
     assert.strictEqual(getAgentSourceLabel(undefined), 'Copilot')
     assert.strictEqual(getAgentColor('nope'), '#90a4ae')
+    // One theme-aware colour per agent: its --agent-* token, then the VS Code chart colour it follows.
+    assert.strictEqual(getAgentColorVar('codex'), 'var(--agent-codex, var(--vscode-charts-purple, #b180d7))')
+    assert.strictEqual(getAgentColorVar('claude_code'), 'var(--agent-claude, var(--vscode-charts-orange, #d18616))')
+    // Without a DOM (no theme to read), canvas colours fall back to VS Code's dark defaults.
+    assert.strictEqual(getAgentColor('copilot'), '#3794ff')
     assert.strictEqual(getConversationColor('conv-1'), getConversationColor('conv-1'))
   })
 })

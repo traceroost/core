@@ -88,7 +88,7 @@ suite('Real agents → TraceRoost (end to end)', () => {
     const dir = globalStorageDir(cfg, ext)
     const before = new Set(fs.readdirSync(dir))
     try {
-      await vscode.commands.executeCommand('traceRoost.exportData')
+      await vscode.commands.executeCommand('traceRoost.exportData', vscode.Uri.file(dir))
       await sleep(3000)
       for (const f of fs.readdirSync(dir).filter(f => !before.has(f) && f.endsWith('.json'))) {
         fs.copyFileSync(path.join(dir, f), path.join(cfg.captureDir, `otel-${f}`))

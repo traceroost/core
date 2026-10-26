@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 import { vscode, goToHelp } from '../../state'
+import { useDialog } from '../../a11y'
 
 // ── The one description of the payload promise ──────────────────────────────
 // Mirrors src/cloud/org/privacy.ts, which mirrors the OAuth consent screen. A test on the extension
@@ -264,7 +265,7 @@ export function OrgNoticeBanner() {
 function Section({ title, children }: { title?: string; children: preact.ComponentChildren }) {
   return (
     <div style="padding:12px 14px;border-bottom:1px solid var(--border)">
-      {title && <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">{title}</div>}
+      {title && <div style="font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">{title}</div>}
       {children}
     </div>
   )
@@ -299,7 +300,7 @@ function ReconcileButton({ queueDepth }: { queueDepth: number }) {
         style="font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
       >{label}</button>
       {result && (
-        <span style={`font-size:11px;margin-left:8px;color:${result.error ? '#f14c4c' : 'var(--muted)'}`}>
+        <span style={`font-size:11px;margin-left:8px;color:${result.error ? 'var(--vscode-errorForeground, #f14c4c)' : 'var(--muted)'}`}>
           {result.error
             ? `Couldn't finish: ${result.error}`
             : result.queued > 0 ? `Found ${result.queued} not yet sent — queued now.`
@@ -308,7 +309,7 @@ function ReconcileButton({ queueDepth }: { queueDepth: number }) {
             // everything made it. Clicking still nudges the scheduler to retry them now (see
             // reconcileLocalSessions), but a persistently failing item (see the Status row above)
             // needs its own send fixed, not another click here.
-            : queueDepth > 0 ? `No new sessions found — ${queueDepth} already-queued trace(s) will retry shortly.`
+            : queueDepth > 0 ? `No new traces found — ${queueDepth} already-queued trace(s) will retry shortly.`
             : 'Everything is already sent.'}
         </span>
       )}
@@ -328,7 +329,7 @@ function PayloadPreview() {
       >{busy ? 'Building…' : 'Show example payload'}</button>
       {busy && !previews && <div style="font-size:11px;color:var(--muted);margin-top:6px">Building it from your most recent traces…</div>}
       {previews && previews.length > 0 && (
-        <pre style="margin-top:8px;font-size:10px;line-height:1.45;background:var(--vscode-editorWidget-background);border:1px solid var(--border);border-radius:4px;padding:8px;overflow:auto;max-height:280px;white-space:pre">{previews.map(preview => preview.text).join('\n\n')}</pre>
+        <pre style="margin-top:8px;font-size:var(--fs-xs);line-height:1.45;background:var(--vscode-editorWidget-background);border:1px solid var(--border);border-radius:4px;padding:8px;overflow:auto;max-height:280px;white-space:pre">{previews.map(preview => preview.text).join('\n\n')}</pre>
       )}
     </div>
   )
@@ -355,8 +356,8 @@ function EnvironmentPicker({ st }: { st: OrgStatus }) {
   return (
     <div style="margin-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span style="font-size:10px;color:var(--muted)">Environment</span>
-        <span style="font-size:10px;color:var(--muted)">{environmentSourceNote(st.environmentSource)}</span>
+        <span style="font-size:var(--fs-xs);color:var(--muted)">Environment</span>
+        <span style="font-size:var(--fs-xs);color:var(--muted)">{environmentSourceNote(st.environmentSource)}</span>
       </div>
       {st.environmentEditable ? (
         <div style="display:flex;gap:4px;margin-top:4px">
@@ -379,21 +380,9 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
   const busy = orgBusy.value
   return (
     <>
-      {st.endpoint && (
-        <Section>
-          {/* The environment the picker below resolves to (stage by default in a development build). */}
-          <a
-            href={st.endpoint}
-            target="_blank"
-            rel="noreferrer"
-            title={st.endpoint}
-            style="display:inline-block;font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--fg);text-decoration:none"
-          >Open TraceRoost Cloud →</a>
-        </Section>
-      )}
       {st.notice && (
         <Section>
-          <div style="font-size:12px;color:#f14c4c;line-height:1.5">{st.notice.message}</div>
+          <div style="font-size:12px;color:var(--vscode-errorForeground, #f14c4c);line-height:1.5">{st.notice.message}</div>
         </Section>
       )}
       <Section title="This machine">
@@ -414,7 +403,7 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
           onClick={() => { orgBusy.value = 'link'; orgActionError.value = null; vscode?.postMessage({ type: 'orgLinkDevice' }) }}
           style="font-size:12px;padding:6px 10px;margin-left:8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);cursor:pointer"
         >Use a device code</button>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">Opens your browser once. Remote or headless window? Use a device code and approve it from any browser.</div>
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">Opens your browser once. Remote or headless window? Use a device code and approve it from any browser.</div>
         {orgLinkUrl.value && busy === 'link' && !orgDevicePrompt.value && (
           <div style="font-size:11px;color:var(--muted);margin-top:8px;word-break:break-all">
             Browser didn't open? <a href={orgLinkUrl.value} style="color:var(--vscode-textLink-foreground,#4fc3f7)">Open the link page</a>
@@ -425,14 +414,26 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
             Go to <a href={orgDevicePrompt.value.verificationUriComplete ?? orgDevicePrompt.value.verificationUri} style="color:var(--vscode-textLink-foreground,#4fc3f7)">{orgDevicePrompt.value.verificationUri}</a> and enter
             {' '}<code style="font-size:13px;font-weight:700;letter-spacing:1px">{orgDevicePrompt.value.userCode}</code>. Waiting for approval…
             {orgDevicePrompt.value.blocked && (
-              <div style="font-size:11px;color:#f6a623;margin-top:6px">
+              <div style="font-size:11px;color:var(--vscode-editorWarning-foreground, #f6a623);margin-top:6px">
                 {orgDevicePrompt.value.blocked} Still waiting — this same code links as soon as the org has a free machine slot.
               </div>
             )}
           </div>
         )}
         {orgActionError.value && (
-          <div style="font-size:11px;color:#f14c4c;margin-top:8px">Link failed: {orgActionError.value}</div>
+          <div style="font-size:11px;color:var(--vscode-errorForeground, #f14c4c);margin-top:8px">Link failed: {orgActionError.value}</div>
+        )}
+        {st.endpoint && (
+          // The environment the picker above resolves to (stage by default in a development build).
+          <div style="margin-top:10px">
+            <a
+              href={st.endpoint}
+              target="_blank"
+              rel="noreferrer"
+              title={st.endpoint}
+              style="display:inline-block;font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--fg);text-decoration:none"
+            >Open TraceRoost Cloud →</a>
+          </div>
         )}
       </Section>
       <Section title="Why link">
@@ -441,15 +442,15 @@ function UnlinkedBody({ st }: { st: OrgStatus }) {
           <li>An admin sees your individual figures; other members see only what your org's teammate-visibility settings allow</li>
           <li>Opt-in and off by default; nothing is sent until you link</li>
           <li>Reversible any time — unlinking deletes the local credential and stops sending immediately, even offline</li>
-          <li>Works offline — sessions queue locally and send automatically once you're back</li>
+          <li>Works offline — traces queue locally and send automatically once you're back</li>
         </ul>
       </Section>
       <Section title="Data privacy">
         <SentNeverSent />
         <div style="margin-top:8px">
-          <a onClick={() => goToHelp('help-privacy')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+          <button type="button" class="link-btn" onClick={() => goToHelp('help-privacy')} style="font-size:11px">
             How the hashing works, and what linking does →
-          </a>
+          </button>
         </div>
         <PayloadPreview />
       </Section>
@@ -494,9 +495,9 @@ function LinkedBody({ st }: { st: OrgStatus }) {
       <Section title="What is being sent">
         <SentNeverSent />
         <div style="margin-top:8px">
-          <a onClick={() => goToHelp('help-privacy')} style="font-size:11px;color:var(--vscode-textLink-foreground,#4fc3f7);cursor:pointer;text-decoration:underline">
+          <button type="button" class="link-btn" onClick={() => goToHelp('help-privacy')} style="font-size:11px">
             How the hashing works, and what linking does →
-          </a>
+          </button>
         </div>
         <PayloadPreview />
       </Section>
@@ -507,9 +508,9 @@ function LinkedBody({ st }: { st: OrgStatus }) {
           style="font-size:12px;padding:6px 14px;border:1px solid var(--error);border-radius:4px;background:transparent;color:var(--error);cursor:pointer"
         >{busy === 'leave' ? 'Unlinking…' : 'Unlink this machine'}</button>
         {orgActionError.value && (
-          <div style="font-size:11px;color:#f14c4c;margin-top:8px">Unlink failed: {orgActionError.value}</div>
+          <div style="font-size:11px;color:var(--vscode-errorForeground, #f14c4c);margin-top:8px">Unlink failed: {orgActionError.value}</div>
         )}
-        <div style="font-size:10px;color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">Deletes the local credential and stops forwarding immediately — even offline. This only unlinks this machine; you stay a member of {displayOrgName(st)} until an admin removes you from the roster.</div>
       </Section>
     </>
   )
@@ -532,11 +533,11 @@ function TransportStats({ stats }: { stats: TraceSendStats }) {
         {cells.map(c => (
           <div key={c.label} style="background:var(--vscode-editor-background);padding:8px 4px;text-align:center">
             <div style="font-size:16px;font-weight:600;color:var(--fg)">{c.value.toLocaleString()}</div>
-            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px">{c.label}</div>
+            <div style="font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px">{c.label}</div>
           </div>
         ))}
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px">Counted locally, from this machine's own send log — never from the cloud.</div>
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">Counted locally, from this machine's own send log — never from the cloud.</div>
     </div>
   )
 }
@@ -558,19 +559,16 @@ export function OrgPanel() {
   const open = orgOpen.value
   const st = orgStatus.value
 
+  const ref = useDialog<HTMLDivElement>(open, () => { orgOpen.value = false })
   useEffect(() => {
-    if (!open) return
-    requestOrgStatus()
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') orgOpen.value = false }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    if (open) requestOrgStatus()
   }, [open])
 
   return (
-    <div inert={!open} aria-hidden={!open} style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}>
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="org-panel-title" inert={!open} aria-hidden={!open} style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">TraceRoost Cloud · {st?.linked ? displayOrgName(st) : 'Not linked'}</span>
-        <button onClick={() => orgOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)">×</button>
+        <h2 id="org-panel-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">TraceRoost Cloud · {st?.linked ? displayOrgName(st) : 'Not linked'}</h2>
+        <button onClick={() => orgOpen.value = false} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1" title="Close (Esc)" aria-label="Close TraceRoost Cloud panel">×</button>
       </div>
       {!st && <div style="padding:16px;font-size:12px;color:var(--muted)">Checking this machine's status — locally, no network…</div>}
       {st && !st.linked && <UnlinkedBody st={st} />}

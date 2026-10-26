@@ -21,6 +21,8 @@ import { type ShellMode } from './mode'
 
 export type MenuItemId =
   | 'status'
+  | 'error-summary'
+  | 'show-error'
   | 'open-dashboard'
   | 'start'
   | 'stop'
@@ -79,6 +81,26 @@ export function describeCollectorState(state: CollectorState): { label: string; 
   }
 }
 
+/** Why nothing is being collected, when something went wrong: an owned collector that failed or
+ *  is between retries (its last error, which can run to many lines of the collector's own output),
+ *  or a data dir this app may neither attach to nor take over. Undefined otherwise. */
+export function collectionProblem(shell: ShellMode, collector: CollectorState): { title: string; detail: string } | undefined {
+  if (shell.mode === 'own' && (collector.status === 'failed' || collector.status === 'restarting')) {
+    return {
+      title: collector.status === 'failed' ? 'Collection failed' : 'Collection stopped after an error',
+      detail: collector.lastError,
+    }
+  }
+  if (shell.mode === 'blocked') return { title: 'Not collecting', detail: shell.detail }
+  return undefined
+}
+
+/** The first line of `detail`, short enough for a menu line. */
+export function shortErrorText(detail: string, max = 60): string {
+  const first = detail.split('\n').map(l => l.trim()).find(l => l !== '') ?? 'Unknown error'
+  return first.length > max ? `${first.slice(0, max - 1).trimEnd()}…` : first
+}
+
 export function buildMenuModel(input: {
   shell: ShellMode
   collector: CollectorState
@@ -113,6 +135,16 @@ export function buildMenuModel(input: {
 
   const items: (MenuItemModel | { separator: true })[] = [
     { id: 'status', label: status.label, enabled: false, isStatus: true, accessibilityLabel: status.accessibilityLabel },
+  ]
+  // The reason, visibly — not only in the accessibility label — with the whole text one click away.
+  const problem = collectionProblem(shell, collector)
+  if (problem) {
+    items.push(
+      { id: 'error-summary', label: shortErrorText(problem.detail), enabled: false, isStatus: true },
+      { id: 'show-error', label: 'Show Error…', enabled: true },
+    )
+  }
+  items.push(
     { separator: true },
     {
       id: 'open-dashboard',
@@ -120,7 +152,7 @@ export function buildMenuModel(input: {
       enabled: dashboardReachable,
       accessibilityLabel: dashboardReachable ? undefined : 'Open Dashboard. Unavailable until a collector is running.',
     },
-  ]
+  )
 
   if (owned) {
     const running = collector.status === 'running'

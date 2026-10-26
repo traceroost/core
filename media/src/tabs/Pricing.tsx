@@ -83,12 +83,12 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
         </tbody>
       </table>
       {anyTiered && (
-        <div style="font-size:10px;color:var(--muted);margin:-4px 0 12px">
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin:-4px 0 12px">
           † Tiered — a single call whose prompt (input plus cache reads and writes) is over the model's long-context threshold (100K, 200K or 272K) is billed at a higher rate for all of its tokens, output included. Not broken out in this table; see <code>PRICING_SOURCES.md</code> for the full tier.
         </div>
       )}
       {anyPromo && (
-        <div style="font-size:10px;color:var(--muted);margin:-4px 0 12px">
+        <div style="font-size:var(--fs-xs);color:var(--muted);margin:-4px 0 12px">
           ‡ Promotional pricing — hover the marker for the vendor's own note on the rate and its stated window. Not guaranteed permanent; see <code>PRICING_SOURCES.md</code> for details.
         </div>
       )}
@@ -127,7 +127,7 @@ export function Pricing() {
         <div key={section.label} style="margin-top:24px">
           <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px">
             <h3 style="font-size:13px;margin:0;color:var(--fg)">{section.label}</h3>
-            <span style="font-size:10px;color:var(--muted)">verified {section.verified} · <SourceLinks sources={section.sources} /></span>
+            <span style="font-size:var(--fs-xs);color:var(--muted)">verified {section.verified} · <SourceLinks sources={section.sources} /></span>
           </div>
           <RatesTable modelKeys={section.modelKeys} />
         </div>
@@ -137,7 +137,7 @@ export function Pricing() {
         <div style="margin-top:24px">
           <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px">
             <h3 style="font-size:13px;margin:0;color:var(--fg)">Uncategorized</h3>
-            <span style="font-size:10px;color:var(--muted)">
+            <span style="font-size:var(--fs-xs);color:var(--muted)">
               Added to <code>RATES</code> but not yet assigned to a section above — nothing is hidden, this just needs sorting into a vendor group.
             </span>
           </div>

@@ -34,7 +34,7 @@
   margin-right: 4px;
   padding: 1px 7px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -42,24 +42,24 @@
   border: 1px solid transparent;
 }
 .session-agent-copilot {
-  color: #00EAFF;
-  border-color: rgba(0, 234, 255, 0.4);
-  background: rgba(0, 234, 255, 0.12);
+  color: var(--agent-copilot);
+  border-color: color-mix(in srgb, var(--agent-copilot) 45%, transparent);
+  background: color-mix(in srgb, var(--agent-copilot) 12%, transparent);
 }
 .session-agent-claude {
-  color: #FFB085;
-  border-color: rgba(255, 176, 133, 0.4);
-  background: rgba(255, 176, 133, 0.12);
+  color: var(--agent-claude);
+  border-color: color-mix(in srgb, var(--agent-claude) 45%, transparent);
+  background: color-mix(in srgb, var(--agent-claude) 12%, transparent);
 }
 .session-agent-codex {
-  color: #F0FF42;
-  border-color: rgba(240, 255, 66, 0.5);
-  background: rgba(240, 255, 66, 0.14);
+  color: var(--agent-codex);
+  border-color: color-mix(in srgb, var(--agent-codex) 45%, transparent);
+  background: color-mix(in srgb, var(--agent-codex) 12%, transparent);
 }
 .session-agent-cursor {
-  color: #B39DDB;
-  border-color: rgba(179, 157, 219, 0.4);
-  background: rgba(179, 157, 219, 0.12);
+  color: var(--agent-cursor);
+  border-color: color-mix(in srgb, var(--agent-cursor) 45%, transparent);
+  background: color-mix(in srgb, var(--agent-cursor) 12%, transparent);
 }
 
 /* Donut chart */
@@ -95,8 +95,8 @@
 .bar-col { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 20px; max-width: 60px; }
 .bar-rect { width: 100%; border-radius: 3px 3px 0 0; background: #4fc3f7; transition: height 0.3s; position: relative; }
 .bar-rect:hover { opacity: 0.8; }
-.bar-label { font-size: 9px; color: var(--fg); margin-top: 4px; writing-mode: vertical-rl; max-height: 60px; overflow: hidden; }
-.bar-value { font-size: 9px; color: var(--fg); margin-bottom: 2px; }
+.bar-label { font-size: var(--fs-xs); color: var(--fg); margin-top: 4px; writing-mode: vertical-rl; max-height: 60px; overflow: hidden; }
+.bar-value { font-size: var(--fs-xs); color: var(--fg); margin-bottom: 2px; }
 .bar-chart-container { padding: 8px 0 20px; }
 .axis-label { font-size: 11px; color: var(--muted); text-align: center; margin-top: 8px; }
 

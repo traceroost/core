@@ -13,10 +13,15 @@ name: Desktop (Windows)
 #             a reinstall over the running app (which must quit it cooperatively, not kill it), and
 #             a silent uninstall that keeps the user's data.
 #
+# On arm64 the installer check (check-nsis.mjs) takes ~20 minutes — the x86 NSIS stub runs emulated —
+# against ~1.5 on x64, with the same installer script on both. So a pull request that doesn't touch
+# desktop/ (or this workflow) runs it on x64 only; arm64 still builds and smoke-tests the packaged
+# app. A desktop/ change, a push to main, a manual run and a release run it on both.
+#
 # On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
 # runs it through desktop-release.yml (`workflow_call`), which attaches the Windows files to the
-# GitHub release: under its plain name when `signed` comes out true, otherwise as a `*-preview`
-# build labelled "(preview)".
+# GitHub release under its plain name, signed or not (`signed` decides only whether the release notes
+# explain SmartScreen).
 #
 # Signing is switched on by secrets alone (desktop/electron-builder.cjs reads the environment):
 #
@@ -29,7 +34,7 @@ name: Desktop (Windows)
 #                                   signature names them) and are fixed in electron-builder.cjs.
 #
 # The repository variable TRACEROOST_WINDOWS_SIGNING=off switches signing off with the secrets still
-# in place: the build is unsigned, `signed` is false, and a release attaches it as a preview.
+# in place: the build is unsigned, `signed` is false, and a release attaches it unsigned.
 #
 # An empty secret expands to an empty string, which the config treats as absent. With signing
 # configured, a build whose executables are not validly Authenticode-signed is a failure, not a
@@ -119,13 +124,33 @@ jobs:
             runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
     # The arm64 runner runs the x86 NSIS stub emulated: install, upgrade and uninstall alone take
-    # ~15 minutes there.
+    # ~20 minutes there (see the header for when that runs).
     timeout-minutes: 90
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out its merge commit; depth 2 reaches the base (its first parent),
+          # so the installer-check scope below can diff the pull request's own changes.
+          fetch-depth: 2
+
+      # Whether this leg runs the installer check: always on x64; on arm64 unless this is a pull
+      # request whose changes stay outside desktop/ and this workflow. Under workflow_call,
+      # github.event_name is the caller's (a tag push), so a release always runs it.
+      - name: Installer check scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          run=true
+          if [ "$ARCH" = arm64 ] && [ "$EVENT" = pull_request ] && ! git diff --name-only HEAD^1 HEAD | grep -qE '^(desktop/|\.github/workflows/desktop-windows\.yml$)'; then
+            run=false
+            echo "::notice::No desktop/ change: the arm64 installer check is skipped on this pull request (x64 runs it; main and releases run both)"
+          fi
+          echo "installer=$run" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -179,6 +204,7 @@ jobs:
         run: pnpm run smoke
 
       - name: Install, run, upgrade over the running app, uninstall
+        if: steps.scope.outputs.installer == 'true'
         working-directory: desktop
         run: node scripts/check-nsis.mjs "$(ls dist/TraceRoost-*-win-${{ matrix.arch }}.exe)"
 

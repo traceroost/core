@@ -1,5 +1,12 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { sessions } from './fixtures'
+
+/** Language sits in the filter bar's Filters popover (App.tsx's FiltersControl); focus moving
+ *  into it means it's ready for keys. */
+async function openFilters(page: Page) {
+  await page.getByRole('button', { name: /^Filters/ }).click()
+  await expect(page.getByRole('button', { name: 'Close filters' })).toBeFocused()
+}
 
 /**
  * The filter bar's Language select narrows the Traces table to traces whose primary or secondary
@@ -53,6 +60,7 @@ test('Language filter narrows traces; Lang/Changes columns and the breakdown ren
   await expect(unrecorded).toHaveCount(2)
   await expect(unrecorded.first()).toHaveAttribute('aria-label', 'Language: not recorded')
 
+  await openFilters(page)
   const select = page.locator('#tr-filter-language')
   // Only languages some trace has are offered, in allowlist order — full names, not abbreviations.
   await expect(select.locator('option')).toHaveText(['All', 'TypeScript', 'Python', 'Go'])
@@ -64,8 +72,11 @@ test('Language filter narrows traces; Lang/Changes columns and the breakdown ren
   await expect(select.locator('option[value=rust]')).toHaveCount(0)
 
   // Clear Filters resets it.
+  await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Clear Filters' }).click()
+  await openFilters(page)
   await expect(select).toHaveValue('all')
+  await page.keyboard.press('Escape')
   await expect(rows).toHaveCount(8)
 
   await page.locator('.tabs').getByRole('button', { name: 'Analytics', exact: true }).click()
@@ -107,6 +118,7 @@ test('Shell, SQL, HTML, CSS and Dart get their own abbreviations and filter opti
   for (const [, abbr] of NEW) await expect(langCells.filter({ hasText: new RegExp(`^${abbr}$`) })).toHaveCount(1)
 
   // Allowlist order, full names.
+  await openFilters(page)
   const select = page.locator('#tr-filter-language')
   await expect(select.locator('option')).toHaveText(['All', 'Dart', 'Shell', 'SQL', 'HTML', 'CSS'])
   await select.selectOption('sql')
