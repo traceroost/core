@@ -136,7 +136,9 @@ suite('forward/buildSessionRollup', () => {
     const r = buildSessionRollup(BASE, BUILD)
     for (const k of Object.keys(r.tool_calls ?? {})) assert.match(k, /^[a-z_]{1,40}$/)
     assert.strictEqual(r.tool_calls?.bash, 5)
-    assert.ok('mcp__x__y' in (r.tool_calls ?? {}))
+    // An MCP tool is counted as `mcp`: its server name is free text and never leaves the machine.
+    assert.strictEqual(r.tool_calls?.mcp, 2)
+    assert.ok(!Object.keys(r.tool_calls ?? {}).some(k => k.includes('x__y')))
   })
 
   test('an unknown loop signal is dropped, a known one is mapped', () => {

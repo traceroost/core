@@ -20,6 +20,17 @@
 
 import { parseServerFlags, topLevelAction, usageText } from './cliArgs'
 
+// package.json's engines says >=22, but npx and npm only warn (EBADENGINE) and run anyway — so an
+// older Node gets a plain message here instead of whatever breaks first.
+const NODE_MAJOR = Number(process.versions.node.split('.')[0])
+if (NODE_MAJOR < 22) {
+  console.error(
+    `TraceRoost needs Node.js 22 or newer — this is Node ${process.version}. ` +
+      'Install a current LTS from https://nodejs.org (or use Homebrew: brew install traceroost/tap/traceroost).',
+  )
+  process.exit(1)
+}
+
 // TraceRoost Cloud (org link + upload) subcommands and the cloud step of local ones come only
 // through this seam — see cliCloud.ts. The core edition's build swaps in inert stubs. Loaded
 // lazily, like every subcommand, so plain `traceroost` doesn't initialize the cloud CLI modules.

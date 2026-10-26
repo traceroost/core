@@ -25,7 +25,7 @@ Two things it does that a usage dashboard doesn't:
 | --- | --- | --- |
 | **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar |
 | **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
-| **Terminal** (Node.js 24+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:3000> |
+| **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:3000> |
 
 Each one asks before it sets your agents up. History appears immediately; restart your agents for live traces.
 
@@ -282,7 +282,7 @@ Not every signal can fire from every source: most need live OpenTelemetry, and t
 
 ### Local (OTel and log files)
 
-The fastest way to get started — run directly on your machine with no install required. Because it runs natively it has full access to your local log files. Requires Node.js 24+.
+The fastest way to get started — run directly on your machine with no install required. Because it runs natively it has full access to your local log files. Requires Node.js 22+.
 
 ```bash
 # One-off — the @latest tag forces a fresh fetch (see note below)
@@ -710,7 +710,7 @@ it at once.
 
 ### Node.js (from source)
 
-Requires Node.js 24+ and this repository cloned locally.
+Requires Node.js 22+ and this repository cloned locally.
 
 ```bash
 pnpm install

@@ -15,7 +15,7 @@
  *   <root>/node_modules/sql.js/…
  *
  * The runtime is Electron's own binary re-entered as Node (`ELECTRON_RUN_AS_NODE=1`). Electron
- * 44.7.1 bundles Node 24.21.0, which satisfies this repo's `"node": ">=24"` engine requirement, so
+ * 44.7.1 bundles Node 24.21.0, which satisfies this repo's `"node": ">=22"` engine requirement, so
  * no separate Node is packaged and the user needs none installed. That pairing is the thing to
  * re-check on every Electron major: see desktop/README.md.
  */
@@ -26,7 +26,7 @@ import * as path from 'path'
 /** Minimum Node the collector is supported on — `package.json`'s `engines.node`. Asserted against
  *  the runtime actually about to run it, so an Electron upgrade that regressed below it fails
  *  loudly at startup instead of producing syntax errors from the collector bundle. */
-export const MIN_COLLECTOR_NODE_MAJOR = 24
+export const MIN_COLLECTOR_NODE_MAJOR = 22
 
 export interface CollectorResources {
   /** The staged tree's root — the directory holding package.json, standalone/, media/. */

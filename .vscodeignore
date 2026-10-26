@@ -59,3 +59,12 @@ tsconfig.*.json
 # End-to-end suites and their output (tests/e2e/, run by .github/workflows/windows-e2e.yml)
 tests/**
 test-results/**
+playwright-report/**
+# The desktop app and release/maintenance tooling are built and shipped separately.
+desktop/**
+scripts/homebrew-formula.mjs
+scripts/homebrew-local.sh
+scripts/otel-watch.mjs
+scripts/privacy-certificate.mjs
+scripts/third-party-notices.mjs
+scripts/traffic-snapshot.mjs

@@ -112,6 +112,14 @@ suite('forward/schema', () => {
     }
   })
 
+  test('toWireToolName never carries an MCP server name (it is free text: a repo, product or customer name)', () => {
+    for (const t of ['mcp__acme-payments-repo__query', 'MCP__server__tool', 'mcp_secret_project_create_issue', 'mcp']) {
+      assert.strictEqual(toWireToolName(t), 'mcp', t)
+    }
+    assert.strictEqual(toWireToolName('Bash'), 'bash')
+    assert.strictEqual(toWireToolName('apply_patch'), 'apply_patch')
+  })
+
   test('toWireModel strips spaces and out-of-charset bytes (no free text on the wire)', () => {
     assert.match(toWireModel('claude sonnet 5'), /^[A-Za-z0-9._:@/-]{1,80}$/)
     assert.strictEqual(toWireModel('claude-sonnet-5'), 'claude-sonnet-5')

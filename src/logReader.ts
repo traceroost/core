@@ -636,7 +636,7 @@ export class LogReader {
       }
       const rawUsage = msg?.['usage'] as Record<string, unknown> | undefined
       if (rawUsage?.['speed'] === 'fast' && !subagent) hasFastMode = true
-      const usage = rawUsage as Record<string, number> | undefined
+      const usage = tokenUsage(rawUsage)
       let msgTotalInput = 0, msgCacheRead = 0, msgCacheCreate = 0, msgOutput = 0
       if (usage && billable && !synthetic) {
         const inp  = usage['input_tokens']                ?? 0
@@ -1019,8 +1019,8 @@ export class LogReader {
         if (payload?.['type'] === 'token_count') {
           const info = payload['info'] as Record<string, unknown> | undefined
           if (info?.['model']) model = String(info['model'])
-          const total = info?.['total_token_usage'] as Record<string, number> | undefined
-          const last  = info?.['last_token_usage']  as Record<string, number> | undefined
+          const total = tokenUsage(info?.['total_token_usage'])
+          const last  = tokenUsage(info?.['last_token_usage'])
           if (total) lastTotalUsage = total
           if (last) turns++
           limits.add(payload, ts)
@@ -1183,7 +1183,7 @@ export class LogReader {
         if (metrics) {
           sawShutdown = true
           for (const entry of Object.values(metrics)) {
-            const usage = (entry as Record<string, unknown>)?.['usage'] as Record<string, number> | undefined
+            const usage = tokenUsage((entry as Record<string, unknown> | null)?.['usage'])
             if (!usage) continue
             totalInputFromShutdown += usage['inputTokens']     ?? 0
             totalCacheRead          += usage['cacheReadTokens']  ?? 0
@@ -2151,6 +2151,22 @@ interface CardAccum {
  */
 export function dedupeByUuid(lines: string[]): string[] {
   return dedupeParsedByUuid(lines, lines.map(parseLogLine)).lines
+}
+
+/**
+ * An agent's usage object with only its token counts that are finite, non-negative numbers; any
+ * other value (a string, null, a nested object) is left out, so the caller's `?? 0` applies.
+ * Usage was cast straight to numbers, so one non-numeric field in a log line ("12" or "n/a")
+ * turned a trace's token totals into string concatenations and its cost into NaN.
+ * Undefined when `raw` isn't an object.
+ */
+export function tokenUsage(raw: unknown): Record<string, number> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[k] = v
+  }
+  return out
 }
 
 /** JSON.parse of one log line, or undefined when it doesn't parse (JSON never yields undefined). */

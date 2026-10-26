@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { writeFileAtomic, quarantineCorruptFile } from '../fsAtomic'
+import { writeFileAtomic, quarantineCorruptFile, writeAllSync } from '../fsAtomic'
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-fsatomic-'))
@@ -74,6 +74,33 @@ suite('fsAtomic', () => {
       assert.strictEqual(fs.readFileSync(file, 'utf-8'), '[]')
       const names = fs.readdirSync(dir).sort()
       assert.deepStrictEqual(names, ['spans.json', 'spans.json.corrupt-2026-10-05T00-00-00-000Z'])
+    })
+  })
+
+  suite('writeAllSync', () => {
+    test('keeps writing after a short write until every byte is out', () => {
+      const data = Buffer.from('0123456789')
+      const got: Buffer[] = []
+      writeAllSync(7, data, (fd, buf, off, len) => {
+        assert.strictEqual(fd, 7)
+        const n = Math.min(3, len)
+        got.push(Buffer.from(buf.subarray(off, off + n)))
+        return n
+      })
+      assert.strictEqual(Buffer.concat(got).toString(), '0123456789')
+    })
+
+    test('throws ENOSPC when the disk takes no more, instead of returning a truncated write', () => {
+      const data = Buffer.from('0123456789')
+      let calls = 0
+      assert.throws(
+        () => writeAllSync(1, data, (_fd, _buf, _off, len) => (calls++ === 0 ? Math.min(4, len) : 0)),
+        (err: NodeJS.ErrnoException) => err.code === 'ENOSPC' && /4 of 10/.test(err.message),
+      )
+    })
+
+    test('an empty buffer writes nothing', () => {
+      writeAllSync(1, new Uint8Array(0), () => { throw new Error('should not write') })
     })
   })
 })
