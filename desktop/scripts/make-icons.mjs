@@ -15,6 +15,14 @@
  *
  *   node scripts/make-icons.mjs
  *
+ * macOS app icon: `build/icon.icns` (the Dock, Finder, the About box and the DMG's volume icon) is
+ * the tile, not the bare glyph — a black silhouette on transparency all but disappears in a dark
+ * Dock — inset to 824 of every 1024 px, the margin Apple's icon grid leaves around the rounded
+ * square so it sits the same size as its neighbours. It is assembled by `iconutil` rather than
+ * left to electron-builder: the builder's own PNG → .icns conversion stores the 16 and 32 px
+ * frames as PNG (`icp4` / `icp5`), which macOS decodes as noise in Finder lists and the Dock's
+ * small sizes. `iconutil` writes those two as ARGB (`ic04` / `ic05`), which it reads correctly.
+ *
  * Windows: `build/icon.ico` (the app, installer and uninstaller icon, 16…256) and
  * `build/trayWindows.ico` (the notification-area icon, 16…64) are assembled from the tile PNGs
  * above. That step needs no macOS — it runs on any OS, and alone with `--ico` — so the .ico files
@@ -26,6 +34,7 @@
 import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import { createRequire } from 'module'
+import * as os from 'os'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -39,7 +48,7 @@ const buildDir = path.join(desktopDir, 'build')
 
 const icoOnly = process.argv.includes('--ico')
 if (!icoOnly && process.platform !== 'darwin') {
-  console.error('make-icons: the PNGs need macOS (sips). They are committed, so this only has to run when the source glyph changes; `--ico` rebuilds just the Windows .ico files from them, on any OS.')
+  console.error('make-icons: the PNGs and the .icns need macOS (sips, iconutil). They are committed, so this only has to run when the source glyph changes; `--ico` rebuilds just the Windows .ico files from them, on any OS.')
   process.exit(1)
 }
 for (const source of [glyph, tile]) {
@@ -47,14 +56,12 @@ for (const source of [glyph, tile]) {
 }
 fs.mkdirSync(path.join(buildDir, 'icons'), { recursive: true })
 
-/** Menu bar, then the app icon for the Dock and the About box. 16/32 is the 1x/2x menu bar pair.
- *  Then Linux: the tray icon (StatusNotifierItem hosts draw it at 16–24 px and scale down, so a
- *  32/64 pair stays crisp on HiDPI panels), and the app icon electron-builder turns into the
+/** Menu bar: 16/32 is the 1x/2x pair. Then Linux: the tray icon (StatusNotifierItem hosts draw
+ *  it at 16–24 px and scale down, so a 32/64 pair stays crisp on HiDPI panels), and the app icon electron-builder turns into the
  *  hicolor set for the .deb and AppImage and that the window uses at run time. */
 const TARGETS = [
   { name: 'trayTemplate.png', size: 16, source: glyph },
   { name: 'trayTemplate@2x.png', size: 32, source: glyph },
-  { name: 'icon.png', size: 1024, source: glyph },
   { name: 'trayLinux.png', size: 32, source: tile },
   { name: 'trayLinux@2x.png', size: 64, source: tile },
   // The hicolor theme's standard sizes, as electron-builder wants them for a Linux icon directory.
@@ -69,6 +76,30 @@ for (const { name, size, source } of icoOnly ? [] : TARGETS) {
     source, '--out', out,
   ], { stdio: ['ignore', 'ignore', 'inherit'] })
   console.log(`${name}  ${size}×${size}  ${(fs.statSync(out).size / 1024).toFixed(1)} KB`)
+}
+
+// ── macOS .icns, from the tile ──
+
+/** The iconset's file names, each at its pixel size; `iconutil` requires exactly these. */
+const ICONSET = [16, 32, 128, 256, 512].flatMap(size => [
+  { name: `icon_${size}x${size}.png`, px: size },
+  { name: `icon_${size}x${size}@2x.png`, px: size * 2 },
+])
+if (!icoOnly) {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-icon-'))
+  const iconset = path.join(scratch, 'icon.iconset')
+  fs.mkdirSync(iconset)
+  for (const { name, px } of ICONSET) {
+    const out = path.join(iconset, name)
+    const inner = Math.round(px * 824 / 1024)
+    execFileSync('sips', ['-s', 'format', 'png', '-z', String(inner), String(inner), tile, '--out', out], { stdio: ['ignore', 'ignore', 'inherit'] })
+    // Pads with transparency, centred.
+    execFileSync('sips', ['-p', String(px), String(px), out, '--out', out], { stdio: ['ignore', 'ignore', 'inherit'] })
+  }
+  const out = path.join(buildDir, 'icon.icns')
+  execFileSync('iconutil', ['-c', 'icns', iconset, '-o', out], { stdio: ['ignore', 'ignore', 'inherit'] })
+  fs.rmSync(scratch, { recursive: true, force: true })
+  console.log(`icon.icns  16…1024  ${(fs.statSync(out).size / 1024).toFixed(1)} KB`)
 }
 
 // ── Windows .ico, from the tile PNGs above ──

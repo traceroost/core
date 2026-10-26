@@ -58,6 +58,7 @@ What goes into the `.app`:
 | --- | --- |
 | `app.asar` | `out/main.js` and `package.json` — the main process, and nothing else |
 | `collector/` | the staged tree: `standalone/server.js`, `media/…`, `package.json`, `node_modules/sql.js/` |
+| `icon.icns` | the app icon (Dock, Finder, About box; also the DMG's volume icon): the glyph on its teal tile, built by `iconutil` in [`scripts/make-icons.mjs`](scripts/make-icons.mjs) |
 | `tray/` | the menu bar template icons |
 | `LICENSE`, `THIRD_PARTY_NOTICES.md` | this project's license; every bundled package's license and text |
 | `LICENSE.electron.txt`, `LICENSES.chromium.html` | Electron's own, and the Chromium/Node notices it carries (on Linux and Windows, electron-builder puts these beside the executable instead, and only there) |
