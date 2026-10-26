@@ -108,7 +108,7 @@ sequenceDiagram
     VS->>EXT: activate(context)
     EXT->>EXT: createOutputChannel('TraceRoost')
     EXT->>DB: openDatabase(globalStorageUri, extensionUri)
-    Note over DB: Loads/creates traceroost.db<br/>Applies schema + migrations<br/>(cost_usd column guard)
+    Note over DB: Loads/creates traceroost.db<br/>Drops a trace store older than TRACE_STORE_VERSION (traceStore.ts)<br/>Applies schema + adds missing columns in place (schemaEvolution.ts)
     EXT->>STO: new SessionStore(context)
     EXT->>REPO: new SessionRepository(reader, writer, store)
     EXT->>REPO: migrateGlobalStateToSqlite()
@@ -147,7 +147,7 @@ sequenceDiagram
         EXT->>CFG: autoConfigureCodex(port)
     end
     EXT->>VS: registerWebviewViewProvider('traceRoost.dashboard')
-    EXT->>VS: registerCommand('traceRoost.openDashboard')<br/>registerCommand('traceRoost.clearSessions')<br/>registerCommand('traceRoost.showStorageStats')<br/>registerCommand('traceRoost.exportData')<br/>registerCommand('traceRoost.dumpSpanAttrs')
+    EXT->>VS: registerCommand('traceRoost.openDashboard')<br/>registerCommand('traceRoost.clearSessions')<br/>registerCommand('traceRoost.showStorageStats')<br/>registerCommand('traceRoost.exportData')<br/>registerCommand('traceRoost.exportDataRedacted')<br/>registerCommand('traceRoost.dumpSpanAttrs')<br/>registerCommand('traceRoost.orgLink' · 'traceRoost.orgStatus' · 'traceRoost.orgLeave')
     EXT->>VS: createStatusBarItem → 'traceRoost.openDashboard'
 ```
 
@@ -326,7 +326,7 @@ Derived keys carry `derived: true`. Subagent transcripts (`<session>/subagents/a
 
 **Changed turns only.** A growing transcript is re-parsed whole, but `parseFile`/`scan` return only the turns whose card changed since the last pass (`LogReader._onlyChanged`).
 
-**Upgrading a store.** A trace store older than `TRACE_STORE_VERSION` (SQLite `PRAGMA user_version`, `src/database/traceStore.ts` — the extension's `traceroost.db` and the standalone server's `outcomes-cache.db`) is not migrated: its trace tables (sessions with their timelines, git-outcome caches, trace revisions, commit attribution, plan-limit hits) are dropped and refilled by reading the agent logs again from scratch (`LOG_FILE_STATE_VERSION` 4, and 5 with `TRACE_STORE_VERSION` 2), and queued or delivered trace records go with them, while settings, instruction suggestions, blame/turnover caches, plan-limit readings and rollups, the cloud link and the host id are kept. The trace-key manifest (the list of trace keys a host still holds, which lets the cloud retire rows deleted locally — `src/cloud/forward/traceManifest.ts` — see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)`, `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` over the standalone server's cards.
+**Upgrading a store.** A trace store older than `TRACE_STORE_VERSION` (SQLite `PRAGMA user_version`, `src/database/traceStore.ts` — the extension's `traceroost.db` and the standalone server's `outcomes-cache.db`) is not migrated: its trace tables (sessions with their timelines, git-outcome caches, trace revisions, commit attribution, plan-limit hits) are dropped and refilled by reading the agent logs again from scratch (`LOG_FILE_STATE_VERSION` 4, and 5 with `TRACE_STORE_VERSION` 2), and queued or delivered trace records go with them, while settings, instruction suggestions, blame/turnover caches, plan-limit readings and rollups, the cloud link and the host id are kept. The trace-key manifest (the list of trace keys a host still holds, which lets the cloud retire rows deleted locally — `src/cloud/forward/traceManifest.ts` — see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)`, `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` (`src/traceIdentity.ts`) over the standalone server's cards.
 
 ### Per-session language and change size
 
@@ -344,7 +344,7 @@ Every card gets `language` / `languageSecondary` and `filesChangedCount` / `line
 
 ## 5. OTLP Collector
 
-A minimal HTTP/1.1 server (Node `http` module) that handles three routes and maintains stateful session reconstruction for Codex.
+A minimal HTTP/1.1 server (Node `http` module) that handles three OTLP routes plus a `GET /traceroost/plugin` probe (the parsing and Codex state live in `src/otlpIngest.ts`, shared with the standalone server) and maintains stateful session reconstruction for Codex.
 
 ```mermaid
 graph LR
@@ -566,6 +566,8 @@ erDiagram
 
 Large string fields (`responseText`, `thinking`, `toolInput`, `fullResult`, `oldString`, `newString`) above 512 bytes are stored as files at `globalStorageUri/blobs/<spanId>-<field>.txt` rather than inline in the DB. The `has_blob` flag indicates when to read from disk instead.
 
+The diagram shows the trace tables only. The same database also holds `trace_sends` (the delivery record behind `queryTraceSendStats`), `trace_revision` / `trace_revision_counter` (live reconciliation, §File Map), `git_outcome` / `git_outcome_key`, `file_blame`, `commit_attribution` and `cohort_turnover` (the §15 caches), `claude_join` (the Claude OTEL↔transcript join) and the `limit_*` tables (`src/planUsage/`) — 19 tables in `SCHEMA_SQL`.
+
 `one_shot_stats` (added for the one-shot/retry-rate metric) and `instruction_applied`/`instruction_dismissed` (added for the Advisor tab's instruction-suggestion tracking) are not tied to `sessions` by a foreign key in the diagram above — the former is a column on `sessions`, the latter two are keyed by `workspace` (a free-text column, not `sessions.workspace` as an FK) since suggestions are workspace-scoped, not session-scoped.
 
 ### Component responsibilities
@@ -576,7 +578,7 @@ graph TD
         SCH[schema.ts<br/>SCHEMA_SQL - CREATE TABLE statements]
         DBT[db.ts<br/>TraceRoostDb - opens DB, applies<br/>schema + migrations, save/dispose]
         WRI[writer.ts<br/>DatabaseWriter - enqueue/drain/clearAll<br/>Computes cost_usd at write time]
-        REA[reader.ts<br/>DatabaseReader - listSessions<br/>queryDailyStats · queryLifetimeStats<br/>searchSessions · queryBurnRate<br/>loadSessionTimeline · loadBlob]
+        REA[reader.ts<br/>DatabaseReader - listSessions<br/>queryDailyStats · queryHourlyStats · queryLifetimeStats<br/>searchSessions · queryBurnRate · queryTraceSendStats<br/>loadSessionTimeline · loadBlob · listTraceKeys]
         MIG[migration.ts<br/>migrateGlobalStateToSqlite<br/>One-time globalState to SQLite]
         RET[retention.ts<br/>runRetention - DELETE old sessions<br/>Evict orphaned blob files]
     end
@@ -648,10 +650,7 @@ sequenceDiagram
     REA->>DB: SELECT timeline_entries + edit_details
     DASH->>WV: postMessage { type:'sessionDetail', timeline }
 
-    WV->>DASH: postMessage { type:'loadBlob', spanId, field }
-    DASH->>REPO: loadBlob(spanId, field)
-    REA->>BLB: readFile
-    DASH->>WV: postMessage { type:'blobContent', content }
+    Note over DASH,WV: No blob exchange: a stored timeline is shown without its blob-backed<br/>text (SessionRepository.loadBlob exists, but no message requests it)
 
     WV->>DASH: postMessage { type:'searchSessions', query }
     DASH->>REPO: searchSessions(query)
@@ -684,10 +683,15 @@ classDiagram
         +derived?: boolean
         +sourceRank?: number
         +subagentCount?: number
+        +keyPending?: boolean
+        +initiator?: string
+        +gitBranch?: string
+        +claudeSessionId?: string
         +workspace: string
         +projectPath?: string
         +userRequest: string
         +model: string
+        +models?: string[]
         +turns: number
         +inputTokens: number
         +outputTokens: number
@@ -698,7 +702,9 @@ classDiagram
         +startTime: string
         +filesRead: string[]
         +filesChanged: string[]
+        +filesWritten: string[]
         +filesSearched: string[]
+        +filesChangedNote?: string
         +toolCounts: Record~string,number~
         +totalToolCalls: number
         +totalLlmCalls: number
@@ -707,6 +713,7 @@ classDiagram
         +timeline: TimelineEntry[]
         +backgroundSpans: BackgroundSpanSummary[]
         +loopSignals: LoopSignal[]
+        +peakContextPerTurn?: number
         +oneShotStats?: OneShotStats
         +language?: SessionLanguage
         +languageSecondary?: CodeLanguage | null
@@ -729,13 +736,19 @@ classDiagram
         +model?: string
         +inputTokens?: number
         +outputTokens?: number
+        +cacheReadTokens?: number
+        +cacheCreateTokens?: number
         +ttft?: number
         +durationMs: number
         +action?: string
         +responseText?: string
+        +thinking?: string
         +toolInput?: string
+        +resultSummary?: string
+        +fullResult?: string
         +decision?: string
         +isError: boolean
+        +errorMessage?: string
         +timestamp: string
         +editDetails?: EditDetail[]
     }
@@ -775,7 +788,7 @@ classDiagram
     BurnRate "1" -- "0..1" Projection : paired with
 ```
 
-**Lazy timeline loading:** `SessionSummaryCard.timeline` is always `[]` when read from SQLite. The webview requests individual timelines on demand via `loadSessionDetail`. Blob fields (`responseText`, `thinking`, etc.) are further deferred until the user expands an entry (`loadBlob`).
+**Lazy timeline loading:** `SessionSummaryCard.timeline` is always `[]` when read from SQLite. The webview requests individual timelines on demand via `loadSessionDetail`. Blob fields (`responseText`, `thinking`, `toolInput`, `fullResult`, edit `oldString`/`newString`) are written to `blobs/` but `loadSessionTimeline` does not read them back, and no webview message asks for them — `SessionRepository.loadBlob` has no caller today, so only a card still in the live span window shows that text.
 
 ---
 
