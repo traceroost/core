@@ -15,7 +15,7 @@ suite('resources — runtime check', () => {
   test('an Electron upgrade that regressed the bundled Node fails loudly', () => {
     assert.throws(
       () => assertRuntimeSupportsCollector(`${MIN_COLLECTOR_NODE_MAJOR - 1}.9.0`),
-      /requires Node >=24/,
+      /requires Node >=22/,
     )
   })
 

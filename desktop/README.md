@@ -454,7 +454,7 @@ executes unmodified inside the app:
 
 The collector runs on **Electron's bundled Node**, via `ELECTRON_RUN_AS_NODE=1` on
 `process.execPath`. Electron 44.7.1 bundles Node 24.21.0, which satisfies this repo's
-`"engines": { "node": ">=24" }`, so no second runtime is packaged and the user needs none
+`"engines": { "node": ">=22" }`, so no second runtime is packaged and the user needs none
 installed.
 
 **Re-check this on every Electron major.** `resources.ts` asserts it at startup and fails loudly

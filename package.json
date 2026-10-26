@@ -16,7 +16,7 @@
   },
   "engines": {
     "vscode": "^1.118.0",
-    "node": ">=24"
+    "node": ">=22"
   },
   "icon": "media/mascot-color.png",
   "galleryBanner": {
