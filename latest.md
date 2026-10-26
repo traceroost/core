@@ -1,4 +1,4 @@
-# OpenTelemetry upstream watch — 2026-10-24
+# OpenTelemetry upstream watch — 2026-10-26
 
 ## Claude Code
 
@@ -8,13 +8,20 @@ Read by: `src/spanSummarizer.ts`, `src/claudeTurnJoin.ts`, `src/otlpIngest.ts`, 
 
 <https://code.claude.com/docs/en/monitoring-usage.md>
 
-- Baseline recorded (1816 lines); changes are reported from the next run on.
+- Changed: 4 line(s)
+
+```diff
+- * **You exported it in a login file**: only login shells read a file such as `/etc/profile`. A value you `export` there reaches Claude Code that you start from a login shell. It doesn't reach a Desktop SSH session, because Desktop doesn't start Claude Code through a login shell.
+- * `precompute_reuse`: Only set when `trigger` is `"manual"` or for an [idle compaction](https://code.claude.com/docs/en/settings-reference.md#idlecompaction), which reports `trigger` as `"auto"`. Auto-compaction can prepare a summary in the background before the context window fills, and this attribute records whether the compaction reused that prepared summary. `"hit"` means it was reused; `"miss_custom_instructions"`, `"miss_hook"`, and `"miss_not_ready"` give the reason a fresh summary was computed instead
++ * **You exported it in `/etc/profile` or another file that only login shells read**: the name arrives when you run `claude` from a login shell, but not in a Desktop SSH session. Desktop doesn't start Claude Code through a login shell. Set the variable under `env` in the [managed settings file](https://code.claude.com/docs/en/desktop.md#managed-settings) on the remote machine instead.
++ * `precompute_reuse`: Only set when `trigger` is `"manual"`, or when `trigger` is `"auto"` for an [idle compaction](https://code.claude.com/docs/en/settings-reference.md#idlecompaction) in an interactive terminal session. Auto-compaction can prepare a summary in the background before the context window fills, and this attribute records whether the compaction reused that prepared summary. `"hit"` means it was reused; `"miss_custom_instructions"`, `"miss_hook"`, and `"miss_not_ready"` give the reason a fresh summary was computed instead
+```
 
 ### CHANGELOG.md (telemetry lines only)
 
 <https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md>
 
-- Baseline recorded (9483 lines); changes are reported from the next run on.
+- No change.
 
 ## Codex
 
@@ -24,13 +31,13 @@ Read by: `src/otlpParser.ts`, `src/spanSummarizer.ts`, `src/otelTraceKeys.ts`
 
 <https://github.com/openai/codex>
 
-- Baseline recorded (latest commit d4e03ac on 2026-10-20); changes are reported from the next run on.
+- No commits.
 
 ### codex-rs/otel/README.md (events, attributes, config keys)
 
 <https://raw.githubusercontent.com/openai/codex/main/codex-rs/otel/README.md>
 
-- Baseline recorded (266 lines); changes are reported from the next run on.
+- No change.
 
 ## GitHub Copilot (Chat)
 
@@ -40,7 +47,7 @@ Read by: `src/spanSummarizer.ts`, `src/otlpIngest.ts`
 
 <https://github.com/microsoft/vscode-copilot-chat>
 
-- Baseline recorded (latest commit ae752d9 on 2026-03-31); changes are reported from the next run on.
+- No commits.
 
 ## GitHub Copilot (CLI)
 
@@ -50,7 +57,7 @@ Read by: `src/logReader.ts`
 
 <https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md>
 
-- Baseline recorded (3569 lines); changes are reported from the next run on.
+- No change.
 
 ## OpenCode
 
@@ -62,7 +69,7 @@ Read by: `src/logReader.ts`
 
 <https://github.com/anomalyco/opencode>
 
-- Baseline recorded (latest commit 1aae67e on 2026-10-09); changes are reported from the next run on.
+- No commits.
 
 ## Cursor
 
