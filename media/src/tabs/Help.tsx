@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { BrandMark } from '../BrandMark'
 import { SIGNAL_FORMULAS, formulaHtml } from '../signalFormulas'
-import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON } from '../signalIcons'
+import { LOOP_SIGNAL_ICON_TYPE, SignalBadge } from '../signalIcons'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -146,14 +146,11 @@ function DataSourceBadge({ value }: { value: 'otel' | 'log' | 'both' }) {
 function LoopBlock({ id, title, signalType, why, caveat, example, steps, impact, dataSource, dataSourceNote }: {
   id: string; title: string; signalType: keyof typeof LOOP_SIGNAL_ICON_TYPE; why: string; caveat?: string; example: string; steps: string; impact: string; dataSource: 'otel' | 'log' | 'both'; dataSourceNote: string
 }) {
-  const Icon = SIGNAL_ICON[LOOP_SIGNAL_ICON_TYPE[signalType]]
   return (
     <div class="glossary-item" id={id} style="scroll-margin-top:12px;flex-direction:column;gap:6px">
       <div style="display:flex;gap:12px;align-items:flex-start">
         <dt class="glossary-term" style="min-width:200px">
-          <span style="margin-right:6px;display:inline-flex;vertical-align:middle">
-            <Icon color="var(--fg)" />
-          </span>
+          <SignalBadge type={LOOP_SIGNAL_ICON_TYPE[signalType]} severity="neutral" style="margin-right:6px" />
           {title}
           <DataSourceBadge value={dataSource} />
         </dt>
@@ -640,6 +637,12 @@ function SignalsSection() {
     <div class="help-section" id="help-signals">
       <h3 class="help-heading">{HELP_SECTIONS.signals.heading}</h3>
       <p style="font-size:12px;color:var(--muted);margin:0 0 12px"><a href="#gl-signal">Loop signals</a> are behavioral patterns indicating the <a href="#gl-agent">agent</a> is stuck, oscillating, or spiraling into unproductive work — or, for the cache and cost signals, spending more than the work needed. They appear in the Insights panel (inside the <strong>Overview</strong> sub-tab of each trace) with warning or critical severity. Each entry below says exactly when it fires, how well that threshold has been checked against real sessions, what <em>you</em> do about it, and the one instruction to paste to the agent. The <strong>OTel</strong>/<strong>Log</strong> badge on each one below shows what a trace actually needs to capture for it to fire — most need live OpenTelemetry, since a reconstructed log-only trace usually lacks the tool-result detail these read; the note under each badge names the one log source (if any) that's the exception. See <a href="#help-badges">Badges</a> for what a Log-sourced trace is missing more generally.</p>
+      <p class="sig-legend" style="font-size:12px;color:var(--muted);margin:-4px 0 12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span>Icon key:</span>
+        <SignalBadge type="retry-loop" severity="critical" size="sm" aria-hidden="true" /><span>solid tile = critical</span>
+        <span aria-hidden="true">·</span>
+        <SignalBadge type="retry-loop" severity="warning" size="sm" aria-hidden="true" /><span>tinted tile = warning</span>
+      </p>
       <div class="glossary">
           <LoopBlock id="help-tool-deadlock" title="Tool Call Deadlock" signalType="exact_tool_repeat"
             why={formulaHtml(SIGNAL_FORMULAS.exact_tool_repeat.bullets)}

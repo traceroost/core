@@ -163,3 +163,27 @@ export const SIGNAL_ICON: Record<string, (props: { color: string }) => JSX.Eleme
   'runaway-cost': IconTrendingUp,
   'context-thrash': IconRefreshCcw,
 }
+
+export type SignalBadgeSeverity = 'warning' | 'critical' | 'neutral'
+
+/** The one way a signal glyph is drawn anywhere in the dashboard: SIGNAL_ICON's glyph inside a
+ *  rounded-square tile (`.sig-badge` in styles/base.css). Severity is fill weight, not hue alone,
+ *  so it still reads by luminance for colour-blind users: critical is a solid --error tile with the
+ *  glyph knocked out in the background colour; warning is a soft amber tint with a darker amber
+ *  glyph; neutral (no severity — Help's glossary) is a faint foreground tint. `sm` is for dense
+ *  table cells (the Traces Signals column, waterfall evidence chips), `md` everywhere else.
+ *  `type` is an icon bucket ('retry-loop') or a LoopSignalType ('error_recurrence'). Every other
+ *  prop (role, tabIndex, aria-*, title, data-tip-html, style) passes through to the tile, so a
+ *  caller's tooltip and focus behaviour stay its own. */
+export function SignalBadge({ type, severity, size = 'md', class: cls, ...rest }: {
+  type: string
+  severity: SignalBadgeSeverity
+  size?: 'sm' | 'md'
+} & Omit<JSX.HTMLAttributes<HTMLSpanElement>, 'type' | 'size'>) {
+  const Icon = SIGNAL_ICON[type] ?? SIGNAL_ICON[LOOP_SIGNAL_ICON_TYPE[type as LoopSignalType]]
+  return (
+    <span {...rest} class={`sig-badge ${severity} ${size}` + (cls ? ` ${cls}` : '')}>
+      {Icon ? <Icon color="currentColor" /> : <span class="sig-badge-fallback">?</span>}
+    </span>
+  )
+}

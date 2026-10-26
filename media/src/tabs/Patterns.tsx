@@ -8,7 +8,7 @@ import type { SessionSummaryCard } from '../types'
 import { getCostSavingActions, type CostSavingAction } from '../costSavingActions'
 import { planUsage } from '../planUsage'
 import { showLimitTraces } from './PlanLimits'
-import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SIGNAL_SEVERITY_COLOR } from '../signalIcons'
+import { LOOP_SIGNAL_ICON_TYPE, SIGNAL_ICON, SignalBadge } from '../signalIcons'
 import { SIGNAL_FORMULAS } from '../signalFormulas'
 import { SectionNav, type NavSection } from '../SectionNav'
 
@@ -332,16 +332,15 @@ function IconFileText({ color }: { color: string }) {
 
 // Loop-signal actions draw the exact same glyph the traces table's Signals column uses for that
 // pattern (same convention as Insights.tsx's InsightIcon) so "how to spend less" and the Signals
-// column always agree on what a given struggle pattern looks like. Non-loop kinds get a plain
-// neutral icon since they have no traces-table equivalent.
+// column always agree on what a given struggle pattern looks like — in the same SignalBadge tile.
+// Non-loop kinds have no traces-table equivalent, so they get a plain icon on the neutral tile, so
+// every row of the list carries the same tile shape.
 function ActionIcon({ a }: { a: CostSavingAction }) {
   if (a.kind === 'loop_signal') {
     const iconType = a.loopSignalType ? LOOP_SIGNAL_ICON_TYPE[a.loopSignalType] : undefined
-    const Icon = iconType ? SIGNAL_ICON[iconType] : undefined
-    if (Icon) return <Icon color={SIGNAL_SEVERITY_COLOR[a.loopSignalSeverity ?? 'warning']} />
+    if (iconType && SIGNAL_ICON[iconType]) return <SignalBadge type={iconType} severity={a.loopSignalSeverity ?? 'warning'} />
   }
-  if (a.kind === 'cache_rate') return <IconZap color="var(--fg)" />
-  return <IconFileText color="var(--fg)" />
+  return <span class="sig-badge neutral md">{a.kind === 'cache_rate' ? <IconZap color="currentColor" /> : <IconFileText color="currentColor" />}</span>
 }
 
 // Loop-signal rows get the same bold-heading-plus-"What to do" hover as the Signals column's own
@@ -405,7 +404,7 @@ function SaveMoneyCard({ actions }: { actions: CostSavingAction[] }) {
           return (
             <div key={a.id} style="display:flex;gap:8px;align-items:flex-start;font-size:12px">
               <span
-                style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;flex-shrink:0;margin-top:2px"
+                style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"
                 {...(tip ? { title: tip, 'data-tip-html': true, tabIndex: 0, role: 'img', 'aria-label': tip.replace(/<[^>]+>/g, '').replace(/\n/g, ' ') } : {})}
               >
                 <ActionIcon a={a} />
