@@ -136,7 +136,7 @@ module.exports = {
 
   directories: {
     output: 'dist',
-    // Holds icon.png (converted to .icns by the builder) and the entitlements. The builder keeps
+    // Holds the app icons and the entitlements. The builder keeps
     // this directory out of the app, which is why the tray PNGs below travel as extraResources.
     buildResources: 'build',
   },
@@ -186,7 +186,9 @@ module.exports = {
       { from: 'node_modules/electron/dist/LICENSES.chromium.html', to: 'LICENSES.chromium.html' },
     ],
     category: 'public.app-category.developer-tools',
-    icon: 'build/icon.png',
+    // The tile as a ready-made .icns (scripts/make-icons.mjs): the builder's own PNG conversion
+    // garbles the 16 and 32 px frames. Also becomes the DMG's volume icon.
+    icon: 'build/icon.icns',
     // Architectures come from the command line (`--arm64 --x64`, or none for the host's), so a
     // developer's quick local build and CI's two-architecture build share this one config. A DMG
     // per architecture rather than one universal app, which would double every download.
