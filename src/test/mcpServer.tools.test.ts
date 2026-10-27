@@ -274,6 +274,19 @@ suite('mcpServer tools', () => {
       assert.deepStrictEqual(r.suggestions, [])
     })
 
+    test('get_instruction_suggestions names only the target agents with traces in the repo', async () => {
+      // A hot file in every Claude Code trace: the card targets Claude, Codex, OpenCode and Cursor.
+      sessions = Array.from({ length: 5 }, (_, i) => card({ sessionId: `h${i}`, filesRead: ['src/hot.ts'] }))
+      const r = await call(client, 'get_instruction_suggestions', { workspace: '/repo/a' }) as Array<{ id: string; targetAgents: string[] }>
+      const hot = r.find(s => s.id.startsWith('hot_file:'))
+      assert.ok(hot, JSON.stringify(r))
+      assert.deepStrictEqual(hot.targetAgents, ['claude_code'])
+      // None of its targets in use (Copilot only): the full list rather than none.
+      sessions = sessions.map(s => ({ ...s, source: 'copilot' as const }))
+      const r2 = await call(client, 'get_instruction_suggestions', { workspace: '/repo/a' }) as Array<{ id: string; targetAgents: string[] }>
+      assert.deepStrictEqual(r2.find(s => s.id.startsWith('hot_file:'))?.targetAgents, ['claude_code', 'codex', 'opencode', 'cursor'])
+    })
+
     test('check_automation_triggers requires a workspace and reports none for an idle one', async () => {
       assert.deepStrictEqual(await call(client, 'check_automation_triggers', {}),
         { error: 'workspace is required — automation triggers are project-scoped.' })

@@ -8,6 +8,7 @@ import { calcSessionCost } from '../sessionMetrics'
 import type { SessionSummaryCard } from '../types'
 import { getAgentSourceLabel } from '../utils'
 import { openAgentSetup } from './Settings'
+import { activeTraceFilters, clearTraceFilters } from '../traceFilters'
 import {
   generateSuggestions as generateSuggestionsWithCost, SCOPE_PATTERNS, BASH_TOOLS, READ_TOOLS,
   type SuggestionCard, type SuggestionCategory,
@@ -18,6 +19,8 @@ import {
 
 interface InstructionFile {
   agent: string
+  /** Every agent that reads the file (AGENTS.md: Codex, OpenCode, Cursor); falls back to `agent`. */
+  agents?: string[]
   label: string
   relativePath: string
   exists: boolean
@@ -231,14 +234,15 @@ function InsufficientDataState({ workspace, count, filtered }: {
 function FileStatusBar({ files }: { files: InstructionFile[] }) {
   if (files.length === 0) return null
   return (
-    <div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border)">
+    <div style="display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border)">
+      <span style="font-size:var(--fs-xs);color:var(--muted)">Instruction files:</span>
       {files.map(f => (
         <span
           key={f.agent}
+          data-instruction-file-status={f.exists ? 'present' : 'missing'}
           style={`font-size:var(--fs-xs);padding:3px 8px;border-radius:10px;border:1px solid ${f.exists ? '#81c784' : 'var(--border)'};color:${f.exists ? '#81c784' : 'var(--muted)'}`}
-          title={f.exists ? f.relativePath : `Not found: ${f.relativePath}`}
         >
-          {f.exists ? '✓' : '✗'} {f.label}
+          {f.relativePath} · {f.exists ? 'present' : 'not found'}
         </span>
       ))}
     </div>
@@ -268,17 +272,19 @@ function TextBlock({ label, text }: { label: string; text: string }) {
 }
 
 function SuggestionCardView({
-  card, files, repoWorkspace, onApply, onDismiss,
+  card, files, repoWorkspace, observedAgents, onApply, onDismiss,
 }: {
   card: SuggestionCard
   /** Empty when this card can't be applied (no folder to write into): the picker is hidden. */
   files: InstructionFile[]
   /** Shown as a pill when the card isn't already under its repo's group header. */
   repoWorkspace: string | null
+  observedAgents: SessionSummaryCard['source'][]
   onApply: (card: SuggestionCard, targetFile: string) => void
   onDismiss: (id: string) => void
 }) {
-  // Target picker: the detected instruction files (getInstructionFiles), an existing one first.
+  // Target picker: the detected instruction files (getInstructionFiles) read by agents in use in
+  // this repo (filesForAgentsInUse), an existing one first.
   // The host resolves the choice against this card's workspace; a missing file is created on apply.
   const defaultFile = files.find(f => f.exists)?.relativePath ?? files[0]?.relativePath ?? ''
   const [targetFile, setTargetFile] = useState('')
@@ -307,10 +313,11 @@ function SuggestionCardView({
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;color:var(--fg)">{card.title}</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">{card.evidence}</div>
-          <div style="display:flex;gap:4px;margin-top:4px">
-            {card.targetAgents.map(a => (
-              <span key={a} style="font-size:var(--fs-xs);padding:1px 5px;border-radius:4px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border)">
-                {AGENT_LABEL[a] ?? a}
+          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:4px">
+            <span style="font-size:var(--fs-xs);color:var(--muted)">Observed in traces:</span>
+            {observedAgents.map(agent => (
+              <span key={agent} data-observed-agent={agent} style="font-size:var(--fs-xs);padding:1px 5px;border-radius:4px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border)">
+                {AGENT_LABEL[agent] ?? agent}
               </span>
             ))}
           </div>
@@ -319,7 +326,7 @@ function SuggestionCardView({
           <span
             title={repoTitle}
             style="font-size:var(--fs-xs);padding:2px 7px;border-radius:8px;background:var(--card-bg);color:var(--muted);border:1px solid var(--border);flex-shrink:0;white-space:nowrap;margin-top:1px"
-          >{repoLabel}</span>
+          >Repo: {repoLabel}</span>
         )}
         <button
           onClick={() => onDismiss(card.id)}
@@ -499,6 +506,7 @@ interface WorkspaceView {
   /** '' for traces with no recorded folder. */
   workspace: string
   sessions: SessionSummaryCard[]
+  /** Only the files read by agents with traces in this repo — see filesForAgentsInUse. */
   files: InstructionFile[]
   /** The host reports this folder no longer exists on disk. */
   missing: boolean
@@ -506,14 +514,27 @@ interface WorkspaceView {
   applied: AppliedRecord[]
 }
 
+// The status bar and Apply picker list only the files read by agents that have worked in this repo:
+// a missing Cursor rule is clutter where only Claude Code runs, and Apply shouldn't default to
+// creating CLAUDE.md for a Codex user. Read from every loaded trace of the repo, not the filtered
+// set, so the header's Agent or time filter doesn't hide a file still in use.
+function filesForAgentsInUse(workspace: string, files: InstructionFile[]): InstructionFile[] {
+  const inUse = new Set<string>()
+  for (const s of sessionSummary.value?.sessions ?? []) {
+    if ((s.workspace ?? '') === workspace) inUse.add(s.source)
+  }
+  return files.filter(f => (f.agents ?? [f.agent]).some(a => inUse.has(a)))
+}
+
 function workspaceView(workspace: string, sessions: SessionSummaryCard[]): WorkspaceView {
   const entry = instructionFilesByWorkspace.value[workspace]
-  const files = entry?.files ?? []
+  const allFiles = entry?.files ?? []
+  const files = filesForAgentsInUse(workspace, allFiles)
   const applied = appliedSuggestions.value.filter(a => a.workspace === workspace)
   const appliedIds = new Set(applied.map(a => a.id))
   const dismissed = dismissedByWorkspace.value[workspace]
   // Existing instruction text suppresses suggestions it already covers.
-  const existingText = files.map(f => f.content).join('\n')
+  const existingText = allFiles.map(f => f.content).join('\n')
   const pending = generateSuggestions(sessions, existingText)
     .filter(s => !appliedIds.has(s.id) && !dismissed?.has(s.id))
   return { workspace, sessions, files, missing: entry?.missing === true, pending, applied }
@@ -632,6 +653,9 @@ function WorkspaceSuggestions({ view, canApply, repoPill }: { view: WorkspaceVie
               card={card}
               files={canApply ? view.files : []}
               repoWorkspace={repoPill && workspace ? workspace : null}
+              observedAgents={[...new Set(sessions
+                .filter(s => card.evidenceSessions.includes(s.sessionId))
+                .map(s => s.source))]}
               onApply={handleApply}
               onDismiss={handleDismiss}
             />
@@ -721,27 +745,209 @@ function DiagnosticsPanel({ sessions }: { sessions: SessionSummaryCard[] }) {
 
 const noteStyle = 'margin-bottom:12px;padding:8px 12px;font-size:11px;color:var(--muted);line-height:1.5;background:var(--card-bg);border:1px solid var(--border);border-radius:4px'
 
-function WorkspaceGroup({ view, canApply }: { view: WorkspaceView; canApply: boolean }) {
-  const { workspace, missing } = view
+// Repos whose group is collapsed, remembered per viewer across reloads (a convenience only: every
+// group starts expanded if storage is unavailable).
+const COLLAPSED_STORAGE_KEY = 'traceroost-instructions-collapsed-repos'
+
+function readCollapsed(): Set<string> {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(COLLAPSED_STORAGE_KEY) ?? '[]')
+    if (Array.isArray(v)) return new Set(v.filter((x): x is string => typeof x === 'string'))
+  } catch { /* localStorage unavailable or corrupt — everything expanded */ }
+  return new Set()
+}
+
+const collapsedWorkspaces = signal<Set<string>>(readCollapsed())
+
+function setCollapsed(next: Set<string>): void {
+  collapsedWorkspaces.value = next
+  try {
+    localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify([...next]))
+  } catch { /* localStorage unavailable — the choice just won't survive a reload */ }
+}
+
+function toggleCollapsed(workspace: string): void {
+  const next = new Set(collapsedWorkspaces.value)
+  if (next.has(workspace)) next.delete(workspace)
+  else next.add(workspace)
+  setCollapsed(next)
+}
+
+function WorkspaceGroup({ view, canApply, highlight }: { view: WorkspaceView; canApply: boolean; highlight: boolean }) {
+  const { workspace, missing, pending, applied, sessions } = view
   const info = repoInfo.value
+  const collapsed = collapsedWorkspaces.value.has(workspace)
+  const sort = repoSort.value
+  // Each header shows every value the repos can be sorted by; the one they're sorted by now stands
+  // out, so the order explains itself.
+  const metric = (key: RepoSort, text: string) => (
+    <span data-repo-metric={key} data-sorted={highlight && sort === key ? '' : undefined}
+      style={highlight && sort === key ? 'color:var(--fg);font-weight:600' : undefined}>{text}</span>
+  )
+  const lastMs = lastActiveMs(sessions)
+  const bodyId = `instructions-repo-${encodeURIComponent(workspace || 'none')}`
   const note = !workspace
     ? 'These traces recorded no repo folder, so their suggestions are for reference only.'
     : missing ? 'This folder no longer exists on this machine, so suggestions can\'t be applied here.'
     : null
   return (
-    <section data-instructions-workspace={workspace} style="margin-bottom:20px">
-      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px;min-width:0">
-        <span style="font-size:13px;font-weight:600;color:var(--fg)" title={workspace ? repoTooltipName(workspace, info) : undefined}>
-          {workspace ? repoDisplayName(workspace, info) : 'No repo recorded'}
+    <section
+      data-instructions-workspace={workspace}
+      style="margin-bottom:14px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;overflow:hidden"
+    >
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        aria-controls={bodyId}
+        onClick={() => toggleCollapsed(workspace)}
+        title={workspace ? repoTooltipName(workspace, info) : undefined}
+        style={`display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;width:100%;min-width:0;padding:10px 12px;border:none;${collapsed ? '' : 'border-bottom:1px solid var(--border);'}background:var(--card-bg);color:var(--fg);font:inherit;text-align:left;cursor:pointer`}
+      >
+        <span aria-hidden="true" style="flex-shrink:0;width:10px;font-size:10px;color:var(--muted)">{collapsed ? '▶' : '▼'}</span>
+        <span style="display:flex;flex-direction:column;gap:2px;flex:1 1 220px;min-width:0">
+          <span style="font-size:14px;font-weight:600;overflow-wrap:anywhere">
+            {workspace ? `Repo: ${repoDisplayName(workspace, info)}` : 'No repo recorded'}
+          </span>
+          {workspace && (
+            <span style="font-size:var(--fs-xs);font-family:monospace;color:var(--muted);overflow-wrap:anywhere">{workspace}</span>
+          )}
         </span>
-        {workspace && (
-          <span style="font-size:var(--fs-xs);font-family:monospace;color:var(--muted);overflow-wrap:anywhere;min-width:0">{workspace}</span>
+        {missing && (
+          <span style="flex-shrink:0;font-size:var(--fs-xs);color:var(--muted)">folder missing</span>
         )}
-      </div>
-      {canApply && !missing && <FileStatusBar files={view.files} />}
-      {note && <div style={noteStyle}>{note}</div>}
-      <WorkspaceSuggestions view={view} canApply={canApply && !!workspace && !missing} repoPill={false} />
+        <span data-instructions-counts style="margin-left:auto;display:flex;flex-wrap:wrap;gap:0 6px;font-size:var(--fs-xs);color:var(--muted);white-space:nowrap">
+          {metric('traces', `${sessions.length} trace${sessions.length !== 1 ? 's' : ''}`)}
+          <span aria-hidden="true">·</span>
+          {metric('recent', lastMs ? lastActiveLabel(lastMs) : 'no date')}
+          <span aria-hidden="true">·</span>
+          {metric('pending', `${pending.length} pending`)}
+          {applied.length > 0 && <><span aria-hidden="true">·</span><span>{applied.length} applied</span></>}
+        </span>
+      </button>
+      {!collapsed && (
+        <div id={bodyId}>
+          {canApply && !missing && <FileStatusBar files={view.files} />}
+          <div style="padding:10px 12px 2px">
+            {note && <div style={noteStyle}>{note}</div>}
+            <WorkspaceSuggestions view={view} canApply={canApply && !!workspace && !missing} repoPill={false} />
+          </div>
+        </div>
+      )}
     </section>
+  )
+}
+
+// ── Repo order and the header filters ─────────────────────────────────────────
+
+type RepoSort = 'traces' | 'pending' | 'recent' | 'name'
+
+const REPO_SORT_OPTIONS: Array<{ id: RepoSort; label: string }> = [
+  { id: 'traces',  label: 'Most traces' },
+  { id: 'pending', label: 'Most pending' },
+  { id: 'recent',  label: 'Most recent activity' },
+  { id: 'name',    label: 'Name A–Z' },
+]
+
+const REPO_SORT_STORAGE_KEY = 'traceroost-instructions-repo-sort'
+
+function readRepoSort(): RepoSort {
+  try {
+    const v = localStorage.getItem(REPO_SORT_STORAGE_KEY)
+    if (REPO_SORT_OPTIONS.some(o => o.id === v)) return v as RepoSort
+  } catch { /* localStorage unavailable — fall back to the default every load */ }
+  return 'traces'
+}
+
+const repoSort = signal<RepoSort>(readRepoSort())
+
+function setRepoSort(sort: RepoSort): void {
+  repoSort.value = sort
+  try {
+    localStorage.setItem(REPO_SORT_STORAGE_KEY, sort)
+  } catch { /* localStorage unavailable — the choice just won't survive a reload */ }
+}
+
+function lastActiveMs(sessions: SessionSummaryCard[]): number {
+  let latest = 0
+  for (const s of sessions) {
+    const ms = s.startTime ? Date.parse(s.startTime) : NaN
+    if (ms > latest) latest = ms
+  }
+  return latest
+}
+
+function lastActiveLabel(ms: number): string {
+  const mins = Math.floor((Date.now() - ms) / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  if (mins < 24 * 60) return `${Math.floor(mins / 60)}h ago`
+  if (mins < 30 * 24 * 60) return `${Math.floor(mins / (24 * 60))}d ago`
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// Ties fall back to the repo name, so the order never depends on which trace loaded first.
+// "No repo recorded" always goes last: nothing in it can be applied anywhere.
+function sortViews(views: WorkspaceView[], sort: RepoSort): WorkspaceView[] {
+  const info = repoInfo.value
+  const name = (v: WorkspaceView) => v.workspace ? repoDisplayName(v.workspace, info) : ''
+  const by: Record<RepoSort, (a: WorkspaceView, b: WorkspaceView) => number> = {
+    traces:  (a, b) => b.sessions.length - a.sessions.length,
+    pending: (a, b) => b.pending.length - a.pending.length || b.sessions.length - a.sessions.length,
+    recent:  (a, b) => lastActiveMs(b.sessions) - lastActiveMs(a.sessions),
+    name:    () => 0,
+  }
+  return [...views].sort((a, b) =>
+    Number(!a.workspace) - Number(!b.workspace) || by[sort](a, b) || name(a).localeCompare(name(b)))
+}
+
+// The header's filters narrow which traces the suggestions come from, so say so here rather than
+// leave a repo's missing suggestions or a changed order unexplained.
+function FilterNotice({ traceCount, multiRepo }: { traceCount: number; multiRepo: boolean }) {
+  const filters = activeTraceFilters()
+  if (filters.length === 0) return null
+  const traces = `${traceCount} matching trace${traceCount !== 1 ? 's' : ''}`
+  return (
+    <div data-instructions-filter-notice role="note" style={noteStyle + ';display:flex;align-items:flex-start;gap:12px'}>
+      <span style="flex:1;min-width:0">
+        <strong style="color:var(--fg)">Filtered:</strong>{' '}
+        {filters.map(f => `${f.label}: ${f.value}`).join(' · ')}
+        <br />
+        {multiRepo
+          ? `Suggestions, counts and repo order below use only the ${traces}.`
+          : `Suggestions below use only the ${traces} in this repo.`}
+      </span>
+      <button type="button" class="link-btn" style="flex-shrink:0;white-space:nowrap" onClick={clearTraceFilters}>Clear filters</button>
+    </div>
+  )
+}
+
+function RepoToolbar({ workspaces }: { workspaces: string[] }) {
+  const collapsed = collapsedWorkspaces.value
+  const allCollapsed = workspaces.every(ws => collapsed.has(ws))
+  const allExpanded = workspaces.every(ws => !collapsed.has(ws))
+  const btn = 'background:none;border:none;padding:0;font:inherit;font-size:var(--fs-xs);color:var(--accent);cursor:pointer'
+  return (
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-bottom:8px;font-size:var(--fs-xs);color:var(--muted)">
+      <span>{workspaces.length} repos</span>
+      <label style="display:flex;align-items:center;gap:5px">
+        Sort by
+        <select
+          value={repoSort.value}
+          onChange={e => setRepoSort((e.target as HTMLSelectElement).value as RepoSort)}
+          style="font-size:var(--fs-xs);padding:1px 4px;background:var(--card-bg);color:var(--fg);border:1px solid var(--border);border-radius:4px"
+        >
+          {REPO_SORT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+      </label>
+      <span style="margin-left:auto;display:flex;gap:12px">
+        <button type="button" style={btn} disabled={allExpanded} onClick={() => {
+          const next = new Set(collapsed); for (const ws of workspaces) next.delete(ws); setCollapsed(next)
+        }}>Expand all</button>
+        <button type="button" style={btn} disabled={allCollapsed} onClick={() => {
+          const next = new Set(collapsed); for (const ws of workspaces) next.add(ws); setCollapsed(next)
+        }}>Collapse all</button>
+      </span>
+    </div>
   )
 }
 
@@ -794,6 +1000,7 @@ export function Instructions() {
       <div>
         <FileStatusBar files={view.files} />
         <div style="padding:12px 16px">
+          <FilterNotice traceCount={wsSessions.length} multiRepo={false} />
           <WorkspaceSuggestions view={view} canApply={true} repoPill={true} />
           {view.pending.length === 0 && view.applied.length === 0 && <DiagnosticsPanel sessions={wsSessions} />}
         </div>
@@ -809,7 +1016,7 @@ export function Instructions() {
 
   const byWs = groupByWorkspace(sessions)
   const views = groups.map(ws => workspaceView(ws, byWs.get(ws) ?? []))
-  const shown = views.filter(v => v.pending.length > 0 || v.applied.length > 0)
+  const shown = sortViews(views.filter(v => v.pending.length > 0 || v.applied.length > 0), repoSort.value)
 
   return (
     <div style="padding:12px 16px">
@@ -821,7 +1028,9 @@ export function Instructions() {
           suggestions for it.
         </div>
       )}
-      {shown.map(v => <WorkspaceGroup key={v.workspace} view={v} canApply={across} />)}
+      <FilterNotice traceCount={sessions.length} multiRepo={true} />
+      {shown.length > 1 && <RepoToolbar workspaces={shown.map(v => v.workspace)} />}
+      {shown.map(v => <WorkspaceGroup key={v.workspace} view={v} canApply={across} highlight={shown.length > 1} />)}
       {shown.length === 0 && <DiagnosticsPanel sessions={sessions} />}
     </div>
   )

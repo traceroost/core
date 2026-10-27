@@ -11,8 +11,8 @@
 
 import * as crypto from 'crypto'
 import * as path from 'path'
-import { generateSuggestions, type SuggestionCard } from '../../src/instructionAdvisor'
-import { detectInstructionFiles, appendSuggestion, readAllInstructionContent } from '../../src/instructionFiles'
+import { generateSuggestions, targetAgentsInUse, type SuggestionCard } from '../../src/instructionAdvisor'
+import { detectInstructionFiles, defaultInstructionTarget, appendSuggestion, readAllInstructionContent } from '../../src/instructionFiles'
 import { loadSessionsForWorkspace } from './sessionLoader'
 import type { SessionSummaryCard } from '../../src/summarizers/summarizerTypes'
 
@@ -45,7 +45,7 @@ async function runList(workspace: string): Promise<number> {
     console.log(`  id:     ${s.id}`)
     console.log(`  ref:    ${sha256(s.id).slice(0, 16)}   (the hash the team view hands back)`)
     console.log(`  why:    ${s.evidence}`)
-    console.log(`  target: ${s.targetAgents.join(', ')}`)
+    console.log(`  target: ${targetAgentsInUse(s, sessions).join(', ')}`)
   }
   console.log('\nApply one with:  traceroost advise --apply <id>')
   return 0
@@ -61,9 +61,7 @@ async function runApply(workspace: string, idOrHash: string, afterApply?: AfterA
     return 1
   }
 
-  // Pick the target instruction file for the first target agent that has one (or CLAUDE.md).
-  const files = detectInstructionFiles(workspace)
-  const target = files.find(f => card.targetAgents.includes(f.agent)) ?? files[0]
+  const target = defaultInstructionTarget(detectInstructionFiles(workspace), sessions.map(s => s.source))
 
   console.log(`\nWill append to ${target.relativePath}:\n`)
   console.log('  ' + card.suggestedText.split('\n').join('\n  ') + '\n')

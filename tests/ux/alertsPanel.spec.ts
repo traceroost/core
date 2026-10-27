@@ -91,3 +91,19 @@ test('"View Alert" from a notification opens the Configure tab at that alert', a
   await page.evaluate(() => window.postMessage({ type: 'switchTab', tab: 'settings-automation' }, '*'))
   await expect(panel.getByRole('tab', { name: 'Automation' })).toHaveAttribute('aria-selected', 'true')
 })
+
+test('per-agent thresholds list only the agents with traces', async ({ page }) => {
+  await load(page) // fixtures: Copilot, Claude, Codex and OpenCode traces — no Cursor
+  await page.locator('.tabs-icons').getByRole('button', { name: /^Alerts/ }).click()
+  const panel = page.getByRole('dialog', { name: 'Alerts' })
+  await panel.getByRole('tab', { name: 'Configure' }).click()
+  const content = panel.locator('#alerts-content')
+  for (const agent of ['Copilot', 'Claude', 'Codex', 'OpenCode']) {
+    await expect(content.locator(`input[aria-label^="${agent} "]`).first()).toBeVisible()
+  }
+  await expect(content.locator('input[aria-label^="Cursor "]')).toHaveCount(0)
+
+  await panel.getByRole('tab', { name: 'Automation' }).click()
+  await expect(panel.locator('#automation-content input[aria-label^="Codex "]').first()).toBeVisible()
+  await expect(panel.locator('#automation-content input[aria-label^="Cursor "]')).toHaveCount(0)
+})

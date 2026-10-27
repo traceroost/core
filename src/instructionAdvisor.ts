@@ -10,7 +10,7 @@
 
 import type { SessionSummaryCard } from './summarizers/summarizerTypes'
 import { calcSessionCostUsd } from './pricing'
-import { generateSuggestions as generateSuggestionsWithCost, type SuggestionCard } from './suggestionRules'
+import { generateSuggestions as generateSuggestionsWithCost, type SuggestionCard, type TargetAgent } from './suggestionRules'
 
 export type { SuggestionCard, SuggestionCategory, TargetAgent } from './suggestionRules'
 
@@ -19,4 +19,15 @@ export function generateSuggestions(
   existingInstructionText: string,
 ): SuggestionCard[] {
   return generateSuggestionsWithCost(sessions, existingInstructionText, calcSessionCostUsd)
+}
+
+/**
+ * A card's target agents narrowed to the ones with traces in `sessions` (the repo's agents in use),
+ * so a Claude-only repo isn't told about Copilot, Codex, OpenCode and Cursor. All of them when none
+ * is in use: the hot-file card leaves Copilot out, and a Copilot-only repo still gets it.
+ */
+export function targetAgentsInUse(card: SuggestionCard, sessions: SessionSummaryCard[]): TargetAgent[] {
+  const inUse = new Set<string>(sessions.map(s => s.source))
+  const narrowed = card.targetAgents.filter(a => inUse.has(a))
+  return narrowed.length > 0 ? narrowed : card.targetAgents
 }

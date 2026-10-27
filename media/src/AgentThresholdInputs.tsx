@@ -7,8 +7,16 @@ import {
 } from './agentProfiles'
 import type { ComponentChildren } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
+import { agentsInUse } from './state'
 
 export const DISPLAY_AGENT_ORDER: AgentSource[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor']
+
+// Inputs only for agents with traces; every agent before any trace is loaded. A hidden agent keeps
+// its stored threshold and gets its row back as soon as one of its traces arrives.
+function shownAgents(): AgentSource[] {
+  const inUse = agentsInUse.value
+  return inUse.length > 0 ? DISPLAY_AGENT_ORDER.filter(a => inUse.includes(a)) : DISPLAY_AGENT_ORDER
+}
 
 interface AgentThresholdInputsProps {
   profiles: AgentThresholdProfiles
@@ -116,7 +124,7 @@ export function AgentThresholdInputs({ profiles, metrics, onChange }: AgentThres
         return (
           <ThresholdShell key={metric} label={thresholdLabel()}>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              {DISPLAY_AGENT_ORDER.map(source => (
+              {shownAgents().map(source => (
                 <label key={source} style="display:flex;align-items:center;gap:6px;background:var(--panel-bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px">
                   <AgentName source={source} profiles={profiles} />
                   <ThresholdNumberTextInput
@@ -150,7 +158,7 @@ export function AgentThresholdNumberInputs({
   return (
     <ThresholdShell label={thresholdLabel()}>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        {DISPLAY_AGENT_ORDER.map(source => (
+        {shownAgents().map(source => (
           <label key={source} style="display:flex;align-items:center;gap:6px;background:var(--panel-bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px">
             <AgentName source={source} profiles={profiles} />
             <ThresholdNumberTextInput

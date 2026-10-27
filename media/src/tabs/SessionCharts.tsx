@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { focusedSessionId, activeTab, COLORS, goToHelp } from '../state'
+import { focusedSessionId, activeTab, COLORS, goToHelp, agentsInUse } from '../state'
 import { getAgentColor, getAgentColorVar, getAgentSourceLabel, formatCompact } from '../utils'
 import { resolveCssColor } from '../agentColors'
 import { dayKeyUtc } from '../sessionMetrics'
@@ -651,7 +651,10 @@ export function CodeChangesChart({ trend }: { trend: CodeChangeTrend }) {
   const { bins, unit } = trend
 
   if (bins.length === 0) {
-    return <div class="empty-state" data-testid="code-changes-empty" style="font-size:11px">No traces in view recorded line counts — older traces and agents that don't log edit contents (Codex, OpenCode, Cursor) have none.</div>
+    // Name only the agents without edit contents that this user actually runs.
+    const noEdits = agentsInUse.value.filter(a => a === 'codex' || a === 'opencode' || a === 'cursor').map(getAgentSourceLabel)
+    const why = noEdits.length > 0 ? ` and agents that don't log edit contents (${noEdits.join(', ')})` : ''
+    return <div class="empty-state" data-testid="code-changes-empty" style="font-size:11px">No traces in view recorded line counts — older traces{why} have none.</div>
   }
 
   const chartW = TREND_W - CHANGE_PAD.left - CHANGE_PAD.right

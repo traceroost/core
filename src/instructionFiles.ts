@@ -75,6 +75,18 @@ export function detectInstructionFiles(workspaceRoot: string): InstructionFileSt
 }
 
 /**
+ * Where a suggestion goes when no file was picked (`traceroost advise --apply`): an existing file
+ * read by an agent in `agentsInUse` (the sources of the repo's traces), else one to create for such
+ * an agent, else CLAUDE.md. A Codex-only repo gets AGENTS.md, never a new CLAUDE.md. The Instructions
+ * tab's picker applies the same narrowing (filesForAgentsInUse in media/src/tabs/Instructions.tsx).
+ */
+export function defaultInstructionTarget(files: InstructionFileStatus[], agentsInUse: Iterable<string>): InstructionFileStatus {
+  const inUse = new Set(agentsInUse)
+  const read = files.filter(f => f.agents.some(a => inUse.has(a)))
+  return read.find(f => f.exists) ?? read[0] ?? files[0]
+}
+
+/**
  * The absolute path Apply may write for `targetFile`, or null when `targetFile` isn't one of the
  * instruction files detectInstructionFiles reports for this workspace (matched by `relativePath`,
  * which is what the Instructions tab's file picker sends). "Inside the workspace" is not enough:
