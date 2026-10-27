@@ -509,7 +509,7 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
 
 // ── Traces table + trace detail ───────────────────────────────────────────────
 
-/** The Traces table's "Plan limit" cell — one window (limitUsedLabel), blank (not 0%, not —) when
+/** The Traces table's "Limit" cell — one window (limitUsedLabel), blank (not 0%, not —) when
  *  the session has no value. The tooltip lists every window; the expanded trace shows them too. */
 export function LimitUsedCell({ sessionId }: { sessionId: string }) {
   const u = planUsage.value?.sessions[sessionId]

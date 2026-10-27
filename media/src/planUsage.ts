@@ -153,7 +153,7 @@ export function planLimitWindows(u: SessionPlanUsage | undefined): { label: stri
   return rows
 }
 
-/** The Traces table shows its "Plan limit" column only when some session in view has a value or
+/** The Traces table shows its "Limit" column only when some session in view has a value or
  *  a hit. */
 export function showLimitColumn(sessions: Pick<SessionSummaryCard, 'sessionId'>[], s: PlanUsageSnapshot | null): boolean {
   if (!s) return false
