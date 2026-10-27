@@ -26,7 +26,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { calcSessionCostUsd } from './pricing'
 import type { SessionSummaryCard, TimelineEntry } from './summarizers/summarizerTypes'
-import { generateSuggestions } from './instructionAdvisor'
+import { generateSuggestions, targetAgentsInUse } from './instructionAdvisor'
 import { readAllInstructionContent } from './instructionFiles'
 import { checkAutomationTriggers, workspaceMatches } from './automationEngine'
 import { isAllowedHostHeader, isAllowedOrigin, isAuthorized, isLoopbackHost } from './httpSecurity'
@@ -427,7 +427,7 @@ function handleGetInstructionSuggestions(
     title:         s.title,
     evidence:      s.evidence,
     suggestedText: s.suggestedText,
-    targetAgents:  s.targetAgents,
+    targetAgents:  targetAgentsInUse(s, filtered),
     priority:      s.priority,
   }))
 }

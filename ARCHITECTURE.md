@@ -1536,7 +1536,7 @@ traceroost/
 │   │   │   └── export.css        # Export tab card layout
 │   │   └── tabs/
 │   │       ├── Sessions.tsx      # Sortable session table, expand-in-place detail panel
-│   │       │                     #   columns incl. Lang (abbreviation + "+1"), Changes, Out, Sig, Plan limit;
+│   │       │                     #   columns incl. Lang (abbreviation + "+1"), Changes, Out, Sig, Limit;
 │   │       │                     #   changing the sort returns to page 1
 │   │       │                     #   sub-tabs: Overview (InsightCards) · Waterfall · Flow · Tools ·
 │   │       │                     #   Files (one-shot/retry-rate summary + git outcome banner/badges)

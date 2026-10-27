@@ -34,6 +34,9 @@ test('Apply posts the suggestion with its target file and waits for the host', a
   }, '*'))
 
   const card = page.locator('[data-suggestion-id]').filter({ hasText: 'Add hotModule.ts to instruction file' }).first()
+  await expect(card).toContainText('Repo:')
+  await expect(card.locator('[data-observed-agent]')).toHaveText(['Copilot', 'Claude', 'Codex', 'OpenCode'])
+  await expect(card.locator('[data-observed-agent="cursor"]')).toHaveCount(0)
   const picker = card.getByLabel('Instruction file to apply to')
   await expect(picker).toHaveValue('AGENTS.md') // an existing file is the default
   await picker.selectOption('CLAUDE.md')

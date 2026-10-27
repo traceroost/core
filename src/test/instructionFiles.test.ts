@@ -2,7 +2,7 @@ import * as assert from 'assert'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { appendSuggestion, removeSuggestion, detectInstructionFiles, instructionTargetPath, CURSOR_RULE_FILE } from '../instructionFiles'
+import { appendSuggestion, removeSuggestion, detectInstructionFiles, defaultInstructionTarget, instructionTargetPath, CURSOR_RULE_FILE } from '../instructionFiles'
 
 suite('instructionFiles — apply/remove suggestion blocks', () => {
   let dir: string
@@ -81,6 +81,23 @@ suite('instructionFiles — apply/remove suggestion blocks', () => {
     assert.deepStrictEqual(files.find(f => f.relativePath === 'AGENTS.md')?.agents, ['codex', 'opencode', 'cursor'])
     assert.deepStrictEqual(files.find(f => f.relativePath === CURSOR_RULE_FILE)?.agents, ['cursor'])
     assert.ok(files.every(f => !f.exists))
+  })
+
+  test('defaultInstructionTarget picks a file the repo\'s agents read, existing first', () => {
+    const target = (agents: string[]) => defaultInstructionTarget(detectInstructionFiles(dir), agents).relativePath
+    // Nothing exists: a file to create for an agent in use, never CLAUDE.md for a Codex user.
+    assert.strictEqual(target(['codex']), 'AGENTS.md')
+    assert.strictEqual(target(['copilot']), '.github/copilot-instructions.md')
+    assert.strictEqual(target(['cursor']), 'AGENTS.md')
+    // An existing file read by an agent in use wins over one to create.
+    fs.mkdirSync(path.join(dir, '.cursor', 'rules'), { recursive: true })
+    fs.writeFileSync(path.join(dir, CURSOR_RULE_FILE), '')
+    assert.strictEqual(target(['cursor']), CURSOR_RULE_FILE)
+    // ...but not an existing file only other agents read.
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# Rules')
+    assert.strictEqual(target(['codex']), 'AGENTS.md')
+    // No agent known: CLAUDE.md, as before.
+    assert.strictEqual(target([]), 'CLAUDE.md')
   })
 
   test('instructionTargetPath resolves only the detected instruction files', () => {

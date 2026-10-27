@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test'
 import { sessions } from './fixtures'
 
 /**
- * The Traces table's "Plan limit" column shows one window (5h, or weekly when that's all there
+ * The Traces table's "Limit" column shows one window (5h, or weekly when that's all there
  * is); expanding the trace shows every window.
  */
-test('Plan limit column shows one window; the expanded trace shows both', async ({ page }) => {
+test('Limit column shows one window; the expanded trace shows both', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   const rows = sessions.slice(0, 2)
@@ -35,7 +35,7 @@ test('Plan limit column shows one window; the expanded trace shows both', async 
     [rows[0].sessionId, rows[1].sessionId],
   )
   const table = page.locator('#sessions-content')
-  await expect(table.locator('th', { hasText: /^Plan limit$/ })).toBeVisible()
+  await expect(table.locator('th', { hasText: /^Limit$/ })).toBeVisible()
   await expect(table.getByText('5h 12%', { exact: true })).toBeVisible()
   await expect(table.getByText('≈ wk 7%', { exact: true })).toBeVisible()
   await expect(table.getByText(/wk 3%/)).toHaveCount(0)

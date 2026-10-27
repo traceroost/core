@@ -1128,7 +1128,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
           }
         </td>
 
-        {/* Plan limit — one Claude Code / Codex subscription window (5h, else weekly); blank when there's no value. */}
+        {/* Limit — one Claude Code / Codex subscription window (5h, else weekly); blank when there's no value. */}
         {showLimit && (
           <td style="padding:4px 6px 4px 2px;text-align:left;font-size:var(--fs-xs);color:var(--muted)">
             <LimitUsedCell sessionId={sess.sessionId} />
@@ -1244,7 +1244,7 @@ export function Sessions() {
             {sortHeader('total_tokens', 'Tokens', 'left', '<b>Tokens</b>\nAccumulated input and output tokens across all turns')}
             {sortHeader('cost', 'Est Cost')}
             {showLimit && (
-              <th scope="col" tabIndex={0} style={thSort + ';text-align:left'} title={`<b>Plan limit</b>\nShare of your Claude or ChatGPT plan's 5-hour window this trace used (weekly when there's no 5-hour reading). Expand a trace for every window and any limit hits. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Plan limit</th>
+              <th scope="col" tabIndex={0} style={thSort + ';text-align:left'} title={`<b>Limit</b>\nShare of your Claude or ChatGPT plan's 5-hour window this trace used (weekly when there's no 5-hour reading). Expand a trace for every window and any limit hits. ≈ means estimated. ⛔ means the trace hit a limit.`} data-tip-html>Limit</th>
             )}
           </tr>
         </thead>

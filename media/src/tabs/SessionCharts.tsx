@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { focusedSessionId, activeTab, COLORS, goToHelp } from '../state'
+import { focusedSessionId, activeTab, COLORS, goToHelp, agentsInUse } from '../state'
 import { getAgentColor, getAgentColorVar, getAgentSourceLabel, formatCompact } from '../utils'
 import { resolveCssColor } from '../agentColors'
 import { dayKeyUtc } from '../sessionMetrics'
@@ -566,7 +566,7 @@ export function OutcomeTrendChart({ bins, unit, hitMarkers = [] }: { bins: Trend
       return (
         <g key={v}>
           <line x1={TREND_PAD.left} y1={y} x2={TREND_W - TREND_PAD.right} y2={y} stroke="var(--vscode-panel-border,#333)" stroke-width="0.5" />
-          <text x={TREND_PAD.left - 6} y={y} text-anchor="end" dominant-baseline="middle" font-size="11" fill="var(--vscode-descriptionForeground,#888)">{formatCompact(v)}</text>
+          <text x={TREND_PAD.left - 6} y={y} text-anchor="end" dominant-baseline="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">{formatCompact(v)}</text>
         </g>
       )
     })
@@ -580,7 +580,7 @@ export function OutcomeTrendChart({ bins, unit, hitMarkers = [] }: { bins: Trend
         role="img" aria-label={`Tokens per ${unit}, stacked by outcome.`}
         onMouseLeave={() => setHover(null)}
       >
-        <text x={TREND_PAD.left} y={TREND_PAD.top - 4} font-size="11" fill="var(--vscode-descriptionForeground,#888)">Tokens (in + out) per {unit}</text>
+        <text x={TREND_PAD.left} y={TREND_PAD.top - 4} font-size="9" fill="var(--vscode-descriptionForeground,#888)">Tokens (in + out) per {unit}</text>
         {axis(TREND_PAD.top, TREND_TOKENS_H, tokenScale)}
 
         {[...new Set(hitMarkers.map(m => binIndexOf(bins, m.t)).filter(i => i >= 0))].map(i => {
@@ -601,7 +601,7 @@ export function OutcomeTrendChart({ bins, unit, hitMarkers = [] }: { bins: Trend
               height={TREND_TOKENS_H} fill="transparent" />
             {(i % labelEvery === 0 || i === last) && (
               <text x={Math.min(TREND_PAD.left + (i + 0.5) * slotW, TREND_W - 20)} y={TREND_PAD.top + TREND_TOKENS_H + 12}
-                text-anchor="middle" font-size="11" fill="var(--vscode-descriptionForeground,#888)">{shortDate(b.start)}</text>
+                text-anchor="middle" font-size="9" fill="var(--vscode-descriptionForeground,#888)">{shortDate(b.start)}</text>
             )}
           </g>
         ))}
@@ -651,7 +651,10 @@ export function CodeChangesChart({ trend }: { trend: CodeChangeTrend }) {
   const { bins, unit } = trend
 
   if (bins.length === 0) {
-    return <div class="empty-state" data-testid="code-changes-empty" style="font-size:11px">No traces in view recorded line counts — older traces and agents that don't log edit contents (Codex, OpenCode, Cursor) have none.</div>
+    // Name only the agents without edit contents that this user actually runs.
+    const noEdits = agentsInUse.value.filter(a => a === 'codex' || a === 'opencode' || a === 'cursor').map(getAgentSourceLabel)
+    const why = noEdits.length > 0 ? ` and agents that don't log edit contents (${noEdits.join(', ')})` : ''
+    return <div class="empty-state" data-testid="code-changes-empty" style="font-size:11px">No traces in view recorded line counts — older traces{why} have none.</div>
   }
 
   const chartW = TREND_W - CHANGE_PAD.left - CHANGE_PAD.right
@@ -693,19 +696,19 @@ export function CodeChangesChart({ trend }: { trend: CodeChangeTrend }) {
         role="img" aria-label={aria}
         onMouseLeave={() => setHover(null)}
       >
-        <text x={CHANGE_PAD.left} y={top - 4} font-size="11" fill={muted}>Lines per {unit} (+ added / − removed)</text>
-        <text x={TREND_W - 2} y={top - 4} text-anchor="end" font-size="11" fill={muted}>Files</text>
+        <text x={CHANGE_PAD.left} y={top - 4} font-size="9" fill={muted}>Lines per {unit} (+ added / − removed)</text>
+        <text x={TREND_W - 2} y={top - 4} text-anchor="end" font-size="9" fill={muted}>Files</text>
         {ticks.map(v => (
           <g key={v}>
             <line x1={CHANGE_PAD.left} y1={yOf(v)} x2={TREND_W - CHANGE_PAD.right} y2={yOf(v)}
               stroke="var(--vscode-panel-border,#333)" stroke-width={v === 0 ? 1 : 0.5} />
-            <text x={CHANGE_PAD.left - 6} y={yOf(v)} text-anchor="end" dominant-baseline="middle" font-size="11" fill={muted}>
+            <text x={CHANGE_PAD.left - 6} y={yOf(v)} text-anchor="end" dominant-baseline="middle" font-size="9" fill={muted}>
               {v > 0 ? '+' : v < 0 ? '−' : ''}{formatCompact(Math.abs(v))}
             </text>
           </g>
         ))}
         {[0, fileScale.max].map(v => (
-          <text key={`f${v}`} x={TREND_W - CHANGE_PAD.right + 6} y={fileY(v)} dominant-baseline="middle" font-size="11" fill={CHANGE_COLOR.files}>{formatCompact(v)}</text>
+          <text key={`f${v}`} x={TREND_W - CHANGE_PAD.right + 6} y={fileY(v)} dominant-baseline="middle" font-size="9" fill={CHANGE_COLOR.files}>{formatCompact(v)}</text>
         ))}
 
         {bins.map((b, i) => (
@@ -718,7 +721,7 @@ export function CodeChangesChart({ trend }: { trend: CodeChangeTrend }) {
             <rect x={CHANGE_PAD.left + i * slotW} y={top} width={slotW} height={CHANGE_H} fill="transparent" />
             {(i % labelEvery === 0 || i === last) && (
               <text x={Math.min(cx(i), TREND_W - CHANGE_PAD.right - 14)} y={top + CHANGE_H + 12}
-                text-anchor="middle" font-size="11" fill={muted}>{shortDate(b.start)}</text>
+                text-anchor="middle" font-size="9" fill={muted}>{shortDate(b.start)}</text>
             )}
           </g>
         ))}
