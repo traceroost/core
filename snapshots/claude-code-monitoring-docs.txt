@@ -556,7 +556,7 @@ Anyone who uses an environment can read its variables, so don't put a credential
 Keep these constraints in mind when you configure telemetry for cloud sessions:
 
 * **Let sessions reach the collector**: Claude Code sends the export through the session's network, so whether it reaches the host in your `OTEL_EXPORTER_OTLP_ENDPOINT` depends on the environment's [network access level](https://code.claude.com/docs/en/cloud-environments.md#access-levels). If sessions can't reach the collector's domain at the level you chose, [add the domain to the environment's allowlist](https://code.claude.com/docs/en/cloud-environments.md#allow-specific-domains), because no server-managed setting adds domains to an environment's network allowlist.
-* **Claude Tag channels use organization-level environments**: channel sessions run in organization-level environments rather than members' personal ones, so make the allowlist and any environment-variable changes on the [shared environment](https://code.claude.com/docs/en/cloud-environments.md#organization-shared-environments) set as your organization's default or pinned to the channel.
+* **Claude Tag channels**: make the allowlist and any environment-variable changes on the [shared environment](https://code.claude.com/docs/en/cloud-environments.md#organization-shared-environments) set as your organization's default or pinned to the channel.
 * **Cowork is configured separately**: Cowork sessions don't receive server-managed settings, as the [surface coverage table](https://code.claude.com/docs/en/model-config.md#surface-coverage) shows, so the server-managed `env` block doesn't configure their telemetry.
 
 ### Attribute telemetry to cloud sessions
@@ -648,7 +648,7 @@ Claude Code exports the following metrics. The Unit column shows the OpenTelemet
 | `claude_code.code_edit_tool.decision` | Count of code editing tool permission decisions | none |
 | `claude_code.active_time.total` | Total active time | s |
 
-When `prometheus` is the only exporter listed in `OTEL_METRICS_EXPORTER`, Claude Code omits the `USD`, `tokens`, and `s` units from the exported metrics so the scrape stays valid Prometheus text format. Metric names don't change, and configurations that combine exporters, such as `otlp,prometheus`, keep the units. Before v2.1.216, the Prometheus scrape included OpenMetrics-only `# UNIT` lines that some scrapers rejected.
+When `prometheus` is the only exporter listed in `OTEL_METRICS_EXPORTER`, Claude Code omits the `USD`, `tokens`, and `s` units from the exported metrics so the scrape stays valid Prometheus text format. Metric names don't change, and configurations that combine exporters, such as `otlp,prometheus`, keep the units.
 
 ### Metric details
 
@@ -861,6 +861,7 @@ Logged for each API request to Claude.
 * `output_tokens`: Number of output tokens
 * `cache_read_tokens`: Number of tokens read from cache
 * `cache_creation_tokens`: Number of tokens used for cache creation
+* `cache_creation_5m_tokens`, `cache_creation_1h_tokens`: the number of tokens the API response reports as written to the cache with a five-minute [cache lifetime](https://code.claude.com/docs/en/prompt-caching.md#cache-lifetime) and the number written with a one-hour lifetime. Both are `0` when the API response doesn't report them, even when `cache_creation_tokens` is above zero. Requires Claude Code v2.1.300 or later
 * `request_id`: API request ID, such as `"req_011..."`, described under [Event correlation attributes](#event-correlation-attributes).
 * `client_request_id`: Client-generated UUID sent as the `x-client-request-id` request header; see the [event correlation attributes](#event-correlation-attributes) table for when it's present
 * `speed`: `"fast"` or `"normal"`, indicating whether fast mode was active
@@ -995,11 +996,11 @@ Logged when a tool permission decision is made (accept/reject).
 
     The `source` value doesn't indicate which of these sources matched. To find which one refused a call, look for the [Safety event](#safety-event) with the same `tool_use_id` and read its `category` and `rule_source` attributes. Some refused calls [have no safety event](#calls-without-a-safety-event).
 
-    Claude Code also reports `"config"` when the permission prompt request itself fails. For example, that request fails when the Agent SDK's [`canUseTool`](https://code.claude.com/docs/en/agent-sdk/typescript#canusetool) callback or the [`--permission-prompt-tool`](https://code.claude.com/docs/en/cli-reference#cli-flags) tool returns an invalid result, or when the input stream closes while the request is pending. Before v2.1.216, Claude Code reported these failures as `"user_reject"`.
+    Claude Code also reports `"config"` when the permission prompt request itself fails. For example, that request fails when the Agent SDK's [`canUseTool`](https://code.claude.com/docs/en/agent-sdk/typescript#canusetool) callback or the [`--permission-prompt-tool`](https://code.claude.com/docs/en/cli-reference#cli-flags) tool returns an invalid result, or when the input stream closes while the request is pending.
   * `"hook"`: A `PreToolUse` or `PermissionRequest` hook returned the decision.
   * `"user_permanent"`: Emitted when the user chose "Yes, and don't ask again for ..." at a permission prompt, which saves an allow rule to their personal settings. In the interactive CLI this is emitted only for that choice itself; later calls that match the saved rule emit `"config"` instead. In Agent SDK or non-interactive `-p` sessions, both the initial choice and later rule matches emit `"user_permanent"`. Treated as an accept.
   * `"user_temporary"`: Emitted when the user chose "Yes" at a permission prompt for a one-time approval, or chose an option that grants access for the rest of the session on a file edit or read prompt. In the interactive CLI this is emitted only for the choice itself; later calls allowed by that session-scoped grant emit `"config"` instead. In Agent SDK or non-interactive `-p` sessions, both the choice and later matches emit `"user_temporary"`. Treated as an accept.
-  * `"user_abort"`: Emitted when the user dismissed the permission prompt without answering. In Agent SDK and non-interactive `-p` sessions, this includes interrupting the turn while a `canUseTool` or `--permission-prompt-tool` permission request is pending; before v2.1.216, Claude Code reported that interrupt as `"user_reject"`. Treated as a reject.
+  * `"user_abort"`: Emitted when the user dismissed the permission prompt without answering. In Agent SDK and non-interactive `-p` sessions, this includes interrupting the turn while a `canUseTool` or `--permission-prompt-tool` permission request is pending. Treated as a reject.
   * `"user_reject"`: Emitted when the user chose "No" when prompted. In the interactive CLI this is emitted only for that choice itself; calls that match a deny rule in the user's personal settings emit `"config"` instead. In Agent SDK or non-interactive `-p` sessions, calls that match a deny rule in personal settings emit `"user_reject"`. Treated as a reject.
 * `classifier_verdict`: The auto mode [classifier](https://code.claude.com/docs/en/permission-modes.md#how-the-classifier-evaluates-actions) verdict for the call, or why Claude Code denied the call when none came. Requires Claude Code v2.1.301 or later
 
@@ -1470,6 +1471,7 @@ When Claude Code can't safely determine the retention period, it pauses the swee
   * `"user_source_disabled"`: User settings are excluded, for example by the [`--setting-sources`](https://code.claude.com/docs/en/cli-reference#cli-flags) flag or the SDK's [`settingSources`](https://code.claude.com/docs/en/agent-sdk/typescript#options) option, and no enabled source provides `cleanupPeriodDays`
   * `"settings_unknowable"`: A settings file couldn't be read or parsed, so `cleanupPeriodDays` or `desktopSessionCleanupPeriodDays` may be set to a value Claude Code can't see
   * `"settings_invalid_key_set"`: Settings have validation errors and `cleanupPeriodDays` or `desktopSessionCleanupPeriodDays` is explicitly set, so falling back to the default could delete or keep files against that setting
+  * `"remote_settings_unknowable"`: A session in Claude Desktop's Code tab on a third-party deployment requested [server-managed settings](https://code.claude.com/docs/en/server-managed-settings.md). It received no usable response, so `cleanupPeriodDays` may be set to a value Claude Code can't see
 * `transcripts_deleted`: Number of session transcripts, the top-level `~/.claude/projects/*/*.jsonl` files, that the sweep deleted
 * `transcripts_exempted_desktop`: Number of transcripts past the retention period that the sweep kept under the [Claude Desktop and Cowork rule](https://code.claude.com/docs/en/claude-directory.md#cleaned-up-automatically). These don't count toward `files_past_cutoff`. Requires Claude Code v2.1.248 or later
 * `session_files_deleted`: Number of artifacts the session-files sweep deleted: transcripts plus per-session companion files such as sidecars, recordings, and tool results
