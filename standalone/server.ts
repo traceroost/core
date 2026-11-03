@@ -3,7 +3,7 @@
  *
  * Three HTTP servers:
  *   OTLP_PORT (default 4318) — receives OTLP traces/logs from agents
- *   UI_PORT   (default 3000) — serves the dashboard and SSE
+ *   UI_PORT   (default 4315) — serves the dashboard and SSE
  *   MCP_PORT  (default 4316) — MCP endpoint for Claude Code and other agents
  */
 

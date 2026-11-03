@@ -25,7 +25,7 @@ Two things it does that a usage dashboard doesn't:
 | --- | --- | --- |
 | **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar |
 | **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
-| **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:3000> |
+| **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:4315> |
 
 Each one asks before it sets your agents up. History appears immediately; restart your agents for live traces.
 
@@ -35,7 +35,7 @@ Each one asks before it sets your agents up. History appears immediately; restar
 npx traceroost@latest service install     # with Homebrew: traceroost service install
 ```
 
-Manage it later with `traceroost service status`, `service stop`, `service uninstall`, etc. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or for Docker. Does a dev server of yours need port 3000? [Move the dashboard](#my-dev-server-needs-port-3000) in one step.
+Manage it later with `traceroost service status`, `service stop`, `service uninstall`, etc. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or for Docker. Does a dev server of yours need the dashboard's port? [Move the dashboard](#moving-the-dashboard-to-another-port) in one step.
 
 - [Features](#features)
 - [Data Sources](#data-sources)
@@ -67,7 +67,7 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
   - [Native process (recommended for local use)](#native-process-recommended-for-local-use)
   - [Background Service (macOS / Windows / Linux)](#background-service-macos--windows--linux)
   - [Headless forwarder (servers, VMs, SSH-only boxes)](#headless-forwarder-servers-vms-ssh-only-boxes)
-  - [My dev server needs port 3000](#my-dev-server-needs-port-3000)
+  - [Moving the dashboard to another port](#moving-the-dashboard-to-another-port)
   - [Docker (OTel only)](#docker-otel-only-1)
   - [Node.js (from source)](#nodejs-from-source)
   - [Editions](#editions)
@@ -298,7 +298,7 @@ brew install traceroost/tap/traceroost
 traceroost
 ```
 
-Open <http://localhost:3000> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
+Open <http://localhost:4315> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
 
 > **Always include `@latest`.** A bare `npx traceroost` (or `bunx`) re-runs whatever
 > version npx cached the first time you ran it — it does **not** check npm for a newer release, so
@@ -345,15 +345,15 @@ It uses the same `~/.traceroost` data and settings as `npx traceroost` and the b
 ```bash
 # No volume — data lives in the container: it survives `docker stop`/`start`, but is lost
 # when the container is removed, and a new container generates a new access token (always pulls latest)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost
+docker run --pull=always -p 127.0.0.1:4315:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost
 
 # Persistent — data survives restarts (macOS/Linux)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 \
+docker run --pull=always -p 127.0.0.1:4315:3000 -p 127.0.0.1:4318:4318 \
   -v ~/.traceroost:/data \
   traceroost/traceroost
 
 # Persistent — data survives restarts (Windows)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 `
+docker run --pull=always -p 127.0.0.1:4315:3000 -p 127.0.0.1:4318:4318 `
   -v "$env:USERPROFILE\.traceroost:/data" `
   traceroost/traceroost
 ```
@@ -365,7 +365,7 @@ and agents' exports are rejected with `401`. To get it:
 
 ```bash
 # The startup log prints the dashboard URL with the token included — open that URL once and the
-# browser keeps a cookie, so plain http://localhost:3000 works afterwards.
+# browser keeps a cookie, so plain http://localhost:4315 works afterwards.
 docker logs <container> 2>&1 | grep -m1 'token='
 
 # Or read it from the config file (HOME is /data in the image, so it lives on the volume and
@@ -505,7 +505,7 @@ Environment variables (the first five predate the `TRACEROOST_` prefix and keep 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OTLP_PORT` | `4318` | OTLP HTTP receiver port |
-| `UI_PORT` | `3000` | Dashboard port. While set, it overrides the port saved in Settings → Dashboard port (see [My dev server needs port 3000](#my-dev-server-needs-port-3000)) |
+| `UI_PORT` | `4315` | Dashboard port. While set, it overrides the port saved in Settings → Dashboard port (see [Moving the dashboard to another port](#moving-the-dashboard-to-another-port)) |
 | `MCP_PORT` | `4316` | MCP endpoint for Claude Code and other MCP-compatible agents |
 | `DATA_DIR` | `~/.traceroost` | Directory for persistent span data |
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
@@ -531,7 +531,7 @@ header, a DNS-rebinding `Host`, or an OTLP body sent as `text/plain`/form data).
 and every request instead needs the bearer token from `~/.traceroost/config.json` (`authToken`).
 An interactive run prints it with the dashboard URL; the background service prints the URL with
 `?token=<token>` instead, so the token never lands in `service.log` — read it from `config.json` or
-`traceroost service status`. Browsers: open `http://<host>:3000/?token=<token>` once (a cookie keeps
+`traceroost service status`. Browsers: open `http://<host>:4315/?token=<token>` once (a cookie keeps
 you signed in and the token is dropped from the address bar). Agents: `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>`,
 or `scripts/configure-agents.sh --host <host> --token <token>`. MCP clients: send the same
 `Authorization: Bearer <token>` header.
@@ -658,14 +658,15 @@ Copilot; answer from the same terminal). `traceroost org leave` stops forwarding
 local credential, even offline. The credential is an owner-only (0600) file,
 `~/.traceroost/team.json`, so it works without an OS keychain or a logged-in desktop session.
 
-### My dev server needs port 3000
+### Moving the dashboard to another port
 
-The standalone dashboard uses port 3000 by default, which is also the default for Next.js, Rails,
-Express and many other dev servers. To move TraceRoost off it:
+The standalone dashboard and the desktop app use port 4315 by default. Installs from before
+v0.22.0 used 3000 and keep it, and 3000 is also the default for Next.js, Rails, Express and many
+other dev servers. To move TraceRoost to another port:
 
 - **Settings → Dashboard port** (gear icon in the dashboard): enter a port and click **Change**. The
   dashboard moves straight away, without a restart, and the page follows it with your preferences.
-  **Reset to 3000** moves it back.
+  **Reset to 4315** moves it to the default.
 - **From a terminal:** `traceroost service install --ui-port 3100`. Only the port changes; every
   other setting is kept.
 - **For a single run:** `UI_PORT=3100 npx traceroost@latest`.
@@ -683,10 +684,10 @@ Quick-start commands are in [Ways to Run](#docker-otel-only). Additional options
 **LAN-accessible** — exposes the dashboard to other devices on your network:
 
 ```bash
-docker run --pull=always -p 3000:3000 -p 4318:4318 -v ~/.traceroost:/data traceroost/traceroost
+docker run --pull=always -p 4315:3000 -p 4318:4318 -v ~/.traceroost:/data traceroost/traceroost
 ```
 
-Other devices then open `http://<your-ip>:3000/?token=<token>` and point agents at
+Other devices then open `http://<your-ip>:4315/?token=<token>` and point agents at
 `http://<your-ip>:4318` with the token (see [token](#docker-otel-only) above). Add `-p 4316:4316`
 to expose the MCP endpoint too.
 

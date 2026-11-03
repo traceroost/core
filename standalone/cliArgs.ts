@@ -66,7 +66,7 @@ function commandEntries(cloud: boolean): UsageEntry[] {
 
 /** The bare run's flags, each the same as an environment variable it honours (flags win). */
 export const SERVER_FLAGS: Record<string, { env: string; value: 'port' | 'path' | 'none'; help: string }> = {
-  '--ui-port':   { env: 'UI_PORT',   value: 'port', help: 'dashboard port (default 3000)' },
+  '--ui-port':   { env: 'UI_PORT',   value: 'port', help: 'dashboard port (default 4315)' },
   '--otlp-port': { env: 'OTLP_PORT', value: 'port', help: 'OTLP receiver port your agents send live traces to (default 4318)' },
   '--mcp-port':  { env: 'MCP_PORT',  value: 'port', help: 'MCP server port (default 4316)' },
   '--data-dir':  { env: 'DATA_DIR',  value: 'path', help: 'where traces are stored (default ~/.traceroost)' },
@@ -76,7 +76,7 @@ export const SERVER_FLAGS: Record<string, { env: string; value: 'port' | 'path' 
 /** Every environment variable a bare run honours, for the help's Environment footer. Keep in step
  *  with README's "Native process" table. */
 const ENVIRONMENT: Array<[string, string]> = [
-  ['UI_PORT, OTLP_PORT, MCP_PORT', 'ports, as --ui-port / --otlp-port / --mcp-port (default 3000, 4318, 4316)'],
+  ['UI_PORT, OTLP_PORT, MCP_PORT', 'ports, as --ui-port / --otlp-port / --mcp-port (default 4315, 4318, 4316)'],
   ['DATA_DIR', 'data directory, as --data-dir (default ~/.traceroost)'],
   ['BIND_HOST', 'interface to listen on (default 127.0.0.1; a non-loopback address requires the access token)'],
   ['TRACEROOST_NO_OPEN=1', "don't open the dashboard in a browser, as --no-open"],

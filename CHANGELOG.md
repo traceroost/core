@@ -8,6 +8,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 - **The macOS installer window shows a sharp app icon** — the DMG window drew its icons at 80 pt, so on a non-Retina display Finder shrank the icon's 128 px image and the bird's legs and beak came out soft. It now draws them at 128 pt, which is pixel for pixel on a standard display and exactly 2× on Retina
 
+### Changed
+
+- **The dashboard now defaults to port 4315, not 3000** — 3000 is what Next.js, Rails, Express and most other dev servers use, and the background service and desktop app start at login, so TraceRoost held 3000 before your own dev server asked for it. New installs of the desktop app (macOS, Windows, Linux), `npx traceroost` and the background service now serve the dashboard on <http://localhost:4315>, beside the MCP (4316) and OTLP (4318) ports. Existing installs keep the port saved in `~/.traceroost/config.json`, so your bookmarks still work; to move one, use **Reset to 4315** in Settings → Dashboard port. Agents are unaffected. Inside the Docker image the dashboard stays on 3000, so existing `-p …:3000` mappings keep working; the README's examples now publish it on host port 4315
+
 ## [0.21.0] — 2026-10-26
 
 ### Added
