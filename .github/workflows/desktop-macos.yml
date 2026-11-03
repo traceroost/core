@@ -231,6 +231,16 @@ jobs:
             echo "::error::Apple signing is half configured (certificate: $signing, notarization credentials: $notary). Both are needed for a download Gatekeeper accepts — see runbooks/MACOS_SIGNING.md."
             exit 1
           fi
+          # stapler and spctl ask Apple's ticket service (api.apple-cloudkit.com), and a runner's
+          # connection to it drops now and then ("The network connection was lost", exit 68) with a
+          # perfectly good build. Three tries, ten seconds apart; a real failure fails all three.
+          retry() {
+            for attempt in 1 2 3; do
+              "$@" && return 0
+              [ "$attempt" -lt 3 ] && { echo "::warning::$1 failed (attempt $attempt of 3) — retrying in 10s"; sleep 10; }
+            done
+            return 1
+          }
           for app in dist/mac*/TraceRoost.app; do
             echo "== $app"
             codesign --verify --deep --strict --verbose=2 "$app"
@@ -240,8 +250,8 @@ jobs:
             if [ -n "$APPLE_TEAM_ID" ] && ! grep -qx "TeamIdentifier=$APPLE_TEAM_ID" <<<"$details"; then
               echo "::error::$app is signed by team $(grep TeamIdentifier <<<"$details"), not APPLE_TEAM_ID"; exit 1
             fi
-            xcrun stapler validate "$app"
-            spctl --assess --type execute --verbose=2 "$app"
+            retry xcrun stapler validate "$app"
+            retry spctl --assess --type execute --verbose=2 "$app"
           done
           echo "notarized=true" >> "$GITHUB_OUTPUT"
 
