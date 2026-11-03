@@ -13,6 +13,14 @@ name: Desktop (macOS)
 # reads the environment; nothing here branches on it). The day-of procedure for creating them is
 # runbooks/MACOS_SIGNING.md.
 #
+# The secrets live in the `desktop-release` GitHub environment, which only `v*` tags may deploy
+# to, so the Developer ID key is readable by a release build and by nothing else: pull requests,
+# pushes to main and manual runs build ad-hoc signed (the job names no environment there). A tag
+# build that comes out unsigned anyway — the environment's secrets missing or renamed — fails
+# the Notarization check instead of shipping an unnotarized DMG. Environment secrets take
+# precedence over the ones desktop-release.yml passes in (GitHub: "If you include environment in
+# the reusable workflow at the job level, the environment secret will be used").
+#
 #   MAC_CSC_LINK             base64 of the Developer ID Application .p12   → imported into a
 #   MAC_CSC_KEY_PASSWORD     its password                                     job keychain; its
 #                                                                             SHA-1 → CSC_NAME
@@ -89,6 +97,8 @@ jobs:
     # which is not the same as validating it on an Intel Mac.
     runs-on: macos-15
     timeout-minutes: 45
+    # Release tags only; an empty name is no environment (see the header).
+    environment: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) && 'desktop-release' || '' }}
     outputs:
       notarized: ${{ steps.notarization.outputs.notarized }}
 
@@ -218,10 +228,15 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
         run: |
           signing=false; notary=false
           [ -n "${CSC_NAME:-}" ] && signing=true
           if [ -n "${APPLE_API_KEY:-}" ] || { [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; }; then notary=true; fi
+          if [ "$signing" = false ] && [ "$RELEASE_TAG" = true ]; then
+            echo "::error::This is a release tag, but the macOS build is not Developer ID signed: the desktop-release environment's Apple secrets are missing or unreadable (Settings → Environments → desktop-release). See runbooks/MACOS_SIGNING.md step 6."
+            exit 1
+          fi
           if [ "$signing" = false ] && [ "$notary" = false ]; then
             echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release attaches it unnotarized"
             echo "notarized=false" >> "$GITHUB_OUTPUT"
