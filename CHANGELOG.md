@@ -7,6 +7,8 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 ### Fixed
 
 - **The macOS installer window shows a sharp app icon** — the DMG window drew its icons at 80 pt, so on a non-Retina display Finder shrank the icon's 128 px image and the bird's legs and beak came out soft. It now draws them at 128 pt, which is pixel for pixel on a standard display and exactly 2× on Retina
+- **The desktop app's window follows the dashboard to a new port** — moving the dashboard in Settings → Dashboard port left the desktop window blank: the window only allowed the address it opened on, so it refused the move, and the old address closed a few seconds later. The window now follows a move once the collector itself confirms the new port, and the tray's Open Dashboard opens the new address. The same goes for a collector that restarts on a different port because something else took its old one: an open window reloads there instead of staying on a dead address
+- **The OTLP port warning no longer says your agents followed TraceRoost when they didn't** — when another application held the OTLP port (4318) and TraceRoost moved to the next one, the log and the dashboard banner said "Agents are already pointed at" the new port. That is only true once you've said yes to agent setup; otherwise agents keep sending to 4318, to the other application. The warning now says so and points to **Set up agents** (or `traceroost agents setup --otlp-port <port>`), and the banner updates once you've done it
 
 ### Changed
 

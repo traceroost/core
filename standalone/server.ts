@@ -120,7 +120,7 @@ const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
 // getHtml() to inline into the page and by startOtlpServer to broadcast once the (async)
 // port-owner probe resolves — see CollectorConflict in media/src/types.ts for the shared shape
 // this mirrors, and CollectorConflictBanner in App.tsx for how it's rendered.
-let collectorConflict: { owner: 'plugin' | 'foreign'; port: number; boundPort: number } | null = null
+let collectorConflict: { owner: 'plugin' | 'foreign'; port: number; boundPort: number; agentsRepointed: boolean } | null = null
 
 // True while the user hasn't said whether TraceRoost may set up their coding agents
 // (src/agentSetupConsent.ts) and this server has no terminal to ask in — the background service,
@@ -1825,6 +1825,7 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
             changed: copilotResults.some(r => r.changed),
             error: copilotResults.find(r => r.error)?.error,
           }
+          noteAgentsRepointed()
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ claudeCode, codex, copilot }))
           return
@@ -2314,16 +2315,22 @@ async function startOtlpServer(): Promise<void> {
         console.log(`[TraceRoost] Port ${OTLP_PORT} is held by another TraceRoost server (with its own data directory); this one receives OTLP on ${bound}.`)
         return
       }
-      collectorConflict = { owner, port: OTLP_PORT, boundPort: bound }
+      // Agents follow the move only with the user's yes to agent setup: then the setup run below
+      // keeps their port current. Without it they still send to OTLP_PORT, to whoever holds it.
+      const agentsRepointed = !AUTOCONFIG_DISABLED && !IS_DOCKER && readAgentSetupAnswer() === 'yes'
+      const agentsLine = agentsRepointed
+        ? `Agents are already pointed at ${bound}, so nothing's being missed`
+        : `Agents set up for port ${OTLP_PORT} still send there, so their live traces don't reach this service — point them at ${bound} with Set up agents in the dashboard's Settings, or \`traceroost agents setup --otlp-port ${bound}\``
+      collectorConflict = { owner, port: OTLP_PORT, boundPort: bound, agentsRepointed }
       if (owner === 'plugin') {
         console.warn(
           `[TraceRoost] Two TraceRoost hosts are running — the VS Code extension already holds port ${OTLP_PORT}; this service moved to port ${bound} instead.\n` +
-          `  - Agents are already pointed at ${bound}, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.\n` +
+          `  - ${agentsLine}${agentsRepointed ? ' — but with both running, whichever one you close first silently stops collecting' : ''}.\n` +
           `  - Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (\`code --uninstall-extension agentlens.agentlens-dashboard\`), then reload.\n` +
           `  - Prefer VS Code instead? Stop this service with \`traceroost service stop\`.`
         )
       } else {
-        console.warn(`[TraceRoost] Port ${OTLP_PORT} is in use by another application — this service moved to port ${bound} instead. Agents are already pointed at ${bound}, so nothing's being missed.`)
+        console.warn(`[TraceRoost] Port ${OTLP_PORT} is in use by another application — this service moved to port ${bound} instead. ${agentsLine}.`)
       }
       broadcastSse({ type: 'update', collectorConflict })
     }).catch(() => { /* best effort */ })
@@ -2380,7 +2387,15 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
     console.log(`[TraceRoost] ${AGENT_SETUP_DECLINED}`)
     return Promise.resolve()
   }
-  return runAgentSetup(port, 'full')
+  return runAgentSetup(port, 'full').then(noteAgentsRepointed)
+}
+
+/** Agent setup just pointed the agents at this service's OTLP port, so a conflict banner that said
+ *  they still send to the default one is out of date. */
+function noteAgentsRepointed(): void {
+  if (!collectorConflict || collectorConflict.agentsRepointed) return
+  collectorConflict = { ...collectorConflict, agentsRepointed: true }
+  broadcastSse({ type: 'update', collectorConflict })
 }
 
 /** The startup lines printed after the terminal question (the dashboard URL, the log-history

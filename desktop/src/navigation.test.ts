@@ -1,5 +1,5 @@
 import * as assert from 'assert'
-import { decideNavigation, decideWindowOpen, isAllowedExternalHost } from './navigation'
+import { decideNavigation, decideWindowOpen, isAllowedExternalHost, portMoveTarget } from './navigation'
 
 const ORIGIN = 'http://127.0.0.1:3000'
 
@@ -71,5 +71,21 @@ suite('navigation', () => {
 
   test('a popup to an allowed external host still goes to the system browser', () => {
     assert.strictEqual(decideWindowOpen('https://github.com/traceroost/core', ORIGIN).action, 'open-externally')
+  })
+})
+
+suite('navigation — a dashboard port move', () => {
+  test('the URL Settings → Dashboard port navigates to is recognised, with its port', () => {
+    assert.strictEqual(portMoveTarget('http://127.0.0.1:4400/#carry=%7B%7D', ORIGIN), 4400)
+  })
+
+  test('anything else is not a move: another host, scheme, credentials, or the same port', () => {
+    assert.strictEqual(portMoveTarget('http://localhost:4400/', ORIGIN), undefined)
+    assert.strictEqual(portMoveTarget('http://192.168.1.5:4400/', ORIGIN), undefined)
+    assert.strictEqual(portMoveTarget('https://127.0.0.1:4400/', ORIGIN), undefined)
+    assert.strictEqual(portMoveTarget('http://user:pw@127.0.0.1:4400/', ORIGIN), undefined)
+    assert.strictEqual(portMoveTarget(`${ORIGIN}/settings`, ORIGIN), undefined)
+    assert.strictEqual(portMoveTarget('http://127.0.0.1/', ORIGIN), undefined)
+    assert.strictEqual(portMoveTarget('not a url', ORIGIN), undefined)
   })
 })

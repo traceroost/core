@@ -337,6 +337,9 @@ export type CollectorConflict = {
   owner: 'standalone' | 'plugin' | 'foreign'
   port: number
   boundPort?: number
+  /** With `boundPort`: whether agents were moved to it too (the user said yes to agent setup).
+   *  False means they still send to `port`. */
+  agentsRepointed?: boolean
   /** The installed extension's marketplace id (sent by the VS Code extension, for the uninstall
    *  command); absent from the background/npx service, which can't know it. */
   extensionId?: string
