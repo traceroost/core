@@ -39,7 +39,7 @@ function commandEntries(cloud: boolean): UsageEntry[] {
     { usage: 'traceroost [--ui-port <port>] [--otlp-port <port>] [--data-dir <path>] [--no-open] …',
       description: 'Start TraceRoost here — see "Bare run" below.' },
     { usage: 'traceroost service <install|uninstall|start|stop|restart|status|logs|update>',
-      description: 'Run TraceRoost as a background service that starts at login; `install` also updates it.' },
+      description: 'Run TraceRoost as a background service that starts at login; `install` also updates it. `service install --ui-port <port>` sets its dashboard port.' },
     { usage: AGENTS_USAGE,
       description: 'Set up Claude Code, Codex and Copilot to send traces here, or remove only what TraceRoost added.' },
     { usage: commandUsage('find', cloud),
@@ -66,7 +66,7 @@ function commandEntries(cloud: boolean): UsageEntry[] {
 
 /** The bare run's flags, each the same as an environment variable it honours (flags win). */
 export const SERVER_FLAGS: Record<string, { env: string; value: 'port' | 'path' | 'none'; help: string }> = {
-  '--ui-port':   { env: 'UI_PORT',   value: 'port', help: 'dashboard port (default 4315)' },
+  '--ui-port':   { env: 'UI_PORT',   value: 'port', help: 'dashboard port for this run (default 4315; Settings → Dashboard port keeps one)' },
   '--otlp-port': { env: 'OTLP_PORT', value: 'port', help: 'OTLP receiver port your agents send live traces to (default 4318)' },
   '--mcp-port':  { env: 'MCP_PORT',  value: 'port', help: 'MCP server port (default 4316)' },
   '--data-dir':  { env: 'DATA_DIR',  value: 'path', help: 'where traces are stored (default ~/.traceroost)' },

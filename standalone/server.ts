@@ -44,7 +44,7 @@ import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, OTLP_GRPC_PORT, type ResolvedPorts } from '../src/portResolver'
-import { DEFAULT_DASHBOARD_PORT, dashboardPortLock, dashboardPortLockReason, validateDashboardPort, moveDashboard, type DashboardPortState } from './dashboardPort'
+import { DEFAULT_DASHBOARD_PORT, TERMINAL_PORT_HINT, dashboardPortLock, dashboardPortLockReason, validateDashboardPort, moveDashboard, type DashboardPortState } from './dashboardPort'
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud, type TraceManifestSource } from '../src/cloudBridge'
 import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
@@ -2439,6 +2439,11 @@ async function startUiServer(): Promise<void> {
     ? url : redactTokenInUrl(url)
   console.log(`[TraceRoost] Dashboard      → ${printable}`)
   if (printable !== url) console.log('[TraceRoost]                  (token: `authToken` in ~/.traceroost/config.json, or `traceroost service status`)')
+  // Only in a terminal someone is reading, and not when they just picked the port with --ui-port.
+  // The service, the desktop app's collector and Docker write to a log; none of them reads this.
+  if (process.stdout.isTTY === true && process.env.TRACEROOST_SERVICE !== '1' && !startupPorts.uiFromEnv) {
+    console.log(`[TraceRoost]                  (${TERMINAL_PORT_HINT})`)
+  }
   console.log(`[TraceRoost] MCP server     → http://localhost:${mcpPort}/mcp`)
 
   // Auto-open browser — includes the access token so the browser gets its auth cookie on

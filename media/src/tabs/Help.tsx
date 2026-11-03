@@ -415,6 +415,10 @@ trace_exporter = { otlp-http = { endpoint = "http://localhost:4318", protocol = 
       </p>
       <pre style="font-size:12px;background:var(--panel-bg);border:1px solid var(--border);border-radius:3px;padding:6px 10px;margin:0 0 8px;overflow-x:auto;white-space:pre">{`brew install traceroost/tap/traceroost\ntraceroost service install`}</pre>
       <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
+        Add <code style={codeStyle}>--ui-port &lt;port&gt;</code> to <code style={codeStyle}>service install</code> to put the
+        dashboard on another port (4315 by default) — see <a href="#help-dashboard-port">Moving the dashboard to another port</a>.
+      </p>
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px">
         Works as a single command whether or not <code style={codeStyle}>traceroost</code> is
         already installed — if it's running via <code style={codeStyle}>npx</code>, which has no stable
         location to launch from later, it installs the package globally first (visibly, printing what
@@ -984,12 +988,12 @@ function SettingsSection() {
         <h4 style={subHeadStyle}>Gear icon — settings panel</h4>
         <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTel and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Set up agents</strong> button, the <a href="#help-dashboard-port">Dashboard port</a> (standalone only), and the MCP server toggle. Alerts and Automation have their own panel, under the bell. Close it with the × button or by pressing Escape.</p>
 
-        <h4 id="help-dashboard-port" style={subHeadStyle}>My dev server needs port 3000</h4>
-        <p>The standalone dashboard uses port 3000 by default, which is also the default for Next.js, Rails, Express and many other dev servers. To move TraceRoost off it, use any of these:</p>
+        <h4 id="help-dashboard-port" style={subHeadStyle}>Moving the dashboard to another port</h4>
+        <p>The standalone dashboard uses port 4315 by default. Installs from before v0.22.0 used 3000 and keep it, and 3000 is also the default for Next.js, Rails, Express and many other dev servers. To move TraceRoost to another port, use any of these:</p>
         <ul>
-          <li><strong>Settings → Dashboard port</strong> (gear icon): enter a port and click <strong>Change</strong>. The dashboard moves straight away, no restart, and the page follows it. Your theme and other preferences come along. <strong>Reset to 3000</strong> moves it back.</li>
-          <li>From a terminal: <code style={codeStyle}>traceroost service install --ui-port 3100</code>. This changes only the port; every other setting is kept.</li>
-          <li>For a single run: <code style={codeStyle}>UI_PORT=3100 npx traceroost@latest</code>.</li>
+          <li><strong>Settings → Dashboard port</strong> (gear icon): enter a port and click <strong>Change</strong>. The dashboard moves straight away, no restart, and the page follows it. Your theme and other preferences come along. <strong>Reset to 4315</strong> moves it to the default.</li>
+          <li>Background service (npm or Homebrew): <code style={codeStyle}>traceroost service install --ui-port 3100</code>. This changes only the port; every other setting is kept.</li>
+          <li>For a single run: <code style={codeStyle}>npx traceroost@latest --ui-port 3100</code>, or <code style={codeStyle}>traceroost --ui-port 3100</code> for a global or Homebrew install. While a run's port comes from the flag, Settings can't change it for that run.</li>
         </ul>
         <p>Your agents aren't affected. They send to TraceRoost's OTLP port (4318) and use the MCP port (4316), which don't change. Bookmarks to the old address stop working. In Docker the port is the <code style={codeStyle}>-p &lt;port&gt;:3000</code> mapping on <code style={codeStyle}>docker run</code> instead.</p>
 

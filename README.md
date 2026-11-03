@@ -25,7 +25,7 @@ Two things it does that a usage dashboard doesn't:
 | --- | --- | --- |
 | **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar |
 | **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
-| **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:4315> |
+| **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:4315> (another port: add `--ui-port <port>`; [more](#moving-the-dashboard-to-another-port)) |
 
 Each one asks before it sets your agents up. History appears immediately; restart your agents for live traces.
 
@@ -299,6 +299,11 @@ traceroost
 ```
 
 Open <http://localhost:4315> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
+
+**Another dashboard port:** add `--ui-port <port>` to any of the commands above —
+`npx traceroost@latest --ui-port 4400`, or `traceroost --ui-port 4400` for a global or Homebrew
+install. That picks the port for that run only; to keep one, set it in **Settings → Dashboard port**
+(see [Moving the dashboard to another port](#moving-the-dashboard-to-another-port)).
 
 > **Always include `@latest`.** A bare `npx traceroost` (or `bunx`) re-runs whatever
 > version npx cached the first time you ran it — it does **not** check npm for a newer release, so
@@ -605,6 +610,11 @@ only its own setting, and the command prints what it kept:
 traceroost service install --ui-port 3001 --otlp-port 4319 --data-dir ~/traceroost-data --retention-days 90
 ```
 
+To change the dashboard port of a service that is already installed, re-run
+`traceroost service install --ui-port <port>` (only the port changes) or use **Settings → Dashboard
+port**, which moves it without a restart. `service install` and `service status` print the
+dashboard's address with a reminder of both.
+
 Since `npx` always runs from a temporary cache with no stable path to launch from, running
 `service install` under `npx` installs `traceroost` globally first (equivalent to
 `npm install -g traceroost@latest`) so the service definition has something fixed to
@@ -616,6 +626,7 @@ point at.
 brew install traceroost/tap/traceroost
 traceroost service install     # runs `brew upgrade traceroost` first, then installs the service
 traceroost service update      # `brew upgrade traceroost`, then restarts the service on it
+traceroost service install --ui-port <port>   # another dashboard port (4315 by default)
 ```
 
 Switching from npm is automatic: the Homebrew copy takes over the `traceroost` command, and
@@ -667,9 +678,11 @@ other dev servers. To move TraceRoost to another port:
 - **Settings → Dashboard port** (gear icon in the dashboard): enter a port and click **Change**. The
   dashboard moves straight away, without a restart, and the page follows it with your preferences.
   **Reset to 4315** moves it to the default.
-- **From a terminal:** `traceroost service install --ui-port 3100`. Only the port changes; every
-  other setting is kept.
-- **For a single run:** `UI_PORT=3100 npx traceroost@latest`.
+- **Background service (npm or Homebrew):** `traceroost service install --ui-port 3100`. Only the
+  port changes; every other setting is kept.
+- **For a single run:** `npx traceroost@latest --ui-port 3100`, or `traceroost --ui-port 3100` for
+  a global or Homebrew install (`UI_PORT=3100` does the same). While a run's port comes from the
+  flag, Settings can't change it for that run.
 
 Agents aren't affected: they send to the OTLP port (4318) and use the MCP port (4316), which stay
 the same. Bookmarks to the old address stop working. In Docker the port is the `-p <port>:3000`

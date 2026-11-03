@@ -12,7 +12,7 @@ import {
   type ServiceConfig, type ServiceProgram,
 } from '../../src/serviceConfig'
 import { readResolvedPorts } from '../../src/portResolver'
-import { LEGACY_DASHBOARD_PORT, PORT_3000_HINT } from '../dashboardPort'
+import { servicePortHint } from '../dashboardPort'
 import { waitForServiceHealth } from './health'
 import { isLoopbackHost } from '../../src/httpSecurity'
 import { openInBrowser, shouldAutoOpen } from '../openBrowser'
@@ -453,7 +453,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
         const open = shouldAutoOpen({ args: rest, env: process.env, stdoutIsTty: process.stdout.isTTY === true })
         console.log(`[TraceRoost] Background service is running${version ? ` (v${version})` : ''}. ${open ? 'Opening the dashboard in your browser:' : 'Open the dashboard at:'}`)
         console.log(`  ${url}`)
-        if (fresh.uiPort === LEGACY_DASHBOARD_PORT) { console.log(`[TraceRoost] ${PORT_3000_HINT}`) }
+        console.log(`[TraceRoost] ${servicePortHint(fresh.uiPort)}`)
         if (open) { openInBrowser(url) }
         console.log('[TraceRoost] It starts at login and restarts if it crashes. `traceroost service status` re-prints this URL; `traceroost service uninstall` removes it (your data in ~/.traceroost stays).')
       } else {
@@ -519,7 +519,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
         : installed
           ? '[TraceRoost] Installed but not reachable. Run `traceroost service logs` to check for errors, or `traceroost service start`.'
           : '[TraceRoost] No background service is installed. Run `traceroost service install` to set one up.')
-      if (running && effectiveUiPort === LEGACY_DASHBOARD_PORT) { console.log(`[TraceRoost] ${PORT_3000_HINT}`) }
+      if (running) { console.log(`[TraceRoost] ${servicePortHint(effectiveUiPort)}`) }
       if (running && portsDiffer && resolved) {
         console.log(`[TraceRoost] Resolved ports (actually bound) differ from configured:`)
         console.log(`[TraceRoost]   UI:   configured ${config.uiPort}, resolved ${resolved.ui}`)
