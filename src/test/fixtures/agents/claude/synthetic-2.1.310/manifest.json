@@ -1,0 +1,15 @@
+{
+  "source": "synthetic",
+  "captured": null,
+  "os": null,
+  "redaction": "none needed: every value is invented",
+  "adapter": "claude",
+  "agentVersion": "2.1.310",
+  "mirrors": "Claude Code 2.1.310 transcript record types and keys",
+  "files": [
+    {
+      "path": "files/.claude/projects/-repo/7f3c2a10-0000-4000-8000-000000000001.jsonl",
+      "logKey": "claude"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "source": "synthetic",
+  "captured": null,
+  "os": null,
+  "redaction": "none needed: every value is invented",
+  "adapter": "copilot",
+  "agentVersion": "1.0.100-1",
+  "mirrors": "Copilot CLI 1.0.100-1 events.jsonl event types and keys",
+  "files": [
+    {
+      "path": "files/.copilot/session-state/5b1d0c00-0000-4000-8000-000000000003/events.jsonl",
+      "logKey": "copilot"
+    }
+  ]
+}

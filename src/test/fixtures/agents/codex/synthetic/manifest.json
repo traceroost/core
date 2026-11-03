@@ -1,0 +1,15 @@
+{
+  "source": "synthetic",
+  "captured": null,
+  "os": null,
+  "redaction": "none needed: every value is invented",
+  "adapter": "codex",
+  "agentVersion": "unknown",
+  "mirrors": "the Codex CLI rollout format the parser reads (no cli_version recorded)",
+  "files": [
+    {
+      "path": "files/.codex/sessions/2026/10/01/rollout-2026-10-01T10-00-00-0199a000-0000-7000-8000-000000000002.jsonl",
+      "logKey": "codex"
+    }
+  ]
+}
