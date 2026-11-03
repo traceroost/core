@@ -116,7 +116,7 @@ Homebrew service, so existing data appears as is. It creates `~/.traceroost/desk
 in a dashboard banner, since it has no terminal — before setting up the coding agents on the
 machine to send telemetry to it; the answer is shared with `npx traceroost` and the service.
 
-Requires macOS 12 or later. Git is optional: without it, sessions are still recorded but commit
+Requires macOS 12 or later (the app's declared minimum). CI launches it on macOS 15 and 26, on Apple silicon and on Intel (`Desktop (macOS)` → `package` and `smoke`); macOS 12–14 are not tested. Git is optional: without it, sessions are still recorded but commit
 outcomes are unavailable, and the menu bar says so.
 
 ### Signing and notarization
