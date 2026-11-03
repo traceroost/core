@@ -224,9 +224,14 @@ module.exports = {
     // icon is drawn pixel for pixel on a 1x display and at exactly 2x on Retina. At 80 pt a 1x
     // display shrinks the 128 px frame and the glyph's legs and beak go soft.
     iconSize: 128,
+    // "Double-click TraceRoost to install" — the app moves itself to Applications and opens
+    // (src/installLocation.ts); the Applications link stays for dragging. Drawn by
+    // scripts/make-dmg-background.mjs (with its @2x); the window takes its 600×400 size, and the
+    // icon centres below are the ones it draws around.
+    background: 'build/background.png',
     contents: [
-      { x: 140, y: 180, type: 'file' },
-      { x: 400, y: 180, type: 'link', path: '/Applications' },
+      { x: 165, y: 205, type: 'file' },
+      { x: 435, y: 205, type: 'link', path: '/Applications' },
     ],
   },
 

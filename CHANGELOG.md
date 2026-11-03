@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Install the macOS app with a double-click** — the DMG window now says *Double-click TraceRoost to install*. Opened from the disk image, the app offers to move itself to Applications, then opens from there and ejects the disk image, so there is no hunting for it in Finder afterwards. If an older TraceRoost is running it is quit first. **Not Now** runs it from the disk image and asks again next time; *Don't ask again* stops asking. Dragging to Applications still works
+
 ### Fixed
 
 - **The macOS installer window shows a sharp app icon** — the DMG window drew its icons at 80 pt, so on a non-Retina display Finder shrank the icon's 128 px image and the bird's legs and beak came out soft. It now draws them at 128 pt, which is pixel for pixel on a standard display and exactly 2× on Retina

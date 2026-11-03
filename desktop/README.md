@@ -93,7 +93,16 @@ the collector's own shutdown.
 
 ### Installing
 
-Open the DMG and drag TraceRoost to Applications. Then:
+Open the DMG and double-click TraceRoost. Opened from the disk image (or from wherever Gatekeeper
+ran a downloaded copy), it offers to move itself to Applications; **Move to Applications** copies
+it there, ejects the disk image and opens the installed copy. An older copy that is running is
+quit first (it flushes its collector, as on any quit). **Not Now** runs it from the disk image this
+time and asks again on the next launch; ticking *Don't ask again* stops the question. Dragging it
+to the Applications link works too — the app just doesn't open by itself that way. The offer is
+[`src/installLocation.ts`](src/installLocation.ts); the window's background, which says all this,
+is drawn by [`scripts/make-dmg-background.mjs`](scripts/make-dmg-background.mjs).
+
+Then:
 
 - **An unsigned build** (every build until the Apple credentials exist): the first open is refused
   with "cannot be opened because the developer cannot be verified" or "is damaged". That is
