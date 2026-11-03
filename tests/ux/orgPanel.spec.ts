@@ -45,7 +45,7 @@ test('linked: Open Team View sits at the top, linking to its environment', async
 
 test('what is sent: short labels, with the agreed wording as each line\'s tooltip', async ({ page }) => {
   await openWith(page, { linked: false })
-  const usage = page.getByText('Usage counts', { exact: true }).first()
-  await expect(usage).toHaveAttribute('title', /^Usage counts — traces, turns, tool calls by tool name/)
-  await expect(page.getByText(/tool calls by tool name/)).toHaveCount(0)
+  const usage = page.getByText('Counts only (# of traces, tokens…)', { exact: true }).first()
+  await expect(usage).toHaveAttribute('title', /^Counts only — # of traces, turns, tool calls per tool/)
+  await expect(page.getByText(/tool calls per tool/)).toHaveCount(0)
 })

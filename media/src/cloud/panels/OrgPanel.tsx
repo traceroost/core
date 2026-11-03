@@ -8,7 +8,7 @@ import { useDialog } from '../../a11y'
 // side (src/test/cloud/org/privacy.test.ts) pins the source-of-truth copy and checks this file
 // carries the same lines (SENT, NEVER_SENT, and whoSeesWhat below).
 const SENT = [
-  'Usage counts — traces, turns, tool calls by tool name, tokens, errors, files changed, one-shot edits, lines added and removed',
+  'Counts only — # of traces, turns, tool calls per tool, tokens, errors, files changed, one-shot edits, lines added/removed',
   'Model, agent and language names, the outcome, whether a trace came from OTEL or logs, and whether you or an agent started it, with timestamps',
   'Hashed repository, branch, file and git-author ids — keyed by your repository’s first commit, so a public repository’s names can be guessed and matched',
   'A hashed conversation id, so the traces of one conversation group together',
@@ -20,7 +20,7 @@ const SENT = [
 /** What the panel shows for each SENT line — a few words, with the agreed wording above as its
  *  tooltip. Same order as SENT. */
 const SENT_SHORT = [
-  'Usage counts',
+  'Counts only (# of traces, tokens…)',
   'Model, agent and outcome',
   'Hashed repo, branch, file and author ids',
   'Hashed conversation id',
