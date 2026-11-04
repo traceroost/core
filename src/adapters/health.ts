@@ -138,10 +138,18 @@ export class AdapterHealth {
   }
 
   rows(): AgentHealthRow[] {
-    return ADAPTERS.map(a => this.row(a))
+    // One pass over the entries (there can be thousands of files), grouped by agent.
+    const byAdapter = new Map<AdapterKey, Array<[Counts, 'files' | 'otlp']>>()
+    const group = (c: Counts, source: 'files' | 'otlp') => {
+      const list = byAdapter.get(c.adapter)
+      if (list) list.push([c, source]); else byAdapter.set(c.adapter, [[c, source]])
+    }
+    for (const c of this.files.values()) group(c, 'files')
+    for (const c of this.otlp.values()) group(c, 'otlp')
+    return ADAPTERS.map(a => this.row(a, byAdapter.get(a.key) ?? []))
   }
 
-  private row(a: AgentAdapter): AgentHealthRow {
+  private row(a: AgentAdapter, entries: Array<[Counts, 'files' | 'otlp']>): AgentHealthRow {
     const byVersion = new Map<string, VersionHealth>()
     let lastFilesMs: number | null = null, lastOtlpMs: number | null = null
     const add = (c: Counts, source: 'files' | 'otlp') => {
@@ -153,8 +161,7 @@ export class AdapterHealth {
       for (const [n, k] of Object.entries(c.unknownNames)) v.unknownNames[n] = (v.unknownNames[n] ?? 0) + k
       for (const [n, f] of Object.entries(c.unknownFingerprints)) if (!(n in v.fingerprints)) v.fingerprints[n] = f
     }
-    for (const c of this.files.values()) if (c.adapter === a.key) add(c, 'files')
-    for (const c of this.otlp.values()) if (c.adapter === a.key) add(c, 'otlp')
+    for (const [c, source] of entries) add(c, source)
     const versions = [...byVersion.values()].sort((x, y) => compareVersions(y.version, x.version))
     for (const v of versions) v.banner = bannerWorthy(v)
     const versionSeen = versions[0]?.version ?? null
