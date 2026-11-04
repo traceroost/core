@@ -96,8 +96,8 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
 - **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and sixteen signals with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for context-window size, turns, errors, active time, zero cache use, repeat tool calls, plan-limit windows, and estimated daily cost — per-agent or shared
 - **Automated Prompts** — The Alerts panel's Automation tab (bell icon) configures threshold-based automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up) that trigger a correction prompt when a trace crosses a limit — delivered as a notification or written to a file for agent consumption; agents can also poll for them via the MCP server's `check_automation_triggers` tool
-- **Export** — Export filtered traces as JSON, CSV, or Markdown (full or redacted); respects the active time range, agent, language, prompt text, repo, source, and From (initiator) filters. The extension writes the file to your workspace root; the standalone dashboard downloads it in your browser
-- **Import** — Import traces from a previous TraceRoost JSON export; drag-drop or file-pick, shows a preview with trace count by source and date range, imports with live progress and automatic deduplication (existing traces are skipped)
+- **Export** — **Export…** on the Traces filter row exports the filtered traces as JSON, CSV, or Markdown (redacted or full); respects the active time range, agent, language, prompt text, repo, source, and From (initiator) filters. The extension writes the file to your workspace root; the standalone dashboard downloads it in your browser
+- **Import** — Import traces from a previous TraceRoost JSON export: drop the file on the dashboard or use **Import traces…** in ⚙ Settings; shows a preview with trace count by source and date range, imports with live progress and automatic deduplication (existing traces are skipped)
 - **MCP Server** — Exposes your own trace history to Claude Code (or any MCP-compatible agent) so it can query its recent work, cost, and recurring file/loop patterns before starting a task, instead of you checking the dashboard yourself. Runs by default on port `4316`; register it with `claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp` (the in-app Help tab's MCP section has the full setup and tool list)
 - **Make a suggestion** — The header's suggestion icon opens TraceRoost's public suggestion page in your browser; the link carries only the TraceRoost version and the current tab's name, never your traces or workspace
 
@@ -216,14 +216,14 @@ All figures are estimates — not your actual bill. Rates are sourced from each 
 
 ### Export
 
-The **Export** tab saves trace summaries in your choice of three formats. Where the file goes depends on how you run TraceRoost:
+**Export…** on the Traces tab's filter row (or `TraceRoost: Export Traces…` in VS Code) saves trace summaries in your choice of three formats, redacted (the default) or in full. Where the file goes depends on how you run TraceRoost:
 
 - **VS Code extension** — written to your workspace root (or, with no folder open, to the extension's global storage folder) and opened in an editor tab.
 - **Standalone server** (`npx`, the background service, Docker) — downloaded by your browser.
 
 The formats:
 
-- **JSON** (default) — one structured record per trace: prompt text, agent and model, timing, token and cache counts, tool-call counts, files read and changed, loop signals, language (primary and secondary), and change size (files changed, lines added/removed). This is the only format the **Import** tab reads back in.
+- **JSON** (default) — one structured record per trace: prompt text, agent and model, timing, token and cache counts, tool-call counts, files read and changed, loop signals, language (primary and secondary), and change size (files changed, lines added/removed). This is the only format **Import** reads back in.
 - **CSV** — one row per trace, with array/object fields (models, files, tool counts, loop signals) flattened into semicolon-joined cells. Built for dropping into a spreadsheet.
 - **Markdown** — one section per trace with the same data laid out as a readable report, prompt included as a blockquote. Built for sharing.
 
@@ -231,16 +231,15 @@ Each format is available both as the full export and as a redacted export (promp
 
 An export contains the traces that match the dashboard's current filters — time range, agent, language, prompt text, repo, source (OTel / Log) and From (User / Agent). In the extension it draws from the full SQLite trace history, not just the active window, so every matching past trace is included. The standalone dashboard builds the file in the browser from the traces it has loaded, so it holds the matching traces in the server's in-memory history.
 
-> **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export from this tab, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export Live OTel Spans (debug)` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
+> **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export Live OTel Spans (debug)` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
 
 ### Import
 
-The **Import** tab loads traces from a previous TraceRoost **JSON** export file into the current installation — useful for migrating data to a new machine, sharing trace history across team members, or restoring a local backup. CSV and Markdown exports are one-way (for external consumption) and can't be imported back.
+**Import** loads traces from a previous TraceRoost **JSON** export file into the current installation — useful for migrating data to a new machine, sharing trace history across team members, or restoring a local backup. CSV and Markdown exports are one-way (for external consumption) and can't be imported back.
 
-1. Open the **Import** tab in the dashboard
-2. Drag-and-drop an `export_sessions_*.json` file onto the drop zone, or click **Choose file**
-3. Review the preview: total traces, breakdown by agent source, and the date range covered
-4. Click **Import** — progress updates live as traces are written; already-existing traces are skipped automatically
+1. Drop an `export_sessions_*.json` file anywhere on the dashboard — or open **Import traces…** in the ⚙ Settings panel (or run `TraceRoost: Import Traces…` in VS Code) and drop it there or click to browse
+2. Review the preview: total traces, breakdown by agent source, and the date range covered
+3. Click **Import** — progress updates live as traces are written; already-existing traces are skipped automatically
 
 Import works in both VS Code extension mode and standalone server mode.
 
@@ -831,7 +830,9 @@ Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for
 | `TraceRoost: Open Dashboard` | Open the full dashboard in an editor panel |
 | `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Don't set up**, or to write them all again the settings now. Running it counts as your yes |
 | `TraceRoost: Remove Agent Setup…` | Take out only the settings TraceRoost added to Claude Code, Codex and Copilot (listed in a confirmation first), and stop setting agents up. Settings that send to a different collector are left alone. Same as `traceroost agents remove` |
-| `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The **Export** dashboard tab exports per-trace summaries instead |
+| `TraceRoost: Export Traces…` | Open the dashboard's Export panel for the traces that match its current filters |
+| `TraceRoost: Import Traces…` | Open the dashboard's Import panel to load a TraceRoost JSON export |
+| `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The dashboard's **Export…** exports per-trace summaries instead |
 | `TraceRoost: Export Live OTel Spans, Redacted (debug)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
 | `TraceRoost: Show Storage Stats` | Report local database size, blob storage size, trace count, date range, and current retention setting to the Output panel |
 | `TraceRoost: Dump Span Attributes (debug)` | Debugging aid: print the span names and attributes in the live window (one example per Codex span type, the last few Claude spans) to the Output panel. Listed in the Command Palette only when VS Code was started with `TRACEROOST_LOG_LEVEL=debug` |

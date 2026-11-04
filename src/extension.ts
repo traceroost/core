@@ -1042,6 +1042,16 @@ export async function activate(context: vscode.ExtensionContext) {
       DashboardPanel.show(context, repo, provider, instructionRepo, traceRoostDb?.raw, reconciliationService)
     })
   )
+  // Export and Import are drawers in the dashboard, not tabs: open the dashboard, then the drawer.
+  // Same delay the deep-link handlers use, so a panel opened just now has its webview listening.
+  for (const [command, drawer] of [['traceRoost.exportTraces', 'export'], ['traceRoost.importTraces', 'import']] as const) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(command, () => {
+        void vscode.commands.executeCommand('traceRoost.openDashboard')
+        setTimeout(() => DashboardPanel.switchToTab(drawer), 250)
+      })
+    )
+  }
 
   // A literal `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) rather than
   // `cloud.edition`, so the core build drops registerOrgCommands and its strings entirely.
