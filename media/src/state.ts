@@ -56,7 +56,7 @@ export const rangedSearchResults = signal<SearchResultData | null>(null)
 
 // DB-queried sessions for a full, uncapped Export — rangedSearchResults above is intentionally
 // capped to CHART_MAX for chart/table rendering, which is wrong for "export everything matching
-// my filters"; this is a dedicated signal so the Export tab's own uncapped fetch never clobbers
+// my filters"; this is a dedicated signal so the Export drawer's own uncapped fetch never clobbers
 // (or gets clobbered by) the capped view every other tab reads from.
 export const exportSearchResults = signal<SearchResultData | null>(null)
 
@@ -359,6 +359,13 @@ export const alertsPanelTab = signal<AlertsPanelTab>('active')
 // repo"), cleared once used.
 export const filtersOpen = signal(false)
 export const filtersFocusField = signal<string | null>(null)
+// The Export and Import drawers (tabs/Export.tsx, tabs/Import.tsx). Export opens from the Traces
+// filter row; Import from Settings, a file dropped anywhere on the dashboard, or the host's
+// `switchTab` 'import'. `importDroppedFile` hands a dropped file to the Import drawer, which
+// previews it and clears this.
+export const exportOpen = signal(false)
+export const importOpen = signal(false)
+export const importDroppedFile = signal<File | null>(null)
 
 // ── Ingestion settings ────────────────────────────────────────────────────────
 

@@ -56,8 +56,8 @@ install the VSIX artifact from the latest `E2E` or `Release` run.
    build and confirm the browser's address bar holds the whole authorize URL, `redirect_uri` and
    `state` included, and sign-in finishes without pasting the URL by hand: the old `cmd /c start`
    form cut it at the first `&` (#318), and CI only checks the argv, not what the browser receives.
-4. **Webview look and feel.** Cycle every dashboard tab (Traces, Analytics, Advisor, Export,
-   Import) plus the Help and Pricing pages and the Settings and Org panels, toggle light/dark theme, resize, and try each copy-to-clipboard button (Windows clipboard
+4. **Webview look and feel.** Cycle every dashboard tab (Traces, Analytics, Advisor) plus
+   the Help and Pricing pages and the Settings, Export, Import and Org panels, toggle light/dark theme, resize, and try each copy-to-clipboard button (Windows clipboard
    permissions through a webview have been quirkier than macOS). CI only proves the panel opens
    without errors.
 5. **A real logon.** CI starts the Task Scheduler task with `schtasks /run`; confirm once that it

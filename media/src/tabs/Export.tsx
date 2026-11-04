@@ -3,8 +3,9 @@ import {
   filteredSessions, vscode, timeRange, rangedSearchResults, exportSearchResults,
   agentFilteredSessions, selectedAgentFilter, workspaceFilter, dataSourceFilter,
   sessionTextFilter, initiatorFilter, evidenceSessionIds, repoInfo, matchesRepoQuery,
-  languageFilter, matchesLanguageFilter,
+  languageFilter, matchesLanguageFilter, exportOpen,
 } from '../state'
+import { useDialog } from '../a11y'
 import { CloudNote } from './CloudNote'
 import type { SessionSummaryCard } from '../types'
 
@@ -87,11 +88,18 @@ function FormatSelect({ value, onChange }: { value: ExportFormat; onChange: (f: 
   )
 }
 
-export function Export() {
-  const [rawDone, setRawDone] = useState(false)
-  const [redactedDone, setRedactedDone] = useState(false)
-  const [rawFormat, setRawFormat] = useState<ExportFormat>('json')
-  const [redactedFormat, setRedactedFormat] = useState<ExportFormat>('json')
+type ExportKind = 'redacted' | 'full'
+
+// The Export drawer, opened from the Traces filter row's Export… button (App.tsx's
+// FilterActionsBar) or the host's `switchTab` 'export'. It exports whatever the filters currently
+// select, so it sits beside them instead of being a tab of its own. Redacted is the default: it's
+// the one that's safe to hand to someone else.
+export function ExportDialog() {
+  const open = exportOpen.value
+  const ref = useDialog<HTMLDivElement>(open, () => { exportOpen.value = false })
+  const [kind, setKind] = useState<ExportKind>('redacted')
+  const [format, setFormat] = useState<ExportFormat>('json')
+  const [done, setDone] = useState(false)
   // Set while waiting on the uncapped fetch for a bounded time range; null the rest of the time.
   const [pending, setPending] = useState<{ redact: boolean; format: ExportFormat } | null>(null)
 
@@ -102,8 +110,10 @@ export function Export() {
   const empty = sessions.length === 0
   const trueTotal = isAllTime ? sessions.length : (rangedSearchResults.value?.totalCount ?? sessions.length)
   const scopeLabel = trueTotal === 1
-    ? '1 trace matches your current filters and will be exported'
-    : `${trueTotal} traces match your current filters and will be exported`
+    ? '1 trace matches your current filters'
+    : `${trueTotal} traces match your current filters`
+
+  const markDone = () => { setDone(true); setTimeout(() => setDone(false), 3000) }
 
   useEffect(() => {
     if (!pending) return
@@ -124,115 +134,92 @@ export function Export() {
     })
     const finalSessions = applyRemainingFilters([...results.sessions, ...inMemoryInRange])
     send(pending.redact ? 'exportSessionDataRedacted' : 'exportSessionData', finalSessions.map(s => s.sessionId), pending.format)
-
-    if (pending.redact) { setRedactedDone(true); setTimeout(() => setRedactedDone(false), 3000) }
-    else { setRawDone(true); setTimeout(() => setRawDone(false), 3000) }
+    markDone()
     setPending(null)
     exportSearchResults.value = null
   }, [pending, exportSearchResults.value])
 
   const doExport = () => {
+    const redact = kind === 'redacted'
     if (isAllTime) {
-      send('exportSessionData', sessions.map(s => s.sessionId), rawFormat)
-      setRawDone(true)
-      setTimeout(() => setRawDone(false), 3000)
+      send(redact ? 'exportSessionDataRedacted' : 'exportSessionData', sessions.map(s => s.sessionId), format)
+      markDone()
       return
     }
-    setPending({ redact: false, format: rawFormat })
+    setPending({ redact, format })
     requestFullExportSessions()
   }
 
-  const doRedacted = () => {
-    if (isAllTime) {
-      send('exportSessionDataRedacted', sessions.map(s => s.sessionId), redactedFormat)
-      setRedactedDone(true)
-      setTimeout(() => setRedactedDone(false), 3000)
-      return
-    }
-    setPending({ redact: true, format: redactedFormat })
-    requestFullExportSessions()
-  }
-
-  const preparingRaw = pending !== null && !pending.redact
-  const preparingRedacted = pending !== null && pending.redact
+  const preparing = pending !== null
+  const count = trueTotal === 1 ? '1 trace' : `${trueTotal} traces`
 
   return (
-    <div id="export-content" style="padding-top:8px">
-
-      <div class={'export-scope-box' + (empty ? ' export-scope-box-empty' : '')}>
-        {empty ? 'No traces match your current filters — nothing to export' : scopeLabel}
+    <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="export-drawer-title"
+      inert={!open}
+      aria-hidden={!open}
+      style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
+    >
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
+        <h2 id="export-drawer-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">Export traces</h2>
+        <button
+          onClick={() => exportOpen.value = false}
+          style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
+          title="Close (Esc)"
+          aria-label="Close export"
+        >×</button>
       </div>
 
-      <div class="export-cards">
-
-        <div class="export-card">
-          <div class="export-card-header">
-            <span class="export-card-title">Export Trace Data</span>
-            <span class="export-card-badge export-badge-raw">Full</span>
-          </div>
-          <p class="export-card-desc">
-            Includes prompt text, token counts, tool usage, file changes, cost estimates, and
-            efficiency signals. JSON is the format the Import tab reads back in; CSV and Markdown
-            are for spreadsheets and shareable reports.
-          </p>
-          <ul class="export-card-includes">
-            <li>Prompt text (userRequest)</li>
-            <li>Token counts, cache stats, model names</li>
-            <li>Tool call counts and file paths changed</li>
-            <li>Duration, errors, outcome, loop signals</li>
-          </ul>
-          <div class="export-card-warning">Keep private — includes prompt text.</div>
-          <div class="export-card-actions">
-            <FormatSelect value={rawFormat} onChange={setRawFormat} />
-            <button
-              class={'export-btn' + (rawDone ? ' export-btn-done' : '')}
-              onClick={doExport}
-              disabled={empty || preparingRaw}
-            >
-              {rawDone ? '✓ Exported' : preparingRaw ? 'Preparing…' : 'Export Trace Data'}
-            </button>
-          </div>
+      <div id="export-content">
+        <div class={'export-scope-box' + (empty ? ' export-scope-box-empty' : '')}>
+          {empty ? 'No traces match your current filters — nothing to export' : scopeLabel}
         </div>
 
-        <div class="export-card export-card-redacted">
-          <div class="export-card-header">
-            <span class="export-card-title">Export Trace Data (Redacted)</span>
-            <span class="export-card-badge export-badge-redacted">Safer to share</span>
-          </div>
-          <p class="export-card-desc">
-            Same export with prompt text and file paths replaced. Safe to attach to bug reports
-            or share with teammates for cost and efficiency analysis.
-          </p>
-          <ul class="export-card-includes">
-            <li><span class="export-redacted-label">[redacted]</span> Prompt text</li>
-            <li><span class="export-redacted-label">[redacted]</span> File names and paths</li>
-            <li>✓ Token counts, cache stats, model names</li>
-            <li>✓ Tool call counts (no paths)</li>
-            <li>✓ Duration, errors, outcome, loop signals</li>
-          </ul>
-          <div class="export-card-safe">Safer to share — no prompt text or file paths.</div>
-          <div class="export-card-actions">
-            <FormatSelect value={redactedFormat} onChange={setRedactedFormat} />
-            <button
-              class={'export-btn export-btn-secondary' + (redactedDone ? ' export-btn-done' : '')}
-              onClick={doRedacted}
-              disabled={empty || preparingRedacted}
-            >
-              {redactedDone ? '✓ Exported' : preparingRedacted ? 'Preparing…' : 'Export Trace Data (Redacted)'}
-            </button>
-          </div>
+        <fieldset class="export-kind">
+          <legend class="export-field-label">What to include</legend>
+          <label class={'export-kind-option' + (kind === 'redacted' ? ' selected' : '')}>
+            <input type="radio" name="export-kind" value="redacted" checked={kind === 'redacted'} onChange={() => setKind('redacted')} />
+            <span>
+              <span class="export-kind-title">Redacted</span>
+              <span class="export-kind-desc">Prompt text and file paths replaced with <span class="export-redacted-label">[redacted]</span>. Safer to share.</span>
+            </span>
+          </label>
+          <label class={'export-kind-option' + (kind === 'full' ? ' selected' : '')}>
+            <input type="radio" name="export-kind" value="full" checked={kind === 'full'} onChange={() => setKind('full')} />
+            <span>
+              <span class="export-kind-title">Full</span>
+              <span class="export-kind-desc">Includes prompt text and file paths. Keep private.</span>
+            </span>
+          </label>
+        </fieldset>
+
+        <div class="export-format-row">
+          <span class="export-field-label">Format</span>
+          <FormatSelect value={format} onChange={setFormat} />
         </div>
-
-      </div>
-
-      <div class="export-replay-box">
-        <div class="export-replay-title">About exports</div>
-        <p class="export-replay-desc">
-          Exports summarize your traces: tokens, tools, cost, file changes, and efficiency
-          signals. Use them to share specifics with a teammate, who can open them with
-          the <strong>Import</strong> tab.
+        <p class="export-hint">
+          JSON can be imported back into TraceRoost. CSV is for spreadsheets, Markdown for a readable report.
         </p>
-        <CloudNote tab="export" />
+
+        <button
+          class={'export-btn' + (done ? ' export-btn-done' : '')}
+          onClick={doExport}
+          disabled={empty || preparing}
+        >
+          {done ? '✓ Exported' : preparing ? 'Preparing…' : `Export ${count}`}
+        </button>
+
+        <div class="export-about">
+          <p class="export-replay-desc">
+            Every export has tokens, tools, cost, file changes and efficiency signals for each trace.
+            A teammate can open a JSON export by dropping it on their TraceRoost dashboard,
+            or with <strong>Import traces</strong> in ⚙ Settings.
+          </p>
+          <CloudNote kind="export" />
+        </div>
       </div>
     </div>
   )

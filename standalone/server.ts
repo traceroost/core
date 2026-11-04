@@ -1531,7 +1531,7 @@ function sendInstructionResult(res: http.ServerResponse, result: InstructionResu
 
 /** An automation prompt is a few KB; the rest is headroom. */
 const MAX_PROMPT_BODY_BYTES = 1024 * 1024
-/** A session export (Export tab JSON — per-session summaries, no timelines) runs to a few KB a
+/** A session export (dashboard Export JSON — per-session summaries, no timelines) runs to a few KB a
  *  session; the OTLP receiver's 50 MB cap leaves room for tens of thousands of them. */
 const MAX_IMPORT_BODY_BYTES = 50 * 1024 * 1024
 /** /action and /api/org carry one small webview message. */

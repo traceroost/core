@@ -18,7 +18,7 @@ suite('promptsFileFor', () => {
 })
 
 suite('IMPORT_SOURCES', () => {
-  test('accepts every source the webview Import tab accepts, including cursor', () => {
+  test('accepts every source the webview Import drawer accepts, including cursor', () => {
     for (const s of ['copilot', 'claude_code', 'codex', 'opencode', 'cursor']) assert.ok(IMPORT_SOURCES.has(s), s)
   })
 })

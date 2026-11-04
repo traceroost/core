@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Export and Import are no longer tabs** — the tab bar is now Traces, Analytics and Advisor. **Export…** on the Traces filter row opens a panel that exports the traces your filters select, with one choice between Redacted (now the default, since it's the one safe to share) and Full, and a format (JSON, CSV or Markdown). To import a JSON export, drop the file anywhere on the dashboard, or use **Import traces…** in the ⚙ Settings panel. VS Code adds `TraceRoost: Export Traces…` and `TraceRoost: Import Traces…`
+
 ### Fixed
 
 - **The macOS installer window shows a sharp app icon** — the DMG window drew its icons at 80 pt, so on a non-Retina display Finder shrank the icon's 128 px image and the bird's legs and beak came out soft. It now draws them at 128 pt, which is pixel for pixel on a standard display and exactly 2× on Retina
