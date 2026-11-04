@@ -137,6 +137,27 @@ To disable log ingestion: set `traceRoost.enableLogIngestion` to `false` in VS C
 
 **Clear All Data** (Settings) only deletes TraceRoost's own stored copy — it never touches these source log files, and log-sourced traces will simply be re-read on the next scan. TraceRoost has no way to delete the log files themselves; do that directly at the paths above if you want them gone.
 
+### Supported agents
+
+How much testing stands behind each agent, and the newest version a real capture of it was checked against:
+
+<!-- support-matrix:start (generated from src/adapters/registry.ts — a test fails if this drifts) -->
+| Agent | Reads | Support level | Last verified version |
+|---|---|---|---|
+| Claude Code | OTel, log files | Verified | none yet |
+| Codex | OTel, log files | Verified | none yet |
+| Copilot CLI | OTel, log files | Fixture-tested | none yet |
+| Copilot (VS Code) | OTel, log files | Best effort | none yet |
+| OpenCode | SQLite database | Fixture-tested | none yet |
+| Cursor CLI | log files | Fixture-tested | none yet |
+<!-- support-matrix:end -->
+
+- **Verified** — the real agent runs in CI on every release and nightly, and each release gets a committed fixture. A confirmed format break gets a patch release within 2 working days.
+- **Fixture-tested** — committed fixtures and contract tests, and a headless CI run where the agent has one. Breaks are fixed as soon as practical.
+- **Best effort** — fixtures captured by hand; checked when a release is noticed. Breaks are fixed as soon as practical.
+
+When an agent release changes what TraceRoost reads, Settings → **Agents** and a banner on the Traces tab say so for that agent and version, and `traceroost doctor` exits non-zero. **Report this** opens a GitHub issue with only names, counts and key/value-type structure — you see the whole body first, and nothing is sent unless you file it. A new agent is added at *Fixture-tested* or better.
+
 ### What each agent gives you, source by source
 
 The general picture above is the same for every agent — OTel is richer, logs are zero-config. The specifics (exact fields, what's missing without OTel, which config unlocks what) differ enough per agent to be worth stating individually:

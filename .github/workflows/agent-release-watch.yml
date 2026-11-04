@@ -1,0 +1,81 @@
+name: Agent release watch
+
+# Every 6 hours: has an agent TraceRoost reads shipped a new version? scripts/agent-watch.mjs
+# checks npm (Claude Code, Codex, OpenCode, Copilot CLI), the VS Code Marketplace (Copilot Chat)
+# and Cursor's install script against the versions it saw last (kept in this workflow's cache).
+# For each new release it opens or retitles that agent's tracking issue (label agent-release),
+# dispatches agent-capture.yml pinned to the new version, and mails the owners through the same
+# secrets as otel-watch.yml (OTEL_WATCH_SMTP_* / OTEL_WATCH_MAIL_*). The first run records a
+# baseline and mails it once, so you know mail works.
+#
+# It never commits, pushes or opens a pull request. A format change is fixed by hand:
+# runbooks/AGENT_FORMAT_BREAK.md.
+#
+# To exercise the release path by hand: Run workflow with pretend_seen set to an older version,
+# e.g. {"codex":"0.160.0"} — it opens the tracking issue and dispatches a pinned capture.
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      pretend_seen:
+        description: 'Versions to treat as last seen, as JSON, e.g. {"codex":"0.160.0"}'
+        required: false
+        default: ''
+      dry_run:
+        description: Report only — no issue, no dispatch, no mail
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: agent-release-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            scripts/agent-watch.mjs
+            scripts/otel-watch.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # Last-seen versions. A cache entry is immutable, so each run saves under its own key and the
+      # next restores the newest by prefix.
+      - name: Restore last-seen versions
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .agent-watch
+          key: agent-watch-${{ github.run_id }}
+          restore-keys: agent-watch-
+
+      - name: Check for new agent releases
+        run: |
+          args=()
+          if [ -n "$PRETEND_SEEN" ]; then args+=(--pretend-seen "$PRETEND_SEEN"); fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          node scripts/agent-watch.mjs check .agent-watch/state.json "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          PRETEND_SEEN: ${{ inputs.pretend_seen }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          AGENT_WATCH_REF: ${{ github.event.repository.default_branch }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OTEL_WATCH_SMTP_HOST: ${{ secrets.OTEL_WATCH_SMTP_HOST }}
+          OTEL_WATCH_SMTP_USER: ${{ secrets.OTEL_WATCH_SMTP_USER }}
+          OTEL_WATCH_SMTP_PASS: ${{ secrets.OTEL_WATCH_SMTP_PASS }}
+          OTEL_WATCH_MAIL_FROM: ${{ secrets.OTEL_WATCH_MAIL_FROM }}
+          OTEL_WATCH_MAIL_TO: ${{ secrets.OTEL_WATCH_MAIL_TO }}

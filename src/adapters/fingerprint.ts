@@ -59,3 +59,18 @@ export function diffFingerprints(before: Fingerprint, after: Fingerprint, at = '
 function describe(f: Fingerprint): string {
   return typeof f === 'string' ? f : 'object'
 }
+
+/** One fingerprint covering every record of a name: the union of their keys, with a key whose
+ *  type differs between records written `"number|string"`. What the CI fingerprint diff compares
+ *  between a new capture and the committed fixtures. */
+export function mergeFingerprints(a: Fingerprint | undefined, b: Fingerprint): Fingerprint {
+  if (a === undefined) return b
+  const isObj = (f: Fingerprint): f is Record<string, Fingerprint> => typeof f === 'object' && !Array.isArray(f)
+  if (isObj(a) && isObj(b)) {
+    const out: Record<string, Fingerprint> = { ...a }
+    for (const [k, v] of Object.entries(b)) out[k] = mergeFingerprints(a[k], v)
+    return out
+  }
+  const types = new Set([...describe(a).split('|'), ...describe(b).split('|')])
+  return [...types].sort().join('|')
+}
