@@ -8,13 +8,10 @@ app with a menu bar / tray icon — no terminal, no separately installed Node.
 arm64, built and tested natively on each) is in [Windows](#windows). The rest of this section is
 about macOS.
 
-**Status: the macOS app is built, tested and released; signing and notarization wait on an Apple
-Developer Program membership.**
+**Status: the macOS app is built, tested, signed with a Developer ID, notarized and released.**
 The app builds as a `.app` and a DMG for arm64 and x64, verifies and smoke-tests itself,
-ships its third-party notices and checksums, and is built in CI on every change. What it is **not**
-is signed with a Developer ID or notarized, so a *downloaded* copy is refused by Gatekeeper until
-the user right-clicks → Open. Signing and notarization are wired up and switch on when the
-credentials exist — see [Signing and notarization](#signing-and-notarization) — and
+ships its third-party notices and checksums, and is built in CI on every change. Releases ship it
+notarized only — see [Signing and notarization](#signing-and-notarization) — and
 [what is not done](#what-is-not-done-yet) lists the rest.
 
 Nothing here changes the npm, VSIX, Docker or Homebrew builds. It consumes their output.
@@ -95,18 +92,16 @@ the collector's own shutdown.
 
 Open the DMG and drag TraceRoost to Applications. Then:
 
-- **An unsigned build** (every build until the Apple credentials exist): the first open is refused
-  with "cannot be opened because the developer cannot be verified" or "is damaged". That is
-  Gatekeeper reacting to the quarantine flag on a downloaded, un-notarized app. Right-click the app
-  → **Open**, then **Open** again in the dialog; macOS remembers the choice. Or clear the flag:
-  `xattr -d com.apple.quarantine /Applications/TraceRoost.app`. A build you made locally has no
-  quarantine flag and opens normally.
-- **A signed and notarized build** opens like any other app.
+- **A released build** is signed and notarized, and opens like any other app: the only prompt is
+  macOS asking to confirm an app downloaded from the Internet.
+- **A build you made locally** without the Apple credentials is ad-hoc signed. It has no
+  quarantine flag, so it opens normally on the Mac that built it; copied to another Mac through a
+  browser or AirDrop, Gatekeeper refuses it.
 
 Check a download against the release's `TraceRoost-desktop-<v>-SHA256SUMS` with
 `shasum -a 256 -c TraceRoost-desktop-<v>-SHA256SUMS --ignore-missing` in the directory holding the
 files. (A local `pnpm run pack` writes a plain `dist/SHA256SUMS`.) Releases attach the macOS files
-under their plain names, notarized or not; see [Releases](#releases).
+under their plain names, notarized; see [Releases](#releases).
 
 On first launch the app decides who owns the data directory (below), starts a collector if nothing
 else does, and opens the dashboard. It uses the same `~/.traceroost` data directory and
@@ -630,13 +625,12 @@ the repo's `package.json` version, which `package` has checked against the tag.
 | Platform | Attached to a release when |
 | --- | --- |
 | Linux (.deb, AppImage; x64, arm64) | always, once the build and install matrix pass |
-| macOS (DMG; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Until the Apple secrets exist it is attached ad-hoc signed (below) |
+| macOS (DMG; arm64, x64) | the build is Developer ID signed and notarized — `desktop-macos.yml` checks with `stapler validate` and `spctl`. Never attached otherwise: without the Apple secrets a release leaves macOS out and its `desktop` job fails |
 | Windows (NSIS installer .exe; x64, arm64) | the build is Authenticode-signed (`WIN_CSC_LINK` or Azure Artifact Signing) — `desktop-windows.yml` checks every executable with `Get-AuthenticodeSignature`. Until then (or with `TRACEROOST_WINDOWS_SIGNING=off`) it is attached unsigned (below) |
 
-**Unsigned builds.** An ad-hoc signed (not notarized) macOS build or an unsigned Windows build is
-attached under its plain name, the same as a signed one — the same bytes CI tested, in the same
-SHA256SUMS, with attestations — and the release notes get a section on opening it (Gatekeeper:
-right-click → Open; SmartScreen: More info → Run anyway).
+**Unsigned Windows builds.** An unsigned Windows build is attached under its plain name, the same
+as a signed one — the same bytes CI tested, in the same SHA256SUMS, with attestations — and the
+release notes get a section on opening it (SmartScreen: More info → Run anyway).
 
 Platforms are independent: if one platform's build fails, the others are still attached. The
 repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default `linux,macos,windows`) switches a
@@ -661,11 +655,10 @@ Linux, beyond the [matrix](#supported-matrix-what-has-actually-been-run) above:
 
 macOS:
 
-Needs the Apple Developer Program membership and the secrets above:
-
-- **Developer ID signing, notarization and stapling** — the code path exists and is exercised by
-  the config, but nothing has been through it, and nothing here has been through Gatekeeper. The
-  validation that matters is a *downloaded, quarantined* artifact opening on a fresh user account.
+- **The Gatekeeper test on a released DMG.** Signing and notarization are on (a local notarized
+  arm64 build passed `stapler validate` and `spctl`), but no release has shipped one yet. The
+  validation that matters is a *downloaded, quarantined* DMG opening on a fresh user account
+  ([`MACOS_SIGNING.md` §8](../runbooks/MACOS_SIGNING.md)).
 
 Stage 4, not started:
 

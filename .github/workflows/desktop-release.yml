@@ -17,11 +17,12 @@ name: Desktop release
 #              Remove a platform there to stop releasing it without touching this file.
 #   names      every build is attached under the name it was built as (`TraceRoost-<v>-mac-<arch>.dmg`,
 #              `TraceRoost-<v>-win-<arch>.exe`), signed or not — the builds CI tested, byte for byte.
-#   unsigned   a macOS build that is not notarized (no Apple Developer Program secrets) or a Windows
-#              build that is not Authenticode-signed (no signing secrets, or
+#   macOS      attached only notarized. A release whose macOS build is not notarized (the Apple
+#              Developer Program secrets are missing) leaves macOS out and fails this workflow once
+#              the other platforms are attached; there is no unnotarized fallback.
+#   unsigned   a Windows build that is not Authenticode-signed (no signing secrets, or
 #              TRACEROOST_WINDOWS_SIGNING=off) is still attached, and the release notes get a
-#              section on opening it (Gatekeeper: right-click → Open; SmartScreen: More info → Run
-#              anyway).
+#              section on opening it (SmartScreen: More info → Run anyway).
 #   failures   platforms are independent: if one platform's build fails, the others are still
 #              attached and the failed one is a notice (plus its red job).
 #
@@ -177,9 +178,12 @@ jobs:
           if [ "$LINUX_RESULT" = success ]; then platforms="linux"
           elif [ "$LINUX_RESULT" != skipped ]; then echo "::warning::The Linux desktop build did not pass ($LINUX_RESULT); Linux is not attached."; fi
           unsigned=""
-          if [ "$MACOS_RESULT" = success ]; then
+          if [ "$MACOS_RESULT" = success ] && [ "$NOTARIZED" != true ] && [ "$IS_RELEASE" = true ]; then
+            echo "::error::The macOS build is not notarized (no Apple Developer secrets); macOS is not attached. Releases ship macOS notarized only — runbooks/MACOS_SIGNING.md."
+            echo "macos_unnotarized=true" >> "$GITHUB_OUTPUT"
+          elif [ "$MACOS_RESULT" = success ]; then
             platforms="${platforms:+$platforms,}macos"
-            if [ "$NOTARIZED" != true ]; then unsigned="${unsigned:+$unsigned,}macos"; echo "::notice::macOS is not notarized (no Apple Developer secrets); attaching the ad-hoc signed build."; fi
+            if [ "$NOTARIZED" != true ]; then echo "::notice::macOS is not notarized; assembled for this dry run, but a release would leave it out."; fi
           elif [ "$MACOS_RESULT" != skipped ]; then echo "::warning::The macOS desktop build did not pass ($MACOS_RESULT); macOS is not attached."; fi
           if [ "$WINDOWS_RESULT" = success ]; then
             platforms="${platforms:+$platforms,}windows"
@@ -284,11 +288,16 @@ jobs:
             echo
             echo "These downloads are not code-signed. They are the builds CI tested, byte for byte (\`TraceRoost-desktop-*-SHA256SUMS\`), but your OS will warn before opening them:"
             echo
-            if [[ ",$UNSIGNED," == *",macos,"* ]]; then
-              echo "- **macOS** (\`TraceRoost-*-mac-*.dmg\`): ad-hoc signed, not notarized. Gatekeeper refuses the first open; right-click the app → **Open**, then **Open** again (or \`xattr -d com.apple.quarantine /Applications/TraceRoost.app\`)."
-            fi
             if [[ ",$UNSIGNED," == *",windows,"* ]]; then
               echo "- **Windows** (\`TraceRoost-*-win-*.exe\` installer): not code-signed. SmartScreen shows \"Windows protected your PC\"; click **More info → Run anyway**."
             fi
           } > "$RUNNER_TEMP/notes.md"
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+
+      # macOS ships notarized or not at all: the other platforms are attached above, then the run
+      # goes red so a release without macOS is noticed.
+      - name: Fail when macOS was left out for not being notarized
+        if: steps.plan.outputs.macos_unnotarized == 'true'
+        run: |
+          echo "::error::This release has no macOS download: the build was not notarized. Fix the Apple secrets (runbooks/MACOS_SIGNING.md) before the next tag."
+          exit 1
