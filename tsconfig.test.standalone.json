@@ -35,6 +35,8 @@
     "standalone/autoConfigLog.ts",
     "standalone/autoConfigLog.test.ts",
     "standalone/agentsCli.ts",
+    "standalone/doctorCli.ts",
+    "standalone/doctorCli.test.ts",
     "standalone/agentsCli.test.ts",
     "standalone/serviceOwnership.test.ts",
     "standalone/promptsFile.ts",

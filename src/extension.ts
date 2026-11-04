@@ -41,6 +41,7 @@ import { HistoryReadiness } from './historyReadiness'
 import { decidePipeline } from './ownerGate'
 import { logLevel } from './logLevel'
 import { agentKeyLabel } from './adapters/registry'
+import { adapterHealth, persistAdapterHealth, restoreAdapterHealth } from './adapters/health'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -583,6 +584,9 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // ── Panels ───────────────────────────────────────────────────────────────────
+  // Adapter health (Settings → Agents) as the owning window last saved it, beside the log file
+  // state: a file restored as already read keeps its counts, and a viewer window has a table too.
+  restoreAdapterHealth(adapterHealth(), context.globalStorageUri.fsPath)
   const repo = repository ?? fallbackRepository(store)
   const provider = new SidebarPanel(repo, context.extensionUri)
 
@@ -684,7 +688,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // ── Log ingestion ──
     const enableLogIngestion = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableLogIngestion', true)
     if (enableLogIngestion) {
-      logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
+      const health = adapterHealth()
+      logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory, observe: (f, o, mtimeMs) => health.observeFile(f, o, mtimeMs) })
       // Also re-derives what a parser change needs re-read (see LOG_FILE_STATE_VERSION) — e.g.
       // every file once, into a store rebuilt for stable trace identity.
       restoreLogFileState(logReader, context.globalStorageUri.fsPath,
@@ -694,7 +699,9 @@ export async function activate(context: vscode.ExtensionContext) {
       // recording files as processed would make the owning window skip them on its next activation.
       // (This whole pipeline is owner-only; the check stays as the last line of defence.)
       const persistFileState = () => {
-        if (traceRoostDb?.isOwner) writeLogFileState(context.globalStorageUri.fsPath, lr.exportFileState())
+        if (!traceRoostDb?.isOwner) return
+        writeLogFileState(context.globalStorageUri.fsPath, lr.exportFileState())
+        persistAdapterHealth(health, context.globalStorageUri.fsPath)
       }
       const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
       // Keys a re-read log file no longer produces (LogReader.takeRetiredKeys) leave the database —
