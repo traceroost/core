@@ -26,6 +26,8 @@
     "desktop/src/dashboardUrl.test.ts",
     "desktop/src/handshake.ts",
     "desktop/src/handshake.test.ts",
+    "desktop/src/installLocation.ts",
+    "desktop/src/installLocation.test.ts",
     "desktop/src/logs.ts",
     "desktop/src/logs.test.ts",
     "desktop/src/mode.ts",
