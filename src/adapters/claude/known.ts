@@ -18,7 +18,7 @@ export const CLAUDE_RECORDS: KnownRecords = {
     'file-history-snapshot', 'file-history-delta', 'queue-operation',
     'last-prompt', 'ai-title', 'custom-title', 'agent-name', 'pr-link',
     'cost-state', 'api-request', 'api-request-blob', 'api-request-shape', 'atis-latch',
-    'fork-context-ref',
+    'fork-context-ref', 'session-owner', 'tools-used',
   ],
   structural: ['message', 'message.usage', 'message.usage.cache_creation', 'message.usage.server_tool_use'],
   versionOf: r => (typeof r['version'] === 'string' && r['version'] ? r['version'] : null),

@@ -14,6 +14,9 @@ suite('adapters — classifyRecord', () => {
   test('a consumed record with its required keys is known; an ignored one ignored; anything else unknown', () => {
     assert.deepStrictEqual(classifyRecord(CLAUDE_RECORDS, { type: 'user', message: {}, timestamp: 't', uuid: 'u' }), { cls: 'known', name: 'user' })
     assert.deepStrictEqual(classifyRecord(CLAUDE_RECORDS, { type: 'ai-title' }), { cls: 'ignored', name: 'ai-title' })
+    // Claude Code 2.1.318+: account/org ids, and a tool-name list the assistant messages already carry.
+    assert.strictEqual(classifyRecord(CLAUDE_RECORDS, { type: 'session-owner', accountUuid: 'a', sessionId: 's' }).cls, 'ignored')
+    assert.strictEqual(classifyRecord(CLAUDE_RECORDS, { type: 'tools-used', tools: ['Bash'], sessionId: 's' }).cls, 'ignored')
     assert.deepStrictEqual(classifyRecord(CLAUDE_RECORDS, { type: 'brand-new' }), { cls: 'unknown', name: 'brand-new' })
   })
 
