@@ -947,14 +947,18 @@ function CollectorConflictBanner() {
           <>
             <strong>Two TraceRoost hosts are running</strong> — the VS Code extension already holds port <code>{port}</code>; this service moved to port <code>{boundPort}</code> instead.
             <ul style="margin:2px 0 0;padding-left:16px">
-              <li>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.</li>
+              <li>{conflict.agentsRepointed === false
+                ? <>Agents set up for port <code>{port}</code> still send there, so their live traces go to the extension, not here. To collect them here, use <strong>Set up agents</strong> in Settings, which points them at <code>{boundPort}</code>.</>
+                : <>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.</>}</li>
               <li>Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (<code>code --uninstall-extension {extensionId}</code>), then reload.</li>
               <li>Prefer VS Code instead? Stop this service with <code>traceroost service stop</code>.</li>
             </ul>
           </>
         ) : boundPort !== undefined ? (
           <>
-            <strong>Not receiving OTel on the default port</strong> — port <code>{port}</code> is in use by another (non-TraceRoost) application, so this service moved to port <code>{boundPort}</code> instead. Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed.
+            <strong>Not receiving OTel on the default port</strong> — port <code>{port}</code> is in use by another (non-TraceRoost) application, so this service moved to port <code>{boundPort}</code> instead. {conflict.agentsRepointed === false
+              ? <>Agents set up for port <code>{port}</code> still send there, so their live traces go to that application, not here. Use <strong>Set up agents</strong> in Settings to point them at <code>{boundPort}</code>.</>
+              : <>Agents are already pointed at <code>{boundPort}</code>, so nothing's being missed.</>}
           </>
         ) : (
           <>

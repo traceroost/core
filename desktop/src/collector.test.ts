@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { LOCK_FILENAME } from '../../standalone/dataDirLock'
-import { OwnedCollector, type CollectorState } from './collector'
+import { lockShowsUiPort, OwnedCollector, type CollectorState } from './collector'
 
 /**
  * A stand-in for the collector: it claims the data-dir lock the way the real one does, then waits.
@@ -90,6 +90,23 @@ suite('collector — supervised child', () => {
     assert.strictEqual(state.mcpPort, 31992)
     const held = JSON.parse(fs.readFileSync(path.join(dataDir, LOCK_FILENAME), 'utf-8')) as { pid: number }
     assert.strictEqual(state.pid, held.pid)
+  })
+
+  test('a dashboard port move is followed only when the child\'s own lock says it moved', async () => {
+    const c = make()
+    const state = await c.start()
+    assert.ok(state.status === 'running')
+    const lockPath = path.join(dataDir, LOCK_FILENAME)
+    // Nothing moved yet: a navigation claiming another port is refused.
+    assert.strictEqual(c.followUiPortMove(31999), false)
+    // The collector rewrites its lock when a move binds; then the move is taken.
+    const held = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as Record<string, unknown>
+    fs.writeFileSync(lockPath, JSON.stringify({ ...held, uiPort: 31999 }))
+    assert.strictEqual(c.followUiPortMove(31999), true)
+    const now = c.current()
+    assert.ok(now.status === 'running' && now.uiPort === 31999)
+    // Some other process's lock never confirms a move for this child.
+    assert.strictEqual(lockShowsUiPort(dataDir, state.pid + 1, 31999), false)
   })
 
   test('a child that never binds its ports is a failed start, not a false "running"', async function () {

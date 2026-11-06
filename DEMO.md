@@ -8,7 +8,7 @@ All commands assume the standalone server is running:
 pnpm run local
 ```
 
-This starts the OTLP collector on port `4318` and the dashboard UI on port `3000`.
+This starts the OTLP collector on port `4318` and the dashboard UI on port `4315`.
 
 ## Replay (synthetic data)
 

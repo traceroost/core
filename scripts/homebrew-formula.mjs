@@ -85,6 +85,11 @@ ${license ? `  license ${license}\n` : ''}
 
       Or run it in this terminal only:
         traceroost
+
+      To use another dashboard port (4315 by default):
+        traceroost service install --ui-port <port>   (the background service)
+        traceroost --ui-port <port>                   (a run in this terminal)
+      or Settings -> Dashboard port in the dashboard.
     EOS
   end
 

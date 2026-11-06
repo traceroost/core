@@ -45,7 +45,7 @@ function flag(name: string, fallback: string): string {
   return i !== -1 && args[i + 1] ? args[i + 1] : fallback
 }
 const TOUR     = args.includes('--tour')
-const UI_PORT  = parseInt(flag('ui-port', '3000')) || 3000
+const UI_PORT  = parseInt(flag('ui-port', '4315')) || 4315
 const OTLP_PORT = parseInt(flag('port', '4318')) || 4318
 const SPEED    = flag('speed', '1')
 const SCENARIO = flag('scenario', 'all')

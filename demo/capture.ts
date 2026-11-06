@@ -42,7 +42,7 @@ function flag(name: string, fallback: string): string {
 }
 function hasFlag(name: string): boolean { return args.includes('--' + name) }
 
-const UI_PORT  = parseInt(flag('ui-port', '3000')) || 3000
+const UI_PORT  = parseInt(flag('ui-port', '4315')) || 4315
 const DURATION = parseInt(flag('duration', '0'))   || 0   // 0 = manual save key
 const DO_CLEAR = hasFlag('clear')
 const DO_LIST  = hasFlag('list')
