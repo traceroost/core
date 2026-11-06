@@ -43,3 +43,21 @@ export function agentKeyLabel(logKey: string): string { return adapterForLogKey(
 
 /** Where a LogReader agent key's files live. */
 export function agentKeyDir(logKey: string): string { return adapterForLogKey(logKey)?.dataDir ?? logKey }
+
+const SUPPORT_LABEL: Record<SupportLevel, string> = {
+  'verified': 'Verified',
+  'fixture-tested': 'Fixture-tested',
+  'best-effort': 'Best effort',
+}
+
+const SOURCE_LABEL: Record<SourceKind, string> = { otlp: 'OTel', files: 'log files', sqlite: 'SQLite database' }
+
+/** The README's support matrix (between its support-matrix markers), generated from ADAPTERS —
+ *  adapters.classify.test.ts fails when the README's copy drifts. */
+export function supportMatrixMarkdown(): string {
+  return [
+    '| Agent | Reads | Support level | Last verified version |',
+    '|---|---|---|---|',
+    ...ADAPTERS.map(a => `| ${a.label} | ${a.sources.map(s => SOURCE_LABEL[s]).join(', ')} | ${SUPPORT_LABEL[a.support]} | ${a.lastVerifiedVersion ?? 'none yet'} |`),
+  ].join('\n')
+}

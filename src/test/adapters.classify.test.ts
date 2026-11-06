@@ -4,8 +4,8 @@ import * as path from 'path'
 import { classifyOtlp, classifyRecord, observeOpenCodeDb, observeRecords, otlpAdapterOf, type SqlExec } from '../adapters/classify'
 import { CLAUDE_RECORDS } from '../adapters/claude/known'
 import { CODEX_RECORDS } from '../adapters/codex/known'
-import { diffFingerprints, fingerprint } from '../adapters/fingerprint'
-import { ADAPTERS, adapterForLogKey, agentKeyDir, agentKeyLabel } from '../adapters/registry'
+import { diffFingerprints, fingerprint, mergeFingerprints } from '../adapters/fingerprint'
+import { ADAPTERS, adapterForLogKey, agentKeyDir, agentKeyLabel, supportMatrixMarkdown } from '../adapters/registry'
 import type { OtlpRecordView } from '../adapters/types'
 
 const view = (o: Partial<OtlpRecordView>): OtlpRecordView => ({ name: '', serviceName: '', serviceVersion: '', genAiOperation: '', ...o })
@@ -162,5 +162,24 @@ suite('adapters — registry', () => {
     assert.ok(ext.includes("from './adapters/registry'"))
     assert.ok(!/AGENT_KEY_LABEL\s*[:=]/.test(ext), 'src/extension.ts carries its own label table again')
     assert.ok(fs.readFileSync(path.join(root, 'standalone', 'server.ts'), 'utf8').includes("from '../src/adapters/registry'"))
+  })
+})
+
+suite('adapters — mergeFingerprints', () => {
+  test('unions keys and joins differing types', () => {
+    assert.deepStrictEqual(
+      mergeFingerprints({ a: 'number', o: { x: 'string' } }, { a: 'null', b: 'string', o: { y: 'number' } }),
+      { a: 'null|number', b: 'string', o: { x: 'string', y: 'number' } })
+    assert.deepStrictEqual(mergeFingerprints(undefined, { a: 'string' }), { a: 'string' })
+    assert.strictEqual(mergeFingerprints('object', { a: 'string' }), 'object')
+  })
+})
+
+suite('adapters — README support matrix', () => {
+  test('matches registry.ts', () => {
+    const readme = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'README.md'), 'utf8')
+    const m = /<!-- support-matrix:start[^>]*-->\n([\s\S]*?)\n<!-- support-matrix:end -->/.exec(readme)
+    assert.ok(m, 'README.md has no support-matrix markers')
+    assert.strictEqual(m[1], supportMatrixMarkdown(), 'README → Supported agents drifted from src/adapters/registry.ts; paste supportMatrixMarkdown() output between the markers')
   })
 })
