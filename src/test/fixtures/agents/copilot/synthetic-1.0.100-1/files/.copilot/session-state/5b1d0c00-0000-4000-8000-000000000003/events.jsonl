@@ -1,0 +1,13 @@
+{"type":"session.start","data":{"sessionId":"5b1d0c00-0000-4000-8000-000000000003","version":1,"producer":"copilot-agent","copilotVersion":"1.0.100-1","startTime":"2026-10-01T10:00:00.000Z","selectedModel":"gpt-5.1-codex","context":{"cwd":"<REPO>","gitRoot":"<REPO>"}},"id":"ev-1","timestamp":"2026-10-01T10:00:00.000Z","parentId":null}
+{"type":"system.message","data":{"content":"system"},"id":"ev-2","timestamp":"2026-10-01T10:00:00.100Z","parentId":"ev-1"}
+{"type":"user.message","data":{"content":"Fix the typo in README","transformedContent":"Fix the typo in README","attachments":[],"interactionId":"i1","turnId":"t1"},"id":"ev-3","timestamp":"2026-10-01T10:00:01.000Z","parentId":"ev-2"}
+{"type":"assistant.turn_start","data":{"turnId":"t1"},"id":"ev-4","timestamp":"2026-10-01T10:00:01.100Z","parentId":"ev-3"}
+{"type":"hook.start","data":{"hookType":"preToolUse"},"id":"ev-5","timestamp":"2026-10-01T10:00:01.200Z","parentId":"ev-4"}
+{"type":"hook.end","data":{"hookType":"preToolUse"},"id":"ev-6","timestamp":"2026-10-01T10:00:01.300Z","parentId":"ev-5"}
+{"type":"assistant.message","data":{"messageId":"m1","model":"gpt-5.1-codex","content":"","outputTokens":60,"toolRequests":[{"toolCallId":"c1","name":"edit","arguments":{"path":"<REPO>/README.md"}}],"interactionId":"i1","turnId":"t1"},"id":"ev-7","timestamp":"2026-10-01T10:00:02.000Z","parentId":"ev-6"}
+{"type":"tool.execution_start","data":{"toolCallId":"c1","toolName":"edit"},"id":"ev-8","timestamp":"2026-10-01T10:00:02.100Z","parentId":"ev-7"}
+{"type":"tool.execution_complete","data":{"toolCallId":"c1","success":true},"id":"ev-9","timestamp":"2026-10-01T10:00:02.400Z","parentId":"ev-8"}
+{"type":"assistant.message","data":{"messageId":"m2","model":"gpt-5.1-codex","content":"Fixed.","outputTokens":15,"toolRequests":[],"interactionId":"i1","turnId":"t1"},"id":"ev-10","timestamp":"2026-10-01T10:00:03.000Z","parentId":"ev-9"}
+{"type":"assistant.turn_end","data":{"turnId":"t1"},"id":"ev-11","timestamp":"2026-10-01T10:00:03.100Z","parentId":"ev-10"}
+{"type":"session.usage_record","data":{"premiumRequests":1},"id":"ev-12","timestamp":"2026-10-01T10:00:03.200Z","parentId":"ev-11"}
+{"type":"session.shutdown","data":{"shutdownType":"routine","totalPremiumRequests":1,"modelMetrics":{"gpt-5.1-codex":{"requests":{"count":2,"cost":1},"usage":{"inputTokens":3000,"outputTokens":75,"cacheReadTokens":2400,"cacheWriteTokens":0}}},"currentModel":"gpt-5.1-codex"},"id":"ev-13","timestamp":"2026-10-01T10:00:10.000Z","parentId":"ev-12"}

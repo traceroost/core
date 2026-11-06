@@ -1,0 +1,4 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Wednesday, Oct 1, 2026, 10:00 AM (UTC-7)</timestamp>\n<user_query>\nrename foo to bar\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Renaming."},{"type":"tool_use","name":"Edit","input":{"path":"<REPO>/src/foo.ts"}}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Done."}]}}
+{"type":"turn_ended","status":"success"}

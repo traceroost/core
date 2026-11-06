@@ -63,7 +63,6 @@
     "standalone/sessionRetention.test.ts",
     "standalone/revisionForwardBatcher.ts",
     "standalone/revisionForwardBatcher.test.ts",
-    "standalone/agentLabels.ts",
     "standalone/dashboardCsp.ts",
     "standalone/dashboardPort.ts",
     "standalone/dashboardPort.test.ts",

@@ -40,6 +40,7 @@ import { TraceHorizon } from './traceHorizon'
 import { HistoryReadiness } from './historyReadiness'
 import { decidePipeline } from './ownerGate'
 import { logLevel } from './logLevel'
+import { agentKeyLabel } from './adapters/registry'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -795,15 +796,6 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         if (allFiles.length === 0) { onAllDone?.(true); return }
 
-        const AGENT_KEY_LABEL: Record<string, string> = {
-          claude:              'Claude Code',
-          codex:               'Codex',
-          copilot:             'Copilot CLI',
-          copilot_vscode:      'Copilot (VS Code)',
-          copilot_vscode_json: 'Copilot (VS Code)',
-          opencode:            'OpenCode',
-          cursor:              'Cursor CLI',
-        }
         const countByKey = new Map<string, number>()
 
         const processGroup = (
@@ -909,7 +901,7 @@ export async function activate(context: vscode.ExtensionContext) {
             if (total > 0) {
               const breakdown = [...countByKey.entries()]
                 .sort((a, b) => b[1] - a[1])
-                .map(([k, n]) => `${AGENT_KEY_LABEL[k] ?? k}: ${n}`)
+                .map(([k, n]) => `${agentKeyLabel(k)}: ${n}`)
                 .join(', ')
               outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
             }

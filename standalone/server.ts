@@ -70,7 +70,7 @@ import { decodePathSegment, redactTokenInUrl, mayPrintFullUrl } from './requestG
 import { OtelForwardGate } from './otelForwardGate'
 import { retentionCutoffMs, pruneLogSessions } from './sessionRetention'
 import { createRevisionForwardBatcher } from './revisionForwardBatcher'
-import { agentKeyLabel, agentKeyDir } from './agentLabels'
+import { agentKeyLabel, agentKeyDir } from '../src/adapters/registry'
 import { generateCspNonce, dashboardCspHeader, UNAUTHORIZED_PAGE_CSP } from './dashboardCsp'
 import { renderDashboardHtml } from './dashboardHtml'
 import { knownWorkspace } from './instructionActions'
