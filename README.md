@@ -8,7 +8,7 @@
 [![E2E](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
 
-![TraceRoost dashboard showing OTel traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.a83a52c7ce2b.gif)
+![TraceRoost dashboard showing OTel traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.0cf151719cf3.gif)
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. TraceRoost keeps your traces on your machine and uploads nothing unless you link it to TraceRoost Cloud.
 
