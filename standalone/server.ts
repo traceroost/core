@@ -22,6 +22,8 @@ import { OtlpIngest } from '../src/otlpIngest'
 import { mergeCardsByKey } from '../src/claudeConversation'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, findClaudeTranscripts, type OpenCodeSqlFactory } from '../src/logReader'
+import { adapterHealth, adapterHealthMessage, persistAdapterHealth, restoreAdapterHealth } from '../src/adapters/health'
+import type { FileObservation } from '../src/adapters/classify'
 import { ClaudeTurnJoiner, setClaudeTurnJoiner, joinHoldMsFromEnv } from '../src/claudeTurnJoin'
 import { ClaudeJoinRepository } from '../src/database/claudeJoinRepository'
 import { computeOneShotStats } from '../src/oneShotRate'
@@ -324,6 +326,7 @@ function writeSpansFile(): void {
 }
 
 function saveSpansNow(): boolean {
+  persistAdapterHealth(health, DATA_DIR)
   try {
     writeSpansFile()
     return true
@@ -492,7 +495,14 @@ function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummary
   }
 }
 
-let logReader = new LogReader()
+// Adapter health (src/adapters/health.ts): what each agent's data held, by record class, for
+// Settings → Agents, the agent banner and `traceroost doctor`. Restored from the last run so OTLP
+// counts survive a restart; every file is read again at startup and replaces its own entry.
+const health = adapterHealth()
+restoreAdapterHealth(health, DATA_DIR)
+const observeLogFile = (filePath: string, obs: FileObservation, mtimeMs: number) => health.observeFile(filePath, obs, mtimeMs)
+
+let logReader = new LogReader({ observe: observeLogFile })
 // A Claude OTEL interaction takes its transcript turn's key through this join (stable trace
 // identity — see src/claudeTurnJoin.ts); summarizeSpans() reads it. Its decisions persist in
 // outcomes-cache.db (claude_join), which opens in startLogIngestion(): until then nothing is
@@ -672,7 +682,7 @@ async function startLogIngestion() {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const initSqlJs = require('sql.js') as (cfg: { locateFile: (f: string) => string }) => Promise<OpenCodeSqlFactory>
     const sqlFactory = await initSqlJs({ locateFile: (f: string) => path.join(sqlJsDir, f) })
-    logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory })
+    logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory, observe: observeLogFile })
   } catch (err) {
     console.warn(`[TraceRoost] sql.js unavailable — OpenCode database reads are off: ${err instanceof Error ? err.message : String(err)}`)
   }
@@ -1093,6 +1103,15 @@ function planUsageMessage(): string | null {
 }
 let planUsageVersion = 0
 
+/** Adapter health as the dashboard's `adapterHealth` message, rebuilt only when it changed. */
+let adapterHealthCache: { revision: number; json: string } | null = null
+function adapterHealthJson(): string {
+  if (adapterHealthCache?.revision !== health.revision) {
+    adapterHealthCache = { revision: health.revision, json: JSON.stringify(adapterHealthMessage(health, PACKAGE_VERSION)) }
+  }
+  return adapterHealthCache.json
+}
+
 // Legacy shape kept for data the Preact dashboard still reads
 function computeSidebarData(summary: ReturnType<typeof summarizeSpans>, _allSpans: Span[]) {
   const sessions = summary.sessions
@@ -1335,6 +1354,7 @@ function writeSse(data: string): void {
 }
 
 let lastSentPlanUsage: string | null = null
+let lastSentAdapterHealth: string | null = null
 function pushUpdate() {
   if (pushUpdateTimer) { clearTimeout(pushUpdateTimer); pushUpdateTimer = null }
   lastPushUpdateAt = Date.now()
@@ -1344,6 +1364,8 @@ function pushUpdate() {
   if (!syncSseClients()) writeSse(updateFrame(derivedViews(), sseSync.revision, sseSync.revision, ''))
   const plan = planUsageMessage()
   if (plan && plan !== lastSentPlanUsage) { writeSse(plan); lastSentPlanUsage = plan }
+  const agents = adapterHealthJson()
+  if (agents !== lastSentAdapterHealth) { writeSse(agents); lastSentAdapterHealth = agents }
   lastPushUpdateCostMs = performance.now() - started
 }
 
@@ -1637,6 +1659,7 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
     res.write(`data: ${JSON.stringify({ type: 'actionLog', entries: getActionLogHistory() })}\n\n`)
     const plan = planUsageMessage()
     if (plan) res.write(`data: ${plan}\n\n`)
+    res.write(`data: ${adapterHealthJson()}\n\n`)
     sseClients.push(res)
     if (SSE_CLIENT_ID.test(clientId)) sseClientsById.set(clientId, res)
     req.on('close', () => {
@@ -1869,6 +1892,14 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
   if (req.method === 'GET' && url === '/api/summary') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(strippedJsonOf(derivedViews()))
+    return
+  }
+
+  // Adapter health's OTLP counts — what only a running server sees — for `traceroost doctor`,
+  // which reads the log files itself.
+  if (req.method === 'GET' && url === '/api/adapter-health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ...health.export(), files: {} }))
     return
   }
 
