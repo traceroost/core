@@ -289,14 +289,12 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
 `gh attestation verify <file> --repo traceroost/core`.
 
 - **Linux** (.deb and AppImage, x64 and arm64) is attached on every release.
-- **macOS is built and tested on every release but attached only when notarized.** It is ad-hoc
-  signed until the Apple Developer Program credentials exist, and Gatekeeper refuses an ad-hoc
-  signed download. Once the secrets are in place (`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, plus
-  either `APPLE_API_KEY_P8`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` or
-  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` — [`MACOS_SIGNING.md`](MACOS_SIGNING.md)),
-  the same build is signed and notarized with no code change and the next tag attaches it. Before
-  announcing it as an install method, open a downloaded, quarantined DMG on a fresh macOS user
-  account.
+- **macOS is built and tested on every release and attached only notarized** — there is no
+  unnotarized fallback. Signing and notarization come from secrets (`MAC_CSC_LINK`,
+  `MAC_CSC_KEY_PASSWORD`, plus either `APPLE_API_KEY_P8`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` or
+  `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` — [`MACOS_SIGNING.md`](MACOS_SIGNING.md)).
+  If they are missing, the release leaves macOS out, attaches the other platforms, and the
+  `desktop` job goes red; fix the secrets before the next tag.
 - **Windows** (NSIS installer and portable zip, x64 and arm64) is built, tested and attached on
   every release, Authenticode-signed when signing is configured. Signing switches on from secrets, with no code change:
   either a code-signing certificate (`WIN_CSC_LINK` = base64 .pfx, `WIN_CSC_KEY_PASSWORD`) or Azure
@@ -312,13 +310,11 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
   variable once Azure signs again. **Signing is paused this way as of 2026-10-26** (the owner's
   choice after Azure began answering 403); triage, rotation and resuming are in
   [`WINDOWS_SIGNING.md`](WINDOWS_SIGNING.md). `release.yml` passes each secret by name.
-- **Unsigned builds**: a macOS build that is not notarized (ad-hoc signed) and a Windows build
-  that is not signed are still attached, under the plain name they were built as
-  (`TraceRoost-<v>-mac-<arch>.dmg`, `TraceRoost-<v>-win-<arch>.exe`) — there is no `-preview`
-  suffix. They are covered by the same SHA256SUMS and attestations, and the release notes get a
-  section on getting past Gatekeeper (right-click → Open) and SmartScreen (More info → Run
-  anyway). Once a platform's secrets exist, the same names carry signed builds — nothing to
-  switch.
+- **Unsigned Windows builds** are still attached, under the plain name they were built as
+  (`TraceRoost-<v>-win-<arch>.exe`) — there is no `-preview` suffix. They are covered by the same
+  SHA256SUMS and attestations, and the release notes get a section on getting past SmartScreen
+  (More info → Run anyway). Once the signing secrets work again, the same names carry signed
+  builds — nothing to switch.
 - **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default
   `linux,macos,windows`) turns a platform off without a code change; `TRACEROOST_WINDOWS_SIGNING=off`
   pauses Windows signing with the secrets left in place; a non-`core`
