@@ -8,8 +8,8 @@ Everything in the build is already wired: [`desktop/electron-builder.cjs`](../de
 signs with a Developer ID under the hardened runtime and notarizes when the environment has the
 credentials, and [`.github/workflows/desktop-macos.yml`](../.github/workflows/desktop-macos.yml)
 maps repository secrets onto that environment. Turning it on is creating five secrets and checking
-the result; there is no code change. Until then every macOS build is ad-hoc signed and releases
-attach it unnotarized, with a release-notes section on getting past Gatekeeper.
+the result; there is no code change. Without them a macOS build is ad-hoc signed, and a release
+leaves it out (and fails its `desktop` job) rather than ship it unnotarized.
 
 The hardened-runtime path has been rehearsed with a self-signed identity
 (`cd desktop && pnpm run pack:host && pnpm run rehearse:mac-signing`): the app, its collector child
@@ -199,7 +199,7 @@ Failures and what they mean:
 ## 8. First release and the Gatekeeper test
 
 The next `v*` tag attaches `TraceRoost-<v>-mac-{arm64,x64}.dmg` notarized, under the same plain names
-and without the Gatekeeper section in the release notes — nothing to switch ([`RELEASING.md` → Desktop](RELEASING.md)). Before announcing it:
+— nothing to switch ([`RELEASING.md` → Desktop](RELEASING.md)). Before announcing it:
 
 1. On a **different macOS user account** (or another Mac), download the DMG from the release page
    in a browser, so it carries the quarantine flag (`xattr -p com.apple.quarantine <dmg>` prints
@@ -207,14 +207,12 @@ and without the Gatekeeper section in the release notes — nothing to switch ([
 2. Open it, drag TraceRoost to Applications, open it. The only prompt should be *"TraceRoost is an
    app downloaded from the Internet. Are you sure you want to open it?"* — no "cannot be verified",
    no trip to System Settings.
-3. Then update the install text in `desktop/README.md` (*Installing*) to drop the unsigned-build
-   instructions.
 
 ## Keeping it working
 
 | What | Lifetime | If it lapses |
 | --- | --- | --- |
-| Apple Developer Program membership | 1 year, renews yearly (US$99) | new builds cannot be notarized; releases fall back to unnotarized builds. Builds already notarized keep opening |
+| Apple Developer Program membership | 1 year, renews yearly (US$99) | new builds cannot be notarized, so releases ship without macOS (the `desktop` job fails). Builds already notarized keep opening |
 | Developer ID Application certificate | as dated on the certificate — the first one (issued 2026-11-03) expires **2027-12-03**, not the 5 years Apple's older certificates had; check with `security find-certificate -c "Developer ID Application" -p \| openssl x509 -noout -enddate` | same as above until a new one is made (steps 2, 3, 6). Software signed before expiry keeps working — the signature is timestamped |
 | App-specific password | until revoked, or the Apple Account password changes | notarization fails with 401 (step 4, then `APPLE_APP_SPECIFIC_PASSWORD`) |
 | App Store Connect API key | until revoked | notarization fails with 401 |

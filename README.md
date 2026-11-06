@@ -355,7 +355,7 @@ The same local collector and dashboard as a normal desktop app with a menu bar /
 | --- | --- | --- |
 | Linux (x64, arm64) | `TraceRoost-<version>-linux-amd64.deb` / `-arm64.deb`, or the `.AppImage` | `sudo apt install ./TraceRoost-*.deb` |
 | Windows 10/11 (x64, arm64) | `TraceRoost-<version>-win-x64.exe` / `-win-arm64.exe` (installer) | installs for your user only, no administrator needed. The builds are not code-signed, so SmartScreen warns on first run: **More info → Run anyway** |
-| macOS 12+ (Apple Silicon, Intel) | `TraceRoost-<version>-mac-arm64.dmg` / `-mac-x64.dmg` | until notarized, Gatekeeper refuses the first open: right-click → **Open** |
+| macOS 12+ (Apple Silicon, Intel) | `TraceRoost-<version>-mac-arm64.dmg` / `-mac-x64.dmg` | open the DMG and drag TraceRoost to Applications. The builds are signed and notarized |
 
 It uses the same `~/.traceroost` data and settings as `npx traceroost` and the background service, and uses a running background service instead of starting a second collector. Check a download with the release's `TraceRoost-desktop-<version>-SHA256SUMS`. Details, including uninstalling: [desktop/README.md](desktop/README.md).
 
