@@ -3,7 +3,7 @@
  *
  * Three HTTP servers:
  *   OTLP_PORT (default 4318) — receives OTLP traces/logs from agents
- *   UI_PORT   (default 3000) — serves the dashboard and SSE
+ *   UI_PORT   (default 4315) — serves the dashboard and SSE
  *   MCP_PORT  (default 4316) — MCP endpoint for Claude Code and other agents
  */
 
@@ -22,6 +22,8 @@ import { OtlpIngest } from '../src/otlpIngest'
 import { mergeCardsByKey } from '../src/claudeConversation'
 import { startMcpHttpServer } from '../src/mcpServer'
 import { LogReader, findClaudeTranscripts, type OpenCodeSqlFactory } from '../src/logReader'
+import { adapterHealth, adapterHealthMessage, persistAdapterHealth, restoreAdapterHealth } from '../src/adapters/health'
+import type { FileObservation } from '../src/adapters/classify'
 import { ClaudeTurnJoiner, setClaudeTurnJoiner, joinHoldMsFromEnv } from '../src/claudeTurnJoin'
 import { ClaudeJoinRepository } from '../src/database/claudeJoinRepository'
 import { computeOneShotStats } from '../src/oneShotRate'
@@ -44,7 +46,7 @@ import { sqlWasmDir } from './sqlWasm'
 import { detectHomebrewInstall } from './service/homebrew'
 import { tryAcquireDataDirLock, describeLockHolder, type DataDirLock } from './dataDirLock'
 import { listenWithFallback, writeResolvedPorts, detectPortOwner, PortScanExhaustedError, OTLP_GRPC_PORT, type ResolvedPorts } from '../src/portResolver'
-import { DEFAULT_DASHBOARD_PORT, dashboardPortLock, dashboardPortLockReason, validateDashboardPort, moveDashboard, type DashboardPortState } from './dashboardPort'
+import { DEFAULT_DASHBOARD_PORT, TERMINAL_PORT_HINT, dashboardPortLock, dashboardPortLockReason, validateDashboardPort, moveDashboard, type DashboardPortState } from './dashboardPort'
 // TraceRoost Cloud (org link + upload) — only ever through this seam; see src/cloudBridge.ts.
 import { cloud, type TraceManifestSource } from '../src/cloudBridge'
 import { TRACE_STORE_REBUILT_MESSAGE } from '../src/database/traceStore'
@@ -70,7 +72,7 @@ import { decodePathSegment, redactTokenInUrl, mayPrintFullUrl } from './requestG
 import { OtelForwardGate } from './otelForwardGate'
 import { retentionCutoffMs, pruneLogSessions } from './sessionRetention'
 import { createRevisionForwardBatcher } from './revisionForwardBatcher'
-import { agentKeyLabel, agentKeyDir } from './agentLabels'
+import { agentKeyLabel, agentKeyDir } from '../src/adapters/registry'
 import { generateCspNonce, dashboardCspHeader, UNAUTHORIZED_PAGE_CSP } from './dashboardCsp'
 import { renderDashboardHtml } from './dashboardHtml'
 import { knownWorkspace } from './instructionActions'
@@ -120,7 +122,7 @@ const AUTOCONFIG_DISABLED = process.env.TRACEROOST_NO_AUTOCONFIG === '1'
 // getHtml() to inline into the page and by startOtlpServer to broadcast once the (async)
 // port-owner probe resolves — see CollectorConflict in media/src/types.ts for the shared shape
 // this mirrors, and CollectorConflictBanner in App.tsx for how it's rendered.
-let collectorConflict: { owner: 'plugin' | 'foreign'; port: number; boundPort: number } | null = null
+let collectorConflict: { owner: 'plugin' | 'foreign'; port: number; boundPort: number; agentsRepointed: boolean } | null = null
 
 // True while the user hasn't said whether TraceRoost may set up their coding agents
 // (src/agentSetupConsent.ts) and this server has no terminal to ask in — the background service,
@@ -324,6 +326,7 @@ function writeSpansFile(): void {
 }
 
 function saveSpansNow(): boolean {
+  persistAdapterHealth(health, DATA_DIR)
   try {
     writeSpansFile()
     return true
@@ -492,7 +495,14 @@ function buildImportCardStandalone(raw: Record<string, unknown>): SessionSummary
   }
 }
 
-let logReader = new LogReader()
+// Adapter health (src/adapters/health.ts): what each agent's data held, by record class, for
+// Settings → Agents, the agent banner and `traceroost doctor`. Restored from the last run so OTLP
+// counts survive a restart; every file is read again at startup and replaces its own entry.
+const health = adapterHealth()
+restoreAdapterHealth(health, DATA_DIR)
+const observeLogFile = (filePath: string, obs: FileObservation, mtimeMs: number) => health.observeFile(filePath, obs, mtimeMs)
+
+let logReader = new LogReader({ observe: observeLogFile })
 // A Claude OTEL interaction takes its transcript turn's key through this join (stable trace
 // identity — see src/claudeTurnJoin.ts); summarizeSpans() reads it. Its decisions persist in
 // outcomes-cache.db (claude_join), which opens in startLogIngestion(): until then nothing is
@@ -672,7 +682,7 @@ async function startLogIngestion() {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const initSqlJs = require('sql.js') as (cfg: { locateFile: (f: string) => string }) => Promise<OpenCodeSqlFactory>
     const sqlFactory = await initSqlJs({ locateFile: (f: string) => path.join(sqlJsDir, f) })
-    logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory })
+    logReader = new LogReader({ log: (msg) => console.log(msg), sqlFactory, observe: observeLogFile })
   } catch (err) {
     console.warn(`[TraceRoost] sql.js unavailable — OpenCode database reads are off: ${err instanceof Error ? err.message : String(err)}`)
   }
@@ -1093,6 +1103,15 @@ function planUsageMessage(): string | null {
 }
 let planUsageVersion = 0
 
+/** Adapter health as the dashboard's `adapterHealth` message, rebuilt only when it changed. */
+let adapterHealthCache: { revision: number; json: string } | null = null
+function adapterHealthJson(): string {
+  if (adapterHealthCache?.revision !== health.revision) {
+    adapterHealthCache = { revision: health.revision, json: JSON.stringify(adapterHealthMessage(health, PACKAGE_VERSION)) }
+  }
+  return adapterHealthCache.json
+}
+
 // Legacy shape kept for data the Preact dashboard still reads
 function computeSidebarData(summary: ReturnType<typeof summarizeSpans>, _allSpans: Span[]) {
   const sessions = summary.sessions
@@ -1335,6 +1354,7 @@ function writeSse(data: string): void {
 }
 
 let lastSentPlanUsage: string | null = null
+let lastSentAdapterHealth: string | null = null
 function pushUpdate() {
   if (pushUpdateTimer) { clearTimeout(pushUpdateTimer); pushUpdateTimer = null }
   lastPushUpdateAt = Date.now()
@@ -1344,6 +1364,8 @@ function pushUpdate() {
   if (!syncSseClients()) writeSse(updateFrame(derivedViews(), sseSync.revision, sseSync.revision, ''))
   const plan = planUsageMessage()
   if (plan && plan !== lastSentPlanUsage) { writeSse(plan); lastSentPlanUsage = plan }
+  const agents = adapterHealthJson()
+  if (agents !== lastSentAdapterHealth) { writeSse(agents); lastSentAdapterHealth = agents }
   lastPushUpdateCostMs = performance.now() - started
 }
 
@@ -1531,7 +1553,7 @@ function sendInstructionResult(res: http.ServerResponse, result: InstructionResu
 
 /** An automation prompt is a few KB; the rest is headroom. */
 const MAX_PROMPT_BODY_BYTES = 1024 * 1024
-/** A session export (Export tab JSON — per-session summaries, no timelines) runs to a few KB a
+/** A session export (dashboard Export JSON — per-session summaries, no timelines) runs to a few KB a
  *  session; the OTLP receiver's 50 MB cap leaves room for tens of thousands of them. */
 const MAX_IMPORT_BODY_BYTES = 50 * 1024 * 1024
 /** /action and /api/org carry one small webview message. */
@@ -1637,6 +1659,7 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
     res.write(`data: ${JSON.stringify({ type: 'actionLog', entries: getActionLogHistory() })}\n\n`)
     const plan = planUsageMessage()
     if (plan) res.write(`data: ${plan}\n\n`)
+    res.write(`data: ${adapterHealthJson()}\n\n`)
     sseClients.push(res)
     if (SSE_CLIENT_ID.test(clientId)) sseClientsById.set(clientId, res)
     req.on('close', () => {
@@ -1825,6 +1848,7 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
             changed: copilotResults.some(r => r.changed),
             error: copilotResults.find(r => r.error)?.error,
           }
+          noteAgentsRepointed()
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ claudeCode, codex, copilot }))
           return
@@ -1869,6 +1893,14 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
   if (req.method === 'GET' && url === '/api/summary') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(strippedJsonOf(derivedViews()))
+    return
+  }
+
+  // Adapter health's OTLP counts — what only a running server sees — for `traceroost doctor`,
+  // which reads the log files itself.
+  if (req.method === 'GET' && url === '/api/adapter-health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ...health.export(), files: {} }))
     return
   }
 
@@ -2314,16 +2346,22 @@ async function startOtlpServer(): Promise<void> {
         console.log(`[TraceRoost] Port ${OTLP_PORT} is held by another TraceRoost server (with its own data directory); this one receives OTLP on ${bound}.`)
         return
       }
-      collectorConflict = { owner, port: OTLP_PORT, boundPort: bound }
+      // Agents follow the move only with the user's yes to agent setup: then the setup run below
+      // keeps their port current. Without it they still send to OTLP_PORT, to whoever holds it.
+      const agentsRepointed = !AUTOCONFIG_DISABLED && !IS_DOCKER && readAgentSetupAnswer() === 'yes'
+      const agentsLine = agentsRepointed
+        ? `Agents are already pointed at ${bound}, so nothing's being missed`
+        : `Agents set up for port ${OTLP_PORT} still send there, so their live traces don't reach this service — point them at ${bound} with Set up agents in the dashboard's Settings, or \`traceroost agents setup --otlp-port ${bound}\``
+      collectorConflict = { owner, port: OTLP_PORT, boundPort: bound, agentsRepointed }
       if (owner === 'plugin') {
         console.warn(
           `[TraceRoost] Two TraceRoost hosts are running — the VS Code extension already holds port ${OTLP_PORT}; this service moved to port ${bound} instead.\n` +
-          `  - Agents are already pointed at ${bound}, so nothing's being missed — but with both running, whichever one you close first silently stops collecting.\n` +
+          `  - ${agentsLine}${agentsRepointed ? ' — but with both running, whichever one you close first silently stops collecting' : ''}.\n` +
           `  - Recommended: keep this background service — it works even when VS Code is closed — and uninstall the extension (\`code --uninstall-extension agentlens.agentlens-dashboard\`), then reload.\n` +
           `  - Prefer VS Code instead? Stop this service with \`traceroost service stop\`.`
         )
       } else {
-        console.warn(`[TraceRoost] Port ${OTLP_PORT} is in use by another application — this service moved to port ${bound} instead. Agents are already pointed at ${bound}, so nothing's being missed.`)
+        console.warn(`[TraceRoost] Port ${OTLP_PORT} is in use by another application — this service moved to port ${bound} instead. ${agentsLine}.`)
       }
       broadcastSse({ type: 'update', collectorConflict })
     }).catch(() => { /* best effort */ })
@@ -2380,7 +2418,15 @@ function answerAgentSetup(answer: AgentSetupAnswer, port: number): Promise<void>
     console.log(`[TraceRoost] ${AGENT_SETUP_DECLINED}`)
     return Promise.resolve()
   }
-  return runAgentSetup(port, 'full')
+  return runAgentSetup(port, 'full').then(noteAgentsRepointed)
+}
+
+/** Agent setup just pointed the agents at this service's OTLP port, so a conflict banner that said
+ *  they still send to the default one is out of date. */
+function noteAgentsRepointed(): void {
+  if (!collectorConflict || collectorConflict.agentsRepointed) return
+  collectorConflict = { ...collectorConflict, agentsRepointed: true }
+  broadcastSse({ type: 'update', collectorConflict })
 }
 
 /** The startup lines printed after the terminal question (the dashboard URL, the log-history
@@ -2439,6 +2485,11 @@ async function startUiServer(): Promise<void> {
     ? url : redactTokenInUrl(url)
   console.log(`[TraceRoost] Dashboard      → ${printable}`)
   if (printable !== url) console.log('[TraceRoost]                  (token: `authToken` in ~/.traceroost/config.json, or `traceroost service status`)')
+  // Only in a terminal someone is reading, and not when they just picked the port with --ui-port.
+  // The service, the desktop app's collector and Docker write to a log; none of them reads this.
+  if (process.stdout.isTTY === true && process.env.TRACEROOST_SERVICE !== '1' && !startupPorts.uiFromEnv) {
+    console.log(`[TraceRoost]                  (${TERMINAL_PORT_HINT})`)
+  }
   console.log(`[TraceRoost] MCP server     → http://localhost:${mcpPort}/mcp`)
 
   // Auto-open browser — includes the access token so the browser gets its auth cookie on

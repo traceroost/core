@@ -6,6 +6,8 @@
 // as an OS-native background service instead — see standalone/service/index.ts.
 // `traceroost agents <setup|remove>` sets the coding agents up for TraceRoost, or takes out exactly
 // what that added — see standalone/agentsCli.ts.
+// `traceroost doctor [--report <agent> [--open]]` checks that TraceRoost recognizes what each agent
+// writes on this machine — see standalone/doctorCli.ts.
 // `traceroost org <link|status|verify|leave> [--device|--browser]` links this machine to an org (Cloud, AL 01) —
 // full edition only; the core edition prints "not available" and exits 1 (see cliCloud.ts).
 // `traceroost find <repo hash | trace/session id>` resolves a cloud dashboard hash-handoff
@@ -61,6 +63,11 @@ async function main() {
   if (args[0] === 'agents') {
     const { runAgentsCli } = await import('./agentsCli.js')
     process.exitCode = await runAgentsCli(args.slice(1))
+    return
+  }
+  if (args[0] === 'doctor') {
+    const { runDoctorCli } = await import('./doctorCli.js')
+    process.exitCode = await runDoctorCli(args.slice(1))
     return
   }
   if (args[0] === 'org') {

@@ -8,7 +8,7 @@
 [![E2E](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml/badge.svg)](https://github.com/traceroost/core/actions/workflows/windows-e2e.yml)
 [![License](https://img.shields.io/github/license/traceroost/core)](LICENSE)
 
-![TraceRoost dashboard showing OTel traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.a83a52c7ce2b.gif)
+![TraceRoost dashboard showing OTel traces, live run monitoring, and agent observability charts](https://static.traceroost.com/demo.0cf151719cf3.gif)
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. TraceRoost keeps your traces on your machine and uploads nothing unless you link it to TraceRoost Cloud.
 
@@ -25,7 +25,7 @@ Two things it does that a usage dashboard doesn't:
 | --- | --- | --- |
 | **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar |
 | **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
-| **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:3000> |
+| **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:4315> (another port: add `--ui-port <port>`; [more](#moving-the-dashboard-to-another-port)) |
 
 Each one asks before it sets your agents up. History appears immediately; restart your agents for live traces.
 
@@ -35,7 +35,7 @@ Each one asks before it sets your agents up. History appears immediately; restar
 npx traceroost@latest service install     # with Homebrew: traceroost service install
 ```
 
-Manage it later with `traceroost service status`, `service stop`, `service uninstall`, etc. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or for Docker. Does a dev server of yours need port 3000? [Move the dashboard](#my-dev-server-needs-port-3000) in one step.
+Manage it later with `traceroost service status`, `service stop`, `service uninstall`, etc. See [Ways to Run](#ways-to-run) below to customize ports/data directory, or for Docker. Does a dev server of yours need the dashboard's port? [Move the dashboard](#moving-the-dashboard-to-another-port) in one step.
 
 - [Features](#features)
 - [Data Sources](#data-sources)
@@ -67,7 +67,7 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
   - [Native process (recommended for local use)](#native-process-recommended-for-local-use)
   - [Background Service (macOS / Windows / Linux)](#background-service-macos--windows--linux)
   - [Headless forwarder (servers, VMs, SSH-only boxes)](#headless-forwarder-servers-vms-ssh-only-boxes)
-  - [My dev server needs port 3000](#my-dev-server-needs-port-3000)
+  - [Moving the dashboard to another port](#moving-the-dashboard-to-another-port)
   - [Docker (OTel only)](#docker-otel-only-1)
   - [Node.js (from source)](#nodejs-from-source)
   - [Editions](#editions)
@@ -96,8 +96,8 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
 - **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and sixteen signals with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for context-window size, turns, errors, active time, zero cache use, repeat tool calls, plan-limit windows, and estimated daily cost — per-agent or shared
 - **Automated Prompts** — The Alerts panel's Automation tab (bell icon) configures threshold-based automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up) that trigger a correction prompt when a trace crosses a limit — delivered as a notification or written to a file for agent consumption; agents can also poll for them via the MCP server's `check_automation_triggers` tool
-- **Export** — Export filtered traces as JSON, CSV, or Markdown (full or redacted); respects the active time range, agent, language, prompt text, repo, source, and From (initiator) filters. The extension writes the file to your workspace root; the standalone dashboard downloads it in your browser
-- **Import** — Import traces from a previous TraceRoost JSON export; drag-drop or file-pick, shows a preview with trace count by source and date range, imports with live progress and automatic deduplication (existing traces are skipped)
+- **Export** — **Export…** on the Traces filter row exports the filtered traces as JSON, CSV, or Markdown (redacted or full); respects the active time range, agent, language, prompt text, repo, source, and From (initiator) filters. The extension writes the file to your workspace root; the standalone dashboard downloads it in your browser
+- **Import** — Import traces from a previous TraceRoost JSON export: drop the file on the dashboard or use **Import traces…** in ⚙ Settings; shows a preview with trace count by source and date range, imports with live progress and automatic deduplication (existing traces are skipped)
 - **MCP Server** — Exposes your own trace history to Claude Code (or any MCP-compatible agent) so it can query its recent work, cost, and recurring file/loop patterns before starting a task, instead of you checking the dashboard yourself. Runs by default on port `4316`; register it with `claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp` (the in-app Help tab's MCP section has the full setup and tool list)
 - **Make a suggestion** — The header's suggestion icon opens TraceRoost's public suggestion page in your browser; the link carries only the TraceRoost version and the current tab's name, never your traces or workspace
 
@@ -136,6 +136,27 @@ Non-default locations: `CLAUDE_CONFIG_DIR` (Claude Code), `CODEX_HOME` (Codex) a
 To disable log ingestion: set `traceRoost.enableLogIngestion` to `false` in VS Code settings (or use the toggle in the gear-icon Settings panel).
 
 **Clear All Data** (Settings) only deletes TraceRoost's own stored copy — it never touches these source log files, and log-sourced traces will simply be re-read on the next scan. TraceRoost has no way to delete the log files themselves; do that directly at the paths above if you want them gone.
+
+### Supported agents
+
+How much testing stands behind each agent, and the newest version a real capture of it was checked against:
+
+<!-- support-matrix:start (generated from src/adapters/registry.ts — a test fails if this drifts) -->
+| Agent | Reads | Support level | Last verified version |
+|---|---|---|---|
+| Claude Code | OTel, log files | Verified | none yet |
+| Codex | OTel, log files | Verified | none yet |
+| Copilot CLI | OTel, log files | Fixture-tested | none yet |
+| Copilot (VS Code) | OTel, log files | Best effort | none yet |
+| OpenCode | SQLite database | Fixture-tested | none yet |
+| Cursor CLI | log files | Fixture-tested | none yet |
+<!-- support-matrix:end -->
+
+- **Verified** — the real agent runs in CI on every release and nightly, and each release gets a committed fixture. A confirmed format break gets a patch release within 2 working days.
+- **Fixture-tested** — committed fixtures and contract tests, and a headless CI run where the agent has one. Breaks are fixed as soon as practical.
+- **Best effort** — fixtures captured by hand; checked when a release is noticed. Breaks are fixed as soon as practical.
+
+When an agent release changes what TraceRoost reads, Settings → **Agents** and a banner on the Traces tab say so for that agent and version, and `traceroost doctor` exits non-zero. **Report this** opens a GitHub issue with only names, counts and key/value-type structure — you see the whole body first, and nothing is sent unless you file it. A new agent is added at *Fixture-tested* or better.
 
 ### What each agent gives you, source by source
 
@@ -216,14 +237,14 @@ All figures are estimates — not your actual bill. Rates are sourced from each 
 
 ### Export
 
-The **Export** tab saves trace summaries in your choice of three formats. Where the file goes depends on how you run TraceRoost:
+**Export…** on the Traces tab's filter row (or `TraceRoost: Export Traces…` in VS Code) saves trace summaries in your choice of three formats, redacted (the default) or in full. Where the file goes depends on how you run TraceRoost:
 
 - **VS Code extension** — written to your workspace root (or, with no folder open, to the extension's global storage folder) and opened in an editor tab.
 - **Standalone server** (`npx`, the background service, Docker) — downloaded by your browser.
 
 The formats:
 
-- **JSON** (default) — one structured record per trace: prompt text, agent and model, timing, token and cache counts, tool-call counts, files read and changed, loop signals, language (primary and secondary), and change size (files changed, lines added/removed). This is the only format the **Import** tab reads back in.
+- **JSON** (default) — one structured record per trace: prompt text, agent and model, timing, token and cache counts, tool-call counts, files read and changed, loop signals, language (primary and secondary), and change size (files changed, lines added/removed). This is the only format **Import** reads back in.
 - **CSV** — one row per trace, with array/object fields (models, files, tool counts, loop signals) flattened into semicolon-joined cells. Built for dropping into a spreadsheet.
 - **Markdown** — one section per trace with the same data laid out as a readable report, prompt included as a blockquote. Built for sharing.
 
@@ -231,16 +252,15 @@ Each format is available both as the full export and as a redacted export (promp
 
 An export contains the traces that match the dashboard's current filters — time range, agent, language, prompt text, repo, source (OTel / Log) and From (User / Agent). In the extension it draws from the full SQLite trace history, not just the active window, so every matching past trace is included. The standalone dashboard builds the file in the browser from the traces it has loaded, so it holds the matching traces in the server's in-memory history.
 
-> **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export from this tab, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export Live OTel Spans (debug)` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
+> **Note:** `pnpm run demo -- --file <export.json>` can replay a JSON export, but only approximately — a trace summary carries no per-turn timeline, so each trace is rebuilt as synthetic spans. For a faithful replay, use the raw spans written by the `TraceRoost: Export Live OTel Spans (debug)` command (spans still in the live window only) or a captured fixture. See [DEMO.md](DEMO.md) for the full replay/demo toolchain.
 
 ### Import
 
-The **Import** tab loads traces from a previous TraceRoost **JSON** export file into the current installation — useful for migrating data to a new machine, sharing trace history across team members, or restoring a local backup. CSV and Markdown exports are one-way (for external consumption) and can't be imported back.
+**Import** loads traces from a previous TraceRoost **JSON** export file into the current installation — useful for migrating data to a new machine, sharing trace history across team members, or restoring a local backup. CSV and Markdown exports are one-way (for external consumption) and can't be imported back.
 
-1. Open the **Import** tab in the dashboard
-2. Drag-and-drop an `export_sessions_*.json` file onto the drop zone, or click **Choose file**
-3. Review the preview: total traces, breakdown by agent source, and the date range covered
-4. Click **Import** — progress updates live as traces are written; already-existing traces are skipped automatically
+1. Drop an `export_sessions_*.json` file anywhere on the dashboard — or open **Import traces…** in the ⚙ Settings panel (or run `TraceRoost: Import Traces…` in VS Code) and drop it there or click to browse
+2. Review the preview: total traces, breakdown by agent source, and the date range covered
+3. Click **Import** — progress updates live as traces are written; already-existing traces are skipped automatically
 
 Import works in both VS Code extension mode and standalone server mode.
 
@@ -298,7 +318,12 @@ brew install traceroost/tap/traceroost
 traceroost
 ```
 
-Open <http://localhost:3000> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
+Open <http://localhost:4315> after the server starts. The OTLP receiver listens on port `4318`. Configure agents to point at `http://localhost:4318` (see [Manual Configuration](#manual-configuration)).
+
+**Another dashboard port:** add `--ui-port <port>` to any of the commands above —
+`npx traceroost@latest --ui-port 4400`, or `traceroost --ui-port 4400` for a global or Homebrew
+install. That picks the port for that run only; to keep one, set it in **Settings → Dashboard port**
+(see [Moving the dashboard to another port](#moving-the-dashboard-to-another-port)).
 
 > **Always include `@latest`.** A bare `npx traceroost` (or `bunx`) re-runs whatever
 > version npx cached the first time you ran it — it does **not** check npm for a newer release, so
@@ -330,7 +355,7 @@ The same local collector and dashboard as a normal desktop app with a menu bar /
 | --- | --- | --- |
 | Linux (x64, arm64) | `TraceRoost-<version>-linux-amd64.deb` / `-arm64.deb`, or the `.AppImage` | `sudo apt install ./TraceRoost-*.deb` |
 | Windows 10/11 (x64, arm64) | `TraceRoost-<version>-win-x64.exe` / `-win-arm64.exe` (installer) | installs for your user only, no administrator needed. The builds are not code-signed, so SmartScreen warns on first run: **More info → Run anyway** |
-| macOS 12+ (Apple Silicon, Intel) | `TraceRoost-<version>-mac-arm64.dmg` / `-mac-x64.dmg` | until notarized, Gatekeeper refuses the first open: right-click → **Open** |
+| macOS 12+ (Apple Silicon, Intel) | `TraceRoost-<version>-mac-arm64.dmg` / `-mac-x64.dmg` | open the DMG and drag TraceRoost to Applications. The builds are signed and notarized |
 
 It uses the same `~/.traceroost` data and settings as `npx traceroost` and the background service, and uses a running background service instead of starting a second collector. Check a download with the release's `TraceRoost-desktop-<version>-SHA256SUMS`. Details, including uninstalling: [desktop/README.md](desktop/README.md).
 
@@ -345,15 +370,15 @@ It uses the same `~/.traceroost` data and settings as `npx traceroost` and the b
 ```bash
 # No volume — data lives in the container: it survives `docker stop`/`start`, but is lost
 # when the container is removed, and a new container generates a new access token (always pulls latest)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost
+docker run --pull=always -p 127.0.0.1:4315:3000 -p 127.0.0.1:4318:4318 traceroost/traceroost
 
 # Persistent — data survives restarts (macOS/Linux)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 \
+docker run --pull=always -p 127.0.0.1:4315:3000 -p 127.0.0.1:4318:4318 \
   -v ~/.traceroost:/data \
   traceroost/traceroost
 
 # Persistent — data survives restarts (Windows)
-docker run --pull=always -p 127.0.0.1:3000:3000 -p 127.0.0.1:4318:4318 `
+docker run --pull=always -p 127.0.0.1:4315:3000 -p 127.0.0.1:4318:4318 `
   -v "$env:USERPROFILE\.traceroost:/data" `
   traceroost/traceroost
 ```
@@ -365,7 +390,7 @@ and agents' exports are rejected with `401`. To get it:
 
 ```bash
 # The startup log prints the dashboard URL with the token included — open that URL once and the
-# browser keeps a cookie, so plain http://localhost:3000 works afterwards.
+# browser keeps a cookie, so plain http://localhost:4315 works afterwards.
 docker logs <container> 2>&1 | grep -m1 'token='
 
 # Or read it from the config file (HOME is /data in the image, so it lives on the volume and
@@ -505,7 +530,7 @@ Environment variables (the first five predate the `TRACEROOST_` prefix and keep 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OTLP_PORT` | `4318` | OTLP HTTP receiver port |
-| `UI_PORT` | `3000` | Dashboard port. While set, it overrides the port saved in Settings → Dashboard port (see [My dev server needs port 3000](#my-dev-server-needs-port-3000)) |
+| `UI_PORT` | `4315` | Dashboard port. While set, it overrides the port saved in Settings → Dashboard port (see [Moving the dashboard to another port](#moving-the-dashboard-to-another-port)) |
 | `MCP_PORT` | `4316` | MCP endpoint for Claude Code and other MCP-compatible agents |
 | `DATA_DIR` | `~/.traceroost` | Directory for persistent span data |
 | `BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` for LAN access — the access token then becomes mandatory on the dashboard, OTLP and MCP ports (see below) |
@@ -531,7 +556,7 @@ header, a DNS-rebinding `Host`, or an OTLP body sent as `text/plain`/form data).
 and every request instead needs the bearer token from `~/.traceroost/config.json` (`authToken`).
 An interactive run prints it with the dashboard URL; the background service prints the URL with
 `?token=<token>` instead, so the token never lands in `service.log` — read it from `config.json` or
-`traceroost service status`. Browsers: open `http://<host>:3000/?token=<token>` once (a cookie keeps
+`traceroost service status`. Browsers: open `http://<host>:4315/?token=<token>` once (a cookie keeps
 you signed in and the token is dropped from the address bar). Agents: `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>`,
 or `scripts/configure-agents.sh --host <host> --token <token>`. MCP clients: send the same
 `Authorization: Bearer <token>` header.
@@ -605,6 +630,11 @@ only its own setting, and the command prints what it kept:
 traceroost service install --ui-port 3001 --otlp-port 4319 --data-dir ~/traceroost-data --retention-days 90
 ```
 
+To change the dashboard port of a service that is already installed, re-run
+`traceroost service install --ui-port <port>` (only the port changes) or use **Settings → Dashboard
+port**, which moves it without a restart. `service install` and `service status` print the
+dashboard's address with a reminder of both.
+
 Since `npx` always runs from a temporary cache with no stable path to launch from, running
 `service install` under `npx` installs `traceroost` globally first (equivalent to
 `npm install -g traceroost@latest`) so the service definition has something fixed to
@@ -616,6 +646,7 @@ point at.
 brew install traceroost/tap/traceroost
 traceroost service install     # runs `brew upgrade traceroost` first, then installs the service
 traceroost service update      # `brew upgrade traceroost`, then restarts the service on it
+traceroost service install --ui-port <port>   # another dashboard port (4315 by default)
 ```
 
 Switching from npm is automatic: the Homebrew copy takes over the `traceroost` command, and
@@ -658,17 +689,20 @@ Copilot; answer from the same terminal). `traceroost org leave` stops forwarding
 local credential, even offline. The credential is an owner-only (0600) file,
 `~/.traceroost/team.json`, so it works without an OS keychain or a logged-in desktop session.
 
-### My dev server needs port 3000
+### Moving the dashboard to another port
 
-The standalone dashboard uses port 3000 by default, which is also the default for Next.js, Rails,
-Express and many other dev servers. To move TraceRoost off it:
+The standalone dashboard and the desktop app use port 4315 by default. Installs from before
+v0.22.0 used 3000 and keep it, and 3000 is also the default for Next.js, Rails, Express and many
+other dev servers. To move TraceRoost to another port:
 
 - **Settings → Dashboard port** (gear icon in the dashboard): enter a port and click **Change**. The
   dashboard moves straight away, without a restart, and the page follows it with your preferences.
-  **Reset to 3000** moves it back.
-- **From a terminal:** `traceroost service install --ui-port 3100`. Only the port changes; every
-  other setting is kept.
-- **For a single run:** `UI_PORT=3100 npx traceroost@latest`.
+  **Reset to 4315** moves it to the default.
+- **Background service (npm or Homebrew):** `traceroost service install --ui-port 3100`. Only the
+  port changes; every other setting is kept.
+- **For a single run:** `npx traceroost@latest --ui-port 3100`, or `traceroost --ui-port 3100` for
+  a global or Homebrew install (`UI_PORT=3100` does the same). While a run's port comes from the
+  flag, Settings can't change it for that run.
 
 Agents aren't affected: they send to the OTLP port (4318) and use the MCP port (4316), which stay
 the same. Bookmarks to the old address stop working. In Docker the port is the `-p <port>:3000`
@@ -683,10 +717,10 @@ Quick-start commands are in [Ways to Run](#docker-otel-only). Additional options
 **LAN-accessible** — exposes the dashboard to other devices on your network:
 
 ```bash
-docker run --pull=always -p 3000:3000 -p 4318:4318 -v ~/.traceroost:/data traceroost/traceroost
+docker run --pull=always -p 4315:3000 -p 4318:4318 -v ~/.traceroost:/data traceroost/traceroost
 ```
 
-Other devices then open `http://<your-ip>:3000/?token=<token>` and point agents at
+Other devices then open `http://<your-ip>:4315/?token=<token>` and point agents at
 `http://<your-ip>:4318` with the token (see [token](#docker-otel-only) above). Add `-p 4316:4316`
 to expose the MCP endpoint too.
 
@@ -831,7 +865,9 @@ Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for
 | `TraceRoost: Open Dashboard` | Open the full dashboard in an editor panel |
 | `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Don't set up**, or to write them all again the settings now. Running it counts as your yes |
 | `TraceRoost: Remove Agent Setup…` | Take out only the settings TraceRoost added to Claude Code, Codex and Copilot (listed in a confirmation first), and stop setting agents up. Settings that send to a different collector are left alone. Same as `traceroost agents remove` |
-| `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The **Export** dashboard tab exports per-trace summaries instead |
+| `TraceRoost: Export Traces…` | Open the dashboard's Export panel for the traces that match its current filters |
+| `TraceRoost: Import Traces…` | Open the dashboard's Import panel to load a TraceRoost JSON export |
+| `TraceRoost: Export Live OTel Spans (debug)` | Write the raw OTel spans this window's collector currently holds in memory to JSON, one file per agent and endpoint (`export_<agent>_<endpoint>_<timestamp>.json`) — you choose where (a save dialog for one file, a folder for several). Includes prompts and tool output. The dashboard's **Export…** exports per-trace summaries instead |
 | `TraceRoost: Export Live OTel Spans, Redacted (debug)` | Same, with prompt text, tool inputs, tool results, and PII attributes replaced with `[redacted]` (`export_redacted_…`) |
 | `TraceRoost: Show Storage Stats` | Report local database size, blob storage size, trace count, date range, and current retention setting to the Output panel |
 | `TraceRoost: Dump Span Attributes (debug)` | Debugging aid: print the span names and attributes in the live window (one example per Codex span type, the last few Claude spans) to the Output panel. Listed in the Command Palette only when VS Code was started with `TRACEROOST_LOG_LEVEL=debug` |

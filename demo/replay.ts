@@ -1685,7 +1685,7 @@ async function replayFile(fp: string, label: string, instant: boolean): Promise<
   const raw = JSON.parse(fs.readFileSync(fp, 'utf-8'))
 
   // Support three formats:
-  //   export format   — array of session summaries from the Export tab (has sessionId + ISO startTime)
+  //   export format   — array of session summaries from the dashboard's Export (has sessionId + ISO startTime)
   //   capture format  — array of raw CapturedSpan objects (nanosecond startTime strings)
   //   fixture format  — { spans: CapturedSpan[] } object with metadata
   let rawSpans: CapturedSpan[]
@@ -1791,12 +1791,12 @@ async function main() {
     if (FIXTURE === 'agent-matrix') {
       const matrix = ['claude-helloworld-real', 'codex-helloworld-real', 'copilot-helloworld-real']
       for (const name of matrix) await replayFixture(name)
-      log('Done. Open http://localhost:3000 to see your real session data.')
+      log('Done. Open http://localhost:4315 to see your real session data.')
       return
     }
     if (FIXTURE) {
       await replayFixture(FIXTURE)
-      log('Done. Open http://localhost:3000 to see your real session data.')
+      log('Done. Open http://localhost:4315 to see your real session data.')
       return
     }
 
@@ -1805,7 +1805,7 @@ async function main() {
     if (SCENARIO === 'story') {
       const hasAgentsFlag = args.includes('--agents')
       await runStory(hasAgentsFlag ? AGENTS : undefined)
-      log('Story complete. Open http://localhost:3000 and explore every tab.')
+      log('Story complete. Open http://localhost:4315 and explore every tab.')
       return
     }
 
@@ -1828,7 +1828,7 @@ async function main() {
       if (call.type === 'errors')     await scenarioErrors(call.agent!, FRESH_OFFSET_MS)
     }
 
-    log('All done. Open http://localhost:3000 and explore every tab.')
+    log('All done. Open http://localhost:4315 and explore every tab.')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     err(`${msg}`)

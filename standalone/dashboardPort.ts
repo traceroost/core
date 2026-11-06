@@ -1,9 +1,10 @@
 /**
  * Settings → Dashboard port: moving the standalone dashboard to another port while it runs.
  *
- * The dashboard stays on 3000 by default. This is how a developer whose own dev server needs 3000
- * moves TraceRoost off it without touching anything else: agents send to the OTLP port and use the
- * MCP port, neither of which changes, so no agent config is rewritten.
+ * The dashboard is on 4315 by default (DEFAULT_UI_PORT in src/serviceConfig.ts); installs from
+ * before that default kept 3000 in config.json. This is how a developer whose own dev server needs
+ * the port moves TraceRoost off it without touching anything else: agents send to the OTLP port and
+ * use the MCP port, neither of which changes, so no agent config is rewritten.
  *
  * A move binds the new port *before* letting go of the old one and persists only once the bind
  * succeeded, so a refused port (in use, reserved) changes nothing. No restart: the same request
@@ -15,12 +16,27 @@
  * in src/serviceConfig.ts) — nothing about the service definition has to change.
  */
 import type * as http from 'http'
+import { DEFAULT_UI_PORT } from '../src/serviceConfig'
 
-export const DEFAULT_DASHBOARD_PORT = 3000
+export const DEFAULT_DASHBOARD_PORT = DEFAULT_UI_PORT
+
+/** The dashboard's default before 4315, still saved in the config.json of older installs. */
+export const LEGACY_DASHBOARD_PORT = 3000
 
 /** One line the CLI prints after the dashboard URL while the dashboard is on 3000 — the moment a
  *  developer is most likely to wonder how to get 3000 back for their own server. */
 export const PORT_3000_HINT = 'Need port 3000 for a dev server? Move the dashboard in Settings → Dashboard port, or run `traceroost service install --ui-port <port>`.'
+
+/** The line `service install` and `service status` print after the dashboard URL, so how to move
+ *  the dashboard is right beside its address — the 3000 wording while it is still on 3000. */
+export function servicePortHint(port: number): string {
+  return port === LEGACY_DASHBOARD_PORT
+    ? PORT_3000_HINT
+    : 'To use another dashboard port: Settings → Dashboard port, or `traceroost service install --ui-port <port>`.'
+}
+
+/** The same for a run in a terminal, where a flag picks the port for that run only. */
+export const TERMINAL_PORT_HINT = 'Another dashboard port: add `--ui-port <port>` for this run, or set one that sticks in Settings → Dashboard port.'
 const MIN_PORT = 1024
 const MAX_PORT = 65535
 

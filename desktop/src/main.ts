@@ -29,7 +29,7 @@ import * as path from 'path'
 import { readServiceConfig } from '../../src/serviceConfig'
 import { detectPortOwner } from '../../src/portResolver'
 import { isPidAlive } from '../../standalone/dataDirLock'
-import { OwnedCollector, type CollectorState } from './collector'
+import { lockShowsUiPort, OwnedCollector, type CollectorState } from './collector'
 import { dashboardTarget } from './dashboardUrl'
 import { describeVerdict, inspectCollector, type HandshakeEnv } from './handshake'
 import { openDesktopLog } from './logs'
@@ -117,6 +117,9 @@ let tray: TrayController | undefined
 /** The tray's click handlers; on Linux, also the window menu bar's. Set once the app is ready. */
 let trayHandlers: TrayHandlers | undefined
 let win: BrowserWindow | undefined
+/** The origin the window may show — the collector's dashboard port, which can change while the
+ *  window is open (followDashboardPort, acceptDashboardMove). */
+let windowOrigin: string | undefined
 let quitting = false
 let gitAvailable = true
 const startedAt = Date.now()
@@ -303,6 +306,7 @@ async function settleOwnership(): Promise<void> {
     return
   }
   setMode(resolved)
+  if (resolved.mode === 'attach') followDashboardPort(resolved.identity.uiPort)
   // Only the first time: a wake-time re-check must not bring back a window the user closed.
   if (resolved.mode === 'attach' && showWindowWhenReady && win === undefined) openWindowFor(resolved.identity.uiPort)
 }
@@ -318,6 +322,7 @@ async function startOwnedCollector(): Promise<void> {
     })
     collector.onStateChange(state => {
       refreshTray()
+      if (state.status === 'running') followDashboardPort(state.uiPort)
       if (state.status === 'running' && win === undefined && showWindowWhenReady) openWindowFor(state.uiPort)
     })
   }
@@ -368,9 +373,11 @@ function openWindowFor(uiPort: number): void {
     return
   }
   const target = dashboardTarget({ uiPort, bindHost: config.bindHost, authToken: config.authToken })
+  windowOrigin = target.origin
   win = createDashboardWindow({
     initialUrl: target.initialUrl,
-    origin: target.origin,
+    origin: () => windowOrigin ?? target.origin,
+    acceptPortMove: acceptDashboardMove,
     log: log.write,
     isQuitting: () => quitting,
     onCloseRequested: () => { void handleCloseRequested() },
@@ -378,7 +385,7 @@ function openWindowFor(uiPort: number): void {
     startMinimized,
   })
   startMinimized = false
-  win.on('closed', () => { win = undefined })
+  win.on('closed', () => { win = undefined; windowOrigin = undefined })
   // Windows log-off / shutdown: the system ends this session without a Quit, and terminates the
   // collector (which has no window to be told through). Ask it to flush now; it saves in well under
   // a second. Without the window this never fires — the collector then still flushes when this
@@ -388,6 +395,42 @@ function openWindowFor(uiPort: number): void {
     collector?.requestStopNow()
   })
   if (process.platform === 'darwin') void app.dock?.show()
+}
+
+/**
+ * The collector serves the dashboard on `uiPort` now. A window still showing another port would be
+ * left on a dead address — after a restart that found its old port taken, say — so it loads the
+ * new one. A no-op while the ports agree, which is nearly always.
+ */
+function followDashboardPort(uiPort: number): void {
+  if (!win || windowOrigin === undefined) return
+  const target = dashboardTarget({ uiPort, bindHost: config.bindHost, authToken: config.authToken })
+  if (target.origin === windowOrigin) return
+  log.write(`[desktop] the dashboard is on port ${uiPort} now — reloading the window there`)
+  windowOrigin = target.origin
+  void win.loadURL(target.initialUrl)
+}
+
+/**
+ * The page is moving to `port` — Settings → Dashboard port. Allowed only when the collector this
+ * window shows says, in its own lock, that it listens there now; anything else navigating the
+ * window to another local port is refused like any other origin.
+ */
+function acceptDashboardMove(port: number): boolean {
+  const previous = windowOrigin
+  // Set first: taking the move updates the collector state, whose listener calls
+  // followDashboardPort — which must see the window already on the new origin, or it would reload
+  // the page mid-move and drop the preferences the move carries in its URL fragment.
+  windowOrigin = dashboardTarget({ uiPort: port, bindHost: config.bindHost, authToken: config.authToken }).origin
+  let taken = false
+  if (shellMode.mode === 'own') {
+    taken = collector?.followUiPortMove(port) ?? false
+  } else if (shellMode.mode === 'attach' && lockShowsUiPort(dataDir, shellMode.identity.pid, port)) {
+    setMode({ ...shellMode, identity: { ...shellMode.identity, uiPort: port } })
+    taken = true
+  }
+  if (!taken) windowOrigin = previous
+  return taken
 }
 
 function owningCollection(): boolean {

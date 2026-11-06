@@ -24,7 +24,7 @@ suite('serviceConfig', () => {
     test('defaults to the standard ports and ~/.traceroost under the given home dir', () => {
       const home = tmpHome()
       const config = defaultServiceConfig(home)
-      assert.strictEqual(config.uiPort, 3000)
+      assert.strictEqual(config.uiPort, 4315)
       assert.strictEqual(config.otlpPort, 4318)
       assert.strictEqual(config.mcpPort, 4316)
       assert.strictEqual(config.bindHost, '127.0.0.1')
@@ -45,6 +45,12 @@ suite('serviceConfig', () => {
       writeServiceConfig(written, home)
       const read = readServiceConfig(home)
       assert.deepStrictEqual(read, written)
+    })
+
+    test('an install from before the 4315 default keeps the 3000 its config.json saved', () => {
+      const home = tmpHome()
+      writeServiceConfig({ ...defaultServiceConfig(home), uiPort: 3000 }, home)
+      assert.strictEqual(readServiceConfig(home).uiPort, 3000)
     })
 
     test('fills in missing fields from defaults if the file is a partial object', () => {
@@ -196,12 +202,12 @@ suite('serviceConfig', () => {
 
     test('ignores a non-numeric value for a numeric flag', () => {
       const config = parseServiceInstallFlags(['--ui-port', 'not-a-number'])
-      assert.strictEqual(config.uiPort, 3000)
+      assert.strictEqual(config.uiPort, 4315)
     })
 
     test('ignores a flag with no following value', () => {
       const config = parseServiceInstallFlags(['--ui-port'])
-      assert.strictEqual(config.uiPort, 3000)
+      assert.strictEqual(config.uiPort, 4315)
     })
 
     // `service install` passes the existing config.json as the base: re-running it is how people

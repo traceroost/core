@@ -475,7 +475,7 @@ export async function sendMail({ host, port, user, pass, from, to, subject, text
 // ---------------------------------------------------------------------------------------------
 // Main
 
-function mailConfigFromEnv(env) {
+export function mailConfigFromEnv(env) {
   const host = env.OTEL_WATCH_SMTP_HOST;
   const from = env.OTEL_WATCH_MAIL_FROM;
   const to = (env.OTEL_WATCH_MAIL_TO ?? "").split(",").map((s) => s.trim()).filter(Boolean);
