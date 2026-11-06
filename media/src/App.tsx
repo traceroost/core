@@ -39,6 +39,8 @@ import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { checkAutomations } from './tabs/Automation'
 import { receiveInstructionMessage } from './tabs/Instructions'
+import { AgentsSettings } from './tabs/AgentHealth'
+import { adapterHealth, type AgentHealthRow } from './agentHealth'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSetting, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
@@ -114,6 +116,7 @@ function ConfigPanel() {
       <OtelReconfigureButton />
       {window.__STANDALONE__ === true && <DashboardPortSetting />}
       <McpToggle />
+      <AgentsSettings />
       <ImportSetting />
     </div>
   )
@@ -674,6 +677,7 @@ export function App() {
         commands?: string[]
         entries?: ActionLogEntry[]
         snapshot?: PlanUsageSnapshot
+        rows?: AgentHealthRow[]
       }
       // Org panel (TraceRoost Cloud) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
@@ -785,6 +789,8 @@ export function App() {
         runningGitCommands.value = msg.commands
       } else if (msg.type === 'actionLog' && Array.isArray(msg.entries)) {
         actionLog.value = msg.entries
+      } else if (msg.type === 'adapterHealth' && Array.isArray(msg.rows)) {
+        adapterHealth.value = msg.rows
       } else if (msg.type === 'planUsage' && msg.snapshot) {
         const first = planUsage.peek() === null
         planUsage.value = msg.snapshot

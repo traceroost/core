@@ -274,8 +274,9 @@ export interface LogReaderOptions {
   /** Overrides MAX_LOG_FILE_BYTES (tests). */
   maxFileBytes?: number
   /** Called with what each file just read held, by record class (adapters/classify.ts) — the
-   *  whole file every time, so a caller replaces that file's previous observation. */
-  observe?: (filePath: string, obs: FileObservation) => void
+   *  whole file every time, so a caller replaces that file's previous observation — and the
+   *  file's modification time. */
+  observe?: (filePath: string, obs: FileObservation, mtimeMs: number) => void
 }
 
 export interface LogSessionResult {
@@ -330,7 +331,7 @@ export class LogReader {
   // Files skipped for exceeding MAX_LOG_FILE_BYTES, so each is warned about once (see _tooLarge).
   private readonly oversizeWarned = new Set<string>()
   private readonly maxFileBytes: number
-  private readonly observe: ((filePath: string, obs: FileObservation) => void) | undefined
+  private readonly observe: ((filePath: string, obs: FileObservation, mtimeMs: number) => void) | undefined
 
   constructor(options: LogReaderOptions = {}) {
     this.log = options.log ?? (() => { /* silent */ })
@@ -345,7 +346,7 @@ export class LogReader {
     if (!this.observe) return
     try {
       const obs = observeRecords(logKey, records())
-      if (obs) this.observe(filePath, obs)
+      if (obs) this.observe(filePath, obs, this.lastReadMtimeMs)
     } catch (err) {
       this.log(`[LogReader] adapter health error ${filePath}: ${err}`)
     }
@@ -1576,7 +1577,7 @@ export class LogReader {
     } catch { /* no WAL file — main DB is fully checkpointed */ }
     const db = new this.sqlFactory!.Database(buf)
     if (this.observe) {
-      try { this.observe(dbPath, observeOpenCodeDb(db)) } catch (err) { this.log(`[LogReader] adapter health error ${dbPath}: ${err}`) }
+      try { this.observe(dbPath, observeOpenCodeDb(db), this.fileState.get(dbPath)?.mtimeMs ?? Date.now()) } catch (err) { this.log(`[LogReader] adapter health error ${dbPath}: ${err}`) }
     }
     try {
       // ── Session rows ───────────────────────────────────────────────────────

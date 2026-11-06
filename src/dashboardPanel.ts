@@ -19,6 +19,7 @@ import { cloud, type OrgPanelDeps, type SuggestionLedger } from './cloudBridge'
 import { getNonce, safeJsonForScript } from './webviewHtml'
 import { WebviewSessionSync } from './webviewSessionSync'
 import { getPlanUsageService } from './planUsage/planUsageService'
+import { adapterHealth, adapterHealthMessage } from './adapters/health'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {
@@ -505,6 +506,18 @@ export class DashboardPanel {
       currentWorkspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
     })
     this.postPlanUsage(sessions)
+    this.postAdapterHealth()
+  }
+
+  /** Adapter health (src/adapters/health.ts) for Settings → Agents and the agent banner — its own
+   *  message, sent only when the table changed. */
+  private lastAdapterHealthRevision = -1
+  private postAdapterHealth(): void {
+    const health = adapterHealth()
+    if (health.revision === this.lastAdapterHealthRevision) return
+    this.lastAdapterHealthRevision = health.revision
+    const version = String(vscode.extensions.getExtension('traceroost.traceroost')?.packageJSON?.version ?? 'unknown')
+    this.panel.webview.postMessage(adapterHealthMessage(health, version))
   }
 
   /** Subscription plan limits (src/planUsage/) — its own message, sent only when it changed. */

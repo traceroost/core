@@ -42,6 +42,8 @@ function commandEntries(cloud: boolean): UsageEntry[] {
       description: 'Run TraceRoost as a background service that starts at login; `install` also updates it.' },
     { usage: AGENTS_USAGE,
       description: 'Set up Claude Code, Codex and Copilot to send traces here, or remove only what TraceRoost added.' },
+    { usage: 'traceroost doctor [--report <agent> [--open]]',
+      description: 'Check that TraceRoost recognizes what each agent writes here; exits 1 if it doesn\'t.' },
     { usage: commandUsage('find', cloud),
       description: 'Look up a trace or repository and print what this machine recorded for it.' },
     { usage: 'traceroost trace --id <sessionId>',

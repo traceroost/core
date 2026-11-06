@@ -368,7 +368,7 @@ export async function autoConfigureClaudeCode(port: number, mode: SetupMode = 'f
   }
 }
 
-function vscodeUserSettingsPaths(): string[] {
+export function vscodeUserSettingsPaths(): string[] {
   const home = os.homedir()
   let base: string
   if (process.platform === 'darwin') {
