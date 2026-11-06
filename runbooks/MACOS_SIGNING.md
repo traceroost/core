@@ -137,22 +137,36 @@ spctl --assess --type execute --verbose=2 "$app"                 # accepted, sou
 pnpm run smoke                                                   # the signed app, with real library validation
 ```
 
-## 6. Add the repository secrets
+## 6. Add the secrets to the `desktop-release` environment
 
-Piped from the keychain entries of step 3, so no value is pasted or echoed:
+The Apple secrets are **environment** secrets, not repository secrets: the `desktop-release`
+environment admits only `v*` tags, so nothing but a release build can read the Developer ID key.
+Create the environment once (Settings → Environments, or):
 
 ```sh
-base64 -i Certificates.p12 | tr -d '\n' | gh secret set MAC_CSC_LINK --repo traceroost/core
-security find-generic-password -s traceroost-p12 -w | tr -d '\n' | gh secret set MAC_CSC_KEY_PASSWORD --repo traceroost/core
-# Apple ID route:
-printf '%s' you@example.com | gh secret set APPLE_ID --repo traceroost/core
-security find-generic-password -s traceroost-notarize -w | tr -d '\n' | gh secret set APPLE_APP_SPECIFIC_PASSWORD --repo traceroost/core
-gh secret set APPLE_TEAM_ID --repo traceroost/core --body FF6GJHUP8A
-# …or the API-key route instead of the first two:
-gh secret set APPLE_API_KEY_P8 --repo traceroost/core < AuthKey_XXXX.p8
-gh secret set APPLE_API_KEY_ID --repo traceroost/core
-gh secret set APPLE_API_ISSUER --repo traceroost/core
+gh api -X PUT repos/traceroost/core/environments/desktop-release \
+  -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+gh api -X POST repos/traceroost/core/environments/desktop-release/deployment-branch-policies -f name='v*' -f type=tag
 ```
+
+Then the secrets, piped from the keychain entries of step 3 so no value is pasted or echoed:
+
+```sh
+E='--repo traceroost/core --env desktop-release'
+base64 -i Certificates.p12 | tr -d '\n' | gh secret set MAC_CSC_LINK $E
+security find-generic-password -s traceroost-p12 -w | tr -d '\n' | gh secret set MAC_CSC_KEY_PASSWORD $E
+# Apple ID route:
+printf '%s' you@example.com | gh secret set APPLE_ID $E
+security find-generic-password -s traceroost-notarize -w | tr -d '\n' | gh secret set APPLE_APP_SPECIFIC_PASSWORD $E
+gh secret set APPLE_TEAM_ID $E --body FF6GJHUP8A
+# …or the API-key route instead of the first two:
+gh secret set APPLE_API_KEY_P8 $E < AuthKey_XXXX.p8
+gh secret set APPLE_API_KEY_ID $E
+gh secret set APPLE_API_ISSUER $E
+```
+
+Keep no repository-level copies (`gh secret list --repo traceroost/core` shows none of these
+names): any workflow on any branch can read a repository secret.
 
 Set `APPLE_TEAM_ID` on the API-key route too: the Notarization check then also asserts that the app
 was signed by that team. Add the certificate and the notarization credentials together — with only
@@ -160,7 +174,12 @@ one of them the Notarization check fails the build on purpose.
 
 ## 7. Verify in CI
 
-**Actions → Desktop (macOS) → Run workflow** on `main`. Expect:
+Only a `v*` tag gets the secrets, so a manual run on `main` now builds ad-hoc and proves nothing
+about signing. The check is the next release's *Desktop (macOS)* job. Don't push a throwaway tag
+to test it: every `v*` tag runs the whole of `release.yml` (npm, the marketplaces), and
+`-beta` tags are not yet marked as prereleases. If the environment is broken, the tag's
+*Notarization check* fails with "the desktop-release environment's Apple secrets are missing"
+rather than attaching an unsigned DMG. Expect:
 
 - *Import the Developer ID certificate* lists one valid `Developer ID Application: ROGER JOSEPH REED (FF6GJHUP8A)`
   identity;

@@ -107,7 +107,9 @@ jobs:
     if: needs.gate.outputs.build == 'true' && contains(needs.gate.outputs.platforms, ',macos,')
     uses: ./.github/workflows/desktop-macos.yml
     # Only the signing and notarization secrets — not every repository secret (npm, marketplace,
-    # Docker Hub and Homebrew tokens stay out of the desktop build).
+    # Docker Hub and Homebrew tokens stay out of the desktop build). The Apple ones now live in the
+    # `desktop-release` environment, which desktop-macos.yml's job names on a tag; those take
+    # precedence, and these pass through empty unless a repository-level copy exists.
     secrets:
       MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
       MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
