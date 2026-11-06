@@ -40,6 +40,8 @@ import { TraceHorizon } from './traceHorizon'
 import { HistoryReadiness } from './historyReadiness'
 import { decidePipeline } from './ownerGate'
 import { logLevel } from './logLevel'
+import { agentKeyLabel } from './adapters/registry'
+import { adapterHealth, persistAdapterHealth, restoreAdapterHealth } from './adapters/health'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -582,6 +584,9 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // ── Panels ───────────────────────────────────────────────────────────────────
+  // Adapter health (Settings → Agents) as the owning window last saved it, beside the log file
+  // state: a file restored as already read keeps its counts, and a viewer window has a table too.
+  restoreAdapterHealth(adapterHealth(), context.globalStorageUri.fsPath)
   const repo = repository ?? fallbackRepository(store)
   const provider = new SidebarPanel(repo, context.extensionUri)
 
@@ -683,7 +688,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // ── Log ingestion ──
     const enableLogIngestion = vscode.workspace.getConfiguration('traceRoost').get<boolean>('enableLogIngestion', true)
     if (enableLogIngestion) {
-      logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory })
+      const health = adapterHealth()
+      logReader = new LogReader({ log: (msg) => outputChannel!.appendLine(msg), sqlFactory: traceRoostDb?.sqlFactory, observe: (f, o, mtimeMs) => health.observeFile(f, o, mtimeMs) })
       // Also re-derives what a parser change needs re-read (see LOG_FILE_STATE_VERSION) — e.g.
       // every file once, into a store rebuilt for stable trace identity.
       restoreLogFileState(logReader, context.globalStorageUri.fsPath,
@@ -693,7 +699,9 @@ export async function activate(context: vscode.ExtensionContext) {
       // recording files as processed would make the owning window skip them on its next activation.
       // (This whole pipeline is owner-only; the check stays as the last line of defence.)
       const persistFileState = () => {
-        if (traceRoostDb?.isOwner) writeLogFileState(context.globalStorageUri.fsPath, lr.exportFileState())
+        if (!traceRoostDb?.isOwner) return
+        writeLogFileState(context.globalStorageUri.fsPath, lr.exportFileState())
+        persistAdapterHealth(health, context.globalStorageUri.fsPath)
       }
       const fallbackWorkspace = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
       // Keys a re-read log file no longer produces (LogReader.takeRetiredKeys) leave the database —
@@ -795,15 +803,6 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         if (allFiles.length === 0) { onAllDone?.(true); return }
 
-        const AGENT_KEY_LABEL: Record<string, string> = {
-          claude:              'Claude Code',
-          codex:               'Codex',
-          copilot:             'Copilot CLI',
-          copilot_vscode:      'Copilot (VS Code)',
-          copilot_vscode_json: 'Copilot (VS Code)',
-          opencode:            'OpenCode',
-          cursor:              'Cursor CLI',
-        }
         const countByKey = new Map<string, number>()
 
         const processGroup = (
@@ -909,7 +908,7 @@ export async function activate(context: vscode.ExtensionContext) {
             if (total > 0) {
               const breakdown = [...countByKey.entries()]
                 .sort((a, b) => b[1] - a[1])
-                .map(([k, n]) => `${AGENT_KEY_LABEL[k] ?? k}: ${n}`)
+                .map(([k, n]) => `${agentKeyLabel(k)}: ${n}`)
                 .join(', ')
               outputChannel!.appendLine(`[TraceRoost] Loaded ${total} sessions from local logs (${breakdown})`)
             }
@@ -1042,6 +1041,16 @@ export async function activate(context: vscode.ExtensionContext) {
       DashboardPanel.show(context, repo, provider, instructionRepo, traceRoostDb?.raw, reconciliationService)
     })
   )
+  // Export and Import are drawers in the dashboard, not tabs: open the dashboard, then the drawer.
+  // Same delay the deep-link handlers use, so a panel opened just now has its webview listening.
+  for (const [command, drawer] of [['traceRoost.exportTraces', 'export'], ['traceRoost.importTraces', 'import']] as const) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(command, () => {
+        void vscode.commands.executeCommand('traceRoost.openDashboard')
+        setTimeout(() => DashboardPanel.switchToTab(drawer), 250)
+      })
+    )
+  }
 
   // A literal `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) rather than
   // `cloud.edition`, so the core build drops registerOrgCommands and its strings entirely.

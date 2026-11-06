@@ -23,6 +23,7 @@ import { hasEvidence, insightColor, insightShortName, resolveStepIndex } from '.
 import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
 import { LogIngestionNote } from './IngestionNote'
+import { AgentHealthBanner } from './AgentHealth'
 import { NoTracesYet } from './GettingStarted'
 import type { SessionSummaryCard, FileOutcome, LoopSignal, LoopSignalType, Insight } from '../types'
 import { LOOP_SIGNAL_ICON_TYPE, SignalBadge } from '../signalIcons'
@@ -1198,6 +1199,7 @@ export function Sessions() {
 
   return (
     <div id="sessions-content" style="padding-top:8px">
+      <AgentHealthBanner />
       <div role="region" aria-label="Traces table" tabIndex={0}>
       {/* Every column but Prompt has a fixed width, so a wide panel's spare space all goes to
           Prompt instead of being spread across the narrow number columns as gaps. min-width

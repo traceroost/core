@@ -1,0 +1,15 @@
+{
+  "source": "synthetic",
+  "captured": null,
+  "os": null,
+  "redaction": "none needed: every value is invented",
+  "adapter": "copilot_vscode",
+  "agentVersion": "unknown",
+  "mirrors": "the Copilot Chat chatSessions delta log (kinds 0/1/2); the file records no extension version",
+  "files": [
+    {
+      "path": "files/workspaceStorage/abc123/chatSessions/9c2e0000-0000-4000-8000-000000000004.jsonl",
+      "logKey": "copilot_vscode"
+    }
+  ]
+}

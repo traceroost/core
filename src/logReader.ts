@@ -64,6 +64,7 @@ import { deriveSessionLanguage } from './language'
 import { computeEditStats } from './editStats'
 import { segmentClaudeTurns, type ClaudeTurnSpan } from './claudeTurns'
 import { traceKey, derivedTraceKey, SOURCE_RANK_FULL_TRANSCRIPT, SOURCE_RANK_PARTIAL } from './traceIdentity'
+import { observeOpenCodeDb, observeRecords, type FileObservation } from './adapters/classify'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
 
@@ -272,6 +273,10 @@ export interface LogReaderOptions {
   sqlFactory?: OpenCodeSqlFactory
   /** Overrides MAX_LOG_FILE_BYTES (tests). */
   maxFileBytes?: number
+  /** Called with what each file just read held, by record class (adapters/classify.ts) — the
+   *  whole file every time, so a caller replaces that file's previous observation — and the
+   *  file's modification time. */
+  observe?: (filePath: string, obs: FileObservation, mtimeMs: number) => void
 }
 
 export interface LogSessionResult {
@@ -326,11 +331,25 @@ export class LogReader {
   // Files skipped for exceeding MAX_LOG_FILE_BYTES, so each is warned about once (see _tooLarge).
   private readonly oversizeWarned = new Set<string>()
   private readonly maxFileBytes: number
+  private readonly observe: ((filePath: string, obs: FileObservation, mtimeMs: number) => void) | undefined
 
   constructor(options: LogReaderOptions = {}) {
     this.log = options.log ?? (() => { /* silent */ })
     this.sqlFactory = options.sqlFactory
     this.maxFileBytes = options.maxFileBytes ?? MAX_LOG_FILE_BYTES
+    this.observe = options.observe
+  }
+
+  /** Hands one file's records to the `observe` option, classified against its adapter. `records`
+   *  is a thunk so a file isn't parsed a second time when nobody is observing. */
+  private _observe(filePath: string, logKey: string, records: () => readonly unknown[]): void {
+    if (!this.observe) return
+    try {
+      const obs = observeRecords(logKey, records())
+      if (obs) this.observe(filePath, obs, this.lastReadMtimeMs)
+    } catch (err) {
+      this.log(`[LogReader] adapter health error ${filePath}: ${err}`)
+    }
   }
 
   /** True (after recording the file's state so it isn't retried until it changes, and warning
@@ -557,6 +576,7 @@ export class LogReader {
     // Every line is JSON.parse'd once here and the parsed rows are shared by the dedupe, the
     // turn segmentation and the per-turn parser.
     const { lines, parsed } = dedupeParsedByUuid(rawLines, rawLines.map(parseLogLine))
+    this._observe(filePath, 'claude', () => parsed)
 
     const baseSessionId = path.basename(filePath, '.jsonl')
     const turns = segmentClaudeTurns(parsed)
@@ -932,6 +952,7 @@ export class LogReader {
 
     const baseSessionId = path.basename(filePath, '.jsonl')
     const parsed = lines.map(parseLogLine)
+    this._observe(filePath, 'codex', () => parsed)
     const { id: rolloutId, cwd: fileWorkspace, branch: fileBranch } = codexSessionMeta(parsed)
     const conversationId = rolloutId || baseSessionId
     const results: LogSessionResult[] = []
@@ -1108,6 +1129,7 @@ export class LogReader {
   private _parseCopilotFile(filePath: string, sessionId: string): LogSessionResult[] {
     const lines = this._readNewLines(filePath)
     if (!lines) return []
+    this._observe(filePath, 'copilot', () => lines.map(parseLogLine))
 
     let workspace = ''
     let sessionModel = ''
@@ -1294,6 +1316,7 @@ export class LogReader {
     let sessionCreatedMs = 0
     let model = ''
     const parsed = lines.map(parseLogLine)
+    this._observe(filePath, 'copilot_vscode', () => parsed)
     parsed.forEach(e => {
       if (e === undefined) return
       const entry = e as Record<string, unknown>
@@ -1407,6 +1430,7 @@ export class LogReader {
   private _parseCopilotVSCodeJsonFile(filePath: string, sessionId: string): LogSessionResult[] {
     const data = this._readJsonFile(filePath)
     if (!data) return []
+    this._observe(filePath, 'copilot_vscode_json', () => [data])
 
     const creationMs = typeof data['creationDate'] === 'number' ? data['creationDate'] : 0
     const lastMs     = typeof data['lastMessageDate'] === 'number' ? data['lastMessageDate'] : 0
@@ -1552,6 +1576,9 @@ export class LogReader {
       if (wal.length > 32) buf = _mergeWal(buf, wal)
     } catch { /* no WAL file — main DB is fully checkpointed */ }
     const db = new this.sqlFactory!.Database(buf)
+    if (this.observe) {
+      try { this.observe(dbPath, observeOpenCodeDb(db), this.fileState.get(dbPath)?.mtimeMs ?? Date.now()) } catch (err) { this.log(`[LogReader] adapter health error ${dbPath}: ${err}`) }
+    }
     try {
       // ── Session rows ───────────────────────────────────────────────────────
       const sessRows = db.exec(`
@@ -1878,6 +1905,7 @@ export class LogReader {
   private _parseCursorFile(filePath: string): LogSessionResult[] {
     const rawLines = this._readNewLines(filePath)
     if (!rawLines) return []
+    this._observe(filePath, 'cursor', () => rawLines.map(parseLogLine))
 
     const sessionId = path.basename(filePath, '.jsonl')
     interface Turn {

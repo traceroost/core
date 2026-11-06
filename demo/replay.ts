@@ -1685,7 +1685,7 @@ async function replayFile(fp: string, label: string, instant: boolean): Promise<
   const raw = JSON.parse(fs.readFileSync(fp, 'utf-8'))
 
   // Support three formats:
-  //   export format   — array of session summaries from the Export tab (has sessionId + ISO startTime)
+  //   export format   — array of session summaries from the dashboard's Export (has sessionId + ISO startTime)
   //   capture format  — array of raw CapturedSpan objects (nanosecond startTime strings)
   //   fixture format  — { spans: CapturedSpan[] } object with metadata
   let rawSpans: CapturedSpan[]

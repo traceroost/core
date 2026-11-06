@@ -1,0 +1,12 @@
+{
+  "source": "synthetic",
+  "captured": null,
+  "os": null,
+  "redaction": "none needed: every value is invented",
+  "adapter": "opencode",
+  "agentVersion": "unknown",
+  "mirrors": "the opencode.db tables and JSON paths the reader queries; no session.version column",
+  "files": [
+    { "path": "files/opencode.sql", "logKey": "opencode" }
+  ]
+}

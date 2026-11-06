@@ -1,0 +1,6 @@
+{"kind":0,"v":{"version":3,"creationDate":1759312800000,"initialLocation":"panel","responderUsername":"GitHub Copilot","sessionId":"9c2e0000-0000-4000-8000-000000000004","hasPendingEdits":false,"requests":[],"pendingRequests":[],"inputState":{"inputText":"","selections":[]}}}
+{"kind":1,"k":["inputState","inputText"],"v":"Explain this function"}
+{"kind":2,"k":["requests"],"v":[{"requestId":"request_1","timestamp":1759312801000,"message":{"text":"Explain this function","parts":[]},"modelId":"copilot/gpt-4.1","response":[]}]}
+{"kind":2,"k":["requests",0,"response"],"v":[{"value":"It parses input.","kind":"markdownContent"}]}
+{"kind":1,"k":["requests",0,"result"],"v":{"timings":{"firstProgress":900,"totalElapsed":2100},"metadata":{},"usage":{"promptTokens":1800,"completionTokens":90}}}
+{"kind":1,"k":["requests",0,"completionTokens"],"v":90}

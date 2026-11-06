@@ -986,7 +986,7 @@ function SettingsSection() {
         <p>The bell icon shows a numbered badge when one or more alert thresholds are currently triggered; with none firing it has no badge. Click it to open the slide-in Alerts panel, which has three tabs: <strong>Active</strong> lists every alert firing now — severity, name, and detail about which trace tripped it, with <strong>View trace →</strong> to open that trace and <strong>Adjust threshold →</strong> to jump to its settings; <strong>Configure</strong> turns each <a href="#help-alerts">alert</a> on or off and sets its thresholds; <strong>Automation</strong> sets up the <a href="#help-automation">automations</a>. Close it with the × button or by pressing Escape.</p>
 
         <h4 style={subHeadStyle}>Gear icon — settings panel</h4>
-        <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTel and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Set up agents</strong> button, the <a href="#help-dashboard-port">Dashboard port</a> (standalone only), and the MCP server toggle. Alerts and Automation have their own panel, under the bell. Close it with the × button or by pressing Escape.</p>
+        <p>The gear icon opens a slide-in settings panel: the theme (standalone only), traces per page, the OTel and log ingestion toggles with <a href="#help-clear-all">Clear All Data</a>, the <strong>Set up agents</strong> button, the <a href="#help-dashboard-port">Dashboard port</a> (standalone only), the MCP server toggle, and <a href="#help-import">Import traces…</a>. Alerts and Automation have their own panel, under the bell. Close it with the × button or by pressing Escape.</p>
 
         <h4 id="help-dashboard-port" style={subHeadStyle}>Moving the dashboard to another port</h4>
         <p>The standalone dashboard uses port 4315 by default. Installs from before v0.22.0 used 3000 and keep it, and 3000 is also the default for Next.js, Rails, Express and many other dev servers. To move TraceRoost to another port, use any of these:</p>
@@ -1234,7 +1234,7 @@ function ExportSection() {
     <div class="help-section" id="help-export">
       <h3 class="help-heading">{HELP_SECTIONS.export.heading}</h3>
       <div class="help-overview-body">
-        <p>The Export tab saves traces as JSON, CSV, or Markdown — in the VS Code-family extension as a file in your workspace root (in the extension's storage folder when no folder is open), opened in an editor tab; in the standalone dashboard as a browser download, built from the traces the server holds in memory. Exports follow the filter bar's time range, agent, language, prompt text, repo, source and From filters.</p>
+        <p><strong>Export…</strong>, on the Traces filter row (or <em>TraceRoost: Export Traces…</em> in VS Code), opens a panel that saves traces as JSON, CSV, or Markdown, redacted (the default) or in full — in the VS Code-family extension as a file in your workspace root (in the extension's storage folder when no folder is open), opened in an editor tab; in the standalone dashboard as a browser download, built from the traces the server holds in memory. Exports follow the filter bar's time range, agent, language, prompt text, repo, source and From filters.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Full export</dt>
@@ -1246,7 +1246,7 @@ function ExportSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Format: JSON</dt>
-            <dd class="glossary-def" style="display:block">Full-fidelity structured export. The only format the Import tab reads back in — use this if you plan to bring the data into TraceRoost on another machine.</dd>
+            <dd class="glossary-def" style="display:block">Full-fidelity structured export. The only format Import reads back in — use this if you plan to bring the data into TraceRoost on another machine.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Format: CSV</dt>
@@ -1257,7 +1257,7 @@ function ExportSection() {
             <dd class="glossary-def" style="display:block">One readable section per trace — for sharing a report rather than raw data.</dd>
           </div>
         </div>
-        <p style="font-size:12px;color:var(--muted);margin-top:12px">These are per-trace summaries. In the VS Code extension, the <em>TraceRoost: Export OTEL Data</em> command writes the raw OTEL spans still held in memory instead.</p>
+        <p style="font-size:12px;color:var(--muted);margin-top:12px">These are per-trace summaries. In the VS Code extension, the <em>TraceRoost: Export Live OTel Spans (debug)</em> command writes the raw OTel spans still held in memory instead.</p>
       </div>
     </div>
   )
@@ -1268,11 +1268,11 @@ function ImportSection() {
     <div class="help-section" id="help-import">
       <h3 class="help-heading">{HELP_SECTIONS.import.heading}</h3>
       <div class="help-overview-body">
-        <p>The Import tab loads traces from a previous TraceRoost <strong>JSON</strong> export back into the current installation — useful for migrating to a new machine, sharing trace history with a teammate, or restoring a backup. Works the same way in both the VS Code extension and standalone server.</p>
+        <p>Import loads traces from a previous TraceRoost <strong>JSON</strong> export back into the current installation — useful for migrating to a new machine, sharing trace history with a teammate, or restoring a backup. Works the same way in both the VS Code extension and standalone server.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Loading a file</dt>
-            <dd class="glossary-def" style="display:block">Drag and drop an <code style={codeStyle}>export_sessions_*.json</code> file onto the drop zone, or click to browse. Only JSON is accepted — CSV and Markdown exports are one-way and can't be read back in.</dd>
+            <dd class="glossary-def" style="display:block">Drop an <code style={codeStyle}>export_sessions_*.json</code> file anywhere on the dashboard, or open <strong>Import traces…</strong> in the gear-icon settings panel (or run <em>TraceRoost: Import Traces…</em> in VS Code) and drop it there or click to browse. Only JSON is accepted — CSV and Markdown exports are one-way and can't be read back in.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Validation</dt>

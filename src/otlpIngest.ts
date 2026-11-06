@@ -8,6 +8,8 @@
 
 import { Span, SpanAttribute } from './types'
 import { objectItems } from './otlpParser'
+import { adapterHealth, type AdapterHealth } from './adapters/health'
+import type { Fingerprint } from './adapters/fingerprint'
 
 /** Where parsed spans go — the extension's SessionStore, or the standalone server's span list. */
 export interface OtlpSpanSink {
@@ -52,7 +54,28 @@ export class OtlpIngest {
   private genAiResponseBuffer = new Map<string, string>()
   private readonly GEN_AI_BUFFER_MAX = 500
 
-  constructor(private readonly sink: OtlpSpanSink) {}
+  constructor(private readonly sink: OtlpSpanSink, private readonly health: AdapterHealth = adapterHealth()) {}
+
+  /** Counts one log record or span toward adapter health (adapters/health.ts) — by its name and
+   *  resource service name/version only. Its fingerprint is the attribute key names and value
+   *  types, taken only if the name turns out to be unknown. */
+  private observe(name: string, attrs: SpanAttribute[], resourceAttrs: SpanAttribute[], kind: 'log' | 'span'): void {
+    try {
+      this.health.observeOtlp({
+        name,
+        serviceName: this.getAttrFrom(resourceAttrs, ['service.name']),
+        serviceVersion: this.getAttrFrom(resourceAttrs, ['service.version']),
+        genAiOperation: this.getAttrFrom(attrs, ['gen_ai.operation.name']),
+      }, kind, () => {
+        const out: Record<string, Fingerprint> = {}
+        for (const a of attrs) {
+          const key = /[\\/@:\s]/.test(a.key) || a.key.length > 64 ? '<key>' : a.key
+          out[key] = Object.keys(a.value ?? {})[0]?.replace(/Value$/, '') ?? 'null'
+        }
+        return { name: 'string', attributes: out }
+      })
+    } catch { /* health is advisory; ingestion carries on */ }
+  }
 
   isOtlpTracePayload(payload: unknown): payload is { resourceSpans: unknown[] } {
     if (typeof payload !== 'object' || payload === null) {return false}
@@ -298,6 +321,7 @@ export class OtlpIngest {
 
           const eventName = this.getAttrFrom(attrs, ['event.name', 'event_name', 'name', 'event'])
             || (typeof bodyObj?.stringValue === 'string' ? bodyObj.stringValue : '')
+          this.observe(eventName, attrs, resourceAttrs, 'log')
 
           const logToolName = this.getAttrFrom(attrs, ['tool.name'])
           const isCodexEvent = eventName.startsWith('codex.')
@@ -451,6 +475,7 @@ export class OtlpIngest {
         }
 
         let attrs = this.mergeAttributes(this.toSpanAttributes(span.attributes), resourceAttrs)
+        this.observe(span.name, attrs, resourceAttrs, 'span')
         if (this.isCodexWebsocketSpan(span.name, attrs)) { continue }
         let traceId = span.traceId
         const parentSpanId = (span.parentSpanId as string) || undefined

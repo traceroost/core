@@ -15,7 +15,7 @@ import {
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
   collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending,
   getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp, riskSignals,
-  configOpen, alertsOpen, filtersOpen, filtersFocusField,
+  configOpen, alertsOpen, filtersOpen, filtersFocusField, exportOpen, importOpen, importDroppedFile,
 } from './state'
 import { useDialog } from './a11y'
 import type { TimelineEntry, AgentFilter, LanguageFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, LoopSignal, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
@@ -32,13 +32,15 @@ import { Sessions } from './tabs/Sessions'
 import { Analytics } from './tabs/Analytics'
 import { computeAlertCount, checkAlerts } from './tabs/Alerts'
 import { AlertsPanel, openAlertsPanel, openAlertCard } from './AlertsPanel'
-import { Export } from './tabs/Export'
-import { Import } from './tabs/Import'
+import { ExportDialog } from './tabs/Export'
+import { ImportDialog } from './tabs/Import'
 import { Help } from './tabs/Help'
 import { Pricing } from './tabs/Pricing'
 import { Patterns } from './tabs/Patterns'
 import { checkAutomations } from './tabs/Automation'
 import { receiveInstructionMessage } from './tabs/Instructions'
+import { AgentsSettings } from './tabs/AgentHealth'
+import { adapterHealth, type AgentHealthRow } from './agentHealth'
 import { IngestionToggles, McpToggle, OtelReconfigureButton, DashboardPortSetting, ThemeToggle, SessionsPageSizeControl, PageSizeSelect, SessionsPager } from './tabs/Settings'
 import { OrgButton, OrgPanel, OrgNoticeBanner, orgOpen, requestOrgStatus, handleOrgPanelMessage } from './orgPanel'
 import { planUsage, type PlanUsageSnapshot } from './planUsage'
@@ -64,8 +66,6 @@ const TABS = [
   { id: 'sessions',   label: 'Traces',     title: 'Trace list with expand-in-place detail — waterfall, files, cost, and flagged issues for each trace.' },
   { id: 'analytics',  label: 'Analytics',  title: 'Aggregate charts and metrics: token/cost trends, agent comparison, tool distribution, and active insights.' },
   { id: 'patterns',   label: 'Advisor',    title: 'Cross-trace behavioral patterns, efficiency map, hot files, and instruction file recommendations.' },
-  { id: 'export',     label: 'Export',     title: 'Export raw or redacted trace data as JSON, CSV, or Markdown.' },
-  { id: 'import',     label: 'Import',     title: 'Import trace data from a TraceRoost export file.' },
 ]
 
 // See flushOutcomes in App's message handler.
@@ -77,8 +77,6 @@ function ActivePanel() {
     case 'sessions':  return <Sessions />
     case 'analytics': return <Analytics />
     case 'patterns':  return <Patterns />
-    case 'export':    return <Export />
-    case 'import':    return <Import />
     case 'help':      return <Help />
     case 'pricing':   return <Pricing />
     default:          return null
@@ -118,10 +116,64 @@ function ConfigPanel() {
       <OtelReconfigureButton />
       {window.__STANDALONE__ === true && <DashboardPortSetting />}
       <McpToggle />
+      <AgentsSettings />
+      <ImportSetting />
     </div>
   )
 }
 
+// Settings' Data section: the way in to Import besides dropping a file on the dashboard. Export
+// lives on the Traces filter row instead, since it exports what the filters select.
+function ImportSetting() {
+  return (
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:6px">Data</div>
+      <button
+        class="export-btn export-btn-secondary"
+        onClick={() => { configOpen.value = false; importOpen.value = true }}
+      >Import traces…</button>
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:6px">
+        Load a TraceRoost JSON export, such as one a teammate sent you. You can also drop the file anywhere on the dashboard.
+      </div>
+    </div>
+  )
+}
+
+// A file dragged over the dashboard: show a drop target, and hand a dropped file to the Import
+// drawer. Only file drags count, so dragging text or a link inside the page is left alone. The
+// Import drawer's own drop zone stops its drops from reaching this.
+function useFileDrop(): boolean {
+  const [dragging, setDragging] = useState(false)
+  useEffect(() => {
+    // dragenter/dragleave fire for every child crossed, so count them instead of toggling.
+    let depth = 0
+    const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes('Files') === true
+    const onEnter = (e: DragEvent) => { if (hasFiles(e)) { depth++; setDragging(true) } }
+    const onLeave = (e: DragEvent) => { if (hasFiles(e) && --depth <= 0) { depth = 0; setDragging(false) } }
+    const onOver = (e: DragEvent) => { if (hasFiles(e)) e.preventDefault() }
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      depth = 0
+      setDragging(false)
+      const file = e.dataTransfer?.files[0]
+      if (!file) return
+      importDroppedFile.value = file
+      importOpen.value = true
+    }
+    window.addEventListener('dragenter', onEnter)
+    window.addEventListener('dragleave', onLeave)
+    window.addEventListener('dragover', onOver)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragenter', onEnter)
+      window.removeEventListener('dragleave', onLeave)
+      window.removeEventListener('dragover', onOver)
+      window.removeEventListener('drop', onDrop)
+    }
+  }, [])
+  return dragging
+}
 
 function relativeTime(ms: number): string {
   const deltaSec = Math.round((Date.now() - ms) / 1000)
@@ -625,6 +677,7 @@ export function App() {
         commands?: string[]
         entries?: ActionLogEntry[]
         snapshot?: PlanUsageSnapshot
+        rows?: AgentHealthRow[]
       }
       // Org panel (TraceRoost Cloud) messages — see orgPanel.ts; the core edition's stub handles none.
       if (handleOrgPanelMessage(msg)) return
@@ -736,6 +789,8 @@ export function App() {
         runningGitCommands.value = msg.commands
       } else if (msg.type === 'actionLog' && Array.isArray(msg.entries)) {
         actionLog.value = msg.entries
+      } else if (msg.type === 'adapterHealth' && Array.isArray(msg.rows)) {
+        adapterHealth.value = msg.rows
       } else if (msg.type === 'planUsage' && msg.snapshot) {
         const first = planUsage.peek() === null
         planUsage.value = msg.snapshot
@@ -760,6 +815,12 @@ export function App() {
           openAlertsPanel('automation')
         } else if (tab === 'help' && typeof msg.anchor === 'string') {
           goToHelp(msg.anchor)
+        } else if (tab === 'export') {
+          // Export works on the filtered traces, so show them behind the drawer.
+          activeTab.value = 'sessions'
+          exportOpen.value = true
+        } else if (tab === 'import') {
+          importOpen.value = true
         } else {
           activeTab.value = tab
         }
@@ -828,9 +889,8 @@ export function App() {
   }, [])
 
   const tab = normalizeTabId(activeTab.value)
-  // Import reads a file and ignores every filter, so its tab drops the filter chrome. Export keeps
-  // it: what it exports is the filtered set.
-  const showFilterBars = tab !== 'help' && tab !== 'pricing' && tab !== 'import'
+  const showFilterBars = tab !== 'help' && tab !== 'pricing'
+  const draggingFile = useFileDrop()
 
   return (
     <>
@@ -886,6 +946,13 @@ export function App() {
       <AlertsPanel />
       <ActionLogPanel />
       <OrgPanel />
+      <ExportDialog />
+      <ImportDialog />
+      {draggingFile && !importOpen.value && (
+        <div class="file-drop-overlay" aria-hidden="true">
+          <span>Drop a TraceRoost JSON export to import it</span>
+        </div>
+      )}
     </>
   )
 }
@@ -1400,18 +1467,29 @@ function FilterActionsBar() {
 
   return (
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px;font-size:11px;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0">
-      {showReset && (
-        <button
-          class="tr-reset-btn"
-          disabled={!isFiltered}
-          onClick={clearTraceFilters}
-          style={
-            isFiltered
-              ? 'border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent)'
-              : 'border:1px solid var(--vscode-panel-border);background:transparent;color:var(--muted)'
-          }
-        >Clear Filters</button>
-      )}
+      <span style="display:flex;align-items:center;gap:8px">
+        {showReset && (
+          <button
+            class="tr-reset-btn"
+            disabled={!isFiltered}
+            onClick={clearTraceFilters}
+            style={
+              isFiltered
+                ? 'border:1px solid var(--accent);background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent)'
+                : 'border:1px solid var(--vscode-panel-border);background:transparent;color:var(--muted)'
+            }
+          >Clear Filters</button>
+        )}
+        {showPaging && (
+          <button
+            class="tr-reset-btn"
+            title="Export the traces that match your filters, redacted or in full"
+            aria-expanded={exportOpen.value}
+            onClick={() => { exportOpen.value = true }}
+            style="border:1px solid var(--vscode-panel-border);background:transparent;color:var(--fg)"
+          >Export…</button>
+        )}
+      </span>
 
       {showPaging && (
         <span style="display:flex;align-items:center;gap:8px">

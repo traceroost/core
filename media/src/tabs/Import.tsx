@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { vscode } from '../state'
+import { vscode, importOpen, importDroppedFile } from '../state'
+import { useDialog } from '../a11y'
 import { getAgentColorVar, getAgentSourceLabel } from '../utils'
 import { CloudNote } from './CloudNote'
 
@@ -41,7 +42,38 @@ function formatDate(iso: string): string {
   } catch { return iso }
 }
 
-export function Import() {
+// The Import drawer, opened from ⚙ Settings → Import traces, by dropping a file anywhere on the
+// dashboard (App.tsx's useFileDrop hands it over through importDroppedFile), or the host's
+// `switchTab` 'import'. Import ignores every filter, so it's a drawer rather than a tab under the
+// filter bar.
+export function ImportDialog() {
+  const open = importOpen.value
+  const ref = useDialog<HTMLDivElement>(open, () => { importOpen.value = false })
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="import-drawer-title"
+      inert={!open}
+      aria-hidden={!open}
+      style={`visibility:${open ? 'visible' : 'hidden'};position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--vscode-editor-background);border-left:1px solid var(--border);z-index:200;overflow-y:auto;transition:transform 0.2s ease;transform:${open ? 'translateX(0)' : 'translateX(100%)'};box-shadow:-4px 0 20px rgba(0,0,0,0.4)`}
+    >
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--vscode-editor-background);z-index:1">
+        <h2 id="import-drawer-title" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:0">Import traces</h2>
+        <button
+          onClick={() => importOpen.value = false}
+          style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:0 4px;line-height:1"
+          title="Close (Esc)"
+          aria-label="Close import"
+        >×</button>
+      </div>
+      <Import />
+    </div>
+  )
+}
+
+function Import() {
   const [phase, setPhase] = useState<Phase>('idle')
   const [preview, setPreview] = useState<ImportPreview | null>(null)
   const [progress, setProgress] = useState<{ imported: number; total: number }>({ imported: 0, total: 0 })
@@ -66,6 +98,21 @@ export function Import() {
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
   }, [])
+
+  // A file dropped elsewhere on the dashboard: preview it here, unless an import is running.
+  const dropped = importDroppedFile.value
+  useEffect(() => {
+    if (!dropped) return
+    importDroppedFile.value = null
+    if (phase !== 'importing') parseFile(dropped)
+  }, [dropped])
+
+  // Closing the drawer abandons a preview or a finished import, so it reopens on the drop zone.
+  // A running import keeps going and still shows its progress when reopened.
+  const open = importOpen.value
+  useEffect(() => {
+    if (!open && phase !== 'importing') reset()
+  }, [open])
 
   function parseFile(file: File) {
     setError(null)
@@ -113,6 +160,8 @@ export function Import() {
 
   function onDrop(e: DragEvent) {
     e.preventDefault()
+    // Handled here, so App.tsx's dashboard-wide drop handler doesn't parse it a second time.
+    e.stopPropagation()
     setDragOver(false)
     const file = e.dataTransfer?.files[0]
     if (file) parseFile(file)
@@ -181,7 +230,7 @@ export function Import() {
           <input ref={fileInputRef} type="file" accept=".json" style="display:none" onChange={onFileInput} />
         </div>
         {error && <p class="import-error">{error}</p>}
-        <CloudNote tab="import" />
+        <CloudNote kind="import" />
       </div>
     )
   }
@@ -230,7 +279,7 @@ export function Import() {
 
           <div class="import-preview-actions">
             <button class="export-btn" onClick={doImport}>
-              Import {preview.sessions.length} session{preview.sessions.length !== 1 ? 's' : ''}
+              Import {preview.sessions.length} trace{preview.sessions.length !== 1 ? 's' : ''}
             </button>
             <button class="export-btn export-btn-secondary" onClick={reset}>Cancel</button>
           </div>
