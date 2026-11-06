@@ -1,0 +1,15 @@
+{
+  "source": "synthetic",
+  "captured": null,
+  "os": null,
+  "redaction": "none needed: every value is invented",
+  "adapter": "cursor",
+  "agentVersion": "unknown",
+  "mirrors": "cursor-agent 2026.09.18-9a7762b agent transcripts; the file records no version",
+  "files": [
+    {
+      "path": "files/.cursor/projects/repo/agent-transcripts/8eaaa48b-0000-4000-8000-000000000005/8eaaa48b-0000-4000-8000-000000000005.jsonl",
+      "logKey": "cursor"
+    }
+  ]
+}
