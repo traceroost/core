@@ -3,8 +3,8 @@
  * `demo/capture-gif.ts` (records it to video). One sequence, one place to tune pause
  * lengths, so the two never drift apart.
  *
- * The real top-level tab bar (media/src/App.tsx TABS) — sessions/analytics/patterns/
- * export/import, selected via `button[data-tab="${id}"]`. A previous version of this
+ * The real top-level tab bar (media/src/App.tsx TABS) — sessions/analytics/patterns,
+ * selected via `button[data-tab="${id}"]`. A previous version of this
  * list (efficiency/tokens/files/summaries/recommendations/errors/agents/timeline/
  * traces/latency/tools/automation) didn't match any current `data-tab` value, so
  * every step's isVisible() check silently failed and the tour clicked nothing at
@@ -27,8 +27,6 @@ export const TOUR_TABS: TourTab[] = [
   { id: 'sessions',  label: 'Traces',    pauseMs: 3000 },
   { id: 'analytics', label: 'Analytics', pauseMs: 5000 },
   { id: 'patterns',  label: 'Advisor',   pauseMs: 5000 },
-  { id: 'export',    label: 'Export',    pauseMs: 3000 },
-  { id: 'import',    label: 'Import',    pauseMs: 3000 },
 ]
 
 type Page = import('playwright').Page
