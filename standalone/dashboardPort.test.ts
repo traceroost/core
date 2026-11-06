@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as http from 'http'
 import * as path from 'path'
 import {
-  CARRY_KEYS, carryImportScript, dashboardPortLock, describeBindError, moveDashboard, validateDashboardPort,
+  CARRY_KEYS, carryImportScript, dashboardPortLock, describeBindError, moveDashboard, servicePortHint, validateDashboardPort,
 } from './dashboardPort'
 
 function listen(server: http.Server, port = 0): Promise<number> {
@@ -183,5 +183,12 @@ suite('dashboardPort', () => {
     const match = /DASHBOARD_CARRY_KEYS = (\[[^\]]*\])/.exec(media)
     assert.ok(match, 'DASHBOARD_CARRY_KEYS not found')
     assert.deepStrictEqual(JSON.parse(match[1].replace(/'/g, '"')), [...CARRY_KEYS])
+  })
+})
+
+suite('servicePortHint', () => {
+  test('says how to move the dashboard at any port, in the dev-server words while it is on 3000', () => {
+    assert.match(servicePortHint(4315), /Settings → Dashboard port.*service install --ui-port <port>/)
+    assert.match(servicePortHint(3000), /^Need port 3000 for a dev server\?/)
   })
 })

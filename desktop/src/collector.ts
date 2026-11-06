@@ -81,6 +81,18 @@ export class OwnedCollector {
 
   current(): CollectorState { return this.state }
 
+  /**
+   * The dashboard moved to `uiPort` while running (Settings → Dashboard port). Taken only when the
+   * child's own lock says so, and then the running state carries the new port, so the tray and a
+   * second launch open the right address. Returns whether the move was taken.
+   */
+  followUiPortMove(uiPort: number): boolean {
+    const state = this.state
+    if (state.status !== 'running' || !lockShowsUiPort(this.opts.dataDir, state.pid, uiPort)) return false
+    if (state.uiPort !== uiPort) this.setState({ ...state, uiPort })
+    return true
+  }
+
   onStateChange(listener: (state: CollectorState) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -322,6 +334,14 @@ export class OwnedCollector {
 
   /** True while a child is alive — used by the quit path to decide whether to flush. */
   isOwning(): boolean { return this.child !== undefined }
+}
+
+/** Whether the lock in `dataDir` is `pid`'s and says its dashboard listens on `uiPort` now. The
+ *  collector rewrites its lock as soon as a port move binds (standalone/server.ts
+ *  recordResolvedPort), before it answers the request that asked for the move. */
+export function lockShowsUiPort(dataDir: string, pid: number, uiPort: number): boolean {
+  const held = readLockInfo(path.join(dataDir, LOCK_FILENAME))
+  return held !== undefined && held.pid === pid && held.uiPort === uiPort
 }
 
 function readLockInfo(lockPath: string): DataDirLockInfo | undefined {

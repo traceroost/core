@@ -93,7 +93,7 @@ body:
         Alternatively, run **`TraceRoost: Export OTEL Data (Redacted)`** from the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`).
         One or more `export_redacted_*.json` files will be written to your workspace root.
 
-        **Standalone server:** Open the **Export** tab in the dashboard at `http://localhost:3000` and click **Export Redacted** to download the file.
+        **Standalone server:** Open the **Export** tab in the dashboard (`http://localhost:4315`, or `:3000` on installs from before v0.22.0) and click **Export Redacted** to download the file.
 
         The command automatically replaces the following before writing the files:
 

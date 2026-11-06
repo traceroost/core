@@ -13,12 +13,17 @@
  */
 
 import { BrowserWindow, shell, type WebContents } from 'electron'
-import { decideNavigation, decideWindowOpen } from './navigation'
+import { decideNavigation, decideWindowOpen, portMoveTarget } from './navigation'
 
 export interface DashboardWindowOptions {
   initialUrl: string
-  /** The one origin allowed in this window. */
-  origin: string
+  /** The one origin allowed in this window — read on every navigation, because the dashboard can
+   *  move to another port while the window is open (Settings → Dashboard port, or a collector
+   *  restart that landed on a different port). */
+  origin: () => string
+  /** Asked when the page navigates to the same host on another port: true lets the move through,
+   *  and by then `origin` has to answer the new one. */
+  acceptPortMove: (port: number) => boolean
   log: (line: string) => void
   /** True once the app is actually quitting. Without this the close below would cancel the very
    *  close `app.quit()` performs on its way out, and the app would hang in a half-quit state:
@@ -57,7 +62,7 @@ export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWind
     },
   })
 
-  hardenWebContents(win.webContents, opts.origin, opts.log)
+  hardenWebContents(win.webContents, opts.origin, opts.log, opts.acceptPortMove)
 
   win.once('ready-to-show', () => {
     if (opts.startMinimized) {
@@ -84,10 +89,20 @@ export function createDashboardWindow(opts: DashboardWindowOptions): BrowserWind
 
 /** The navigation, popup and permission rules. Exported so a reload or a new window gets the same
  *  treatment, and so main.ts can apply it to any `web-contents-created`. */
-export function hardenWebContents(contents: WebContents, origin: string, log: (line: string) => void): void {
+export function hardenWebContents(
+  contents: WebContents,
+  origin: () => string,
+  log: (line: string) => void,
+  acceptPortMove: (port: number) => boolean = () => false,
+): void {
   contents.on('will-navigate', (event, url) => {
-    const decision = decideNavigation(url, origin)
+    const decision = decideNavigation(url, origin())
     if (decision.action === 'allow-in-window') return
+    const movedTo = portMoveTarget(url, origin())
+    if (movedTo !== undefined && acceptPortMove(movedTo)) {
+      log(`[desktop] the dashboard moved to port ${movedTo} — following it`)
+      return
+    }
     event.preventDefault()
     if (decision.action === 'open-externally') {
       log(`[desktop] opening ${url} in the system browser`)
@@ -98,7 +113,7 @@ export function hardenWebContents(contents: WebContents, origin: string, log: (l
   })
 
   contents.setWindowOpenHandler(({ url }) => {
-    const decision = decideWindowOpen(url, origin)
+    const decision = decideWindowOpen(url, origin())
     if (decision.action === 'open-externally') {
       log(`[desktop] opening ${url} in the system browser`)
       void shell.openExternal(url)
@@ -110,7 +125,7 @@ export function hardenWebContents(contents: WebContents, origin: string, log: (l
 
   // A redirect can land somewhere `will-navigate` already approved the start of.
   contents.on('will-redirect', (event, url) => {
-    if (decideNavigation(url, origin).action === 'allow-in-window') return
+    if (decideNavigation(url, origin()).action === 'allow-in-window') return
     event.preventDefault()
     log(`[desktop] blocked redirect to ${url}`)
   })

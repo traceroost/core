@@ -46,7 +46,7 @@ pull or rebase. Run that `git config` line yourself if you installed with `--ign
 
 **Run in VS Code:** Press `F5` to open a VS Code Extension Development Host with TraceRoost loaded.
 
-**Run standalone:** `pnpm run local` — starts the OTLP collector on port `4318` and the dashboard UI on port `3000`.
+**Run standalone:** `pnpm run local` — starts the OTLP collector on port `4318` and the dashboard UI on port `4315`.
 
 **Build:**
 
