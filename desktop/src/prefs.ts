@@ -17,6 +17,8 @@ export interface DesktopPrefs {
   closeWithoutTray?: Exclude<RememberedCloseChoice, undefined>
   /** AppImage: whether the user was asked about a launcher entry, and what they said. */
   appImageLauncher?: 'added' | 'declined'
+  /** macOS: the user ticked "Don't ask again" on the offer to move the app to Applications. */
+  moveToApplications?: 'declined'
 }
 
 export const PREFS_FILE_NAME = 'desktop-prefs.json'
@@ -28,6 +30,7 @@ export function parsePrefs(text: string | undefined): DesktopPrefs {
     const prefs: DesktopPrefs = {}
     if (raw.closeWithoutTray === 'quit' || raw.closeWithoutTray === 'minimize') prefs.closeWithoutTray = raw.closeWithoutTray
     if (raw.appImageLauncher === 'added' || raw.appImageLauncher === 'declined') prefs.appImageLauncher = raw.appImageLauncher
+    if (raw.moveToApplications === 'declined') prefs.moveToApplications = raw.moveToApplications
     return prefs
   } catch {
     return {}
