@@ -22,6 +22,7 @@ import { Step, StepRow, type StepMark } from './Traces'
 import { hasEvidence, insightColor, insightShortName, resolveStepIndex } from '../signalEvidence'
 import { FlowCanvas } from './Flow'
 import { ToolsChart } from './Tools'
+import { CHANGE_COLOR } from './SessionCharts'
 import { LogIngestionNote } from './IngestionNote'
 import { AgentHealthBanner } from './AgentHealth'
 import { NoTracesYet } from './GettingStarted'
@@ -283,22 +284,29 @@ function sessionLanguageAriaLabel(sess: SessionSummaryCard): string {
   return `Language: ${sessionLanguageText(sess)}`
 }
 
-/** "3f +120 −40" — files changed and agent-authored lines; "3f ?" when lines are unknown. */
-function sessionChangesText(sess: SessionSummaryCard): string {
-  if (sess.filesChangedCount === undefined) return '—'
-  if (sess.filesChangedCount === 0 && !sess.linesAdded && !sess.linesRemoved) return '0'
-  const lines = sess.linesAdded !== undefined && sess.linesRemoved !== undefined
-    ? ` +${formatCompact(sess.linesAdded)} −${formatCompact(sess.linesRemoved)}`
-    : ' ?'
-  return `${sess.filesChangedCount}f${lines}`
+/** The Changes cell, the same as cloud's Traces table: "—" not recorded, "0" nothing changed,
+ *  "3f +120 −40" with +/− in the Analytics chart's added/removed colors, and "3f +? −?" (the
+ *  cell's muted color) when the agent's logs record no edit contents — never a misleading +0 −0. */
+function SessionChanges({ sess }: { sess: SessionSummaryCard }) {
+  if (sess.filesChangedCount === undefined) return <>—</>
+  if (sess.filesChangedCount === 0 && !sess.linesAdded && !sess.linesRemoved) return <>0</>
+  if (sess.linesAdded === undefined || sess.linesRemoved === undefined) return <>{sess.filesChangedCount}f +? −?</>
+  return (
+    <>
+      {sess.filesChangedCount}f{' '}
+      <span style={`color:${CHANGE_COLOR.added}`}>+{formatCompact(sess.linesAdded)}</span>{' '}
+      <span style={`color:${CHANGE_COLOR.removed}`}>−{formatCompact(sess.linesRemoved)}</span>
+    </>
+  )
 }
 
 function sessionChangesTitle(sess: SessionSummaryCard): string {
   if (sess.filesChangedCount === undefined) return 'Not recorded — this trace was stored before change-size tracking'
-  const files = `${sess.filesChangedCount} file${sess.filesChangedCount === 1 ? '' : 's'} changed`
+  if (sess.filesChangedCount === 0 && !sess.linesAdded && !sess.linesRemoved) return 'No files changed'
+  const files = `${sess.filesChangedCount.toLocaleString('en-US')} file${sess.filesChangedCount === 1 ? '' : 's'} changed`
   return sess.linesAdded !== undefined && sess.linesRemoved !== undefined
-    ? `${files} · ${sess.linesAdded} lines added, ${sess.linesRemoved} removed by the agent's own edits`
-    : `${files} · line counts unavailable (this agent's data records no edit contents)`
+    ? `${files} · ${sess.linesAdded.toLocaleString('en-US')} lines added, ${sess.linesRemoved.toLocaleString('en-US')} removed by the agent's own edits`
+    : `${files} · line counts unknown: this agent's logs don't record edit contents`
 }
 
 // Each insight's evidence steps resolved against the loaded timeline: the timeline positions it
@@ -1055,7 +1063,7 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
 
         {/* Changes — agent-authored change size (src/editStats.ts), not git stats */}
         <td class="trace-changes" style="padding:4px 2px;white-space:nowrap;font-size:var(--fs-xs);color:var(--muted);overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums" title={sessionChangesTitle(sess)}>
-          {sessionChangesText(sess)}
+          <SessionChanges sess={sess} />
         </td>
 
         {/* Prompt (Trace ID) */}
@@ -1226,7 +1234,7 @@ export function Sessions() {
               <button class="sort-button" onClick={() => onSortClick('model')}>Model{sortArrow('model')}</button>
             </th>
             {sortHeader('language', 'Lang', 'left', '<b>Language</b>\nMost common code language among the files the agent read or changed (README/config/lockfiles excluded), abbreviated (TS, Py, C++…) — hover a cell for the full name. "+1" means a second language was touched too — hover it for both. "—" means a trace stored before language tracking.')}
-            {sortHeader('lines', 'Changes', 'left', '<b>Changes</b>\nFiles the agent edited or wrote, and lines its own edit/write tool calls added (+) and removed (−). Agent-authored edits, not git commit stats. Lines show "?" when the agent\'s data records no edit contents.')}
+            {sortHeader('lines', 'Changes', 'left', '<b>Changes</b>\nFiles the agent edited or wrote, and lines its own edit/write tool calls added (+) and removed (−). Agent-authored edits, not git commit stats. Lines show "+? −?" (unknown, not zero) when the agent\'s logs don\'t record edit contents.')}
             {sortHeader('prompt', 'Prompt (ID)')}
             {showWorkspace && (
               <th scope="col" aria-sort={sortKey === 'workspace' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
