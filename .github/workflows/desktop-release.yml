@@ -243,6 +243,33 @@ jobs:
         with:
           subject-path: release/TraceRoost-*
 
+      # Say in the release notes how to open the downloads that are not code-signed. Added once (a
+      # re-run finds the marker and leaves the notes alone). It runs before the upload, so a release
+      # never carries an unsigned installer without this section. The marker and the `- **macOS**` /
+      # `- **Windows**` bullet prefixes are read by the website's download menu to decide whether to
+      # show a Gatekeeper/SmartScreen note, so keep them as they are.
+      - name: Note unsigned downloads in the release notes
+        if: steps.plan.outputs.unsigned != '' && env.IS_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UNSIGNED: ${{ steps.plan.outputs.unsigned }}
+        run: |
+          marker='<!-- traceroost-desktop-unsigned -->'
+          body="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          if grep -qF "$marker" <<<"$body"; then echo "release notes already carry the unsigned-downloads note"; exit 0; fi
+          {
+            printf '%s\n\n' "$body"
+            echo "$marker"
+            echo "### Opening the desktop app"
+            echo
+            echo "These downloads are not code-signed. They are the builds CI tested, byte for byte (\`TraceRoost-desktop-*-SHA256SUMS\`), but your OS will warn before opening them:"
+            echo
+            if [[ ",$UNSIGNED," == *",windows,"* ]]; then
+              echo "- **Windows** (\`TraceRoost-*-win-*.exe\` installer): not code-signed. SmartScreen shows \"Windows protected your PC\"; click **More info → Run anyway**."
+            fi
+          } > "$RUNNER_TEMP/notes.md"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+
       # release.yml's `package` job created the release before calling this workflow.
       - name: Attach to the GitHub release (never replacing a shipped file)
         if: steps.plan.outputs.platforms != '' && env.IS_RELEASE == 'true'
@@ -271,30 +298,6 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "${upload[@]}" --repo "$GITHUB_REPOSITORY"
           fi
           exit "$fail"
-
-      # Say in the release notes how to open the downloads that are not code-signed. Added once (a
-      # re-run finds the marker and leaves the notes alone).
-      - name: Note unsigned downloads in the release notes
-        if: steps.plan.outputs.unsigned != '' && env.IS_RELEASE == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          UNSIGNED: ${{ steps.plan.outputs.unsigned }}
-        run: |
-          marker='<!-- traceroost-desktop-unsigned -->'
-          body="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
-          if grep -qF "$marker" <<<"$body"; then echo "release notes already carry the unsigned-downloads note"; exit 0; fi
-          {
-            printf '%s\n\n' "$body"
-            echo "$marker"
-            echo "### Opening the desktop app"
-            echo
-            echo "These downloads are not code-signed. They are the builds CI tested, byte for byte (\`TraceRoost-desktop-*-SHA256SUMS\`), but your OS will warn before opening them:"
-            echo
-            if [[ ",$UNSIGNED," == *",windows,"* ]]; then
-              echo "- **Windows** (\`TraceRoost-*-win-*.exe\` installer): not code-signed. SmartScreen shows \"Windows protected your PC\"; click **More info → Run anyway**."
-            fi
-          } > "$RUNNER_TEMP/notes.md"
-          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
 
       # macOS ships notarized or not at all: the other platforms are attached above, then the run
       # goes red so a release without macOS is noticed.
