@@ -16,6 +16,7 @@
   },
   "include": [
     "media/src/state.ts",
+    "media/src/agentHealth.ts",
     "media/src/sessionMetrics.ts",
     "media/src/hash.ts",
     "media/src/types.ts",

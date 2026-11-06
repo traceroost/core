@@ -5,13 +5,21 @@ name: Desktop (macOS)
 #
 # On its own this is a CI build: artifacts are kept for 14 days and published nowhere. A `v*` tag
 # runs it through desktop-release.yml (`workflow_call`), which attaches the macOS files to the
-# GitHub release under its plain name, notarized or not. Until the Apple Developer Program secrets
-# below exist the app is ad-hoc signed, and Gatekeeper refuses an ad-hoc signed download
-# (right-click → Open gets past it; see desktop/README.md). The build is identical either way.
+# GitHub release under its plain name — notarized only. Without the Apple Developer Program
+# secrets below the app is ad-hoc signed, and a release leaves it out rather than ship a download
+# Gatekeeper refuses.
 #
 # Signing and notarization are switched on by secrets alone (desktop/electron-builder.cjs
 # reads the environment; nothing here branches on it). The day-of procedure for creating them is
 # runbooks/MACOS_SIGNING.md.
+#
+# The secrets live in the `desktop-release` GitHub environment, which only `v*` tags may deploy
+# to, so the Developer ID key is readable by a release build and by nothing else: pull requests,
+# pushes to main and manual runs build ad-hoc signed (the job names no environment there). A tag
+# build that comes out unsigned anyway — the environment's secrets missing or renamed — fails
+# the Notarization check instead of shipping an unnotarized DMG. Environment secrets take
+# precedence over the ones desktop-release.yml passes in (GitHub: "If you include environment in
+# the reusable workflow at the job level, the environment secret will be used").
 #
 #   MAC_CSC_LINK             base64 of the Developer ID Application .p12   → imported into a
 #   MAC_CSC_KEY_PASSWORD     its password                                     job keychain; its
@@ -89,6 +97,8 @@ jobs:
     # which is not the same as validating it on an Intel Mac.
     runs-on: macos-15
     timeout-minutes: 45
+    # Release tags only; an empty name is no environment (see the header).
+    environment: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) && 'desktop-release' || '' }}
     outputs:
       notarized: ${{ steps.notarization.outputs.notarized }}
 
@@ -209,8 +219,8 @@ jobs:
 
       # With signing and notarization configured, a build that is not actually Developer ID signed,
       # hardened and stapled is a failure, not a silent fallback; so is half a configuration. With
-      # neither, `notarized=false` attaches the macOS files unnotarized, with a release-notes line on
-      # opening them (desktop-release.yml).
+      # neither, `notarized=false`: a CI build still passes, and a release leaves macOS out and
+      # fails (desktop-release.yml).
       - name: Notarization check
         id: notarization
         working-directory: desktop
@@ -218,12 +228,17 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
         run: |
           signing=false; notary=false
           [ -n "${CSC_NAME:-}" ] && signing=true
           if [ -n "${APPLE_API_KEY:-}" ] || { [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; }; then notary=true; fi
+          if [ "$signing" = false ] && [ "$RELEASE_TAG" = true ]; then
+            echo "::error::This is a release tag, but the macOS build is not Developer ID signed: the desktop-release environment's Apple secrets are missing or unreadable (Settings → Environments → desktop-release). See runbooks/MACOS_SIGNING.md step 6."
+            exit 1
+          fi
           if [ "$signing" = false ] && [ "$notary" = false ]; then
-            echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release attaches it unnotarized"
+            echo "::notice::macOS build is ad-hoc signed (no Apple Developer secrets); a release would leave it out"
             echo "notarized=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -231,6 +246,16 @@ jobs:
             echo "::error::Apple signing is half configured (certificate: $signing, notarization credentials: $notary). Both are needed for a download Gatekeeper accepts — see runbooks/MACOS_SIGNING.md."
             exit 1
           fi
+          # stapler and spctl ask Apple's ticket service (api.apple-cloudkit.com), and a runner's
+          # connection to it drops now and then ("The network connection was lost", exit 68) with a
+          # perfectly good build. Three tries, ten seconds apart; a real failure fails all three.
+          retry() {
+            for attempt in 1 2 3; do
+              "$@" && return 0
+              [ "$attempt" -lt 3 ] && { echo "::warning::$1 failed (attempt $attempt of 3) — retrying in 10s"; sleep 10; }
+            done
+            return 1
+          }
           for app in dist/mac*/TraceRoost.app; do
             echo "== $app"
             codesign --verify --deep --strict --verbose=2 "$app"
@@ -240,8 +265,8 @@ jobs:
             if [ -n "$APPLE_TEAM_ID" ] && ! grep -qx "TeamIdentifier=$APPLE_TEAM_ID" <<<"$details"; then
               echo "::error::$app is signed by team $(grep TeamIdentifier <<<"$details"), not APPLE_TEAM_ID"; exit 1
             fi
-            xcrun stapler validate "$app"
-            spctl --assess --type execute --verbose=2 "$app"
+            retry xcrun stapler validate "$app"
+            retry spctl --assess --type execute --verbose=2 "$app"
           done
           echo "notarized=true" >> "$GITHUB_OUTPUT"
 
@@ -268,3 +293,54 @@ jobs:
             desktop/resources/THIRD_PARTY_NOTICES.md
           if-no-files-found: error
           retention-days: 14
+
+  # `package` smoke-tests the arm64 app on macOS 15. This launches the built apps everywhere else
+  # GitHub hosts macOS: the x64 app on real Intel hardware (never Rosetta, which would not show an
+  # Intel-only failure), and both on macOS 26. The apps come out of the DMGs `package` uploaded —
+  # exactly what a release attaches — copied out of the image first, as an install would. A
+  # failing leg fails this workflow, so a release does not attach macOS files that do not start on
+  # one of these. The versions tested here are the ones desktop/README.md lists as tested.
+  smoke:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15-intel, arch: x64, dir: mac }
+          - { runner: macos-26, arch: arm64, dir: mac-arm64 }
+          - { runner: macos-26-intel, arch: x64, dir: mac }
+    runs-on: ${{ matrix.runner }}
+    name: smoke (${{ matrix.runner }}, ${{ matrix.arch }})
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: traceroost-desktop-macos
+          path: artifact
+
+      - name: Copy the app out of the ${{ matrix.arch }} DMG
+        run: |
+          # upload-artifact roots the files at their common ancestor (desktop/), so the DMGs are
+          # under artifact/dist/; found by name rather than by that layout.
+          dmg="$(find artifact -name "TraceRoost-*-mac-${{ matrix.arch }}.dmg" | head -1)"
+          [ -n "$dmg" ] || { echo "::error::no ${{ matrix.arch }} DMG in the package artifact"; find artifact; exit 1; }
+          echo "$dmg"
+          sw_vers
+          uname -m
+          mnt="$RUNNER_TEMP/dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          mkdir -p "desktop/dist/${{ matrix.dir }}"
+          ditto "$mnt/TraceRoost.app" "desktop/dist/${{ matrix.dir }}/TraceRoost.app"
+          hdiutil detach "$mnt"
+          lipo -archs "desktop/dist/${{ matrix.dir }}/TraceRoost.app/Contents/MacOS/TraceRoost"
+
+      - name: Smoke test the packaged app
+        run: node desktop/scripts/smoke-packaged.mjs "desktop/dist/${{ matrix.dir }}/TraceRoost.app"

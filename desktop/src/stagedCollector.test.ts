@@ -33,7 +33,7 @@ const ELECTRON = path.join(DESKTOP_DIR, 'node_modules', 'electron', 'dist', ...(
       : ['electron']))
 
 /** High, fixed ports: the collector scans upward from a busy port, and a test must not land on
- *  (or push itself off) the developer's real collector on 3000/4318/4316. */
+ *  (or push itself off) the developer's real collector on 4315/4318/4316. */
 const UI_PORT = 31700
 const OTLP_PORT = 31718
 const MCP_PORT = 31716

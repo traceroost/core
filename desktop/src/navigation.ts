@@ -76,6 +76,28 @@ export function decideNavigation(target: string, dashboardOrigin: string): Navig
   return { action: 'block', reason: `${url.origin} is neither the dashboard nor an allowed external host` }
 }
 
+/**
+ * The port `target` would move the dashboard to, when it is a Settings → Dashboard port move: plain
+ * http, the very host the window is on, a different port. Undefined for anything else. This only
+ * says the navigation is *shaped* like a move — trace content can build the same URL to steer the
+ * window to some other local server — so the caller allows it only once the collector's own lock
+ * says it now listens there (collector.ts `lockShowsUiPort`).
+ */
+export function portMoveTarget(target: string, dashboardOrigin: string): number | undefined {
+  let url: URL
+  let origin: URL
+  try {
+    url = new URL(target)
+    origin = new URL(dashboardOrigin)
+  } catch {
+    return undefined
+  }
+  if (url.protocol !== 'http:' || origin.protocol !== 'http:') return undefined
+  if (url.hostname !== origin.hostname || url.port === origin.port || url.port === '') return undefined
+  if (url.username || url.password) return undefined
+  return Number(url.port)
+}
+
 /** A `window.open`/target=_blank request. Same rules, except that nothing may open a *new window*:
  *  an allowed external URL goes to the system browser and the rest is dropped. */
 export function decideWindowOpen(target: string, dashboardOrigin: string): NavigationDecision {

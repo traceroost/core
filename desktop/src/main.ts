@@ -29,7 +29,7 @@ import * as path from 'path'
 import { readServiceConfig } from '../../src/serviceConfig'
 import { detectPortOwner } from '../../src/portResolver'
 import { isPidAlive } from '../../standalone/dataDirLock'
-import { OwnedCollector, type CollectorState } from './collector'
+import { lockShowsUiPort, OwnedCollector, type CollectorState } from './collector'
 import { dashboardTarget } from './dashboardUrl'
 import { describeVerdict, inspectCollector, type HandshakeEnv } from './handshake'
 import { openDesktopLog } from './logs'
@@ -46,25 +46,50 @@ import { sandboxRefusal } from './sandbox'
 import { decideWhenDirIsFree, isEnabled as isUnitEnabled, readUnitState } from './systemdUnit'
 import { detectTrayHost, type TrayHost } from './trayHost'
 import { isQuitRequest, windowsLoginItem } from './windows'
+import { bundleOf, pidsRunningBundle, shouldOfferMove } from './installLocation'
 import * as fs from 'fs'
 import type { BrowserWindow, MenuItemConstructorOptions } from 'electron'
 
+// ── Install by double-click (macOS) ──────────────────────────────────────────
+//
+// Opened straight from the DMG (or translocated by Gatekeeper), the app offers to move itself to
+// /Applications before anything else happens. See installLocation.ts. The single-instance lock
+// waits for the answer: with an older copy running, taking it now would hand this launch over to
+// that copy before the question was asked.
+const bundlePath = bundleOf(process.execPath)
+const offerMove = !isQuitRequest(process.argv) && shouldOfferMove({
+  platform: process.platform,
+  isPackaged: app.isPackaged,
+  inApplicationsFolder: process.platform === 'darwin' && app.isInApplicationsFolder(),
+  bundlePath,
+  declined: new PrefsStore(app.getPath('userData')).read().moveToApplications === 'declined',
+  launchedAtLogin: process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin,
+})
+
 // ── Single instance ──────────────────────────────────────────────────────────
 //
-// Taken before anything else. A second launch must not get as far as the handshake, let alone
-// spawning a collector that the first instance's lock would refuse — it should simply surface the
-// window that already exists.
+// Taken before anything else (bar the move offer above). A second launch must not get as far as
+// the handshake, let alone spawning a collector that the first instance's lock would refuse — it
+// should simply surface the window that already exists.
 //
 // `--quit` (windows.ts) is a message to the instance that already exists, never a launch of its
 // own: with no instance running there is nothing to quit, so it exits either way.
-if (!app.requestSingleInstanceLock()) {
-  // Said on stderr: the desktop log is not open yet, and a launch that ends here otherwise leaves
-  // no trace of why.
-  if (!isQuitRequest(process.argv)) console.error('[desktop] another TraceRoost is running (or its single-instance lock in userData could not be taken) — handing over to it')
-  app.exit(0)
-} else if (isQuitRequest(process.argv)) {
-  app.exit(0)
+/** Takes the lock, or exits and returns false. */
+function claimSingleInstance(): boolean {
+  if (!app.requestSingleInstanceLock()) {
+    // Said on stderr: the desktop log is not open yet, and a launch that ends here otherwise leaves
+    // no trace of why.
+    if (!isQuitRequest(process.argv)) console.error('[desktop] another TraceRoost is running (or its single-instance lock in userData could not be taken) — handing over to it')
+    app.exit(0)
+    return false
+  }
+  if (isQuitRequest(process.argv)) {
+    app.exit(0)
+    return false
+  }
+  return true
 }
+if (!offerMove) claimSingleInstance()
 
 // Windows groups taskbar entries and notifications by this id; the installer's Start Menu
 // shortcut carries the same one (electron-builder sets it from appId).
@@ -92,6 +117,9 @@ let tray: TrayController | undefined
 /** The tray's click handlers; on Linux, also the window menu bar's. Set once the app is ready. */
 let trayHandlers: TrayHandlers | undefined
 let win: BrowserWindow | undefined
+/** The origin the window may show — the collector's dashboard port, which can change while the
+ *  window is open (followDashboardPort, acceptDashboardMove). */
+let windowOrigin: string | undefined
 let quitting = false
 let gitAvailable = true
 const startedAt = Date.now()
@@ -278,6 +306,7 @@ async function settleOwnership(): Promise<void> {
     return
   }
   setMode(resolved)
+  if (resolved.mode === 'attach') followDashboardPort(resolved.identity.uiPort)
   // Only the first time: a wake-time re-check must not bring back a window the user closed.
   if (resolved.mode === 'attach' && showWindowWhenReady && win === undefined) openWindowFor(resolved.identity.uiPort)
 }
@@ -293,6 +322,7 @@ async function startOwnedCollector(): Promise<void> {
     })
     collector.onStateChange(state => {
       refreshTray()
+      if (state.status === 'running') followDashboardPort(state.uiPort)
       if (state.status === 'running' && win === undefined && showWindowWhenReady) openWindowFor(state.uiPort)
     })
   }
@@ -343,9 +373,11 @@ function openWindowFor(uiPort: number): void {
     return
   }
   const target = dashboardTarget({ uiPort, bindHost: config.bindHost, authToken: config.authToken })
+  windowOrigin = target.origin
   win = createDashboardWindow({
     initialUrl: target.initialUrl,
-    origin: target.origin,
+    origin: () => windowOrigin ?? target.origin,
+    acceptPortMove: acceptDashboardMove,
     log: log.write,
     isQuitting: () => quitting,
     onCloseRequested: () => { void handleCloseRequested() },
@@ -353,7 +385,7 @@ function openWindowFor(uiPort: number): void {
     startMinimized,
   })
   startMinimized = false
-  win.on('closed', () => { win = undefined })
+  win.on('closed', () => { win = undefined; windowOrigin = undefined })
   // Windows log-off / shutdown: the system ends this session without a Quit, and terminates the
   // collector (which has no window to be told through). Ask it to flush now; it saves in well under
   // a second. Without the window this never fires — the collector then still flushes when this
@@ -363,6 +395,42 @@ function openWindowFor(uiPort: number): void {
     collector?.requestStopNow()
   })
   if (process.platform === 'darwin') void app.dock?.show()
+}
+
+/**
+ * The collector serves the dashboard on `uiPort` now. A window still showing another port would be
+ * left on a dead address — after a restart that found its old port taken, say — so it loads the
+ * new one. A no-op while the ports agree, which is nearly always.
+ */
+function followDashboardPort(uiPort: number): void {
+  if (!win || windowOrigin === undefined) return
+  const target = dashboardTarget({ uiPort, bindHost: config.bindHost, authToken: config.authToken })
+  if (target.origin === windowOrigin) return
+  log.write(`[desktop] the dashboard is on port ${uiPort} now — reloading the window there`)
+  windowOrigin = target.origin
+  void win.loadURL(target.initialUrl)
+}
+
+/**
+ * The page is moving to `port` — Settings → Dashboard port. Allowed only when the collector this
+ * window shows says, in its own lock, that it listens there now; anything else navigating the
+ * window to another local port is refused like any other origin.
+ */
+function acceptDashboardMove(port: number): boolean {
+  const previous = windowOrigin
+  // Set first: taking the move updates the collector state, whose listener calls
+  // followDashboardPort — which must see the window already on the new origin, or it would reload
+  // the page mid-move and drop the preferences the move carries in its URL fragment.
+  windowOrigin = dashboardTarget({ uiPort: port, bindHost: config.bindHost, authToken: config.authToken }).origin
+  let taken = false
+  if (shellMode.mode === 'own') {
+    taken = collector?.followUiPortMove(port) ?? false
+  } else if (shellMode.mode === 'attach' && lockShowsUiPort(dataDir, shellMode.identity.pid, port)) {
+    setMode({ ...shellMode, identity: { ...shellMode.identity, uiPort: port } })
+    taken = true
+  }
+  if (!taken) windowOrigin = previous
+  return taken
 }
 
 function owningCollection(): boolean {
@@ -475,6 +543,12 @@ app.whenReady().then(async () => {
     log.close()
     app.exit(1)
     return
+  }
+
+  if (offerMove) {
+    // A move relaunches the copy in Applications; this process is already quitting.
+    if (await offerMoveToApplications()) return
+    if (!claimSingleInstance()) return
   }
 
   // No application menu beyond the standard edit menu would leave ⌘Q and copy/paste dead in the
@@ -694,6 +768,86 @@ function toggleApplicationsMenu(): void {
     log.write(`[desktop] could not change the applications menu entry: ${String(err)}`)
   }
   refreshTray()
+}
+
+// ── Move to Applications (macOS) ─────────────────────────────────────────────
+//
+// See installLocation.ts. Resolves true when the move went ahead: the copy in Applications is
+// being relaunched and this process is quitting.
+
+async function offerMoveToApplications(): Promise<boolean> {
+  const { response, checkboxChecked } = await dialog.showMessageBox({
+    type: 'question',
+    buttons: ['Move to Applications', 'Not Now'],
+    defaultId: 0,
+    cancelId: 1,
+    message: 'Move TraceRoost to your Applications folder?',
+    detail: 'TraceRoost is running from where it was downloaded. Moving it installs it in Applications and opens it from there, and ejects the disk image.',
+    checkboxLabel: 'Don\'t ask again',
+  })
+  if (response !== 0) {
+    if (checkboxChecked) prefs.update({ moveToApplications: 'declined' })
+    log.write(`[desktop] running from ${bundlePath} — the user chose not to move it to Applications${checkboxChecked ? ' and not to be asked again' : ''}`)
+    return false
+  }
+  try {
+    return await moveToApplications()
+  } catch (err) {
+    // Electron throws when the copy itself fails (a cancelled password prompt is a plain false).
+    log.write(`[desktop] could not move ${bundlePath} to Applications: ${String(err)}`)
+    dialog.showErrorBox('TraceRoost could not be moved to Applications', `${err instanceof Error ? err.message : String(err)}\n\nYou can drag it from the disk image to Applications instead.`)
+    return false
+  }
+}
+
+async function moveToApplications(): Promise<boolean> {
+  let blockedByRunningCopy = false
+  const move = () => app.moveToApplicationsFolder({
+    conflictHandler: conflict => {
+      // Electron's answer to a running copy is to focus it and quit this one, which would leave an
+      // older version running after an upgrade; quit it ourselves first instead.
+      if (conflict === 'existsAndRunning') { blockedByRunningCopy = true; return false }
+      return true
+    },
+  })
+  if (move()) { log.write(`[desktop] moved ${bundlePath} to Applications — relaunching from there`); return true }
+  if (!blockedByRunningCopy) return false
+
+  const name = path.basename(bundlePath)
+  const running = await runningCopies([path.join('/Applications', name), path.join(os.homedir(), 'Applications', name)])
+  if (running.length > 0) {
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Quit and Replace', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      message: 'TraceRoost is already running from Applications',
+      detail: 'Quit it and replace it with this copy? Collection pauses for a moment while the new copy starts.',
+    })
+    if (response !== 0) return false
+    // SIGTERM: every version turns it into an ordinary quit, which flushes its collector.
+    for (const pid of running) { try { process.kill(pid, 'SIGTERM') } catch { /* already gone */ } }
+    const deadline = Date.now() + 30_000
+    while (running.some(isPidAlive) && Date.now() < deadline) await new Promise(r => setTimeout(r, 250))
+    if (running.some(isPidAlive)) {
+      log.write(`[desktop] the running copy (pid ${running.join(', ')}) did not quit within 30s — not moving`)
+      dialog.showErrorBox('TraceRoost is still running', 'Quit TraceRoost from its menu bar icon, then open this copy again.')
+      return false
+    }
+    log.write(`[desktop] quit the running copy (pid ${running.join(', ')}) to replace it`)
+  }
+  blockedByRunningCopy = false
+  if (move()) { log.write(`[desktop] moved ${bundlePath} to Applications — relaunching from there`); return true }
+  return false
+}
+
+function runningCopies(bundles: string[]): Promise<number[]> {
+  return new Promise(resolve => {
+    execFile('/bin/ps', ['-axo', 'pid=,ppid=,args='], { maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+      if (err) { resolve([]); return }
+      resolve(bundles.flatMap(bundle => pidsRunningBundle(stdout, bundle)).filter(pid => pid !== process.pid))
+    })
+  })
 }
 
 // ── Signals ──────────────────────────────────────────────────────────────────

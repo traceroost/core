@@ -259,6 +259,8 @@ suite('linux: sandbox', () => {
 suite('linux: prefs', () => {
   test('unknown or malformed values are dropped', () => {
     assert.deepStrictEqual(parsePrefs('{"closeWithoutTray":"minimize","appImageLauncher":"maybe","x":1}'), { closeWithoutTray: 'minimize' })
+    assert.deepStrictEqual(parsePrefs('{"moveToApplications":"declined"}'), { moveToApplications: 'declined' })
+    assert.deepStrictEqual(parsePrefs('{"moveToApplications":"later"}'), {})
     assert.deepStrictEqual(parsePrefs('not json'), {})
     assert.deepStrictEqual(parsePrefs(undefined), {})
   })

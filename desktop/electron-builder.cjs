@@ -24,7 +24,8 @@
  *     electron-builder's credential sets is in the environment (`APPLE_API_KEY` +
  *     `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`, or `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` +
  *     `APPLE_TEAM_ID`). Asking the builder to notarize an ad-hoc build would fail the build for a
- *     reason that has nothing to do with the code.
+ *     reason that has nothing to do with the code. The notarizing and stapling are done by
+ *     scripts/afterSign.cjs rather than the builder itself, for a longer stapling retry.
  *
  * So the switch from "unsigned CI artifact" to "shippable release" is a secrets change — see
  * README.md → "Signing and notarization" and .github/workflows/desktop-macos.yml — not a code
@@ -49,6 +50,7 @@
 const path = require('path')
 const rootManifest = require('../package.json')
 const afterPack = require('./scripts/afterPack.cjs')
+const afterSign = require('./scripts/afterSign.cjs')
 
 // CI maps repository secrets onto these, and a secret that does not exist arrives as an empty
 // string. electron-builder reads them itself and resolves an empty CSC_LINK as a path (the cwd:
@@ -207,7 +209,9 @@ module.exports = {
     // during the build would fail every unsigned one for a known reason. The real Gatekeeper
     // validation is a downloaded, quarantined artifact on a fresh user account (README.md).
     gatekeeperAssess: false,
-    notarize: hasDeveloperId && hasNotaryCredentials,
+    // Notarization is scripts/afterSign.cjs's (installed below), not the builder's: the same
+    // steps with a longer retry on stapling, whose connection to Apple drops now and then.
+    notarize: false,
 
     extendInfo: {
       // No document types, no URL schemes, no Apple Events: the app opens its own local dashboard
@@ -220,9 +224,18 @@ module.exports = {
     // The .app inside is what gets signed and (eventually) notarized and stapled; signing the disk
     // image as well buys nothing and is the usual source of "DMG signature invalid" noise.
     sign: false,
+    // 128 pt, not the builder's default 80: the .icns has a 128 px and a 256 px frame, so the
+    // icon is drawn pixel for pixel on a 1x display and at exactly 2x on Retina. At 80 pt a 1x
+    // display shrinks the 128 px frame and the glyph's legs and beak go soft.
+    iconSize: 128,
+    // "Double-click TraceRoost to install" — the app moves itself to Applications and opens
+    // (src/installLocation.ts); the Applications link stays for dragging. Drawn by
+    // scripts/make-dmg-background.mjs (with its @2x); the window takes its 600×400 size, and the
+    // icon centres below are the ones it draws around.
+    background: 'build/background.png',
     contents: [
-      { x: 140, y: 180, type: 'file' },
-      { x: 400, y: 180, type: 'link', path: '/Applications' },
+      { x: 165, y: 205, type: 'file' },
+      { x: 435, y: 205, type: 'link', path: '/Applications' },
     ],
   },
 
@@ -368,5 +381,8 @@ module.exports = {
   publish: null,
 
   afterPack,
+  // Notarizes and staples the signed .app before the DMG is made — Developer ID builds with
+  // notarization credentials only (see the header and mac.notarize).
+  afterSign: process.platform === 'darwin' && hasDeveloperId && hasNotaryCredentials ? afterSign : undefined,
 }
 

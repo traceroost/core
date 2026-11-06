@@ -45,6 +45,13 @@ export interface ServiceConfig {
 /** Default for `sessionRetentionDays` — matches the editor setting's default in package.json. */
 export const DEFAULT_SESSION_RETENTION_DAYS = 90
 
+/** Default dashboard port. Not 3000: that is what Next.js, Rails, Express and most other dev
+ *  servers take, and the service (or the desktop app) starts at login, so it would hold 3000
+ *  before the developer's own server asked for it. 4315 sits beside the MCP (4316) and OTLP
+ *  (4318) ports. Installs from before the change keep 3000 — first startup writes the whole
+ *  config, port included, to config.json — so nobody's bookmarked address moves. */
+export const DEFAULT_UI_PORT = 4315
+
 // `baseHome` defaults to the real home directory in production; tests pass a temp directory
 // so these never touch the developer's actual ~/.traceroost.
 
@@ -54,7 +61,7 @@ export function defaultDataDir(baseHome: string = os.homedir()): string {
 
 export function defaultServiceConfig(baseHome?: string): ServiceConfig {
   return {
-    uiPort: 3000,
+    uiPort: DEFAULT_UI_PORT,
     otlpPort: 4318,
     mcpPort: 4316,
     bindHost: '127.0.0.1',

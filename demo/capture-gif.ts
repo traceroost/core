@@ -80,7 +80,7 @@ if (MAX_BYTES > GITHUB_IMAGE_LIMIT_BYTES) {
   err(`--max-mb is over GitHub's 5 MB image limit — the README GIF won't display on github.com`)
 }
 
-// Distinct from the default 3000/4318 on purpose — a real `pnpm run local` instance can
+// Distinct from the default 4315/4318 on purpose — a real `pnpm run local` instance can
 // stay running on the defaults the whole time this script runs, with no port fight.
 const UI_PORT   = parseInt(flag('ui-port', '13000'), 10)
 const OTLP_PORT = parseInt(flag('otlp-port', '14318'), 10)

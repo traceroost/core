@@ -1,0 +1,150 @@
+name: Agent capture
+
+# Runs real agents headless and checks that what they write still matches what TraceRoost reads.
+# Nightly for every agent's latest release; dispatched by agent-release-watch.yml for one agent
+# pinned to a new version (with its tracking issue). Steps:
+#   1. tests/e2e/capture-agents.mjs — each agent once, tiny fixed prompt, sandbox repo, throwaway
+#      home. Each is gated on its own secret; a missing one skips only that agent:
+#        ANTHROPIC_API_KEY     Claude Code, and OpenCode (on an Anthropic model)
+#        OPENAI_API_KEY        Codex
+#        CURSOR_API_KEY        Cursor CLI
+#        COPILOT_GITHUB_TOKEN  Copilot CLI (a fine-grained token with the Copilot Requests permission)
+#      Copilot Chat in VS Code has no headless mode: checked by hand.
+#   2. tests/e2e/captures-to-fixtures.mjs — redacts the logs into fixture layout.
+#   3. tests/e2e/fingerprint-diff.mjs — fails on a record known.ts doesn't know, a missing
+#      required key, or a changed value type, against the newest committed fixture.
+#   4. scripts/agent-watch.mjs report — comments the result on the tracking issue and mails the
+#      owners when the format changed or the run failed (OTEL_WATCH_* secrets).
+# The redacted fixtures and the diff are the run's artifact; committing them is the first step of
+# runbooks/AGENT_FORMAT_BREAK.md. Nothing here commits or opens a pull request. Spends API credits:
+# each agent runs one short prompt with a cheap model.
+
+on:
+  schedule:
+    - cron: '47 7 * * *' # nightly, 07:47 UTC
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: Agent to capture
+        type: choice
+        options: [all, claude, codex, opencode, cursor, copilot]
+        default: all
+      version:
+        description: Version to install (one agent only; Cursor always installs its latest)
+        required: false
+        default: ''
+      issue:
+        description: Tracking issue to report to
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: agent-capture-${{ inputs.agent || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AGENT: ${{ inputs.agent || 'all' }}
+      VERSION: ${{ inputs.version }}
+      ISSUE: ${{ inputs.issue }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies and compile the adapters
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run compile-tests
+
+      - name: Install the agent CLIs
+        run: |
+          want() { [ "$AGENT" = all ] || [ "$AGENT" = "$1" ]; }
+          pin() { if [ "$AGENT" = "$1" ] && [ -n "$VERSION" ]; then printf '@%s' "$VERSION"; fi; }
+          pkgs=()
+          if want claude   && [ -n "$ANTHROPIC_API_KEY" ];    then pkgs+=("@anthropic-ai/claude-code$(pin claude)"); fi
+          if want codex    && [ -n "$OPENAI_API_KEY" ];       then pkgs+=("@openai/codex$(pin codex)"); fi
+          if want opencode && [ -n "$ANTHROPIC_API_KEY" ];    then pkgs+=("opencode-ai$(pin opencode)"); fi
+          if want copilot  && [ -n "$COPILOT_GITHUB_TOKEN" ]; then pkgs+=("@github/copilot$(pin copilot)"); fi
+          if [ ${#pkgs[@]} -gt 0 ]; then npm install -g "${pkgs[@]}"; fi
+          if want cursor && [ -n "$CURSOR_API_KEY" ]; then
+            curl -fsSL https://cursor.com/install | bash
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Capture
+        id: capture
+        continue-on-error: true
+        run: |
+          only=()
+          if [ "$AGENT" != all ]; then only=(--only "$AGENT"); fi
+          node tests/e2e/capture-agents.mjs "${only[@]}" --out test-results/agent-capture
+
+      - name: Redact into fixtures and diff against the committed ones
+        id: diff
+        continue-on-error: true
+        run: |
+          if [ "$(find test-results/agent-capture -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 0 ]; then
+            echo 'Nothing captured (no agent had its secret and CLI).' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node tests/e2e/captures-to-fixtures.mjs test-results/agent-capture --out test-results/agent-fixtures --os ubuntu-latest
+          node tests/e2e/fingerprint-diff.mjs test-results/agent-fixtures --out test-results/fingerprint-diff.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Redacted fixtures, the diff and the versions only — never the raw capture.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: agent-capture-${{ inputs.agent || 'all' }}-${{ github.run_id }}
+          path: |
+            test-results/agent-fixtures/
+            test-results/fingerprint-diff.md
+            test-results/agent-capture/versions.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Report
+        if: always()
+        run: |
+          outcome=pass
+          captured="$(node -e "try{process.stdout.write(String(Object.keys(require('./test-results/agent-capture/versions.json')).length))}catch{process.stdout.write('0')}")"
+          if [ "$CAPTURE" != success ]; then outcome=failed; elif [ "$captured" = 0 ]; then outcome=skipped; elif [ "$DIFF" != success ]; then outcome=changed; fi
+          echo "outcome=$outcome" >> "$GITHUB_STEP_SUMMARY"
+          version="${VERSION:-latest}"
+          if [ -f test-results/agent-capture/versions.json ] && [ "$AGENT" != all ]; then
+            version="$(node -e "const v=require('./test-results/agent-capture/versions.json')[process.env.AGENT];process.stdout.write((/\d+\.\d+[^\s)]*/.exec(v||'')||[process.env.VERSION||'latest'])[0])")"
+          fi
+          args=(--agent "$AGENT" --version "$version" --outcome "$outcome")
+          if [ -n "$ISSUE" ]; then args+=(--issue "$ISSUE"); fi
+          if [ -f test-results/fingerprint-diff.md ]; then args+=(--diff test-results/fingerprint-diff.md); fi
+          node scripts/agent-watch.mjs report "${args[@]}" > /dev/null
+          if [ "$outcome" = failed ] || [ "$outcome" = changed ]; then exit 1; fi
+        env:
+          CAPTURE: ${{ steps.capture.outcome }}
+          DIFF: ${{ steps.diff.outcome }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OTEL_WATCH_SMTP_HOST: ${{ secrets.OTEL_WATCH_SMTP_HOST }}
+          OTEL_WATCH_SMTP_USER: ${{ secrets.OTEL_WATCH_SMTP_USER }}
+          OTEL_WATCH_SMTP_PASS: ${{ secrets.OTEL_WATCH_SMTP_PASS }}
+          OTEL_WATCH_MAIL_FROM: ${{ secrets.OTEL_WATCH_MAIL_FROM }}
+          OTEL_WATCH_MAIL_TO: ${{ secrets.OTEL_WATCH_MAIL_TO }}

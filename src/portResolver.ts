@@ -125,7 +125,7 @@ export class PortScanExhaustedError extends Error {
  * True when a bind failure means "this port can't be used — try the next one". EADDRINUSE
  * everywhere. On Windows also EACCES: ports inside an excluded port range (reserved by Hyper-V,
  * WSL, WinNAT or Docker — see `netsh int ipv4 show excludedportrange protocol=tcp`) refuse binds
- * with EACCES, and those ranges move on every reboot and can cover 3000/4316/4318. Elsewhere
+ * with EACCES, and those ranges move on every reboot and can cover 4315/4316/4318. Elsewhere
  * EACCES means a privileged port, which scanning upward within the cap won't fix, so it stays fatal.
  */
 export function isUnavailablePort(code: string | undefined, platform: NodeJS.Platform = process.platform): boolean {

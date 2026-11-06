@@ -191,7 +191,7 @@ test('renders, searches, filters, and sorts traces without layout jitter or over
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
 
   const tabs: string[] = []
-  for (const label of ['Analytics', 'Advisor', 'Export', 'Import', 'Traces']) {
+  for (const label of ['Analytics', 'Advisor', 'Traces']) {
     await page.locator('.tabs').getByRole('button', { name: label, exact: true }).click()
     await page.waitForTimeout(100)
     await page.screenshot({
@@ -216,4 +216,70 @@ test('renders, searches, filters, and sorts traces without layout jitter or over
   expect(geometry.missing, 'stationary elements were removed').toBe(0)
   expect(geometry.frames).toBeGreaterThan(2)
   expect(geometry.max, `${geometry.max}px jitter`).toBeLessThanOrEqual(1)
+})
+
+test('Export opens from the Traces filter row; Import from Settings or a file dropped on the page', async (
+  { page },
+  testInfo,
+) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.goto('/')
+  await page.locator('#sessions-content').waitFor()
+  await page.evaluate(
+    (sessions) => window.postMessage({ type: 'update', sessionSummary: { sessions } }, '*'),
+    sessions,
+  )
+  await page.locator('#sessions-content tbody tr').first().waitFor()
+
+  // Neither is a tab any more.
+  for (const label of ['Export', 'Import']) {
+    await expect(page.locator('.tabs').getByRole('button', { name: label, exact: true })).toHaveCount(0)
+  }
+
+  // Export: the filtered set, Redacted by default.
+  await page.getByRole('button', { name: 'Export…', exact: true }).click()
+  const exportDialog = page.getByRole('dialog', { name: 'Export traces' })
+  await expect(exportDialog).toBeVisible()
+  await expect(exportDialog.getByRole('radio', { name: /^Redacted/ })).toBeChecked()
+  await expect(exportDialog.getByRole('button', { name: `Export ${sessions.length} traces` })).toBeEnabled()
+  await page.waitForTimeout(300)  // the drawer's 0.2s slide-in
+  await page.screenshot({ path: testInfo.outputPath('export-drawer.png') })
+  await page.keyboard.press('Escape')
+  await expect(exportDialog).toBeHidden()
+
+  // Import from Settings.
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Import traces…', exact: true }).click()
+  const importDialog = page.getByRole('dialog', { name: 'Import traces' })
+  await expect(importDialog).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeHidden()
+  await page.waitForTimeout(300)  // the drawer's 0.2s slide-in
+  await page.screenshot({ path: testInfo.outputPath('import-drawer.png') })
+  await page.keyboard.press('Escape')
+  await expect(importDialog).toBeHidden()
+
+  // A JSON export dropped on the Traces table opens Import on its preview.
+  const file = JSON.stringify([
+    { sessionId: 'dropped-1', source: 'claude_code', startTime: '2026-10-01T10:00:00.000Z' },
+    { sessionId: 'dropped-2', source: 'codex', startTime: '2026-10-02T10:00:00.000Z' },
+  ])
+  const dataTransfer = await page.evaluateHandle((text) => {
+    const dt = new DataTransfer()
+    dt.items.add(new File([text], 'export_sessions_test.json', { type: 'application/json' }))
+    return dt
+  }, file)
+  const table = page.locator('#sessions-content')
+  await table.dispatchEvent('dragenter', { dataTransfer })
+  await expect(page.locator('.file-drop-overlay')).toBeVisible()
+  await table.dispatchEvent('drop', { dataTransfer })
+  await expect(page.locator('.file-drop-overlay')).toHaveCount(0)
+  await expect(importDialog).toBeVisible()
+  await expect(importDialog.getByText('export_sessions_test.json')).toBeVisible()
+  await expect(importDialog.getByRole('button', { name: 'Import 2 traces' })).toBeVisible()
+  await page.waitForTimeout(300)  // the drawer's 0.2s slide-in
+  await page.screenshot({ path: testInfo.outputPath('import-dropped.png') })
+
+  expect(errors, 'browser errors').toEqual([])
 })
