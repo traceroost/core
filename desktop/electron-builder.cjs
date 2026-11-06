@@ -220,6 +220,10 @@ module.exports = {
     // The .app inside is what gets signed and (eventually) notarized and stapled; signing the disk
     // image as well buys nothing and is the usual source of "DMG signature invalid" noise.
     sign: false,
+    // 128 pt, not the builder's default 80: the .icns has a 128 px and a 256 px frame, so the
+    // icon is drawn pixel for pixel on a 1x display and at exactly 2x on Retina. At 80 pt a 1x
+    // display shrinks the 128 px frame and the glyph's legs and beak go soft.
+    iconSize: 128,
     contents: [
       { x: 140, y: 180, type: 'file' },
       { x: 400, y: 180, type: 'link', path: '/Applications' },
