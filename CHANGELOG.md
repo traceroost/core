@@ -8,6 +8,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 - **TraceRoost now tells you when it doesn't recognize what an agent writes** — when an agent release changes the format of its log files or OpenTelemetry events, TraceRoost used to skip what it couldn't read, so the numbers were quietly incomplete. It now counts, per agent and version, the records it read, the ones it skips on purpose and the ones it doesn't recognize. ⚙ Settings → **Agents** lists every agent with the newest version seen, when it last sent data and a status: *OK*, *Unrecognized data*, *No data*, or *Not verified on this version*. An agent version with unrecognized data gets a banner on the Traces tab (dismissible per version). **Report this** shows the full text of a prefilled GitHub issue (record names, counts and key/value-type structure, never a value from your logs) before opening it in your browser; TraceRoost itself sends nothing. In a terminal, `traceroost doctor` prints the same table, along with whether each agent is set up to send OTel, and exits 1 when something isn't recognized; `traceroost doctor --report <agent>` prints the issue
 
+### Changed
+
+- **Export and Import are no longer tabs** — the tab bar is now Traces, Analytics and Advisor. **Export…** on the Traces filter row opens a panel that exports the traces your filters select, with one choice between Redacted (now the default, since it's the one safe to share) and Full, and a format (JSON, CSV or Markdown). To import a JSON export, drop the file anywhere on the dashboard, or use **Import traces…** in the ⚙ Settings panel. VS Code adds `TraceRoost: Export Traces…` and `TraceRoost: Import Traces…`
+
 ### Fixed
 
 - **The macOS installer window shows a sharp app icon** — the DMG window drew its icons at 80 pt, so on a non-Retina display Finder shrank the icon's 128 px image and the bird's legs and beak came out soft. It now draws them at 128 pt, which is pixel for pixel on a standard display and exactly 2× on Retina

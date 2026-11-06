@@ -873,7 +873,7 @@ graph TD
 
 ### Tab component overview
 
-Five tabs in the sticky tab bar (Traces — routing id `sessions` — Analytics, Advisor, Export, Import). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx` — the rate tables behind it), a "Make a suggestion" link (`media/src/suggest.ts` — TraceRoost Cloud's public `/suggest` page with `?from=core&context=<version · tab>`, opened in the browser; in both editions), and Help. Alerts and Automation are not tabs — the bell opens its own slide-in Alerts panel (`media/src/AlertsPanel.tsx`) with three tabs: **Active** (what's firing now, with a way to the trace behind each and to its threshold), **Configure** (`Alerts.tsx`) and **Automation** (`Automation.tsx`). The gear opens the separate Settings panel (`ConfigPanel` in `App.tsx`: ingestion toggles, agent setup/removal, page size, theme and dashboard port in standalone). Only the topmost of two open drawers handles keys (`media/src/dialogStack.ts`). The filter bar keeps Time and Agent visible; Prompt, Language, Repo, Outcome, Source and From sit behind a **Filters (n)** button (`filtersOpen`), each active one shown as a removable chip. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
+Three tabs in the sticky tab bar (Traces — routing id `sessions` — Analytics, Advisor). Export and Import are actions, not views, so they're slide-in drawers (`tabs/Export.tsx`, `tabs/Import.tsx`): Export opens from the Traces filter row and exports what the filters select; Import opens from the Settings panel, from a file dropped anywhere on the dashboard (`useFileDrop` in `App.tsx`), or from the host's `switchTab` 'import' (`TraceRoost: Import Traces…`). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx` — the rate tables behind it), a "Make a suggestion" link (`media/src/suggest.ts` — TraceRoost Cloud's public `/suggest` page with `?from=core&context=<version · tab>`, opened in the browser; in both editions), and Help. Alerts and Automation are not tabs — the bell opens its own slide-in Alerts panel (`media/src/AlertsPanel.tsx`) with three tabs: **Active** (what's firing now, with a way to the trace behind each and to its threshold), **Configure** (`Alerts.tsx`) and **Automation** (`Automation.tsx`). The gear opens the separate Settings panel (`ConfigPanel` in `App.tsx`: ingestion toggles, agent setup/removal, page size, theme and dashboard port in standalone, Import traces). Only the topmost of two open drawers handles keys (`media/src/dialogStack.ts`). The filter bar keeps Time and Agent visible; Prompt, Language, Repo, Outcome, Source and From sit behind a **Filters (n)** button (`filtersOpen`), each active one shown as a removable chip. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
 
 ```mermaid
 graph LR
@@ -1533,7 +1533,7 @@ traceroost/
 │   │   │   ├── insights.css      # InsightCard styles
 │   │   │   ├── graph.css         # Flow semantic graph canvas overlay
 │   │   │   ├── help.css          # Help tab typography, TOC nav, glossary
-│   │   │   └── export.css        # Export tab card layout
+│   │   │   └── export.css        # Export / Import drawers
 │   │   └── tabs/
 │   │       ├── Sessions.tsx      # Sortable session table, expand-in-place detail panel
 │   │       │                     #   columns incl. Lang (abbreviation + "+1"), Changes, Out, Sig, Limit;
@@ -1556,7 +1556,7 @@ traceroost/
 │   │       ├── Tools.tsx         # ToolsChart (donut + table) used by Sessions detail
 │   │       ├── Patterns.tsx      # Advisor tab — hot files, loop patterns, efficiency scatter, Instructions sub-view
 │   │       ├── Instructions.tsx  # Instruction-file suggestion cards (apply/dismiss) used by Patterns
-│   │       ├── Import.tsx        # Import tab — preview + import a TraceRoost JSON export
+│   │       ├── Import.tsx        # Import drawer — preview + import a TraceRoost JSON export
 │   │       ├── Alerts.tsx        # Alert config UI (incl. daily cost threshold), checkAlerts, AlertNotification type
 │   │       ├── Automation.tsx    # Automation config UI, checkAutomations, prompt building
 │   │       ├── Settings.tsx      # Theme (standalone), page size, OTEL/log ingestion toggles + Clear All Data, MCP toggle, Configure OTEL (in gear-icon ConfigPanel)
