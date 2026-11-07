@@ -189,6 +189,14 @@ export async function check({ statePath, pretendSeen = {}, dryRun = false, fetch
 // ---------------------------------------------------------------------------------------------
 // report
 
+/** Who hears about a capture's outcome by mail: a format change or a run that broke, always; a
+ *  new release nobody could capture (its secret isn't set), too — that release went unchecked.
+ *  The nightly run of every agent doesn't mail a skip: it fails the job instead (agent-capture.yml),
+ *  rather than a mail every night until the secrets are set. */
+export function mailsOutcome(agentKey, outcome) {
+  return outcome === 'changed' || outcome === 'failed' || (outcome === 'skipped' && agentKey !== 'all')
+}
+
 export async function report({ agentKey, version, outcome, issue, diff = '', dryRun = false, fetchImpl = fetch, mail = null }) {
   // `all`: the nightly capture of every agent's latest release, which has no tracking issue.
   const agent = agentKey === 'all' ? { key: 'all', label: 'Nightly agent capture' } : WATCHED.find(a => a.key === agentKey)
@@ -210,7 +218,7 @@ export async function report({ agentKey, version, outcome, issue, diff = '', dry
   const github = gh(fetchImpl, dryRun)
   if (github.enabled && issue) await github.comment(issue, title, body)
   let mailed = false
-  if ((outcome === 'changed' || outcome === 'failed') && mail && !dryRun) {
+  if (mailsOutcome(agent.key, outcome) && mail && !dryRun) {
     await sendMail({ ...mail, subject: `TraceRoost: ${title}`, text: `${title}\n\n${body}` })
     mailed = true
   }

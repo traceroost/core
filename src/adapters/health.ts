@@ -15,13 +15,22 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { writeFileAtomic } from '../fsAtomic'
 import type { FileObservation } from './classify'
-import { classifyOtlp, otlpAdapterOf } from './classify'
+import { classifyOtlp, isDamageName, otlpAdapterOf } from './classify'
 import type { Fingerprint } from './fingerprint'
 import { buildAgentReport, type AgentReport } from './report'
 import { ADAPTERS, type AgentAdapter } from './registry'
 import type { AdapterKey, OtlpRecordView, SourceKind, SupportLevel } from './types'
 
-export type AgentStatus = 'ok' | 'unrecognized' | 'no-data' | 'not-verified'
+export type AgentStatus = 'ok' | 'missing-data' | 'unrecognized' | 'no-data' | 'not-verified'
+
+/** What a version's unrecognized data costs the user: `loss` — sessions, or numbers in them, are
+ *  missing; `skipped` — records TraceRoost doesn't know were skipped, but everything it reads was
+ *  there and its sessions were read; `none`. */
+export type VersionImpact = 'loss' | 'skipped' | 'none'
+
+/** The banner only speaks for data the agent wrote this recently; older problems stay in
+ *  Settings → Agents and `traceroost doctor`. A first scan of months of history raises nothing. */
+export const RECENT_MS = 7 * 24 * 60 * 60 * 1000
 
 export interface VersionHealth {
   version: string
@@ -31,7 +40,17 @@ export interface VersionHealth {
   unknownNames: Record<string, number>
   /** One structural fingerprint per unknown name. */
   fingerprints: Record<string, Fingerprint>
-  /** Past the banner threshold (see bannerWorthy). */
+  /** Files with unrecognized records, and records TraceRoost does read, that a complete read got no
+   *  turns out of (for Claude Code and Codex, none with token usage) — sessions missing from
+   *  Traces, or there without their numbers. */
+  unreadFiles: number
+  /** Records TraceRoost reads that came without a field it needs, and lines that didn't parse
+   *  (isDamageName). */
+  damaged: number
+  impact: VersionImpact
+  /** When the agent last wrote data showing this version's impact (epoch ms), null when none. */
+  lastImpactMs: number | null
+  /** Raises the banner: impact `loss`, in data written within RECENT_MS. */
   banner: boolean
 }
 
@@ -51,7 +70,8 @@ export interface AgentHealthRow {
   versions: VersionHealth[]
 }
 
-/** Banner threshold: 5 unknown records, or 1% of the version's records when that's fewer. */
+/** Damage threshold: 5 damaged records, or 1% of the version's records when that's fewer. A single
+ *  file that yields no turns needs no threshold. */
 export function bannerWorthy(v: Pick<VersionHealth, 'known' | 'ignored' | 'unknown'>): boolean {
   const total = v.known + v.ignored + v.unknown
   return v.unknown > 0 && v.unknown >= Math.min(5, Math.max(1, Math.ceil(total * 0.01)))
@@ -83,6 +103,8 @@ interface Counts {
   unknownNames: Record<string, number>
   unknownFingerprints: Record<string, Fingerprint>
   seenMs: number
+  /** Files only: the turns a complete read produced (FileObservation.turns). */
+  turns?: number
 }
 
 /** What `export` writes and `import` reads back (a JSON sidecar in the data directory). */
@@ -151,22 +173,51 @@ export class AdapterHealth {
 
   private row(a: AgentAdapter, entries: Array<[Counts, 'files' | 'otlp']>): AgentHealthRow {
     const byVersion = new Map<string, VersionHealth>()
+    // Per version: the newest data time of an entry showing loss, and of one with any unknown.
+    const lossMs = new Map<string, number>(), unknownMs = new Map<string, number>()
+    const latest = (m: Map<string, number>, k: string, ms: number) => m.set(k, Math.max(m.get(k) ?? 0, ms))
     let lastFilesMs: number | null = null, lastOtlpMs: number | null = null
     const add = (c: Counts, source: 'files' | 'otlp') => {
       if (source === 'files') lastFilesMs = Math.max(lastFilesMs ?? 0, c.seenMs)
       else lastOtlpMs = Math.max(lastOtlpMs ?? 0, c.seenMs)
       let v = byVersion.get(c.version)
-      if (!v) { v = { version: c.version, known: 0, ignored: 0, unknown: 0, unknownNames: {}, fingerprints: {}, banner: false }; byVersion.set(c.version, v) }
+      if (!v) {
+        v = { version: c.version, known: 0, ignored: 0, unknown: 0, unknownNames: {}, fingerprints: {}, unreadFiles: 0, damaged: 0, impact: 'none', lastImpactMs: null, banner: false }
+        byVersion.set(c.version, v)
+      }
       v.known += c.known; v.ignored += c.ignored; v.unknown += c.unknown
-      for (const [n, k] of Object.entries(c.unknownNames)) v.unknownNames[n] = (v.unknownNames[n] ?? 0) + k
+      let damaged = 0
+      for (const [n, k] of Object.entries(c.unknownNames)) {
+        v.unknownNames[n] = (v.unknownNames[n] ?? 0) + k
+        if (isDamageName(n)) damaged += k
+      }
       for (const [n, f] of Object.entries(c.unknownFingerprints)) if (!(n in v.fingerprints)) v.fingerprints[n] = f
+      v.damaged += damaged
+      // No turns from a file that held records TraceRoost reads and some it doesn't: the format
+      // moved out from under the parser. (A file of nothing it reads — a session opened and closed
+      // without a prompt — is just empty.)
+      const unread = c.turns === 0 && c.unknown > 0 && c.known > 0
+      if (unread) v.unreadFiles++
+      if (unread || damaged > 0) latest(lossMs, c.version, c.seenMs)
+      if (c.unknown > 0) latest(unknownMs, c.version, c.seenMs)
     }
     for (const [c, source] of entries) add(c, source)
     const versions = [...byVersion.values()].sort((x, y) => compareVersions(y.version, x.version))
-    for (const v of versions) v.banner = bannerWorthy(v)
+    const now = this.now()
+    for (const v of versions) {
+      if (v.unreadFiles > 0 || bannerWorthy({ known: v.known, ignored: v.ignored, unknown: v.damaged })) {
+        v.impact = 'loss'
+        v.lastImpactMs = lossMs.get(v.version) ?? null
+      } else if (v.unknown > 0) {
+        v.impact = 'skipped'
+        v.lastImpactMs = unknownMs.get(v.version) ?? null
+      }
+      v.banner = v.impact === 'loss' && v.lastImpactMs !== null && now - v.lastImpactMs <= RECENT_MS
+    }
     const versionSeen = versions[0]?.version ?? null
     let status: AgentStatus
     if (versions.length === 0) status = 'no-data'
+    else if (versions.some(v => v.impact === 'loss')) status = 'missing-data'
     else if (versions.some(v => v.unknown > 0)) status = 'unrecognized'
     else if (a.lastVerifiedVersion === null || versionSeen === 'unknown' || compareVersions(versionSeen!, a.lastVerifiedVersion) > 0) status = 'not-verified'
     else status = 'ok'
@@ -191,7 +242,8 @@ export class AdapterHealth {
         && [x.known, x.ignored, x.unknown, x.seenMs].every(n => typeof n === 'number')
         && !!x.unknownNames && typeof x.unknownNames === 'object'
     }
-    for (const [k, c] of Object.entries(s.files ?? {})) if (valid(c) && !this.files.has(k)) this.files.set(k, { ...c, unknownFingerprints: c.unknownFingerprints ?? {} })
+    const turns = (c: Counts) => (typeof c.turns === 'number' ? { turns: c.turns } : {})
+    for (const [k, c] of Object.entries(s.files ?? {})) if (valid(c) && !this.files.has(k)) this.files.set(k, { ...c, turns: undefined, ...turns(c), unknownFingerprints: c.unknownFingerprints ?? {} })
     for (const [k, c] of Object.entries(s.otlp ?? {})) if (valid(c) && !this.otlp.has(k)) this.otlp.set(k, { ...c, unknownFingerprints: c.unknownFingerprints ?? {} })
     this.version++
   }

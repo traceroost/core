@@ -44,6 +44,7 @@ export interface DoctorIo {
 
 const STATUS_TEXT: Record<AgentHealthRow['status'], string> = {
   'ok': 'OK',
+  'missing-data': 'Missing data',
   'unrecognized': 'Unrecognized data',
   'no-data': 'No data',
   'not-verified': 'Not verified on this version',
@@ -93,7 +94,7 @@ export async function runDoctorCli(args: string[], io: DoctorIo = defaultIo()): 
 
   if (report !== undefined) {
     const row = rows.find(r => r.key === report)!
-    const version = row.versions.find(v => v.unknown > 0)
+    const version = row.versions.find(v => v.impact === 'loss') ?? row.versions.find(v => v.unknown > 0)
     if (!version) {
       io.log(`${row.label}: nothing unrecognized to report.`)
       return 0
@@ -113,15 +114,18 @@ export async function runDoctorCli(args: string[], io: DoctorIo = defaultIo()): 
   for (const t of table) io.log(line(t))
   if (!server) io.log('\n(OTLP counts come from a running TraceRoost server, and none answered — this is from local log files only.)')
 
-  const bad = rows.filter(r => r.status === 'unrecognized')
-  for (const r of bad) {
+  // Every version with unrecognized records is listed; only lost data fails the check.
+  for (const r of rows.filter(x => x.status === 'missing-data' || x.status === 'unrecognized')) {
     for (const v of r.versions.filter(x => x.unknown > 0)) {
       const names = Object.entries(v.unknownNames).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n} ×${c}`).join(', ')
       io.log(`\n${r.label} ${v.version}: ${v.unknown} unrecognized of ${v.known + v.ignored + v.unknown} records — ${names}`)
+      if (v.unreadFiles > 0) io.log(`  ${v.unreadFiles} session file${v.unreadFiles === 1 ? '' : 's'} gave no turns: missing from Traces.`)
+      else if (v.impact === 'loss') io.log('  Records TraceRoost reads came without fields it needs: their numbers may be wrong.')
+      else io.log('  Skipped; its sessions were still read.')
     }
-    io.log(`  Its numbers may be incomplete. Report it: traceroost doctor --report ${r.key}`)
+    io.log(`  Report it: traceroost doctor --report ${r.key}`)
   }
-  return bad.length > 0 ? 1 : 0
+  return rows.some(r => r.status === 'missing-data') ? 1 : 0
 }
 
 // ── The real machine ──────────────────────────────────────────────────────────

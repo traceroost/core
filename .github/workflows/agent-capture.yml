@@ -14,7 +14,9 @@ name: Agent capture
 #   3. tests/e2e/fingerprint-diff.mjs — fails on a record known.ts doesn't know, a missing
 #      required key, or a changed value type, against the newest committed fixture.
 #   4. scripts/agent-watch.mjs report — comments the result on the tracking issue and mails the
-#      owners when the format changed or the run failed (OTEL_WATCH_* secrets).
+#      owners when the format changed, the run failed, or a new release couldn't be captured for
+#      want of its secret (OTEL_WATCH_* secrets). Any outcome but pass fails the job — a run that
+#      captured nothing is red, not green.
 # The redacted fixtures and the diff are the run's artifact; committing them is the first step of
 # runbooks/AGENT_FORMAT_BREAK.md. Nothing here commits or opens a pull request. Spends API credits:
 # each agent runs one short prompt with a cheap model.
@@ -138,7 +140,8 @@ jobs:
           if [ -n "$ISSUE" ]; then args+=(--issue "$ISSUE"); fi
           if [ -f test-results/fingerprint-diff.md ]; then args+=(--diff test-results/fingerprint-diff.md); fi
           node scripts/agent-watch.mjs report "${args[@]}" > /dev/null
-          if [ "$outcome" = failed ] || [ "$outcome" = changed ]; then exit 1; fi
+          # A skip fails too: a run that checked nothing must not pass as green.
+          if [ "$outcome" != pass ]; then exit 1; fi
         env:
           CAPTURE: ${{ steps.capture.outcome }}
           DIFF: ${{ steps.diff.outcome }}

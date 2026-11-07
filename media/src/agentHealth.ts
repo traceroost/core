@@ -4,7 +4,7 @@ import { signal } from '@preact/signals'
 // AdapterHealthMessage in ../../src/adapters/health.ts, which is the source of truth (this bundle
 // can't import outside media/src; see signalFormulas.ts). Keep the two in sync by hand.
 
-export type AgentStatus = 'ok' | 'unrecognized' | 'no-data' | 'not-verified'
+export type AgentStatus = 'ok' | 'missing-data' | 'unrecognized' | 'no-data' | 'not-verified'
 
 export interface AgentReport { title: string; body: string; url: string }
 
@@ -14,6 +14,10 @@ export interface VersionHealth {
   ignored: number
   unknown: number
   unknownNames: Record<string, number>
+  unreadFiles: number
+  damaged: number
+  impact: 'loss' | 'skipped' | 'none'
+  lastImpactMs: number | null
   banner: boolean
   report?: AgentReport
 }
@@ -41,7 +45,7 @@ export const ADAPTERS_BY_SOURCE: Record<string, ReadonlyArray<AgentHealthRow['ke
   cursor: ['cursor'],
 }
 
-// Banner dismissals, per agent version: a newer version with unknowns shows the banner again.
+// Banner dismissals, per agent version: a newer version that loses data shows the banner again.
 const DISMISSED_KEY = 'traceRoost.agentBannerDismissed'
 
 function readDismissed(): string[] {
@@ -53,24 +57,34 @@ function readDismissed(): string[] {
 
 export const dismissedAgentBanners = signal<string[]>(readDismissed())
 
-export function dismissAgentBanner(key: string, version: string): void {
-  const next = [...new Set([...dismissedAgentBanners.peek(), `${key}@${version}`])].slice(-200)
+/** Dismisses an agent's banner: each of the versions it spoke for. */
+export function dismissAgentBanner(key: string, versions: readonly string[]): void {
+  const next = [...new Set([...dismissedAgentBanners.peek(), ...versions.map(v => `${key}@${v}`)])].slice(-200)
   dismissedAgentBanners.value = next
   try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(next)) } catch { /* not persisted */ }
 }
 
-/** The versions that should raise the banner: past the threshold and not dismissed, for agents
- *  the current agent filter shows. */
-export function bannerVersions(rows: AgentHealthRow[] | null, agentFilter: string, dismissed: string[]): Array<{ row: AgentHealthRow; version: VersionHealth }> {
+/** One banner per agent: its versions that raise one (data lost, recently — see health.ts) and
+ *  aren't dismissed, newest first, for agents the current agent filter shows. */
+export function bannerAgents(rows: AgentHealthRow[] | null, agentFilter: string, dismissed: string[]): Array<{ row: AgentHealthRow; versions: VersionHealth[] }> {
   if (!rows) return []
   const shown = agentFilter === 'all' ? null : new Set(ADAPTERS_BY_SOURCE[agentFilter] ?? [])
   return rows
     .filter(r => !shown || shown.has(r.key))
-    .flatMap(row => row.versions.filter(v => v.banner && !dismissed.includes(`${row.key}@${v.version}`)).map(version => ({ row, version })))
+    .map(row => ({ row, versions: row.versions.filter(v => v.banner && !dismissed.includes(`${row.key}@${v.version}`)) }))
+    .filter(b => b.versions.length > 0)
+}
+
+/** What the data loss amounts to, in the user's terms — no record names. */
+export function lossSummary(versions: readonly VersionHealth[]): string {
+  const unread = versions.reduce((n, v) => n + v.unreadFiles, 0)
+  if (unread > 0) return `${unread} session${unread === 1 ? '' : 's'} couldn't be fully read`
+  return 'some sessions are missing cost or prompt data'
 }
 
 export const STATUS_LABEL: Record<AgentStatus, string> = {
   'ok': 'OK',
+  'missing-data': 'Missing data',
   'unrecognized': 'Unrecognized data',
   'no-data': 'No data',
   'not-verified': 'Not verified on this version',

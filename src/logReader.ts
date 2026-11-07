@@ -267,6 +267,13 @@ export interface OpenCodeSqlFactory {
   }
 }
 
+/** Agents whose transcripts record token usage on every answered turn (see _flushObservation). */
+const USAGE_IN_TRANSCRIPT = new Set(['claude', 'codex'])
+
+function hasUsage(card: SessionSummaryCard): boolean {
+  return card.inputTokens + card.outputTokens + card.cacheReadTokens + card.cacheCreateTokens > 0
+}
+
 export interface LogReaderOptions {
   log?: (msg: string) => void
   /** When provided, enables reading OpenCode sessions from its SQLite DB. */
@@ -275,7 +282,8 @@ export interface LogReaderOptions {
   maxFileBytes?: number
   /** Called with what each file just read held, by record class (adapters/classify.ts) — the
    *  whole file every time, so a caller replaces that file's previous observation — and the
-   *  file's modification time. */
+   *  file's modification time. A complete read also reports how many turns the file produced
+   *  (`obs.turns`), so a file whose records the parser couldn't turn into anything shows. */
   observe?: (filePath: string, obs: FileObservation, mtimeMs: number) => void
 }
 
@@ -332,6 +340,9 @@ export class LogReader {
   private readonly oversizeWarned = new Set<string>()
   private readonly maxFileBytes: number
   private readonly observe: ((filePath: string, obs: FileObservation, mtimeMs: number) => void) | undefined
+  // The observation _observe made of the file being parsed, held until _processFileMulti knows
+  // how many turns the parse produced.
+  private pendingObs: { filePath: string; logKey: string; obs: FileObservation; mtimeMs: number } | null = null
 
   constructor(options: LogReaderOptions = {}) {
     this.log = options.log ?? (() => { /* silent */ })
@@ -344,12 +355,29 @@ export class LogReader {
    *  is a thunk so a file isn't parsed a second time when nobody is observing. */
   private _observe(filePath: string, logKey: string, records: () => readonly unknown[]): void {
     if (!this.observe) return
+    this._flushObservation()
     try {
       const obs = observeRecords(logKey, records())
-      if (obs) this.observe(filePath, obs, this.lastReadMtimeMs)
+      if (obs) this.pendingObs = { filePath, logKey, obs, mtimeMs: this.lastReadMtimeMs }
     } catch (err) {
       this.log(`[LogReader] adapter health error ${filePath}: ${err}`)
     }
+  }
+
+  /** Hands the held observation over, with the turns the file gave (FileObservation.turns) only
+   *  when the read was complete — a Codex rollout held for its turn ids, for one, isn't; it's
+   *  read again next pass. Claude Code and Codex record token usage in every answered turn, so
+   *  for them only turns that carry it count: a turn read without it lost what matters most. */
+  private _flushObservation(read?: { filePath: string; results: readonly LogSessionResult[] }): void {
+    const pending = this.pendingObs
+    if (!pending || !this.observe) return
+    this.pendingObs = null
+    let obs = pending.obs
+    if (read && read.filePath === pending.filePath) {
+      const counted = USAGE_IN_TRANSCRIPT.has(pending.logKey) ? read.results.filter(r => hasUsage(r.card)) : read.results
+      obs = { ...obs, turns: counted.length }
+    }
+    try { this.observe(pending.filePath, obs, pending.mtimeMs) } catch (err) { this.log(`[LogReader] adapter health error ${pending.filePath}: ${err}`) }
   }
 
   /** True (after recording the file's state so it isn't retried until it changes, and warning
@@ -2105,9 +2133,12 @@ export class LogReader {
       if (prev && stat.mtimeMs === prev.mtimeMs && stat.size === prev.bytesRead) return []
       this.lastRead = null
       const results = parseFn()
+      const complete = this.lastRead === filePath
+      this._flushObservation(complete && this.fileState.has(filePath) ? { filePath, results } : undefined)
       // Only a read that succeeded says what the file now produces (see _onlyChanged).
-      return this.lastRead === filePath ? this._onlyChanged(filePath, results) : results
+      return complete ? this._onlyChanged(filePath, results) : results
     } catch {
+      this._flushObservation()
       return []
     }
   }
