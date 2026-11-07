@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { BrandMark } from '../BrandMark'
 import { SIGNAL_FORMULAS, formulaHtml } from '../signalFormulas'
 import { LOOP_SIGNAL_ICON_TYPE, SignalBadge } from '../signalIcons'
+import { CLOUD_INFO_URL } from '../cloudInfo'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ const HELP_SECTIONS = {
 // Privacy sections, which only describe linking and what a linked machine sends. A literal
 // `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) so the core bundle drops them.
 const TOC_SECTIONS = Object.values(HELP_SECTIONS).filter(s =>
-  process.env.TRACEROOST_EDITION !== 'core' || (s !== HELP_SECTIONS.cloud && s !== HELP_SECTIONS.privacy))
+  process.env.TRACEROOST_EDITION !== 'core' || s !== HELP_SECTIONS.privacy)
 
 const AGENT_OTEL_SHAPES: Array<{
   agent: string
@@ -1179,6 +1180,19 @@ function CloudSection() {
   )
 }
 
+// The core edition's Cloud section: what TraceRoost Cloud is, and a link to its public page. This
+// build has no Cloud code and can't link a machine, so it says only that.
+function CoreCloudSection() {
+  return (
+    <div class="help-section" id="help-cloud">
+      <h3 class="help-heading">{HELP_SECTIONS.cloud.heading}</h3>
+      <div class="help-overview-body">
+        <p>TraceRoost Cloud is the team version: every developer's agents in one place — cost, outcomes and the same signals you see here, across the whole team — built from per-trace rollups of counts, hashes and times, never prompts, code or file paths. This build of TraceRoost runs entirely on your machine and doesn't link to it. See <a href={CLOUD_INFO_URL} target="_blank" rel="noreferrer">TraceRoost Cloud</a> for plans, including a free one for small teams.</p>
+      </div>
+    </div>
+  )
+}
+
 function PrivacySection() {
   return (
     <div class="help-section" id="help-privacy">
@@ -1378,7 +1392,7 @@ export function Help() {
         <CostSection />
         <SettingsSection />
         <McpSection />
-        {process.env.TRACEROOST_EDITION !== 'core' && <CloudSection />}
+        {process.env.TRACEROOST_EDITION !== 'core' ? <CloudSection /> : <CoreCloudSection />}
         {process.env.TRACEROOST_EDITION !== 'core' && <PrivacySection />}
         <NetworkSection />
         <ExportSection />
