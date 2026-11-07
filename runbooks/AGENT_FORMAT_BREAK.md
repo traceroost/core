@@ -54,7 +54,7 @@ older ones (which must keep passing), then:
 
 ```sh
 pnpm run compile-tests
-npx mocha --no-config --require src/test/setup.js --ui tdd out/test/test/adapters.contract.test.js
+pnpm exec mocha --no-config --require src/test/setup.js --ui tdd out/test/test/adapters.contract.test.js
 ```
 
 It fails on the unknown record names or the missing required key. That failure is what step 3

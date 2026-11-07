@@ -51,7 +51,7 @@ Capture procedure:
 
 Each agent/scenario pair should produce one clean fixture. For Codex captures, the `[otel]` configuration must include `log_user_prompt`, `exporter`, and `trace_exporter`.
 
-Copilot telemetry flows through the VS Code extension rather than the standalone collector. Copilot captures require running the extension, performing the scenario in VS Code, and exporting via the dashboard **Export** tab (or the `TraceRoost: Export OTEL Data` command). A small redacted Copilot export should be retained as a manual regression fixture or converted to the fixture span format.
+Copilot telemetry flows through the VS Code extension rather than the standalone collector. Copilot captures require running the extension, performing the scenario in VS Code, and exporting via the dashboard's **Export…** dialog (or the `TraceRoost: Export Live OTel Spans (debug)` command). A small redacted Copilot export should be retained as a manual regression fixture or converted to the fixture span format.
 
 ## 3. Application-Build Simulations
 
