@@ -190,6 +190,23 @@ suite('logFileState — one-time Codex reasoning-token correction', () => {
     assert.strictEqual(restoreLogFileState(new LogReader(), storageDir, 90), 0, 'and only once')
   })
 
+  test('a version-6 state file re-reads only Copilot CLI files within retention, once', () => {
+    const now = Date.now()
+    const copilot = path.join(tmpDir, '.copilot', 'session-state', 'abc', 'events.jsonl')
+    const oldCopilot = path.join(tmpDir, '.copilot', 'session-state', 'old', 'events.jsonl')
+    fs.writeFileSync(path.join(storageDir, LOG_FILE_STATE_FILENAME), JSON.stringify({ version: 6, files: {
+      [copilot]: { bytesRead: 10, mtimeMs: now },
+      [oldCopilot]: { bytesRead: 10, mtimeMs: now - 200 * 86_400_000 },
+      [codexFile]: { bytesRead: 10, mtimeMs: now },
+      '/h/.claude/projects/p/s.jsonl': { bytesRead: 10, mtimeMs: now },
+    } }))
+    const restored = new LogReader()
+    assert.strictEqual(restoreLogFileState(restored, storageDir, 90), 1)
+    assert.deepStrictEqual(Object.keys(restored.exportFileState()).sort(), [oldCopilot, codexFile, '/h/.claude/projects/p/s.jsonl'].sort())
+    writeLogFileState(storageDir, restored.exportFileState())
+    assert.strictEqual(restoreLogFileState(new LogReader(), storageDir, 90), 0, 'and only once')
+  })
+
   test('a missing state file reads as current (a fresh install parses everything anyway)', () => {
     assert.deepStrictEqual(readLogFileState(storageDir), { version: LOG_FILE_STATE_VERSION, files: {} })
   })

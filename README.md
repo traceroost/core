@@ -139,17 +139,17 @@ To disable log ingestion: set `traceRoost.enableLogIngestion` to `false` in VS C
 
 ### Supported agents
 
-How much testing stands behind each agent:
+How much testing stands behind each agent, and the newest version a real capture of it was checked against:
 
 <!-- support-matrix:start (generated from src/adapters/registry.ts — a test fails if this drifts) -->
-| Agent | Reads | Support level |
-|---|---|---|
-| Claude Code | OTel, log files | Verified |
-| Codex | OTel, log files | Verified |
-| Copilot CLI | OTel, log files | Fixture-tested |
-| Copilot (VS Code) | OTel, log files | Best effort |
-| OpenCode | SQLite database | Fixture-tested |
-| Cursor CLI | log files | Fixture-tested |
+| Agent | Reads | Support level | Last verified version |
+|---|---|---|---|
+| Claude Code | OTel, log files | Verified | none yet |
+| Codex | OTel, log files | Verified | none yet |
+| Copilot CLI | OTel, log files | Fixture-tested | 1.0.107 |
+| Copilot (VS Code) | OTel, log files | Best effort | none yet |
+| OpenCode | SQLite database | Fixture-tested | none yet |
+| Cursor CLI | log files | Fixture-tested | none yet |
 <!-- support-matrix:end -->
 
 - **Verified** — the real agent runs in CI on every release and nightly, and each release gets a committed fixture. A confirmed format break gets a patch release within 2 working days.
