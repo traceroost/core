@@ -1097,9 +1097,12 @@ export class LogReader {
   // no env setup required. Each directory is one session (dirname = session ID).
   //
   // Key event types:
-  //   session.start        → data.sessionId, data.selectedModel, data.startTime, data.context.cwd
+  //   session.start        → data.sessionId, data.selectedModel (before 1.0.107), data.startTime, data.context.cwd
+  //   session.model_change → data.newModel ('auto' when Copilot picks); session.auto_mode_resolved → data.chosenModel
   //   user.message         → data.transformedContent (user request text)
-  //   assistant.message    → data.outputTokens, data.toolRequests
+  //   assistant.message    → data.outputTokens (before 1.0.107), data.toolRequests, data.model
+  //   session.usage_record → data.usage.{model,inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens}, one per
+  //                          model call (1.0.107+; earlier versions wrote it without `usage`)
   //   session.shutdown     → data.modelMetrics[model].usage.{inputTokens,cacheReadTokens,cacheWriteTokens}
 
   private _scanCopilot(): LogSessionResult[] {
@@ -1123,9 +1126,12 @@ export class LogReader {
   /** One result per turn: a turn opens at each `user.message` (session.start and anything else
    *  before the first prompt belong to the first turn). The format has no per-turn id of its own
    *  that's been verified, so keys are derived from the session id plus the prompt event's own
-   *  `id` (or its timestamp). `session.shutdown` reports input and cache tokens for the whole
-   *  session only — they land on the last turn so the session's totals stay right; per-turn input
-   *  for Copilot CLI is unknown. */
+   *  `id` (or its timestamp). From 1.0.107 every model call writes a `session.usage_record` with
+   *  its own tokens, so each turn gets exactly its own; `assistant.message` stopped carrying
+   *  outputTokens then. Before that, `session.shutdown` reports input and cache tokens for the
+   *  whole session only — they land on the last turn so the session's totals stay right, and
+   *  per-turn input is unknown. A file with usage records never uses the shutdown totals (they
+   *  are the same tokens again). */
   private _parseCopilotFile(filePath: string, sessionId: string): LogSessionResult[] {
     const lines = this._readNewLines(filePath)
     if (!lines) return []
@@ -1138,13 +1144,19 @@ export class LogReader {
     let totalCacheRead = 0
     let totalCacheCreate = 0
     let sawShutdown = false
+    let sawUsageRecord = false
     interface Turn {
       opening: string; first: string; last: string; model: string; userRequest: string
       totalOutput: number; turns: number; totalToolCalls: number
       toolCounts: Record<string, number>; filesChanged: Set<string>
+      /** From session.usage_record (1.0.107+). */
+      usage: { input: number; output: number; cacheRead: number; cacheCreate: number; calls: number }
     }
     const turns: Turn[] = []
-    const newTurn = (opening: string): Turn => ({ opening, first: '', last: '', model: '', userRequest: '', totalOutput: 0, turns: 0, totalToolCalls: 0, toolCounts: {}, filesChanged: new Set() })
+    const newTurn = (opening: string): Turn => ({
+      opening, first: '', last: '', model: '', userRequest: '', totalOutput: 0, turns: 0, totalToolCalls: 0, toolCounts: {}, filesChanged: new Set(),
+      usage: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0, calls: 0 },
+    })
     let leading: Turn | undefined
 
     for (const line of lines) {
@@ -1171,6 +1183,25 @@ export class LogReader {
         const ctx = data['context'] as Record<string, unknown> | undefined
         if (ctx?.['cwd']) workspace = String(ctx['cwd'])
         if (data['startTime']) sessionStart = String(data['startTime'])
+      }
+
+      // 1.0.107+: session.start names no model. The first concrete one is the session's fallback
+      // for a turn with no model of its own ('auto' is Copilot choosing, resolved just after).
+      if (!sessionModel && type === 'session.model_change' && typeof data['newModel'] === 'string' && data['newModel'] !== 'auto') sessionModel = data['newModel']
+      if (!sessionModel && type === 'session.auto_mode_resolved' && typeof data['chosenModel'] === 'string') sessionModel = data['chosenModel']
+
+      if (type === 'session.usage_record') {
+        const raw = data['usage'] as Record<string, unknown> | undefined
+        const usage = tokenUsage(raw)
+        if (usage && Object.keys(usage).length > 0) {
+          sawUsageRecord = true
+          cur.usage.input       += copilotFreshInput(usage)
+          cur.usage.output      += usage['outputTokens']     ?? 0
+          cur.usage.cacheRead   += usage['cacheReadTokens']  ?? 0
+          cur.usage.cacheCreate += usage['cacheWriteTokens'] ?? 0
+          cur.usage.calls++
+          if (typeof raw?.['model'] === 'string' && raw['model']) cur.model = raw['model']
+        }
       }
 
       if (type === 'user.message' && !cur.userRequest) {
@@ -1207,7 +1238,7 @@ export class LogReader {
           for (const entry of Object.values(metrics)) {
             const usage = tokenUsage((entry as Record<string, unknown> | null)?.['usage'])
             if (!usage) continue
-            totalInputFromShutdown += usage['inputTokens']     ?? 0
+            totalInputFromShutdown += copilotFreshInput(usage)
             totalCacheRead          += usage['cacheReadTokens']  ?? 0
             totalCacheCreate        += usage['cacheWriteTokens'] ?? 0
           }
@@ -1220,7 +1251,7 @@ export class LogReader {
     // user can sit at the prompt for minutes) would otherwise get a turn keyed off session.start
     // that the first prompt then replaces with its own key: the early key reaches the cloud, and
     // no store holds it.
-    if (turns.length === 0 && leading && (leading.turns > 0 || leading.totalOutput > 0 || leading.totalToolCalls > 0)) turns.push(leading)
+    if (turns.length === 0 && leading && (leading.turns > 0 || leading.totalOutput > 0 || leading.totalToolCalls > 0 || leading.usage.calls > 0)) turns.push(leading)
     const results: LogSessionResult[] = []
     let model = sessionModel
     turns.forEach((turn, i) => {
@@ -1229,13 +1260,14 @@ export class LogReader {
       if (turn.model) model = turn.model
       const isLast = i === turns.length - 1
       const key = derivedTraceKey('copilot', sessionId, turn.opening || first)
+      const u = turn.usage
       const card = _buildCard(key, 'copilot', model || 'copilot', first, turn.last || first, {
-        totalInput: isLast ? totalInputFromShutdown : 0,
-        totalOutput: turn.totalOutput,
-        totalCacheRead: isLast ? totalCacheRead : 0,
-        totalCacheCreate: isLast ? totalCacheCreate : 0,
+        totalInput: sawUsageRecord ? u.input : isLast ? totalInputFromShutdown : 0,
+        totalOutput: sawUsageRecord ? u.output : turn.totalOutput,
+        totalCacheRead: sawUsageRecord ? u.cacheRead : isLast ? totalCacheRead : 0,
+        totalCacheCreate: sawUsageRecord ? u.cacheCreate : isLast ? totalCacheCreate : 0,
         peakContextPerTurn: 0,
-        turns: turn.turns,
+        turns: sawUsageRecord ? u.calls : turn.turns,
         totalToolCalls: turn.totalToolCalls,
         toolCounts: turn.toolCounts,
         filesRead: new Set(),
@@ -1248,7 +1280,7 @@ export class LogReader {
       }, workspace)
       card.conversationId = sessionId
       card.derived = true
-      card.sourceRank = turn.totalOutput > 0 || (isLast && sawShutdown) ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
+      card.sourceRank = turn.totalOutput > 0 || u.calls > 0 || (isLast && sawShutdown) ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
       results.push({ workspace, card })
     })
     return results
@@ -2195,6 +2227,13 @@ export function tokenUsage(raw: unknown): Record<string, number> | undefined {
     if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[k] = v
   }
   return out
+}
+
+/** Copilot CLI's `inputTokens` (session.usage_record, session.shutdown modelMetrics) counts the
+ *  whole prompt — cache reads and writes included — while _buildCard adds the cache counts to the
+ *  input it is given. This is the fresh part. */
+function copilotFreshInput(usage: Record<string, number>): number {
+  return Math.max(0, (usage['inputTokens'] ?? 0) - (usage['cacheReadTokens'] ?? 0) - (usage['cacheWriteTokens'] ?? 0))
 }
 
 /** JSON.parse of one log line, or undefined when it doesn't parse (JSON never yields undefined). */

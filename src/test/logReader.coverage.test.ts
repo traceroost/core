@@ -90,7 +90,8 @@ suite('LogReader — Copilot CLI (events.jsonl)', () => {
     assert.strictEqual(card.outputTokens, 150)
     assert.strictEqual(card.cacheReadTokens, 400)
     assert.strictEqual(card.cacheCreateTokens, 50)
-    assert.strictEqual(card.inputTokens, 1000 + 200 + 400 + 50)
+    // inputTokens is the whole prompt, cache reads and writes included: they aren't added again.
+    assert.strictEqual(card.inputTokens, 1000 + 200)
     assert.strictEqual(card.totalToolCalls, 3, 'nameless tool requests are ignored')
     assert.deepStrictEqual(card.toolCounts, { edit: 1, create: 1, view: 1 })
     assert.deepStrictEqual(card.filesChanged.sort(), ['/work/app/src/login.ts', '/work/app/src/new.ts'])
@@ -99,6 +100,36 @@ suite('LogReader — Copilot CLI (events.jsonl)', () => {
     assert.strictEqual(card.startTime, '2026-09-01T10:00:01.000Z')
     assert.strictEqual(card.durationMs, 9_000)
     assert.strictEqual(card.outcome, 'tool_calls')
+  })
+
+  test('1.0.107+: per-call usage records give each turn its own tokens, and the model when session.start names none', () => {
+    const sessionId = '0f6c2b8e-2222-4c3e-9e0a-1234567890ab'
+    const eventsFile = path.join(tmp, sessionId, 'events.jsonl')
+    const usage = (model: string, input: number, output: number, cacheRead: number, cacheWrite = 0) =>
+      ({ type: 'session.usage_record', data: { usage: { model, inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite } } })
+    writeJsonl(eventsFile, [
+      { type: 'session.start', timestamp: '2026-11-07T10:00:00.000Z', data: { copilotVersion: '1.0.107', context: { cwd: '/work/app' } } },
+      { type: 'session.model_change', data: { newModel: 'auto' } },
+      { type: 'session.auto_mode_resolved', data: { chosenModel: 'mai-code-1.1-flash' } },
+      { type: 'user.message', timestamp: '2026-11-07T10:00:01.000Z', data: { transformedContent: 'first' } },
+      usage('mai-code-1.1-flash', 13_397, 68, 1_280),
+      { type: 'assistant.message', timestamp: '2026-11-07T10:00:03.000Z', data: { toolRequests: [{ name: 'bash', arguments: {} }] } },
+      usage('mai-code-1.1-flash', 13_498, 11, 13_440),
+      { type: 'assistant.message', timestamp: '2026-11-07T10:00:04.000Z', data: { toolRequests: [] } },
+      { type: 'user.message', timestamp: '2026-11-07T10:01:00.000Z', data: { transformedContent: 'second' } },
+      usage('gpt-6-luna', 20_000, 500, 18_000, 1_000),
+      { type: 'assistant.message', timestamp: '2026-11-07T10:01:05.000Z', data: { model: 'gpt-6-luna', toolRequests: [] } },
+      // The same tokens again, for the whole session: not added on top.
+      { type: 'session.shutdown', timestamp: '2026-11-07T10:05:00.000Z', data: { modelMetrics: {
+        'mai-code-1.1-flash': { usage: { inputTokens: 26_895, outputTokens: 79, cacheReadTokens: 14_720, cacheWriteTokens: 0 } },
+        'gpt-6-luna': { usage: { inputTokens: 20_000, outputTokens: 500, cacheReadTokens: 18_000, cacheWriteTokens: 1_000 } },
+      } } },
+    ])
+    const cards = new LogReader().parseFile(eventsFile, 'copilot').map(r => r.card)
+    assert.deepStrictEqual(cards.map(c => [c.userRequest, c.model, c.turns, c.inputTokens, c.outputTokens, c.cacheReadTokens, c.cacheCreateTokens]), [
+      ['first', 'mai-code-1.1-flash', 2, 26_895, 79, 14_720, 0],
+      ['second', 'gpt-6-luna', 1, 20_000, 500, 18_000, 1_000],
+    ])
   })
 
   test('an in-progress session (no shutdown yet) still yields a card with zero input tokens', () => {

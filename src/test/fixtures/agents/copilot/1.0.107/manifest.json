@@ -1,0 +1,14 @@
+{
+  "source": "capture",
+  "captured": "2026-11-07",
+  "os": "macos-local",
+  "redaction": "tests/e2e/captures-to-fixtures.mjs: <REPO>, <HOME>, <EMAIL>, <REDACTED>; by hand: system.message content (Copilot's system prompt) \u2192 <COPILOT SYSTEM PROMPT OMITTED>, apiCallId/usageId/model_call_id \u2192 <CALL-ID-n>",
+  "adapter": "copilot",
+  "agentVersion": "1.0.107",
+  "files": [
+    {
+      "path": "files/.copilot/session-state/c3b6a85f-e56c-45b4-8692-8906cd2a5655/events.jsonl",
+      "logKey": "copilot"
+    }
+  ]
+}

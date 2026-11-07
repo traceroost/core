@@ -146,7 +146,7 @@ How much testing stands behind each agent, and the newest version a real capture
 |---|---|---|---|
 | Claude Code | OTel, log files | Verified | none yet |
 | Codex | OTel, log files | Verified | none yet |
-| Copilot CLI | OTel, log files | Fixture-tested | none yet |
+| Copilot CLI | OTel, log files | Fixture-tested | 1.0.107 |
 | Copilot (VS Code) | OTel, log files | Best effort | none yet |
 | OpenCode | SQLite database | Fixture-tested | none yet |
 | Cursor CLI | log files | Fixture-tested | none yet |
