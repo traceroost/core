@@ -88,8 +88,13 @@ node scripts/prepare-edition.mjs restore   # always restore — never commit the
 
 **Flipping to `full` at launch:** set the repository variable `TRACEROOST_RELEASE_EDITION=full`
 (Settings → Secrets and variables → Actions → Variables) — `release.yml` reads it and passes it on
-to `docker.yml`; nothing else changes. For a permanent switch, change the `'core'` fallback in
-`release.yml` (its `EDITION:` line and the `docker` job's `with: edition:`) and the Dockerfile's
+to `docker.yml` and `desktop-release.yml`. **The desktop app is core-only:** a non-`core` release
+builds no desktop installers, so `publish-winget` (when its token is set) finds no Windows
+installers to publish. So decide
+before flipping whether desktop keeps shipping core (give the `desktop` job a fixed
+`edition: core`) or skips that release. For a permanent switch, change the `'core'` fallback in
+`release.yml` (its `EDITION:` line, the `docker` job's `with: edition:` and the `desktop` job's)
+and the Dockerfile's
 `ARG EDITION=core` default to `full`, and
 update "Currently" above and README → Editions. Before the first full release, run
 `release.yml` manually with `edition: full` and install the VSIX artifact to check the Org panel.
@@ -193,8 +198,8 @@ When the TraceRoost brand is established and you want the marketplace URL to say
    irreversible action once it lands (npm doesn't allow unpublishing after the fact in the general
    case; if a release turns out broken, [`WITHDRAW_RELEASE.md`](WITHDRAW_RELEASE.md)). The commit from step 5 landing on `main` does **not** publish anything by itself — that
    part alone is safe and doesn't need a separate confirmation. Ask explicitly before the tag push,
-   e.g. "push the vX.Y.Z tag now to trigger the actual publish (npm, Docker, VS Code Marketplace, Open
-   VSX) as the core edition?" — say which edition it ships (see [Editions](#editions)), since
+   e.g. "push the vX.Y.Z tag now to trigger the actual publish (npm, Homebrew, Docker, VS Code
+   Marketplace, Open VSX, desktop installers, winget PR) as the core edition?" — say which edition it ships (see [Editions](#editions)), since
    that's the one thing the tag doesn't show — don't fold this into the same confirmation as the version-number pick in step 2, since
    the user may want to review the drafted changelog entry and commit before green-lighting the
    irreversible part.
@@ -219,7 +224,8 @@ When the TraceRoost brand is established and you want the marketplace URL to say
 - `gh run list --workflow=release.yml --limit 1` — shows `completed` / `success`, and the
   `package` job's "Check the … edition bundles" step names the edition you meant to ship.
 - If the marketplace/npm publish steps matter for this release (they usually do), spot-check
-  `publish-vsce`, `publish-npm`, `publish-homebrew` and `docker` job logs specifically — `package` succeeding only means the VSIX
+  `publish-vsce`, `publish-npm`, `publish-homebrew`, `docker`, `desktop` and `publish-winget` job
+  logs specifically — `package` succeeding only means the VSIX
   built, not that it published anywhere.
 
 ## Homebrew

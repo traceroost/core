@@ -147,7 +147,7 @@ sequenceDiagram
         EXT->>CFG: autoConfigureCodex(port, mode)
     end
     EXT->>VS: registerWebviewViewProvider('traceRoost.dashboard')
-    EXT->>VS: registerCommand('traceRoost.openDashboard')<br/>registerCommand('traceRoost.clearSessions')<br/>registerCommand('traceRoost.showStorageStats')<br/>registerCommand('traceRoost.exportData')<br/>registerCommand('traceRoost.exportDataRedacted')<br/>registerCommand('traceRoost.dumpSpanAttrs')<br/>registerCommand('traceRoost.setUpAgents' · 'traceRoost.removeAgentSetup')<br/>registerCommand('traceRoost.orgLink' · 'traceRoost.orgStatus' · 'traceRoost.orgLeave')<br/>registerUriHandler (deep links, §15)
+    EXT->>VS: registerCommand('traceRoost.openDashboard')<br/>registerCommand('traceRoost.clearSessions')<br/>registerCommand('traceRoost.showStorageStats')<br/>registerCommand('traceRoost.exportData')<br/>registerCommand('traceRoost.exportDataRedacted')<br/>registerCommand('traceRoost.dumpSpanAttrs')<br/>registerCommand('traceRoost.exportTraces' · 'traceRoost.importTraces')<br/>registerCommand('traceRoost.setUpAgents' · 'traceRoost.removeAgentSetup')<br/>registerCommand('traceRoost.orgLink' · 'traceRoost.orgStatus' · 'traceRoost.orgLeave')<br/>registerUriHandler (deep links, §15)
     EXT->>VS: createStatusBarItem → 'traceRoost.openDashboard'
 ```
 
@@ -1576,7 +1576,6 @@ traceroost/
 │   ├── cliArgs.ts                # Pure half of that dispatch: usage text per edition, what a flag-led argument list means
 │   ├── agentsCli.ts              # `traceroost agents <setup|remove>` — the agent-setup answer from a terminal
 │   ├── autoConfigLog.ts          # What the server prints after auto-configuring the three agents
-│   ├── agentLabels.ts            # Display names + log locations per LogReader agent key (startup "Loaded N traces" line)
 │   ├── dataDirLock.ts            # One server per data dir: <dataDir>/server.lock (O_EXCL, heartbeat, takeover rules — §13)
 │   ├── openBrowser.ts            # shouldAutoOpen (TTY, SSH, display, --no-open) + openInBrowser
 │   ├── dashboardHtml.ts          # The dashboard page's HTML shell served at `/` (DashboardHtmlVars — no server state in the template)

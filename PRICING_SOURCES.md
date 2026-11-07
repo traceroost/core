@@ -28,8 +28,6 @@ and revert independently if a source turns out to have been misread.
      re-checked
    - The matching `PRICING_SECTIONS[].verified` date(s) in `media/src/pricing.ts` — these mirror the
      sections below and drive the "verified `<date>`" text shown on the in-app Pricing page itself
-   - `ARCHITECTURE.md`'s "Cost Calculation" section — it has its own "Last updated: `<date>`" line
-     independent of the two constants above (found missed once already; check it every time)
 5. If a source explicitly labels a rate as promotional/temporary (its own wording, not your
    inference), set `promoNote` on that model's entry in `media/src/pricing.ts` — free text, quote
    or closely paraphrase the source's own wording including any stated end date (e.g. `'OpenAI:

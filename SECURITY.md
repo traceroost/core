@@ -14,7 +14,7 @@ Docker), your OS, and the steps to reproduce. Please check it still reproduces o
 
 ## In scope
 
-- **The local servers and their ports** — the dashboard (`UI_PORT`, default 4315), the OTLP HTTP
+- **The local servers and their ports** — the dashboard (`UI_PORT`, default 4315; 3000 inside the Docker image), the OTLP HTTP
   receiver (`OTLP_PORT`, default 4318) and the MCP endpoint (`MCP_PORT`, default 4316) run by the
   standalone server, the background service and the Docker image, and the VS Code extension's own
   OTLP receiver. For example: another local process, a web page in your browser (DNS rebinding,

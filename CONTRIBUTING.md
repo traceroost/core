@@ -111,6 +111,11 @@ Releases are core until TraceRoost Cloud launches — see
 | `agent-release-watch.yml` | every 6 hours and manual | not a check: looks up each agent's latest release (`scripts/agent-watch.mjs` — npm for Claude Code, Codex, OpenCode and Copilot CLI; the Marketplace for Copilot Chat; Cursor's install script) against the versions it saw last (kept in the workflow cache). A new release opens or retitles that agent's `agent-release` tracking issue, dispatches `agent-capture.yml` pinned to the version, and mails the owners (`OTEL_WATCH_*` secrets). It never changes code. Run it by hand with `pretend_seen` (e.g. `{"codex":"0.160.0"}`) to exercise the path |
 | `agent-capture.yml` | nightly, manual, and dispatched by the release watch | runs each agent headless once (`tests/e2e/capture-agents.mjs`; Claude Code and OpenCode need `ANTHROPIC_API_KEY`, Codex `OPENAI_API_KEY`, Cursor CLI `CURSOR_API_KEY`, Copilot CLI `COPILOT_GITHUB_TOKEN` — each missing secret skips only its agent), redacts the logs into fixtures and diffs them against `src/test/fixtures/agents` (`tests/e2e/fingerprint-diff.mjs`): a record `known.ts` doesn't know, a missing required key or a changed value type fails it. Reports to the tracking issue and mails on a format change. What to do then: [runbooks/AGENT_FORMAT_BREAK.md](runbooks/AGENT_FORMAT_BREAK.md) |
 
+Publishing workflows — `release.yml` (with `docker.yml` and `desktop-release.yml`) on a `v*` tag,
+`release-styles.yml` on a `styles-v*` tag — are covered in
+[runbooks/RELEASING.md](runbooks/RELEASING.md); `cla.yml` checks the contributor licence agreement
+on PRs.
+
 The end-to-end suites live in `tests/e2e/` (plain Node scripts) and `src/test/integration/`
 (`*.itest.ts`, run inside VS Code by `tests/e2e/vscode/run.mjs` — not part of `pnpm test` /
 `test:unit`). Each runs locally too; see [runbooks/WINDOWS_VALIDATION.md](runbooks/WINDOWS_VALIDATION.md)

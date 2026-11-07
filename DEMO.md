@@ -58,7 +58,7 @@ Note: for the plain (non-`story`) scenario matrix, `--agents` still *filters* ra
 
 `--tour` walks: the Traces tab → expands the most recent trace and steps through its Overview / Waterfall / Flow / Tools / Files detail nav → Analytics → the Alerts panel behind the header bell, where Alerts and Automation live (they aren't top-level tabs) → Advisor, then returns to Traces and leaves the browser open.
 
-Requires `npx playwright install chromium` once. The browser window stays open after replay finishes; close it manually or `Ctrl+C` the terminal.
+Requires `pnpm exec playwright install chromium` once. The browser window stays open after replay finishes; close it manually or `Ctrl+C` the terminal.
 
 ### Regenerating the README demo GIF
 
@@ -84,7 +84,7 @@ To stay within the size budget, the encoder drops near-duplicate frames (the tou
 
 By default the replay also seeds a scratch git repo (`demo/replay.ts --demo-repo`) — some story files merged into `main`, some only committed on a feature branch, some left uncommitted — and backdates the sessions past the dashboard's 2-minute active-session grace window, so the Traces table's Out column and Analytics' Outcome & Token Spend chart show real merged / committed / uncommitted verdicts for the Claude and Codex sessions. (Copilot's OTEL spans carry no workspace, so its rows stay unclassified.)
 
-Requires `npx playwright install chromium` (once) and `ffmpeg` on `PATH` (`brew install ffmpeg` / `apt install ffmpeg`) — the conversion from the recorded video to an optimized, palette-based GIF shells out to it in two passes. See `demo/capture-gif.ts`'s header comment for why it's built this way (two independent layers keep it from ever touching the real machine's agent config, not just one).
+Requires `pnpm exec playwright install chromium` (once) and `ffmpeg` on `PATH` (`brew install ffmpeg` / `apt install ffmpeg`) — the conversion from the recorded video to an optimized, palette-based GIF shells out to it in two passes. See `demo/capture-gif.ts`'s header comment for why it's built this way (two independent layers keep it from ever touching the real machine's agent config, not just one).
 
 ## Capturing real agent runs as fixtures
 
