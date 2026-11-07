@@ -51,6 +51,20 @@ const path = require('path')
 const rootManifest = require('../package.json')
 const afterPack = require('./scripts/afterPack.cjs')
 const afterSign = require('./scripts/afterSign.cjs')
+const { desktopEdition } = require('./scripts/edition.cjs')
+
+// core or full — TRACEROOST_DESKTOP_EDITION, set from the release edition (scripts/edition.cjs).
+// The full edition's collector carries TraceRoost Cloud code under the Business Source License 1.1,
+// so its license and NOTICE.md (which code is under which license) ship beside LICENSE, the way the
+// Docker image ships them (licenses/LICENSE-BSL-1.1), and the app's manifest says so. Nothing
+// changes for core.
+const edition = desktopEdition()
+const fullEditionLicenses = edition === 'full'
+  ? [
+      { from: '../NOTICE.md', to: 'NOTICE.md' },
+      { from: '../src/cloud/LICENSE', to: 'LICENSE-BSL-1.1' },
+    ]
+  : []
 
 // CI maps repository secrets onto these, and a secret that does not exist arrives as an empty
 // string. electron-builder reads them itself and resolves an empty CSC_LINK as a path (the cwd:
@@ -133,8 +147,10 @@ module.exports = {
   appId: 'com.traceroost.desktop',
   productName: 'TraceRoost',
   copyright: 'Copyright © 2026 Roger Reed',
-  // Only ever built as the core edition; the staged collector is checked for that in afterPack.
-  extraMetadata: { version: rootManifest.version },
+  // The edition is the staged collector's (scripts/edition.cjs); afterPack checks the packed one.
+  extraMetadata: edition === 'full'
+    ? { version: rootManifest.version, license: rootManifest.license }
+    : { version: rootManifest.version },
 
   directories: {
     output: 'dist',
@@ -170,6 +186,7 @@ module.exports = {
     // bundle's Resources on macOS (below), where the builder does not place them — never both.
     { from: '../LICENSE', to: 'LICENSE' },
     { from: 'resources/THIRD_PARTY_NOTICES.md', to: 'THIRD_PARTY_NOTICES.md' },
+    ...fullEditionLicenses,
   ],
 
   // The UI is English only, so Chromium's other 54 locale packs (~8 MB unpacked) are dropped.

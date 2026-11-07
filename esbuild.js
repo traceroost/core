@@ -22,6 +22,14 @@ if (edition !== 'full' && edition !== 'core') {
 }
 const core = edition === 'core';
 
+// Source maps: inline-referenced in a dev build, none in a production build — except that
+// `TRACEROOST_EXTERNAL_SOURCEMAPS=1` makes a production build also write each `.map` beside its
+// bundle without the `//# sourceMappingURL` comment, so the shipped code is byte-for-byte what a
+// plain production build makes. The desktop app's full-edition release staging sets it: its
+// third-party notices are read from the maps of the bundles it ships (desktop/scripts/
+// stage-resources.mjs, third-party-notices.mjs).
+const sourcemap = production ? (process.env.TRACEROOST_EXTERNAL_SOURCEMAPS === '1' ? 'external' : false) : true;
+
 // Baked in at build time, not read at runtime — so a real release install can't be pointed at a
 // non-production TraceRoost Cloud environment just by setting TRACEROOST_ORG_ENV/_URL in the
 // shell or a .env file. See src/cloud/org/config.ts's resolveOrgEnvironment().
@@ -113,7 +121,7 @@ async function main() {
 		bundle: true,
 		format: 'cjs',
 		minify: production,
-		sourcemap: !production,
+		sourcemap,
 		sourcesContent: false,
 		metafile: true,
 		platform: 'node',
@@ -134,7 +142,7 @@ async function main() {
 		bundle: true,
 		format: 'iife',
 		minify: production,
-		sourcemap: !production,
+		sourcemap,
 		sourcesContent: false,
 		metafile: true,
 		platform: 'browser',
@@ -151,7 +159,7 @@ async function main() {
 		bundle: true,
 		format: 'iife',
 		minify: production,
-		sourcemap: !production,
+		sourcemap,
 		sourcesContent: false,
 		metafile: true,
 		platform: 'browser',
@@ -166,7 +174,7 @@ async function main() {
 		bundle: true,
 		format: 'cjs',
 		minify: false,
-		sourcemap: !production,
+		sourcemap,
 		sourcesContent: false,
 		metafile: true,
 		platform: 'node',
@@ -186,7 +194,7 @@ async function main() {
 		bundle: true,
 		format: 'cjs',
 		minify: false,
-		sourcemap: !production,
+		sourcemap,
 		sourcesContent: false,
 		metafile: true,
 		platform: 'node',

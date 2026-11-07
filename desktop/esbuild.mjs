@@ -7,8 +7,11 @@
  * (`pnpm run check-types`), so nothing is traded away.
  *
  * `electron` is external — it is resolved from the Electron runtime at run time, never bundled.
- * The edition define matches esbuild.js at the repo root: the desktop app ships the core edition,
- * so the Cloud branches fold away here exactly as they do in the npm build.
+ * The edition define matches esbuild.js at the repo root's core edition, so any Cloud branch folds
+ * away here exactly as it does in the core npm build. It stays `core` even when the app is built as
+ * the full edition (TRACEROOST_DESKTOP_EDITION=full, scripts/edition.cjs): the shell itself never
+ * carries Cloud code — org linking lives in the collector it spawns, which stage-resources.mjs
+ * builds in the desktop edition — and afterPack.cjs checks this bundle against the core markers.
  */
 
 import * as esbuild from 'esbuild'

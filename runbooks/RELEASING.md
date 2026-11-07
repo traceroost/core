@@ -45,13 +45,15 @@ Until npm's trusted publisher and the Docker Hub repo exist, do the `main` commi
 Every release ships one edition — **core** (no TraceRoost Cloud / org-link / upload code at all) or
 **full** (with it). See CONTRIBUTING.md → Editions for how the split works in the source.
 
-**Currently: `core`.** Until TraceRoost Cloud launches, the VSIX, the npm package and the Docker
-image are all built with `--edition=core`.
+**Currently: `core`.** Until TraceRoost Cloud launches, the VSIX, the npm package, the Docker
+image and the desktop app are all built with `--edition=core`.
 
 How a release picks its edition:
 
 - a `v*` tag push uses the repository variable `TRACEROOST_RELEASE_EDITION`, and `core` when it
-  isn't set — `release.yml` applies this rule and passes the result to `docker.yml`;
+  isn't set — `release.yml` applies this rule and passes the result to `docker.yml` and
+  `desktop-release.yml` (which hands it to each desktop platform build as its `edition` input, and
+  so to the build steps as `TRACEROOST_DESKTOP_EDITION`) and to the winget manifests;
 - a manual **Run workflow** (workflow_dispatch) uses its `edition` input (default `core`). A manual
   `release.yml` run only builds the VSIX as an artifact — publishing happens only from a tag. A
   manual `docker.yml` run builds and pushes a `sha-…`-tagged image only (never a version tag or
@@ -76,6 +78,18 @@ What the `core` release does differently:
    `CHANGELOG.md` still has a cloud-only section.
 3. The Docker image is built with `--build-arg EDITION=core` (the Dockerfile's default) and runs the
    same bundle check inside the build.
+4. The desktop app stages a core collector (`desktop/scripts/stage-resources.mjs`) and checks it,
+   and again inside every packed app (`afterPack.cjs`), with `check-edition.mjs core`.
+
+What the `full` release adds to the desktop app: its collector is the full **production** build
+(`esbuild.js --production --edition=full`, the same `standalone/server.js` and dashboard the npm
+package ships, pinned to production TraceRoost Cloud), so the dashboard has its Org panel and
+`/api/org`; the app ships `NOTICE.md` and `LICENSE-BSL-1.1` beside `LICENSE` (as the Docker image
+does) and declares `(MIT AND BUSL-1.1)`; the packed collector must pass `check-edition.mjs full`;
+the smoke test checks `/api/org` answers unlinked and production-pinned; and the winget manifest
+declares `MIT AND BUSL-1.1`. The shell's own main-process bundle has no Cloud code in either edition
+and is checked as core both times. A core desktop build is byte-for-byte what it was before the
+desktop app followed the edition.
 
 To check a core package locally before tagging:
 
@@ -88,16 +102,17 @@ node scripts/prepare-edition.mjs restore   # always restore — never commit the
 
 **Flipping to `full` at launch:** set the repository variable `TRACEROOST_RELEASE_EDITION=full`
 (Settings → Secrets and variables → Actions → Variables) — `release.yml` reads it and passes it on
-to `docker.yml` and `desktop-release.yml`. **The desktop app is core-only:** a non-`core` release
-builds no desktop installers, so `publish-winget` (when its token is set) finds no Windows
-installers to publish. So decide
-before flipping whether desktop keeps shipping core (give the `desktop` job a fixed
-`edition: core`) or skips that release. For a permanent switch, change the `'core'` fallback in
+to `docker.yml` and `desktop-release.yml`. **The desktop app follows it:** a full release builds,
+tests and attaches the full desktop app on every platform (and `publish-winget` submits it), just as
+a core release ships the core one. (To hold desktop back on core for a release, give the `desktop`
+job a fixed `edition: core`.) For a permanent switch, change the `'core'` fallback in
 `release.yml` (its `EDITION:` line, the `docker` job's `with: edition:` and the `desktop` job's)
 and the Dockerfile's
 `ARG EDITION=core` default to `full`, and
 update "Currently" above and README → Editions. Before the first full release, run
-`release.yml` manually with `edition: full` and install the VSIX artifact to check the Org panel.
+`release.yml` manually with `edition: full` and install the VSIX artifact to check the Org panel,
+and run **Desktop release** manually with `edition: full` (a dry run: it builds, smoke-tests and
+assembles every platform without attaching anything) and open a downloaded app's Org panel.
 
 ## The `agentlens` branch
 
@@ -277,9 +292,9 @@ winget install --manifest $dir
 
 ## Desktop app
 
-The desktop app under `desktop/` (see `desktop/README.md`) ships the same core-edition collector
-the npm tarball does, built from the same tree, so its version is `package.json`'s version
-automatically; a release bump needs no change in `desktop/`.
+The desktop app under `desktop/` (see `desktop/README.md`) ships the same collector the npm tarball
+does, in the release's edition (see [Editions](#editions)), built from the same tree, so its
+version is `package.json`'s version automatically; a release bump needs no change in `desktop/`.
 
 The tag's `release.yml` run includes a `desktop` job (`.github/workflows/desktop-release.yml`)
 after `package`. It runs the macOS, Linux and Windows desktop workflows (the same builds every
@@ -323,8 +338,8 @@ Afterwards: `gh release view vX.Y.Z` lists the desktop files; download one and r
   builds — nothing to switch.
 - **Switches**: the repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default
   `linux,macos,windows`) turns a platform off without a code change; `TRACEROOST_WINDOWS_SIGNING=off`
-  pauses Windows signing with the secrets left in place; a non-`core`
-  `TRACEROOST_RELEASE_EDITION` skips desktop with a notice (the app is core-only).
+  pauses Windows signing with the secrets left in place. There is no edition switch: the desktop
+  app is built as `TRACEROOST_RELEASE_EDITION` says, like everything else.
 - **minisign**: with `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` set, the checksums file gets a
   `.minisig`. No key exists yet; publish the public key in `desktop/README.md` when one is made.
 

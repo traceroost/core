@@ -1145,7 +1145,11 @@ the five bundles are. `core` resolves the three Cloud seams — `src/cloudBridge
 turns on syntax-level minification for the two standalone bundles (so those dead branches are
 really dropped), and fails the build if any module under `src/cloud/`, `media/src/cloud/` or
 `standalone/cloud/` would be loaded. `scripts/check-edition.mjs` re-checks the output; see
-CONTRIBUTING.md → Editions and runbooks/RELEASING.md → Editions.
+CONTRIBUTING.md → Editions and runbooks/RELEASING.md → Editions. A release ships one edition
+everywhere — VSIX, npm, Docker and the desktop app, whose collector is built in the release's
+edition (`TRACEROOST_DESKTOP_EDITION`, below). `TRACEROOST_EXTERNAL_SOURCEMAPS=1` makes a production
+build also write external `.map` files (no `sourceMappingURL` comment, so the bundles are
+unchanged) — only the desktop app's full-edition staging uses it, for its notices.
 
 ```mermaid
 graph LR
@@ -1190,8 +1194,14 @@ second one inlined into the CLI.
 
 **The desktop app** (`desktop/`, its own npm project — deliberately outside the pnpm workspace) is a
 sixth, separate build: `desktop/esbuild.mjs` bundles `desktop/src/main.ts` to `desktop/out/main.js`
-(`electron` external); `desktop/scripts/stage-resources.mjs` builds the **core edition** at the repo
-root and copies what the app ships into `desktop/resources/collector/`;
+(`electron` external; checked as core in both editions — the shell carries no Cloud code);
+`desktop/scripts/stage-resources.mjs` builds the collector at the repo root in the desktop edition —
+`TRACEROOST_DESKTOP_EDITION` (`desktop/scripts/edition.cjs`), `core` by default and the release's
+edition in a release (`release.yml` → `desktop-release.yml` → `desktop-{macos,linux,windows}.yml`);
+`full` is built `--production` for a packaged app, so it is pinned to production TraceRoost Cloud —
+checks it with `check-edition.mjs <edition>`, and copies what the app ships into
+`desktop/resources/collector/` (the full edition adds `NOTICE.md` and `LICENSE-BSL-1.1` beside
+`LICENSE`);
 `desktop/scripts/third-party-notices.mjs` writes its notices; `desktop/electron-builder.cjs` packs a
 DMG, a `.deb`/AppImage or an NSIS per-user installer (`pnpm run pack`, `pack:linux`, `pack:win`, plus
 `checksums.mjs`). Signing is decided from the environment: macOS signs with a Developer ID
@@ -1613,7 +1623,7 @@ traceroost/
 │       ├── macos.ts              # launchd install/uninstall/start/stop/restart
 │       ├── linux.ts              # systemd --user install/uninstall/start/stop/restart
 │       └── windows.ts            # Scheduled Task install/uninstall/start/stop/restart
-├── desktop/                      # Electron menu-bar/tray app (own npm project; ships the core-edition collector — §14)
+├── desktop/                      # Electron menu-bar/tray app (own npm project; ships the collector in the release's edition — §14)
 │   ├── src/main.ts               # Main process: window, tray (tray*.ts), collector supervision (collector.ts, handshake.ts, backoff.ts), autostart, prefs
 │   ├── esbuild.mjs               # Bundles src/main.ts → out/main.js (electron external)
 │   ├── electron-builder.cjs      # DMG / deb / AppImage / NSIS packaging; macOS + Windows signing decided from the environment

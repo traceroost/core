@@ -27,8 +27,38 @@ pnpm start           # or: ./node_modules/.bin/electron .
 
 `pnpm run build` type-checks `src/` against the Electron types, bundles the main process to
 `out/main.js` with esbuild, runs [`scripts/stage-resources.mjs`](scripts/stage-resources.mjs) —
-which builds the **core edition** at the repo root and copies what the app ships into
-`resources/collector/` — and runs [`scripts/third-party-notices.mjs`](scripts/third-party-notices.mjs).
+which builds the collector at the repo root in the desktop edition (below; **core** unless told
+otherwise) and copies what the app ships into `resources/collector/` — and runs
+[`scripts/third-party-notices.mjs`](scripts/third-party-notices.mjs).
+
+### Editions
+
+The desktop app follows the release edition like the VSIX, the npm package and the Docker image
+(`runbooks/RELEASING.md` → "Editions"): a core release ships the **core** app (no TraceRoost Cloud
+code at all), a full release the **full** one, whose collector carries the Cloud connector — the
+dashboard's Org panel and `/api/org`, from which the machine is linked to an org (the collector
+opens the sign-in page in the system browser itself and takes the OAuth callback on its own
+loopback port, exactly as `npx traceroost` does). Every build step reads the edition from
+`TRACEROOST_DESKTOP_EDITION` ([`scripts/edition.cjs`](scripts/edition.cjs)); unset means `core`, so
+a checkout, a pull request and a core release build exactly what they always have.
+
+```sh
+TRACEROOST_DESKTOP_EDITION=full pnpm run build          # a full-edition dev build (Cloud: stage)
+TRACEROOST_DESKTOP_EDITION=full pnpm run pack:linux:host # …or packaged, as a full release builds it
+```
+
+| | core | full |
+| --- | --- | --- |
+| collector (`stage-resources.mjs`) | `esbuild.js --edition=core` | `esbuild.js --edition=full`; `--production` too in `build:release` (`stage:release`), so a packaged app is pinned to production TraceRoost Cloud and reads no `.env` |
+| staged and packed checks | `check-edition.mjs core` | `check-edition.mjs full` (the Cloud markers must be there) |
+| license files beside `LICENSE` | — | `NOTICE.md`, `LICENSE-BSL-1.1` (the Cloud code is BSL 1.1); the app's manifest says `(MIT AND BUSL-1.1)` and so do `THIRD_PARTY_NOTICES.md` and the winget manifest |
+| `pnpm run smoke` | `/api/org` is not served | `/api/org` answers unlinked, endpoint `https://traceroost.com` (source `release`) |
+
+The main-process bundle (`out/main.js`) is the same in both: the shell itself never carries Cloud
+code, and is checked against the core marker list either way. `stage-resources.mjs` stamps the
+edition it staged beside the collector (`resources/collector.edition`, not shipped) and afterPack
+refuses to pack it as the other one. CI's desktop workflows take an `edition` input
+(`desktop-release.yml` passes the release's; a manual run can choose); pull requests build core.
 
 If `electron .` exits at once with no output, check for `ELECTRON_RUN_AS_NODE=1` in the
 environment: a shell inside VS Code (or any Electron host) has it set, and it turns the Electron
@@ -58,6 +88,7 @@ What goes into the `.app`:
 | `icon.icns` | the app icon (Dock, Finder, About box; also the DMG's volume icon): the glyph on its teal tile, built by `iconutil` in [`scripts/make-icons.mjs`](scripts/make-icons.mjs) |
 | `tray/` | the menu bar template icons |
 | `LICENSE`, `THIRD_PARTY_NOTICES.md` | this project's license; every bundled package's license and text |
+| `NOTICE.md`, `LICENSE-BSL-1.1` | full edition only: which code is under which license, and the Business Source License of the TraceRoost Cloud code the collector carries |
 | `LICENSE.electron.txt`, `LICENSES.chromium.html` | Electron's own, and the Chromium/Node notices it carries (on Linux and Windows, electron-builder puts these beside the executable instead, and only there) |
 
 Two things in that layout are easy to lose and are checked for. `collector/node_modules/sql.js`
@@ -71,8 +102,8 @@ the entitlements) and is kept out of the app by design; `main.ts` reads them fro
 **Every packed `.app` is verified before it is signed or wrapped** by
 [`scripts/afterPack.cjs`](scripts/afterPack.cjs): the layout above is present; the staged
 collector, the repo and the app's `Info.plist` agree on the version; the collector bundles *inside
-the .app* and the main-process bundle pass the repo's core-edition check
-(`scripts/check-edition.mjs --tree`, one marker list, no copy); and the packaged Electron,
+the .app* pass the repo's edition check for the edition being built, and the main-process bundle
+the core one (`scripts/check-edition.mjs --tree`, one marker list, no copy); and the packaged Electron,
 re-entered as Node, is a Node the collector supports. A failure fails the build. The first build of
 this packaging produced a launchable app with no `sql.js` in it, which is why the layout check
 exists.
@@ -560,7 +591,9 @@ Local-only, as the plan requires: no account, no network dependency, no analytic
 `crashReporter` is deliberately never started, so there is no upload path to misconfigure. The
 log (`<dataDir>/desktop.log`, owner-only, rotated at 5 MB with one generation kept) holds the
 collector's stdout and stays on the machine. Signing and notarization, when enabled, upload the
-app bundle to Apple — the code, never any data.
+app bundle to Apple — the code, never any data. The full edition's collector can link the machine to
+a TraceRoost Cloud org, but only when the user does so from the Org panel; until then it makes no
+request to the Cloud at all (the same invariant as every full build — `src/cloud/org/config.ts`).
 
 The shell registers **no launchd job**. "Launch at Login" registers *this app* through the OS login
 item API; the `traceroost service install` job is a separately managed thing the app attaches to,
@@ -643,7 +676,7 @@ release notes get a section on opening it (SmartScreen: More info → Run anyway
 
 Platforms are independent: if one platform's build fails, the others are still attached. The
 repository variable `TRACEROOST_DESKTOP_PLATFORMS` (default `linux,macos,windows`) switches a
-platform off without a code change, and a non-`core` release edition skips desktop entirely. A desktop failure
+platform off without a code change. The app is built in the release's edition ([Editions](#editions)). A desktop failure
 never blocks the VSIX, npm or Docker publish. Files already on a release are never replaced; a re-run
 uploads only what is missing and fails on a same-named file with different bytes. A pull request
 that changes `desktop-release.yml` or the assembly script runs everything except attest and upload.
@@ -683,6 +716,15 @@ Stage 4, not started:
   which CI's Apple Silicon runner cannot do natively (the x64 build is produced but not launched).
 
 Smaller, genuinely open items:
+
+- **The full edition, beyond CI.** A full desktop build is staged, packed, edition-checked and
+  smoke-tested (`/api/org` unlinked, production-pinned), but linking a packaged app to a real org
+  end to end — the browser sign-in the collector opens, the loopback callback, the first upload —
+  has not been run on any platform. Two Org-panel limits are the standalone dashboard's, not the
+  shell's, and apply to `npx traceroost` too: `/api/org` replies once the action has finished, so
+  "Use a device code" never shows its code while it waits, and the "Browser didn't open?" fallback
+  never appears; and after a browser link succeeds the page's shim opens the (spent) sign-in URL
+  once more.
 
 - **Windows, beyond CI** ([what CI proves](#what-ci-proves)): code signing (the Azure Artifact
   Signing account, profile and service-principal secrets exist, but signing is **paused** by the

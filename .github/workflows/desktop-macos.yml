@@ -63,7 +63,18 @@ on:
       - 'desktop/**'
       - '.github/workflows/desktop-macos.yml'
   workflow_dispatch:
+    inputs:
+      edition:
+        description: 'Edition to build — core (no TraceRoost Cloud code) or full (with org link + upload)'
+        type: choice
+        options: [core, full]
+        default: core
   workflow_call:
+    inputs:
+      edition:
+        description: Edition to build — core (no TraceRoost Cloud code) or full (with org link + upload). desktop-release.yml passes the release's.
+        type: string
+        default: core
     # The only secrets this workflow reads — desktop-release.yml passes exactly these, never
     # `secrets: inherit`. All optional: without them the app is ad-hoc signed (see above).
     secrets:
@@ -82,6 +93,12 @@ on:
 
 permissions:
   contents: read
+
+# The edition every build step reads (desktop/scripts/edition.cjs): the caller's `edition` input
+# under workflow_call (desktop-release.yml passes the release edition), a manual run's choice, and
+# `core` for pull requests and pushes, which have no inputs. See runbooks/RELEASING.md → "Editions".
+env:
+  TRACEROOST_DESKTOP_EDITION: ${{ inputs.edition || 'core' }}
 
 # github.workflow is the caller's name under workflow_call, so a release's run of this workflow and
 # a pull request's run of it never cancel each other.
@@ -183,9 +200,9 @@ jobs:
           printf '%s\n' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
           echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
 
-      # Type-checks, bundles the main process (release build), stages the core-edition collector,
-      # writes the third-party notices, packs arm64 + x64 (afterPack verifies each .app: layout,
-      # versions, core edition, bundled Node), and writes SHA256SUMS.
+      # Type-checks, bundles the main process (release build), stages the collector in
+      # TRACEROOST_DESKTOP_EDITION, writes the third-party notices, packs arm64 + x64 (afterPack
+      # verifies each .app: layout, versions, edition, bundled Node), and writes SHA256SUMS.
       - name: Build and package
         working-directory: desktop
         env:

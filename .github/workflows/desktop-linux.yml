@@ -40,7 +40,18 @@ on:
       - 'desktop/**'
       - '.github/workflows/desktop-linux.yml'
   workflow_dispatch:
+    inputs:
+      edition:
+        description: 'Edition to build — core (no TraceRoost Cloud code) or full (with org link + upload)'
+        type: choice
+        options: [core, full]
+        default: core
   workflow_call:
+    inputs:
+      edition:
+        description: Edition to build — core (no TraceRoost Cloud code) or full (with org link + upload). desktop-release.yml passes the release's.
+        type: string
+        default: core
     # The only secrets this workflow reads — desktop-release.yml passes exactly these, never
     # `secrets: inherit`.
     secrets:
@@ -49,6 +60,12 @@ on:
 
 permissions:
   contents: read
+
+# The edition every build step reads (desktop/scripts/edition.cjs): the caller's `edition` input
+# under workflow_call (desktop-release.yml passes the release edition), a manual run's choice, and
+# `core` for pull requests and pushes, which have no inputs. See runbooks/RELEASING.md → "Editions".
+env:
+  TRACEROOST_DESKTOP_EDITION: ${{ inputs.edition || 'core' }}
 
 # github.workflow is the caller's name under workflow_call, so a release's run of this workflow and
 # a pull request's run of it never cancel each other.
@@ -130,9 +147,9 @@ jobs:
         working-directory: desktop
         run: node node_modules/electron/install.js && test -f node_modules/electron/dist/LICENSES.chromium.html
 
-      # Type-check, release bundle, stage the core-edition collector, notices; then the .deb and
-      # AppImage for this architecture (afterPack verifies the unpacked app: layout, versions, core
-      # edition, chrome-sandbox, bundled Node), then SHA256SUMS.
+      # Type-check, release bundle, stage the collector in TRACEROOST_DESKTOP_EDITION, notices; then
+      # the .deb and AppImage for this architecture (afterPack verifies the unpacked app: layout,
+      # versions, edition, chrome-sandbox, bundled Node), then SHA256SUMS.
       - name: Build and package
         working-directory: desktop
         run: pnpm run build:release && npx electron-builder --linux --${{ matrix.arch }} && pnpm run checksums

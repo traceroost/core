@@ -1,5 +1,5 @@
 # The staged collector: build output, produced by `pnpm run stage` (scripts/stage-resources.mjs)
-# from the repo's own core-edition build. Committing it would duplicate standalone/server.js and
+# from the repo's own build, in the desktop edition (scripts/edition.cjs). Committing it would duplicate standalone/server.js and
 # the dashboard bundle in the history, and `node_modules/sql.js` inside it is ignored globally
 # anyway — so a committed copy would be a broken half-tree.
 resources/
