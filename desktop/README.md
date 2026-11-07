@@ -49,7 +49,7 @@ TRACEROOST_DESKTOP_EDITION=full pnpm run pack:linux:host # …or packaged, as a 
 
 | | core | full |
 | --- | --- | --- |
-| collector (`stage-resources.mjs`) | `esbuild.js --edition=core` | `esbuild.js --edition=full`; `--production` too in `build:release` (`stage:release`), so a packaged app is pinned to production TraceRoost Cloud and reads no `.env` |
+| collector (`stage-resources.mjs`) | `esbuild.js --edition=core`; `--production` too in `build:release` (`stage:release`), so a packaged app's public links point at production | `esbuild.js --edition=full`; `--production` too in `build:release` (`stage:release`), so a packaged app is pinned to production TraceRoost Cloud and reads no `.env` |
 | staged and packed checks | `check-edition.mjs core` | `check-edition.mjs full` (the Cloud markers must be there) |
 | license files beside `LICENSE` | — | `NOTICE.md`, `LICENSE-BSL-1.1` (the Cloud code is BSL 1.1); the app's manifest says `(MIT AND BUSL-1.1)` and so do `THIRD_PARTY_NOTICES.md` and the winget manifest |
 | `pnpm run smoke` | `/api/org` is not served | `/api/org` answers unlinked, endpoint `https://traceroost.com` (source `release`) |

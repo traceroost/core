@@ -88,8 +88,9 @@ package ships, pinned to production TraceRoost Cloud), so the dashboard has its 
 does) and declares `(MIT AND BUSL-1.1)`; the packed collector must pass `check-edition.mjs full`;
 the smoke test checks `/api/org` answers unlinked and production-pinned; and the winget manifest
 declares `MIT AND BUSL-1.1`. The shell's own main-process bundle has no Cloud code in either edition
-and is checked as core both times. A core desktop build is byte-for-byte what it was before the
-desktop app followed the edition.
+and is checked as core both times. In either edition a release build's collector is built
+`--production`, so a core desktop app's public links (Make a suggestion, the Cloud page) point at
+production, not stage.
 
 To check a core package locally before tagging:
 

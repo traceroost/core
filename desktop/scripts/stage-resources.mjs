@@ -22,13 +22,15 @@
  * Edition: `TRACEROOST_DESKTOP_EDITION` (scripts/edition.cjs; unset = `core`). The release edition
  * flows into it from release.yml, so a core release ships a core collector and a full release a
  * full one (TraceRoost Cloud's org link + upload, the dashboard's Org panel).
- *   core   `esbuild.js --edition=core`, unchanged from before editions reached the desktop app —
- *          including with `--release`, so a core desktop release is byte-for-byte what it was.
- *   full   `esbuild.js --edition=full`; with `--release` (build:release) also `--production`, so
- *          the collector is pinned to production TraceRoost Cloud and reads no `.env`, exactly
- *          like the npm/VSIX/Docker full builds (src/cloud/org/config.ts's resolveOrgEnvironment).
- *          The production build writes its maps externally (TRACEROOST_EXTERNAL_SOURCEMAPS) for
- *          third-party-notices.mjs, and the maps are not staged.
+ *   core   `esbuild.js --edition=core`.
+ *   full   `esbuild.js --edition=full`.
+ * With `--release` (build:release) either edition is also built `--production`, like the
+ * npm/VSIX/Docker release builds: the public links a core build carries (the header's "Make a
+ * suggestion", the Cloud page — media/src/suggest.ts, media/src/cloudInfo.ts) point at
+ * production, not stage, and a full collector is pinned to production TraceRoost Cloud and reads
+ * no `.env` (src/cloud/org/config.ts's resolveOrgEnvironment). The production build writes its
+ * maps externally (TRACEROOST_EXTERNAL_SOURCEMAPS) for third-party-notices.mjs, and the maps are
+ * not staged.
  * Either way the staged tree is checked against that edition with scripts/check-edition.mjs, and
  * the edition is stamped beside it for afterPack.cjs.
  */
@@ -66,7 +68,7 @@ function requireFile(rel) {
 //
 // From the repo root, not from here: esbuild.js resolves its entry points relative to the working
 // directory, so running it from desktop/ fails to find src/extension.ts.
-const production = edition === 'full' && release
+const production = release
 const build = spawnSync(process.execPath, [
   path.join(repoRoot, 'esbuild.js'), ...(production ? ['--production'] : []), `--edition=${edition}`,
 ], {
