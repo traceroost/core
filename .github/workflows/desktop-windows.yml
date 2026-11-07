@@ -5,7 +5,7 @@ name: Desktop (Windows)
 # theirs:
 #
 #   package   build:release, electron-builder (afterPack verifies the unpacked app: layout,
-#             versions, core edition, bundled Node), SHA256SUMS; the staged-collector integration
+#             versions, edition, bundled Node), SHA256SUMS; the staged-collector integration
 #             suite on the runner's own Electron; the packaged smoke test (owned collector,
 #             /health, dashboard, then `traceroost-desktop --quit` → the collector is stopped over
 #             the owner channel and a span sent just before is flushed to disk); then
@@ -58,7 +58,18 @@ on:
       - 'desktop/**'
       - '.github/workflows/desktop-windows.yml'
   workflow_dispatch:
+    inputs:
+      edition:
+        description: 'Edition to build — core (no TraceRoost Cloud code) or full (with org link + upload)'
+        type: choice
+        options: [core, full]
+        default: core
   workflow_call:
+    inputs:
+      edition:
+        description: Edition to build — core (no TraceRoost Cloud code) or full (with org link + upload). desktop-release.yml passes the release's.
+        type: string
+        default: core
     outputs:
       signed:
         description: "'true' when signing credentials were configured and every executable of both architectures carries a valid Authenticode signature"
@@ -77,6 +88,12 @@ on:
 
 permissions:
   contents: read
+
+# The edition every build step reads (desktop/scripts/edition.cjs): the caller's `edition` input
+# under workflow_call (desktop-release.yml passes the release edition), a manual run's choice, and
+# `core` for pull requests and pushes, which have no inputs. See runbooks/RELEASING.md → "Editions".
+env:
+  TRACEROOST_DESKTOP_EDITION: ${{ inputs.edition || 'core' }}
 
 # github.workflow is the caller's name under workflow_call, so a release's run of this workflow and
 # a pull request's run of it never cancel each other.
@@ -154,8 +171,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -177,7 +192,7 @@ jobs:
         working-directory: desktop
         run: node node_modules/electron/install.js && test -f node_modules/electron/dist/LICENSES.chromium.html && test -f node_modules/electron/dist/electron.exe
 
-      # Type-check, release bundle, stage the core-edition collector, notices; then the NSIS
+      # Type-check, release bundle, stage the collector in TRACEROOST_DESKTOP_EDITION, notices; then the NSIS
       # installer for this architecture (afterPack verifies the unpacked app), then
       # SHA256SUMS.
       - name: Build and package

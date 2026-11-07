@@ -25,8 +25,8 @@ suite('winget-manifests — the winget package for a desktop release', () => {
 
   const sha = (text: string) => crypto.createHash('sha256').update(text).digest('hex').toUpperCase()
   function asset(name: string) { fs.writeFileSync(path.join(assets, name), name) }
-  function run() {
-    const r = spawnSync(process.execPath, [SCRIPT, '--version', V, '--assets', assets, '--out', out], { encoding: 'utf8' })
+  function run(...extra: string[]) {
+    const r = spawnSync(process.execPath, [SCRIPT, '--version', V, '--assets', assets, '--out', out, ...extra], { encoding: 'utf8' })
     return { status: r.status, err: r.stderr }
   }
   const read = (file: string) => fs.readFileSync(path.join(out, ...DIR, file), 'utf8')
@@ -57,6 +57,22 @@ suite('winget-manifests — the winget package for a desktop release', () => {
     const installer = read('TraceRoost.TraceRoost.installer.yaml')
     assert.ok(installer.includes(`/TraceRoost-${V}-win-x64.exe\n`))
     assert.ok(!installer.includes(`win-x64-preview.exe`))
+  })
+
+  test('the license follows the release edition: MIT for core (the default), MIT AND BUSL-1.1 for full', () => {
+    asset(`TraceRoost-${V}-win-x64.exe`)
+    asset(`TraceRoost-${V}-win-arm64.exe`)
+    assert.strictEqual(run().status, 0)
+    let locale = read('TraceRoost.TraceRoost.locale.en-US.yaml')
+    assert.match(locale, /^License: MIT$/m)
+    assert.match(locale, new RegExp(`^LicenseUrl: https://github\\.com/traceroost/core/blob/v${V.replace(/\./g, '\\.')}/LICENSE$`, 'm'))
+    assert.strictEqual(run('--edition', 'core').status, 0)
+    assert.strictEqual(read('TraceRoost.TraceRoost.locale.en-US.yaml'), locale)
+    assert.strictEqual(run('--edition', 'full').status, 0)
+    locale = read('TraceRoost.TraceRoost.locale.en-US.yaml')
+    assert.match(locale, /^License: MIT AND BUSL-1\.1$/m)
+    assert.match(locale, /^LicenseUrl: .*\/NOTICE\.md$/m)
+    assert.strictEqual(run('--edition', 'bogus').status, 2)
   })
 
   test('a missing architecture fails rather than publishing a half package', () => {

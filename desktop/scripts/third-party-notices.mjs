@@ -6,9 +6,9 @@
  * and dashboard bundles inline their npm dependencies, so a `dependencies` walk would both miss
  * the transitive packages esbuild pulled in (ajv, zod, @hono/node-server, …) and list packages
  * whose code was tree-shaken away. The bundles' **source maps** name every file that actually
- * ended up in them, so the package set is read from those — the maps the core-edition build wrote
- * at the repo root a moment ago (scripts/stage-resources.mjs runs that build, so run this right
- * after it). Then two things the maps cannot see are added: Electron, which is the runtime, and
+ * ended up in them, so the package set is read from those — the maps the desktop edition's build
+ * wrote at the repo root a moment ago (scripts/stage-resources.mjs runs that build, so run this right
+ * after it; a full-edition release build writes them as external maps for exactly this). Then two things the maps cannot see are added: Electron, which is the runtime, and
  * sql.js, which is also copied in as a real package for its WASM.
  *
  * Fails rather than writing an incomplete file when a map is missing or a package has no license
@@ -19,6 +19,9 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
+
+const { desktopEdition } = createRequire(import.meta.url)('./edition.cjs')
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.join(here, '..')
@@ -37,7 +40,7 @@ const packages = new Map()
 for (const rel of MAPS) {
   const mapPath = path.join(repoRoot, rel)
   if (!fs.existsSync(mapPath)) {
-    throw new Error(`third-party-notices: ${rel} is missing — run \`pnpm run stage\` first (the non-production core build writes the maps this reads).`)
+    throw new Error(`third-party-notices: ${rel} is missing — run \`pnpm run stage\` (or \`stage:release\`) first; its build writes the maps this reads.`)
   }
   const map = JSON.parse(fs.readFileSync(mapPath, 'utf8'))
   for (const source of map.sources) {
@@ -82,10 +85,21 @@ function homepageUrl(manifest) {
 }
 
 const rootManifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
+// The full edition's collector carries TraceRoost Cloud code (src/cloud/, media/src/cloud/,
+// standalone/cloud/), which is under the Business Source License 1.1 — shipped beside this file as
+// LICENSE-BSL-1.1 with NOTICE.md (electron-builder.cjs), as the Docker image ships it. The core
+// edition's wording is unchanged.
+const ownLicense = desktopEdition() === 'full'
+  ? [
+      `TraceRoost ${rootManifest.version} desktop app is MIT licensed (see LICENSE beside this file), except the`,
+      'TraceRoost Cloud code in its collector, which is under the Business Source License 1.1 (LICENSE-BSL-1.1;',
+      'NOTICE.md says which code is which). It is built on and',
+    ]
+  : [`TraceRoost ${rootManifest.version} desktop app is MIT licensed (see LICENSE beside this file). It is built on and`]
 const lines = [
   '# Third-party notices',
   '',
-  `TraceRoost ${rootManifest.version} desktop app is MIT licensed (see LICENSE beside this file). It is built on and`,
+  ...ownLicense,
   'ships the following third-party software, each under its own license, reproduced below.',
   '',
   'Electron itself bundles Chromium, Node.js and their dependencies; their notices are in',

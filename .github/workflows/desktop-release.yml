@@ -12,7 +12,11 @@ name: Desktop release
 # has already checked against the tag; the desktop app has no version of its own.
 #
 # What gets attached:
-#   edition    desktop is core-only. Any other release edition skips desktop with a notice.
+#   edition    the release edition (release.yml's EDITION), passed on to each platform build as its
+#              `edition` input: a core release ships the core desktop app, a full release the full
+#              one (its collector carries the TraceRoost Cloud connector — the dashboard's Org
+#              panel — and the app ships NOTICE.md and LICENSE-BSL-1.1), as the VSIX, npm package
+#              and Docker image follow it. Anything but `core` or `full` fails the gate.
 #   platforms  the repository variable TRACEROOST_DESKTOP_PLATFORMS (default `linux,macos,windows`).
 #              Remove a platform there to stop releasing it without touching this file.
 #   names      every build is attached under the name it was built as (`TraceRoost-<v>-mac-<arch>.dmg`,
@@ -39,7 +43,7 @@ on:
   workflow_call:
     inputs:
       edition:
-        description: The release edition (release.yml's EDITION); desktop builds only for `core`
+        description: The release edition (release.yml's EDITION) — core or full; the desktop app is built as it
         type: string
         default: core
     secrets:
@@ -78,6 +82,12 @@ on:
       - '.github/workflows/desktop-release.yml'
       - 'desktop/scripts/release-assets.mjs'
   workflow_dispatch:
+    inputs:
+      edition:
+        description: 'Edition to dry-run — core or full (a pull request always builds core)'
+        type: choice
+        options: [core, full]
+        default: core
 
 permissions:
   contents: read
@@ -87,6 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build: ${{ steps.gate.outputs.build }}
+      edition: ${{ steps.gate.outputs.edition }}
       platforms: ${{ steps.gate.outputs.platforms }}
     steps:
       - id: gate
@@ -94,12 +105,13 @@ jobs:
           EDITION: ${{ inputs.edition || 'core' }}
           PLATFORMS: ${{ vars.TRACEROOST_DESKTOP_PLATFORMS || 'linux,macos,windows' }}
         run: |
-          if [ "$EDITION" != core ]; then
-            echo "::notice::Release edition is '$EDITION'; the desktop app is core-only, so no desktop files are built or attached."
-            echo "build=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          fi
+          case "$EDITION" in
+            core|full) ;;
+            *) echo "::error::Unknown release edition '$EDITION' — expected core or full."; exit 1 ;;
+          esac
+          echo "build=true" >> "$GITHUB_OUTPUT"
+          echo "edition=$EDITION" >> "$GITHUB_OUTPUT"
+          echo "Desktop edition: $EDITION"
           echo "platforms=,$PLATFORMS," >> "$GITHUB_OUTPUT"
           echo "Desktop platforms enabled: $PLATFORMS"
 
@@ -107,6 +119,8 @@ jobs:
     needs: gate
     if: needs.gate.outputs.build == 'true' && contains(needs.gate.outputs.platforms, ',macos,')
     uses: ./.github/workflows/desktop-macos.yml
+    with:
+      edition: ${{ needs.gate.outputs.edition }}
     # Only the signing and notarization secrets — not every repository secret (npm, marketplace,
     # Docker Hub and Homebrew tokens stay out of the desktop build). The Apple ones now live in the
     # `desktop-release` environment, which desktop-macos.yml's job names on a tag; those take
@@ -125,6 +139,8 @@ jobs:
     needs: gate
     if: needs.gate.outputs.build == 'true' && contains(needs.gate.outputs.platforms, ',linux,')
     uses: ./.github/workflows/desktop-linux.yml
+    with:
+      edition: ${{ needs.gate.outputs.edition }}
     secrets:
       MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
       MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
@@ -133,6 +149,8 @@ jobs:
     needs: gate
     if: needs.gate.outputs.build == 'true' && contains(needs.gate.outputs.platforms, ',windows,')
     uses: ./.github/workflows/desktop-windows.yml
+    with:
+      edition: ${{ needs.gate.outputs.edition }}
     # Only the signing secrets, by name (desktop-windows.yml declares them).
     secrets:
       WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}

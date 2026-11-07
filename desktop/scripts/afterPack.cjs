@@ -6,7 +6,8 @@
  *
  *  - the staged collector is where src/resources.ts will look for it, with the dashboard assets,
  *    the manifest and sql.js's WASM at the depths standalone/server.js expects;
- *  - the tray icons and the license files made it in as extraResources;
+ *  - the tray icons and the license files made it in as extraResources (in the full edition also
+ *    NOTICE.md and LICENSE-BSL-1.1, for the TraceRoost Cloud code its collector carries);
  *  - the collector's version is the version on the box — the staged package.json, the repo's
  *    package.json and the app's own version all agree;
  *  - Linux: the executable and the `chrome-sandbox` helper are there (the .deb's post-install
@@ -15,9 +16,11 @@
  *    it is checked against the built package instead (scripts/check-deb.sh);
  *  - Windows: `traceroost-desktop.exe` is there (not `traceroost.exe`, which would shadow the npm
  *    CLI), with the notification-area icon;
- *  - the collector the app ships passes the repo's **core-edition** check (no TraceRoost Cloud
- *    markers), run against the bundle actually inside the .app rather than the build tree, and so
- *    does the main-process bundle that was packed into the asar;
+ *  - the collector the app ships passes the repo's edition check for the edition being built
+ *    (`TRACEROOST_DESKTOP_EDITION`, scripts/edition.cjs: `core` — no TraceRoost Cloud markers; `full`
+ *    — the Cloud connector is there), run against the bundle actually inside the .app rather than
+ *    the build tree, and is the edition stage-resources.mjs staged; the main-process bundle packed
+ *    into the asar passes the **core** check in both editions (the shell never carries Cloud code);
  *  - the packaged Electron, re-entered as Node, is a Node the collector supports (only checked
  *    when the build's architecture matches the machine, since a foreign-arch binary may not run).
  *
@@ -29,6 +32,7 @@ const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 const { Arch } = require('app-builder-lib')
+const { desktopEdition, EDITION_STAMP } = require('./edition.cjs')
 
 const desktopDir = path.join(__dirname, '..')
 const repoRoot = path.join(desktopDir, '..')
@@ -52,6 +56,7 @@ module.exports = async function afterPack(context) {
       ? path.join(appPath, `${context.packager.appInfo.productFilename}.exe`)
       : path.join(appPath, context.packager.executableName)
   const problems = []
+  const edition = desktopEdition()
 
   // ── Layout ──
   for (const rel of [
@@ -70,6 +75,7 @@ module.exports = async function afterPack(context) {
         : ['tray/trayLinux.png', 'tray/trayLinux@2x.png', 'tray/iconLinux.png']),
     'LICENSE',
     'THIRD_PARTY_NOTICES.md',
+    ...(edition === 'full' ? ['NOTICE.md', 'LICENSE-BSL-1.1'] : []),
     // Electron's licenses: copied into Resources on macOS (electron-builder.cjs); elsewhere the
     // builder's own copies beside the executable, checked below.
     ...(isMac ? ['LICENSE.electron.txt', 'LICENSES.chromium.html'] : []),
@@ -107,19 +113,25 @@ module.exports = async function afterPack(context) {
     problems.push(`cannot read the staged collector's package.json: ${err.message}`)
   }
 
-  // ── Core edition, on what actually shipped ──
-  const checkEdition = (tree, bundles) => {
+  // ── Edition, on what actually shipped ──
+  const checkEdition = (which, tree, bundles) => {
     const r = spawnSync(process.execPath, [
-      path.join(repoRoot, 'scripts', 'check-edition.mjs'), 'core', '--skip-manifest',
+      path.join(repoRoot, 'scripts', 'check-edition.mjs'), which, '--skip-manifest',
       '--tree', tree, '--bundles', bundles.join(','),
     ], { encoding: 'utf8' })
-    if (r.status !== 0) problems.push(`core-edition check failed for ${path.relative(repoRoot, tree)}:\n${r.stderr || r.stdout}`)
+    if (r.status !== 0) problems.push(`${which}-edition check failed for ${path.relative(repoRoot, tree)}:\n${r.stderr || r.stdout}`)
+  }
+  let staged = ''
+  try { staged = fs.readFileSync(path.join(desktopDir, 'resources', EDITION_STAMP), 'utf8').trim() } catch { /* reported below */ }
+  if (staged !== edition) {
+    problems.push(`building the ${edition} edition, but the collector was staged as ${staged || 'an unknown edition'} — re-run \`pnpm run stage\` with the same TRACEROOST_DESKTOP_EDITION`)
   }
   if (fs.existsSync(path.join(collector, 'standalone', 'server.js'))) {
-    checkEdition(collector, ['standalone/server.js', 'media/dashboard.js', 'media/sidebar.js'])
+    checkEdition(edition, collector, ['standalone/server.js', 'media/dashboard.js', 'media/sidebar.js'])
   }
   // The main-process bundle is inside app.asar by now; the file the builder packed is out/main.js.
-  checkEdition(desktopDir, ['out/main.js'])
+  // Core in both editions: Cloud code lives only in the collector.
+  checkEdition('core', desktopDir, ['out/main.js'])
 
   // ── The runtime inside the box ──
   if (process.platform === platform && (archName === process.arch || archName === 'universal')) {
@@ -147,7 +159,7 @@ module.exports = async function afterPack(context) {
     throw new Error(`afterPack: ${appName} (${archName}) failed verification:\n  - ${problems.join('\n  - ')}`)
   }
   const size = dirBytes(appPath)
-  console.log(`  • afterPack: ${appName} (${archName}) verified — ${(size / 1024 / 1024).toFixed(0)} MB on disk, core edition, version ${appVersion}`)
+  console.log(`  • afterPack: ${appName} (${archName}) verified — ${(size / 1024 / 1024).toFixed(0)} MB on disk, ${edition} edition, version ${appVersion}`)
 }
 
 function dirBytes(dir) {

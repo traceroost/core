@@ -2,7 +2,7 @@
 FROM --platform=$BUILDPLATFORM node:24-alpine AS builder
 WORKDIR /app
 
-RUN npm install -g pnpm@10
+RUN npm install -g pnpm@10.28.0
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile

@@ -21,6 +21,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 - **How to change the dashboard port is shown wherever you start TraceRoost from a terminal** — a run in a terminal prints `--ui-port <port>` and Settings → Dashboard port under the dashboard address; `traceroost service install` and `service status` print `service install --ui-port <port>` and Settings; `traceroost --help` says the flag applies to that run only; Homebrew's post-install notes and the README's npx, Homebrew and background-service sections each show it
 - **Export and Import are no longer tabs** — the tab bar is now Traces, Analytics and Advisor. **Export…** on the Traces filter row opens a panel that exports the traces your filters select, with one choice between Redacted (now the default, since it's the one safe to share) and Full, and a format (JSON, CSV or Markdown). To import a JSON export, drop the file anywhere on the dashboard, or use **Import traces…** in the ⚙ Settings panel. VS Code adds `TraceRoost: Export Traces…` and `TraceRoost: Import Traces…`
 
+### TraceRoost Cloud (full edition only)
+
+- **Link the desktop app to your org** — the desktop app (macOS, Windows, Linux) now ships the same edition as the rest of the release, so in the full edition its dashboard has the Org panel: **Link this machine** opens the sign-in page in your browser and links the app's collector to your TraceRoost Cloud org, exactly as `npx traceroost` does. Nothing is sent until you link. The app carries the Business Source License for the Cloud code (`LICENSE-BSL-1.1`, with `NOTICE.md`) beside its MIT `LICENSE`
+
 ## [0.21.0] — 2026-10-26
 
 ### Added

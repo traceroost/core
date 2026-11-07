@@ -64,6 +64,14 @@ if (!fs.existsSync(binary)) {
   console.error(`smoke: ${binary} does not exist — run \`pnpm run pack\` / \`pnpm run pack:linux\` / \`pnpm run pack:win\` (or pass the path)`)
   process.exit(2)
 }
+// Which edition to expect: TRACEROOST_DESKTOP_EDITION when set (CI's package jobs set it), else read
+// off the app itself — the full edition ships LICENSE-BSL-1.1 beside LICENSE (electron-builder.cjs).
+// This file is copied on its own into install-test containers (check-deb.sh, check-appimage.sh), so
+// it reads neither scripts/edition.cjs nor the environment there. An AppImage can't be looked
+// inside; without the variable its edition is unknown and the Org check is skipped.
+const resourcesDir = isLinux || isWindows ? path.join(path.dirname(binary), 'resources') : path.join(appPath, 'Contents', 'Resources')
+const edition = process.env.TRACEROOST_DESKTOP_EDITION?.trim()
+  || (isAppImage ? undefined : fs.existsSync(path.join(resourcesDir, 'LICENSE-BSL-1.1')) ? 'full' : 'core')
 if (isLinux && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
   console.error('smoke: no display — run this under `xvfb-run -a` (or in a desktop session)')
   process.exit(2)
@@ -150,6 +158,20 @@ try {
   check(asset.status === 200 && asset.body.length > 100_000, `dashboard.js serves from the packaged media tree (${asset.body.length} bytes)`)
   const summary = await get(`http://127.0.0.1:${UI_PORT}/api/summary`)
   check(summary.status === 200 && Array.isArray(JSON.parse(summary.body).sessions), '/api/summary answers')
+  // The edition this app was built as (see `edition` above). Full: the dashboard's Org panel route
+  // answers with the local, unlinked status (no network), and the collector is the release build
+  // pinned to production TraceRoost Cloud. Core: the route does not exist.
+  const org = await get(`http://127.0.0.1:${UI_PORT}/api/org`)
+  if (edition === undefined) {
+    console.log('  – edition unknown (an AppImage, and TRACEROOST_DESKTOP_EDITION unset) — Org route not checked')
+  } else if (edition === 'full') {
+    const status = org.status === 200 ? (JSON.parse(org.body).messages ?? []).find(m => m.type === 'orgStatus')?.status : undefined
+    check(status?.linked === false, `/api/org answers with the unlinked Org status (full edition; status ${org.status})`)
+    check(status?.environmentSource === 'release' && status?.endpoint === 'https://traceroost.com',
+      `the collector is pinned to production TraceRoost Cloud (got ${status?.endpoint} from ${status?.environmentSource})`)
+  } else {
+    check(org.status !== 200, `/api/org is not served (core edition; status ${org.status})`)
+  }
 
   // ── The shell's own account of itself ──
   const log = await waitFor(() => {
