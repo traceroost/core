@@ -121,7 +121,14 @@ const runUrl = () => process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID
 // ---------------------------------------------------------------------------------------------
 // check
 
-export async function check({ statePath, pretendSeen = {}, dryRun = false, fetchImpl = fetch, mail = null, now = new Date() }) {
+/** Agents whose capture the owners turned off (repo variable AGENT_CAPTURE_SKIP, e.g. `cursor`,
+ *  comma- or space-separated) — no key for them, by choice. Their releases get a "check by hand"
+ *  issue like Copilot Chat's, dispatch no capture, and don't mail on their own. */
+export function captureSkipList(env = process.env) {
+  return new Set(String(env.AGENT_CAPTURE_SKIP ?? '').split(/[\s,]+/).filter(Boolean))
+}
+
+export async function check({ statePath, pretendSeen = {}, dryRun = false, fetchImpl = fetch, mail = null, now = new Date(), skip = captureSkipList() }) {
   const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : { version: 1, seen: {}, failures: {} }
   state.seen = { ...state.seen, ...pretendSeen }
   state.failures ??= {}
@@ -149,14 +156,17 @@ export async function check({ statePath, pretendSeen = {}, dryRun = false, fetch
     lines.push(`- **${agent.label}: ${prev} → ${latest}**`)
   }
 
+  const captured = agent => agent.capture && !skip.has(agent.key)
   for (const c of changes) {
-    const verifying = c.agent.capture
+    const verifying = captured(c.agent)
     const title = `${c.agent.label} ${c.to} released: ${verifying ? 'verification running' : 'check by hand'}`
     const body = [
       `${c.agent.label} ${c.to} was released (previously ${c.from}).`,
       '',
       verifying
         ? 'The agent-capture workflow is running it headless and diffing what it writes against the committed fixtures. Its result is commented here.'
+        : c.agent.capture
+        ? 'Capture is turned off for this agent (repo variable AGENT_CAPTURE_SKIP), so it is not checked in CI. Check it by hand: runbooks/AGENT_FORMAT_BREAK.md.'
         : 'This agent has no headless mode, so it is not captured in CI. Check it by hand: runbooks/AGENT_FORMAT_BREAK.md.',
       '',
       ...(runUrl() ? [`Release watch run: ${runUrl()}`, ''] : []),
@@ -174,10 +184,12 @@ export async function check({ statePath, pretendSeen = {}, dryRun = false, fetch
   const stuck = errors.filter(e => e.streak === MAIL_AFTER_FAILURES)
   let subject = null
   if (firstRun) subject = 'TraceRoost agent release watch: baseline recorded'
-  else if (changes.length) subject = `TraceRoost: new agent release — ${changes.map(c => `${c.agent.label} ${c.to}`).join(', ')}`
+  // An agent whose capture was turned off doesn't mail on its own: it is listed when another
+  // release mails.
+  else if (changes.some(c => !skip.has(c.agent.key))) subject = `TraceRoost: new agent release — ${changes.map(c => `${c.agent.label} ${c.to}`).join(', ')}`
   else if (stuck.length) subject = `TraceRoost agent release watch: could not check ${stuck.map(e => e.agent.label).join(', ')} for a day`
   if (changes.length) {
-    const what = c => (!c.agent.capture ? 'check by hand' : github.enabled && !dryRun ? 'verification dispatched' : 'verification not dispatched (no GitHub repository, or --dry-run)')
+    const what = c => (!captured(c.agent) ? 'check by hand' : github.enabled && !dryRun ? 'verification dispatched' : 'verification not dispatched (no GitHub repository, or --dry-run)')
     lines.push('', ...changes.map(c => `${c.agent.label} ${c.to}: ${what(c)}${c.issue ? ` — issue #${c.issue}` : ''}`))
   }
   const text = lines.join('\n')

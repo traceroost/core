@@ -41,5 +41,9 @@ export const COPILOT_RECORDS: KnownRecords = {
     'session.start':     ['data.copilotVersion', 'data.startTime', 'data.context.cwd', 'data.selectedModel'],
     'user.message':      ['data.transformedContent'],
     'assistant.message': ['data.toolRequests', 'data.model', 'data.outputTokens'],
+    'session.usage_record': [
+      'data.usage.model', 'data.usage.inputTokens', 'data.usage.outputTokens',
+      'data.usage.cacheReadTokens', 'data.usage.cacheWriteTokens',
+    ],
   },
 }
