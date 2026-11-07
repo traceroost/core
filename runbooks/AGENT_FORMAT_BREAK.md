@@ -67,7 +67,9 @@ fixtures, prune the versions in between (the suite enforces the cap).
   `src/summarizers/` (OTLP). Parsing stays there.
 - **Vocabulary:** `src/adapters/<agent>/known.ts`. Add new record names to `consumed` (with their
   required keys) when the parser reads them, or to `ignored` when it deliberately skips them. Add a
-  key path to `structural` only if it holds no free text.
+  key path to `structural` only if it holds no free text. List a field the parser reads when it's
+  there (a token count, the model) under `reads`: the CI format check fails when a new version
+  stops writing one the newest fixture had.
 - **Totals:** `UPDATE_AGENT_FIXTURES=1` and the contract suite writes the new version's
   `expected.json`. Check its traces, turns, tokens, tool calls and cost by hand against the capture
   before committing — that file is the record of what's right.

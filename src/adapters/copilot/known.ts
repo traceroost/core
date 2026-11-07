@@ -33,4 +33,9 @@ export const COPILOT_RECORDS: KnownRecords = {
     const v = (r['data'] as Record<string, unknown> | undefined)?.['copilotVersion']
     return typeof v === 'string' && v ? v : null
   },
+  reads: {
+    'session.start':     ['data.copilotVersion', 'data.startTime', 'data.context.cwd', 'data.selectedModel'],
+    'user.message':      ['data.transformedContent'],
+    'assistant.message': ['data.toolRequests', 'data.model', 'data.outputTokens'],
+  },
 }
