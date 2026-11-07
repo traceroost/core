@@ -110,7 +110,8 @@ job a fixed `edition: core`.) For a permanent switch, change the `'core'` fallba
 `release.yml` (its `EDITION:` line, the `docker` job's `with: edition:` and the `desktop` job's)
 and the Dockerfile's
 `ARG EDITION=core` default to `full`, and
-update "Currently" above and README → Editions. Before the first full release, run
+update "Currently" above, README → Editions, Headless forwarder, the Command Palette note and
+Network, CONTRIBUTING.md → Editions, and runbooks/README.md's task table. Before the first full release, run
 `release.yml` manually with `edition: full` and install the VSIX artifact to check the Org panel,
 and run **Desktop release** manually with `edition: full` (a dry run: it builds, smoke-tests and
 assembles every platform without attaching anything) and open a downloaded app's Org panel.

@@ -72,9 +72,10 @@ const HELP_SECTIONS = {
   glossary:   { href: '#help-glossary',   heading: 'Glossary' },
 } as const
 
-// The core edition (no TraceRoost Cloud built in — see media/src/orgPanel.ts) leaves out the Cloud and
-// Privacy sections, which only describe linking and what a linked machine sends. A literal
-// `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) so the core bundle drops them.
+// The core edition (no TraceRoost Cloud built in — see media/src/orgPanel.ts) leaves out the Privacy
+// section, which only describes what a linked machine sends, and swaps the Cloud section for
+// CoreCloudSection (a link to Cloud's public page). A literal `process.env.TRACEROOST_EDITION`
+// check (esbuild.js defines it) so the core bundle drops the full-edition sections.
 const TOC_SECTIONS = Object.values(HELP_SECTIONS).filter(s =>
   process.env.TRACEROOST_EDITION !== 'core' || s !== HELP_SECTIONS.privacy)
 
@@ -1091,7 +1092,7 @@ Before any task: call get_recent_sessions (recent work + cost) and get_workspace
         <p style={mutedP}>
           {standalone
             ? <>The standalone server starts a dedicated MCP server on port 4316 automatically — no extra setup needed. Endpoint: <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a>.</>
-            : <>The VS Code extension starts an MCP server on port 4316 by default when TraceRoost activates. To disable it, set <code style={codeStyle}>traceRoost.enableMcpServer</code> to <code style={codeStyle}>false</code> in VS Code settings. To change the port, set <code style={codeStyle}>traceRoost.mcpPort</code>.</>
+            : <>The VS Code extension starts an MCP server on port 4316 by default when TraceRoost activates. To disable it, set <code style={codeStyle}>traceRoost.enableMcpServer</code> to <code style={codeStyle}>false</code> in VS Code settings. To change the port, set <code style={codeStyle}>traceRoost.mcpPort</code>. In VS Code, the extension also offers this server to VS Code's own chat agent automatically; the steps below are for Claude Code and other clients.</>
           }
         </p>
         <p style={mutedP}>Verify it's up by opening <a href={mcpUrl} target="_blank" rel="noreferrer" style={codeStyle}>{mcpUrl}</a> in a browser — you should see <code style={codeStyle}>{`{"status":"ok","server":"traceroost-mcp",...}`}</code>. If the page doesn't load, the server isn't running.</p>
@@ -1230,13 +1231,19 @@ function NetworkSection() {
         <p>What goes over the network. TraceRoost uploads none of your traces{process.env.TRACEROOST_EDITION !== 'core' ? <> unless you link to <a href="#help-cloud">TraceRoost Cloud</a>, and then only what <a href="#help-privacy">Privacy</a> lists</> : null}. TraceRoost receives OTel and reads agent logs locally; neither needs a connection.</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
-            <dt class="glossary-term">Update check (standalone only)</dt>
-            <dd class="glossary-def" style="display:block">The standalone server — npx, a global install, the background service or Docker — asks the npm registry for the latest published TraceRoost version at startup and every 8 hours, so it can show an update button. The request sends no trace or workspace data. Set <code style={codeStyle}>TRACEROOST_NO_UPDATE_CHECK=1</code> to turn it off. The IDE extension never makes it; it updates through your editor's marketplace.</dd>
+            <dt class="glossary-term">Update check (standalone and desktop app)</dt>
+            <dd class="glossary-def" style="display:block">The standalone server — npx, a global install, the background service, the desktop app or Docker — asks the npm registry for the latest published TraceRoost version at startup and every 8 hours, so it can show an update button. The request sends no trace or workspace data. Set <code style={codeStyle}>TRACEROOST_NO_UPDATE_CHECK=1</code> to turn it off. The IDE extension never makes it; it updates through your editor's marketplace.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Make a suggestion</dt>
             <dd class="glossary-def" style="display:block">Opens TraceRoost's suggestion page in your browser — only when you click it. The link carries the TraceRoost version and the current tab's name, never your traces.</dd>
           </div>
+          {process.env.TRACEROOST_EDITION === 'core' && (
+            <div class="glossary-item" style="flex-direction:column;gap:2px">
+              <dt class="glossary-term">TraceRoost Cloud link</dt>
+              <dd class="glossary-def" style="display:block">Opens TraceRoost Cloud's pricing page in your browser — only when you click it. Nothing is sent with it.</dd>
+            </div>
+          )}
         </div>
       </div>
     </div>

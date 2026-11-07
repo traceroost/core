@@ -1528,6 +1528,7 @@ traceroost/
 │   │   ├── planUsage.ts          # Plan-limit snapshot (mirrors src/planUsage/) + the "no data, no UI" render rules
 │   │   ├── suggestionRules.ts    # Instruction-suggestion rules — byte-identical copy of src/suggestionRules.ts
 │   │   ├── suggest.ts            # Header "Make a suggestion" link URL (public Cloud /suggest page; both editions)
+│   │   ├── cloudInfo.ts          # TraceRoost Cloud pricing-page URL (core's only Cloud mention; both editions)
 │   │   ├── orgPanel.ts           # The webview's one seam to the Org panel (cloud/panels/OrgPanel.tsx)
 │   │   ├── orgPanel.core.tsx     # Core edition's inert Org panel stub
 │   │   ├── cloud/panels/OrgPanel.tsx # TraceRoost Cloud Org panel (full edition; BSL)
@@ -1554,7 +1555,7 @@ traceroost/
 │   │       ├── PlanLimits.tsx    # Analytics' PLAN LIMITS section (5-hour / weekly plan windows)
 │   │       ├── languageBreakdown.ts # BY LANGUAGE cut + agent-authored change-size totals (traces without line data never count as 0)
 │   │       ├── GettingStarted.tsx # "Nothing recorded yet" empty state's next steps, shared by Traces and Analytics
-│   │       ├── CloudNote.tsx     # "Link to Cloud" note that opens the Org panel (full edition)
+│   │       ├── CloudNote.tsx     # Cloud note in Export/Import/Analytics — full: opens the Org panel; core: links to Cloud's pricing page
 │   │       ├── outcomeTrend.ts   # Day/week binning (dayBins) for OUTCOME & TOKEN SPEND OVER TIME
 │   │       ├── codeChanges.ts    # CODE CHANGES OVER TIME bins — agent-authored lines/files, traces without line data excluded
 │   │       ├── Insights.tsx      # InsightCard component + generateInsights; clipboard copy icon
@@ -1573,7 +1574,7 @@ traceroost/
 │   │       ├── IngestionNote.tsx # Shared OTEL-vs-log-richness callout used by Help/Settings
 │   │       ├── Export.tsx        # Full or redacted export UI — format: JSON · CSV · Markdown
 │   │       ├── Pricing.tsx       # Rate tables behind the header's $ icon — reads from ../pricing and the Org panel's cloud rates
-│   │       └── Help.tsx          # Sticky TOC nav, setup, signal/alert/automation reference, MCP setup, glossary (Cloud/Privacy sections full edition only)
+│   │       └── Help.tsx          # Sticky TOC nav, setup, signal/alert/automation reference, MCP setup, glossary (Privacy section full edition only; Cloud section in both — core's is a pricing-page link)
 │   ├── dashboard.js              # Compiled Preact bundle
 │   ├── dashboard.css             # Compiled styles
 │   └── sidebar.js                # Compiled sidebar script
