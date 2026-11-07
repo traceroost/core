@@ -69,6 +69,17 @@ export interface FileObservation {
   /** The structural fingerprint (fingerprint.ts) of the first unknown record of each name — key
    *  names and value types only; the record itself is not kept. */
   unknownFingerprints: Record<string, Fingerprint>
+  /** Turns a complete read of the file produced — for Claude Code and Codex, only those carrying
+   *  token usage (LogReader sets it after parsing). Absent when the read wasn't complete or the
+   *  source has no files to count (OpenCode, OTLP). */
+  turns?: number
+}
+
+/** An unknown name that means data TraceRoost relies on was lost, not just something it skips:
+ *  a record it reads that came without a field it needs (`assistant missing message.usage`, an
+ *  OpenCode table or column), or a line that didn't parse. */
+export function isDamageName(name: string): boolean {
+  return name === '(unparseable)' || / missing( |$)/.test(name)
 }
 
 /** Classifies the records of one file. `records[i]` undefined (a line that didn't parse) counts
