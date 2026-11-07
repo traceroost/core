@@ -33,8 +33,15 @@ export const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
  *    and short edit text are never stored), so a stored row can't be re-analyzed in place: every
  *    file within retention is read again and its rows rewritten with the evidence. The trace store
  *    is not rebuilt — keys are unchanged, so the writer's INSERT OR REPLACE updates rows in place.
+ * 7: Copilot CLI input tokens used to be its `inputTokens` — but that already includes the cache
+ *    reads and writes, which were then added again, so every cached token was counted twice and
+ *    priced as fresh input. Its events.jsonl files within retention are read again; keys are
+ *    unchanged, so rows are rewritten in place.
  */
-export const LOG_FILE_STATE_VERSION = 6
+export const LOG_FILE_STATE_VERSION = 7
+
+/** A Copilot CLI session log: `<session-state>/<session id>/events.jsonl`. */
+const COPILOT_CLI_EVENTS = /[\\/]session-state[\\/][^\\/]+[\\/]events\.jsonl$/
 
 export function readLogFileState(storageDir: string, log?: (msg: string) => void): { version: number; files: Record<string, FileState> } {
   const file = path.join(storageDir, LOG_FILE_STATE_FILENAME)
@@ -79,15 +86,17 @@ export function restoreLogFileState(lr: LogReader, storageDir: string, retention
   let forgotten = 0
   // Versions 5 and 6 re-read every file within retention, which covers every earlier upgrade's
   // re-read.
-  if (version < 6) {
-    const cutoffMs = Date.now() - retentionDays * 86_400_000
+  const cutoffMs = Date.now() - retentionDays * 86_400_000
+  const forget = (match: (filePath: string) => boolean) => {
     for (const [filePath, state] of Object.entries(files)) {
-      if (state.mtimeMs >= cutoffMs) {
+      if (state.mtimeMs >= cutoffMs && match(filePath)) {
         delete files[filePath]
         forgotten++
       }
     }
   }
+  if (version < 6) forget(() => true)
+  else if (version < 7) forget(filePath => COPILOT_CLI_EVENTS.test(filePath))
   lr.importFileState(files)
   return forgotten
 }

@@ -13,6 +13,10 @@ export const COPILOT_RECORDS: KnownRecords = {
     'user.message':      ['data'],
     'assistant.message': ['data'],
     'session.shutdown':  ['data.modelMetrics'],
+    // 1.0.107+: per-call tokens (earlier versions wrote it without `usage`), and the model.
+    'session.usage_record':       ['data'],
+    'session.model_change':       ['data'],
+    'session.auto_mode_resolved': ['data'],
   },
   ignored: [
     'system.message', 'abort',
@@ -21,13 +25,13 @@ export const COPILOT_RECORDS: KnownRecords = {
     'tool.execution_start', 'tool.execution_complete',
     'permission.requested', 'permission.completed',
     'external_tool.requested', 'external_tool.completed',
-    'session.usage_record', 'session.usage_checkpoint', 'session.auto_mode_resolved',
+    'session.usage_checkpoint', 'instruction.update',
     'session.permissions_changed', 'session.binary_asset',
     'subagent.deselected',
     'model.turn_started', 'model.turn_ended', 'model.model_call_started', 'model.model_call_success',
     'model.captured_assignment_context', 'model.message', 'model.response', 'model.messages_snapshot',
   ],
-  structural: ['data', 'data.context', 'data.modelMetrics'],
+  structural: ['data', 'data.context', 'data.modelMetrics', 'data.usage'],
   versionOf: r => {
     if (r['type'] !== 'session.start') return null
     const v = (r['data'] as Record<string, unknown> | undefined)?.['copilotVersion']
