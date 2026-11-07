@@ -9,15 +9,15 @@ Please report security issues privately — **not** in a public issue, discussio
 - **Or email:** [support@traceroost.com](mailto:support@traceroost.com).
 
 Include what you found, the TraceRoost version (shown at the bottom-left of the Traces tab, or run `traceroost --version`),
-how it runs (VS Code extension, `npx traceroost`, Homebrew, background service,
+how it runs (VS Code extension, desktop app, `npx traceroost`, Homebrew, background service,
 Docker), your OS, and the steps to reproduce. Please check it still reproduces on the latest release. Only the latest release is supported: fixes ship in a new release, not as backports.
 
 ## In scope
 
 - **The local servers and their ports** — the dashboard (`UI_PORT`, default 4315; 3000 inside the Docker image), the OTLP HTTP
   receiver (`OTLP_PORT`, default 4318) and the MCP endpoint (`MCP_PORT`, default 4316) run by the
-  standalone server, the background service and the Docker image, and the VS Code extension's own
-  OTLP receiver. For example: another local process, a web page in your browser (DNS rebinding,
+  standalone server, the background service, the desktop app and the Docker image, and the VS Code
+  extension's own OTLP receiver and MCP server. For example: another local process, a web page in your browser (DNS rebinding,
   cross-origin requests) or another device reaching data or actions it shouldn't.
 - **LAN mode token auth** — with `BIND_HOST=0.0.0.0` (or `::`, and always in Docker) every request
   to the dashboard, OTLP and MCP ports must carry the access token from `~/.traceroost/config.json`.
