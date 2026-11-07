@@ -122,6 +122,9 @@ jobs:
             test-results/agent-capture/versions.json
           retention-days: 30
           if-no-files-found: ignore
+          # The fixtures keep each agent's home layout (files/.claude/…, files/.copilot/…):
+          # without this every log file is a hidden path and only the manifests are uploaded.
+          include-hidden-files: true
 
       - name: Report
         if: always()

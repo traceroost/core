@@ -13,7 +13,10 @@
 //   - the capture's temp home directory, and any other home directory → <HOME>
 //   - e-mail addresses → <EMAIL>
 //   - anything that looks like an API key / bearer token → <REDACTED>
-// and refuses (exit 1) if a home path, e-mail or token-shaped string survives. Then run
+//   - an agent vendor's own system prompt (Copilot's system.message, Codex's base instructions)
+//     → <SYSTEM PROMPT OMITTED>, and opaque per-call ids → <CALL-ID-n> (SCRUB below)
+// Only the files TraceRoost reads are copied (`keep`): not an agent's lock files, checkpoints or
+// workspace snapshots. It refuses (exit 1) if a home path, e-mail or token-shaped string survives. Then run
 //   UPDATE_AGENT_FIXTURES=1 pnpm run test:unit
 // to write each new version's expected.json, read the diff, and commit — see
 // runbooks/AGENT_FORMAT_BREAK.md.
@@ -40,8 +43,10 @@ const outRoot = path.resolve(flagValue('out') ?? path.join('src', 'test', 'fixtu
 const captureOs = flagValue('os') ?? (/(windows|macos|ubuntu)[^/\\]*/i.exec(path.resolve(src))?.[0] ?? null)
 
 // capture subdirectory → adapter, LogReader key, where it sits under the home dir, which files count
+// (`pick`, listed in the manifest) and which are copied (`keep`, default `pick`: Claude's subagent
+// transcripts sit beside their parent and are read through it).
 const SOURCES = [
-  { dir: 'claude-projects',       adapter: 'claude',   logKey: 'claude',   home: '.claude/projects',         pick: f => f.endsWith('.jsonl') && !path.basename(f).startsWith('agent-') },
+  { dir: 'claude-projects',       adapter: 'claude',   logKey: 'claude',   home: '.claude/projects',         pick: f => f.endsWith('.jsonl') && !path.basename(f).startsWith('agent-'), keep: f => f.endsWith('.jsonl') },
   { dir: 'codex-sessions',        adapter: 'codex',    logKey: 'codex',    home: '.codex/sessions',          pick: f => f.endsWith('.jsonl') },
   { dir: 'copilot-session-state', adapter: 'copilot',  logKey: 'copilot',  home: '.copilot/session-state',   pick: f => path.basename(f) === 'events.jsonl' },
   { dir: 'cursor-projects',       adapter: 'cursor',   logKey: 'cursor',   home: '.cursor/projects',         pick: f => f.endsWith('.jsonl') && f.includes('agent-transcripts') },
@@ -53,6 +58,45 @@ const VERSION_OF = {
   claude:  r => r.version,
   codex:   r => (r.type === 'session_meta' ? r.payload?.cli_version : undefined),
   copilot: r => (r.type === 'session.start' ? r.data?.copilotVersion : undefined),
+}
+
+// Text no parser reads that isn't the user's to publish: the agent vendor's system prompt, and
+// opaque per-call ids. Strings are replaced in place, so a record's fingerprint is unchanged.
+const SYSTEM_PROMPT = '<SYSTEM PROMPT OMITTED>'
+const CALL_ID_KEYS = new Set(['apiCallId', 'usageId', 'model_call_id'])
+const replaceStrings = (v, s) => (typeof v === 'string' ? s : Array.isArray(v) ? v.map(x => replaceStrings(x, s)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, replaceStrings(x, s)])) : v)
+function scrubber() {
+  const ids = new Map()
+  const callIds = v => {
+    if (Array.isArray(v)) return v.map(callIds)
+    if (!v || typeof v !== 'object') return v
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => {
+      if (CALL_ID_KEYS.has(k) && typeof x === 'string') {
+        if (!ids.has(x)) ids.set(x, `<CALL-ID-${ids.size + 1}>`)
+        return [k, ids.get(x)]
+      }
+      return [k, callIds(x)]
+    }))
+  }
+  return {
+    copilot: r => {
+      if (r.type === 'system.message' && typeof r.data?.content === 'string') r = { ...r, data: { ...r.data, content: SYSTEM_PROMPT } }
+      return callIds(r)
+    },
+    codex: r => {
+      if (r.type !== 'session_meta' || !r.payload) return r
+      const payload = { ...r.payload }
+      for (const k of ['base_instructions', 'instructions']) if (k in payload) payload[k] = replaceStrings(payload[k], SYSTEM_PROMPT)
+      return { ...r, payload }
+    },
+  }
+}
+function scrubJsonl(text, scrub) {
+  if (!scrub) return text
+  return text.split('\n').map(l => {
+    if (!l.trim()) return l
+    try { return JSON.stringify(scrub(JSON.parse(l))) } catch { return l }
+  }).join('\n')
 }
 
 function walk(dir) {
@@ -122,14 +166,15 @@ for (const s of SOURCES) {
   if (fs.existsSync(outDir)) fs.rmSync(outDir, { recursive: true })
 
   const listed = []
-  // Copy the whole tree (Claude subagent transcripts sit beside their parent), list the picks.
-  for (const f of walk(dir)) {
+  const scrub = scrubber()[s.adapter]
+  for (const f of walk(dir).filter(s.keep ?? s.pick)) {
     const rel = path.join('files', s.home, path.relative(dir, f)).replace(/\\/g, '/')
     const dest = path.join(outDir, rel)
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     if (f.endsWith('.db')) fs.copyFileSync(f, dest)
     else {
-      const text = redact(fs.readFileSync(f, 'utf8'))
+      const raw = fs.readFileSync(f, 'utf8')
+      const text = redact(f.endsWith('.jsonl') ? scrubJsonl(raw, scrub) : raw)
       fs.writeFileSync(dest, text)
       const m = LEFTOVER.exec(text)
       if (m) problems.push(`${path.relative(outRoot, dest)}: ${m[0]}`)
@@ -141,7 +186,7 @@ for (const s of SOURCES) {
     source: 'capture',
     captured: new Date().toISOString().slice(0, 10),
     os: captureOs,
-    redaction: 'tests/e2e/captures-to-fixtures.mjs: <REPO>, <HOME>, <EMAIL>, <REDACTED>',
+    redaction: 'tests/e2e/captures-to-fixtures.mjs: <REPO>, <HOME>, <EMAIL>, <REDACTED>, <SYSTEM PROMPT OMITTED>, <CALL-ID-n>',
     adapter: s.adapter,
     agentVersion,
     ...(recorded && recorded !== version ? { cliVersion: recorded } : {}),

@@ -50,6 +50,12 @@ export const CODEX_RECORDS: KnownRecords = {
     const v = (r['payload'] as Record<string, unknown> | undefined)?.['cli_version']
     return typeof v === 'string' && v ? v : null
   },
+  reads: {
+    'event_msg:token_count': [
+      'payload.info.total_token_usage.input_tokens', 'payload.info.total_token_usage.cached_input_tokens',
+      'payload.info.total_token_usage.output_tokens',
+    ],
+  },
 }
 
 export const CODEX_OTLP: KnownOtlp = {
