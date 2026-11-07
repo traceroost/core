@@ -252,13 +252,12 @@
         }
       }
     },
-    "mcpServers": {
-      "traceroost": {
-        "label": "TraceRoost",
-        "type": "http",
-        "url": "http://localhost:4316/mcp"
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "traceroost.mcp",
+        "label": "TraceRoost"
       }
-    }
+    ]
   },
   "bin": {
     "traceroost": "./standalone/cli.js"

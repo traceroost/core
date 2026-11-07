@@ -182,4 +182,15 @@ suite('adapters — README support matrix', () => {
     assert.ok(m, 'README.md has no support-matrix markers')
     assert.strictEqual(m[1], supportMatrixMarkdown(), 'README → Supported agents drifted from src/adapters/registry.ts; paste supportMatrixMarkdown() output between the markers')
   })
+
+  test('shows the Last verified version column only once an adapter has a version', () => {
+    const none = ADAPTERS.map(a => ({ ...a, lastVerifiedVersion: null }))
+    assert.ok(!supportMatrixMarkdown(none).includes('Last verified version'))
+    assert.ok(supportMatrixMarkdown(none).split('\n').every(r => r.split('|').length === 5))
+    const one = none.map((a, i) => (i === 0 ? { ...a, lastVerifiedVersion: '2.1.0' } : a))
+    const rows = supportMatrixMarkdown(one).split('\n')
+    assert.strictEqual(rows[0], '| Agent | Reads | Support level | Last verified version |')
+    assert.ok(rows[2].endsWith('| 2.1.0 |'))
+    assert.ok(rows[3].endsWith('| none yet |'))
+  })
 })
