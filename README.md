@@ -23,7 +23,7 @@ Two things it does that a usage dashboard doesn't:
 
 | Way to run | Get it | Then |
 | --- | --- | --- |
-| **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar |
+| **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar, then its graph icon (or **TraceRoost: Open Dashboard**) for the full dashboard |
 | **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
 | **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:4315> (another port: add `--ui-port <port>`; [more](#moving-the-dashboard-to-another-port)) |
 
@@ -221,7 +221,7 @@ Each `user` line starts a trace. Available from logs: prompt, tool calls (names,
 
 Not available, confirmed by direct inspection rather than assumed: **token/usage counts, model name, workspace path, and per-tool error detail** — none of these exist anywhere in Cursor CLI's local storage today. These show as an honest unpriced/unknown gap (matching every other unrecognized-model session) rather than a guessed number. Cursor's OpenTelemetry export is offered to enterprise accounts, and otherwise only through third-party hook scripts; TraceRoost doesn't ingest either yet, so Cursor CLI traces always carry a **Log** badge.
 
- All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
+All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
 
 ## Cost Estimation
 
@@ -343,7 +343,7 @@ The extension receives OTel traces in real time **and** reads local log files, s
 Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
 
 1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)** (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was [kept from the rename](#upgrading-from-agentlens))
-2. Open the **TraceRoost** view from the Activity Bar — this opens a dashboard panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
+2. Open the **TraceRoost** view from the Activity Bar for a summary, then click its graph icon (or run **TraceRoost: Open Dashboard**) for the full dashboard — a panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
 3. TraceRoost asks whether to set up Copilot, Claude Code, and Codex — choose **Set up agents**, then restart any running agents to start streaming traces (skipped it? run **TraceRoost: Set Up Agents…** from the Command Palette)
 4. Past trace history loads automatically from local log files — no extra setup needed
 
@@ -389,14 +389,14 @@ token** TraceRoost generates on first start. Without it the dashboard shows an "
 and agents' exports are rejected with `401`. To get it:
 
 ```bash
-# The startup log prints the dashboard URL with the token included — open that URL once and the
-# browser keeps a cookie, so plain http://localhost:4315 works afterwards.
-docker logs <container> 2>&1 | grep -m1 'token='
-
-# Or read it from the config file (HOME is /data in the image, so it lives on the volume and
+# Read it from the config file (HOME is /data in the image, so it lives on the volume and
 # survives container re-creation when you mount one):
 docker exec <container> cat /data/.traceroost/config.json   # "authToken": "…"
 ```
+
+Then open `http://localhost:4315/?token=<authToken>` once — the browser keeps a cookie, so plain
+<http://localhost:4315> works afterwards. (The container's log shows the dashboard URL with the
+token redacted, so it never lands in a log file, and with the container's internal port.)
 
 Then pass it to the setup scripts below (`--token` / `-Token`, or `TRACEROOST_TOKEN`), or add it
 by hand as `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <token>` (Codex: a
@@ -571,10 +571,12 @@ give it its own data directory and ports, e.g.
 automatically on the next start. The background service, if blocked this way, waits and starts as
 soon as the other server stops. The VS Code extension keeps its own data and isn't affected.
 
-The local server uses the same port as the VS Code extension — only one can run at a time. To run both simultaneously, use different ports:
+The local server and the VS Code extension default to the same OTLP port. Both can run: whichever
+starts second moves to the next free port (a running standalone server is the one that sets your agents' port — see [Manual Configuration](#manual-configuration)). To pin
+the standalone server's ports instead:
 
 ```bash
-OTLP_PORT=4319 UI_PORT=3001 bunx traceroost@latest
+OTLP_PORT=4319 UI_PORT=4400 npx traceroost@latest
 ```
 
 ### Background Service (macOS / Windows / Linux)
@@ -772,7 +774,8 @@ TraceRoost is built in two editions from the same source:
 ## Network
 
 Your trace data stays on your machine. The one outbound request TraceRoost makes on its own is an
-update check: the standalone server (`npx traceroost`, the background service and Docker) asks
+update check: the standalone server (`npx traceroost`, the background service, Docker and the
+desktop app's built-in collector) asks
 `registry.npmjs.org` for the latest `traceroost` version at startup and every 8 hours, so the
 dashboard can tell you when a newer release is out. It sends nothing from your traces or
 settings — it's a plain request for the public package's latest version, so npm sees only what
@@ -863,7 +866,7 @@ Open the VS Code Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`) and search for
 | Command | Description |
 | ------- | ----------- |
 | `TraceRoost: Open Dashboard` | Open the full dashboard in an editor panel |
-| `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Don't set up**, or to write them all again the settings now. Running it counts as your yes |
+| `TraceRoost: Set Up Agents…` | Set up Claude Code, Codex and Copilot to send live traces here — the way back in if you chose **Don't set up**, or to write TraceRoost's settings for all of them again. Running it counts as your yes |
 | `TraceRoost: Remove Agent Setup…` | Take out only the settings TraceRoost added to Claude Code, Codex and Copilot (listed in a confirmation first), and stop setting agents up. Settings that send to a different collector are left alone. Same as `traceroost agents remove` |
 | `TraceRoost: Export Traces…` | Open the dashboard's Export panel for the traces that match its current filters |
 | `TraceRoost: Import Traces…` | Open the dashboard's Import panel to load a TraceRoost JSON export |
@@ -881,7 +884,7 @@ The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Mac
 | `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver (1024–65535) |
 | `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTel span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
 | `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI. Disable if you only want OTel data. |
-| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Configuring agents](#configuring-agents-for-local--docker)), and once you say yes, keep TraceRoost's port in their OTel settings current each time it starts (a setting you removed stays removed). Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Set up agents** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
+| `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Manual Configuration](#manual-configuration)), and once you say yes, keep TraceRoost's port in their OTel settings current each time it starts (a setting you removed stays removed). Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Set up agents** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
 | `traceRoost.enableMcpServer` | `true` | Start the TraceRoost MCP server so Claude Code and other MCP-compatible agents can query your trace history. |
 | `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (1024–65535; when `traceRoost.enableMcpServer` is true) |
 | `traceRoost.sessionRetentionDays` | `90` | How many days to keep trace history in the local database (pruned on activation and every 24 hours) |
