@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { observeRecords } from '../adapters/classify'
-import { AdapterHealth, adapterHealthMessage, bannerWorthy, compareVersions, persistAdapterHealth, restoreAdapterHealth } from '../adapters/health'
+import { AdapterHealth, adapterHealthMessage, bannerWorthy, compareVersions, persistAdapterHealth, RECENT_MS, restoreAdapterHealth } from '../adapters/health'
 import { buildAgentReport } from '../adapters/report'
 import { LogReader } from '../logReader'
 import { OtlpIngest } from '../otlpIngest'
@@ -18,7 +18,7 @@ const claudeOk = (version = '2.1.310') => observeRecords('claude', [
 ])!
 
 suite('adapter health — thresholds and versions', () => {
-  test('the banner needs 5 unknown records, or 1% of the version\'s records when that is fewer', () => {
+  test('damage needs 5 records, or 1% of the version\'s records when that is fewer', () => {
     assert.strictEqual(bannerWorthy({ known: 10, ignored: 0, unknown: 1 }), true)       // 1% of 11 rounds up to 1
     assert.strictEqual(bannerWorthy({ known: 1000, ignored: 0, unknown: 4 }), false)    // under 5 and under 1%
     assert.strictEqual(bannerWorthy({ known: 1000, ignored: 0, unknown: 5 }), true)
@@ -34,7 +34,7 @@ suite('adapter health — thresholds and versions', () => {
 })
 
 suite('adapter health — status per agent', () => {
-  test('no data, then not verified (no committed real capture), then unrecognized', () => {
+  test('no data, then not verified (no committed real capture), then unrecognized — quietly', () => {
     const h = new AdapterHealth(() => NOW)
     const row = () => h.rows().find(r => r.key === 'claude')!
     assert.strictEqual(row().status, 'no-data')
@@ -45,7 +45,8 @@ suite('adapter health — status per agent', () => {
     h.observeFile('/b.jsonl', observeRecords('claude', [{ type: 'brand-new', version: '2.2.0' }])!)
     assert.strictEqual(row().status, 'unrecognized')
     assert.strictEqual(row().versionSeen, '2.2.0')
-    assert.deepStrictEqual(row().versions.map(v => [v.version, v.banner]), [['2.2.0', true], ['2.1.310', false]])
+    // A record type TraceRoost doesn't know, with nothing it reads lost: Settings only, no banner.
+    assert.deepStrictEqual(row().versions.map(v => [v.version, v.impact, v.banner]), [['2.2.0', 'skipped', false], ['2.1.310', 'none', false]])
     assert.strictEqual(h.rows().find(r => r.key === 'codex')!.status, 'no-data')
   })
 
@@ -89,57 +90,138 @@ suite('adapter health — status per agent', () => {
   })
 })
 
+// A Codex rollout like the VS Code extension's alpha builds write: records TraceRoost reads, some it
+// doesn't, and no user_message — so no turns.
+const codexAlpha = (turns: number | undefined) => ({
+  ...observeRecords('codex', [
+    { type: 'session_meta', payload: { id: 'x', cwd: '/r', cli_version: '0.162.0-alpha.17.2' } },
+    { type: 'turn_context', payload: { model: 'm' } },
+    { type: 'world_state', payload: {} },
+  ])!,
+  ...(turns === undefined ? {} : { turns }),
+})
+
+suite('adapter health — loud only for recent data loss', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const codexRow = (h: AdapterHealth) => h.rows().find(r => r.key === 'codex')!
+
+  test('a file that gave no turns is lost data: Missing data, and a banner while it is recent', () => {
+    const h = new AdapterHealth(() => NOW)
+    h.observeFile('/r1.jsonl', codexAlpha(0), NOW - DAY)
+    const row = codexRow(h)
+    assert.strictEqual(row.status, 'missing-data')
+    assert.deepStrictEqual(row.versions.map(v => [v.impact, v.unreadFiles, v.lastImpactMs, v.banner]), [['loss', 1, NOW - DAY, true]])
+  })
+
+  test('the same loss in data older than RECENT_MS stays in Settings: Missing data, no banner', () => {
+    const h = new AdapterHealth(() => NOW)
+    h.observeFile('/r1.jsonl', codexAlpha(0), NOW - RECENT_MS - 1)
+    h.observeFile('/r2.jsonl', codexAlpha(0), NOW - 30 * DAY)
+    const row = codexRow(h)
+    assert.strictEqual(row.status, 'missing-data')
+    assert.deepStrictEqual(row.versions.map(v => [v.impact, v.unreadFiles, v.banner]), [['loss', 2, false]])
+  })
+
+  test('turns read, or an incomplete read, or a file of nothing TraceRoost reads: skipped, not lost', () => {
+    for (const obs of [codexAlpha(3), codexAlpha(undefined)]) {
+      const h = new AdapterHealth(() => NOW)
+      h.observeFile('/r.jsonl', obs, NOW)
+      assert.deepStrictEqual(codexRow(h).versions.map(v => [v.impact, v.banner]), [['skipped', false]])
+      assert.strictEqual(codexRow(h).status, 'unrecognized')
+    }
+    // A Claude session opened and closed without a prompt: only metadata, some of it new.
+    const h = new AdapterHealth(() => NOW)
+    h.observeFile('/c.jsonl', { ...observeRecords('claude', [{ type: 'summary' }, { type: 'brand-new', version: '2.2.0' }])!, turns: 0 }, NOW)
+    assert.deepStrictEqual(h.rows().find(r => r.key === 'claude')!.versions.map(v => [v.impact, v.unreadFiles]), [['skipped', 0]])
+  })
+
+  test('records TraceRoost reads missing a field it needs are lost data past the threshold', () => {
+    const h = new AdapterHealth(() => NOW)
+    const records = [
+      { type: 'user', message: {}, timestamp: 't', uuid: 'u', version: '2.3.0' },
+      ...Array.from({ length: 5 }, () => ({ type: 'assistant', message: {}, timestamp: 't' })),
+    ]
+    h.observeFile('/a.jsonl', { ...observeRecords('claude', records)!, turns: 1 }, NOW)
+    const v = h.rows().find(r => r.key === 'claude')!.versions[0]
+    assert.deepStrictEqual([v.damaged, v.unreadFiles, v.impact, v.banner], [5, 0, 'loss', true])
+  })
+
+  test('turn counts survive persist and restore', () => {
+    const h = new AdapterHealth(() => NOW)
+    h.observeFile('/r1.jsonl', codexAlpha(0), NOW)
+    const back = new AdapterHealth(() => NOW)
+    back.import(JSON.parse(JSON.stringify(h.export())))
+    assert.deepStrictEqual(back.rows(), h.rows())
+    assert.strictEqual(codexRow(back).versions[0].unreadFiles, 1)
+  })
+})
+
 suite('adapter health — acceptance against a committed fixture', () => {
-  // Replaying the Claude fixture with one record's `type` renamed: only Claude is flagged, past the
-  // banner threshold; the report names it, counts it and shows its structure, and carries no value
-  // from any record of the fixture.
-  test('a renamed record type raises the banner for that agent only; Report this leaks no value', () => {
+  // Replaying the Claude fixture with a record type renamed. Renaming `assistant` leaves its turns
+  // without token usage: only Claude raises the banner; the report names the type, counts it and
+  // shows its structure, and carries no value from any record of the fixture.
+  const replay = (rename: (records: Array<Record<string, unknown>>) => void, check: (h: AdapterHealth, records: Array<Record<string, unknown>>) => void) => {
     const src = path.join(FIXTURES, 'claude', 'synthetic-2.1.310', 'files', '.claude', 'projects', '-repo')
     const file = fs.readdirSync(src).find(f => f.endsWith('.jsonl'))!
     const records = fs.readFileSync(path.join(src, file), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>)
-    const victim = records.findIndex(r => r['type'] === 'assistant')
-    records[victim] = { ...records[victim], type: 'assistant_v2' }
-
+    rename(records)
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-renamed-'))
     try {
       const target = path.join(tmp, file)
       fs.writeFileSync(target, records.map(r => JSON.stringify(r)).join('\n') + '\n')
-      const h = new AdapterHealth(() => NOW)
+      // Real time: the file was just written, so it is recent.
+      const h = new AdapterHealth()
       new LogReader({ observe: (f, o, m) => h.observeFile(f, o, m) }).parseFile(target, 'claude')
-
-      const msg = adapterHealthMessage(h, '0.21.0')
-      const flagged = msg.rows.filter(r => r.versions.some(v => v.banner))
-      assert.deepStrictEqual(flagged.map(r => r.key), ['claude'])
-      const v = flagged[0].versions[0]
-      assert.deepStrictEqual(v.unknownNames, { assistant_v2: 1 })
-      const report = v.report!
-      assert.ok(report && report === msg.rows[0].versions[0].report)
-      assert.match(report.body, /\| `assistant_v2` \| 1 \|/)
-      assert.match(report.body, /"usage": \{/)
-
-      // Every string and number value in the fixture, except the closed vocabulary the report is
-      // allowed to name: record types, key names and the agent version.
-      const allowed = new Set(['2.1.310', ...records.map(r => String(r['type']))])
-      const keys = (x: unknown): void => {
-        if (Array.isArray(x)) x.forEach(keys)
-        else if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) { allowed.add(k); keys(v) }
-      }
-      records.forEach(keys)
-      const values = new Set<string>()
-      const collect = (x: unknown): void => {
-        if (typeof x === 'string' || typeof x === 'number') { const s = String(x); if (s.length >= 3 && !allowed.has(s)) values.add(s) }
-        else if (Array.isArray(x)) x.forEach(collect)
-        else if (x && typeof x === 'object') Object.values(x).forEach(collect)
-      }
-      records.forEach(collect)
-      assert.ok(values.size > 20)
-      const decodedUrl = decodeURIComponent(report.url.replace(/\+/g, ' '))
-      for (const value of values) {
-        assert.ok(!report.body.includes(value), `the report body contains the fixture value ${JSON.stringify(value)}`)
-        assert.ok(!decodedUrl.includes(value), `the report URL contains the fixture value ${JSON.stringify(value)}`)
-      }
+      check(h, records)
     } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+  }
+
+  test('one renamed record type with the sessions still read: Unrecognized data, no banner', () => {
+    replay(records => { records.push({ type: 'brand_new_metadata', sessionId: 's' }) }, h => {
+      const claude = h.rows().find(r => r.key === 'claude')!
+      assert.strictEqual(claude.status, 'unrecognized')
+      assert.deepStrictEqual(claude.versions.map(v => [v.impact, v.banner]), [['skipped', false]])
+    })
   })
+
+  test('a renamed record type that loses the sessions raises the banner for that agent only; Report this leaks no value', () => replay(records => {
+    for (const r of records) if (r['type'] === 'assistant') r['type'] = 'assistant_v2'
+  }, (h, records) => {
+    const msg = adapterHealthMessage(h, '0.21.0')
+    const flagged = msg.rows.filter(r => r.versions.some(v => v.banner))
+    assert.deepStrictEqual(flagged.map(r => r.key), ['claude'])
+    assert.strictEqual(flagged[0].status, 'missing-data')
+    const v = flagged[0].versions[0]
+    const renamed = records.filter(r => r['type'] === 'assistant_v2').length
+    assert.deepStrictEqual([v.unknownNames, v.unreadFiles], [{ assistant_v2: renamed }, 1])
+    const report = v.report!
+    assert.ok(report && report === msg.rows[0].versions[0].report)
+    assert.match(report.body, new RegExp(`\\| \`assistant_v2\` \\| ${renamed} \\|`))
+    assert.match(report.body, /"usage": \{/)
+
+    // Every string and number value in the fixture, except the closed vocabulary the report is
+    // allowed to name: record types, key names and the agent version.
+    // (`assistant` too: it's the renamed type, and inside `assistant_v2`.)
+    const allowed = new Set(['2.1.310', 'assistant', ...records.map(r => String(r['type']))])
+    const keys = (x: unknown): void => {
+      if (Array.isArray(x)) x.forEach(keys)
+      else if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) { allowed.add(k); keys(v) }
+    }
+    records.forEach(keys)
+    const values = new Set<string>()
+    const collect = (x: unknown): void => {
+      if (typeof x === 'string' || typeof x === 'number') { const s = String(x); if (s.length >= 3 && !allowed.has(s)) values.add(s) }
+      else if (Array.isArray(x)) x.forEach(collect)
+      else if (x && typeof x === 'object') Object.values(x).forEach(collect)
+    }
+    records.forEach(collect)
+    assert.ok(values.size > 20)
+    const decodedUrl = decodeURIComponent(report.url.replace(/\+/g, ' '))
+    for (const value of values) {
+      assert.ok(!report.body.includes(value), `the report body contains the fixture value ${JSON.stringify(value)}`)
+      assert.ok(!decodedUrl.includes(value), `the report URL contains the fixture value ${JSON.stringify(value)}`)
+    }
+  }))
 
   test('a report too big for the issue form drops structures first and stays under the URL limit', () => {
     const h = new AdapterHealth(() => NOW)

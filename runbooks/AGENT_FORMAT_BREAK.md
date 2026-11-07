@@ -1,8 +1,8 @@
 # Agent format break
 
 An agent release changed something TraceRoost reads — a renamed record type or OTLP event, a key
-that moved, a value that changed type — and TraceRoost either shows *Unrecognized data* for it or,
-worse, quietly shows the wrong numbers. This is the routine fix, starting from a committed fixture.
+that moved, a value that changed type — and TraceRoost shows *Missing data* or *Unrecognized data*
+for it or, worse, quietly shows the wrong numbers. This is the routine fix, starting from a committed fixture.
 
 **Target:** a confirmed break on a *Verified* agent (README → Supported agents) ships in a patch
 release within 2 working days. Other levels: as soon as practical.
@@ -76,7 +76,7 @@ fixtures, prune the versions in between (the suite enforces the cap).
   you do), and add the change to `CHANGELOG.md`.
 
 Then `pnpm run test:unit` and `pnpm run lint`, and run `traceroost doctor` against your own
-logs: the agent should no longer show *Unrecognized data*.
+logs: the agent should no longer show *Missing data* or *Unrecognized data*.
 
 ## 4. Release and close the loop
 

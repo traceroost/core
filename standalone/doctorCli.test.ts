@@ -24,11 +24,15 @@ const claudeClean = (h: AdapterHealth) => h.observeFile('/a.jsonl', observeRecor
   { type: 'assistant', message: { usage: {} }, timestamp: 't' },
 ])!)
 
-const codexBroken = (h: AdapterHealth) => h.observeFile('/r.jsonl', observeRecords('codex', [
+const codexRecords = () => observeRecords('codex', [
   { type: 'session_meta', payload: { id: 'x', cwd: '/secret/repo', cli_version: '0.162.0' } },
   { type: 'token_usage_record', payload: { tokens: 12, note: 'a private value' } },
   { type: 'token_usage_record', payload: { tokens: 3 } },
-])!)
+])!
+// The rollout gave no turns: lost data.
+const codexBroken = (h: AdapterHealth) => h.observeFile('/r.jsonl', { ...codexRecords(), turns: 0 }, NOW)
+// Its turns were read: the unknown records were only skipped.
+const codexSkipped = (h: AdapterHealth) => h.observeFile('/r.jsonl', { ...codexRecords(), turns: 2 }, NOW)
 
 suite('traceroost doctor', () => {
   test('exits 0 with a row per agent when nothing is unrecognized', async () => {
@@ -41,13 +45,22 @@ suite('traceroost doctor', () => {
     assert.match(text, /none answered — this is from local log files only/)
   })
 
-  test('exits 1 and names the unrecognized records and how to report them', async () => {
+  test('exits 1 on lost data, naming the unrecognized records and how to report them', async () => {
     const t = io(h => { claudeClean(h); codexBroken(h) })
     assert.strictEqual(await runDoctorCli([], t), 1)
     const text = t.out.join('\n')
-    assert.match(text, /Codex\s+0\.162\.0\s+.*Unrecognized data/)
+    assert.match(text, /Codex\s+0\.162\.0\s+.*Missing data/)
     assert.match(text, /Codex 0\.162\.0: 2 unrecognized of 3 records — token_usage_record ×2/)
+    assert.match(text, /1 session file gave no turns: missing from Traces/)
     assert.match(text, /traceroost doctor --report codex/)
+  })
+
+  test('exits 0 when unrecognized records were only skipped, and still lists them', async () => {
+    const t = io(codexSkipped)
+    assert.strictEqual(await runDoctorCli([], t), 0)
+    const text = t.out.join('\n')
+    assert.match(text, /Codex\s+0\.162\.0\s+.*Unrecognized data/)
+    assert.match(text, /token_usage_record ×2\n  Skipped; its sessions were still read\./)
   })
 
   test('adds the running server\'s OTLP counts', async () => {

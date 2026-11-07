@@ -17,6 +17,7 @@ type Watch = {
   check(o: Record<string, unknown>): Promise<{ text: string; changes: Array<{ issue?: number }>; errors: unknown[]; firstRun: boolean; subject: string | null }>
   report(o: Record<string, unknown>): Promise<{ title: string; body: string; mailed: boolean }>
   latestVersion(source: unknown, f: unknown): Promise<string>
+  mailsOutcome(agentKey: string, outcome: string): boolean
 }
 
 function fakeFetch(versions: Record<string, string | Error>, issues: Array<{ number: number; title: string }> = []) {
@@ -134,6 +135,13 @@ suite('agent-watch — release watcher', () => {
     assert.deepStrictEqual(f.calls.find(c => c.method === 'PATCH')!.body, { title: r.title })
     assert.strictEqual(((await watch.report({ agentKey: 'cursor', version: 'latest', outcome: 'skipped', issue: '5', fetchImpl: fakeFetch(V).impl })).title), 'Cursor CLI latest released: not captured (its secret is not set)')
     await assert.rejects(watch.report({ agentKey: 'codex', version: '1', outcome: 'meh', fetchImpl: f.impl }))
+  })
+
+  test('report: a new release nobody could capture is mailed; the nightly run\'s skip is not', () => {
+    assert.strictEqual(watch.mailsOutcome('codex', 'skipped'), true)
+    assert.strictEqual(watch.mailsOutcome('all', 'skipped'), false)
+    assert.strictEqual(watch.mailsOutcome('all', 'changed'), true)
+    assert.strictEqual(watch.mailsOutcome('codex', 'pass'), false)
   })
 })
 
