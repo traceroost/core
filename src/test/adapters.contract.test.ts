@@ -5,7 +5,7 @@ import * as path from 'path'
 import { LogReader, type LogSessionResult, type OpenCodeSqlFactory } from '../logReader'
 import { calcSessionCostUsd } from '../pricing'
 import { ADAPTERS, adapterFor } from '../adapters/registry'
-import { RECORDS_BY_LOG_KEY, classifyRecord, type FileObservation } from '../adapters/classify'
+import { RECORDS_BY_LOG_KEY, atPath, classifyRecord, type FileObservation } from '../adapters/classify'
 
 // The adapter contract suite (runbooks/AGENT_FORMAT_BREAK.md): every committed fixture under
 // src/test/fixtures/agents/<adapter>/<version>/ parses with zero unknown records, records the
@@ -176,6 +176,29 @@ suite('Adapter contracts — committed agent fixtures', () => {
       for (const [re, what] of bad) {
         const m = text.match(re)
         assert.ok(!m, `${path.relative(FIXTURES, file)} contains a ${what}: ${m?.[0]}`)
+      }
+    }
+  })
+
+  // known.ts `reads` is what the CI format check (tests/e2e/fingerprint-diff.mjs) holds a new
+  // capture to: a misspelt path would never be found, and so never fail it.
+  test('every path known.ts reads is on a record it consumes, and the fixtures carry it', () => {
+    for (const [logKey, known] of Object.entries(RECORDS_BY_LOG_KEY)) {
+      const seen = new Set<string>()
+      for (const { dir } of fixtureDirs()) {
+        const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as Manifest
+        for (const f of manifest.files.filter(x => x.logKey === logKey && x.path.endsWith('.jsonl'))) {
+          for (const line of fs.readFileSync(path.join(dir, f.path), 'utf8').split('\n').filter(l => l.trim())) {
+            let r: Record<string, unknown>
+            try { r = JSON.parse(line) as Record<string, unknown> } catch { continue }
+            const name = known.nameOf(r)
+            for (const p of (name && known.reads?.[name]) || []) if (atPath(r, p) !== undefined && atPath(r, p) !== null) seen.add(`${name} ${p}`)
+          }
+        }
+      }
+      for (const [name, paths] of Object.entries(known.reads ?? {})) {
+        assert.ok(name in known.consumed, `${logKey}: reads names \`${name}\`, which known.ts doesn't consume`)
+        for (const p of paths) assert.ok(seen.has(`${name} ${p}`), `${logKey}: no fixture's \`${name}\` carries \`${p}\` — misspelt?`)
       }
     }
   })

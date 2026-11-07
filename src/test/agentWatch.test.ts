@@ -182,4 +182,33 @@ suite('fingerprint-diff — CI format check', () => {
     assert.match(r.out, /not in known\.ts: `turn_summary` ×1/)
     assert.match(r.out, /`turn_context` changed value types:\n\s+- `~ payload\.model: string → object`/)
   })
+
+  const rewrite = (file: string, edit: (records: Array<Record<string, unknown>>) => Array<Record<string, unknown>>) => {
+    const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>)
+    fs.writeFileSync(file, edit(lines).map(l => JSON.stringify(l)).join('\n') + '\n')
+  }
+  const isEvent = (r: Record<string, unknown>, t: string) => r['type'] === 'event_msg' && (r['payload'] as Record<string, unknown>)['type'] === t
+
+  // Codex 0.167.0's failed capture: no prompt and no token counts — the parser finds no turn.
+  test('a record the parser needs that the fixture had and the capture lacks fails', async () => {
+    rewrite(copyCodex(), lines => lines.filter(l => !isEvent(l, 'user_message') && !isEvent(l, 'token_count')))
+    const r = await run(tmp)
+    assert.strictEqual(r.code, 1, r.out)
+    assert.match(r.out, /no `event_msg:user_message` record: TraceRoost reads `payload\.message` from it/)
+    assert.match(r.out, /no `event_msg:token_count` record/)
+  })
+
+  // Copilot CLI 1.0.107's assistant.message dropping outputTokens, in this shape: a key known.ts
+  // `reads` that the fixture's records carried. Its value is never looked at, only whether it's there.
+  test('a key path known.ts reads that the fixture carried and the capture lacks fails', async () => {
+    rewrite(copyCodex(), lines => lines.map(l => {
+      if (!isEvent(l, 'token_count')) return l
+      const info = (l['payload'] as Record<string, Record<string, Record<string, unknown>> | null>)['info']
+      if (info?.['total_token_usage']) delete info['total_token_usage']['cached_input_tokens']
+      return l
+    }))
+    const r = await run(tmp)
+    assert.strictEqual(r.code, 1, r.out)
+    assert.match(r.out, /`event_msg:token_count` no longer carries what TraceRoost reads from it: `payload\.info\.total_token_usage\.cached_input_tokens`/)
+  })
 })

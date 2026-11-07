@@ -37,6 +37,11 @@ export interface KnownRecords {
   structural: readonly string[]
   /** The agent version a record carries, if this kind of record carries one. */
   versionOf?(record: Record<string, unknown>): string | null
+  /** Key paths the adapter reads from a record when they're there, beyond `consumed`'s required
+   *  ones — token counts, the model. Not checked at runtime (an older version may not write them);
+   *  the CI format check (tests/e2e/fingerprint-diff.mjs) fails when the newest committed fixture's
+   *  records of that name had one and a new capture's no longer do. */
+  reads?: Readonly<Record<string, readonly string[]>>
 }
 
 /** OTLP names (log `event.name`s, span names) an agent emits. */

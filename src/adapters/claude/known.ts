@@ -22,6 +22,12 @@ export const CLAUDE_RECORDS: KnownRecords = {
   ],
   structural: ['message', 'message.usage', 'message.usage.cache_creation', 'message.usage.server_tool_use'],
   versionOf: r => (typeof r['version'] === 'string' && r['version'] ? r['version'] : null),
+  reads: {
+    assistant: [
+      'message.model', 'message.usage.input_tokens', 'message.usage.output_tokens',
+      'message.usage.cache_read_input_tokens', 'message.usage.cache_creation_input_tokens',
+    ],
+  },
 }
 
 // Log event names arrive as `event.name` without the prefix (`tool_result`) or, in the body, with

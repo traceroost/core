@@ -33,6 +33,16 @@ const outDir = path.resolve(flag('out') ?? path.join(REPO_ROOT, 'test-results', 
 
 const PROMPT = 'Create a file named hello.txt in the current directory containing exactly the text: hello from traceroost capture. Then read it back. Do not create or modify any other file.'
 
+/** The last lines an agent printed (stderr, else stdout), for a failed run's log. */
+function failureTail(res, home) {
+  const text = (res.stderr || '').trim() || (res.stdout || '').trim()
+  return text.split('\n').slice(-12).map(l => l
+    .split(home).join('<HOME>')
+    .replace(/\b(sk-(?:ant-|proj-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, '<REDACTED>')
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]{12,}/g, '$1<REDACTED>')
+    .slice(0, 300))
+}
+
 function npmBin(name) {
   const r = spawnSync('npm', ['prefix', '-g'], { encoding: 'utf8', shell: IS_WIN })
   if (r.status !== 0) return undefined
@@ -82,9 +92,12 @@ for (const [key, a] of Object.entries(AGENTS)) {
     const quoted = IS_WIN ? a.args.map(x => `"${x.replace(/"/g, '\\"')}"`) : a.args
     log(`$ ${key} ${a.args.slice(0, -1).join(' ')} <prompt>`)
     const res = spawnSync(IS_WIN ? `"${bin}"` : bin, quoted, { cwd: repo, env, shell: IS_WIN, encoding: 'utf8', timeout: 5 * 60_000, input: '' })
-    // Not echoed: the output can quote the prompt and file contents, which is fine, but also the
-    // agent's own diagnostics, which can carry the runner's paths. The status is what matters.
+    // Not echoed on success: the output can quote the prompt and file contents, which is fine, but
+    // also the agent's own diagnostics, which can carry the runner's paths. On failure its last
+    // lines are the only way to tell a rejected key or an unavailable model from a format change,
+    // so they're shown with the throwaway home and anything token-shaped replaced.
     log(`${key} exited ${res.status}${res.error ? ` (${res.error.message})` : ''}`)
+    if (res.status !== 0) for (const line of failureTail(res, t.home)) log(`  ${key}| ${line}`)
     ran++
     let copied = 0
     for (const [from, to] of a.data) {

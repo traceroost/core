@@ -9,12 +9,16 @@
 // <committed root> defaults to src/test/fixtures/agents. Classification and fingerprints come from
 // the compiled src/adapters (out/test/adapters), the same code the product runs.
 //
-// Fails (exit 1) when the capture has
+// Fails (exit 1) when the capture has, against the newest committed fixture of that agent,
 //   - a record the adapter's known.ts doesn't know (a new record type or event name), or a record
-//     it reads missing a required key, or
-//   - a key whose value type changed against the newest committed fixture of that agent.
-// Reported but not failing: keys added or not seen (a capture doesn't exercise every path), and
-// record names seen on only one side. OpenCode captures are a database: checked by the contract
+//     it reads missing a required key,
+//   - a key whose value type changed,
+//   - no record of a name the adapter reads with required keys (known.ts `consumed`) that the
+//     fixture had — the agent stopped writing the prompt or the token counts, say — or
+//   - records of a name that no longer carry a key path known.ts `reads` lists and the fixture's
+//     did (only whether a path is there is looked at, never its value).
+// Reported but not failing: other keys added or not seen (a capture doesn't exercise every path),
+// and other record names seen on only one side. OpenCode captures are a database: checked by the contract
 // suite once committed, not here.
 
 import fs from 'node:fs'
@@ -30,7 +34,7 @@ const load = m => {
     process.exit(2)
   }
 }
-const { RECORDS_BY_LOG_KEY, classifyRecord } = load('classify.js')
+const { RECORDS_BY_LOG_KEY, classifyRecord, atPath } = load('classify.js')
 const { fingerprint, mergeFingerprints, diffFingerprints } = load('fingerprint.js')
 const { compareVersions } = load('health.js')
 
@@ -47,7 +51,8 @@ const dirsOf = root => (fs.existsSync(root) ? fs.readdirSync(root) : []).flatMap
   fs.readdirSync(path.join(root, agent)).filter(v => fs.existsSync(path.join(root, agent, v, 'manifest.json')))
     .map(version => ({ agent, version, dir: path.join(root, agent, version), manifest: JSON.parse(fs.readFileSync(path.join(root, agent, version, 'manifest.json'), 'utf8')) })))
 
-/** name → { count, fingerprint (merged), unknown classification name if any } for one fixture. */
+/** name → { count, fingerprint (merged), unknown classification name if any, the `reads` paths
+ *  any record of the name carried, its known.ts } for one fixture. */
 function profile(fx) {
   const names = new Map()
   for (const file of fx.manifest.files) {
@@ -58,9 +63,10 @@ function profile(fx) {
     for (const r of records) {
       const c = classifyRecord(known, r)
       const key = c.cls === 'unknown' ? `unknown:${c.name}` : c.name
-      const prev = names.get(key) ?? { count: 0, fp: undefined, cls: c.cls, name: c.name }
+      const prev = names.get(key) ?? { count: 0, fp: undefined, cls: c.cls, name: c.name, reads: new Set(), known }
       prev.count++
       prev.fp = mergeFingerprints(prev.fp, fingerprint(r, known))
+      for (const p of known.reads?.[c.name] ?? []) if (atPath(r, p) !== undefined && atPath(r, p) !== null) prev.reads.add(p)
       names.set(key, prev)
     }
   }
@@ -93,10 +99,17 @@ for (const fx of dirsOf(newRoot)) {
     }
     const retyped = d.filter(disjoint)
     if (retyped.length) fail.push(`- \`${key}\` changed value types:\n${retyped.map(l => `  - \`${l}\``).join('\n')}`)
+    const gone = [...b.reads].filter(path => !p.reads.has(path))
+    if (gone.length) fail.push(`- \`${key}\` no longer carries what TraceRoost reads from it: ${gone.map(g => `\`${g}\``).join(', ')}`)
     const other = d.filter(l => !disjoint(l))
     if (other.length) info.push(`- \`${key}\`: ${other.map(l => `\`${l}\``).join(', ')}`)
   }
-  for (const key of before.keys()) if (!now.has(key)) info.push(`- not in this capture: \`${key}\``)
+  for (const [key, b] of before) {
+    if (now.has(key)) continue
+    const required = b.cls === 'known' ? b.known.consumed[key] : undefined
+    if (required?.length) fail.push(`- no \`${key}\` record: TraceRoost reads ${required.map(r => `\`${r}\``).join(', ')} from it, and the committed fixture had ${b.count}`)
+    else info.push(`- not in this capture: \`${key}\``)
+  }
   lines.push(head, '', `Compared with ${baseline ? `${baseline.agent} ${baseline.version} (${baseline.manifest.source})` : 'nothing committed yet'}.`, '')
   if (fail.length) { failed = true; lines.push('**Format change — fails the check:**', '', ...fail, '') }
   else lines.push('No format change: every record is known and no value type changed.', '')
