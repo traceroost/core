@@ -79,10 +79,17 @@ const MARKERS = [
 ]
 
 /** The only Cloud URLs a core build may carry: the header's "Make a suggestion" link
- *  (media/src/suggest.ts) — a public web page the user's browser opens, not Cloud code. Production
- *  in a release build, stage otherwise. Removed verbatim before the marker scan, so any other
- *  traceroost.com URL or endpoint still fails. */
-const PUBLIC_LINKS = ['https://stage.traceroost.com/suggest', 'https://traceroost.com/suggest']
+ *  (media/src/suggest.ts) and the TraceRoost Cloud pricing page (media/src/cloudInfo.ts) — public
+ *  web pages the user's browser opens, not Cloud code. Production in a release build, stage
+ *  otherwise. Removed verbatim before the marker scan, so any other traceroost.com URL or endpoint
+ *  still fails. Only whole page URLs belong here, never a bare origin: removing a prefix such as
+ *  `https://traceroost.com/` would hide the host of a Cloud endpoint URL from the scan. */
+const PUBLIC_LINKS = [
+  'https://stage.traceroost.com/suggest',
+  'https://traceroost.com/suggest',
+  'https://stage.traceroost.com/pricing',
+  'https://traceroost.com/pricing',
+]
 
 /** Likewise the bare public-site host as a string literal — `"traceroost.com"` with both quotes —
  *  which the desktop shell's external-link allowlist carries (desktop/src/navigation.ts) so that

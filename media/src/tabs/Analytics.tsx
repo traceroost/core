@@ -23,6 +23,7 @@ import { PlanLimitsSection } from './PlanLimits'
 import { NoTracesYet } from './GettingStarted'
 import { buildLanguageBreakdown, LANGUAGE_NOT_REPORTED_LABEL, type CodeChangeTotals, type LanguageBreakdownRow } from './languageBreakdown'
 import { languageLabel } from '../language'
+import { CloudNote } from './CloudNote'
 
 // ── Section heading helper ────────────────────────────────────────────────────
 
@@ -577,6 +578,8 @@ export function Analytics() {
       {/* Context growth */}
       <SectionHead id="analytics-context-growth" title="CONTEXT GROWTH" />
       <ContextGrowthChart sessions={chartSessions} timelines={timelines} />
+
+      <CloudNote kind="analytics" />
 
     </SectionNav>
     </div>

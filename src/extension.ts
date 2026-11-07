@@ -1251,6 +1251,15 @@ export async function activate(context: vscode.ExtensionContext) {
       const boundMcpPort = (mcpServer.address() as { port: number }).port
       DashboardPanel.boundMcpPort = boundMcpPort
       outputChannel.appendLine(`TraceRoost MCP server → http://127.0.0.1:${boundMcpPort}/mcp`)
+      // Offer the server to the editor's own agent (VS Code's chat) at the port it actually bound —
+      // package.json's `mcpServerDefinitionProviders` names this id. Absent in older VS Code-family
+      // forks that lack the API, where the README's manual `mcp add` steps still apply.
+      if (typeof vscode.lm?.registerMcpServerDefinitionProvider === 'function') {
+        const mcpUri = vscode.Uri.parse(`http://127.0.0.1:${boundMcpPort}/mcp`)
+        context.subscriptions.push(vscode.lm.registerMcpServerDefinitionProvider('traceroost.mcp', {
+          provideMcpServerDefinitions: () => [new vscode.McpHttpServerDefinition('TraceRoost', mcpUri)],
+        }))
+      }
     } catch (err) {
       outputChannel.appendLine(`Failed to start MCP server on port ${mcpPort}: ${err}`)
       vscode.window.showErrorMessage(`TraceRoost: Could not start the MCP server (port ${mcpPort} and nearby ports are all in use). Set traceRoost.mcpPort to a free port.`)

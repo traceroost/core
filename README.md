@@ -23,7 +23,7 @@ Two things it does that a usage dashboard doesn't:
 
 | Way to run | Get it | Then |
 | --- | --- | --- |
-| **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar, then its graph icon (or **TraceRoost: Open Dashboard**) for the full dashboard |
+| **VS Code extension** (also Cursor, Windsurf, VSCodium, …) | [Install from the Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard) or [Open VSX](https://open-vsx.org/extension/agentlens/agentlens-dashboard) (Cursor, Windsurf, VSCodium) (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was kept from the rename) | Open the **TraceRoost** view in the Activity Bar, then its graph icon (or **TraceRoost: Open Dashboard**) for the full dashboard |
 | **Desktop app** (macOS, Linux, Windows — no Node.js needed) | [Download from the latest release](https://github.com/traceroost/core/releases/latest) | Open TraceRoost like any other app |
 | **Terminal** (Node.js 22+, or Homebrew on macOS/Linux) | `npx traceroost@latest` — or `brew install traceroost/tap/traceroost`, then `traceroost` | The dashboard opens at <http://localhost:4315> (another port: add `--ui-port <port>`; [more](#moving-the-dashboard-to-another-port)) |
 
@@ -98,7 +98,7 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
 - **Automated Prompts** — The Alerts panel's Automation tab (bell icon) configures threshold-based automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up) that trigger a correction prompt when a trace crosses a limit — delivered as a notification or written to a file for agent consumption; agents can also poll for them via the MCP server's `check_automation_triggers` tool
 - **Export** — **Export…** on the Traces filter row exports the filtered traces as JSON, CSV, or Markdown (redacted or full); respects the active time range, agent, language, prompt text, repo, source, and From (initiator) filters. The extension writes the file to your workspace root; the standalone dashboard downloads it in your browser
 - **Import** — Import traces from a previous TraceRoost JSON export: drop the file on the dashboard or use **Import traces…** in ⚙ Settings; shows a preview with trace count by source and date range, imports with live progress and automatic deduplication (existing traces are skipped)
-- **MCP Server** — Exposes your own trace history to Claude Code (or any MCP-compatible agent) so it can query its recent work, cost, and recurring file/loop patterns before starting a task, instead of you checking the dashboard yourself. Runs by default on port `4316`; register it with `claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp` (the in-app Help tab's MCP section has the full setup and tool list)
+- **MCP Server** — Exposes your own trace history to Claude Code (or any MCP-compatible agent) so it can query its recent work, cost, and recurring file/loop patterns before starting a task, instead of you checking the dashboard yourself. Runs by default on port `4316`; register it with `claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp` (the in-app Help tab's MCP section has the full setup and tool list). In VS Code the extension also offers it to VS Code's own chat agent, with no setup
 - **Make a suggestion** — The header's suggestion icon opens TraceRoost's public suggestion page in your browser; the link carries only the TraceRoost version and the current tab's name, never your traces or workspace
 
 ## Data Sources
@@ -139,17 +139,17 @@ To disable log ingestion: set `traceRoost.enableLogIngestion` to `false` in VS C
 
 ### Supported agents
 
-How much testing stands behind each agent, and the newest version a real capture of it was checked against:
+How much testing stands behind each agent:
 
 <!-- support-matrix:start (generated from src/adapters/registry.ts — a test fails if this drifts) -->
-| Agent | Reads | Support level | Last verified version |
-|---|---|---|---|
-| Claude Code | OTel, log files | Verified | none yet |
-| Codex | OTel, log files | Verified | none yet |
-| Copilot CLI | OTel, log files | Fixture-tested | none yet |
-| Copilot (VS Code) | OTel, log files | Best effort | none yet |
-| OpenCode | SQLite database | Fixture-tested | none yet |
-| Cursor CLI | log files | Fixture-tested | none yet |
+| Agent | Reads | Support level |
+|---|---|---|
+| Claude Code | OTel, log files | Verified |
+| Codex | OTel, log files | Verified |
+| Copilot CLI | OTel, log files | Fixture-tested |
+| Copilot (VS Code) | OTel, log files | Best effort |
+| OpenCode | SQLite database | Fixture-tested |
+| Cursor CLI | log files | Fixture-tested |
 <!-- support-matrix:end -->
 
 - **Verified** — the real agent runs in CI on every release and nightly, and each release gets a committed fixture. A confirmed format break gets a patch release within 2 working days.
@@ -340,7 +340,7 @@ install. That picks the port for that run only; to keep one, set it in **Setting
 
 The extension receives OTel traces in real time **and** reads local log files, so you get both live telemetry and full trace history automatically.
 
-Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace or from the VS Code Marketplace directly.
+Works in **VS Code, Cursor, Windsurf, VSCodium, Trae, and Kiro** — install from your IDE's extension marketplace, from the VS Code Marketplace directly, or from [Open VSX](https://open-vsx.org/extension/agentlens/agentlens-dashboard) (where Cursor, Windsurf and VSCodium install from).
 
 1. **[Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=agentlens.agentlens-dashboard)** (listed as `agentlens.agentlens-dashboard` — that's TraceRoost; the id was [kept from the rename](#upgrading-from-agentlens))
 2. Open the **TraceRoost** view from the Activity Bar for a summary, then click its graph icon (or run **TraceRoost: Open Dashboard**) for the full dashboard — a panel inside your IDE, not a browser tab, so there's no localhost URL to visit for this mode
@@ -760,7 +760,7 @@ TraceRoost is built in two editions from the same source:
 - **core** — everything in this README: the dashboard, log/OTel ingestion, the MCP server, the
   Advisor, and the local CLI analysis (`find`, `trace`, `patterns`, `cohort`, `advise`). It
   contains **no** TraceRoost Cloud (org link + upload) code at all — not disabled, not built in.
-  Released builds (VSIX, npm, Docker) are core until TraceRoost Cloud launches.
+  Released builds (VSIX, npm, Docker, the desktop app) are core until TraceRoost Cloud launches.
 - **full** — core plus TraceRoost Cloud: the Org panel, `traceroost org` / `--explain-payload` /
   `cluster`, and forwarding hashed rollups to a linked org (see
   [CLOUD_ARCHITECTURE.md](CLOUD_ARCHITECTURE.md)). A rollup carries counts, enums, hashes and

@@ -53,11 +53,19 @@ const SUPPORT_LABEL: Record<SupportLevel, string> = {
 const SOURCE_LABEL: Record<SourceKind, string> = { otlp: 'OTel', files: 'log files', sqlite: 'SQLite database' }
 
 /** The README's support matrix (between its support-matrix markers), generated from ADAPTERS —
- *  adapters.classify.test.ts fails when the README's copy drifts. */
-export function supportMatrixMarkdown(): string {
+ *  adapters.classify.test.ts fails when the README's copy drifts. The "Last verified version"
+ *  column appears only once some adapter has one: a column of "none yet" on the public listing
+ *  read as an unbacked claim beside "Verified". */
+export function supportMatrixMarkdown(adapters: readonly AgentAdapter[] = ADAPTERS): string {
+  const withVersions = adapters.some(a => a.lastVerifiedVersion !== null)
+  const row = (a: AgentAdapter) => {
+    const cells = [a.label, a.sources.map(s => SOURCE_LABEL[s]).join(', '), SUPPORT_LABEL[a.support]]
+    if (withVersions) cells.push(a.lastVerifiedVersion ?? 'none yet')
+    return `| ${cells.join(' | ')} |`
+  }
   return [
-    '| Agent | Reads | Support level | Last verified version |',
-    '|---|---|---|---|',
-    ...ADAPTERS.map(a => `| ${a.label} | ${a.sources.map(s => SOURCE_LABEL[s]).join(', ')} | ${SUPPORT_LABEL[a.support]} | ${a.lastVerifiedVersion ?? 'none yet'} |`),
+    withVersions ? '| Agent | Reads | Support level | Last verified version |' : '| Agent | Reads | Support level |',
+    withVersions ? '|---|---|---|---|' : '|---|---|---|',
+    ...adapters.map(row),
   ].join('\n')
 }

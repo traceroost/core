@@ -2,7 +2,7 @@
 /**
  * Writes the winget manifests for a desktop release (`winget install TraceRoost.TraceRoost`):
  *
- *   node desktop/scripts/winget-manifests.mjs --version <v> --assets <dir> --out <dir>
+ *   node desktop/scripts/winget-manifests.mjs --version <v> --assets <dir> --out <dir> [--edition core|full]
  *
  * `--assets` holds the Windows installers as the GitHub release serves them — signed
  * (`TraceRoost-<v>-win-<arch>.exe`) or preview (`TraceRoost-<v>-win-<arch>-preview.exe`), as
@@ -17,6 +17,10 @@
  * running TraceRoost to quit before files are replaced. `ProductCode` is the uninstall key
  * electron-builder derives from the appId, so winget also recognises a copy installed from the
  * downloaded .exe and can upgrade it.
+ *
+ * `--edition` is the release edition (release.yml's EDITION; default `core`). The full edition's
+ * app carries TraceRoost Cloud code under the Business Source License 1.1, so its manifest declares
+ * `MIT AND BUSL-1.1` and links NOTICE.md (which code is under which license) instead of LICENSE.
  */
 
 import crypto from 'node:crypto'
@@ -32,7 +36,7 @@ const REPO = 'traceroost/core'
 const ARCHES = ['x64', 'arm64']
 
 function usage() {
-  console.error('usage: node desktop/scripts/winget-manifests.mjs --version <v> --assets <dir> --out <dir>')
+  console.error('usage: node desktop/scripts/winget-manifests.mjs --version <v> --assets <dir> --out <dir> [--edition core|full]')
   process.exit(2)
 }
 
@@ -50,7 +54,7 @@ const header = (type) =>
   `# yaml-language-server: $schema=https://aka.ms/winget-manifest.${type}.${MANIFEST_VERSION}.schema.json\n\n`
 
 /** The three manifests, by file name. `installers` is `[{ arch, url, sha256 }]`. */
-export function manifests({ version, releaseDate, installers }) {
+export function manifests({ version, releaseDate, installers, edition = 'core' }) {
   const id = PACKAGE_IDENTIFIER
   const versionManifest = header('version') +
 `PackageIdentifier: ${id}
@@ -89,9 +93,9 @@ PublisherUrl: https://traceroost.com
 PublisherSupportUrl: https://github.com/${REPO}/issues
 PackageName: TraceRoost
 PackageUrl: https://traceroost.com
-License: MIT
-LicenseUrl: https://github.com/${REPO}/blob/v${version}/LICENSE
-ShortDescription: Local monitoring for AI coding agents — traces, cost and stuck-agent signals.
+${edition === 'full'
+    ? `License: MIT AND BUSL-1.1\nLicenseUrl: https://github.com/${REPO}/blob/v${version}/NOTICE.md\n`
+    : `License: MIT\nLicenseUrl: https://github.com/${REPO}/blob/v${version}/LICENSE\n`}ShortDescription: Local monitoring for AI coding agents — traces, cost and stuck-agent signals.
 Description: |-
   TraceRoost records what your coding agents (Claude Code, Codex, GitHub Copilot) did, what it cost
   and what landed, and shows it in a dashboard on this machine. The desktop app runs the collector
@@ -122,7 +126,9 @@ function main() {
   const version = arg('--version')
   const assets = arg('--assets')
   const out = arg('--out')
+  const edition = arg('--edition') ?? 'core'
   if (!version || !/^\d+\.\d+\.\d+$/.test(version) || !assets || !out) usage()
+  if (edition !== 'core' && edition !== 'full') usage()
 
   const files = fs.readdirSync(assets)
   const installers = ARCHES.map(arch => {
@@ -135,7 +141,7 @@ function main() {
   const dir = path.join(out, 'manifests', 't', 'TraceRoost', 'TraceRoost', version)
   fs.mkdirSync(dir, { recursive: true })
   const releaseDate = new Date().toISOString().slice(0, 10)
-  for (const [file, text] of Object.entries(manifests({ version, releaseDate, installers }))) {
+  for (const [file, text] of Object.entries(manifests({ version, releaseDate, installers, edition }))) {
     fs.writeFileSync(path.join(dir, file), text)
   }
   for (const i of installers) console.error(`${i.arch}: ${i.name} sha256 ${i.sha256}`)
