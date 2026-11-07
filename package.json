@@ -237,14 +237,14 @@
         "traceRoost.enableMcpServer": {
           "type": "boolean",
           "default": true,
-          "description": "Start the TraceRoost MCP server so Claude Code can query your trace history. The server listens on traceRoost.mcpPort (default 4316). See the TraceRoost Help tab → MCP for setup instructions."
+          "description": "Start the TraceRoost MCP server so Claude Code, VS Code's chat and other MCP clients can query your trace history. The server listens on traceRoost.mcpPort (default 4316). See the TraceRoost Help tab → MCP for setup instructions."
         },
         "traceRoost.mcpPort": {
           "type": "number",
           "default": 4316,
           "minimum": 1024,
           "maximum": 65535,
-          "description": "Local port for the TraceRoost MCP server (1024–65535; when traceRoost.enableMcpServer is true). Register it with Claude Code with: claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp"
+          "description": "Local port for the TraceRoost MCP server (1024–65535; when traceRoost.enableMcpServer is true). Register it with Claude Code with: claude mcp add --transport http --scope user traceroost http://localhost:4316/mcp (use your port if you changed it)"
         },
         "traceRoost.sessionRetentionDays": {
           "type": "number",
