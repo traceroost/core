@@ -36,6 +36,7 @@ Open an issue at <https://github.com/traceroost/core/issues> and use the bug rep
 ```bash
 git clone https://github.com/traceroost/core
 cd core
+corepack enable   # ships with Node; runs the pnpm version package.json pins (packageManager)
 pnpm install
 ```
 
