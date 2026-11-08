@@ -353,15 +353,23 @@ async function main() {
     })
     replayProc.stdout?.on('data', d => process.stdout.write(`  [replay] ${d}`))
     replayProc.stderr?.on('data', d => process.stderr.write(`  [replay] ${d}`))
+    // The catch is attached here, at creation, not at the await below: the recording now stops
+    // before this promise is awaited, and a replay that fails during those few seconds would
+    // otherwise be an unhandled rejection — which takes the whole process down after the tour
+    // has been captured but before the GIF is written.
     const replayDone = new Promise<void>((resolve, reject) => {
       replayProc!.on('error', reject)
       replayProc!.on('exit', code => (code === 0 || code === null) ? resolve() : reject(new Error(`replay exited with code ${code}`)))
-    })
+    }).catch(e => log(`(replay reported: ${e.message} — continuing; the tour already captured what landed)`))
 
     await runTour(page, { speed: SPEED, log })
 
-    await replayDone.catch(e => log(`(replay reported: ${e.message} — continuing; the tour already captured what landed)`))
-
+    // Stop recording the moment the tour ends, *before* waiting for the replay. The replay
+    // outlives the tour by several seconds (it still has scenarios to send), and every one of
+    // those seconds used to be recorded: a motionless Traces table with the pointer parked on
+    // "Export…", its row count ticking up. That tail was ~15% of the finished GIF, and since the
+    // encoder has a hard size budget, it paid for that dead air by dropping frames from the tour
+    // itself. Closing the context here finalizes the .webm at the last frame worth showing.
     let videoPath: string | undefined
     if (!DRY_RUN) {
       const video = page.video()
@@ -372,6 +380,8 @@ async function main() {
       await context.close()
       await browser.close()
     }
+
+    await replayDone
 
     if (DRY_RUN) {
       log('Dry run complete — no video recorded, no GIF written.')
