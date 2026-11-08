@@ -56,12 +56,20 @@ export async function tourSessionDetail(page: Page, speed: number, log: Logger):
     { name: /^Tools/,      label: 'Tools' },
     { name: /^Files/,      label: 'Files' },
   ]
+  // role="tab", not "button" — the detail nav became a real tablist in 255e38b (2026-10-23,
+  // "dialog semantics for drawers"). This loop asked for role 'button' until 2026-11-08, so
+  // every isVisible() check failed and the tour expanded a row and then showed only Overview:
+  // the same silent-skip the header comment above describes, in a second place. Hence the
+  // loud log on a miss — a skipped section must never again look like a successful run.
   const detail = page.locator('#sessions-content')
   for (const { name, label } of sections) {
-    const btn = detail.getByRole('button', { name })
-    const visible = await btn.first().isVisible().catch(() => false)
-    if (!visible) continue
-    await btn.first().click()
+    const tab = detail.getByRole('tab', { name })
+    const visible = await tab.first().isVisible().catch(() => false)
+    if (!visible) {
+      log(`  ! session detail: ${label} not found — section SKIPPED (check its role/name)`)
+      continue
+    }
+    await tab.first().click()
     log(`  → session detail: ${label} (2.5s)`)
     await page.waitForTimeout(2500 / speed)
   }
@@ -94,6 +102,37 @@ export async function tourAlertsPanel(page: Page, speed: number, log: Logger): P
   // the panel's own documented close path (see its "×" button's title="Close (Esc)").
   await page.keyboard.press('Escape')
   await page.waitForTimeout(300 / speed)
+}
+
+// Export isn't a tab any more — it became a drawer over the Traces table in 60a25a7
+// ("Export and Import become drawers, not tabs"), opened by the "Export…" button in the filter
+// row (App.tsx, rendered with the paging controls) and closed with Escape, like the Alerts
+// panel. That commit dropped the old 'export'/'import' entries from TOUR_TABS without putting
+// anything in their place, so the demo stopped showing the redacted export at all.
+export async function tourExportDrawer(page: Page, speed: number, log: Logger): Promise<void> {
+  const btn = page.getByRole('button', { name: /^Export…$/ })
+  const visible = await btn.first().isVisible().catch(() => false)
+  if (!visible) {
+    log('  ! Export… button not visible — export drawer SKIPPED')
+    return
+  }
+
+  log('  → Export drawer (scope, Redacted / Full — 4.5s)')
+  await btn.first().click()
+  const drawer = page.getByRole('dialog', { name: 'Export traces' })
+  const opened = await drawer
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  // A drawer that never opened would record 4.5s of an unchanged table — which is exactly how
+  // this stop first went wrong, and it looked like a clean run in the log. Say so instead.
+  if (!opened) {
+    const expanded = await btn.first().getAttribute('aria-expanded').catch(() => null)
+    log(`  ! Export drawer never became visible (button aria-expanded=${expanded}) — stop is DEAD AIR`)
+  }
+  await page.waitForTimeout(4500 / speed)
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(600 / speed)
 }
 
 export interface RunTourOptions {
@@ -130,4 +169,10 @@ export async function runTour(page: Page, opts: RunTourOptions): Promise<void> {
 
   // Return to Sessions after the tour — the most useful default landing tab.
   await page.locator('button[data-tab="sessions"]').click().catch(() => {})
+  await page.waitForTimeout(800 / speed)
+
+  // Export last, over the Traces table: the drawer reports how many traces match the current
+  // filters, so it reads best once the whole replay has landed. Closing it leaves the recording
+  // on the Traces table, the frame it should end on.
+  await tourExportDrawer(page, speed, log)
 }
