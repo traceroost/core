@@ -326,6 +326,14 @@ async function main() {
     const context = await browser.newContext({
       viewport: { width: WIDTH, height: HEIGHT },
       colorScheme: THEME,
+      // Reduced motion, for the encoder's sake rather than the viewer's: the tour walks the
+      // Analytics and Advisor jump rails, and a smooth scroll is a second of frames no two of
+      // which are alike, so mpdecimate can drop none of them. Twelve of those put the first
+      // recording of this tour at 7.09 MB even on the most aggressive rung, against a 4.9 MB
+      // budget. media/src/a11y.ts's scrollBehavior() honours this and jumps instead, which also
+      // reads better at 10 fps than a scroll sampled every 100ms. demo/browser.ts does NOT set
+      // it — there the scrolling is the point.
+      reducedMotion: 'reduce',
       recordVideo: DRY_RUN ? undefined : { dir: scratchVideo, size: { width: WIDTH, height: HEIGHT } },
     })
     // Matches media/src/state.ts's THEME_STORAGE_KEY — set before the app's own anti-flash
