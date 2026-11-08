@@ -69,6 +69,15 @@ const DEMO_REPO = flag('demo-repo', '') ? path.resolve(flag('demo-repo', '')) : 
 // src/reconcile/reconciliationService.ts ACTIVE_GRACE_MS), so a demo recorded right after the
 // replay needs its sessions to have "ended" earlier than that to show any outcome at all.
 const BACKDATE_MS = (parseFloat(flag('backdate-min', '0')) || 0) * 60_000
+// `--spread-days <n>`: dates the story's chapters across the last n days instead of all of them
+// landing in the hour the replay runs. The over-time Analytics charts (Outcome & token spend,
+// Code changes) bin by UTC day — outcomeTrend.ts's dayBins — so with every session dated today
+// they draw exactly one bar each, which is what the recorded demo showed. Off by default,
+// because `demo:show`'s whole point is sessions arriving live while you watch; `demo:gif` turns
+// it on, where there is nothing to watch arrive and a real trend is worth more.
+// Stay under dayBins' WEEKLY_AFTER_DAYS (56) or the bars become weekly.
+const SPREAD_DAYS = Math.max(0, parseFloat(flag('spread-days', '0')) || 0)
+const DAY_MS = 86_400_000
 
 type Agent = 'claude' | 'codex' | 'copilot'
 const ALL_AGENTS: Agent[] = ['claude', 'codex', 'copilot']
@@ -1492,11 +1501,25 @@ const STORY_CHAPTERS: Record<Agent, (offsetMs: number) => Promise<void>>[] = [
 async function runStory(agentFilter?: Agent[]): Promise<void> {
   const agents = agentFilter && agentFilter.length > 0 ? agentFilter : ALL_AGENTS
   log(`Story mode — building out the PetHaven petstore app (${STORY_CHAPTERS.length} sessions × ${agents.length} agent${agents.length !== 1 ? 's' : ''})\n`)
-  for (const chapter of STORY_CHAPTERS) {
-    for (const agent of agents) {
-      await chapter[agent](FRESH_OFFSET_MS)
+  if (SPREAD_DAYS > 0) log(`  dated across the last ${SPREAD_DAYS} days (--spread-days), oldest chapter first\n`)
+  for (const [chapterIdx, chapter] of STORY_CHAPTERS.entries()) {
+    for (const [agentIdx, agent] of agents.entries()) {
+      await chapter[agent](FRESH_OFFSET_MS + storySpreadMs(chapterIdx, agentIdx))
     }
   }
+}
+
+/** Extra ms to push one story session into the past under `--spread-days`, on top of
+ *  FRESH_OFFSET_MS. Chapter 0 is the oldest and the last chapter is still ~now, so the narrative
+ *  order the chapter list describes becomes chronological order, and the final chapter still
+ *  arrives live at the top of the table the way the unspread replay does. Agents within a chapter
+ *  are staggered a couple of hours so three sessions don't share one timestamp; that stagger is
+ *  deliberately far smaller than a day, so it never moves a session into a neighbouring bin. */
+function storySpreadMs(chapterIdx: number, agentIdx: number): number {
+  if (SPREAD_DAYS === 0) return 0
+  const lastChapter = STORY_CHAPTERS.length - 1
+  const daysBack = lastChapter === 0 ? 0 : SPREAD_DAYS * ((lastChapter - chapterIdx) / lastChapter)
+  return daysBack * DAY_MS + agentIdx * 2 * 60 * 60_000
 }
 
 // ── Fixture replay ─────────────────────────────────────────────────────────────

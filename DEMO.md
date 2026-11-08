@@ -29,6 +29,7 @@ pnpm run demo -- --scenario story                # 10-trace petstore build-out (
 | `--scenario` | `normal`, `loop`, `errors`, `compaction`, `all`, `story` | `all` | `compaction` is Claude-only |
 | `--agents` | comma-separated: `claude`, `codex`, `copilot` | all three | invalid names are ignored; an empty/invalid list falls back to all three |
 | `--speed` | multiplier | `1` | e.g. `--speed 5` runs 5x faster |
+| `--spread-days` | days | `0` | `story` only: dates the 10 chapters across the last n days, oldest chapter first, instead of all of them landing in the hour the replay runs. Analytics' over-time charts bin by UTC day, so without it they draw a single bar. Keep it under 56 or the bars turn weekly. |
 | `--port` | port number | `4318` | must match the collector's OTLP port |
 | `--token` | bearer token | `$TRACEROOST_TOKEN` | only for a server bound beyond loopback (the Docker image), whose OTLP port requires it — `/data/.traceroost/config.json`'s `authToken` |
 
@@ -76,6 +77,8 @@ pnpm run demo:gif -- --force            # overwrite media/demo.gif if it already
 pnpm run demo:gif -- --out /tmp/x.gif   # write elsewhere instead, for review first
 pnpm run demo:gif -- --dry-run          # run the tour, skip recording — for tuning pause lengths
 pnpm run demo:gif -- --speed 2          # faster tour -> shorter capture
+pnpm run demo:gif -- --spread-days 0    # date every trace today (default: 9, see below)
+pnpm run demo:gif -- --replay-speed 1   # run the replay at the tour's speed (default: 2x)
 pnpm run demo:gif -- --headed           # show the browser while it records (debugging)
 pnpm run demo:gif -- --theme light      # capture in light mode (default: dark)
 pnpm run demo:gif -- --edition full     # record the full edition (default: core, what releases ship)
@@ -83,6 +86,12 @@ pnpm run demo:gif -- --no-outcomes      # skip the scratch git repo (no Outcome 
 ```
 
 To stay within the size budget, the encoder drops near-duplicate frames (the tour spends most of its time paused on a view). The remaining frames are held longer, so the timing doesn't change. If the result is over budget, it retries with a looser duplicate threshold, and it fails without uploading if the last step is still too large.
+
+**Why the recording dates the story in the past, and runs the replay ahead of the tour.** Two defaults exist only for the GIF; `demo:show` has neither, because watching sessions arrive is the point there.
+
+`--spread-days 9` dates the story's ten chapters across the last ten days (`replay.ts --spread-days`). Analytics' two over-time charts bin by UTC day, so with every session landing in one hour they drew a single bar each — the chart was accurate and useless. The last chapter is still ~now, so the newest session still arrives live at the top of the table while the tour watches.
+
+`--replay-speed 2` runs the replay at twice the tour's speed. They used to share `--speed`, which meant the story was less than half sent when the tour reached Analytics, so it recorded half-drawn charts and an Advisor still saying it hadn't seen enough traces to suggest anything. At 2x the story has essentially landed by then, and the Traces stop earlier in the tour still catches sessions arriving.
 
 By default the replay also seeds a scratch git repo (`demo/replay.ts --demo-repo`) — some story files merged into `main`, some only committed on a feature branch, some left uncommitted — and backdates the sessions past the dashboard's 2-minute active-session grace window, so the Traces table's Out column and Analytics' Outcome & Token Spend chart show real merged / committed / uncommitted verdicts for the Claude and Codex sessions. (Copilot's OTEL spans carry no workspace, so its rows stay unclassified.)
 

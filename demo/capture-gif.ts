@@ -55,6 +55,17 @@ const FORCE    = hasFlag('force')
 const HEADED   = hasFlag('headed')
 const SPEED    = parseFloat(flag('speed', '1')) || 1
 const SCENARIO = flag('scenario', 'story')
+// Dates the story's 10 chapters across this many days (replay.ts --spread-days), so Analytics'
+// two over-time charts have a run of daily bars to draw instead of the single bar every session
+// landing in one hour gives them. 9 puts a chapter on each of the last 10 days. --spread-days 0
+// restores the old all-today behaviour.
+const SPREAD_DAYS = Math.max(0, parseFloat(flag('spread-days', '9')) || 0)
+// How much faster the replay runs than the tour watching it. The two used to share --speed, which
+// meant the story was still less than half sent when the tour reached Analytics, so the charts it
+// recorded were half-drawn — with --spread-days that shows as five of the ten daily bars. At 2x
+// the story has essentially landed by then, while the Traces stop earlier in the tour still
+// catches sessions arriving live. --replay-speed 1 restores the old lockstep.
+const REPLAY_SPEED_MULT = Math.max(0.1, parseFloat(flag('replay-speed', '2')) || 2)
 const AGENTS   = flag('agents', '')
 const THEME    = flag('theme', 'dark') as 'dark' | 'light'
 if (THEME !== 'dark' && THEME !== 'light') {
@@ -349,11 +360,15 @@ async function main() {
 
     const replayArgs = [
       path.join(__dirname, 'replay.ts'),
-      '--speed', String(SPEED),
+      '--speed', String(SPEED * REPLAY_SPEED_MULT),
       '--port', String(OTLP_PORT),
       '--scenario', SCENARIO,
       ...(AGENTS ? ['--agents', AGENTS] : []),
       ...(OUTCOMES ? ['--demo-repo', path.join(scratchRoot, 'pethaven'), '--backdate-min', '5'] : []),
+      // Only the story has chapters to spread, and only a recording wants them spread: `demo:show`
+      // leaves this off so sessions still arrive live while you watch. See --spread-days in
+      // replay.ts for what it buys — without it both over-time charts draw a single bar.
+      ...(SCENARIO === 'story' && SPREAD_DAYS > 0 ? ['--spread-days', String(SPREAD_DAYS)] : []),
     ]
     replayProc = spawn(process.execPath, [path.join(__dirname, 'run-ts.js'), ...replayArgs], {
       cwd: path.join(__dirname, '..'),
