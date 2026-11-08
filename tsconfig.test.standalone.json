@@ -70,6 +70,8 @@
     "standalone/dashboardPort.test.ts",
     "standalone/dashboardHtml.ts",
     "standalone/dashboardHtml.test.ts",
+    "standalone/orgTransport.ts",
+    "standalone/orgTransport.test.ts",
     "standalone/openBrowser.ts",
     "standalone/openBrowser.test.ts",
     "standalone/db/outcomesDb.ts",

@@ -73,3 +73,24 @@ suite('dashboardHtml / CSP contract', () => {
     assert.deepStrictEqual(inlineHandlerAttributesOf('<div data-on="x" ONCLICK = "go()">'), ['ONCLICK ='])
   })
 })
+
+// Both Org-panel linking bugs lived in this transport, and nothing covered it. The shim used to
+// call window.open on an `orgLinkUrl` it found in the /api/org response — but that response only
+// arrives once handleOrgMessage has resolved, i.e. after the user finished linking, so it
+// re-opened the sign-in page on top of a link that had just succeeded. The server opens the
+// browser itself, and `orgLinkUrl`/`orgDevicePrompt` now arrive live over SSE.
+suite('dashboardHtml / Org transport shim', () => {
+  const html = renderDashboardHtml(vars(generateCspNonce()))
+
+  test('the full edition wires org messages to /api/org', () => {
+    assert.ok(html.includes("fetch('/api/org'"), 'the org fetch shim is missing from the page')
+  })
+
+  test('the shim never opens a browser window itself', () => {
+    assert.ok(!/window\.open/.test(html), 'the page opens a window: the server opens the browser, and this shim only sees the URL after the flow has finished')
+  })
+
+  test('the shim re-dispatches whatever the response carries', () => {
+    assert.ok(html.includes("window.dispatchEvent(new MessageEvent('message'"), 'the shim no longer re-dispatches /api/org replies')
+  })
+})

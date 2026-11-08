@@ -62,6 +62,7 @@ import {
 } from '../src/httpSecurity'
 import { SseSessionSync, type SyncSummary } from './sseSessionSync'
 import { resolveStaticFile } from './pathGuard'
+import { isLiveOrgMessage } from './orgTransport'
 import { autoConfigLogLines } from './autoConfigLog'
 import { promptsFileFor, IMPORT_SOURCES } from './promptsFile'
 import { handleInstructionMessage, loadInstructionState, saveInstructionState, MAX_INSTRUCTION_BODY_BYTES, type InstructionHost, type InstructionResult } from './instructionActions'
@@ -1933,7 +1934,15 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
         : (() => { try { return JSON.parse(body.toString('utf-8')) as { type: string } } catch { return { type: 'getOrgStatus' } } })()
       try {
         await cloud.handleOrgMessage(msg, {
-          post: (m) => outbox.push(m),
+          // The outbox is only flushed when handleOrgMessage resolves (the res.end below), and a
+          // link flow does not resolve until the user has finished in their browser. Anything the
+          // page needs *while* it waits therefore has to go out live, over the SSE stream it is
+          // already listening on — broadcastSse re-dispatches as a window `message` event, the
+          // same shape post() would deliver. Buffering these was both Org-panel linking bugs:
+          // the device code never appeared (posted first, delivered ~15 minutes later, after the
+          // poll had already won or expired), and the authorize URL arrived only after a
+          // successful link, when the page's shim would re-open the sign-in page.
+          post: (m) => { if (isLiveOrgMessage(m['type'])) { broadcastSse(m); return } outbox.push(m) },
           openExternal: (u) => {
             openInBrowser(u, () => { /* URL is also delivered as an orgLinkUrl message */ })
           },
