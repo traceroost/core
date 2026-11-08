@@ -179,10 +179,10 @@ With the recommended configuration (all three `OTEL_LOG_*` vars): prompt text, t
 
 **Log files** (automatic, no setup) — `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`, plus the flat `~/.codex/archived_sessions/`, where Codex 0.167 and later move a session once it finishes
 
-`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is not present in this format. Each prompt-to-response cycle (what Codex calls a turn) is one trace, keyed by Codex's own `turn_id` — the same key its OTel copy gets.
+`turn_context` entries carry the model name. `event_msg` entries with `type: token_count` carry per-turn cumulative token usage. The user's prompt text is present: as an `event_msg` with `type: user_message` before 0.167, and from 0.167 as an `item_completed` carrying a `UserMessage` item. Each prompt-to-response cycle (what Codex calls a turn) is one trace, keyed by Codex's own `turn_id` — the same key its OTel copy gets.
 
-Available from logs: model, timestamps, token counts (input, output, cache read).
-Not in logs: prompt text, tool names, TTFT, latency.
+Available from logs: prompt text, model, timestamps, token counts (input, output, cache read).
+Not in logs: tool names, TTFT, latency.
 
 **OTel** (richer, requires config) — primarily flat OTLP log records (`/v1/logs`); adding `trace_exporter` also emits timing spans. With `log_user_prompt = true` and both exporters: prompt text, token counts, model, TTFT, tool names and results, and span timing are all present.
 
