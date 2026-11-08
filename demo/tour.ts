@@ -23,14 +23,98 @@ export interface TourTab {
 // `id` stays 'sessions' — the internal data-tab value never changed, only the visible label
 // (see media/src/App.tsx's own comment on its TABS array). Kept in sync here so the log text
 // matches what's actually on screen.
+// The per-tab pause is only the *landing* pause now: Analytics and Advisor are long scrolling
+// pages whose charts sit below the fold, so each one hands off to tourSectionRail() immediately
+// and spends its time down the page instead of sitting on the top of it. The Traces pause is
+// short for the same reason — the table is the first thing on screen while the tour's own
+// start-up wait runs, so by the time this fires it has already been read.
 export const TOUR_TABS: TourTab[] = [
-  { id: 'sessions',  label: 'Traces',    pauseMs: 3000 },
-  { id: 'analytics', label: 'Analytics', pauseMs: 5000 },
-  { id: 'patterns',  label: 'Advisor',   pauseMs: 5000 },
+  { id: 'sessions',  label: 'Traces',    pauseMs: 1000 },
+  { id: 'analytics', label: 'Analytics', pauseMs: 1200 },
+  { id: 'patterns',  label: 'Advisor',   pauseMs: 1200 },
 ]
 
 type Page = import('playwright').Page
 type Logger = (msg: string) => void
+
+export interface SectionRail {
+  /** The tab's content wrapper — '#analytics-content', '#patterns-content'. */
+  contentSel: string
+  /** The rail's aria-label, i.e. SectionNav's `label` prop. */
+  railLabel: string
+  /** How long to hold each section, keyed by the rail button's visible label. */
+  pauseMs: Record<string, number>
+  /** Hold for a section this map doesn't name, so a newly added one still gets screen time. */
+  defaultMs: number
+}
+
+// Charts get roughly twice the hold of the tables and cards around them — the point of the
+// walk is the graphs. Labels come from each tab's `navSections` array (media/src/tabs/
+// Analytics.tsx, Patterns.tsx); a renamed or added section falls back to defaultMs rather
+// than dropping out, and the log names whatever it actually clicked.
+export const ANALYTICS_RAIL: SectionRail = {
+  contentSel: '#analytics-content',
+  railLabel: 'Analytics sections',
+  defaultMs: 2600,
+  pauseMs: {
+    'Agent breakdown': 1200,
+    'By language': 1200,
+    'Plan limits': 1400,
+    'Outcome & token spend': 3600,
+    'Code changes': 3400,
+    'Estimated cost': 3000,
+    'Token usage': 3000,
+    'Context growth': 3000,
+  },
+}
+
+export const ADVISOR_RAIL: SectionRail = {
+  contentSel: '#patterns-content',
+  railLabel: 'Advisor sections',
+  defaultMs: 2400,
+  pauseMs: {
+    'How to spend less': 1600,
+    'Instructions file': 1200,
+    'Efficiency map': 3000,
+    'Hot files': 1600,
+  },
+}
+
+// Walks a long tab's left-hand jump rail (media/src/SectionNav.tsx), holding on each section.
+// Buttons are taken by position rather than by name so that a section this file doesn't know
+// about is still visited; the rail itself only renders with more than one section, and its
+// clicks scroll `.panel.active` (not the document), which is why this drives the rail instead
+// of scrolling the page by hand.
+export async function tourSectionRail(
+  page: Page, rail: SectionRail, speed: number, log: Logger,
+): Promise<void> {
+  const nav = page.locator(`${rail.contentSel} nav[aria-label="${rail.railLabel}"]`).first()
+  const visible = await nav.isVisible().catch(() => false)
+  if (!visible) {
+    log(`  ! ${rail.railLabel}: jump rail not visible — every section below the fold SKIPPED`)
+    return
+  }
+
+  const buttons = nav.getByRole('button')
+  const count = await buttons.count().catch(() => 0)
+  if (count === 0) {
+    log(`  ! ${rail.railLabel}: rail has no buttons — sections SKIPPED`)
+    return
+  }
+
+  for (let i = 0; i < count; i++) {
+    const btn = buttons.nth(i)
+    const label = ((await btn.textContent().catch(() => null)) ?? `section ${i + 1}`).trim()
+    const ms = rail.pauseMs[label] ?? rail.defaultMs
+    const clicked = await btn.click({ timeout: 5000 }).then(() => true).catch(() => false)
+    if (!clicked) {
+      log(`  ! ${rail.railLabel}: "${label}" would not click — section SKIPPED`)
+      continue
+    }
+    log(`  → ${label} (${ms / 1000}s)`)
+    await page.waitForTimeout(ms / speed)
+  }
+}
 
 // Expands the most recent session (Sessions tab's expand-in-place row) and walks its
 // internal Overview/Waterfall/Flow/Tools/Files nav — these are plain buttons with no
@@ -49,12 +133,19 @@ export async function tourSessionDetail(page: Page, speed: number, log: Logger):
   await rows.first().click()
   await page.waitForTimeout(600 / speed)
 
-  const sections: Array<{ name: RegExp; label: string }> = [
-    { name: /^Overview$/,  label: 'Overview' },
-    { name: /^Waterfall/,  label: 'Waterfall' },
-    { name: /^Flow/,       label: 'Flow' },
-    { name: /^Tools/,      label: 'Tools' },
-    { name: /^Files/,      label: 'Files' },
+  // Waterfall and Flow are the two drawn ones, so they hold longer than the ones that are text
+  // and tables — the same trade the section rails make below.
+  //
+  // Tools is deliberately not in this list (owner's call, 2026-11-08): the detail nav's Tools
+  // table is the stop the demo can most afford to lose, and the time goes to the charts
+  // instead. It is left out here rather than given ms: 0 so that it doesn't flicker past, and
+  // named here rather than silently absent so nobody reads it as the role/name bug this
+  // function's comment below describes.
+  const sections: Array<{ name: RegExp; label: string; ms: number }> = [
+    { name: /^Overview$/,  label: 'Overview',  ms: 1200 },
+    { name: /^Waterfall/,  label: 'Waterfall', ms: 2800 },
+    { name: /^Flow/,       label: 'Flow',      ms: 2800 },
+    { name: /^Files/,      label: 'Files',     ms: 1200 },
   ]
   // role="tab", not "button" — the detail nav became a real tablist in 255e38b (2026-10-23,
   // "dialog semantics for drawers"). This loop asked for role 'button' until 2026-11-08, so
@@ -62,7 +153,7 @@ export async function tourSessionDetail(page: Page, speed: number, log: Logger):
   // the same silent-skip the header comment above describes, in a second place. Hence the
   // loud log on a miss — a skipped section must never again look like a successful run.
   const detail = page.locator('#sessions-content')
-  for (const { name, label } of sections) {
+  for (const { name, label, ms } of sections) {
     const tab = detail.getByRole('tab', { name })
     const visible = await tab.first().isVisible().catch(() => false)
     if (!visible) {
@@ -70,8 +161,8 @@ export async function tourSessionDetail(page: Page, speed: number, log: Logger):
       continue
     }
     await tab.first().click()
-    log(`  → session detail: ${label} (2.5s)`)
-    await page.waitForTimeout(2500 / speed)
+    log(`  → session detail: ${label} (${ms / 1000}s)`)
+    await page.waitForTimeout(ms / speed)
   }
 
   // Collapse — click the same row again
@@ -87,13 +178,13 @@ export async function tourAlertsPanel(page: Page, speed: number, log: Logger): P
   const visible = await bell.isVisible().catch(() => false)
   if (!visible) return
 
-  log('  → Alerts panel (Active, Configure, Automation — 6s)')
+  log('  → Alerts panel (Active, Configure, Automation — 3s)')
   await bell.click()
   const panel = page.getByRole('dialog', { name: 'Alerts' })
-  await page.waitForTimeout(2000 / speed)
+  await page.waitForTimeout(1000 / speed)
   for (const tab of ['Configure', 'Automation']) {
     await panel.getByRole('tab', { name: tab }).click().catch(() => {})
-    await page.waitForTimeout(2000 / speed)
+    await page.waitForTimeout(1000 / speed)
   }
   // Close via Escape, not a second click on the bell — the panel is a `position:fixed;
   // top:0; right:0` sheet that, once open, sits on top of the same top-right corner the
@@ -117,7 +208,7 @@ export async function tourExportDrawer(page: Page, speed: number, log: Logger): 
     return
   }
 
-  log('  → Export drawer (scope, Redacted / Full — 4.5s)')
+  log('  → Export drawer (scope, Redacted / Full — 3s)')
   await btn.first().click()
   const drawer = page.getByRole('dialog', { name: 'Export traces' })
   const opened = await drawer
@@ -130,7 +221,7 @@ export async function tourExportDrawer(page: Page, speed: number, log: Logger): 
     const expanded = await btn.first().getAttribute('aria-expanded').catch(() => null)
     log(`  ! Export drawer never became visible (button aria-expanded=${expanded}) — stop is DEAD AIR`)
   }
-  await page.waitForTimeout(4500 / speed)
+  await page.waitForTimeout(3000 / speed)
   await page.keyboard.press('Escape')
   await page.waitForTimeout(600 / speed)
 }
@@ -146,7 +237,11 @@ export interface RunTourOptions {
  *  detail nav and Alerts panel folded in at the right points), then returns to Sessions —
  *  the most useful default landing tab, and the frame a recording should end on. */
 export async function runTour(page: Page, opts: RunTourOptions): Promise<void> {
-  const { speed, log, initialWaitMs = 3000 } = opts
+  // 2s, not 3: this wait is recorded, and what it records is a half-filled table. The replay
+  // keeps streaming all the way through the tour, so every later stop sees more rows than this
+  // one does however long it waits, and tourSessionDetail() has its own 15s wait for a row
+  // before it tries to expand anything.
+  const { speed, log, initialWaitMs = 2000 } = opts
   await page.waitForTimeout(initialWaitMs)
 
   for (const { id, label, pauseMs } of TOUR_TABS) {
@@ -162,9 +257,19 @@ export async function runTour(page: Page, opts: RunTourOptions): Promise<void> {
     // detail nav — those live inside the row, not the top-level tab bar.
     if (id === 'sessions') await tourSessionDetail(page, speed, log)
 
-    // Analytics is the natural point to also surface Automation/Alerts, which
-    // live in the Alerts panel (header bell) rather than a tab of their own.
-    if (id === 'analytics') await tourAlertsPanel(page, speed, log)
+    // Analytics: walk the whole page. Its charts (outcome and token spend, code changes,
+    // estimated cost, token usage, context growth) are all below the fold, so a flat pause on
+    // the tab showed the breakdown tables at the top and none of the graphs — which is what
+    // this tour did until 2026-11-08. Then the Alerts panel, which is the natural point to
+    // surface Automation/Alerts: they live behind the header bell, not in a tab of their own.
+    if (id === 'analytics') {
+      await tourSectionRail(page, ANALYTICS_RAIL, speed, log)
+      await tourAlertsPanel(page, speed, log)
+    }
+
+    // Advisor is a scrolling page too — the Efficiency map and Hot files sit below its
+    // instructions-file section.
+    if (id === 'patterns') await tourSectionRail(page, ADVISOR_RAIL, speed, log)
   }
 
   // Return to Sessions after the tour — the most useful default landing tab.

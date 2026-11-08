@@ -55,6 +55,17 @@ const FORCE    = hasFlag('force')
 const HEADED   = hasFlag('headed')
 const SPEED    = parseFloat(flag('speed', '1')) || 1
 const SCENARIO = flag('scenario', 'story')
+// Dates the story's 10 chapters across this many days (replay.ts --spread-days), so Analytics'
+// two over-time charts have a run of daily bars to draw instead of the single bar every session
+// landing in one hour gives them. 9 puts a chapter on each of the last 10 days. --spread-days 0
+// restores the old all-today behaviour.
+const SPREAD_DAYS = Math.max(0, parseFloat(flag('spread-days', '9')) || 0)
+// How much faster the replay runs than the tour watching it. The two used to share --speed, which
+// meant the story was still less than half sent when the tour reached Analytics, so the charts it
+// recorded were half-drawn — with --spread-days that shows as five of the ten daily bars. At 2x
+// the story has essentially landed by then, while the Traces stop earlier in the tour still
+// catches sessions arriving live. --replay-speed 1 restores the old lockstep.
+const REPLAY_SPEED_MULT = Math.max(0.1, parseFloat(flag('replay-speed', '2')) || 2)
 const AGENTS   = flag('agents', '')
 const THEME    = flag('theme', 'dark') as 'dark' | 'light'
 if (THEME !== 'dark' && THEME !== 'light') {
@@ -326,6 +337,14 @@ async function main() {
     const context = await browser.newContext({
       viewport: { width: WIDTH, height: HEIGHT },
       colorScheme: THEME,
+      // Reduced motion, for the encoder's sake rather than the viewer's: the tour walks the
+      // Analytics and Advisor jump rails, and a smooth scroll is a second of frames no two of
+      // which are alike, so mpdecimate can drop none of them. Twelve of those put the first
+      // recording of this tour at 7.09 MB even on the most aggressive rung, against a 4.9 MB
+      // budget. media/src/a11y.ts's scrollBehavior() honours this and jumps instead, which also
+      // reads better at 10 fps than a scroll sampled every 100ms. demo/browser.ts does NOT set
+      // it — there the scrolling is the point.
+      reducedMotion: 'reduce',
       recordVideo: DRY_RUN ? undefined : { dir: scratchVideo, size: { width: WIDTH, height: HEIGHT } },
     })
     // Matches media/src/state.ts's THEME_STORAGE_KEY — set before the app's own anti-flash
@@ -341,11 +360,15 @@ async function main() {
 
     const replayArgs = [
       path.join(__dirname, 'replay.ts'),
-      '--speed', String(SPEED),
+      '--speed', String(SPEED * REPLAY_SPEED_MULT),
       '--port', String(OTLP_PORT),
       '--scenario', SCENARIO,
       ...(AGENTS ? ['--agents', AGENTS] : []),
       ...(OUTCOMES ? ['--demo-repo', path.join(scratchRoot, 'pethaven'), '--backdate-min', '5'] : []),
+      // Only the story has chapters to spread, and only a recording wants them spread: `demo:show`
+      // leaves this off so sessions still arrive live while you watch. See --spread-days in
+      // replay.ts for what it buys — without it both over-time charts draw a single bar.
+      ...(SCENARIO === 'story' && SPREAD_DAYS > 0 ? ['--spread-days', String(SPREAD_DAYS)] : []),
     ]
     replayProc = spawn(process.execPath, [path.join(__dirname, 'run-ts.js'), ...replayArgs], {
       cwd: path.join(__dirname, '..'),
