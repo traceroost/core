@@ -23,7 +23,7 @@ export interface AgentAdapter {
 
 export const ADAPTERS: readonly AgentAdapter[] = [
   { key: 'claude',         label: 'Claude Code',       logKeys: ['claude'],                                dataDir: '~/.claude/projects/',             sources: ['otlp', 'files'],   support: 'verified',       lastVerifiedVersion: null },
-  { key: 'codex',          label: 'Codex',             logKeys: ['codex'],                                 dataDir: '~/.codex/sessions/',              sources: ['otlp', 'files'],   support: 'verified',       lastVerifiedVersion: null },
+  { key: 'codex',          label: 'Codex',             logKeys: ['codex'],                                 dataDir: '~/.codex/{sessions,archived_sessions}/', sources: ['otlp', 'files'],   support: 'verified',       lastVerifiedVersion: '0.167.0' },
   { key: 'copilot',        label: 'Copilot CLI',       logKeys: ['copilot'],                               dataDir: '~/.copilot/session-state/',       sources: ['otlp', 'files'],   support: 'fixture-tested', lastVerifiedVersion: '1.0.107' },
   { key: 'copilot_vscode', label: 'Copilot (VS Code)', logKeys: ['copilot_vscode', 'copilot_vscode_json'], dataDir: '~/Library/…/workspaceStorage/',  sources: ['otlp', 'files'],   support: 'best-effort',    lastVerifiedVersion: null },
   { key: 'opencode',       label: 'OpenCode',          logKeys: ['opencode'],                              dataDir: '~/.local/share/opencode/',        sources: ['sqlite'],          support: 'fixture-tested', lastVerifiedVersion: null },

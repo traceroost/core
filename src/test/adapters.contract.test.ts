@@ -5,6 +5,7 @@ import * as path from 'path'
 import { LogReader, type LogSessionResult, type OpenCodeSqlFactory } from '../logReader'
 import { calcSessionCostUsd } from '../pricing'
 import { ADAPTERS, adapterFor } from '../adapters/registry'
+import { compareVersions } from '../adapters/health'
 import { RECORDS_BY_LOG_KEY, atPath, classifyRecord, type FileObservation } from '../adapters/classify'
 
 // The adapter contract suite (runbooks/AGENT_FORMAT_BREAK.md): every committed fixture under
@@ -200,6 +201,29 @@ suite('Adapter contracts — committed agent fixtures', () => {
         assert.ok(name in known.consumed, `${logKey}: reads names \`${name}\`, which known.ts doesn't consume`)
         for (const p of paths) assert.ok(seen.has(`${name} ${p}`), `${logKey}: no fixture's \`${name}\` carries \`${p}\` — misspelt?`)
       }
+    }
+  })
+
+  // runbooks/AGENT_FORMAT_BREAK.md step 3 ends with "set `lastVerifiedVersion`" — but the only
+  // thing checking it was adapters.classify.test.ts's README drift test, and both sides of that
+  // derive from registry.ts: when it says null the README says "none yet", they agree, and
+  // nothing fails. That is how #407 committed a real, tested codex 0.167.0 capture while leaving
+  // the public support matrix reading "none yet". This ties the field to the fixtures instead.
+  test('lastVerifiedVersion names the newest committed real capture for each adapter', () => {
+    const newestCapture = new Map<string, string>()
+    for (const { adapter, dir } of fixtureDirs()) {
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as Manifest
+      if (manifest.source !== 'capture') continue
+      const prev = newestCapture.get(adapter)
+      if (!prev || compareVersions(manifest.agentVersion, prev) > 0) newestCapture.set(adapter, manifest.agentVersion)
+    }
+    for (const a of ADAPTERS) {
+      const newest = newestCapture.get(a.key) ?? null
+      assert.strictEqual(
+        a.lastVerifiedVersion, newest,
+        newest
+          ? `${a.key}: a real capture of ${newest} is committed, so registry.ts lastVerifiedVersion should be '${newest}', not ${JSON.stringify(a.lastVerifiedVersion)} — then paste supportMatrixMarkdown() into the README (runbooks/AGENT_FORMAT_BREAK.md step 3)`
+          : `${a.key}: no fixture has source 'capture', so lastVerifiedVersion should be null, not ${JSON.stringify(a.lastVerifiedVersion)}`)
     }
   })
 

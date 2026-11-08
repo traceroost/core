@@ -149,7 +149,7 @@ suite('adapters — registry', () => {
     assert.strictEqual(agentKeyLabel('claude'), 'Claude Code')
     assert.strictEqual(agentKeyLabel('copilot_vscode_json'), 'Copilot (VS Code)')
     assert.strictEqual(adapterForLogKey('copilot_vscode_json')?.key, 'copilot_vscode')
-    assert.strictEqual(agentKeyDir('codex'), '~/.codex/sessions/')
+    assert.strictEqual(agentKeyDir('codex'), '~/.codex/{sessions,archived_sessions}/')
     assert.strictEqual(agentKeyLabel('unheard_of'), 'unheard_of')
   })
 
