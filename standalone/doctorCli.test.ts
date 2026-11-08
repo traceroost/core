@@ -26,8 +26,8 @@ const claudeClean = (h: AdapterHealth) => h.observeFile('/a.jsonl', observeRecor
 
 const codexRecords = () => observeRecords('codex', [
   { type: 'session_meta', payload: { id: 'x', cwd: '/secret/repo', cli_version: '0.162.0' } },
-  { type: 'token_usage_record', payload: { tokens: 12, note: 'a private value' } },
-  { type: 'token_usage_record', payload: { tokens: 3 } },
+  { type: 'turn_summary_record', payload: { tokens: 12, note: 'a private value' } },
+  { type: 'turn_summary_record', payload: { tokens: 3 } },
 ])!
 // The rollout gave no turns: lost data.
 const codexBroken = (h: AdapterHealth) => h.observeFile('/r.jsonl', { ...codexRecords(), turns: 0 }, NOW)
@@ -50,7 +50,7 @@ suite('traceroost doctor', () => {
     assert.strictEqual(await runDoctorCli([], t), 1)
     const text = t.out.join('\n')
     assert.match(text, /Codex\s+0\.162\.0\s+.*Missing data/)
-    assert.match(text, /Codex 0\.162\.0: 2 unrecognized of 3 records — token_usage_record ×2/)
+    assert.match(text, /Codex 0\.162\.0: 2 unrecognized of 3 records — turn_summary_record ×2/)
     assert.match(text, /1 session file gave no turns: missing from Traces/)
     assert.match(text, /traceroost doctor --report codex/)
   })
@@ -60,7 +60,7 @@ suite('traceroost doctor', () => {
     assert.strictEqual(await runDoctorCli([], t), 0)
     const text = t.out.join('\n')
     assert.match(text, /Codex\s+0\.162\.0\s+.*Unrecognized data/)
-    assert.match(text, /token_usage_record ×2\n  Skipped; its sessions were still read\./)
+    assert.match(text, /turn_summary_record ×2\n  Skipped; its sessions were still read\./)
   })
 
   test('adds the running server\'s OTLP counts', async () => {
@@ -76,7 +76,7 @@ suite('traceroost doctor', () => {
     assert.strictEqual(await runDoctorCli(['--report', 'codex', '--open'], t), 0)
     const text = t.out.join('\n')
     assert.match(text, /Codex 0\.162\.0: unrecognized data/)
-    assert.match(text, /\| `token_usage_record` \| 2 \|/)
+    assert.match(text, /\| `turn_summary_record` \| 2 \|/)
     assert.match(text, /"tokens": "number"/)
     for (const value of ['a private value', '/secret/repo']) assert.ok(!text.includes(value), `leaked ${value}`)
     assert.strictEqual(t.opened.length, 1)

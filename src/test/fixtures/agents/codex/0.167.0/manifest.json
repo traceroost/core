@@ -1,0 +1,14 @@
+{
+  "source": "capture",
+  "captured": "2026-11-08",
+  "os": "ubuntu-latest",
+  "redaction": "tests/e2e/captures-to-fixtures.mjs: <REPO>, <HOME>, <EMAIL>, <REDACTED>, <SYSTEM PROMPT OMITTED>, <CALL-ID-n>",
+  "adapter": "codex",
+  "agentVersion": "0.167.0",
+  "files": [
+    {
+      "path": "files/.codex/sessions/2026/11/08/rollout-2026-11-08T19-03-07-01a1bc8a-f6fd-77d2-a3c5-b57e8e2078dc.jsonl",
+      "logKey": "codex"
+    }
+  ]
+}

@@ -4,10 +4,9 @@
  * An `event_msg` is named by its payload type (`event_msg:token_count`); every `response_item` is
  * skipped, so it is named by its top-level type alone.
  *
- * Not listed on purpose: `world_state`, `token_usage_record`, `event_msg:item_completed` and
- * `event_msg:thread_settings_applied`. They come from the Codex VS Code extension's 0.154–0.162
- * alpha rollouts, which log the prompt as a `response_item` and no `event_msg:user_message`, so
- * the parser finds no turns in them. Until it does, they should surface as unrecognized.
+ * From 0.167 (and the VS Code extension's 0.154–0.164 alphas) the prompt comes as an
+ * `event_msg:item_completed` with a `UserMessage` item instead of `event_msg:user_message`
+ * (LogReader codexPromptText). `token_usage_record` repeats token_count's usage per response.
  */
 
 import type { KnownOtlp, KnownRecords } from '../types'
@@ -27,6 +26,7 @@ export const CODEX_RECORDS: KnownRecords = {
     'event_msg:token_count':   ['payload'],
     'event_msg:task_started':  [],
     'event_msg:turn_aborted':  [],
+    'event_msg:item_completed': ['payload.item'],
   },
   ignored: [
     'response_item', 'compacted',
@@ -43,6 +43,7 @@ export const CODEX_RECORDS: KnownRecords = {
     'event_msg:error', 'event_msg:warning', 'event_msg:context_compacted',
     'event_msg:entered_review_mode', 'event_msg:exited_review_mode',
     'event_msg:session_configured', 'event_msg:shutdown_complete',
+    'world_state', 'token_usage_record', 'event_msg:thread_settings_applied',
   ],
   structural: ['payload', 'payload.info', 'payload.info.total_token_usage', 'payload.info.last_token_usage', 'payload.rate_limits', 'payload.rate_limits.primary', 'payload.rate_limits.secondary'],
   versionOf: r => {
@@ -51,6 +52,7 @@ export const CODEX_RECORDS: KnownRecords = {
     return typeof v === 'string' && v ? v : null
   },
   reads: {
+    'event_msg:item_completed': ['payload.item.type', 'payload.turn_id'],
     'event_msg:token_count': [
       'payload.info.total_token_usage.input_tokens', 'payload.info.total_token_usage.cached_input_tokens',
       'payload.info.total_token_usage.output_tokens',

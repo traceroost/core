@@ -1,0 +1,10 @@
+{
+  "traces": 1,
+  "turns": 2,
+  "inputTokens": 24240,
+  "outputTokens": 935,
+  "cacheReadTokens": 12416,
+  "cacheCreateTokens": 0,
+  "toolCalls": 0,
+  "costUsd": 0.005136
+}
