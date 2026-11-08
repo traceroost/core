@@ -27,7 +27,11 @@ export interface DashboardHtmlVars {
 }
 
 /** The standalone page's Org-panel transport: the webview posts `org*` messages, this polyfill
- *  turns them into `/api/org` requests. Empty in the core edition — its Org panel is a stub that
+ *  turns them into `/api/org` requests. It does not open `orgLinkUrl` itself: the server opens the
+ *  browser (`openExternal`), the panel renders the URL as a clickable fallback for when that
+ *  fails, and this shim only ever saw the message after the flow had finished — so opening it
+ *  here re-opened the sign-in page on top of a link that had just succeeded. `orgLinkUrl` and
+ *  `orgDevicePrompt` now arrive live over the SSE stream instead (see `/api/org` in server.ts). Empty in the core edition — its Org panel is a stub that
  *  never posts one — so no org wiring reaches the page at all. A literal
  *  `process.env.TRACEROOST_EDITION` check (esbuild.js defines it) so the core build drops the
  *  string entirely rather than just never using it. */
@@ -40,7 +44,6 @@ if (process.env.TRACEROOST_EDITION !== 'core') {
               body: msg.type === 'getOrgStatus' ? undefined : JSON.stringify(msg),
             }).then(function(r) { return r.json(); }).then(function(data) {
               (data.messages || []).forEach(function(m) {
-                if (m.type === 'orgLinkUrl' && m.url) { window.open(m.url, '_blank'); }
                 window.dispatchEvent(new MessageEvent('message', { data: m }));
               });
             }).catch(function() {
