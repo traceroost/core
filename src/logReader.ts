@@ -96,12 +96,24 @@ function claudeProjectsDirs(): string[] {
   return candidates.filter(d => { try { return fs.statSync(d).isDirectory() } catch { return false } })
 }
 
+/** Where Codex keeps rollouts: each Codex home's `sessions/` (YYYY/MM/DD/rollout-*.jsonl), plus
+ *  its `archived_sessions/` (flat) when there is one — where Codex moves a session it archives.
+ *  Same file, same turn ids: an archived session keeps its traces rather than gaining copies. */
 function codexSessionsDirs(): string[] {
+  const isDir = (d: string) => { try { return fs.statSync(d).isDirectory() } catch { return false } }
+  const withArchive = (sessionsDirs: string[]) => sessionsDirs.flatMap(d => {
+    const archive = path.join(path.dirname(d), 'archived_sessions')
+    return isDir(archive) ? [d, archive] : [d]
+  })
   const envVal = process.env['CODEX_HOME']
   if (envVal) {
-    return envVal.split(',').map(p => p.trim()).filter(Boolean)
-      .map(p => path.join(p, 'sessions'))
+    return withArchive(envVal.split(',').map(p => p.trim()).filter(Boolean)
+      .map(p => path.join(p, 'sessions')))
   }
+  return withArchive(codexHomeSessionsDirs().filter(isDir))
+}
+
+function codexHomeSessionsDirs(): string[] {
   const candidates: string[] = []
   if (process.platform === 'win32') {
     const local = process.env['LOCALAPPDATA']
@@ -110,7 +122,7 @@ function codexSessionsDirs(): string[] {
     if (appData) candidates.push(path.join(appData, 'Codex', 'sessions'))
   }
   candidates.push(path.join(homeDir(), '.codex', 'sessions'))
-  return candidates.filter(d => { try { return fs.statSync(d).isDirectory() } catch { return false } })
+  return candidates
 }
 
 function openCodeDataDirs(): string[] {
@@ -962,6 +974,7 @@ export class LogReader {
   }
 
   /** Reads a Codex CLI rollout and returns one result per turn. A turn opens at a `user_message`
+   *  (or, from 0.167, a `UserMessage` item_completed — codexPromptText)
    *  (walked back over the near-simultaneous bookkeeping lines logged just before it — see
    *  WALKBACK_EPSILON_MS) and is keyed by Codex's own `turn_id` (task_started / turn_context):
    *  traceKey('codex', turn_id), the same key the Codex OTEL card gets from its spans' turn id. A
@@ -1061,8 +1074,8 @@ export class LogReader {
 
       if (entry['type'] === 'event_msg') {
         const payload = entry['payload'] as Record<string, unknown> | undefined
-        if (payload?.['type'] === 'user_message' && !userRequest) {
-          const msg = String(payload['message'] ?? '').trim()
+        if (!userRequest) {
+          const msg = codexPromptText(entry)?.trim()
           if (msg) userRequest = _extractCodexUserText(msg)
         }
         if (payload?.['type'] === 'token_count') {
@@ -2342,14 +2355,28 @@ function codexTurnIdOf(entry: Record<string, unknown>, opening: boolean): string
   return typeof id === 'string' ? id : ''
 }
 
+/** The prompt a Codex rollout line carries, or null when it isn't one: an `event_msg`
+ *  `user_message` (`payload.message`), or — from 0.167, which stopped writing user_message — an
+ *  `event_msg` `item_completed` whose item is a `UserMessage` (its text content parts). */
+export function codexPromptText(entry: Record<string, unknown>): string | null {
+  if (entry['type'] !== 'event_msg') return null
+  const payload = entry['payload'] as Record<string, unknown> | undefined
+  if (payload?.['type'] === 'user_message') return String(payload['message'] ?? '')
+  if (payload?.['type'] !== 'item_completed') return null
+  const item = payload['item'] as Record<string, unknown> | undefined
+  if (item?.['type'] !== 'UserMessage') return null
+  const parts = Array.isArray(item['content']) ? item['content'] as Array<Record<string, unknown>> : []
+  return parts.filter(p => typeof p?.['text'] === 'string').map(p => p['text'] as string).join('\n')
+}
+
 export interface CodexTurnRange {
   start: number
   end: number
-  /** Index of the turn's user_message line. */
+  /** Index of the turn's prompt line (codexPromptText). */
   opening: number
   /** Codex's own turn id, or '' for a rollout that logs none (derived key). */
   turnId: string
-  /** The user_message's own timestamp string — the derived key's opening. */
+  /** The prompt line's own timestamp string — the derived key's opening. */
   openingTs: string
 }
 
@@ -2359,8 +2386,7 @@ export function codexTurnRanges(parsed: unknown[]): CodexTurnRange[] {
   const openings: number[] = []
   for (let i = 0; i < parsed.length; i++) {
     const e = parsed[i] as Record<string, unknown> | undefined
-    if (!e || e['type'] !== 'event_msg') continue
-    if ((e['payload'] as Record<string, unknown> | undefined)?.['type'] === 'user_message') openings.push(i)
+    if (e && codexPromptText(e) !== null) openings.push(i)
   }
   if (openings.length === 0) return []
 

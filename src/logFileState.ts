@@ -37,11 +37,16 @@ export const LOG_FILE_STATE_FILENAME = 'log-file-state.json'
  *    reads and writes, which were then added again, so every cached token was counted twice and
  *    priced as fresh input. Its events.jsonl files within retention are read again; keys are
  *    unchanged, so rows are rewritten in place.
+ * 8: Codex 0.167 (and the VS Code extension's alphas before it) stopped writing `user_message`;
+ *    the prompt comes as a `UserMessage` item_completed, so those rollouts yielded no trace at all.
+ *    Codex rollout files within retention are read again.
  */
-export const LOG_FILE_STATE_VERSION = 7
+export const LOG_FILE_STATE_VERSION = 8
 
 /** A Copilot CLI session log: `<session-state>/<session id>/events.jsonl`. */
 const COPILOT_CLI_EVENTS = /[\\/]session-state[\\/][^\\/]+[\\/]events\.jsonl$/
+/** A Codex rollout: `<sessions>/YYYY/MM/DD/rollout-*.jsonl`. */
+const CODEX_ROLLOUT = /[\\/]rollout-[^\\/]*\.jsonl$/
 
 export function readLogFileState(storageDir: string, log?: (msg: string) => void): { version: number; files: Record<string, FileState> } {
   const file = path.join(storageDir, LOG_FILE_STATE_FILENAME)
@@ -96,7 +101,10 @@ export function restoreLogFileState(lr: LogReader, storageDir: string, retention
     }
   }
   if (version < 6) forget(() => true)
-  else if (version < 7) forget(filePath => COPILOT_CLI_EVENTS.test(filePath))
+  else {
+    if (version < 7) forget(filePath => COPILOT_CLI_EVENTS.test(filePath))
+    if (version < 8) forget(filePath => CODEX_ROLLOUT.test(filePath))
+  }
   lr.importFileState(files)
   return forgotten
 }

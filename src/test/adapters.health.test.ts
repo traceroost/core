@@ -96,7 +96,7 @@ const codexAlpha = (turns: number | undefined) => ({
   ...observeRecords('codex', [
     { type: 'session_meta', payload: { id: 'x', cwd: '/r', cli_version: '0.162.0-alpha.17.2' } },
     { type: 'turn_context', payload: { model: 'm' } },
-    { type: 'world_state', payload: {} },
+    { type: 'brand_new_record', payload: {} },
   ])!,
   ...(turns === undefined ? {} : { turns }),
 })

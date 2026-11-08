@@ -33,7 +33,7 @@ suite('adapters — classifyRecord', () => {
 
   test('Codex names an event_msg by its payload type', () => {
     assert.strictEqual(classifyRecord(CODEX_RECORDS, { type: 'event_msg', payload: { type: 'token_count' } }).cls, 'known')
-    assert.deepStrictEqual(classifyRecord(CODEX_RECORDS, { type: 'event_msg', payload: { type: 'item_completed' } }), { cls: 'unknown', name: 'event_msg:item_completed' })
+    assert.deepStrictEqual(classifyRecord(CODEX_RECORDS, { type: 'event_msg', payload: { type: 'turn_digest' } }), { cls: 'unknown', name: 'event_msg:turn_digest' })
     assert.strictEqual(classifyRecord(CODEX_RECORDS, { type: 'response_item', payload: { type: 'anything' } }).cls, 'ignored')
   })
 })

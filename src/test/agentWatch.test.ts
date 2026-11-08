@@ -176,9 +176,13 @@ suite('fingerprint-diff — CI format check', () => {
       resolve({ code: err ? (err as { code?: number }).code ?? 1 : 0, out: stdout })
     })
   })
+  // The newest committed Codex fixture — what fingerprint-diff compares a capture with — as a
+  // capture of a later version.
+  const newestCodex = () => fs.readdirSync(path.join(FIXTURES, 'codex')).filter(v => /^\d/.test(v))
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0] ?? 'synthetic'
   const copyCodex = () => {
     const dest = path.join(tmp, 'codex', '0.170.0')
-    fs.cpSync(path.join(FIXTURES, 'codex', 'synthetic'), dest, { recursive: true })
+    fs.cpSync(path.join(FIXTURES, 'codex', newestCodex()), dest, { recursive: true })
     const m = JSON.parse(fs.readFileSync(path.join(dest, 'manifest.json'), 'utf8'))
     fs.writeFileSync(path.join(dest, 'manifest.json'), JSON.stringify({ ...m, source: 'capture', agentVersion: '0.170.0' }))
     return path.join(dest, m.files[0].path)
@@ -211,10 +215,10 @@ suite('fingerprint-diff — CI format check', () => {
 
   // Codex 0.167.0's failed capture: no prompt and no token counts — the parser finds no turn.
   test('a record the parser needs that the fixture had and the capture lacks fails', async () => {
-    rewrite(copyCodex(), lines => lines.filter(l => !isEvent(l, 'user_message') && !isEvent(l, 'token_count')))
+    rewrite(copyCodex(), lines => lines.filter(l => !isEvent(l, 'item_completed') && !isEvent(l, 'token_count')))
     const r = await run(tmp)
     assert.strictEqual(r.code, 1, r.out)
-    assert.match(r.out, /no `event_msg:user_message` record: TraceRoost reads `payload\.message` from it/)
+    assert.match(r.out, /no `event_msg:item_completed` record: TraceRoost reads `payload\.item` from it/)
     assert.match(r.out, /no `event_msg:token_count` record/)
   })
 

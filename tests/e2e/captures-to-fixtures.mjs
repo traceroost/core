@@ -14,7 +14,7 @@
 //   - e-mail addresses → <EMAIL>
 //   - anything that looks like an API key / bearer token → <REDACTED>
 //   - an agent vendor's own system prompt (Copilot's system.message, Codex's base instructions)
-//     → <SYSTEM PROMPT OMITTED>, and opaque per-call ids → <CALL-ID-n> (SCRUB below)
+//     → <SYSTEM PROMPT OMITTED>, and opaque per-call ids and encrypted reasoning → placeholders (scrubber below)
 // Only the files TraceRoost reads are copied (`keep`): not an agent's lock files, checkpoints or
 // workspace snapshots. It refuses (exit 1) if a home path, e-mail or token-shaped string survives. Then run
 //   UPDATE_AGENT_FIXTURES=1 pnpm run test:unit
@@ -83,10 +83,20 @@ function scrubber() {
       if (r.type === 'system.message' && typeof r.data?.content === 'string') r = { ...r, data: { ...r.data, content: SYSTEM_PROMPT } }
       return callIds(r)
     },
+    // Codex's own instructions: session_meta's base instructions, `developer` messages and
+    // world_state's skills text (0.167+); and encrypted reasoning, opaque and large.
     codex: r => {
-      if (r.type !== 'session_meta' || !r.payload) return r
+      if (!r.payload) return r
       const payload = { ...r.payload }
-      for (const k of ['base_instructions', 'instructions']) if (k in payload) payload[k] = replaceStrings(payload[k], SYSTEM_PROMPT)
+      if (r.type === 'session_meta') {
+        for (const k of ['base_instructions', 'instructions']) if (k in payload) payload[k] = replaceStrings(payload[k], SYSTEM_PROMPT)
+      } else if (r.type === 'response_item' && payload.type === 'message' && payload.role === 'developer') {
+        payload.content = replaceStrings(payload.content, SYSTEM_PROMPT)
+      } else if (r.type === 'response_item' && payload.type === 'reasoning' && typeof payload.encrypted_content === 'string') {
+        payload.encrypted_content = '<ENCRYPTED REASONING OMITTED>'
+      } else if (r.type === 'world_state' && payload.state?.host_skills) {
+        payload.state = { ...payload.state, host_skills: replaceStrings(payload.state.host_skills, SYSTEM_PROMPT) }
+      } else return r
       return { ...r, payload }
     },
   }
@@ -128,8 +138,11 @@ for (const s of SOURCES) {
     }
   }
 }
-const repos = [...cwds].sort((a, b) => b.length - a.length)
-const homes = [...new Set(repos.map(r => path.dirname(r.replace(/\\/g, '/'))))]
+// Absolute paths only: a capture that's already redacted names `<REPO>`, whose dirname `.` would
+// otherwise replace every dot in the file.
+const absolute = p => /^(\/|[A-Za-z]:[\\/])/.test(p)
+const repos = [...cwds].filter(absolute).sort((a, b) => b.length - a.length)
+const homes = [...new Set(repos.map(r => path.dirname(r.replace(/\\/g, '/'))))].filter(h => absolute(h) && h.length > 1)
 
 function redact(text) {
   let t = text

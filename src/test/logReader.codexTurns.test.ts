@@ -73,6 +73,47 @@ suite('LogReader — Codex, one trace per turn', () => {
     assert.ok(results[1].card.durationMs < 60_000, 'a turn never spans the multi-day gap')
   })
 
+  // Codex 0.167 stopped writing user_message: the prompt is an item_completed UserMessage item,
+  // logged after the turn's task_started / turn_context. A rollout that writes both for one prompt
+  // still makes one turn.
+  test('0.167+: a UserMessage item_completed opens the turn and is its prompt', () => {
+    const userItem = (ts: string, turnId: string, text: string) => ({ timestamp: ts, type: 'event_msg', payload: { type: 'item_completed', turn_id: turnId, item: { type: 'UserMessage', id: `u-${turnId}`, content: [{ type: 'text', text }] } } })
+    const agentItem = (ts: string, turnId: string) => ({ timestamp: ts, type: 'event_msg', payload: { type: 'item_completed', turn_id: turnId, item: { type: 'AgentMessage', content: [{ type: 'Text', text: 'done' }] } } })
+    const filePath = path.join(tmpDir, 'rollout-0167.jsonl')
+    writeJsonl(filePath, [
+      sessionMeta(T0),
+      taskStarted(at(T0, 1000), 't-1'), turnContext(at(T0, 1000), 't-1'), userItem(at(T0, 1001), 't-1', 'first prompt'),
+      agentItem(at(T0, 3000), 't-1'), tokenCount(at(T0, 4000), 11642, 903),
+      taskStarted(at(T0, 60_000), 't-2'), turnContext(at(T0, 60_000), 't-2'), userItem(at(T0, 60_001), 't-2', 'second prompt'),
+      userMessage(at(T0, 60_001), 'second prompt'),
+      tokenCount(at(T0, 64_000), 24240, 935, 12416),
+    ])
+    const results = new LogReader().parseFile(filePath, 'codex')
+    assert.deepStrictEqual(results.map(r => [r.card.sessionId, r.card.userRequest]), [
+      [traceKey('codex', 't-1'), 'first prompt'],
+      [traceKey('codex', 't-2'), 'second prompt'],
+    ])
+    assert.deepStrictEqual(results.map(r => r.card.outputTokens), [903, 935 - 903])
+  })
+
+  test('Codex\'s archived_sessions folder is watched and read beside sessions', () => {
+    const saved = process.env['CODEX_HOME']
+    try {
+      process.env['CODEX_HOME'] = tmpDir
+      fs.mkdirSync(path.join(tmpDir, 'sessions'))
+      fs.mkdirSync(path.join(tmpDir, 'archived_sessions'))
+      const filePath = path.join(tmpDir, 'archived_sessions', `rollout-2026-05-01T10-00-00-${THREAD}.jsonl`)
+      writeJsonl(filePath, [sessionMeta(T0), ...turn(at(T0, 1000), 'archived work', 't-1'), tokenCount(at(T0, 5000), 1000, 10)])
+      const reader = new LogReader()
+      assert.ok(reader.getWatchDirs().includes(path.join(tmpDir, 'archived_sessions')))
+      const files = reader.collectFileMeta().filter(e => e.agentKey === 'codex').map(e => e.filePath)
+      assert.deepStrictEqual(files, [filePath])
+    } finally {
+      if (saved === undefined) delete process.env['CODEX_HOME']
+      else process.env['CODEX_HOME'] = saved
+    }
+  })
+
   test('a turn with no token_count of its own reports zero and does not reset the baseline', () => {
     const filePath = path.join(tmpDir, 'rollout-empty-middle.jsonl')
     writeJsonl(filePath, [
