@@ -45,8 +45,10 @@ Until npm's trusted publisher and the Docker Hub repo exist, do the `main` commi
 Every release ships one edition — **core** (no TraceRoost Cloud / org-link / upload code at all) or
 **full** (with it). See CONTRIBUTING.md → Editions for how the split works in the source.
 
-**Currently: `core`.** Until TraceRoost Cloud launches, the VSIX, the npm package, the Docker
-image and the desktop app are all built with `--edition=core`.
+**Currently: `full`** — since v1.0.0 (2026-11-08, TraceRoost Cloud's launch), through the
+repository variable `TRACEROOST_RELEASE_EDITION=full`; the workflow's own fallback is still `core`
+(see "Flipping to `full`" below for the permanent switch). Through v0.21.0 the VSIX, the npm
+package, the Docker image and the desktop app were all built with `--edition=core`.
 
 How a release picks its edition:
 

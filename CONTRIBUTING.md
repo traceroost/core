@@ -94,7 +94,7 @@ pnpm run test:unit                         # tests run against the sources — s
 ```
 
 CI builds and checks both (`build-and-test` and `core-edition` in `.github/workflows/ci.yml`).
-Releases are core until TraceRoost Cloud launches — see
+Releases ship the full edition since v1.0.0 (they were core before) — see
 [runbooks/RELEASING.md](runbooks/RELEASING.md#editions).
 
 ## Continuous integration

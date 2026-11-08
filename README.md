@@ -666,7 +666,7 @@ TraceRoost manages its own service, so don't also start it with `brew services`.
 A machine with no desktop — a Linux server, a dev VM, a box you only reach over SSH — can collect
 its agents' traces and forward them to a TraceRoost Cloud org with nothing but a terminal. It's the
 same background service as above; nothing on it needs a browser. Forwarding needs the **full**
-edition (see [Editions](#editions)); released builds are core until TraceRoost Cloud launches.
+edition (see [Editions](#editions)), which every released build has been since 1.0.0.
 
 ```bash
 # 1. Run TraceRoost as a background service (never opens a browser over SSH or without a display)
@@ -760,7 +760,8 @@ TraceRoost is built in two editions from the same source:
 - **core** — everything in this README: the dashboard, log/OTel ingestion, the MCP server, the
   Advisor, and the local CLI analysis (`find`, `trace`, `patterns`, `cohort`, `advise`). It
   contains **no** TraceRoost Cloud (org link + upload) code at all — not disabled, not built in.
-  Released builds (VSIX, npm, Docker, the desktop app) are core until TraceRoost Cloud launches.
+  Released builds (VSIX, npm, Docker, the desktop app) were core through 0.21.0; since 1.0.0 they
+  are full.
 - **full** — core plus TraceRoost Cloud: the Org panel, `traceroost org` / `--explain-payload` /
   `cluster`, and forwarding hashed rollups to a linked org (see
   [CLOUD_ARCHITECTURE.md](CLOUD_ARCHITECTURE.md)). A rollup carries counts, enums, hashes and
