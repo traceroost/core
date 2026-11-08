@@ -1,0 +1,216 @@
+name: Pricing · watch
+
+# Weekly: have any of the vendor pricing pages moved? Runs the refresh procedure in
+# PRICING_SOURCES.md ("How to refresh this file") headlessly with Claude Code, and opens a *draft*
+# pull request with whatever it found. That file is the authority on the sources and the rules —
+# this workflow deliberately holds no rate tables, no URL list and no normalization rules of its
+# own, so a change to the procedure takes effect here without touching this file.
+#
+# Unlike agent-release-watch.yml, which only ever opens an issue, this one does commit — so every
+# PR it opens is a draft, is labeled `pricing-auto`, and is never auto-merged. Review it like any
+# other pricing PR: the point of the draft is that the judgement calls (is a rate promotional? is a
+# guessed model slug right? should a new tier be modeled?) still get a human.
+#
+# Cost: runs in the public repo, so GitHub Actions minutes are free. The Claude Code run is a few
+# cents of ANTHROPIC_API_KEY usage a week — the same secret agent-capture.yml uses.
+#
+# Only the schedule and a maintainer's `workflow_dispatch` can start this. It is not reachable from
+# a pull request, so a fork can never run it or reach ANTHROPIC_API_KEY. Never convert it to
+# `pull_request_target`, `issue_comment` or `workflow_run`: those run in this repo's context *with*
+# secrets, against code the PR author controls.
+
+on:
+  schedule:
+    - cron: '41 9 * * 1' # Mondays, 09:41 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report the diff in the run summary only — no branch, no pull request
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pricing-watch
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # One open auto-PR at a time. A second would be built on a stale rate table and the two would
+      # conflict on every date line in PRICING_SOURCES.md.
+      - name: Skip if an auto pricing PR is already open
+        id: existing
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          open=$(gh pr list --label pricing-auto --state open --json number --jq 'length')
+          echo "count=$open" >> "$GITHUB_OUTPUT"
+          if [ "$open" != "0" ]; then
+            gh pr list --label pricing-auto --state open \
+              --json number,title,url --jq '.[] | "#\(.number) \(.title) \(.url)"' >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=pricing watch::An auto pricing PR is already open — review or close it first."
+          fi
+
+      # pnpm, never npm or yarn — a second lockfile in this repo is a real problem.
+      - name: Install dependencies
+        if: steps.existing.outputs.count == '0'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Claude Code
+        if: steps.existing.outputs.count == '0'
+        run: npm install -g @anthropic-ai/claude-code
+
+      # The prompt stays short on purpose: PRICING_SOURCES.md already holds the procedure, the source
+      # URLs, the normalization rules and the "don't guess — write a Known gap" rule. Repeating any
+      # of that here would give it a second, drifting copy.
+      - name: Run the pricing refresh
+        if: steps.existing.outputs.count == '0'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error title=pricing watch::ANTHROPIC_API_KEY is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          claude -p "$(cat <<'PROMPT'
+          Refresh this repository's model pricing tables for today's date.
+
+          PRICING_SOURCES.md's "How to refresh this file" section is the authoritative procedure.
+          Read it first and follow every numbered step, including the per-section verified dates and
+          the PRICING_SECTIONS update. Its "Notes for maintainers" covers key normalization.
+
+          Hard rules:
+          - Fetch each source URL listed in PRICING_SOURCES.md and compare it against the rate
+            tables. Prefer a vendor's own pricing page over a reseller's: where a section lists
+            several sources, the vendor's own is the authority and a reseller's figure that
+            disagrees is a Known gap, not a correction.
+          - Never invent a rate. If a rate or model cannot be confirmed from a source, add it to
+            that section's "Known gaps" instead of guessing, exactly as the procedure says.
+          - Never delete a model key just because it dropped off a page. Historical sessions still
+            need its rate; record the absence in Known gaps.
+          - A rate change that alters the cost of sessions that already exist (as opposed to adding
+            a new model) is a user-facing bug fix: add a CHANGELOG.md entry under
+            "## [Unreleased]" → "### Fixed", in the voice of the entries already there.
+          - Keep src/pricing.ts and media/src/pricing.ts in exact agreement on every rate.
+
+          Then run: pnpm run check-types, pnpm run lint, pnpm run test:unit. Fix anything you broke.
+
+          Finally write /tmp/pricing-report.md for the pull request body:
+          - A "## What changed" section: every rate added, changed or re-confirmed, each with the
+            source that establishes it.
+          - A "## Judgement calls for review" section: a markdown checklist, one unchecked item per
+            decision you had to make that a source did not settle outright — a guessed model slug, a
+            derived rate, a rate you believe is promotional, a tier you chose not to model, a
+            disagreement between two sources. Say what you chose and why. If a source settled
+            everything, say so instead.
+          - A "## Sources fetched" section listing each URL and whether it was reachable.
+          If nothing changed at all, write only the single line: NO CHANGES
+          PROMPT
+          )" \
+            --model claude-opus-5-5 \
+            --allowedTools 'Read,Edit,Write,Grep,Glob,WebFetch,Bash(pnpm run check-types),Bash(pnpm run lint),Bash(pnpm run test:unit),Bash(git diff:*),Bash(git status:*)' \
+            --permission-mode acceptEdits
+
+      - name: Open a draft pull request
+        if: steps.existing.outputs.count == '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ ! -s /tmp/pricing-report.md ]; then
+            echo "::warning title=pricing watch::The run produced no report — treating as no change."
+            exit 0
+          fi
+          cat /tmp/pricing-report.md >> "$GITHUB_STEP_SUMMARY"
+
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No pricing drift this week." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "### Dry run — no branch, no pull request" >> "$GITHUB_STEP_SUMMARY"
+            git --no-pager diff --stat >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          today=$(date -u +%Y-%m-%d)
+          branch="pricing/auto-refresh-$today"
+          git config user.name  'traceroost-bot'
+          git config user.email 'bot@traceroost.com'
+          git checkout -b "$branch"
+          # Only ever the pricing files: a pricing PR is a pricing PR and nothing more
+          # (PRICING_SOURCES.md's own rule), and this keeps a stray edit out of the commit.
+          git add PRICING_SOURCES.md src/pricing.ts media/src/pricing.ts CHANGELOG.md
+          git commit -m "Refresh model pricing ($today)" \
+                     -m "Opened by Pricing · watch. Draft — the judgement calls in the pull request body still need a human."
+          git push --set-upstream origin "$branch"
+
+          gh pr create --draft --label pricing-auto \
+            --title "Refresh model pricing ($today)" \
+            --body-file /tmp/pricing-report.md > /tmp/pricing-pr-url.txt
+          cat /tmp/pricing-pr-url.txt >> "$GITHUB_STEP_SUMMARY"
+
+      # GitHub's own email for a scheduled run goes to whoever last edited the cron line or re-enabled
+      # the workflow — attribution, not a fixed address — so it is not something to rely on for "the
+      # owners always hear about this". Mail them directly instead, through the same secrets
+      # agent-release-watch.yml and otel-watch.yml use. Skipped cleanly when they aren't set
+      # (mailConfigFromEnv returns null), so the workflow still works without mail configured.
+      - name: Mail the owners
+        if: steps.existing.outputs.count == '0' && always()
+        env:
+          OTEL_WATCH_SMTP_HOST: ${{ secrets.OTEL_WATCH_SMTP_HOST }}
+          OTEL_WATCH_SMTP_USER: ${{ secrets.OTEL_WATCH_SMTP_USER }}
+          OTEL_WATCH_SMTP_PASS: ${{ secrets.OTEL_WATCH_SMTP_PASS }}
+          OTEL_WATCH_MAIL_FROM: ${{ secrets.OTEL_WATCH_MAIL_FROM }}
+          OTEL_WATCH_MAIL_TO: ${{ secrets.OTEL_WATCH_MAIL_TO }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs'
+          const { mailConfigFromEnv, sendMail } = await import('./scripts/otel-watch.mjs')
+          const mail = mailConfigFromEnv(process.env)
+          if (!mail) {
+            console.log('::notice title=pricing watch::No SMTP secrets set — skipping mail.')
+            process.exit(0)
+          }
+          const read = (p) => { try { return fs.readFileSync(p, 'utf8').trim() } catch { return '' } }
+          const report = read('/tmp/pricing-report.md')
+          const prUrl = read('/tmp/pricing-pr-url.txt')
+          const failed = process.env.JOB_STATUS !== 'success'
+          const today = new Date().toISOString().slice(0, 10)
+
+          let subject, body
+          if (failed) {
+            subject = `Pricing watch failed (${today})`
+            body = `The weekly pricing refresh did not finish. Nothing was committed.\n\n${process.env.RUN_URL}\n`
+          } else if (!report || report === 'NO CHANGES') {
+            // Nothing to say. Staying quiet is the point: a weekly "no change" email trains you to
+            // ignore the one that matters.
+            console.log('No pricing drift — no mail sent.')
+            process.exit(0)
+          } else {
+            subject = prUrl ? `Pricing drift — draft PR opened (${today})` : `Pricing drift found (${today})`
+            body = `${prUrl ? `Draft pull request: ${prUrl}\n\n` : 'No pull request was opened (dry run).\n\n'}`
+                 + `It is a draft on purpose: the "Judgement calls for review" section below needs a human.\n\n`
+                 + `${report}\n\nRun: ${process.env.RUN_URL}\n`
+          }
+          await sendMail({ ...mail, subject, text: body })
+          console.log(`Mailed ${mail.to.join(', ')}: ${subject}`)
+          JS
