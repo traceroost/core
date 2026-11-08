@@ -18,8 +18,10 @@ Any of these:
 - A user's **Report this** issue (agent, version, unknown names and counts, key/type structure).
 - `traceroost doctor` exiting 1 on your own machine.
 
-An issue retitled **check by hand** (Copilot Chat in VS Code, which has no headless mode) or
-**not captured (its secret is not set)** means nothing was checked automatically: do step 1 by hand.
+An issue retitled **check by hand** (Copilot Chat in VS Code, which has no headless mode, or an
+agent listed in the repo variable `AGENT_CAPTURE_SKIP`, such as `cursor` when there is no key for
+it) or **not captured (its secret is not set)** means nothing was checked automatically: do step 1
+by hand. An agent in `AGENT_CAPTURE_SKIP` doesn't mail on its own release.
 
 ## 1. Reproduce: get a capture of the new version
 

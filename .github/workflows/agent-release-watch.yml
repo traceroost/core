@@ -73,6 +73,8 @@ jobs:
           PRETEND_SEEN: ${{ inputs.pretend_seen }}
           DRY_RUN: ${{ inputs.dry_run }}
           AGENT_WATCH_REF: ${{ github.event.repository.default_branch }}
+          # Agents not to capture (no key for them, by choice), e.g. `cursor`: Settings → Variables.
+          AGENT_CAPTURE_SKIP: ${{ vars.AGENT_CAPTURE_SKIP }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OTEL_WATCH_SMTP_HOST: ${{ secrets.OTEL_WATCH_SMTP_HOST }}
           OTEL_WATCH_SMTP_USER: ${{ secrets.OTEL_WATCH_SMTP_USER }}

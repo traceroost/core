@@ -18,6 +18,7 @@ type Watch = {
   report(o: Record<string, unknown>): Promise<{ title: string; body: string; mailed: boolean }>
   latestVersion(source: unknown, f: unknown): Promise<string>
   mailsOutcome(agentKey: string, outcome: string): boolean
+  captureSkipList(env: Record<string, string | undefined>): Set<string>
 }
 
 function fakeFetch(versions: Record<string, string | Error>, issues: Array<{ number: number; title: string }> = []) {
@@ -107,6 +108,25 @@ suite('agent-watch — release watcher', () => {
     await watch.check({ statePath: state, fetchImpl: f.impl })
     assert.strictEqual((f.calls.find(c => c.method === 'POST' && c.url.endsWith('/issues'))!.body as { title: string }).title, 'Copilot (VS Code) 0.49.0 released: check by hand')
     assert.ok(!f.calls.some(c => c.url.includes('/dispatches')))
+  })
+
+  test('an agent whose capture is turned off gets a check-by-hand issue, no capture, and no mail of its own', async () => {
+    const state = path.join(dir, 'state.json')
+    const skip = watch.captureSkipList({ AGENT_CAPTURE_SKIP: 'cursor, opencode' })
+    assert.deepStrictEqual([...skip], ['cursor', 'opencode'])
+    await watch.check({ statePath: state, fetchImpl: fakeFetch(V).impl, skip })
+    const f = fakeFetch({ ...V, cursor: '2026.11.01-aaaaaaa' })
+    const r = await watch.check({ statePath: state, fetchImpl: f.impl, skip })
+    const issue = f.calls.find(c => c.method === 'POST' && c.url.endsWith('/issues'))!.body as { title: string; body: string }
+    assert.strictEqual(issue.title, 'Cursor CLI 2026.11.01-aaaaaaa released: check by hand')
+    assert.match(issue.body, /AGENT_CAPTURE_SKIP/)
+    assert.ok(!f.calls.some(c => c.url.includes('/dispatches')))
+    assert.strictEqual(r.subject, null)
+    // Released alongside an agent that is captured, it is listed in that mail.
+    const g = fakeFetch({ ...V, cursor: '2026.11.02-bbbbbbb', '@openai/codex': '0.167.0' })
+    const r2 = await watch.check({ statePath: state, fetchImpl: g.impl, skip })
+    assert.match(r2.subject ?? '', /Codex 0\.167\.0, Cursor CLI 2026\.11\.02-bbbbbbb/)
+    assert.strictEqual(g.calls.filter(c => c.url.includes('/dispatches')).length, 1)
   })
 
   test('a source that keeps failing is mailed about once, after a day of runs', async () => {
