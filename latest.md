@@ -1,4 +1,4 @@
-# OpenTelemetry upstream watch — 2026-11-02
+# OpenTelemetry upstream watch — 2026-11-09
 
 ## Claude Code
 
@@ -8,37 +8,34 @@ Read by: `src/spanSummarizer.ts`, `src/claudeTurnJoin.ts`, `src/otlpIngest.ts`, 
 
 <https://code.claude.com/docs/en/monitoring-usage.md>
 
-- Changed: 10 line(s)
+- Changed: 5 line(s)
 
 ```diff
-- * **Claude Tag channels use organization-level environments**: channel sessions run in organization-level environments rather than members' personal ones, so make the allowlist and any environment-variable changes on the [shared environment](https://code.claude.com/docs/en/cloud-environments.md#organization-shared-environments) set as your organization's default or pinned to the channel.
-- When `prometheus` is the only exporter listed in `OTEL_METRICS_EXPORTER`, Claude Code omits the `USD`, `tokens`, and `s` units from the exported metrics so the scrape stays valid Prometheus text format. Metric names don't change, and configurations that combine exporters, such as `otlp,prometheus`, keep the units. Before v2.1.216, the Prometheus scrape included OpenMetrics-only `# UNIT` lines that some scrapers rejected.
--     Claude Code also reports `"config"` when the permission prompt request itself fails. For example, that request fails when the Agent SDK's [`canUseTool`](https://code.claude.com/docs/en/agent-sdk/typescript#canusetool) callback or the [`--permission-prompt-tool`](https://code.claude.com/docs/en/cli-reference#cli-flags) tool returns an invalid result, or when the input stream closes while the request is pending. Before v2.1.216, Claude Code reported these failures as `"user_reject"`.
--   * `"user_abort"`: Emitted when the user dismissed the permission prompt without answering. In Agent SDK and non-interactive `-p` sessions, this includes interrupting the turn while a `canUseTool` or `--permission-prompt-tool` permission request is pending; before v2.1.216, Claude Code reported that interrupt as `"user_reject"`. Treated as a reject.
-+ * **Claude Tag channels**: make the allowlist and any environment-variable changes on the [shared environment](https://code.claude.com/docs/en/cloud-environments.md#organization-shared-environments) set as your organization's default or pinned to the channel.
-+ When `prometheus` is the only exporter listed in `OTEL_METRICS_EXPORTER`, Claude Code omits the `USD`, `tokens`, and `s` units from the exported metrics so the scrape stays valid Prometheus text format. Metric names don't change, and configurations that combine exporters, such as `otlp,prometheus`, keep the units.
-+ * `cache_creation_5m_tokens`, `cache_creation_1h_tokens`: the number of tokens the API response reports as written to the cache with a five-minute [cache lifetime](https://code.claude.com/docs/en/prompt-caching.md#cache-lifetime) and the number written with a one-hour lifetime. Both are `0` when the API response doesn't report them, even when `cache_creation_tokens` is above zero. Requires Claude Code v2.1.300 or later
-+     Claude Code also reports `"config"` when the permission prompt request itself fails. For example, that request fails when the Agent SDK's [`canUseTool`](https://code.claude.com/docs/en/agent-sdk/typescript#canusetool) callback or the [`--permission-prompt-tool`](https://code.claude.com/docs/en/cli-reference#cli-flags) tool returns an invalid result, or when the input stream closes while the request is pending.
-+   * `"user_abort"`: Emitted when the user dismissed the permission prompt without answering. In Agent SDK and non-interactive `-p` sessions, this includes interrupting the turn while a `canUseTool` or `--permission-prompt-tool` permission request is pending. Treated as a reject.
-+   * `"remote_settings_unknowable"`: A session in Claude Desktop's Code tab on a third-party deployment requested [server-managed settings](https://code.claude.com/docs/en/server-managed-settings.md). It received no usable response, so `cleanupPeriodDays` may be set to a value Claude Code can't see
+- > Cost metrics are approximations. For official billing data, refer to your API provider (Claude Console, Amazon Bedrock, or Google Cloud's Agent Platform).
++ >
++ > [!WARNING]
++ > Set `ENABLE_BETA_TRACING_DETAILED` only for debugging, not in production. Detailed beta tracing has a high export volume, and its [content attributes](#new-context-gates) aren't part of the stable span schema.
++ > Cost metrics are approximations. For official billing data, see [Manage costs for your organization](https://code.claude.com/docs/en/costs.md#manage-costs-for-your-organization).
 ```
 
 ### CHANGELOG.md (telemetry lines only)
 
 <https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md>
 
-- Changed: 9 telemetry-related line(s) (and 300 other changed line(s) not shown)
+- Changed: 11 telemetry-related line(s) (and 309 other changed line(s) not shown)
 
 ```diff
-+ - Fixed PowerShell hooks not blocking on exit code 2 when the command begins with a type cast, `param`, `using` or an attribute
-+ - Updated the `/claude-api` skill: its Datadog setup for API tracing now sends the `dd-llmobs-enabled: true` header, as the Console does, and its `ant` install instructions drop the outdated macOS `xattr` step
-+ - Changed idle compaction to also run for subscribers with telemetry turned off, and on Bedrock, Vertex, Foundry and LLM gateways once the one-hour prompt cache is on
-+ - Fixed the spinner, OpenTelemetry `effort` values and transcripts naming a newly picked effort level during a task before the model applied it; they now show the level in force
-+ - Changed prompt and agent hooks to run at most 24 at a time per session, sub-agents included, plus at most 12 that have waited longer than their event's timeout; a `timeout` under 1 second now counts as 1 second
-+ - Changed OpenTelemetry `mcp_server.name` to report the real name of fixed-URL remote MCP servers declared by plugins from the official Anthropic marketplace, instead of `custom`
-+ - Changed Claude Code to stop sending the `claude_code.safety_event` OpenTelemetry event
-+ - [Code Review] Fixed Code Review reviewing an outdated commit, or none at all, when GitHub delivered a push event late; it now reviews the pull request's current commit
-+ - [VSCode] Changed the extension to start Claude Code sessions with `DISABLE_TELEMETRY` set while VS Code's telemetry setting is off, so they send no usage metrics or error reports and fetch no feature flags
++ - Changed auto mode with telemetry or feature flags off, including behind LLM gateways: calls the server can't check are asked about or denied, with no fallback to the built-in classifier; set `CLAUDE_CODE_AUTO_MODE_SERVER=0` to keep using it (Bedrock, Vertex and Foundry are unchanged)
++ - Added the `CLAUDE_CODE_DISABLE_FEATURE_FLAGS` environment variable, which stops feature-flag fetching without turning off telemetry; every flag then uses its built-in default
++ - Fixed detailed beta tracing not presenting `CLAUDE_CODE_CLIENT_CERT` to collectors that require a client certificate
++ - Fixed the OpenTelemetry `claude_code.session.count` metric counting Agent SDK `prewarm()` processes that were never claimed; a pre-started process now counts once, when it is claimed
++ - Fixed a terminal whose Claude apps gateway sign-in had expired sending telemetry and managed-settings requests that the gateway refused and logged as `invalid_token`
++ - Changed subagent progress summaries on Bedrock, Vertex, Foundry, or with telemetry off: on a cold prompt cache, one can now wait up to 5 minutes for the subagent's pending response
++ - Added `anthropic.plan`, `anthropic.seat_type`, `anthropic.provider` and `anthropic.custom_base_url` to OTel metrics, events and spans
++ - Fixed OpenTelemetry exports to an `https://` endpoint through a proxy never being sent when they started while another export was still in progress
++ - Fixed a flood of connection attempts to a proxy that blocks (HTTP 403) OpenTelemetry exports to an `http://` endpoint
++ - Fixed OpenTelemetry exports hanging indefinitely behind a proxy that never answers; they now time out after 10 seconds, or `OTEL_EXPORTER_OTLP_TIMEOUT` up to 30 seconds
++ - [VSCode] Fixed `ultrathink` not raising effort for its turn or showing its rainbow when telemetry is off
 ```
 
 ## Codex
@@ -49,27 +46,19 @@ Read by: `src/otlpParser.ts`, `src/spanSummarizer.ts`, `src/otelTraceKeys.ts`
 
 <https://github.com/openai/codex>
 
-- 9 commit(s) touched `codex-rs/otel`, `codex-rs/core/src/config/otel.rs`, `codex-rs/core/src/otel_init.rs`:
-  - 2026-10-31 [`67f0994`](https://github.com/openai/codex/commit/67f0994b532b8740f14b5b738af7b7b2a915b1d6) Tighten Bazel CI snapshot handling and OTLP test cleanup (#58459)
-  - 2026-10-29 [`2ca71f1`](https://github.com/openai/codex/commit/2ca71f1683524176427aaa5fdfbf0358d541fd15) Record additional context counts, sizes, and truncation metrics (#58144)
-  - 2026-10-29 [`588a277`](https://github.com/openai/codex/commit/588a277b301c3994455885d7f771d7d9db5d82b8) Add an option to disable successful SSE delta logs (#58034)
-  - 2026-10-28 [`fc916a2`](https://github.com/openai/codex/commit/fc916a22b57e9d7b17988f044a54794d2222ae2c) Expose Guardian assessments in response streams (#57757)
-  - 2026-10-28 [`154e873`](https://github.com/openai/codex/commit/154e8736a51224e12b2d990753622a2cd8118f54) Support managed OpenTelemetry metadata and PEM client identities (#57658)
-  - 2026-10-28 [`0736b26`](https://github.com/openai/codex/commit/0736b26422266631c8df55c465fafc6a7fbf7dd3) Fix trace exporter activation after account switches (#57657)
-  - 2026-10-28 [`bea47c0`](https://github.com/openai/codex/commit/bea47c06dfac12ecce362090418e12a6faeedbf9) Redact OTEL exporter headers in app-server config responses (#57654)
-  - 2026-10-28 [`727283c`](https://github.com/openai/codex/commit/727283cea5ba30e8cf8bbac6b68a03a4d91cf1b7) Support managed OpenTelemetry configuration requirements (#57649)
-  - 2026-10-27 [`2cab11c`](https://github.com/openai/codex/commit/2cab11ca40aad193382348a7bda46da2fc47596a) Pin the Rust toolchain to 1.95.0 (#57373)
+- 6 commit(s) touched `codex-rs/otel`, `codex-rs/core/src/config/otel.rs`, `codex-rs/core/src/otel_init.rs`:
+  - 2026-11-07 [`5226f2f`](https://github.com/openai/codex/commit/5226f2fb4bcbc4aa3ec1863b6ba0bd2c4ddb0486) Add metrics for incremental exec catalog updates (#60177)
+  - 2026-11-06 [`74417e9`](https://github.com/openai/codex/commit/74417e9c6bd77bee8b7bb315084d6743f9390394) Reuse decoded WebSocket event kinds in telemetry (#59769)
+  - 2026-11-04 [`bd7cfa3`](https://github.com/openai/codex/commit/bd7cfa3f69a899598a2c5103ee8aa7d1d1bcc212) Record saved multi-agent opt-outs in session telemetry (#59478)
+  - 2026-11-03 [`dec38fc`](https://github.com/openai/codex/commit/dec38fc9bb8304f3e34d00d7cee77f5c0488584f) Add WebSocket connection metrics with reauthentication labels (#59018)
+  - 2026-11-02 [`66e3b5a`](https://github.com/openai/codex/commit/66e3b5a02c17acafb470f0929f0b729259ba394c) Record turn critical path metrics and trace fields (#58980)
+  - 2026-11-02 [`1a604d5`](https://github.com/openai/codex/commit/1a604d58da344c84528fecd5b5154105f597d70b) Refine additional-context byte histogram buckets (#58939)
 
 ### codex-rs/otel/README.md (events, attributes, config keys)
 
 <https://raw.githubusercontent.com/openai/codex/main/codex-rs/otel/README.md>
 
-- Changed: 2 line(s)
-
-```diff
--     span_attributes: std::collections::BTreeMap::new(),
-+     span_attributes: std::collections::HashMap::new(),
-```
+- No change.
 
 ## GitHub Copilot (Chat)
 
@@ -89,7 +78,33 @@ Read by: `src/logReader.ts`
 
 <https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md>
 
-- Changed, but no line matched the telemetry pattern (7 line(s) differ).
+- Changed: 23 telemetry-related line(s) (and 1333 other changed line(s) not shown)
+
+```diff
++ - copilot help monitoring now describes the github.copilot.sandbox.operation.count metric as counting every sandbox decision by kind, not only deduplicated posture changes.
++ - Include session start, resume, and model-change events in `-p --output-format json` output
++ - A turn that ends while the session event log cannot be written now still ends with `session.idle`, so `sendAndWait` no longer times out on a turn that completed.
++ - Add MATS telemetry for Entra authentication through OneAuth, respecting client telemetry opt-out.
++ - Add MATS telemetry for Entra authentication through OneAuth, respecting client telemetry opt-out.
++ - `copilot help monitoring` now says an `http://` OTLP endpoint disables export only when an OTLP CA certificate or client certificate/key variable is set, not for every `http://` endpoint.
++ - `copilot help monitoring` now says an `http://` OTLP endpoint disables export only when an OTLP CA certificate or client certificate/key variable is set, not for every `http://` endpoint.
++ - /chronicle cost reports count each newly recorded model call once, even when its usage event is received again
++ - /chronicle cost reports count each newly recorded model call once, even when its usage event is received again
++ - Searching a `/share html` export or an exported research report now highlights the text you searched for, instead of a shifted span or a broken emoji, when the conversation contains a capital dotted I (İ).
++ - Searching a `/share html` export or an exported research report now highlights the text you searched for, instead of a shifted span or a broken emoji, when the conversation contains a capital dotted I (İ).
++ - Warn when older messages are dropped for context limits and include compaction/truncation events in JSON output.
++ - Warn when older messages are dropped for context limits and include compaction/truncation events in JSON output.
++ - A telemetry-disabled warning raised while resuming a session is saved to the session history, so later events no longer reference a missing parent.
++ - A telemetry-disabled warning raised while resuming a session is saved to the session history, so later events no longer reference a missing parent.
++ - Resuming a session with an unreadable event log now reports a load error instead of not found
++ - Resuming a session with an unreadable event log now reports a load error instead of not found
++ - Code blocks in assistant replies keep their lines and indentation after a line that starts with a triple-backtick code span, a fence line with a language inside another code block, or indented text right after a closing fence, instead of being joined into one line.
++ - Code blocks in assistant replies keep their lines and indentation after a line that starts with a triple-backtick code span, a fence line with a language inside another code block, or indented text right after a closing fence, instead of being joined into one line.
++ - An invalid server entry in a trusted workspace `.mcp.json`, or a file that is malformed or unreadable, is now reported as an MCP warning in interactive sessions and in `copilot -p` (stderr, or a `session.warning` event with `--output-format json`) instead of the server silently missing; before, only `copilot mcp list` said why.
++ - An invalid server entry in a trusted workspace `.mcp.json`, or a file that is malformed or unreadable, is now reported as an MCP warning in interactive sessions and in `copilot -p` (stderr, or a `session.warning` event with `--output-format json`) instead of the server silently missing; before, only `copilot mcp list` said why.
++ - copilot help no longer crashes with a stack trace when its output is piped to a command that exits early
++ - copilot help no longer crashes with a stack trace when its output is piped to a command that exits early
+```
 
 ## OpenCode
 
