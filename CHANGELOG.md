@@ -4,13 +4,21 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-11-08
+
 ### Added
 
-- **Antigravity CLI (`agy`) traces, best effort** — TraceRoost now reads Google's Antigravity CLI from `~/.gemini/antigravity-cli/` (override: `ANTIGRAVITY_CLI_DIR`): one trace per prompt from each conversation's step transcript, with the prompt (agy's injected envelope removed), per-step times, workspace, and tool calls with the files they read and edited; token counts and the model come from the conversation's SQLite database when it exists, priced at the model's Gemini rate whatever effort was picked. Without that database a trace has no token counts and its cost shows as unknown, not $0. Tool results, errors, per-call timing, separate thinking tokens and cache writes aren't stored by agy, and there's no OTel path yet. Antigravity has its own filter, colour, Analytics card and thresholds, its traces go to TraceRoost Cloud as `antigravity`, and the Advisor's suggestions name it as an `AGENTS.md` reader. Built from third-party evidence and synthetic fixtures — no real capture has been checked yet (README → Antigravity CLI lists what one has to confirm)
+- **Antigravity CLI (`agy`) traces, best effort** — TraceRoost now reads Google's Antigravity CLI from `~/.gemini/antigravity-cli/` (override: `ANTIGRAVITY_CLI_DIR`): one trace per prompt from each conversation's step transcript, with the prompt (agy's injected envelope removed), per-step times, workspace, and tool calls with the files they read and edited; token counts and the model come from the conversation's SQLite database when it exists, priced at the model's Gemini rate whatever effort was picked. Without that database a trace has no token counts and its cost shows as unknown, not $0. Tool results, errors, per-call timing, separate thinking tokens and cache writes aren't stored by agy, and there's no OTel path yet. Antigravity has its own filter, colour, Analytics card and thresholds, its traces go to TraceRoost Cloud as `antigravity`, and the Advisor's suggestions name it as an `AGENTS.md` reader. Built from third-party evidence and synthetic fixtures — no real capture has been checked yet (README → Antigravity CLI lists what one has to confirm) (#416)
 
 ### Fixed
 
-- **The desktop app linked to TraceRoost Cloud but never sent a trace** — the 1.0.0 macOS, Linux and Windows apps shipped their collector without `schema/rollup.v1.json`, the file the connector checks every payload against before queuing it. Linking worked and the app sent its trace manifest, so the cloud showed the machine as linked and "preparing its trace history" indefinitely, while the Org panel read *Synced* and the app's log filled with `could not locate schema/rollup.v1.json — the package is built incorrectly`. The schema now ships beside the collector, the staging step proves the collector can read it, and the packaging check refuses a full-edition app without it. `npx traceroost`, Homebrew, the VSIX and the Docker image were not affected
+- **The desktop app linked to TraceRoost Cloud but never sent a trace** — the 1.0.0 macOS, Linux and Windows apps shipped their collector without `schema/rollup.v1.json`, the file the connector checks every payload against before queuing it. Linking worked and the app sent its trace manifest, so the cloud showed the machine as linked and "preparing its trace history" indefinitely, while the Org panel read *Synced* and the app's log filled with `could not locate schema/rollup.v1.json — the package is built incorrectly`. The schema now ships beside the collector, the staging step proves the collector can read it, and the packaging check refuses a full-edition app without it. `npx traceroost`, Homebrew, the VSIX and the Docker image were not affected (#417)
+
+### Changed
+
+- **Dependency updates** — minor and patch bumps from the security review; no user-facing product change (#415)
+
+---
 
 ## [1.0.0] — 2026-11-08
 
