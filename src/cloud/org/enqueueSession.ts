@@ -6,6 +6,7 @@
  */
 
 import { ForwardQueue } from '../forward/queue'
+import { recordBuildFailure } from '../forward/forwardState'
 import { DeliveryLedger, scopedKey } from '../forward/deliveryLedger'
 import { toUuid } from '../forward/buildSessionRollup'
 import { wireSessionId } from '../forward/sessionRekey'
@@ -74,6 +75,7 @@ export async function maybeEnqueueSession(card: SessionSummaryCard, log?: (m: st
     return added ? { enqueued: true } : { enqueued: false, reason: 'duplicate' }
   } catch (err) {
     log?.(`[TraceRoost] Could not enqueue session for forwarding: ${(err as Error).message}`)
+    recordBuildFailure((err as Error).message)
     return { enqueued: false, reason: 'error' }
   }
 }

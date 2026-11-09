@@ -10,6 +10,7 @@ import { setCredentialStore } from '../../../cloud/org/credentials'
 import type { CredentialStore } from '../../../cloud/org/credentials'
 import type { OrgCredentials } from '../../../cloud/org/config'
 import { ForwardQueue } from '../../../cloud/forward/queue'
+import { readForwardState } from '../../../cloud/forward/forwardState'
 import type { SessionSummaryCard } from '../../../summarizers/summarizerTypes'
 import { traceKey } from '../../../traceIdentity'
 
@@ -118,6 +119,16 @@ suite('cloud/forward/contentChangeForward', () => {
     const retried = await maybeForwardOnContentChange(service, makeCard('s1'))
     assert.strictEqual(retried.enqueued, true)
     assert.strictEqual(new ForwardQueue().depth(), 1)
+  })
+
+  test('a payload that cannot be prepared is recorded in forward state, so the status stops reading as synced', async () => {
+    // Anything thrown between the build and the enqueue lands in the same catch as a missing
+    // schema/rollup.v1.json does (the 1.0.0 desktop app's failure): the panel read "Synced" for it.
+    const broken = { planContentChange: () => { throw new Error('could not locate schema/rollup.v1.json') } } as unknown as ReconciliationService
+    const res = await maybeForwardOnContentChange(broken, makeCard('s1'))
+    assert.deepStrictEqual(res, { enqueued: false, reason: 'error' })
+    assert.strictEqual(readForwardState().lastError, 'could not prepare a trace to send: could not locate schema/rollup.v1.json')
+    assert.strictEqual(new ForwardQueue().depth(), 0)
   })
 
   test('re-checking the identical card is not a change — skipped, queue untouched', async () => {

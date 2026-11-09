@@ -174,6 +174,21 @@ suite('staged collector — the packaged article, end to end', () => {
     assert.ok(fs.existsSync(path.join(path.dirname(resolved), 'sql-wasm.wasm')))
   })
 
+  test('a full-edition tree ships the rollup schema where the forwarder\'s validator looks for it', function () {
+    // src/cloud/forward/validate.ts walks up from the bundle's directory for schema/rollup.v1.json
+    // and throws "the package is built incorrectly" when it is not there. The 1.0.0 macOS app
+    // shipped without it: it linked, sent its trace manifest, and never uploaded a single trace,
+    // while the Org panel said "Synced". A core collector has no forwarder, so nothing to check.
+    const stampPath = path.join(DESKTOP_DIR, 'resources', 'collector.edition')
+    const edition = fs.existsSync(stampPath) ? fs.readFileSync(stampPath, 'utf-8').trim() : 'core'
+    if (edition !== 'full') { this.skip(); return }
+    const schemaPath = path.join(path.dirname(STAGED), '..', 'schema', 'rollup.v1.json')
+    assert.ok(fs.existsSync(schemaPath), `missing: ${schemaPath}`)
+    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8')) as { properties?: { schema_version?: { const?: unknown } }; $defs?: unknown }
+    assert.strictEqual(typeof schema.properties?.schema_version?.const, 'string')
+    assert.ok(schema.$defs)
+  })
+
   test('auto-configuration lands in the redirected HOME, never the developer\'s own', async function () {
     this.timeout(90_000)
     await startStaged()

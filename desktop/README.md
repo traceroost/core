@@ -84,7 +84,7 @@ What goes into the `.app`:
 | Where in `TraceRoost.app/Contents/Resources` | What |
 | --- | --- |
 | `app.asar` | `out/main.js` and `package.json` — the main process, and nothing else |
-| `collector/` | the staged tree: `standalone/server.js`, `media/…`, `package.json`, `node_modules/sql.js/` |
+| `collector/` | the staged tree: `standalone/server.js`, `media/…`, `package.json`, `node_modules/sql.js/`, and in the full edition `schema/rollup.v1.json` |
 | `icon.icns` | the app icon (Dock, Finder, About box; also the DMG's volume icon): the glyph on its teal tile, built by `iconutil` in [`scripts/make-icons.mjs`](scripts/make-icons.mjs) |
 | `tray/` | the menu bar template icons |
 | `LICENSE`, `THIRD_PARTY_NOTICES.md` | this project's license; every bundled package's license and text |
@@ -485,6 +485,7 @@ executes unmodified inside the app:
 | `media/…` | `path.join(__dirname, '..', 'media')` — the dashboard it serves |
 | `package.json` | `readPackageManifest` — the version it reports, logs, and writes into its lock |
 | `node_modules/sql.js/` | `require.resolve('sql.js')` and the `.wasm` beside it, for the outcomes cache |
+| `schema/rollup.v1.json` | full edition only — `src/cloud/forward/validate.ts` walks up from the bundle's directory for it before queuing any trace; without it the app links but never sends one, and the payload preview fails |
 
 ### The runtime
 
