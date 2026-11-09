@@ -1,6 +1,6 @@
 // Pricing data for extension-host cost computation (cost_usd stored in sessions table).
 // Rate table is kept in sync with media/src/pricing.ts — update both when rates change.
-// PRICING_LAST_UPDATED: 2026-11-08
+// PRICING_LAST_UPDATED: 2026-11-09
 
 export interface ModelRates {
   inputPerMTok: number
@@ -124,6 +124,10 @@ const RATES: Record<string, ModelRates> = {
   // gpt-5.6-sol and gpt-5.6-cyber exactly, so they may be stealth aliases of those — see PRICING_SOURCES.md.
   'daybreak-blue':      { inputPerMTok: 4.00,  cacheReadPerMTok: 0.40,   cacheWritePerMTok: 5.00, outputPerMTok: 20.00, contextWindowTokens: 0 },
   'daybreak-red':       { inputPerMTok: 12.50, cacheReadPerMTok: 1.25,   cacheWritePerMTok: 15.625, outputPerMTok: 75.00, contextWindowTokens: 0 },
+  // gpt-rosalind-research: added 2026-11-09 — now on the Codex CLI credits page (125/12.5/625 credits ÷25), so
+  // reachable through Codex, and OpenAI's API page lists the same $5.00/$0.50/$25.00. Neither page gives a
+  // cache-write rate or a long-context tier, so none is modeled. Context window not stated, left at 0 (unknown).
+  'gpt-rosalind-research': { inputPerMTok: 5.00, cacheReadPerMTok: 0.50, cacheWritePerMTok: 0, outputPerMTok: 25.00, contextWindowTokens: 0 },
   // gpt-4.1-nano, gpt-5-nano, gpt-5 (base): added 2026-08-26 — confirmed on OpenAI's general API pricing page, but
   // not independently confirmed as reachable through Copilot or Codex CLI specifically (neither's own docs
   // mentioned them this pass). Added on this file's existing philosophy that a model which never appears in
@@ -214,6 +218,17 @@ const RATES: Record<string, ModelRates> = {
   // hyphenated-minor convention (claude-opus-4-8); normalizeCostKey resolves a dotted telemetry ID to it.
   'claude-fable-5-1':   { inputPerMTok: 10.00, cacheReadPerMTok: 0.25, cacheWritePerMTok: 12.50, outputPerMTok:  50.00, contextWindowTokens: 1_000_000 },
   'claude-mythos-5-1':  { inputPerMTok: 10.00, cacheReadPerMTok: 0.25, cacheWritePerMTok: 12.50, outputPerMTok:  50.00, contextWindowTokens: 1_000_000 },
+  // claude-fable-5-2 / claude-mythos-5-2: added 2026-11-09 — new on Anthropic's pricing page, priced *below*
+  // Fable/Mythos 5.1: $8 input, $10 5m cache write, $0.20 cache hits (0.025x base input, footnote 1 — the same
+  // exception as 5.1), $40 output. Not in Copilot billing docs. Full 1M context at standard pricing ("Claude 4.6
+  // and later models (except Claude Haiku 5.5)").
+  'claude-fable-5-2':   { inputPerMTok:  8.00, cacheReadPerMTok: 0.20, cacheWritePerMTok: 10.00, outputPerMTok:  40.00, contextWindowTokens: 1_000_000 },
+  'claude-mythos-5-2':  { inputPerMTok:  8.00, cacheReadPerMTok: 0.20, cacheWritePerMTok: 10.00, outputPerMTok:  40.00, contextWindowTokens: 1_000_000 },
+  // claude-fable-5-2-fast / claude-mythos-5-2-fast: added 2026-11-09 — Anthropic's fast-mode table lists both at
+  // $16 input / $80 output. Cache write/read are derived exactly as for claude-opus-5-5-fast: caching multipliers
+  // "apply on top of fast mode pricing", so 1.25x and the models' own 0.025x of the $16 fast input.
+  'claude-fable-5-2-fast':  { inputPerMTok: 16.00, cacheReadPerMTok: 0.40, cacheWritePerMTok: 20.00, outputPerMTok: 80.00, contextWindowTokens: 1_000_000 },
+  'claude-mythos-5-2-fast': { inputPerMTok: 16.00, cacheReadPerMTok: 0.40, cacheWritePerMTok: 20.00, outputPerMTok: 80.00, contextWindowTokens: 1_000_000 },
   // ── Google ─────────────────────────────────────────────────────────────────
   // gemini-2.5-pro: long-context tier added 2026-11-08 from Google's own pricing page, which prices it
   // $2.50/$0.25/$15.00 for a prompt over 200K (it was carried flat here while Copilot's page, which
@@ -301,6 +316,9 @@ const RATES: Record<string, ModelRates> = {
   'beam-free':                   { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
   'flint-40b-free':              { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
   'nemotron-3.5-super-vl-free':  { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
+  // longcat-2.5-free: added 2026-11-09 — slug confirmed from the Zen page's model ID column. Likely the GA
+  // successor of longcat-2.5-preview-free (kept above, $0 either way).
+  'longcat-2.5-free':            { inputPerMTok: 0, cacheReadPerMTok: 0, cacheWritePerMTok: 0, outputPerMTok: 0, contextWindowTokens: 0 },
 }
 
 // Exported so callers that build a model ID by appending their own suffix (e.g.

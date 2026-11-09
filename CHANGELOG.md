@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Pricing for new models** — Claude Fable 5.2 and Claude Mythos 5.2 (each with its own fast-mode rate), GPT-Rosalind Research (now offered in Codex), and the LongCat 2.5 Free OpenCode Zen model. Traces on these showed `~$?` until now. Every existing rate was re-checked against each vendor's current pricing page and none changed
+
 ## [1.0.1] — 2026-11-08
 
 ### Added
