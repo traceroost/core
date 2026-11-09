@@ -61,6 +61,11 @@
   border-color: color-mix(in srgb, var(--agent-cursor) 45%, transparent);
   background: color-mix(in srgb, var(--agent-cursor) 12%, transparent);
 }
+.session-agent-antigravity {
+  color: var(--agent-antigravity);
+  border-color: color-mix(in srgb, var(--agent-antigravity) 45%, transparent);
+  background: color-mix(in srgb, var(--agent-antigravity) 12%, transparent);
+}
 
 /* Donut chart */
 .donut-container { display: flex; align-items: center; gap: 32px; justify-content: center; padding: 20px 0; }

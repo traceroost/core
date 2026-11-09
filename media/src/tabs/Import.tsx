@@ -29,7 +29,7 @@ interface ImportDoneState {
   total: number
 }
 
-const VALID_SOURCES = new Set(['copilot', 'claude_code', 'codex', 'opencode', 'cursor'])
+const VALID_SOURCES = new Set(['copilot', 'claude_code', 'codex', 'opencode', 'cursor', 'antigravity'])
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`

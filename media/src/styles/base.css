@@ -27,6 +27,8 @@
   --agent-codex:    var(--vscode-charts-purple, #b180d7);
   --agent-opencode: var(--vscode-charts-foreground, var(--fg));
   --agent-cursor:   var(--vscode-charts-yellow, #cca700);
+  /* VS Code's charts.green: #388a34 in Light Modern, #89d185 in Dark Modern — Cloud's values. */
+  --agent-antigravity: var(--vscode-charts-green, #89d185);
 
   /* The TraceRoost brand teal (Wordmark.tsx, BrandMark.tsx) — used only for the top nav's
    * active-section indicator (.tab.active in tabs.css), not buttons or links. */

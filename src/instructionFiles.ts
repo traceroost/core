@@ -9,8 +9,9 @@ import * as path from 'path'
 export interface InstructionFileStatus {
   /** The agent this file is listed under (its primary reader). */
   agent: 'claude_code' | 'copilot' | 'codex' | 'cursor'
-  /** Every agent that reads the file — AGENTS.md is shared by Codex, OpenCode and the Cursor CLI. */
-  agents: Array<'claude_code' | 'copilot' | 'codex' | 'opencode' | 'cursor'>
+  /** Every agent that reads the file — AGENTS.md is shared by Codex, OpenCode, the Cursor CLI and
+   *  Antigravity (agy also reads a legacy GEMINI.md, which TraceRoost doesn't check). */
+  agents: Array<'claude_code' | 'copilot' | 'codex' | 'opencode' | 'cursor' | 'antigravity'>
   label: string
   filePath: string        // absolute path
   relativePath: string    // relative to workspace root
@@ -36,8 +37,8 @@ const INSTRUCTION_FILE_DEFS: Array<{
 }> = [
   { agent: 'claude_code', agents: ['claude_code'], label: 'Claude Code', relative: 'CLAUDE.md', alternates: ['.claude/CLAUDE.md'] },
   { agent: 'copilot', agents: ['copilot'], label: 'GitHub Copilot', relative: '.github/copilot-instructions.md' },
-  // One file, three readers: listed once so the picker doesn't offer AGENTS.md twice.
-  { agent: 'codex', agents: ['codex', 'opencode', 'cursor'], label: 'Codex · OpenCode', relative: 'AGENTS.md' },
+  // One file, four readers: listed once so the picker doesn't offer AGENTS.md twice.
+  { agent: 'codex', agents: ['codex', 'opencode', 'cursor', 'antigravity'], label: 'Codex · OpenCode', relative: 'AGENTS.md' },
   { agent: 'cursor', agents: ['cursor'], label: 'Cursor', relative: CURSOR_RULE_FILE },
 ]
 

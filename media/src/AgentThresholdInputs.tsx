@@ -9,7 +9,7 @@ import type { ComponentChildren } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
 import { agentsInUse } from './state'
 
-export const DISPLAY_AGENT_ORDER: AgentSource[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor']
+export const DISPLAY_AGENT_ORDER: AgentSource[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor', 'antigravity']
 
 // Inputs only for agents with traces; every agent before any trace is loaded. A hidden agent keeps
 // its stored threshold and gets its row back as soon as one of its traces arrives.

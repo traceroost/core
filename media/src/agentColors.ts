@@ -13,7 +13,7 @@
  * Imports nothing, so the sidebar bundle (sidebarWebview.ts) can use it too.
  */
 
-type AgentKey = 'claude_code' | 'copilot' | 'codex' | 'opencode' | 'cursor'
+type AgentKey = 'claude_code' | 'copilot' | 'codex' | 'opencode' | 'cursor' | 'antigravity'
 
 interface AgentColorDef {
   /** The --agent-* custom property base.css defines. */
@@ -30,6 +30,7 @@ const AGENT_COLORS: Record<AgentKey, AgentColorDef> = {
   codex:       { token: '--agent-codex',    chart: '--vscode-charts-purple',     fallback: '#b180d7' },
   opencode:    { token: '--agent-opencode', chart: '--vscode-charts-foreground', fallback: '#cccccc' },
   cursor:      { token: '--agent-cursor',   chart: '--vscode-charts-yellow',     fallback: '#cca700' },
+  antigravity: { token: '--agent-antigravity', chart: '--vscode-charts-green',   fallback: '#89d185' },
 }
 
 /** Traces from an agent TraceRoost doesn't know (shouldn't happen — `source` is a closed set). */

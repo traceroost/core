@@ -28,7 +28,7 @@ export interface AgentThresholdProfile {
 
 export type AgentThresholdProfiles = Record<AgentSource, AgentThresholdProfile>
 
-export const AGENT_ORDER: AgentSource[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor']
+export const AGENT_ORDER: AgentSource[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor', 'antigravity']
 
 export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
   claude_code: {
@@ -101,6 +101,22 @@ export const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
     consecutiveErrorAlert: 4,
     activeMinutesAlert: 30,
   },
+  // Placeholder, not calibrated (no real agy session data yet) — mirrors automationEngine.ts. The
+  // window is the 1M tokens of the Gemini models agy serves (src/pricing.ts); the other thresholds
+  // copy claude_code's as a starting point.
+  antigravity: {
+    source: 'antigravity',
+    label: 'Antigravity',
+    shortLabel: 'AG',
+    contextWindowTokens: 1000000,
+    turnNudge: 80,
+    turnAlert: 150,
+    identicalRepeatNudge: 3,
+    identicalRepeatAlert: 4,
+    consecutiveErrorNudge: 3,
+    consecutiveErrorAlert: 4,
+    activeMinutesAlert: 30,
+  },
 }
 
 export const AGENT_PROFILE_FIELD_META: Record<AgentProfileMetric, { label: string; unit: string; min: number; max: number; step: number }> = {
@@ -121,6 +137,7 @@ function cloneDefaultProfiles(): AgentThresholdProfiles {
     codex: { ...DEFAULT_AGENT_PROFILES.codex },
     opencode: { ...DEFAULT_AGENT_PROFILES.opencode },
     cursor: { ...DEFAULT_AGENT_PROFILES.cursor },
+    antigravity: { ...DEFAULT_AGENT_PROFILES.antigravity },
   }
 }
 

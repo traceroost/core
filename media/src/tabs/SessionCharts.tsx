@@ -441,7 +441,7 @@ export function SessionTokenChart({ sessions }: { sessions: SessionSummaryCard[]
   }
 
   const presentSources = new Set(sessions.map(s => s.source).filter(Boolean))
-  const agentSources = (['copilot', 'claude_code', 'codex', 'opencode', 'cursor'] as const).filter(src => presentSources.has(src))
+  const agentSources = (['copilot', 'claude_code', 'codex', 'opencode', 'cursor', 'antigravity'] as const).filter(src => presentSources.has(src))
 
   return (
     <>
@@ -652,7 +652,7 @@ export function CodeChangesChart({ trend }: { trend: CodeChangeTrend }) {
 
   if (bins.length === 0) {
     // Name only the agents without edit contents that this user actually runs.
-    const noEdits = agentsInUse.value.filter(a => a === 'codex' || a === 'opencode' || a === 'cursor').map(getAgentSourceLabel)
+    const noEdits = agentsInUse.value.filter(a => a === 'codex' || a === 'opencode' || a === 'cursor' || a === 'antigravity').map(getAgentSourceLabel)
     const why = noEdits.length > 0 ? ` and agents that don't log edit contents (${noEdits.join(', ')})` : ''
     return <div class="empty-state" data-testid="code-changes-empty" style="font-size:11px">No traces in view recorded line counts — older traces{why} have none.</div>
   }

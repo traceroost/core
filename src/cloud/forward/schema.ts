@@ -25,7 +25,7 @@ export const SCHEMA_VERSION = '1' as const
 // ── Enums (closed sets — a value outside the set maps to the catch-all, never passes through) ──
 
 /** Wire agent identifier. Hyphenated, unlike the internal `SessionSummaryCard.source`. */
-export type WireAgent = 'claude-code' | 'copilot' | 'codex' | 'cursor' | 'opencode' | 'other'
+export type WireAgent = 'claude-code' | 'copilot' | 'codex' | 'cursor' | 'opencode' | 'antigravity' | 'other'
 
 export type WireAttribution = 'certain' | 'probable' | 'unknown'
 
@@ -87,6 +87,7 @@ export function toWireAgent(source: string): WireAgent {
     case 'codex':       return 'codex'
     case 'opencode':    return 'opencode'
     case 'cursor':      return 'cursor'
+    case 'antigravity': return 'antigravity'
     default:            return 'other'
   }
 }

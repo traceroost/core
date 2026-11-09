@@ -1,0 +1,13 @@
+{
+  "source": "synthetic",
+  "captured": null,
+  "os": null,
+  "redaction": "none needed: every value is invented",
+  "adapter": "antigravity",
+  "agentVersion": "1.0.7–1.0.10",
+  "mirrors": "SYNTHETIC — no real agy capture exists. Shapes from agentsview's Antigravity CLI parser and tests (third-party evidence): brain transcript lines, history.jsonl, cache/last_conversations.json, and the agy 1.0.7–1.0.10 conversation-database DDL (so the schema fingerprint is the known 1ca98426f561, the version recorded here) with protobuf gen_metadata / executor_metadata blobs. Covers out-of-order transcript lines, the <USER_REQUEST> envelope, a -exp-b response model resolved to the executor's effort-qualified name, a display-name model, a failed all-zero generation, cache-read tokens, and a database-only prompt the transcript hasn't caught up with",
+  "files": [
+    { "path": "files/.gemini/antigravity-cli/conversations/a9f1c2d3-0000-4000-8000-000000000007.sql", "logKey": "antigravity" },
+    { "path": "files/.gemini/antigravity-cli/brain/a9f1c2d3-0000-4000-8000-000000000007/.system_generated/logs/transcript.jsonl", "logKey": "antigravity" }
+  ]
+}

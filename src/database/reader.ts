@@ -168,7 +168,7 @@ export class DatabaseReader {
   }
 
   listSessions(filter?: {
-    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
+    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor' | 'antigravity'
     since?: number
     limit?: number
   }): SessionSummaryCard[] {
@@ -203,7 +203,7 @@ export class DatabaseReader {
       return {
         sessionId:        col(row, 'session_id') as string,
         traceId:          col(row, 'trace_id') as string,
-        source:           col(row, 'source') as 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor',
+        source:           col(row, 'source') as 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor' | 'antigravity',
         dataSource:       ((col(row, 'data_source') as string | null) ?? 'otel') as 'otel' | 'log',
         workspace:        (col(row, 'workspace') as string) ?? '',
         projectPath:      (col(row, 'project_path') as string | null) ?? undefined,
@@ -481,7 +481,7 @@ export class DatabaseReader {
       return {
         sessionId:        col(row, 'session_id') as string,
         traceId:          col(row, 'trace_id') as string,
-        source:           col(row, 'source') as 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor',
+        source:           col(row, 'source') as 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor' | 'antigravity',
         dataSource:       ((col(row, 'data_source') as string | null) ?? 'otel') as 'otel' | 'log',
         workspace:        (col(row, 'workspace') as string) ?? '',
         projectPath:      (col(row, 'project_path') as string | null) ?? undefined,

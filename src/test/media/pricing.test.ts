@@ -52,6 +52,14 @@ suite('media/pricing', () => {
     assert.strictEqual(lookupRates('claude-sonnet-4-6-20260101'), lookupRates('claude-sonnet-4-6'))
   })
 
+  test('normalizeCostKey drops an Antigravity effort suffix, display-label effort and -exp-b from a Gemini id only', () => {
+    for (const id of ['gemini-3.7-flash-high', 'gemini-3.7-flash-low', 'gemini-3.7-flash-exp-b', 'Gemini 3.7 Flash (Medium)']) {
+      assert.strictEqual(normalizeCostKey(id), 'gemini-3-7-flash', id)
+    }
+    assert.strictEqual(normalizeCostKey('gemini-2.0-flash-exp'), 'gemini-2-0-flash-exp')
+    assert.strictEqual(normalizeCostKey('gpt-5-high'), 'gpt-5-high')
+  })
+
   test('normalizeCostKey collapses dots, spaces, and underscores to hyphens after date-stripping', () => {
     assert.strictEqual(normalizeCostKey('Claude-Opus-4.8'), 'claude-opus-4-8')
     assert.strictEqual(normalizeCostKey('gpt_5_mini'), 'gpt-5-mini')

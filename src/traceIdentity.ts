@@ -46,7 +46,7 @@ export function matchesTraceId(trace: { sessionId: string; traceId?: string | nu
 }
 
 /** The agent part of a key. Short and fixed — `SessionSummaryCard.source` values map onto it. */
-export type KeyAgent = 'claude' | 'codex' | 'copilot' | 'opencode' | 'cursor'
+export type KeyAgent = 'claude' | 'codex' | 'copilot' | 'opencode' | 'cursor' | 'antigravity'
 
 /** The canonical key of an agent-issued turn id. Exact. */
 export function traceKey(agent: KeyAgent, turnId: string): string {

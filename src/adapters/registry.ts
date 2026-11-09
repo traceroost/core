@@ -28,6 +28,10 @@ export const ADAPTERS: readonly AgentAdapter[] = [
   { key: 'copilot_vscode', label: 'Copilot (VS Code)', logKeys: ['copilot_vscode', 'copilot_vscode_json'], dataDir: '~/Library/…/workspaceStorage/',  sources: ['otlp', 'files'],   support: 'best-effort',    lastVerifiedVersion: null },
   { key: 'opencode',       label: 'OpenCode',          logKeys: ['opencode'],                              dataDir: '~/.local/share/opencode/',        sources: ['sqlite'],          support: 'fixture-tested', lastVerifiedVersion: null },
   { key: 'cursor',         label: 'Cursor CLI',        logKeys: ['cursor'],                                dataDir: '~/.cursor/projects/',             sources: ['files'],           support: 'fixture-tested', lastVerifiedVersion: null },
+  // Best-effort: built from third-party evidence (agentsview's parser) and synthetic fixtures; no
+  // real agy capture is committed. Bump lastVerifiedVersion only with a capture whose database
+  // schema fingerprint is recorded (classify.ts antigravitySchemaVersion).
+  { key: 'antigravity',    label: 'Antigravity',       logKeys: ['antigravity'],                           dataDir: '~/.gemini/antigravity-cli/',      sources: ['files', 'sqlite'], support: 'best-effort',    lastVerifiedVersion: null },
 ]
 
 const BY_KEY = new Map<string, AgentAdapter>(ADAPTERS.map(a => [a.key, a]))

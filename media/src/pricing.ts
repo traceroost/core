@@ -382,6 +382,20 @@ export const PRICING_SECTIONS: PricingSection[] = [
   },
 ]
 
+// Antigravity (agy) names a Gemini model with the reasoning effort the user picked — an effort
+// suffix (`gemini-3.7-flash-high`) or, as a display label, a parenthesized one (`Gemini 3.7 Flash
+// (High)`) — and its response metadata can carry the serving canary `-exp-b`. Google prices a model
+// the same at every effort level, so for a Gemini id both are dropped before lookup. Only these
+// exact suffixes: a generic `-exp` names a model of its own (`gemini-2.0-flash-exp`). Kept in sync
+// with src/pricing.ts.
+function stripGeminiVariant(lowerId: string): string {
+  if (!lowerId.startsWith('gemini')) return lowerId
+  return lowerId
+    .replace(/\s*\((low|medium|high)\)$/, '')
+    .replace(/-exp-b$/, '')
+    .replace(/-(low|medium|high)$/, '')
+}
+
 // Normalizes a model ID to the key used for rate lookup. Vendors and telemetry sources disagree on
 // whether a minor version is punctuated with a dot or a hyphen: Copilot VS Code emits
 // `claude-opus-4.8` while this table keys that model `claude-opus-4-8`; OpenAI IDs like `gpt-5.4`
@@ -389,11 +403,11 @@ export const PRICING_SECTIONS: PricingSection[] = [
 // and every RATES key (see RATES_BY_COST_KEY) — makes the two representations meet. Lookup only;
 // the raw model ID is still what gets stored and displayed. Kept in sync with src/pricing.ts. See GH #231.
 export function normalizeCostKey(modelId: string): string {
-  return modelId
+  return stripGeminiVariant(modelId
     .toLowerCase()
     .replace(/-\d{4}-\d{2}-\d{2}$/, '')  // strip date suffix e.g. -2025-04-14
     .replace(/-\d{8}$/, '')               // strip YYYYMMDD suffix e.g. -20260501
-    .trim()
+    .trim())
     .replace(/[.\s_]+/g, '-')
 }
 

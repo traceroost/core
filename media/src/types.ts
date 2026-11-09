@@ -106,7 +106,7 @@ export interface ActionLogEntry {
 export interface SessionSummaryCard {
   sessionId: string
   traceId: string
-  source: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
+  source: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor' | 'antigravity'
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
   conversationId?: string
@@ -261,7 +261,7 @@ export interface SearchQuery {
   offset?: number
 }
 
-export type AgentFilter = 'all' | 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
+export type AgentFilter = 'all' | 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor' | 'antigravity'
 // One of media/src/language.ts's LANGUAGE_IDS, or 'all'. Matches a session whose primary OR
 // secondary language is that id (see matchesLanguageFilter in state.ts).
 export type LanguageFilter = 'all' | SessionLanguage

@@ -588,7 +588,7 @@ export const availableLanguages = computed<SessionLanguage[]>(() => {
 // trace, not the filtered set, so picking an agent never hides the others. A selected agent stays
 // listed even if no trace carries it any more (it can also arrive from the extension's setFilter),
 // so the pills never hide the active filter. 'All' is not listed here — it is always offered.
-export const AGENT_FILTER_ORDER: readonly Exclude<AgentFilter, 'all'>[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor']
+export const AGENT_FILTER_ORDER: readonly Exclude<AgentFilter, 'all'>[] = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor', 'antigravity']
 
 // Agents at least one loaded trace has, in pill order. Per-agent UI (threshold inputs, the Agents
 // comparison, instruction files) lists only these: someone who only runs Claude Code shouldn't
@@ -770,5 +770,6 @@ export const agentPresence = computed(() => {
     codex:     sessions.some(s => s.source === 'codex'),
     opencode:  sessions.some(s => s.source === 'opencode'),
     cursor:    sessions.some(s => s.source === 'cursor'),
+    antigravity: sessions.some(s => s.source === 'antigravity'),
   }
 })

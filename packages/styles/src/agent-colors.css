@@ -17,6 +17,8 @@
   --tr-agent-opencode: #FFFFFF;
   /* No local ingestion path produces this today on either host — reserved for when one does. */
   --tr-agent-cursor: #B39DDB;
+  /* Antigravity CLI (agy). VS Code's dark charts.green; Cloud's light theme uses #388a34. */
+  --tr-agent-antigravity: #89d185;
   /* Fallback for an unrecognized/unset agent source. */
   --tr-agent-default: #90a4ae;
 }
