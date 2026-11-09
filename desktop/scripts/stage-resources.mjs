@@ -9,6 +9,7 @@
  *   collector/standalone/server.js    → the collector itself (the desktop edition — see below)
  *   collector/media/…                 → the dashboard it serves
  *   collector/node_modules/sql.js/…   → `require.resolve('sql.js')` and its WASM
+ *   collector/schema/rollup.v1.json   → (full edition) what the forwarder validates against
  *
  * About sql.js: the bundle has it inlined by esbuild, but the collector *also* calls
  * `require.resolve('sql.js')` to find the WASM file next to the package on disk
@@ -83,6 +84,18 @@ fs.rmSync(out, { recursive: true, force: true })
 // ── The collector bundle ──
 copyFile(requireFile('standalone/server.js'), path.join(out, 'standalone', 'server.js'))
 
+// ── The rollup schema a full collector validates every payload against before queuing it ──
+// src/cloud/forward/validate.ts finds it by walking up from the bundle's own directory — from
+// collector/standalone/ that is ../schema/rollup.v1.json, the same package-root spot the npm
+// package and the VSIX ship it at. A full tree without it is a collector that links fine, sends
+// its trace manifest fine, and then throws "could not locate schema/rollup.v1.json" on every
+// session it tries to forward (and on the Org panel's payload preview) — while the panel still
+// read "Synced", because nothing ever reached the queue to fail. The 1.0.0 apps shipped exactly
+// that. A core collector has no forwarder, so it does not need the file.
+if (edition === 'full') {
+  copyFile(requireFile('schema/rollup.v1.json'), path.join(out, 'schema', 'rollup.v1.json'))
+}
+
 // ── The dashboard assets the collector serves from ../media ──
 // Only the extensions `resolveStaticFile` will serve; the .ts sources in media/src stay behind.
 // (A full release build's external .map files stay behind too: they are for the notices, not the app.)
@@ -129,6 +142,22 @@ if (!resolved.startsWith(sqlJsOut)) {
 }
 if (!fs.existsSync(path.join(path.dirname(resolved), 'sql-wasm.wasm'))) {
   throw new Error('stage-resources: sql-wasm.wasm is not beside the resolved sql.js — the outcomes cache would fall back to recomputing.')
+}
+
+// Prove the schema is where the validator will look, the same way it looks: resolved from the
+// bundle's own directory, parsed as JSON, and the schema version the collector was built against.
+if (edition === 'full') {
+  const fromBundle = path.join(path.dirname(path.join(out, 'standalone', 'server.js')), '..', 'schema', 'rollup.v1.json')
+  let schema
+  try {
+    schema = JSON.parse(fs.readFileSync(fromBundle, 'utf-8'))
+  } catch (err) {
+    throw new Error(`stage-resources: schema/rollup.v1.json is not readable from the staged collector (${fromBundle}): ${err.message}`)
+  }
+  // The shape src/test/cloud/forward/schema.test.ts pins: a `schema_version` const and the $defs.
+  if (typeof schema?.properties?.schema_version?.const !== 'string' || !schema.$defs) {
+    throw new Error('stage-resources: the staged schema/rollup.v1.json does not look like the rollup schema (no schema_version const or $defs).')
+  }
 }
 
 // ── Edition verification of what this app actually ships ──

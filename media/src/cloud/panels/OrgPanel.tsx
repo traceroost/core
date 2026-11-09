@@ -353,6 +353,10 @@ function SentNeverSent() {
 const ENVIRONMENTS: OrgEnvironment[] = ['production', 'stage', 'test']
 
 function EnvironmentPicker({ st }: { st: OrgStatus }) {
+  // Production is what a release build talks to and the only thing most people will ever see; a
+  // fixed "Environment: Production" line is noise there. The picker earns its place when there is
+  // a choice to make (a development build) or when this machine points somewhere non-standard.
+  if (!st.environmentEditable && st.environment === 'production') return null
   return (
     <div style="margin-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
@@ -479,13 +483,19 @@ function LinkedBody({ st }: { st: OrgStatus }) {
         <div style="display:flex;align-items:center;font-size:11px;padding:2px 0">
           <Dot indicator={st.indicator} sending={st.sending} />
           <span style="color:var(--fg)">
-            {st.indicator === 'reporting' ? (st.sending ? 'Sending — hashed traces going to cloud' : 'Synced — hashed traces sent to cloud')
+            {st.indicator === 'reporting'
+              ? (st.sending ? 'Sending — hashed traces going to cloud'
+                // "Synced" would be a claim about sends that have not happened yet (a fresh link, or a
+                // machine whose builds fail before anything is queued — forwardState.ts recordBuildFailure).
+                : st.lastRollupAt ? 'Synced — hashed traces sent to cloud' : 'Linked — no traces sent yet')
               : st.indicator === 'queued' ? `Queued — ${st.queueDepth ?? 0} hashed trace(s) waiting to sync`
               : `Paused — ${st.degradedReason ?? 'last send failed'}`}
           </span>
         </div>
         <Row k="Last trace" v={st.lastRollupAt ? new Date(st.lastRollupAt).toLocaleString() : 'none yet'} />
-        <Row k="Environment" v={ENVIRONMENT_LABEL[st.environment]} />
+        {/* Only when it is not production — same reasoning as EnvironmentPicker: the row is a
+            warning that this machine talks to stage/test/a custom endpoint, not a fact to repeat. */}
+        {st.environment !== 'production' && <Row k="Environment" v={ENVIRONMENT_LABEL[st.environment]} />}
         <Row k="Endpoint" v={st.endpoint ?? ''} />
         <Row k="TraceRoost version" v={`v${st.clientVersion}`} />
         <Row k="Linked" v={st.linkedAt ? new Date(st.linkedAt).toLocaleDateString() : ''} />

@@ -18,6 +18,7 @@
 
 import { ForwardQueue } from '../forward/queue'
 import { assertValidRollupPayload } from '../forward/validate'
+import { recordBuildFailure } from '../forward/forwardState'
 import { buildPayloadForCard, type PayloadBuildCache } from './payloadPreview'
 import { loadCredentials } from './credentials'
 import { enqueueInstructionStateAfterSession } from './instructionTelemetry'
@@ -89,6 +90,7 @@ async function forwardNow(
     return { enqueued: true }
   } catch (err) {
     log?.(`[TraceRoost] Could not forward session on content change: ${(err as Error).message}`)
+    recordBuildFailure((err as Error).message)
     return { enqueued: false, reason: 'error' }
   }
 }

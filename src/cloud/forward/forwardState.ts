@@ -90,6 +90,16 @@ export function writeForwardState(patch: Partial<PersistedState>, baseHome?: str
   }
 }
 
+/** A trace that could not be prepared for sending at all — `buildPayloadForCard` or the schema
+ *  validation it ends with threw (payloadPreview.ts) — never reaches the queue, so the sender, the
+ *  only writer of `lastError` until now, never hears of it, and `getOrgStatus()` went on saying
+ *  "reporting" while every build failed. (The 1.0.0 desktop app shipped without
+ *  schema/rollup.v1.json and read "Synced" the whole time.) Recorded the way a failed send is:
+ *  the status turns degraded with the reason, and the next send that succeeds clears it. */
+export function recordBuildFailure(message: string, baseHome?: string): void {
+  writeForwardState({ lastErrorAt: new Date().toISOString(), lastError: `could not prepare a trace to send: ${message}` }, baseHome)
+}
+
 /** Drops everything — `keepNotice` re-writes only the developer-facing notice (an unlink keeps
  *  saying why until the machine is linked again). */
 export function clearForwardState(baseHome?: string, keepNotice?: ForwardNotice): void {

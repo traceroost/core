@@ -75,7 +75,9 @@ module.exports = async function afterPack(context) {
         : ['tray/trayLinux.png', 'tray/trayLinux@2x.png', 'tray/iconLinux.png']),
     'LICENSE',
     'THIRD_PARTY_NOTICES.md',
-    ...(edition === 'full' ? ['NOTICE.md', 'LICENSE-BSL-1.1'] : []),
+    // The full collector's forwarder reads the schema from beside standalone/ before every send
+    // (src/cloud/forward/validate.ts); without it the app links but never uploads a trace.
+    ...(edition === 'full' ? ['NOTICE.md', 'LICENSE-BSL-1.1', 'collector/schema/rollup.v1.json'] : []),
     // Electron's licenses: copied into Resources on macOS (electron-builder.cjs); elsewhere the
     // builder's own copies beside the executable, checked below.
     ...(isMac ? ['LICENSE.electron.txt', 'LICENSES.chromium.html'] : []),
