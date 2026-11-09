@@ -52,7 +52,7 @@ Copilot uses token-based AI Credits billing only.
 
 **Who it applies to:** All Copilot plans.
 
-**Source:** <https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing> (verified 2026-11-08: every existing token rate on this page re-checked and unchanged. New this pass: **GPT-6.1 Terra** (half of GPT-6.1 Sol across the board, three-way confirmed; see the Codex section) and **Gemini 4 Argon** ($2.00/$0.10/$10.00, the same figure OpenCode Zen publishes while calling it 50% off through Nov 30, 2026). Also noticed: this page's Google rows are now **Gemini 3.8 Flash and Gemini 4 Argon only**; `gemini-3.7-flash` has dropped off too, joining the other Gemini keys already absent since 2026-10-11; and the only Claude fast-mode row here is now **Opus 4.8 (fast mode) (preview)**. Nothing removed from `RATES` on that basis; see Known gaps. Prior pass (2026-10-11: existing token rates re-checked; **Claude Sonnet 5.5's cache-read rate corrected** to $0.10 (was $0.20); Anthropic's and this page both list $0.10. New this pass: **GPT-6.1 Sol**, **Claude Haiku 5.5** (priced by prompt length; see the Claude section) and **Grok 4.7**. Prior pass (2026-09-28): all existing token rates re-checked and unchanged; new then: **GPT-6 Sol** and **GPT-6 Luna**, the rest of the GPT-6 family alongside GPT-6 Astra (added last pass), confirmed independently on this page, OpenAI's own API pricing page, and the Codex CLI credits page (Sol: 50/5/250 credits ÷25; Luna: 2.5/0.25/12.5 credits ÷25; both match the USD rates in `RATES` exactly). Also new: **Claude Opus 5.5** and **Claude Sonnet 5.5**, confirmed both here and on Anthropic's own pricing page (see the Claude section below). Opus 5.5 is priced *below* Opus 5 despite the higher version number, and Sonnet 5.5 shares Sonnet 5's exact rate. Also noticed: **Claude Mythos 5 and 5.1 are no longer listed on this page** (they were as of 2026-09-15). Anthropic's own pricing page still lists both unchanged, so this reads as a Copilot-specific model-availability change, not a rate change; same situation as Claude Opus 4.6 (still absent as of this pass too) and `gpt-4.1` previously.))
+**Source:** <https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing> (verified 2026-11-09: every token rate on this page re-checked and unchanged; no models added or removed on the OpenAI, Google, xAI, Moonshot or Microsoft rows. The Anthropic rows now also show **Claude Fable 5, Fable 5.1, Haiku 4.5, Sonnet 4 and Sonnet 4.6**: each matching `RATES` and Anthropic's page exactly: but not Fable 5.2, Mythos 5.x or Opus 4.5–4.7. Gemini 4 Argon's promo is worded "until December 1, 2026", agreeing with Google's own schedule. A "GPT Image 2.5 Flare" image-generation row is new and not modeled (image tokens, billed separately from the session model). Prior pass (2026-11-08: every existing token rate on this page re-checked and unchanged. New this pass: **GPT-6.1 Terra** (half of GPT-6.1 Sol across the board, three-way confirmed: see the Codex section) and **Gemini 4 Argon** ($2.00/$0.10/$10.00, the same figure OpenCode Zen publishes while calling it 50% off through Nov 30, 2026). Also noticed: this page's Google rows are now **Gemini 3.8 Flash and Gemini 4 Argon only**: `gemini-3.7-flash` has dropped off too, joining the other Gemini keys already absent since 2026-10-11; and the only Claude fast-mode row here is now **Opus 4.8 (fast mode) (preview)**. Nothing removed from `RATES` on that basis: see Known gaps. Prior pass (2026-10-11: existing token rates re-checked; **Claude Sonnet 5.5's cache-read rate corrected** to $0.10 (was $0.20): Anthropic's and this page both list $0.10. New this pass: **GPT-6.1 Sol**, **Claude Haiku 5.5** (priced by prompt length: see the Claude section) and **Grok 4.7**. Prior pass (2026-09-28): all existing token rates re-checked and unchanged; new then: **GPT-6 Sol** and **GPT-6 Luna**: the rest of the GPT-6 family alongside GPT-6 Astra (added last pass), confirmed independently on this page, OpenAI's own API pricing page, and the Codex CLI credits page (Sol: 50/5/250 credits ÷25; Luna: 2.5/0.25/12.5 credits ÷25: both match the USD rates in `RATES` exactly). Also new: **Claude Opus 5.5** and **Claude Sonnet 5.5**, confirmed both here and on Anthropic's own pricing page (see the Claude section below): Opus 5.5 is priced *below* Opus 5 despite the higher version number, and Sonnet 5.5 shares Sonnet 5's exact rate. Also noticed: **Claude Mythos 5 and 5.1 are no longer listed on this page** (they were as of 2026-09-15): Anthropic's own pricing page still lists both unchanged, so this reads as a Copilot-specific model-availability change, not a rate change; same situation as Claude Opus 4.6 (still absent as of this pass too) and `gpt-4.1` previously.)))
 
 **What this page provides:**
 
@@ -192,7 +192,7 @@ Claude Code CLI uses Anthropic API token-based pricing only, with no request-mul
 
 **Who it applies to:** All Claude Code CLI users billed through the Anthropic API.
 
-**Source:** <https://platform.claude.com/docs/en/about-claude/pricing> (verified 2026-11-08: **every rate on this page re-checked and confirmed unchanged**, row for row: the standard table, the fast-mode table (Opus 5.5 at $8/$40; Opus 5 and Opus 4.8 sharing $10/$50, both now marked research preview), Haiku 5.5's two prompt-length tiers, the Fable/Mythos 5.1 0.025x and Opus 5.5 / Sonnet 5.5 0.05x cache-hit footnotes, and the Sonnet 5 introductory-pricing-now-permanent note. No new Claude models, no removals. Two wording changes with no rate effect: Opus 4.7 fast mode is now simply absent from the fast-mode table rather than called out as removed (`claude-opus-4-7-fast` stays frozen for historical sessions), and Sonnet 4.5 is marked deprecated in the endpoint-pricing note while keeping its $3/$0.30/$3.75/$15 row. Prior pass (2026-10-11: **Claude Haiku 5.5 added** and **Claude Sonnet 5.5's cache-read corrected to $0.10**; every other rate re-checked and confirmed unchanged, including the Fable/Mythos 5.1 0.025x cache-read rate and the Sonnet 5 introductory-pricing-now-permanent note. Prior pass (2026-09-28): every existing rate re-checked and confirmed unchanged, including the Sonnet 5 introductory-pricing-now-permanent note and Fable/Mythos 5.1's 0.025x cache-read rate. New this pass: **Claude Opus 5.5** (priced below Opus 5 at $4.00/$5.00/$8.00/$0.20/$20.00, with its own 0.05x cache-hit multiplier rather than the usual 0.1x, and its own fast-mode row, $8.00/$40.00) and **Claude Sonnet 5.5** (identical rate to Sonnet 5, no fast mode). Both independently confirmed on Copilot's model pricing page too.))
+**Source:** <https://platform.claude.com/docs/en/about-claude/pricing> (verified 2026-11-09: **Claude Fable 5.2 and Claude Mythos 5.2 added** (Mythos 5.2 limited availability): $8.00 input / $10.00 5m write / $16.00 1h write / $0.20 cache hits / $40.00 output: *below* Fable/Mythos 5.1, and footnote 1's 0.025x cache-hit exception now names all four of Fable/Mythos 5.1 and 5.2. Both also have fast mode at $16/$80 (the fast-mode table now leads with them). Every other row re-checked and unchanged, including Opus 4/4.1 ($15/$18.75/$1.50/$75: now labelled "retired, except on Google Cloud/Bedrock", as Sonnet 4 is) and the Sonnet 5 permanent-pricing footnote. Prior pass (2026-11-08: **every rate on this page re-checked and confirmed unchanged**, row for row: the standard table, the fast-mode table (Opus 5.5 at $8/$40; Opus 5 and Opus 4.8 sharing $10/$50, both now marked research preview), Haiku 5.5's two prompt-length tiers, the Fable/Mythos 5.1 0.025x and Opus 5.5 / Sonnet 5.5 0.05x cache-hit footnotes, and the Sonnet 5 introductory-pricing-now-permanent note. No new Claude models, no removals. Two wording changes with no rate effect: Opus 4.7 fast mode is now simply absent from the fast-mode table rather than called out as removed (`claude-opus-4-7-fast` stays frozen for historical sessions), and Sonnet 4.5 is marked deprecated in the endpoint-pricing note while keeping its $3/$0.30/$3.75/$15 row. Prior pass (2026-10-11: **Claude Haiku 5.5 added** and **Claude Sonnet 5.5's cache-read corrected to $0.10**; every other rate re-checked and confirmed unchanged, including the Fable/Mythos 5.1 0.025x cache-read rate and the Sonnet 5 introductory-pricing-now-permanent note. Prior pass (2026-09-28): every existing rate re-checked and confirmed unchanged, including the Sonnet 5 introductory-pricing-now-permanent note and Fable/Mythos 5.1's 0.025x cache-read rate. New this pass: **Claude Opus 5.5** (priced below Opus 5: $4.00/$5.00/$8.00/$0.20/$20.00, with its own 0.05x cache-hit multiplier rather than the usual 0.1x: and its own fast-mode row, $8.00/$40.00) and **Claude Sonnet 5.5** (identical rate to Sonnet 5, no fast mode). Both independently confirmed on Copilot's model pricing page too.)))
 
 **Formula:**
 
@@ -221,10 +221,12 @@ On `claude_code.llm_request` spans (per-API-call):
 - `ttft_ms`: time to first token in ms
 - `stop_reason`: e.g. `tool_use`, `end_turn`
 
-**Rates (USD per 1M tokens, verified 2026-11-08; every row re-checked and unchanged from the last check):**
+**Rates (USD per 1M tokens, verified 2026-11-09: every existing row re-checked and unchanged; Fable 5.2 / Mythos 5.2 and their fast-mode rows added):**
 
 | Model                                                                  | Input  | Cache Write (5m) | Cache Write (1h) | Cache Read | Output  |
 | ----------------------------------------------------------------------- | ------ | ----------------- | ----------------- | ---------- | ------- |
+| `claude-fable-5-2` (added 2026-11-09: 0.025x cache-hit multiplier, like 5.1) | $8.00  | $10.00             | $16.00             | $0.20      | $40.00  |
+| `claude-mythos-5-2` (added 2026-11-09: limited availability)         | $8.00  | $10.00             | $16.00             | $0.20      | $40.00  |
 | `claude-fable-5-1`                                                       | $10.00 | $12.50             | $20.00             | $0.25      | $50.00  |
 | `claude-mythos-5-1` (limited availability, see anthropic.com/glasswing) | $10.00 | $12.50             | $20.00             | $0.25      | $50.00  |
 | `claude-opus-5-5` (added 2026-09-28; 0.05x cache-hit multiplier, not the usual 0.1x) | $4.00  | $5.00              | $8.00              | $0.20      | $20.00  |
@@ -242,7 +244,8 @@ On `claude_code.llm_request` spans (per-API-call):
 | `claude-haiku-4-5`                                                       | $1.00  | $1.25              | $2.00              | $0.10      | $5.00   |
 | `claude-fable-5`                                                         | $10.00 | $12.50             | $20.00             | $1.00      | $50.00  |
 | `claude-mythos-5` (limited availability, see anthropic.com/glasswing)   | $10.00 | $12.50             | $20.00             | $1.00      | $50.00  |
-| `claude-opus-5-5` (fast mode, added 2026-09-28, its own row, not shared with Opus 5/4.8) | $8.00  | $10.00¹            | $16.00¹            | $0.40¹     | $40.00  |
+| `claude-fable-5-2` / `claude-mythos-5-2` (fast mode: added 2026-11-09) | $16.00 | $20.00²            | $32.00²            | $0.40²     | $80.00  |
+| `claude-opus-5-5` (fast mode: added 2026-09-28, its own row, not shared with Opus 5/4.8) | $8.00  | $10.00¹            | $16.00¹            | $0.40¹     | $40.00  |
 | `claude-opus-5` (fast mode, 2x)                                          | $10.00 | $12.50             | $20.00             | $1.00      | $50.00  |
 | `claude-opus-4-8` (fast mode, 2x)                                        | $10.00 | $12.50             | $20.00             | $1.00      | $50.00  |
 | `claude-opus-4-7` (fast mode, 6x, **historical only, removed**)        | $30.00 | $37.50             | $60.00             | $3.00      | $150.00 |
@@ -255,7 +258,12 @@ the $8.00 fast input at the usual 1.25x/2x multipliers; Cache Read is $8.00 at O
 cache-hit multiplier (not the standard 0.1x), derived, not read directly off a table row, so
 re-verify against a real fast-mode+cache session if one shows an unexpected cost.
 
-Fast mode is available for Opus 5.5, Opus 5, and Opus 4.8 (re-checked 2026-11-08). Opus 5.5 has its
+² Same derivation for Fable 5.2 / Mythos 5.2 fast mode (added 2026-11-09): the table states only $16.00
+input and $80.00 output; cache writes are that $16.00 at 1.25x/2x, and cache read is $16.00 at these models'
+own 0.025x cache-hit multiplier. Derived, not read off a row.
+
+Fast mode is also available for Fable 5.2 and Mythos 5.2 as of 2026-11-09 (own row, $16/$80).
+Fast mode is available for Opus 5.5, Opus 5, and Opus 4.8 (re-checked 2026-11-08): Opus 5.5 has its
 own row at $8/$40, Opus 5 and Opus 4.8 share one at $10/$50, and as of this pass the page marks Opus 5's
 and Opus 4.8's fast mode as research preview. The page also now states that fast-mode pricing "applies
 across the full context window, including requests over 200k input tokens," which matches how `RATES`
@@ -303,8 +311,12 @@ Claude Opus 4.7 and later Opus models, Claude Fable 5 / 5.1, Claude Mythos 5 / 5
 
 - **Cache write TTL**: Anthropic supports 5-minute and 1-hour cache TTLs at different rates (1.25x and 2x base input price respectively; cache reads are 0.1x base input). The `cache_creation_tokens` field in telemetry does not distinguish between them. Claude Code CLI uses 5-minute caches by default, so the 5-minute rate is used. If 1-hour caches are in use, cost will be underestimated by roughly 37%.
 - **Fast mode (`/fast`)**: When fast mode is active, `usage.speed` is `"fast"` in the local JSONL log. TraceRoost reads this and appends `-fast` to the stored model ID (e.g. `claude-opus-4-7-fast`) so the correct rate is applied. See the fast-mode note under the rate table above for current per-model status.
-  **This detection is log-only.** The OTEL fields Claude Code CLI exports on `claude_code.llm_request` spans (listed above: model, input/output/cache tokens, ttft_ms, stop_reason) don't include a speed/fast-mode attribute at all, so `src/summarizers/claude.ts` (the OTEL ingestion path) has nothing to key off: every OTEL-ingested session is priced at the standard rate regardless of whether fast mode was active. This is an upstream telemetry gap (Claude Code doesn't emit fast-mode status via OTEL), not a missed read on TraceRoost's side. Re-check if Anthropic ever adds a speed-equivalent OTEL attribute. Sessions ingested from the local log file (rather than OTEL) are unaffected.
-- **Data residency multiplier**: `inference_geo: "us"` (Opus 4.6, Sonnet 4.6, and later models) applies a 1.1x multiplier to all token pricing categories. Not currently modeled; cost is underestimated by ~10% for sessions pinned to US-only inference.
+  **This detection is log-only.** The OTEL fields Claude Code CLI exports on `claude_code.llm_request` spans (listed above: model, input/output/cache tokens, ttft_ms, stop_reason) don't include a speed/fast-mode attribute at all, so `src/summarizers/claude.ts` (the OTEL ingestion path) has nothing to key off: every OTEL-ingested session is priced at the standard rate regardless of whether fast mode was active. This is an upstream telemetry gap (Claude Code doesn't emit fast-mode status via OTEL), not a missed read on TraceRoost's side: re-check if Anthropic ever adds a speed-equivalent OTEL attribute. Sessions ingested from the local log file (rather than OTEL) are unaffected.
+- **Data residency multiplier**: `inference_geo: "us"` (Opus 4.6, Sonnet 4.6, and later models) applies a 1.1x multiplier to all token pricing categories. Not currently modeled: cost is underestimated by ~10% for sessions pinned to US-only inference.
+- **`claude-fable-5-2` / `claude-mythos-5-2`** (added 2026-11-09): confirmed on Anthropic's page only:
+  Copilot's page doesn't list either yet. Slugs follow the file's hyphenated-minor convention
+  (`claude-fable-5-1`), and `normalizeCostKey` resolves a dotted telemetry id to them. Their `-fast` rows'
+  cache rates are derived (footnote ² above).
 - **Deprecated models**: Models older than claude-opus-4 (e.g. claude-3-5-sonnet, claude-3-opus) may appear in historical sessions. Add them to `RATES` in `pricing.ts` if encountered; missing models show as `~$?`.
 
 ---
@@ -323,8 +335,12 @@ Codex CLI uses OpenAI token-based pricing only, with no request-multiplier syste
 - Codex CLI pricing page (credits; divide by 25 for USD): <https://developers.openai.com/codex/pricing>. As of 2026-08-07 this 308-redirects to <https://learn.chatgpt.com/docs/pricing>; use that URL directly.
 - API pricing (USD, includes codex models): <https://developers.openai.com/api/docs/pricing>
 - `codex-mini-latest` model spec: <https://developers.openai.com/api/docs/models/codex-mini-latest>
-- Prompt caching mechanics: <https://developers.openai.com/api/docs/guides/prompt-caching>
-- Token concepts: <https://developers.openai.com/api/docs/concepts/tokens>
+- Prompt caching mechanics: <https://developers.openai.com/api/docs/guides/prompt-caching> (verified
+  2026-11-09: for GPT-5.6 and later, cache writes are 1.25x uncached input for the default 30-minute
+  lifetime, 2.5x for the 12-hour option; cache reads 0.1x, 0.05x on GPT-6.1 Sol/Terra; no cache-write
+  charge on earlier models: consistent with every row below)
+- Token concepts: <https://developers.openai.com/api/docs/concepts/tokens>: **404 as of 2026-11-09**; no
+  replacement URL found this pass. It only ever explained token concepts, not rates.
 
 **Formula:**
 
@@ -354,20 +370,21 @@ On `session_task.turn` spans (per-turn aggregate):
 
 Model name available on `codex.user_prompt`, `codex.turn_ttft`, and `codex.tool_decision` spans via `model` attribute.
 
-**Rates (USD per 1M tokens, verified 2026-11-08: every existing row re-checked and unchanged; `gpt-6.1-terra`, `gpt-6-cyber`, `daybreak-blue` and `daybreak-red` added. Prior pass (2026-10-11): every existing row unchanged, `gpt-6.1-sol` added):**
+**Rates (USD per 1M tokens, verified 2026-11-09 against OpenAI's API pricing page and the Codex CLI credits page: every existing row that either page lists re-checked and unchanged; `gpt-rosalind-research` added. `gpt-4.1-nano` and `codex-mini-latest` are no longer on the API pricing page, and `gpt-5.1-codex*` still aren't: see Known gaps. Prior pass (2026-11-08): every existing row unchanged; `gpt-6.1-terra`, `gpt-6-cyber`, `daybreak-blue` and `daybreak-red` added. Prior pass (2026-10-11): every existing row unchanged, `gpt-6.1-sol` added):**
 
 | Model                   | Input   | Cached Input | Cache Write | Output  | Cache discount | Notes                                          |
 | ----------------------- | ------- | ------------ | ----------- | ------- | -------------- | ---------------------------------------------- |
-| `gpt-6-cyber`           | $20.00  | $2.00        | $25.00      | $100.00 | 90%            | Added 2026-11-08, new on OpenAI's API pricing page (Cyber table), the GPT-6 successor to `gpt-5.6-cyber`. Short-context only; no long-context tier listed, same as 5.6-cyber. |
-| `daybreak-blue`         | $4.00   | $0.40        | $5.00       | $20.00  | 90%            | Added 2026-11-08: codenamed model listed **only** on the Codex CLI credits page (100/10/500 credits ÷ 25). Slug guessed from the display name "Daybreak Blue"; cache write derived at the family's 1.25x input, not read off a table. Rates are identical to `gpt-5.6-sol`'s, so this may be a stealth alias; see Known gaps. |
-| `daybreak-red`          | $12.50  | $1.25        | $15.625     | $75.00  | 90%            | Added 2026-11-08, same basis as `daybreak-blue` (312.5/31.25/1875 credits ÷ 25). Rates are identical to `gpt-5.6-cyber`'s. |
-| `gpt-6-astra`           | $10.00  | $1.00        | $12.50      | $50.00  | 90%            | New flagship, added 2026-09-15, confirmed on Copilot's pricing page, OpenAI's own API pricing page, and here (250/25/1250 credits ÷ 25). Long-context surcharge tier above 272K (2x input/cache/cache-write, 1.5x output → $20.00/$2.00/$25.00/$75.00). A fast-mode rate is also listed on OpenAI's page ($20.00/$2.00/$100.00 short-context), not modeled, consistent with the rest of the family. |
-| `gpt-6-sol`             | $2.00   | $0.20        | $2.50       | $10.00  | 90%            | Added 2026-09-28, three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page, and here: 50/5/250 credits ÷ 25). Long-context surcharge tier above 272K → $4.00/$0.40/$5.00/$15.00. |
-| `gpt-6-luna`            | $0.10   | $0.01        | $0.125      | $0.50   | 90%            | Added 2026-09-28, three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page, and here: 2.5/0.25/12.5 credits ÷ 25). Long-context surcharge tier above **272K** (asked about specifically since it does *not* inherit GPT-5.6-Luna's lower 200K threshold) → $0.20/$0.02/$0.25/$0.75. |
-| `gpt-6.1-sol`           | $2.00   | $0.10        | $2.50       | $10.00  | 95%            | Added 2026-10-11, three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page, and here: 50/2.5/250 credits ÷ 25). Same as `gpt-6-sol` except the cache-read rate is half. Long-context surcharge tier above 272K → $4.00/$0.20/$5.00/$15.00. |
-| `gpt-6.1-terra`         | $1.00   | $0.05        | $1.25       | $5.00   | 95%            | Added 2026-11-08, three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page, and here: 25/1.25/125 credits ÷ 25). Exactly half of `gpt-6.1-sol` in every category, same shape. Long-context surcharge tier above 272K → $2.00/$0.10/$2.50/$7.50. |
-| `gpt-5.6-sol`           | $4.00   | $0.40        | $5.00       | $20.00  | 90%            | Flagship. Corrected 2026-08-26 (was $5.00/$0.50/$6.25/$30.00). OpenAI's own page labels this promotional, and as of 2026-11-08 its wording has firmed up from "at least through November 21, 2026" to "available until November 30, 2026": the rate is unchanged, but it now has a stated end rather than a floor, so re-check right after that date. Long-context surcharge tier above 272K (2x input/cache/cache-write, 1.5x output → $8.00/$0.80/$10.00/$30.00). Copilot separately layers its own extra 50% promotional discount on top of this figure for Copilot-sourced sessions specifically ($2.00/$0.20/$2.50/$10.00), not modeled in `RATES` (one shared rate per model regardless of source agent); Copilot-sourced sessions will show roughly 2x their actual cost until that discount ends. |
-| `gpt-5.6-cyber`         | $12.50  | $1.25        | $15.625     | $75.00  | 90%            | Added 2026-08-26, new on OpenAI's API pricing page. Short-context only; no long-context tier listed. |
+| `gpt-rosalind-research` | $5.00   | $0.50        | — | $25.00  | 90%            | Added 2026-11-09: new on the Codex CLI credits page (125/12.5/625 credits ÷ 25), and OpenAI's API page lists the same $5.00/$0.50/$25.00. Neither gives a cache-write rate or long-context tier. |
+| `gpt-6-cyber`           | $20.00  | $2.00        | $25.00      | $100.00 | 90%            | Added 2026-11-08: new on OpenAI's API pricing page (Cyber table), the GPT-6 successor to `gpt-5.6-cyber`. Short-context only; no long-context tier listed, same as 5.6-cyber. |
+| `daybreak-blue`         | $4.00   | $0.40        | $5.00       | $20.00  | 90%            | Added 2026-11-08: codenamed model listed **only** on the Codex CLI credits page (100/10/500 credits ÷ 25). Slug guessed from the display name "Daybreak Blue"; cache write derived at the family's 1.25x input, not read off a table. Rates are identical to `gpt-5.6-sol`'s, so this may be a stealth alias: see Known gaps. |
+| `daybreak-red`          | $12.50  | $1.25        | $15.625     | $75.00  | 90%            | Added 2026-11-08: same basis as `daybreak-blue` (312.5/31.25/1875 credits ÷ 25). Rates are identical to `gpt-5.6-cyber`'s. |
+| `gpt-6-astra`           | $10.00  | $1.00        | $12.50      | $50.00  | 90%            | New flagship, added 2026-09-15: confirmed on Copilot's pricing page, OpenAI's own API pricing page, and here (250/25/1250 credits ÷ 25). Long-context surcharge tier above 272K (2x input/cache/cache-write, 1.5x output → $20.00/$2.00/$25.00/$75.00). A fast-mode rate is also listed on OpenAI's page ($20.00/$2.00/$100.00 short-context): not modeled, consistent with the rest of the family. |
+| `gpt-6-sol`             | $2.00   | $0.20        | $2.50       | $10.00  | 90%            | Added 2026-09-28: three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page, and here: 50/5/250 credits ÷ 25). Long-context surcharge tier above 272K → $4.00/$0.40/$5.00/$15.00. |
+| `gpt-6-luna`            | $0.10   | $0.01        | $0.125      | $0.50   | 90%            | Added 2026-09-28: three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page, and here: 2.5/0.25/12.5 credits ÷ 25). Long-context surcharge tier above **272K**: asked about specifically since it does *not* inherit GPT-5.6-Luna's lower 200K threshold → $0.20/$0.02/$0.25/$0.75. |
+| `gpt-6.1-sol`           | $2.00   | $0.10        | $2.50       | $10.00  | 95%            | Added 2026-10-11: three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page, and here: 50/2.5/250 credits ÷ 25). Same as `gpt-6-sol` except the cache-read rate is half. Long-context surcharge tier above 272K → $4.00/$0.20/$5.00/$15.00. |
+| `gpt-6.1-terra`         | $1.00   | $0.05        | $1.25       | $5.00   | 95%            | Added 2026-11-08: three-way confirmed (Copilot's pricing page, OpenAI's own API pricing page, and here: 25/1.25/125 credits ÷ 25). Exactly half of `gpt-6.1-sol` in every category, same shape. Long-context surcharge tier above 272K → $2.00/$0.10/$2.50/$7.50. |
+| `gpt-5.6-sol`           | $4.00   | $0.40        | $5.00       | $20.00  | 90%            | Flagship. Corrected 2026-08-26 (was $5.00/$0.50/$6.25/$30.00): OpenAI's own page labels this promotional, and as of 2026-11-08 its wording has firmed up from "at least through November 21, 2026" to "available until November 30, 2026": the rate is unchanged, but it now has a stated end rather than a floor, so re-check right after that date. Long-context surcharge tier above 272K (2x input/cache/cache-write, 1.5x output → $8.00/$0.80/$10.00/$30.00). Copilot separately layers its own extra 50% promotional discount on top of this figure for Copilot-sourced sessions specifically ($2.00/$0.20/$2.50/$10.00): not modeled in `RATES` (one shared rate per model regardless of source agent); Copilot-sourced sessions will show roughly 2x their actual cost until that discount ends. |
+| `gpt-5.6-cyber`         | $12.50  | $1.25        | $15.625     | $75.00  | 90%            | Added 2026-08-26: new on OpenAI's API pricing page. Short-context only; no long-context tier listed. |
 | `gpt-5.6-terra`         | $2.00   | $0.20        | $2.50       | $12.00  | 90%            | Mid tier. Long-context surcharge tier above 272K |
 | `gpt-5.6-luna`          | $0.20   | $0.02        | $0.25       | $1.20   | 90%            | Small/fast tier. Long-context surcharge tier above 200K (lower threshold than the rest of the 5.6 family) |
 | `gpt-5.5`               | $5.00   | $0.50        | —           | $30.00  | 90%            | Long-context surcharge tier above 272K |
@@ -400,8 +417,18 @@ Model name available on `codex.user_prompt`, `codex.turn_ttft`, and `codex.tool_
   models, delete these keys rather than leaving two names for one rate. Neither page gives a cache-write
   rate or a context window: cache write is derived at the family's 1.25x input (flagged in the code
   comment), and no long-context tier is modeled since none is published.
+- **`daybreak-blue` update 2026-11-09**: the Codex page now says outright that "Daybreak Blue uses GPT-5.6
+  Sol credit rates", and that Daybreak access needs Trusted Access for Cyber approval (Daybreak Red
+  separately provisioned). That settles the *rate* match as deliberate; it still doesn't say whether the
+  model itself is GPT-5.6 Sol, so both keys stay.
+- **`gpt-rosalind-research` promoted out of the list below 2026-11-09**: it now appears on the Codex CLI
+  credits page, so it *is* reachable through a coding agent this file covers, and its rate matches across
+  two sources. Its siblings `gpt-6-rosalind` and `gpt-rosalind-discovery` are still API-only.
+- **Dropped off OpenAI's API pricing page 2026-11-09**: `gpt-4.1-nano` (no longer listed at all) and
+  `codex-mini-latest` (its model page now marks it "Shut down"; still $1.50/$0.375/$6.00 there). Both kept
+  in `RATES` at their last confirmed rates for historical sessions.
 - **Specialized OpenAI models seen 2026-11-08 and deliberately not modeled**: `gpt-6-rosalind`,
-  `gpt-rosalind-research`, `gpt-rosalind-discovery`, `gpt-6-astra-law` (its own promotional rate, "at
+  `gpt-rosalind-discovery`, `gpt-6-astra-law` (its own promotional rate, "at
   least through December 31, 2026"), `chat-latest`, `gpt-5-search-api`, `gpt-5.5-cyber`, the `-pro` rows
   (`gpt-5-pro`, `gpt-5.2-pro`, `gpt-5.4-pro`, `gpt-5.5-pro`), `o3` and `o3-pro`. None is reachable through
   a coding agent this file covers, and each would only ever resolve to `~$?` if one turned up. Add on
@@ -450,10 +477,14 @@ the post-promotion rates.
 
 **Sources:**
 
-- Google's own API pricing (primary): <https://aistudio.google.com/docs/pricing> (verified 2026-11-08;
-  note `ai.google.dev/gemini-api/docs/pricing` now 301s here; use this URL directly)
+- Google's own API pricing (primary): <https://aistudio.google.com/docs/pricing> (verified 2026-11-09:
+  note `ai.google.dev/gemini-api/docs/pricing` now 301s here; use this URL directly. Every Gemini rate in
+  `RATES` that this page lists re-checked and unchanged: `gemini-4-argon` and its 2026-12-01 step-up,
+  `gemini-3.6-flash`/`3.8-flash` and their 2027-01-01 step-up, `gemini-3.1-pro-preview` and its 200K tier,
+  `gemini-3-flash-preview`, `gemini-2.5-pro` and its tier. The page does not use the word "promotional" for
+  the 3.6/3.8 Flash schedule: it just states dated prices: so the `promoNote`s quote the dates, not a label.)
 - Copilot model pricing (secondary, for what Copilot actually resells):
-  <https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing> (verified 2026-11-08)
+  <https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing> (verified 2026-11-09)
 
 **What the first-party source settled on 2026-11-08**: each of these had been a judgement call or a blind
 spot while Copilot's page was the only source:
@@ -492,8 +523,14 @@ spot while Copilot's page was the only source:
   and MAI still rest on Copilot's page alone (Grok is corroborated by OpenCode Zen and by third-party rate
   trackers at $2.00/$0.50/$6.00 with a 200K tier of $4.00/$1.00/$12.00, matching `RATES`). The one
   outstanding disagreement is **Grok 4.5's cache read**: Copilot and the trackers say $0.50, Zen says
-  $0.30. `RATES` keeps $0.50, as Zen prices at its own rates throughout. Finding a fetchable first-party
-  xAI source is the biggest remaining source gap in this file.
+  $0.30. `RATES` keeps $0.50: Zen prices at its own rates throughout. Finding a fetchable first-party
+  xAI source is the biggest remaining source gap in this file. (Still true 2026-11-09; a second
+  reseller disagreement surfaced too: Zen lists **Kimi K3 with a $3.00 cache write**, where Copilot
+  says N/A. `RATES` keeps 0, Copilot's figure, since no first-party Moonshot source is reachable either.)
+- **Zen disagrees with Google on `gemini-3.8-flash` (2026-11-09)**: Zen lists it at $1.50/$0.15/$7.50:
+  Google's *post-promotion* rate from 2027-01-01: while Google's own page and Copilot's both list
+  $0.75/$0.075/$3.75 through Dec 31, 2026. Google is the authority; `RATES` keeps $0.75. Zen likewise lists
+  `gemini-3.6-flash`/`3.7-flash` at $1.50 and `gemini-3.5-flash` at $1.50/$9.00: no change for any of them.
 
 ---
 
@@ -505,7 +542,7 @@ OpenCode uses token-based pricing for third-party models (routed through its pro
 
 **Who it applies to:** Users of OpenCode's built-in Zen model tier during each model's limited evaluation period.
 
-**Source:** <https://opencode.ai/docs/zen/> (verified 2026-11-08: the page now lists each model's **ID slug** beside its display name, so this pass's additions are confirmed rather than guessed. It also no longer uses the word "Zen" for the tier, calling the models free "for a limited time"; the section keeps the Zen name since that is still the docs path and the provider ID in OpenCode's SQLite.)
+**Source:** <https://opencode.ai/docs/zen/> (verified 2026-11-09: the free list is the same as 2026-11-08 plus one new model, **`longcat-2.5-free`** (slug from the page's ID column), which sits where `longcat-2.5-preview-free` used to. Prior pass: 2026-11-08: the page now lists each model's **ID slug** beside its display name, so this pass's additions are confirmed rather than guessed. It also no longer uses the word "Zen" for the tier, calling the models free "for a limited time"; the section keeps the Zen name since that is still the docs path and the provider ID in OpenCode's SQLite.)
 
 **Rates:** $0, free during evaluation. All token fields (`inputPerMTok`, `cacheReadPerMTok`, `cacheWritePerMTok`, `outputPerMTok`) are set to 0 in the rate table.
 
@@ -524,6 +561,8 @@ OpenCode uses token-based pricing for third-party models (routed through its pro
   is the return of a free DeepSeek variant (the older `deepseek-v4-flash-free` has been absent since
   2026-09-15 and is kept); `glm-5.3-flash-free` and `nemotron-3.5-super-vl-free` are new free siblings of
   paid rows on the same page.
+- `longcat-2.5-free`: added 2026-11-09, slug confirmed from the page. Probably the GA form of
+  `longcat-2.5-preview-free` (gone since 2026-11-08, kept: $0 either way).
 
 **Model ID in OpenCode SQLite:** Stored as JSON `{"id":"<model-id>","providerID":"opencode"}` in the `model` column of the `session` table. TraceRoost extracts the `id` field and normalizes it for rate lookup.
 
