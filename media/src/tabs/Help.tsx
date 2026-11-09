@@ -25,7 +25,7 @@ const TERMS: [string, string][] = [
   ['Context',                'The content sent to the model on a given LLM call: system instructions, conversation history, tool definitions, and the current prompt. Must fit within the context window. Every token costs money — agents that read large files or accumulate long conversation histories use more context per call, driving up cost.'],
   ['Context Bloat',          'An efficiency insight triggered when input tokens grow significantly across turns within a trace.'],
   ['Context Window',         'The maximum number of tokens an LLM can process in a single request, counting both input and output tokens combined. For example, Claude Sonnet has a 200K token context window. This is a hard per-call limit set by the model architecture — not the same as context, which is what actually fills that window on a given call.'],
-  ['Conversation',           'One continuous back-and-forth with an agent — a Claude Code or Codex session, a Copilot chat, an OpenCode or Cursor CLI session. Each of its prompts is its own trace; the Traces tab marks a conversation\'s traces with a matching colored bar (see Traces). A resumed session continues the same conversation.'],
+  ['Conversation',           'One continuous back-and-forth with an agent — a Claude Code or Codex session, a Copilot chat, an OpenCode, Cursor CLI or Antigravity CLI conversation. Each of its prompts is its own trace; the Traces tab marks a conversation\'s traces with a matching colored bar (see Traces). A resumed session continues the same conversation.'],
   ['Files Changed',          'The distinct files the agent edited or wrote in a trace, code or not. Shown with lines added and removed in the Traces table\'s Changes column — see Change size in the Traces section.'],
   ['Git Outcome',            'What happened to a trace\'s changed files afterward, according to local git: Merged (reached the trunk branch), Committed (not on trunk yet), or Uncommitted (not committed yet). A trace takes the worst of its files\' outcomes, and shows nothing when git can\'t tell. Shown as the Traces table\'s Out column, the Outcome filter, and the Files sub-tab banner. Not available in Docker. See Git Outcome in the Traces section.'],
   ['Input Tokens',           'The number of tokens sent to the language model in a request, including system instructions, conversation history, tool definitions, and the user prompt. The Traces table\'s Tokens column adds input and output across all turns; because each turn re-sends the conversation so far, it grows with trace length. Peak ctx/turn in the expanded trace shows the actual context size per call.'],
@@ -504,6 +504,14 @@ function AgentOtelSection() {
               <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Token counts, model name, workspace path, per-turn timestamps, and per-tool error detail — none of these are stored anywhere by Cursor CLI, so its traces show no cost rather than a guessed one. Cursor's OpenTelemetry export (enterprise accounts, or third-party hooks) isn't read by TraceRoost yet.</p>
             </dd>
           </div>
+          <div class="glossary-item" style="flex-direction:column;gap:6px">
+            <dt class="glossary-term">Antigravity CLI (best effort)</dt>
+            <dd class="glossary-def" style="display:block">
+              <p style="margin:0 0 6px"><strong style="color:var(--fg)">Format: </strong>Google's terminal agent (<code style={codeStyle}>agy</code>). Per conversation, a step transcript at <code style={codeStyle}>~/.gemini/antigravity-cli/brain/&lt;id&gt;/.system_generated/logs/transcript.jsonl</code> and a SQLite database at <code style={codeStyle}>~/.gemini/antigravity-cli/conversations/&lt;id&gt;.db</code> (its WAL merged at read time), plus <code style={codeStyle}>history.jsonl</code> for prompts and workspaces. Override the root with <code style={codeStyle}>ANTIGRAVITY_CLI_DIR</code>. The Antigravity app and IDE folders are not read. No OTel support. Built from third-party evidence; no real capture has been checked yet.</p>
+              <p style="margin:0 0 6px"><strong style="color:var(--fg)">What's included: </strong>Prompt, workspace, per-step timestamps, tool calls (names, arguments, files read and edited) and, when the conversation's database exists, uncached input, output (thinking included) and cache-read tokens per model call and the model.</p>
+              <p style="margin:0"><strong style="color:var(--fg)">Not available: </strong>Tool results and errors, per-call timing, a separate thinking-token count, cache writes and the agy version. Without the database a trace has no token counts, so its cost shows as unknown rather than $0.</p>
+            </dd>
+          </div>
         </div>
       </div>
     </div>
@@ -809,7 +817,7 @@ function AnalyticsSection() {
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Agent Breakdown</dt>
-            <dd class="glossary-def" style="display:block">One card per agent with traces in view — Copilot, Claude, Codex, OpenCode, and Cursor CLI — showing LLM and tool call counts, input and output tokens, cache hit rate, average duration and TTFT (OTel only), lines added and removed, <a href="#gl-one-shot-rate">One-shot rate</a>, and top tools. Cursor CLI records no token counts, so its token and cache figures show as —. One-shot rate is hidden when fewer than 2 files were edited.</dd>
+            <dd class="glossary-def" style="display:block">One card per agent with traces in view — Copilot, Claude, Codex, OpenCode, Cursor CLI and Antigravity — showing LLM and tool call counts, input and output tokens, cache hit rate, average duration and TTFT (OTel only), lines added and removed, <a href="#gl-one-shot-rate">One-shot rate</a>, and top tools. Cursor CLI records no token counts (Antigravity none without its conversation database), so its token and cache figures show as —. One-shot rate is hidden when fewer than 2 files were edited.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">By Language</dt>
@@ -856,7 +864,7 @@ function PatternsSection() {
         <p style={mutedP}>When there's something to act on, the Advisor opens with one ranked list of the biggest savings — loop signals, hot files, and cache problems combined — ranked by priority, with an estimated dollar (or weekly plan-limit) saving where one can be priced, so you can start at the top.</p>
 
         <h4 style={subHeadStyle}>Instructions File</h4>
-        <p style={mutedP}>TraceRoost scans trace patterns and generates specific, ready-to-copy suggestions for improving your instruction file — <code>CLAUDE.md</code> (Claude Code), <code>.github/copilot-instructions.md</code> (Copilot), <code>AGENTS.md</code> (read by Codex, OpenCode and the Cursor CLI) or <code>.cursor/rules/traceroost.mdc</code> (a Cursor project rule, created with <code>alwaysApply: true</code> frontmatter). Each card lists the agents it applies to. Suggestions are grouped by type:</p>
+        <p style={mutedP}>TraceRoost scans trace patterns and generates specific, ready-to-copy suggestions for improving your instruction file — <code>CLAUDE.md</code> (Claude Code), <code>.github/copilot-instructions.md</code> (Copilot), <code>AGENTS.md</code> (read by Codex, OpenCode, the Cursor CLI and Antigravity — Antigravity's legacy <code>GEMINI.md</code> isn't checked) or <code>.cursor/rules/traceroost.mdc</code> (a Cursor project rule, created with <code>alwaysApply: true</code> frontmatter). Each card lists the agents it applies to. Suggestions are grouped by type:</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Hot file context</dt>
@@ -1000,7 +1008,7 @@ function SettingsSection() {
         <p>Your agents aren't affected. They send to TraceRoost's OTLP port (4318) and use the MCP port (4316), which don't change. Bookmarks to the old address stop working. In Docker the port is the <code style={codeStyle}>-p &lt;port&gt;:3000</code> mapping on <code style={codeStyle}>docker run</code> instead.</p>
 
         <h4 id="help-alerts" style={subHeadStyle}>Alerts</h4>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts on the Alerts panel's <strong>Configure</strong> tab (bell icon). When a live trace crosses a threshold the bell badge increments and the alert appears on the panel's <strong>Active</strong> tab. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Configure thresholds for nine alerts on the Alerts panel's <strong>Configure</strong> tab (bell icon). When a live trace crosses a threshold the bell badge increments and the alert appears on the panel's <strong>Active</strong> tab. The per-trace alerts can be tuned per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI, Antigravity); the daily cost and plan-limit thresholds are single global values. Defaults below are Claude Code / Copilot / Codex — OpenCode, Cursor CLI and Antigravity use Claude Code's (Antigravity's Context Window alert: 850K, 85% of its 1M window).</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:2px">
             <dt class="glossary-term">Daily Estimated Cost Threshold <span style="font-size:var(--fs-xs);font-weight:400;color:var(--muted)">(warning)</span></dt>
@@ -1047,7 +1055,7 @@ function SettingsSection() {
           <li><strong style="color:var(--fg)">Prompts file</strong>: with an automation's <strong>Write prompts file</strong> toggle on, the prompt is appended to <code style={codeStyle}>traceroost-prompts-&#123;agent&#125;.md</code> instead — in the workspace root in the VS Code-family extension, or in TraceRoost's data directory (<code style={codeStyle}>~/.traceroost</code> unless you set <code style={codeStyle}>DATA_DIR</code> / <code style={codeStyle}>--data-dir</code>) for the standalone server. Nothing feeds that file to the agent — it helps only if you, or an instruction in CLAUDE.md/AGENTS.md, tell the agent to check it.</li>
           <li><strong style="color:var(--fg)">MCP</strong>: an agent can poll <code style={codeStyle}>check_automation_triggers</code> itself (see <a href="#help-mcp">MCP</a>). That tool always uses the default thresholds, because the per-agent settings made here live only in the dashboard's browser storage.</li>
         </ul>
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">For notifications and the prompts file, each automation can be turned on per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI) with its own thresholds. All four are off by default. Defaults below are Claude Code / Copilot / Codex — OpenCode and Cursor CLI use Claude Code's.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">For notifications and the prompts file, each automation can be turned on per agent (Claude Code, Copilot, Codex, OpenCode, Cursor CLI, Antigravity) with its own thresholds. All four are off by default. Defaults below are Claude Code / Copilot / Codex — OpenCode, Cursor CLI and Antigravity use Claude Code's (Antigravity's Context Compaction: 700K, 70% of its 1M window).</p>
         <div class="glossary">
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Context Compaction</dt>
@@ -1297,7 +1305,7 @@ function ImportSection() {
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Validation</dt>
-            <dd class="glossary-def" style="display:block">The file must parse as a non-empty JSON array where every item has a string <code style={codeStyle}>sessionId</code> and a recognized <code style={codeStyle}>source</code> (Copilot, Claude Code, Codex, OpenCode, or Cursor CLI) — anything else is rejected before you see a preview, with a specific error message. Other fields are read permissively: a technically-valid file with missing or malformed data elsewhere still imports, just with those fields defaulted rather than erroring.</dd>
+            <dd class="glossary-def" style="display:block">The file must parse as a non-empty JSON array where every item has a string <code style={codeStyle}>sessionId</code> and a recognized <code style={codeStyle}>source</code> (Copilot, Claude Code, Codex, OpenCode, Cursor CLI, or Antigravity) — anything else is rejected before you see a preview, with a specific error message. Other fields are read permissively: a technically-valid file with missing or malformed data elsewhere still imports, just with those fields defaulted rather than erroring.</dd>
           </div>
           <div class="glossary-item" style="flex-direction:column;gap:4px">
             <dt class="glossary-term">Preview</dt>
@@ -1336,7 +1344,7 @@ function BadgesSection() {
           <dt class="glossary-term" style="min-width:0">
             <span style={`${badgeStyle}color:var(--vscode-descriptionForeground, #90a4ae);border-color:#90a4ae`}>Log</span>
           </dt>
-          <dd class="glossary-def">Parsed from local log files and databases — <code>~/.claude/projects</code>, <code>~/.codex/sessions</code>, <code>~/.copilot/session-state</code>, Copilot Chat's <code>chatSessions</code> in each VS Code-family IDE, OpenCode's SQLite database at <code>~/.local/share/opencode/</code>, and Cursor CLI's transcripts under <code>~/.cursor/projects</code>. Tokens, tool calls, file paths, and user prompts are available where the agent records them. Timing and TTFT are not available from log sources. No agent configuration needed.</dd>
+          <dd class="glossary-def">Parsed from local log files and databases — <code>~/.claude/projects</code>, <code>~/.codex/sessions</code>, <code>~/.copilot/session-state</code>, Copilot Chat's <code>chatSessions</code> in each VS Code-family IDE, OpenCode's SQLite database at <code>~/.local/share/opencode/</code>, Cursor CLI's transcripts under <code>~/.cursor/projects</code>, and Antigravity CLI's transcripts and databases under <code>~/.gemini/antigravity-cli</code>. Tokens, tool calls, file paths, and user prompts are available where the agent records them. Timing and TTFT are not available from log sources. No agent configuration needed.</dd>
         </div>
       </div>
 
@@ -1410,7 +1418,7 @@ export function Help() {
           <strong>Disclaimer:</strong> TraceRoost is an independent open-source project and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot); Anthropic, PBC (Claude / Claude Code); or OpenAI, LLC (Codex / Codex CLI). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost interacts with these products only through their telemetry interfaces and the log files and databases they write locally on your machine.
         </p>
         <p style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6">
-          <strong>Third-party changes:</strong> TraceRoost depends on log formats, telemetry, pricing, and plan-limit information controlled by third-party vendors, including Anthropic, OpenAI, GitHub/Microsoft, Cursor, and OpenCode. These vendors may change, deprecate, or remove their products, APIs, log formats, telemetry, pricing, or usage limits at any time, without notice. Such upstream changes are outside the control of TraceRoost and its maintainers, and may cause TraceRoost to show incomplete, inaccurate, or missing data, or to stop working in whole or in part. TraceRoost and its maintainers are not responsible or liable for any impact of those changes, including on costs, charges, rate limits, quotas, or decisions made based on data TraceRoost reports. TraceRoost is provided &ldquo;as is&rdquo;, without warranty of any kind, as stated in its license.
+          <strong>Third-party changes:</strong> TraceRoost depends on log formats, telemetry, pricing, and plan-limit information controlled by third-party vendors, including Anthropic, OpenAI, GitHub/Microsoft, Cursor, Google, and OpenCode. These vendors may change, deprecate, or remove their products, APIs, log formats, telemetry, pricing, or usage limits at any time, without notice. Such upstream changes are outside the control of TraceRoost and its maintainers, and may cause TraceRoost to show incomplete, inaccurate, or missing data, or to stop working in whole or in part. TraceRoost and its maintainers are not responsible or liable for any impact of those changes, including on costs, charges, rate limits, quotas, or decisions made based on data TraceRoost reports. TraceRoost is provided &ldquo;as is&rdquo;, without warranty of any kind, as stated in its license.
         </p>
       </div>
     </div>

@@ -5,7 +5,9 @@
  * come out — never a value from a record (see the privacy invariants in health.ts).
  */
 
+import * as crypto from 'crypto'
 import type { AdapterKey, Classification, KnownOtlp, KnownRecords, OtlpRecordView } from './types'
+import { ANTIGRAVITY_RECORDS, ANTIGRAVITY_SCHEMA, ANTIGRAVITY_SCHEMA_VERSIONS } from './antigravity/known'
 import { CLAUDE_OTLP, CLAUDE_RECORDS } from './claude/known'
 import { CODEX_OTLP, CODEX_RECORDS } from './codex/known'
 import { COPILOT_RECORDS } from './copilot/known'
@@ -24,6 +26,7 @@ export const RECORDS_BY_LOG_KEY: Readonly<Record<string, KnownRecords>> = {
   copilot_vscode_json: COPILOT_VSCODE_SNAPSHOT,
   opencode:            OPENCODE_RECORDS,
   cursor:              CURSOR_RECORDS,
+  antigravity:         ANTIGRAVITY_RECORDS,
 }
 
 export const OTLP_BY_ADAPTER: Readonly<Partial<Record<AdapterKey, KnownOtlp>>> = {
@@ -147,6 +150,53 @@ export function observeOpenCodeDb(db: SqlExec): FileObservation {
     } catch { /* leave unknown */ }
   }
   return obs
+}
+
+/** The Antigravity conversation database's schema fingerprint: sha256 over every
+ *  `sqlite_master.sql` row (ordered by type, name), each followed by a newline, then
+ *  `PRAGMA user_version` and a newline — agentsview's antigravity_version.go recipe, so the known
+ *  fingerprints it published apply. Null when the schema can't be read. */
+export function antigravitySchemaFingerprint(db: SqlExec): string | null {
+  try {
+    const rows = db.exec(`SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name`)[0]?.values ?? []
+    const userVersion = db.exec(`PRAGMA user_version`)[0]?.values?.[0]?.[0]
+    const h = crypto.createHash('sha256')
+    for (const [sql] of rows) h.update(`${String(sql)}\n`)
+    h.update(`${Number(userVersion ?? 0)}\n`)
+    return h.digest('hex')
+  } catch {
+    return null
+  }
+}
+
+/** The agy version a conversation database's schema fingerprint stands for: a known fingerprint's
+ *  version range, else `agy-schema:<first 12 hex>` (a schema no evidence covers yet — adapter
+ *  health shows it as an unverified version), else 'unknown'. */
+export function antigravitySchemaVersion(db: SqlExec): string {
+  const fp = antigravitySchemaFingerprint(db)
+  if (!fp) return 'unknown'
+  return ANTIGRAVITY_SCHEMA_VERSIONS[fp] ?? `agy-schema:${fp.slice(0, 12)}`
+}
+
+/** Classifies one Antigravity conversation: its transcript lines (when it has a transcript), then,
+ *  when it has a database, a missing table or column the reader needs (damage, like OpenCode's)
+ *  and the schema fingerprint as the version. Never reads a row's content. */
+export function observeAntigravity(records: readonly unknown[] | null, db: SqlExec | null): FileObservation {
+  const obs: FileObservation = records ? observeRecords('antigravity', records) ?? emptyObs('antigravity') : emptyObs('antigravity')
+  if (db) {
+    for (const [table, needed] of Object.entries(ANTIGRAVITY_SCHEMA)) {
+      const have = new Set<string>()
+      try { for (const row of db.exec(`PRAGMA table_info(${table})`)[0]?.values ?? []) have.add(String(row[1])) } catch { /* treated as absent */ }
+      if (have.size === 0) { addUnknown(obs, `table ${table} missing`); continue }
+      for (const col of needed) if (!have.has(col)) addUnknown(obs, `${table}.${col} missing`)
+    }
+    obs.version = antigravitySchemaVersion(db)
+  }
+  return obs
+}
+
+function emptyObs(adapter: AdapterKey): FileObservation {
+  return { adapter, version: 'unknown', known: 0, ignored: 0, unknown: 0, unknownNames: {}, unknownFingerprints: {} }
 }
 
 function addUnknown(obs: FileObservation, name: string): void {

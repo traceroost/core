@@ -38,6 +38,9 @@ const DEFAULT_AGENT_PROFILES: AgentThresholdProfiles = {
   // Placeholder, not yet calibrated against real Cursor CLI session data (see runbooks/
   // SIGNAL_CALIBRATION.md) — copied from claude_code/opencode's defaults as a starting point.
   cursor:      { contextWindowTokens: 200000, turnNudge: 80,  identicalRepeatNudge: 3, consecutiveErrorNudge: 3 },
+  // Placeholder, not calibrated (no real agy session data yet). The window is the 1M tokens every
+  // Gemini model agy serves has in src/pricing.ts; the turn/repeat/error nudges copy claude_code's.
+  antigravity: { contextWindowTokens: 1000000, turnNudge: 80, identicalRepeatNudge: 3, consecutiveErrorNudge: 3 },
 }
 
 function resolveAgentProfile(source: AgentSource | null | undefined): AgentThresholdProfile {
@@ -61,7 +64,7 @@ interface AutomationConfig {
 
 const DEFAULT_AUTOMATION_CONFIGS: AutomationConfig[] = [
   { id: 'context_compaction', label: 'Context Compaction', threshold: 140000,
-    agentThresholds: { claude_code: 140000, copilot: 89600, codex: 280000, opencode: 140000, cursor: 140000 } },
+    agentThresholds: { claude_code: 140000, copilot: 89600, codex: 280000, opencode: 140000, cursor: 140000, antigravity: 700000 } },
   { id: 'loop_break',         label: 'Loop Breaker',        threshold: 3 },
   { id: 'error_cascade',      label: 'Error Cascade Stop',  threshold: 3 },
   { id: 'high_turns',         label: 'Turn Limit Wrap-up',  threshold: 120 },

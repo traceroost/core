@@ -55,6 +55,7 @@ import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { fileURLToPath } from 'url'
 import type { SessionSummaryCard, TimelineEntry, EditDetail } from './summarizers/summarizerTypes'
 import { VSCODE_FAMILY_IDE_NAMES } from './vscodeFamilyIdes'
 import { rankModelsByWeight, isTaskNotificationOnly, summarizeTaskNotification } from './summarizers/helpers'
@@ -64,7 +65,9 @@ import { deriveSessionLanguage } from './language'
 import { computeEditStats } from './editStats'
 import { segmentClaudeTurns, type ClaudeTurnSpan } from './claudeTurns'
 import { traceKey, derivedTraceKey, SOURCE_RANK_FULL_TRANSCRIPT, SOURCE_RANK_PARTIAL } from './traceIdentity'
-import { observeOpenCodeDb, observeRecords, type FileObservation } from './adapters/classify'
+import { observeAntigravity, observeOpenCodeDb, observeRecords, type FileObservation } from './adapters/classify'
+import { decodeExecutor, decodeGeneration, executorModelFor, resolveModel, type AntigravityExecutor, type AntigravityUsage } from './adapters/antigravity/proto'
+import { ANTIGRAVITY_STEP_USER_INPUT } from './adapters/antigravity/known'
 
 // ── Cross-platform home resolution ────────────────────────────────────────────
 
@@ -177,6 +180,107 @@ function collectCursorTranscriptFiles(): string[] {
     }
   }
   return files
+}
+
+/** Antigravity CLI (`agy`) roots: `~/.gemini/antigravity-cli/` on every OS (agy resolves it from
+ *  the home directory, `%USERPROFILE%` on Windows). Override: ANTIGRAVITY_CLI_DIR (comma-separated
+ *  roots — the name agentsview uses; agy itself has no relocation variable on record). Only the
+ *  CLI's tree: the Antigravity app/IDE trees (`~/.gemini/antigravity`, `antigravity-ide`) and the
+ *  `antigravity-backup` copy are never read. */
+function antigravityCliRoots(): string[] {
+  const isDir = (d: string) => { try { return fs.statSync(d).isDirectory() } catch { return false } }
+  const envVal = process.env['ANTIGRAVITY_CLI_DIR']
+  if (envVal) return envVal.split(',').map(p => p.trim()).filter(Boolean).filter(isDir)
+  return [path.join(homeDir(), '.gemini', 'antigravity-cli')].filter(isDir)
+}
+
+/** One Antigravity CLI conversation: its brain transcript and/or its SQLite database. */
+export interface AntigravityConversation {
+  root: string
+  id: string
+  /** `brain/<id>/.system_generated/logs/transcript.jsonl`, null when absent. */
+  transcript: string | null
+  /** `conversations/<id>.db`, null when absent (a `.pb`-only or not-yet-flushed conversation). */
+  db: string | null
+}
+
+const ANTIGRAVITY_ID_RE = /^[A-Za-z0-9._-]{1,128}$/
+
+function antigravityTranscriptPath(root: string, id: string): string {
+  return path.join(root, 'brain', id, '.system_generated', 'logs', 'transcript.jsonl')
+}
+
+/** Every conversation under every antigravityCliRoots() root: the union of brain transcripts and
+ *  `conversations/*.db` by id. Encrypted `*.pb` streams, `implicit/` and third-party
+ *  `*.trajectory.json` decodes are ignored. */
+function collectAntigravityConversations(): AntigravityConversation[] {
+  const out: AntigravityConversation[] = []
+  const isFile = (f: string) => { try { return fs.statSync(f).isFile() } catch { return false } }
+  for (const root of antigravityCliRoots()) {
+    const byId = new Map<string, AntigravityConversation>()
+    let brainDirs: string[] = []
+    try { brainDirs = fs.readdirSync(path.join(root, 'brain')) } catch { /* no brain dir */ }
+    for (const id of brainDirs) {
+      if (!ANTIGRAVITY_ID_RE.test(id)) continue
+      const t = antigravityTranscriptPath(root, id)
+      if (isFile(t)) byId.set(id, { root, id, transcript: t, db: null })
+    }
+    let convFiles: string[] = []
+    try { convFiles = fs.readdirSync(path.join(root, 'conversations')) } catch { /* no conversations dir */ }
+    for (const name of convFiles) {
+      if (!name.endsWith('.db')) continue
+      const id = name.slice(0, -3)
+      if (!ANTIGRAVITY_ID_RE.test(id)) continue
+      const db = path.join(root, 'conversations', name)
+      if (!isFile(db)) continue
+      const c = byId.get(id)
+      if (c) c.db = db
+      else byId.set(id, { root, id, transcript: null, db })
+    }
+    out.push(...byId.values())
+  }
+  return out
+}
+
+/** The conversation a tracked Antigravity path names — its transcript, or its database when it
+ *  has no transcript (the unit collectFileMeta lists). */
+function antigravityConversationOf(filePath: string): AntigravityConversation | null {
+  if (filePath.endsWith('.db')) {
+    const id = path.basename(filePath, '.db')
+    const root = path.dirname(path.dirname(filePath))
+    if (!ANTIGRAVITY_ID_RE.test(id)) return null
+    const t = antigravityTranscriptPath(root, id)
+    let transcript: string | null = null
+    try { if (fs.statSync(t).isFile()) transcript = t } catch { /* none */ }
+    return { root, id, transcript, db: filePath }
+  }
+  if (path.basename(filePath) !== 'transcript.jsonl') return null
+  const convDir = path.dirname(path.dirname(path.dirname(filePath)))  // brain/<id>
+  const id = path.basename(convDir)
+  const root = path.dirname(path.dirname(convDir))
+  if (!ANTIGRAVITY_ID_RE.test(id)) return null
+  const dbPath = path.join(root, 'conversations', `${id}.db`)
+  let db: string | null = null
+  try { if (fs.statSync(dbPath).isFile()) db = dbPath } catch { /* none */ }
+  return { root, id, transcript: filePath, db }
+}
+
+/** What change detection sees of one conversation: the unit file (transcript, else database), its
+ *  size, the newest mtime over the transcript, the database and a WAL that holds frames (`-shm` is
+ *  transient and ignored), and the bytes a read would load. history.jsonl is shared by every
+ *  conversation, so it is re-read when a conversation changes, not tracked per conversation. */
+function antigravityState(c: AntigravityConversation): { unit: string; size: number; mtimeMs: number; totalBytes: number } | null {
+  const stat = (f: string | null) => { if (!f) return null; try { return fs.statSync(f) } catch { return null } }
+  const t = stat(c.transcript), d = stat(c.db), w = c.db ? stat(c.db + '-wal') : null
+  const unitStat = t ?? d
+  if (!unitStat) return null
+  const walLive = w && w.size > 32 ? w : null
+  return {
+    unit: t ? c.transcript! : c.db!,
+    size: unitStat.size,
+    mtimeMs: Math.max(t?.mtimeMs ?? 0, d?.mtimeMs ?? 0, walLive?.mtimeMs ?? 0),
+    totalBytes: (t?.size ?? 0) + (d?.size ?? 0) + (walLive?.size ?? 0),
+  }
 }
 
 /** Claude Code transcripts named by a session id: <projects>/<project>/<sessionId>.jsonl in every
@@ -529,6 +633,13 @@ export class LogReader {
       try { entries.push({ filePath, mtimeMs: fs.statSync(filePath).mtimeMs, agentKey: 'cursor' }) } catch { /* skip */ }
     }
 
+    // Antigravity CLI — one entry per conversation: its transcript, else its database, at the
+    // newest mtime over both (and the WAL), the state parseFile records.
+    for (const c of collectAntigravityConversations()) {
+      const st = antigravityState(c)
+      if (st) entries.push({ filePath: st.unit, mtimeMs: st.mtimeMs, agentKey: 'antigravity' })
+    }
+
     const min = opts.minMtimeMs
     if (min !== undefined && min > 0) return entries.filter(e => e.mtimeMs >= min)
 
@@ -560,6 +671,10 @@ export class LogReader {
       case 'copilot_vscode_json': return this._processFileMulti(filePath, () => this._parseCopilotVSCodeJsonFile(filePath, sessionId))
       case 'opencode':            return []  // OpenCode DB returns multiple sessions; use _scanOpenCode
       case 'cursor':              return this._processFileMulti(filePath, () => this._parseCursorFile(filePath))
+      case 'antigravity': {
+        const c = antigravityConversationOf(filePath)
+        return c ? this._processAntigravity(c) : []
+      }
       default:                    return []
     }
   }
@@ -573,6 +688,7 @@ export class LogReader {
       ...vscodeFamilyWorkspaceStorageRoots(),
       ...openCodeDataDirs(),
       ...cursorAgentProjectsDirs(),
+      ...antigravityCliRoots(),
     ]
   }
 
@@ -588,6 +704,7 @@ export class LogReader {
       ...this._scanCopilotVSCode(),
       ...this._scanOpenCode(),
       ...this._scanCursor(),
+      ...this._scanAntigravity(),
     ]
   }
 
@@ -2081,6 +2198,337 @@ export class LogReader {
     })
   }
 
+  // ── Antigravity CLI (agy) ─────────────────────────────────────────────────────
+  // Best-effort, from third-party evidence (see src/adapters/antigravity/known.ts, README →
+  // Antigravity). One conversation = brain/<id>/.system_generated/logs/transcript.jsonl (steps:
+  // prompts, assistant text, tool calls) + conversations/<id>.db (gen_metadata: tokens, model).
+
+  private _scanAntigravity(): LogSessionResult[] {
+    const results: LogSessionResult[] = []
+    for (const c of collectAntigravityConversations()) results.push(...this._processAntigravity(c))
+    return results
+  }
+
+  /** Reads one conversation when its transcript, database or WAL changed (antigravityState), one
+   *  result per turn that changed. A read that throws (a WAL caught mid-write) records no state,
+   *  so the next scan tries again. */
+  private _processAntigravity(c: AntigravityConversation): LogSessionResult[] {
+    const st = antigravityState(c)
+    if (!st) return []
+    const prev = this.fileState.get(st.unit)
+    if (prev && prev.mtimeMs === st.mtimeMs && prev.bytesRead === st.size) return []
+    if (this._tooLarge(st.unit, st.totalBytes, st.mtimeMs)) {
+      // Record the unit's own size so the state matches next pass (and a checkpoint that shrinks
+      // the WAL reads as a change, like OpenCode's).
+      this.fileState.set(st.unit, { bytesRead: st.size, mtimeMs: st.mtimeMs })
+      return []
+    }
+    let results: LogSessionResult[]
+    try {
+      results = this._parseAntigravityConversation(c, st.mtimeMs, st.unit)
+    } catch (err) {
+      this.log(`[LogReader] Antigravity read error ${st.unit}: ${err}`)
+      this.pendingObs = null
+      return []
+    }
+    this.fileState.set(st.unit, { bytesRead: st.size, mtimeMs: st.mtimeMs })
+    this._flushObservation({ filePath: st.unit, results })
+    return this._onlyChanged(st.unit, results)
+  }
+
+  /** history.jsonl and cache/last_conversations.json of one root, re-read only when either changed. */
+  private readonly agyHistory = new Map<string, { stamp: string; history: AntigravityHistoryRow[]; lastConversations: Map<string, string> }>()
+
+  private _antigravityHistory(root: string): { history: AntigravityHistoryRow[]; lastConversations: Map<string, string> } {
+    const histPath = path.join(root, 'history.jsonl')
+    const lastPath = path.join(root, 'cache', 'last_conversations.json')
+    const statOf = (f: string) => { try { return fs.statSync(f) } catch { return null } }
+    const h = statOf(histPath), l = statOf(lastPath)
+    const stamp = `${h?.mtimeMs ?? 0}:${h?.size ?? 0}:${l?.mtimeMs ?? 0}:${l?.size ?? 0}`
+    const cached = this.agyHistory.get(root)
+    if (cached && cached.stamp === stamp) return cached
+    const history: AntigravityHistoryRow[] = []
+    if (h && h.size <= this.maxFileBytes) {
+      try {
+        for (const line of fs.readFileSync(histPath, 'utf-8').split('\n')) {
+          const row = parseLogLine(line) as Record<string, unknown> | undefined
+          if (!row || typeof row !== 'object') continue
+          const display = typeof row['display'] === 'string' ? row['display'] : ''
+          const timestamp = typeof row['timestamp'] === 'number' ? row['timestamp'] : NaN
+          if (!display || !Number.isFinite(timestamp)) continue
+          history.push({
+            display, timestamp,
+            workspace: antigravityWorkspace(row['workspace']),
+            conversationId: typeof row['conversationId'] === 'string' ? row['conversationId'] : '',
+          })
+        }
+      } catch (err) { this.log(`[LogReader] Antigravity history read error ${histPath}: ${err}`) }
+    }
+    history.sort((a, b) => a.timestamp - b.timestamp)
+    // workspace → most recent conversation; newer than history, so it wins for its conversation.
+    const lastConversations = new Map<string, string>()
+    if (l && l.size <= 16 * 1024 * 1024) {
+      try {
+        const obj = JSON.parse(fs.readFileSync(lastPath, 'utf-8')) as unknown
+        if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+          for (const [ws, id] of Object.entries(obj as Record<string, unknown>)) {
+            const w = antigravityWorkspace(ws)
+            if (w && typeof id === 'string') lastConversations.set(id, w)
+          }
+        }
+      } catch (err) { this.log(`[LogReader] Antigravity last_conversations read error ${lastPath}: ${err}`) }
+    }
+    const entry = { stamp, history, lastConversations }
+    this.agyHistory.set(root, entry)
+    return entry
+  }
+
+  /** Reads one Antigravity conversation into one result per user turn:
+   *
+   *  - A turn opens at each transcript `USER_INPUT` step, and at each database step of type 14
+   *    (USER_INPUT) the transcript hasn't caught up with; steps before the first opener join the
+   *    first turn. Key: derivedTraceKey('antigravity', <conversation id>, `step:<opener index>`)
+   *    — step indices are stable and append-only.
+   *  - Tokens come only from the database's gen_metadata: each generation with non-zero usage
+   *    belongs to the turn holding its highest step index, and becomes one LLM timeline entry.
+   *    Output already includes thinking; cache write is never recorded (0).
+   *  - Without a database (or with no usage-bearing generation in the turn yet), the turn has no
+   *    token counts, its model is the `agy` placeholder that matches no rate — so cost reads as
+   *    unknown, never $0 — and it is SOURCE_RANK_PARTIAL, like Cursor's.
+   *  - Tool calls come from planner steps' `tool_calls` (name + args); no result, error or
+   *    duration exists, so every tool entry is isError: false, durationMs: 0. */
+  private _parseAntigravityConversation(c: AntigravityConversation, mtimeMs: number, unit: string): LogSessionResult[] {
+    // ── Transcript ─────────────────────────────────────────────────────────
+    let records: unknown[] | null = null
+    const lines: AntigravityStep[] = []
+    if (c.transcript) {
+      const raw = fs.readFileSync(c.transcript, 'utf-8').split('\n').filter(l => l.trim())
+      records = raw.map(parseLogLine)
+      for (const r of records) {
+        if (!r || typeof r !== 'object' || Array.isArray(r)) continue
+        const o = r as Record<string, unknown>
+        if (typeof o['step_index'] !== 'number' || !Number.isFinite(o['step_index'])) continue
+        lines.push({
+          idx: o['step_index'] as number,
+          type: typeof o['type'] === 'string' ? o['type'] : '',
+          ms: typeof o['created_at'] === 'string' ? (Date.parse(o['created_at']) || 0) : 0,
+          content: typeof o['content'] === 'string' ? o['content'] : '',
+          thinking: typeof o['thinking'] === 'string' ? o['thinking'] : '',
+          toolCalls: Array.isArray(o['tool_calls']) ? (o['tool_calls'] as unknown[]) : [],
+        })
+      }
+      // Lines are not necessarily in step order.
+      lines.sort((a, b) => a.idx - b.idx)
+    }
+
+    // ── Database ───────────────────────────────────────────────────────────
+    const dbStepTypes = new Map<number, number>()
+    const generations: Array<{ row: number; stepIdx: number; plannerIdx: number; usage: AntigravityUsage; model: string | null }> = []
+    let observed = false
+    if (c.db && this.sqlFactory) {
+      let buf: Uint8Array = fs.readFileSync(c.db)
+      try {
+        const wal = fs.readFileSync(c.db + '-wal')
+        if (wal.length > 32) buf = _mergeWal(buf, wal)
+      } catch { /* no WAL — fully checkpointed */ }
+      const db = new this.sqlFactory.Database(buf)
+      try {
+        if (this.observe) {
+          this._flushObservation()
+          try { this.pendingObs = { filePath: unit, logKey: 'antigravity', obs: observeAntigravity(records, db), mtimeMs } } catch (err) { this.log(`[LogReader] adapter health error ${unit}: ${err}`) }
+          observed = true
+        }
+        const tables = new Set((db.exec(`SELECT name FROM sqlite_master WHERE type = 'table'`)[0]?.values ?? []).map(r => String(r[0])))
+        if (tables.has('steps')) {
+          for (const [idx, type] of db.exec(`SELECT idx, step_type FROM steps ORDER BY idx`)[0]?.values ?? []) {
+            if (typeof idx === 'number') dbStepTypes.set(idx, Number(type))
+          }
+        }
+        const executors: AntigravityExecutor[] = []
+        if (tables.has('executor_metadata')) {
+          for (const [data] of db.exec(`SELECT data FROM executor_metadata ORDER BY idx`)[0]?.values ?? []) {
+            const e = data instanceof Uint8Array ? decodeExecutor(data) : null
+            if (e) executors.push(e)
+          }
+        }
+        if (tables.has('gen_metadata')) {
+          for (const [row, data] of db.exec(`SELECT idx, data FROM gen_metadata ORDER BY idx`)[0]?.values ?? []) {
+            if (typeof row !== 'number' || !(data instanceof Uint8Array)) continue
+            const g = decodeGeneration(data)
+            // A generation with no (or all-zero) usage is a failed or retried attempt.
+            if (!g?.usage || g.usage.input + g.usage.output + g.usage.cacheRead === 0) continue
+            const stepIdx = g.stepIndices.length > 0 ? Math.max(...g.stepIndices) : row
+            generations.push({
+              row, stepIdx, plannerIdx: g.stepIndices[0] ?? row, usage: g.usage,
+              model: resolveModel(g.model, g.displayName, executorModelFor(executors, stepIdx)),
+            })
+          }
+        }
+      } finally {
+        db.close()
+      }
+    }
+    if (this.observe && !observed) {
+      this._flushObservation()
+      try { this.pendingObs = { filePath: unit, logKey: 'antigravity', obs: observeAntigravity(records, null), mtimeMs } } catch (err) { this.log(`[LogReader] adapter health error ${unit}: ${err}`) }
+    }
+
+    // ── Turns ──────────────────────────────────────────────────────────────
+    const lineByIdx = new Map<number, AntigravityStep>()
+    for (const l of lines) if (!lineByIdx.has(l.idx)) lineByIdx.set(l.idx, l)
+    const openerSet = new Set<number>()
+    for (const l of lines) if (l.type === 'USER_INPUT') openerSet.add(l.idx)
+    for (const [idx, type] of dbStepTypes) if (type === ANTIGRAVITY_STEP_USER_INPUT && !lineByIdx.has(idx)) openerSet.add(idx)
+    let openers = [...openerSet].sort((a, b) => a - b)
+    if (openers.length === 0) {
+      // No prompt recorded at all: one turn from the first step that shows any work.
+      const work = [...lines.filter(l => l.type === 'PLANNER_RESPONSE').map(l => l.idx), ...generations.map(g => g.stepIdx)]
+      if (work.length === 0) return []
+      openers = [Math.min(...lines.map(l => l.idx), ...work)]
+    }
+    const turnOf = (idx: number): number => {
+      let t = 0
+      for (let k = 0; k < openers.length; k++) if (openers[k] <= idx) t = k
+      return t
+    }
+
+    // Prompts and workspace from history.jsonl / last_conversations.json.
+    const { history, lastConversations } = this._antigravityHistory(c.root)
+    const own = history.filter(r => r.conversationId === c.id)
+    const usedRows = new Set<AntigravityHistoryRow>()
+    const prompts = openers.map(idx => {
+      const line = lineByIdx.get(idx)
+      const text = line?.type === 'USER_INPUT' ? stripAntigravityEnvelope(line.content) : ''
+      return { idx, text, ms: line?.ms ?? 0, row: null as AntigravityHistoryRow | null, fromTranscript: !!line }
+    })
+    const take = (p: typeof prompts[number], match: (r: AntigravityHistoryRow) => boolean) => {
+      if (p.row) return
+      const r = own.find(x => !usedRows.has(x) && match(x))
+      if (r) { p.row = r; usedRows.add(r) }
+    }
+    // By time — exact ms, then the same second — then by text; a database-only opener (no
+    // transcript line yet) takes the next unclaimed prompt after the previous turn's.
+    for (const p of prompts) if (p.ms) take(p, r => r.timestamp === p.ms)
+    for (const p of prompts) if (p.ms) take(p, r => Math.floor(r.timestamp / 1000) === Math.floor(p.ms / 1000))
+    for (const p of prompts) if (p.text) take(p, r => r.display.trim() === p.text.trim())
+    let floorMs = 0
+    for (const p of prompts) {
+      if (!p.fromTranscript) take(p, r => r.timestamp >= floorMs)
+      floorMs = Math.max(floorMs, p.row?.timestamp ?? p.ms)
+    }
+    let workspace = lastConversations.get(c.id) ?? ''
+    if (!workspace) workspace = [...own].reverse().find(r => r.workspace)?.workspace ?? ''
+    if (!workspace) {
+      // Older history rows carry no conversationId: an unambiguous same-text prompt within ±60 s.
+      for (const p of prompts) {
+        if (!p.text || !p.ms) continue
+        const hits = history.filter(r => !r.conversationId && r.workspace && r.display.trim() === p.text.trim() && Math.abs(r.timestamp - p.ms) <= 60_000)
+        if (hits.length === 1) { workspace = hits[0].workspace; break }
+      }
+    }
+
+    // ── Cards ──────────────────────────────────────────────────────────────
+    const spanPrefix = c.id.slice(0, 8)
+    const toIso = (ms: number) => (ms > 0 ? new Date(ms).toISOString() : '')
+    const results: LogSessionResult[] = []
+    for (let t = 0; t < openers.length; t++) {
+      const turnLines = lines.filter(l => turnOf(l.idx) === t)
+      const turnGens = generations.filter(g => turnOf(g.stepIdx) === t)
+      const p = prompts[t]
+      const userRequest = p.row?.display ?? p.text
+      const times = turnLines.map(l => l.ms).filter(ms => ms > 0)
+      const startMs = p.ms || p.row?.timestamp || (times.length ? Math.min(...times) : 0) || mtimeMs
+      const endMs = Math.max(startMs, ...times)
+
+      const toolCounts: Record<string, number> = {}
+      const filesRead = new Set<string>(), filesChanged = new Set<string>(), filesWritten = new Set<string>(), filesSearched = new Set<string>()
+      let totalToolCalls = 0
+      const events: Array<{ ms: number; entry: TimelineEntry }> = []
+      if (userRequest || p.fromTranscript) {
+        events.push({ ms: startMs, entry: { type: 'user_input', spanId: `agy-u-${spanPrefix}-${p.idx}`, label: 'User', durationMs: 0, isError: false, timestamp: toIso(startMs), responseText: userRequest || undefined } })
+      }
+      const planners = turnLines.filter(l => l.type === 'PLANNER_RESPONSE')
+      for (const l of planners) {
+        const at = l.ms || startMs
+        l.toolCalls.forEach((call, k) => {
+          if (!call || typeof call !== 'object') return
+          const name = typeof (call as Record<string, unknown>)['name'] === 'string' ? (call as Record<string, string>)['name'] : ''
+          if (!name) return
+          const rawArgs = (call as Record<string, unknown>)['args']
+          const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs as Record<string, unknown> : {}
+          totalToolCalls++
+          toolCounts[name] = (toolCounts[name] ?? 0) + 1
+          const f = antigravityToolFiles(name, args)
+          if (f.read) filesRead.add(f.read)
+          if (f.changed) filesChanged.add(f.changed)
+          if (f.written) filesWritten.add(f.written)
+          if (f.searched) filesSearched.add(f.searched)
+          const target = f.read ?? f.changed ?? f.searched
+          events.push({ ms: at, entry: {
+            type: 'tool', spanId: `agy-tool-${spanPrefix}-${l.idx}-${k}`,
+            label: target ? `${name}: ${path.basename(target)}` : name,
+            action: name,
+            toolInput: Object.keys(args).length > 0 ? JSON.stringify(args) : undefined,
+            durationMs: 0, isError: false, timestamp: toIso(at),
+          } })
+        })
+      }
+
+      let totalInput = 0, totalOutput = 0, totalCacheRead = 0, peak = 0
+      const modelTokens = new Map<string, number>()
+      if (turnGens.length > 0) {
+        turnGens.forEach((g, k) => {
+          const planner = lineByIdx.get(g.plannerIdx) ?? lineByIdx.get(g.stepIdx)
+          const at = planner?.ms || startMs
+          totalInput += g.usage.input
+          totalOutput += g.usage.output
+          totalCacheRead += g.usage.cacheRead
+          peak = Math.max(peak, g.usage.input + g.usage.cacheRead)
+          if (g.model) modelTokens.set(g.model, (modelTokens.get(g.model) ?? 0) + g.usage.input + g.usage.cacheRead + g.usage.output)
+          events.push({ ms: at, entry: {
+            type: 'llm', spanId: `agy-gen-${spanPrefix}-${g.row}`, label: `Turn ${k + 1}`,
+            model: g.model ?? undefined,
+            inputTokens: g.usage.input + g.usage.cacheRead, outputTokens: g.usage.output,
+            cacheReadTokens: g.usage.cacheRead, cacheCreateTokens: 0,
+            durationMs: 0, isError: false, timestamp: toIso(at),
+            responseText: planner?.content || undefined, thinking: planner?.thinking || undefined,
+          } })
+        })
+      } else {
+        planners.forEach((l, k) => {
+          const at = l.ms || startMs
+          if (!l.content && !l.thinking && l.toolCalls.length > 0) return
+          events.push({ ms: at, entry: {
+            type: 'llm', spanId: `agy-step-${spanPrefix}-${l.idx}`, label: `Turn ${k + 1}`,
+            durationMs: 0, isError: false, timestamp: toIso(at),
+            responseText: l.content || undefined, thinking: l.thinking || undefined,
+          } })
+        })
+      }
+      const models = rankModelsByWeight(modelTokens)
+      const hasUsage = turnGens.length > 0
+      const timeline = events.sort((a, b) => a.ms - b.ms).map(e => e.entry)
+      const card = _buildCard(
+        derivedTraceKey('antigravity', c.id, `step:${p.idx}`), 'antigravity',
+        hasUsage ? (models[0] ?? ANTIGRAVITY_PLACEHOLDER_MODEL) : ANTIGRAVITY_PLACEHOLDER_MODEL,
+        toIso(startMs), toIso(endMs),
+        {
+          totalInput, totalOutput, totalCacheRead, totalCacheCreate: 0, peakContextPerTurn: peak,
+          turns: hasUsage ? turnGens.length : planners.length,
+          totalToolCalls, toolCounts, filesRead, filesChanged, filesWritten, filesSearched,
+          userRequest, timeline, initiator: 'user',
+        },
+        workspace,
+        hasUsage && models.length > 0 ? models : undefined,
+      )
+      card.conversationId = c.id
+      card.derived = true
+      card.sourceRank = hasUsage ? SOURCE_RANK_FULL_TRANSCRIPT : SOURCE_RANK_PARTIAL
+      results.push({ card, workspace })
+    }
+    return results
+  }
+
   /** Returns all of the file's non-empty lines if it changed since the last read, else null. */
   private _readNewLines(filePath: string): string[] | null {
     try {
@@ -2448,7 +2896,7 @@ function _vscodeChatWorkspace(chatFilePath: string): string {
 
 function _buildCard(
   sessionId: string,
-  source: 'claude_code' | 'codex' | 'copilot' | 'opencode' | 'cursor',
+  source: 'claude_code' | 'codex' | 'copilot' | 'opencode' | 'cursor' | 'antigravity',
   model: string,
   firstTimestamp: string,
   lastTimestamp: string,
@@ -2498,6 +2946,89 @@ function _buildCard(
     peakContextPerTurn: acc.turns > 1 ? acc.peakContextPerTurn : undefined,
     ...deriveSessionLanguage({ filesRead: [...acc.filesRead], filesChanged: [...acc.filesChanged], filesWritten: [...acc.filesWritten] }),
     ...computeEditStats({ filesChanged: [...acc.filesChanged], timeline: acc.timeline }),
+  }
+}
+
+// ── Antigravity helpers ───────────────────────────────────────────────────────
+
+/** The model a turn without token data reports: matches no rate, so its cost reads as unknown
+ *  (~$?) rather than $0 — like Cursor's `cursor-agent`. */
+export const ANTIGRAVITY_PLACEHOLDER_MODEL = 'agy'
+
+interface AntigravityStep {
+  idx: number
+  type: string
+  ms: number
+  content: string
+  thinking: string
+  toolCalls: unknown[]
+}
+
+interface AntigravityHistoryRow {
+  display: string
+  timestamp: number
+  workspace: string
+  conversationId: string
+}
+
+/** An absolute workspace path (`/…`, `\\…` or `X:\…` / `X:/…`), else '' — a relative one is no cwd. */
+function antigravityWorkspace(v: unknown): string {
+  if (typeof v !== 'string') return ''
+  const w = v.trim()
+  if (w.startsWith('/') || w.startsWith('\\\\')) return w
+  return /^[A-Za-z]:[\\/]/.test(w) ? w : ''
+}
+
+const AGY_ENVELOPE_RE = /^<USER_REQUEST>([\s\S]*)<\/USER_REQUEST>\s*<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>\s*(?:<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>\s*)?$/
+
+/** A `USER_INPUT` step's prompt without agy's injected envelope — `<USER_REQUEST>…</USER_REQUEST>`
+ *  then `<ADDITIONAL_METADATA>…</ADDITIONAL_METADATA>` and an optional
+ *  `<USER_SETTINGS_CHANGE>…</USER_SETTINGS_CHANGE>`, the whole string and nothing else (agentsview's
+ *  antigravityCLIUserRequestRegex). Only the envelope's framing newlines are removed. An incomplete
+ *  envelope, literal tags inside a prompt, or an empty request keep the original text. */
+export function stripAntigravityEnvelope(s: string): string {
+  const m = AGY_ENVELOPE_RE.exec(s.trim())
+  if (!m) return s
+  let request = m[1]
+  if (request.startsWith('\r\n')) request = request.slice(2)
+  else if (request.startsWith('\n')) request = request.slice(1)
+  if (request.endsWith('\r\n')) request = request.slice(0, -2)
+  else if (request.endsWith('\n')) request = request.slice(0, -1)
+  return request.trim() ? request : s
+}
+
+/** A path from a tool argument: a `file://` URI decoded to a path, anything else as written. */
+function antigravityArgPath(args: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const k of keys) {
+    const v = args[k]
+    if (typeof v !== 'string' || !v.trim()) continue
+    const raw = v.trim()
+    if (!raw.startsWith('file://')) return raw
+    try { return fileURLToPath(raw) } catch {
+      try { return decodeURIComponent(raw.slice('file://'.length)) } catch { return raw.slice('file://'.length) }
+    }
+  }
+  return undefined
+}
+
+/** Files one Antigravity tool call names, by tool and argument key — agentsview's observed names
+ *  (best-effort: not confirmed for every agy version; README lists them to verify). `list_dir`
+ *  names a directory, not a file, so it records nothing. */
+export function antigravityToolFiles(name: string, args: Record<string, unknown>): { read?: string; changed?: string; written?: string; searched?: string } {
+  switch (name) {
+    case 'view_file':
+      return { read: antigravityArgPath(args, ['AbsolutePath', 'AbsolutePathURI', 'path']) }
+    case 'write_to_file': {
+      const f = antigravityArgPath(args, ['TargetFile', 'file_path', 'path'])
+      return { changed: f, written: f }
+    }
+    case 'replace_file_content':
+    case 'multi_replace_file_content':
+      return { changed: antigravityArgPath(args, ['TargetFile', 'file_path', 'path']) }
+    case 'grep_search':
+      return { searched: antigravityArgPath(args, ['SearchPath', 'SearchPathURI', 'path']) }
+    default:
+      return {}
   }
 }
 

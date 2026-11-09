@@ -116,7 +116,7 @@ export function Agents() {
         return ms >= (range.since ?? 0) && ms <= (range.until ?? Date.now())
       })
   if (!allSessions.length) {
-    return <div id="agents-content"><div class="empty-state">No traces recorded yet — run Copilot, Claude, Codex, OpenCode or Cursor to record one</div></div>
+    return <div id="agents-content"><div class="empty-state">No traces recorded yet — run Copilot, Claude, Codex, OpenCode, Cursor or Antigravity to record one</div></div>
   }
 
   const copStats = computeStats(allSessions.filter(s => s.source === 'copilot'))
@@ -124,15 +124,17 @@ export function Agents() {
   const cdxStats = computeStats(allSessions.filter(s => s.source === 'codex'))
   const ocStats  = computeStats(allSessions.filter(s => s.source === 'opencode'))
   const curStats = computeStats(allSessions.filter(s => s.source === 'cursor'))
+  const agyStats = computeStats(allSessions.filter(s => s.source === 'antigravity'))
 
   return (
     <div id="agents-content">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:12px;margin-bottom:14px">
         <AgentCol label="GitHub Copilot" accent={getAgentColorVar('copilot')} stats={copStats} />
         <AgentCol label="Claude" accent={getAgentColorVar('claude_code')} stats={cldStats} />
         <AgentCol label="Codex" accent={getAgentColorVar('codex')} stats={cdxStats} />
         <AgentCol label="OpenCode" accent={getAgentColorVar('opencode')} stats={ocStats} />
         <AgentCol label="Cursor" accent={getAgentColorVar('cursor')} stats={curStats} />
+        <AgentCol label="Antigravity" accent={getAgentColorVar('antigravity')} stats={agyStats} />
       </div>
     </div>
   )

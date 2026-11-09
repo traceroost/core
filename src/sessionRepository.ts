@@ -122,7 +122,7 @@ export class SessionRepository {
    *  fresh copy, but the cards in it are shared with every other caller — read them, never
    *  mutate them. */
   listSessions(filter?: {
-    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
+    source?: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor' | 'antigravity'
     limit?: number
   }): SessionSummaryCard[] {
     const version = `${this.reader.sessionsVersion()}:${this.store.version}`

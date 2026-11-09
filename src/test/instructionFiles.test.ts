@@ -74,11 +74,11 @@ suite('instructionFiles — apply/remove suggestion blocks', () => {
     assert.match(fs.readFileSync(mdc, 'utf8'), /^---\n[\s\S]*alwaysApply: true\n---\n$/)
   })
 
-  test('detectInstructionFiles lists AGENTS.md once, for Codex, OpenCode and Cursor, plus the Cursor rule', () => {
+  test('detectInstructionFiles lists AGENTS.md once, for Codex, OpenCode, Cursor and Antigravity, plus the Cursor rule', () => {
     const files = detectInstructionFiles(dir)
     assert.deepStrictEqual(files.map(f => f.relativePath),
       ['CLAUDE.md', '.github/copilot-instructions.md', 'AGENTS.md', CURSOR_RULE_FILE])
-    assert.deepStrictEqual(files.find(f => f.relativePath === 'AGENTS.md')?.agents, ['codex', 'opencode', 'cursor'])
+    assert.deepStrictEqual(files.find(f => f.relativePath === 'AGENTS.md')?.agents, ['codex', 'opencode', 'cursor', 'antigravity'])
     assert.deepStrictEqual(files.find(f => f.relativePath === CURSOR_RULE_FILE)?.agents, ['cursor'])
     assert.ok(files.every(f => !f.exists))
   })

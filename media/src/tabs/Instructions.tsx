@@ -19,7 +19,7 @@ import {
 
 interface InstructionFile {
   agent: string
-  /** Every agent that reads the file (AGENTS.md: Codex, OpenCode, Cursor); falls back to `agent`. */
+  /** Every agent that reads the file (AGENTS.md: Codex, OpenCode, Cursor, Antigravity); falls back to `agent`. */
   agents?: string[]
   label: string
   relativePath: string
@@ -96,6 +96,7 @@ const AGENT_LABEL: Record<string, string> = {
   codex:       'Codex',
   opencode:    'OpenCode',
   cursor:      'Cursor',
+  antigravity: 'Antigravity',
 }
 
 function sessionCostUsd(s: SessionSummaryCard): number {

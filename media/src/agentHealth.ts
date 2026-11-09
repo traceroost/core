@@ -23,7 +23,7 @@ export interface VersionHealth {
 }
 
 export interface AgentHealthRow {
-  key: 'claude' | 'codex' | 'copilot' | 'copilot_vscode' | 'opencode' | 'cursor'
+  key: 'claude' | 'codex' | 'copilot' | 'copilot_vscode' | 'opencode' | 'cursor' | 'antigravity'
   label: string
   support: 'verified' | 'fixture-tested' | 'best-effort'
   lastVerifiedVersion: string | null
@@ -43,6 +43,7 @@ export const ADAPTERS_BY_SOURCE: Record<string, ReadonlyArray<AgentHealthRow['ke
   copilot: ['copilot', 'copilot_vscode'],
   opencode: ['opencode'],
   cursor: ['cursor'],
+  antigravity: ['antigravity'],
 }
 
 // Banner dismissals, per agent version: a newer version that loses data shows the banner again.

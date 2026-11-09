@@ -52,7 +52,7 @@ function SectionHead({ id, title, tip, first, helpAnchor }: { id: string; title:
 
 // ── Agent breakdown cards ─────────────────────────────────────────────────────
 
-const BREAKDOWN_SOURCES = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor'] as const
+const BREAKDOWN_SOURCES = ['copilot', 'claude_code', 'codex', 'opencode', 'cursor', 'antigravity'] as const
 
 function AgentCard({ source, sessions }: { source: string; sessions: SessionSummaryCard[] }) {
   const s = computeStats(sessions)
@@ -60,7 +60,8 @@ function AgentCard({ source, sessions }: { source: string; sessions: SessionSumm
   // The agent's theme colour (agentColors.ts), the same as its dot, pill and chart bars.
   const color = getAgentColorVar(source)
   const label = getAgentSourceLabel(source)
-  // Cursor CLI records no token counts at all — show that as missing rather than as 0 / 0%.
+  // Cursor CLI records no token counts at all (Antigravity none without its conversation database)
+  // — show that as missing rather than as 0 / 0%.
   const hasTokens = s.totalInput > 0 || s.totalOutput > 0 || s.totalCache > 0
   const topTools = Object.entries(s.toolCounts).sort((a, b) => b[1] - a[1]).slice(0, 4)
   // Agent-authored change size (src/editStats.ts) — summed over traces that recorded line counts.

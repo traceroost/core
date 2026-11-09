@@ -5,7 +5,7 @@
  */
 
 /** One per agent TraceRoost reads. A LogReader key (`copilot_vscode_json`, e.g.) maps onto one. */
-export type AdapterKey = 'claude' | 'codex' | 'copilot' | 'copilot_vscode' | 'opencode' | 'cursor'
+export type AdapterKey = 'claude' | 'codex' | 'copilot' | 'copilot_vscode' | 'opencode' | 'cursor' | 'antigravity'
 
 /** How much testing stands behind an adapter — see README → Supported agents. */
 export type SupportLevel = 'verified' | 'fixture-tested' | 'best-effort'

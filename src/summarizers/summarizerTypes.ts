@@ -5,7 +5,7 @@ import type { SessionLanguage, SecondaryLanguage } from '../language'
 export interface SessionSummaryCard {
   sessionId: string
   traceId: string
-  source: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor'
+  source: 'copilot' | 'claude_code' | 'codex' | 'opencode' | 'cursor' | 'antigravity'
   dataSource: 'otel' | 'log'
   initiator?: 'user' | 'agent' | 'api'
   conversationId?: string

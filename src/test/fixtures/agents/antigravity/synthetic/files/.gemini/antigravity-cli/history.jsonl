@@ -1,0 +1,4 @@
+{"display":"Add a greeting helper to src/greet.ts","timestamp":1793527200000,"workspace":"/work/demo-repo","conversationId":"a9f1c2d3-0000-4000-8000-000000000007"}
+{"display":"Now run the tests","timestamp":1793527500250,"workspace":"/work/demo-repo","conversationId":"a9f1c2d3-0000-4000-8000-000000000007"}
+{"display":"something in another conversation","timestamp":1793527560000,"workspace":"/work/other-repo","conversationId":"b0000000-0000-4000-8000-000000000008"}
+{"display":"And commit it","timestamp":1793527680000,"workspace":"/work/demo-repo","conversationId":"a9f1c2d3-0000-4000-8000-000000000007"}

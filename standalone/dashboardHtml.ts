@@ -149,6 +149,9 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
       --vscode-charts-orange:            #d18616;
       --vscode-charts-purple:            #652d90;
       --vscode-charts-foreground:        #616161;
+      /* Antigravity follows VS Code's charts.green (#388a34 light / #89d185 dark — Cloud's values),
+         not this shim's --vscode-charts-green, which the cost and status accents use. */
+      --agent-antigravity:               #388a34;
     }
 
     /* System preference is dark, and the user hasn't explicitly forced Light. */
@@ -158,6 +161,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
       --vscode-charts-green: #81c784;
       --vscode-charts-blue: #3794ff; --vscode-charts-yellow: #cca700; --vscode-charts-orange: #d18616;
       --vscode-charts-purple: #b180d7; --vscode-charts-foreground: #cccccc;
+      --agent-antigravity: #89d185;
         --vscode-editor-background:       #1e1e1e;
         --vscode-foreground:              #cccccc;
         --vscode-panel-border:            #3e3e42;
@@ -182,6 +186,7 @@ export function renderDashboardHtml(v: DashboardHtmlVars): string {
       --vscode-charts-green: #81c784;
       --vscode-charts-blue: #3794ff; --vscode-charts-yellow: #cca700; --vscode-charts-orange: #d18616;
       --vscode-charts-purple: #b180d7; --vscode-charts-foreground: #cccccc;
+      --agent-antigravity: #89d185;
       --vscode-editor-background:       #1e1e1e;
       --vscode-foreground:              #cccccc;
       --vscode-panel-border:            #3e3e42;

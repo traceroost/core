@@ -1128,6 +1128,7 @@ const AGENT_FILTER_OPTIONS: Array<{ value: AgentFilter; label: string; color: st
   { value: 'codex',      label: 'Codex',    color: getAgentColorVar('codex') },
   { value: 'opencode',   label: 'OpenCode', color: getAgentColorVar('opencode') },
   { value: 'cursor',     label: 'Cursor',   color: getAgentColorVar('cursor') },
+  { value: 'antigravity', label: 'Antigravity', color: getAgentColorVar('antigravity') },
 ]
 
 // `YYYY-MM-DD` date input value + an optional `HH:MM` time input value <-> unix ms, treating both

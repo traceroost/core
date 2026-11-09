@@ -9,6 +9,7 @@ const AGENTS: Record<string, { slug: string; name: string }> = {
   copilot:     { slug: 'copilot',  name: 'Copilot' },
   opencode:    { slug: 'opencode', name: 'OpenCode' },
   cursor:      { slug: 'cursor',   name: 'Cursor' },
+  antigravity: { slug: 'antigravity', name: 'Antigravity' },
 }
 
 export function promptsFileFor(agent: unknown): { filename: string; agentName: string } {

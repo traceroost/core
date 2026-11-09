@@ -60,7 +60,7 @@ async function loadSqlJs(): Promise<SqlJs> {
 
 /** Reads one fixture through a real LogReader: the files are copied to a temp directory (Codex
  *  holds a turn read from a file written within the last two seconds, so they're backdated) and
- *  an OpenCode SQL script is built into a database first. */
+ *  an OpenCode or Antigravity SQL script is built into a database first. */
 function readFixture(dir: string, manifest: Manifest, sql: SqlJs): { results: LogSessionResult[]; observations: FileObservation[] } {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'traceroost-adapter-contract-'))
   const observations: FileObservation[] = []
@@ -86,6 +86,15 @@ function readFixture(dir: string, manifest: Manifest, sql: SqlJs): { results: Lo
         }
         process.env['OPENCODE_DATA_DIR'] = dataDir
         results.push(...reader.scanOpenCode())
+      } else if (file.logKey === 'antigravity' && filePath.endsWith('.sql')) {
+        // A synthetic Antigravity conversation database: built beside its SQL as <id>.db, then
+        // read with the transcript that follows it in the manifest.
+        const db = new sql.Database()
+        db.run(fs.readFileSync(filePath, 'utf8'))
+        const dbPath = filePath.slice(0, -'.sql'.length) + '.db'
+        fs.writeFileSync(dbPath, Buffer.from(db.export()))
+        db.close()
+        fs.utimesSync(dbPath, old, old)
       } else {
         results.push(...reader.parseFile(filePath, file.logKey))
       }
@@ -153,6 +162,7 @@ suite('Adapter contracts — committed agent fixtures', () => {
       for (const file of manifest.files) {
         const known = RECORDS_BY_LOG_KEY[file.logKey]
         if (file.logKey === 'opencode') continue  // classified by SQL GROUP BY; covered in adapters.classify.test.ts
+        if (file.path.endsWith('.sql')) continue  // a database's schema check; covered in adapters.classify.test.ts
         const text = fs.readFileSync(path.join(dir, file.path), 'utf8')
         const records = file.path.endsWith('.jsonl') ? text.split('\n').filter(l => l.trim()).map(l => JSON.parse(l) as unknown) : [JSON.parse(text) as unknown]
         const names = new Set(records.map(r => classifyRecord(known, r).name))

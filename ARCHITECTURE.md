@@ -186,7 +186,7 @@ flowchart TD
     end
 
     subgraph LOGS["Log file / database path (disk) — see §4"]
-        LF["~/.claude · ~/.codex · ~/.copilot · ~/.cursor<br/>JSONL files<br/>~/.local/share/opencode/opencode.db (SQLite)"] --> LR[LogReader<br/>parseFile / scanOpenCode / scan]
+        LF["~/.claude · ~/.codex · ~/.copilot · ~/.cursor · ~/.gemini/antigravity-cli<br/>JSONL files<br/>~/.local/share/opencode/opencode.db · agy conversations/*.db (SQLite)"] --> LR[LogReader<br/>parseFile / scanOpenCode / scan]
         LR -- "enqueue(card)" --> WRITE
     end
 
@@ -212,6 +212,7 @@ A parallel, network-free ingestion path that reads session files written to disk
 | Copilot Chat (VS Code-family, newer) | JSONL (delta log) | `workspaceStorage/<hash>/chatSessions/<uuid>.jsonl` | — |
 | Copilot Chat (VS Code-family, older) | JSON (snapshot) | `workspaceStorage/<hash>/chatSessions/<uuid>.json` | — |
 | OpenCode | SQLite database (WAL mode) | `~/.local/share/opencode/opencode.db` (Linux/Mac) | `OPENCODE_DATA_DIR` (comma-separated data dirs) |
+| Antigravity CLI (`agy`, best effort) | JSONL step transcript + SQLite database (WAL mode, protobuf blobs) per conversation, `history.jsonl` | `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`, `~/.gemini/antigravity-cli/conversations/<id>.db` | `ANTIGRAVITY_CLI_DIR` (comma-separated roots; agentsview's name — agy has none of its own on record) |
 | Cursor CLI (`cursor-agent`) | JSONL (append log, one file per session) | `~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl` | `XDG_CONFIG_HOME` — checked live 2026-09-19 against a real install and does **not** relocate transcripts (only `cursor-agent`'s own config); probed defensively anyway in case a future version honors it |
 
 `workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. TraceRoost scans all known VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro — via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`, Codex `%LOCALAPPDATA%\Codex\sessions` and `%APPDATA%\Codex\sessions`, Copilot CLI `%APPDATA%\copilot\session-state`, OpenCode `%APPDATA%\opencode`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude, and OpenCode honors `XDG_DATA_HOME`.
@@ -258,6 +259,17 @@ Confirmed by direct inspection against a real install (`cursor-agent 2026.09.18-
 - **`turn_ended` does not persist per-turn.** Resuming a session (`cursor-agent --resume <id>`) removes the *previous* turn's `turn_ended` line and appends exactly one new one at the new end of file — confirmed with a real two-turn resumed session. A file with N real turns has only ever one `turn_ended` line on disk at read time. `_parseCursorFile` therefore counts real turns from `role: 'user'` lines (which do persist across a resume), not from `turn_ended` occurrences; `errors` reflects only the *most recently completed* turn's status, not a running total.
 - **No per-turn timestamps.** Session start/end bounds fall back to the transcript file's own `birthtimeMs`/`mtimeMs`.
 
+### Antigravity CLI — transcript + conversation database (best effort)
+
+Google's terminal agent `agy`. **No real capture has been checked**: the format below is third-party evidence (agentsview's parser, whose field numbers come from descriptors embedded in agy 1.1.x binaries), and the fixture (`src/test/fixtures/agents/antigravity/synthetic/`) is synthetic. Only `~/.gemini/antigravity-cli/` is read — never the app/IDE trees (`~/.gemini/antigravity`, `antigravity-ide`) or `antigravity-backup`; encrypted `*.pb`, `implicit/` and `*.trajectory.json` are ignored.
+
+- **Unit:** one conversation — its brain transcript, else its `.db` (`collectFileMeta` lists one entry; `parseFile` and `_scanAntigravity` read it). Change detection uses the newest mtime over the transcript, the `.db` and a WAL with frames (`-shm` ignored), stored against the unit file's size. `history.jsonl` / `cache/last_conversations.json` are shared, cached per root and re-read only when they change.
+- **Turns:** one per transcript `USER_INPUT` step, plus any `.db` step of type 14 the transcript hasn't caught up with; earlier steps join the first turn. Key `derivedTraceKey('antigravity', <id>, 'step:<opener idx>')`. Prompt: the `history.jsonl` row matched by exact ms, then second, then text (a database-only opener takes the next unclaimed row), else the transcript `content` with agy's `<USER_REQUEST>`/`<ADDITIONAL_METADATA>`[/`<USER_SETTINGS_CHANGE>`] envelope stripped (`stripAntigravityEnvelope`). Workspace: `last_conversations.json`, else the conversation's history rows, else an unambiguous same-text unattributed row within ±60 s.
+- **Tokens/model:** `gen_metadata.data` protobuf (`src/adapters/antigravity/proto.ts`, a small varint/length-delimited walker with agentsview's plausibility caps) — uncached input, output (thinking included), cache read; cache write is never recorded. Each non-zero generation goes to the turn holding its highest step index and becomes one `llm` entry. Model: `model_display_name`, else `response_model` with only `-exp-b` stripped, replaced by the covering `executor_metadata` effort-qualified name (`…-high`) when the bases agree. Pricing drops a Gemini effort suffix / `-exp-b` (`normalizeCostKey`).
+- **No database** (or no usage yet): no token counts, model `agy` (matches no rate, so cost is unknown, never $0), `SOURCE_RANK_PARTIAL`, LLM calls counted from planner steps.
+- **Tools:** each planner step's `tool_calls[]` — name and args, files from `view_file`/`write_to_file`/`replace_file_content`/`multi_replace_file_content`/`grep_search` argument keys. No result, error, call id or duration exists.
+- **Adapter health:** transcript lines classified by `type` (`adapters/antigravity/known.ts`); the `.db` schema fingerprint (sha256 over `sqlite_master.sql` + `user_version`) is the version — `1.0.7–1.0.10` for the one known fingerprint, else `agy-schema:<12 hex>`.
+
 ### Scan mechanics
 
 ```mermaid
@@ -284,21 +296,21 @@ flowchart TD
 
 ### Data availability
 
-| Field | OTLP | Claude / Codex logs | Copilot CLI log | Copilot Chat JSONL | Copilot Chat JSON | OpenCode SQLite | Cursor CLI log |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Session ID, workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | session ID only — no workspace field exists |
-| Model | ✓ | ✓ | ✓ | ✓ (initial model only) | ✓ (first request) | ✓ | ✗ not stored — `cursor-agent` placeholder |
-| Timestamps, duration | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | file `birthtimeMs`/`mtimeMs` only — no per-turn timestamps |
-| Input tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
-| Output tokens | ✓ | ✓ | ✓ | ✓ (`completionTokens` per turn) | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
-| Cache read / write tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk |
-| User request text | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (last user message) | ✓ |
-| Tool calls (names) | ✓ | ✓ | ✓ | ✗ | ✗ (presence only) | ✓ | ✓ |
-| Tool call inputs / outputs | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ (input only; no output/result recorded) |
-| File paths from tools | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ |
-| TTFT, per-tool timing | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ — per-tool error data needed for `error_recurrence`/`chronic_tool_failures` doesn't exist |
-| Full turn timeline | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) |
+| Field | OTLP | Claude / Codex logs | Copilot CLI log | Copilot Chat JSONL | Copilot Chat JSON | OpenCode SQLite | Cursor CLI log | Antigravity transcript + DB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Session ID, workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | session ID only — no workspace field exists | ✓ (workspace from `history.jsonl`) |
+| Model | ✓ | ✓ | ✓ | ✓ (initial model only) | ✓ (first request) | ✓ | ✗ not stored — `cursor-agent` placeholder | ✓ with the DB, else `agy` placeholder |
+| Timestamps, duration | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | file `birthtimeMs`/`mtimeMs` only — no per-turn timestamps | ✓ per step |
+| Input tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk | ✓ with the DB (uncached + cache read) |
+| Output tokens | ✓ | ✓ | ✓ | ✓ (`completionTokens` per turn) | ✗ not stored | ✓ | ✗ not stored anywhere on disk | ✓ with the DB (thinking included) |
+| Cache read / write tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk | read ✓ with the DB; write ✗ |
+| User request text | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (last user message) | ✓ | ✓ |
+| Tool calls (names) | ✓ | ✓ | ✓ | ✗ | ✗ (presence only) | ✓ | ✓ | ✓ |
+| Tool call inputs / outputs | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ (input only; no output/result recorded) | ✓ (input only) |
+| File paths from tools | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | ✓ |
+| TTFT, per-tool timing | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ — per-tool error data needed for `error_recurrence`/`chronic_tool_failures` doesn't exist | ✗ — no per-tool error data |
+| Full turn timeline | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) |
 
 Sessions produced by `LogReader` carry `dataSource: 'log'` on `SessionSummaryCard`; OTLP sessions carry `dataSource: 'otel'`. The UI shows an OTEL/Log source badge on each session row.
 
@@ -318,7 +330,7 @@ traceKey = toUuid(`${agent}:turn:${turnId}`)
 | Claude Code OTEL | one `claude_code.interaction` | no turn id on the wire — joined to its transcript turn (`src/claudeTurnJoin.ts`): `session.id` names the file, the interaction start picks the prompt line within ±2 s (OTEL leads by 1–67 ms; a line more than 250 ms *before* is a neighbouring turn and never taken), `user_prompt_length` (equal or +1) breaks a tie. Not joinable after a short hold (5 s, `TRACEROOST_CLAUDE_JOIN_HOLD_MS`) → derived `claude:interaction:<session.id>:<start ms>`, never merged by guesswork |
 | Codex rollout + OTEL | opens at a `user_message` (walked back over its bookkeeping lines); a `user_message` with the running turn's id opens nothing | `turn_id` (task_started / turn_context; OTEL `turn.id` / `turn_id`) — exact. No turn id: derived (rollout id + prompt timestamp) |
 | Copilot Chat (`.jsonl` / `.json`) | one request | `requestId` — exact for the log. Copilot OTEL keeps its own exact key (the invoke_agent span id): log ↔ OTEL id equality is unverified, so no cross-source merge |
-| Copilot CLI, OpenCode, Cursor CLI | one prompt (`user.message` / user message / `role: user` line) | derived: conversation id + the opening record's own id, or its exact timestamp (Cursor: its position — the format has neither) |
+| Copilot CLI, OpenCode, Cursor CLI, Antigravity CLI | one prompt (`user.message` / user message / `role: user` line / `USER_INPUT` step) | derived: conversation id + the opening record's own id, or its exact timestamp (Cursor: its position — the format has neither; Antigravity: its step index) |
 
 Derived keys carry `derived: true`. Subagent transcripts (`<session>/subagents/agent-*.jsonl`) never get a key: their usage, tool calls and files fold into the parent turn (the turn whose promptId they carry, else the last one started before them), which records `subagentCount` — matching OTEL, which counts subagent calls under the parent interaction. So the `agent` initiator no longer comes from Claude subagents. The conversation marker groups a conversation's turns by `conversationId` (the transcript / rollout / chat id).
 
@@ -1424,7 +1436,7 @@ traceroost/
 │   ├── exportFormats.ts          # CSV + Markdown export serialization
 │   ├── gitOutcome.ts             # On-demand git-outcome classification (merged/committed/abandoned — shown as Uncommitted — /ambiguous)
 │   ├── oneShotRate.ts            # One-shot / retry-rate metric — per-file edit-count aggregation
-│   ├── logReader.ts              # LogReader — local log ingestion (Claude/Codex/Copilot CLI/Copilot Chat JSONL+JSON/OpenCode SQLite/Cursor CLI JSONL)
+│   ├── logReader.ts              # LogReader — local log ingestion (Claude/Codex/Copilot CLI/Copilot Chat JSONL+JSON/OpenCode SQLite/Cursor CLI JSONL/Antigravity JSONL+SQLite)
 │   ├── logFileState.ts           # Per-file parse state (LOG_FILE_STATE_VERSION) so activation doesn't re-parse every historical log
 │   ├── historyReadiness.ts       # "Store is complete" gate the trace manifest waits on — true once a historical log pass completed
 │   ├── traceHorizon.ts           # Evidence horizon of a host's trace store (earliest instant it still holds every trace)

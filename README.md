@@ -12,7 +12,7 @@
 
 Local monitoring and observability for agentic AI coding tools — see what's actually happening inside each run. TraceRoost keeps your traces on your machine and uploads nothing unless you link it to TraceRoost Cloud.
 
-TraceRoost supports **Claude Code, Codex, GitHub Copilot, OpenCode, and Cursor CLI**. It receives **OpenTelemetry traces** from Claude Code, Codex, and GitHub Copilot in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database** and Cursor CLI's transcript files — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTel takes precedence when available.
+TraceRoost supports **Claude Code, Codex, GitHub Copilot, OpenCode, Cursor CLI, and Antigravity CLI** (best effort). It receives **OpenTelemetry traces** from Claude Code, Codex, and GitHub Copilot in real time, giving you span timing, time-to-first-token, per-tool latency, and file diffs. It also reads the **local log files** each agent writes automatically — including OpenCode's **SQLite database**, Cursor CLI's transcript files and Antigravity's transcripts and per-conversation databases — as a zero-config fallback that backfills history from before you set anything up. Both sources appear in one dashboard; OTel takes precedence when available.
 
 Two things it does that a usage dashboard doesn't:
 
@@ -47,6 +47,7 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
     - [GitHub Copilot](#github-copilot)
     - [OpenCode](#opencode)
     - [Cursor CLI](#cursor-cli)
+    - [Antigravity CLI](#antigravity-cli)
 - [Cost Estimation](#cost-estimation)
 - [Exporting and Importing Trace Data](#exporting-and-importing-trace-data)
   - [Export](#export)
@@ -84,15 +85,15 @@ Manage it later with `traceroost service status`, `service stop`, `service unins
 ## Features
 
 - **OpenTelemetry collection** — Built-in OTel receiver captures real-time traces and logs from Copilot, Claude Code, and Codex with no external infrastructure; TraceRoost asks before setting your agents up, then keeps its port in their settings current
-- **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, and Cursor CLI, and OpenCode's SQLite database — backfilling history when OTel isn't configured (VS Code-family IDEs and native process only)
+- **Log file ingestion** — Reads local log files and databases written automatically by each agent as a zero-config fallback — including JSONL logs for Claude Code, Codex, Copilot, Cursor CLI and Antigravity, and OpenCode's and Antigravity's SQLite databases — backfilling history when OTel isn't configured (VS Code-family IDEs and native process only)
 - **Traces Table** — Drill into any trace: expand a row to see a full span waterfall, turn-to-tool flow graph, tool distribution chart, and modified files — all without leaving the trace list. Filter by agent, language, repo, git outcome, data source, initiator, time range or text; the agent pills and language list offer only what your traces contain, and changing the sort returns to page 1
 - **Files Changed** — The Files sub-tab tracks every file created or modified by a trace, organized with inline before/after diffs. A git-outcome banner then classifies each file as Merged (reached the trunk branch), Committed, or still Uncommitted by comparing against local git history after the fact — answers "did this trace's changes actually survive?" The same verdict drives the Traces table's **Out** column and Outcome filter (VS Code extension and native process; not available in Docker mode — same host git-repo access limitation as log file ingestion)
 - **Language & Change Size** — Each trace gets a primary (and, when it touched more than one, secondary) programming language from a fixed list — TypeScript, JavaScript, Python, Go, Rust, Java, C#, C/C++, Ruby, PHP, Swift, Kotlin, Dart, Shell, SQL, HTML and CSS, plus Other code (e.g. PowerShell, Scala, Lua) — derived from the extensions of the files the agent read and changed (each distinct file counted once; Vue/Svelte components count as TypeScript when the trace touched TypeScript, else JavaScript). A trace that touched no code file is named by the kind of file it did touch instead: Docs, Config (including lockfiles), Data or Assets; No code means it touched only files of no recognised kind, and No files means it read or changed no file at all (shown blank in the Lang column). Alongside it, the agent's own change size: files changed and lines added/removed by its edit and write tool calls (agent-authored edits, not git stats; every file counts here, code or not). Shown as the Traces table's **Lang** and **Changes** columns and in the expanded trace, filterable with the **Language** filter, broken down in Analytics, and included in exports. Traces stored before this existed show "—"
 - **One-shot / Retry Rate** — Tracks what fraction of edited files reached their final state in a single edit pass vs. needed retries, per trace (Files sub-tab) and aggregated per-agent in Analytics — a proxy for correction effort
-- **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, lines changed, and top tools for Copilot, Claude, Codex, OpenCode, and Cursor CLI), a by-language table (files and lines changed by the agent, then traces, cost, tokens and lines +/− per primary language), plan limits, outcome & token spend over time (tokens stacked by merged / committed / uncommitted), code changes over time (lines added/removed and files changed by the agent's own edits — not git stats; traces without line data are left out and counted in a note), estimated cost with a daily total overlay, token usage per trace, and context growth
-- **Advisor** — A "How to spend less" card ranking the biggest savings, plus project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Suggestions are worked out per repo and Apply appends them to the instruction file you pick (CLAUDE.md, .github/copilot-instructions.md, AGENTS.md for Codex/OpenCode/Cursor CLI, or a `.cursor/rules/traceroost.mdc` Cursor rule): in VS Code for the open folder, in standalone/npx mode for every repo in your traces, grouped by repo.
+- **Analytics** — Aggregate charts across the active time range: per-agent breakdown cards (side-by-side token totals, cache rates, TTFT, lines changed, and top tools for Copilot, Claude, Codex, OpenCode, Cursor CLI and Antigravity), a by-language table (files and lines changed by the agent, then traces, cost, tokens and lines +/− per primary language), plan limits, outcome & token spend over time (tokens stacked by merged / committed / uncommitted), code changes over time (lines added/removed and files changed by the agent's own edits — not git stats; traces without line data are left out and counted in a note), estimated cost with a daily total overlay, token usage per trace, and context growth
+- **Advisor** — A "How to spend less" card ranking the biggest savings, plus project-scoped suggestions for improving your agent instruction file (CLAUDE.md, AGENTS.md, or similar): detects hot files the agent rediscovers every trace, loop patterns, high turn-count trends, and scope problems — each suggestion includes ready-to-copy instruction text and an inquiry prompt you can paste directly into your agent. Also includes an efficiency scatter plot (cost vs. LLM calls, colored by cache hit rate) and hot files ranked by access frequency. Suggestions are worked out per repo and Apply appends them to the instruction file you pick (CLAUDE.md, .github/copilot-instructions.md, AGENTS.md for Codex/OpenCode/Cursor CLI/Antigravity, or a `.cursor/rules/traceroost.mdc` Cursor rule): in VS Code for the open folder, in standalone/npx mode for every repo in your traces, grouped by repo.
 - **Plan Limits** — For Claude Pro/Max and ChatGPT-plan users: how full your 5-hour and weekly windows are, how much of them each trace used, when a limit blocked you, and how much of your weekly limit the Advisor's fixes would save — live in the sidebar, charted in Analytics, and as a Traces column. Read only from files Claude Code and Codex already write (no credentials, no network); Copilot, Cursor and OpenCode don't record plan limits, so nothing appears for them
-- **Cost Estimation** — Estimates trace cost for Copilot, Claude Code, Codex, and OpenCode (all token-based), broken down by model in a day-grouped table; Cursor CLI records no token counts, so its traces carry no cost
+- **Cost Estimation** — Estimates trace cost for Copilot, Claude Code, Codex, and OpenCode (all token-based), broken down by model in a day-grouped table; Cursor CLI records no token counts, so its traces carry no cost; Antigravity traces are priced only when the conversation's database holds their token counts
 - **Efficiency & Inefficiency Detection** — Surfaces context bloat, redundant tool calls, cache misses, and sixteen signals with suggested prompts to correct course
 - **Configurable Alerts** — Threshold-based notifications for context-window size, turns, errors, active time, zero cache use, repeat tool calls, plan-limit windows, and estimated daily cost — per-agent or shared
 - **Automated Prompts** — The Alerts panel's Automation tab (bell icon) configures threshold-based automations (Context Compaction, Loop Breaker, Error Cascade Stop, Turn Limit Wrap-up) that trigger a correction prompt when a trace crosses a limit — delivered as a notification or written to a file for agent consumption; agents can also poll for them via the MCP server's `check_automation_triggers` tool
@@ -115,7 +116,7 @@ See [Manual Configuration](#manual-configuration) for the specific settings each
 
 ### Log file ingestion (fallback source, VS Code-family IDEs and native process only)
 
-TraceRoost also reads the local log files that Claude Code, Codex, GitHub Copilot (Copilot CLI and Copilot Chat), OpenCode, and Cursor CLI write automatically to your home directory. This requires no configuration and backfills trace history that predates OTel setup. Log-sourced traces show a **Log** badge. **Not available in Docker mode** — the container cannot access host log directories without explicit volume mounts for every agent path.
+TraceRoost also reads the local log files that Claude Code, Codex, GitHub Copilot (Copilot CLI and Copilot Chat), OpenCode, Cursor CLI and Antigravity CLI write automatically to your home directory. This requires no configuration and backfills trace history that predates OTel setup. Log-sourced traces show a **Log** badge. **Not available in Docker mode** — the container cannot access host log directories without explicit volume mounts for every agent path.
 
 | Agent | Log file location (Mac/Linux) | Windows |
 | --- | --- | --- |
@@ -125,13 +126,14 @@ TraceRoost also reads the local log files that Claude Code, Codex, GitHub Copilo
 | **Copilot Chat** | `~/Library/Application Support/<IDE>/User/workspaceStorage/…/chatSessions/` | `%APPDATA%\<IDE>\User\workspaceStorage\…\chatSessions\` |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | `%APPDATA%\opencode\opencode.db` |
 | **Cursor CLI** (`cursor-agent`) | `~/.cursor/projects/<workspace>/agent-transcripts/<session>/<session>.jsonl` | `%APPDATA%\Cursor\projects\...` (unconfirmed) |
+| **Antigravity CLI** (`agy`, best effort) | `~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/logs/transcript.jsonl`, `~/.gemini/antigravity-cli/conversations/<conversation>.db` (SQLite), `history.jsonl` | `%USERPROFILE%\.gemini\antigravity-cli\...` (unconfirmed) |
 | **Claude Code plan limits** | `~/.claude.json` — only `oauthAccount.accountUuid` and `cachedUsageUtilization` are read; the file's email and project history are not read or stored | `%USERPROFILE%\.claude.json` |
 
 Copilot Chat traces are scanned across all installed VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro. (That's Cursor *the IDE's* built-in Copilot Chat scanning — unrelated to the standalone Cursor CLI agent above, which TraceRoost ingests directly.)
 
 Loading is incremental and runs in the background, sorted newest-first so recent traces appear immediately. A 30-second poll picks up new traces as they complete.
 
-Non-default locations: `CLAUDE_CONFIG_DIR` (Claude Code), `CODEX_HOME` (Codex) and `OPENCODE_DATA_DIR` (OpenCode) are honored, each as a comma-separated list of directories. Without them, OpenCode's database is looked for under `$XDG_DATA_HOME/opencode` when `XDG_DATA_HOME` is set (else `~/.local/share/opencode`), Cursor CLI's transcripts also under `$XDG_CONFIG_HOME/cursor/projects`, and on Windows Codex's sessions also under `%LOCALAPPDATA%\Codex\sessions` and `%APPDATA%\Codex\sessions`.
+Non-default locations: `CLAUDE_CONFIG_DIR` (Claude Code), `CODEX_HOME` (Codex), `OPENCODE_DATA_DIR` (OpenCode) and `ANTIGRAVITY_CLI_DIR` (Antigravity CLI) are honored, each as a comma-separated list of directories. Without them, OpenCode's database is looked for under `$XDG_DATA_HOME/opencode` when `XDG_DATA_HOME` is set (else `~/.local/share/opencode`), Cursor CLI's transcripts also under `$XDG_CONFIG_HOME/cursor/projects`, and on Windows Codex's sessions also under `%LOCALAPPDATA%\Codex\sessions` and `%APPDATA%\Codex\sessions`.
 
 To disable log ingestion: set `traceRoost.enableLogIngestion` to `false` in VS Code settings (or use the toggle in the gear-icon Settings panel).
 
@@ -150,13 +152,14 @@ How much testing stands behind each agent, and the newest version a real capture
 | Copilot (VS Code) | OTel, log files | Best effort | none yet |
 | OpenCode | SQLite database | Fixture-tested | none yet |
 | Cursor CLI | log files | Fixture-tested | none yet |
+| Antigravity | log files, SQLite database | Best effort | none yet |
 <!-- support-matrix:end -->
 
 - **Verified** — the real agent runs in CI on every release and nightly, and each release gets a committed fixture. A confirmed format break gets a patch release within 2 working days.
 - **Fixture-tested** — committed fixtures and contract tests, and a headless CI run where the agent has one. Breaks are fixed as soon as practical.
-- **Best effort** — fixtures captured by hand; checked when a release is noticed. Breaks are fixed as soon as practical.
+- **Best effort** — fixtures captured by hand; checked when a release is noticed. Breaks are fixed as soon as practical. Antigravity is the exception: no real capture exists yet, so it is built from third-party evidence and synthetic fixtures (see [Antigravity CLI](#antigravity-cli)).
 
-When an agent release changes what TraceRoost reads, Settings → **Agents** and a banner on the Traces tab say so for that agent and version, and `traceroost doctor` exits non-zero. **Report this** opens a GitHub issue with only names, counts and key/value-type structure — you see the whole body first, and nothing is sent unless you file it. A new agent is added at *Fixture-tested* or better.
+When an agent release changes what TraceRoost reads, Settings → **Agents** and a banner on the Traces tab say so for that agent and version, and `traceroost doctor` exits non-zero. **Report this** opens a GitHub issue with only names, counts and key/value-type structure — you see the whole body first, and nothing is sent unless you file it. A new agent is added at *Fixture-tested* or better — Antigravity, added at *Best effort* before any real capture, is the one exception.
 
 ### What each agent gives you, source by source
 
@@ -221,11 +224,23 @@ Each `user` line starts a trace. Available from logs: prompt, tool calls (names,
 
 Not available, confirmed by direct inspection rather than assumed: **token/usage counts, model name, workspace path, and per-tool error detail** — none of these exist anywhere in Cursor CLI's local storage today. These show as an honest unpriced/unknown gap (matching every other unrecognized-model session) rather than a guessed number. Cursor's OpenTelemetry export is offered to enterprise accounts, and otherwise only through third-party hook scripts; TraceRoost doesn't ingest either yet, so Cursor CLI traces always carry a **Log** badge.
 
+#### Antigravity CLI
+
+**Best effort.** Google's Antigravity CLI (`agy`) publishes no storage format, and no real capture has been checked yet: this reader is built from a third party's reverse-engineered evidence (the open-source agentsview project's parser) and synthetic fixtures. Only the CLI's tree is read — `~/.gemini/antigravity-cli/` (override: `ANTIGRAVITY_CLI_DIR`) — never the Antigravity app or IDE trees (`~/.gemini/antigravity`, `~/.gemini/antigravity-ide`) or `antigravity-backup`. Encrypted `*.pb` conversation streams and `implicit/` are skipped.
+
+**Log files and SQLite database** (automatic, no setup) — per conversation, `brain/<conversation>/.system_generated/logs/transcript.jsonl` (one line per step: prompts, assistant text, tool calls) and `conversations/<conversation>.db` (token usage and model per model call, as protobuf blobs; its WAL is merged at read time, like OpenCode's). `history.jsonl` and `cache/last_conversations.json` supply the clean prompt text and the workspace.
+
+Each prompt is one trace, keyed by its step index in the conversation. Available: prompt (agy's injected `<USER_REQUEST>`/`<ADDITIONAL_METADATA>` envelope removed), timestamps per step, workspace, tool calls with their arguments and the files they read or edited, and — when the conversation's database exists — uncached input, output (thinking included) and cache-read tokens per model call, and the model (the effort the user picked, e.g. `gemini-3.7-flash-high`, is priced at its model's rate).
+
+Not available: tool results, exit codes and errors (agy doesn't store them in plain text), per-call durations or time-to-first-token, a separate thinking-token count, cache-write tokens, and the agy version (only a schema fingerprint of the database). Without the conversation's database — an older `.pb`-only conversation, or one whose database hasn't been written yet — a trace has no token counts and its cost shows as unknown, not $0. There is no OTel path: agy has no native exporter yet ([google-antigravity/antigravity-cli#366](https://github.com/google-antigravity/antigravity-cli/issues/366)), so Antigravity traces always carry a **Log** badge. Antigravity reads `AGENTS.md`, which the Advisor's suggestions apply to; it also reads a legacy `GEMINI.md`, which TraceRoost doesn't check or write.
+
+What a first real capture has to confirm: that every conversation writes a brain transcript (and how far it lags the database mid-turn); the database's schema fingerprint for current agy releases (the only one on record is agy 1.0.7–1.0.10's); the step-type names, tool names and argument keys (`view_file` `AbsolutePath`, `write_to_file`/`replace_file_content` `TargetFile`, `grep_search`'s path key); that a model call's `step_indices` point at its planner step and its cache-read count excludes uncached input; the `gen_metadata` field numbers and the `-exp-b` / `-low|-medium|-high` model-name variants; whether subagents get their own conversation; and the Windows paths.
+
 All platforms are actively expanding what they expose, and the GenAI semantic conventions are still being standardized. TraceRoost will be updated as richer data becomes available.
 
 ## Cost Estimation
 
-The **Analytics** tab (Estimated Cost section) shows the dollar cost of Copilot, Claude Code, Codex, and OpenCode traces. Cursor CLI traces aren't included: Cursor CLI stores no token counts or model name, so there is nothing to price.
+The **Analytics** tab (Estimated Cost section) shows the dollar cost of Copilot, Claude Code, Codex, and OpenCode traces. Cursor CLI traces aren't included: Cursor CLI stores no token counts or model name, so there is nothing to price. Antigravity traces are priced from the token counts in the conversation's database, at the Gemini rate for the model (its effort suffix dropped); without that database they carry no cost.
 
 **Copilot**, **Claude Code**, **Codex**, and **OpenCode** all use token-based pricing — charging per input/output/cache token at per-model rates. Claude Code is billed against the Anthropic API at standard per-token rates (input, cache write, cache read, output) depending on model (Opus, Sonnet, or Haiku). Codex is billed against the OpenAI API. OpenCode is priced by the model each trace used, including OpenCode Zen's models.
 
@@ -332,7 +347,7 @@ install. That picks the port for that run only; to keep one, set it in **Setting
 > `npm cache clean --force`. A global install (`npm install -g`) has the same trap — re-run it with
 > `@latest`, or `npm update -g traceroost`, to move forward.
 
-> **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, OpenCode's SQLite database at `~/.local/share/opencode/`, and Cursor CLI's transcripts at `~/.cursor/projects/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
+> **Log file ingestion** reads local log files from `~/.claude/`, `~/.codex/`, `~/.copilot/`, OpenCode's SQLite database at `~/.local/share/opencode/`, Cursor CLI's transcripts at `~/.cursor/projects/`, and Antigravity CLI's transcripts and databases at `~/.gemini/antigravity-cli/` directly. See [Local Mode Options](#local-mode-options) for environment variables.
 >
 > **Running this in a terminal only lasts until you close it.** If TraceRoost isn't running when an agent sends OTel data, that data is lost — see [Background Service](#background-service-macos--windows--linux) to keep it running automatically.
 
@@ -824,7 +839,7 @@ keys and hook included (and also anything you changed since).
 | **Codex** | `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) | In the `[otel]` table: `log_user_prompt`, `exporter`, `trace_exporter` (or the whole `[otel]` table if TraceRoost added it) |
 | **GitHub Copilot** | VS Code user `settings.json` — in each VS Code-family IDE (VS Code, Insiders, Cursor, Windsurf, VSCodium, Trae, Kiro) | `github.copilot.chat.otel.enabled`, `github.copilot.chat.otel.exporterType`, `github.copilot.chat.otel.otlpEndpoint` |
 
-OpenCode and Cursor CLI need no configuration, so there's nothing to remove for them. Restart any
+OpenCode, Cursor CLI and Antigravity CLI need no configuration, so there's nothing to remove for them. Restart any
 running agents afterwards. Leaving the keys in place is harmless apart from the agents trying to
 send telemetry to a port nothing is listening on.
 
@@ -843,6 +858,7 @@ When **Write prompts file** is enabled for an automation rule, each trigger appe
 | Codex | `traceroost-prompts-codex.md` |
 | OpenCode | `traceroost-prompts-opencode.md` |
 | Cursor CLI | `traceroost-prompts-cursor.md` |
+| Antigravity | `traceroost-prompts-antigravity.md` |
 
 In the VS Code extension, files are written to the workspace root. The standalone server (`npx`, the background service, Docker) writes them to its data directory — `~/.traceroost` unless you set `DATA_DIR` / `--data-dir` (in Docker, `/data`).
 
@@ -884,7 +900,7 @@ The **full** edition (see [Editions](#editions)) adds `TraceRoost: Link This Mac
 | ------- | ------- | ----------- |
 | `traceRoost.otlpPort` | `4318` | Local port for the OTLP trace receiver (1024–65535) |
 | `traceRoost.enableOtelIngestion` | `true` | Accept incoming OTel span data. The OTLP server keeps listening on `traceRoost.otlpPort` regardless; disabling this silently drops received payloads without storing them. |
-| `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, and Cursor CLI. Disable if you only want OTel data. |
+| `traceRoost.enableLogIngestion` | `true` | Read local log files and databases from Claude Code, Codex, Copilot CLI, Copilot Chat, OpenCode, Cursor CLI, and Antigravity CLI. Disable if you only want OTel data. |
 | `traceRoost.autoConfigureAgents` | `true` | Offer to set up Claude Code, Codex, and Copilot (asked once; see [Manual Configuration](#manual-configuration)), and once you say yes, keep TraceRoost's port in their OTel settings current each time it starts (a setting you removed stays removed). Disabling leaves your agents' configuration untouched on startup — run `TraceRoost: Set Up Agents…` (or use **Set up agents** in the dashboard's ⚙ Settings panel) for a one-off apply, or configure OTel manually (see [Manual Configuration](#manual-configuration)). Without OTel, Codex and Copilot CLI traces have little to show: their log files carry only aggregate totals, no per-turn tool calls or responses. |
 | `traceRoost.enableMcpServer` | `true` | Start the TraceRoost MCP server so Claude Code and other MCP-compatible agents can query your trace history. |
 | `traceRoost.mcpPort` | `4316` | Local port for the TraceRoost MCP server (1024–65535; when `traceRoost.enableMcpServer` is true) |
@@ -905,6 +921,6 @@ The open source packages bundled into TraceRoost, with their licenses, are liste
 
 ## Disclaimer
 
-TraceRoost is an independent project — MIT-licensed apart from its TraceRoost Cloud connector, which only the full edition includes (see [License](#license)) — and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot, Visual Studio Code); Anthropic, PBC (Claude / Claude Code); OpenAI, LLC (Codex CLI); Anysphere, Inc. (Cursor / Cursor CLI); the OpenCode project (OpenCode); or the makers of the other editors named here (Windsurf, Kiro, Trae, VSCodium). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost works with these products through their telemetry settings (which it can set up for you, after asking), the log files, databases and caches they write locally on your machine, and the instruction files (CLAUDE.md, AGENTS.md and the like) you choose to apply suggestions to.
+TraceRoost is an independent project — MIT-licensed apart from its TraceRoost Cloud connector, which only the full edition includes (see [License](#license)) — and is not affiliated with, endorsed by, or associated with GitHub, Inc. or Microsoft Corporation (GitHub Copilot, Visual Studio Code); Anthropic, PBC (Claude / Claude Code); OpenAI, LLC (Codex CLI); Anysphere, Inc. (Cursor / Cursor CLI); Google LLC (Antigravity / Antigravity CLI); the OpenCode project (OpenCode); or the makers of the other editors named here (Windsurf, Kiro, Trae, VSCodium). All product names, trademarks, and registered trademarks are the property of their respective owners. TraceRoost works with these products through their telemetry settings (which it can set up for you, after asking), the log files, databases and caches they write locally on your machine, and the instruction files (CLAUDE.md, AGENTS.md and the like) you choose to apply suggestions to.
 
 **Third-party changes.** TraceRoost depends on log formats, telemetry, pricing, and plan-limit information controlled by third-party vendors, including Anthropic, OpenAI, GitHub/Microsoft, Cursor, and OpenCode. These vendors may change, deprecate, or remove their products, APIs, log formats, telemetry, pricing, or usage limits at any time, without notice. Such upstream changes are outside the control of TraceRoost and its maintainers, and may cause TraceRoost to show incomplete, inaccurate, or missing data, or to stop working in whole or in part. TraceRoost and its maintainers are not responsible or liable for any impact of those changes, including on costs, charges, rate limits, quotas, or decisions made based on data TraceRoost reports. TraceRoost is provided "as is", without warranty of any kind, as stated in its [license](#license).

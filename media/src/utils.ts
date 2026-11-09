@@ -257,6 +257,7 @@ export function getAgentSourceLabel(source: string | null | undefined): string {
   if (source === 'codex') return 'Codex'
   if (source === 'opencode') return 'OpenCode'
   if (source === 'cursor') return 'Cursor'
+  if (source === 'antigravity') return 'Antigravity'
   return 'Copilot'
 }
 

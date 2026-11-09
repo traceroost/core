@@ -961,7 +961,7 @@ async function handleAlertNotification(
 
 async function writeAutomationPrompt(agent: string, label: string, fullPrompt: string): Promise<string | undefined> {
   // Same per-agent file as standalone/promptsFile.ts: claude_code keeps its historical 'claude' slug.
-  const names: Record<string, string> = { claude_code: 'Claude', codex: 'Codex', copilot: 'Copilot', opencode: 'OpenCode', cursor: 'Cursor' }
+  const names: Record<string, string> = { claude_code: 'Claude', codex: 'Codex', copilot: 'Copilot', opencode: 'OpenCode', cursor: 'Cursor', antigravity: 'Antigravity' }
   const known = agent in names ? agent : 'copilot'
   const agentSlug = known === 'claude_code' ? 'claude' : known
   const agentName = names[known]

@@ -73,10 +73,15 @@ suite('forward/schema', () => {
     assert.strictEqual(toWireAgent('cursor'), 'cursor')
   })
 
+  // Antigravity CLI (agy) joined the enum in Cloud's #219; core mirrors schema/rollup.v1.json.
+  test('toWireAgent gives Antigravity sessions their own wire identity, not other', () => {
+    assert.strictEqual(toWireAgent('antigravity'), 'antigravity')
+  })
+
   test('every WireAgent value toWireAgent can produce is present in the committed schema enum', () => {
     const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf-8'))
     const agentEnum: string[] = schema.$defs.agent.enum
-    for (const source of ['claude_code', 'copilot', 'codex', 'opencode', 'cursor', 'something-new']) {
+    for (const source of ['claude_code', 'copilot', 'codex', 'opencode', 'cursor', 'antigravity', 'something-new']) {
       assert.ok(agentEnum.includes(toWireAgent(source)), `${source} → ${toWireAgent(source)} missing from schema enum`)
     }
   })

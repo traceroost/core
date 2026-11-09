@@ -62,7 +62,7 @@ export const SIGNAL_FORMULAS: Record<
     prompt: 'The same error has come back several times, so your fixes are not reaching the cause. Stop retrying. Quote the exact error, list what you have already tried, and tell me what you think the root cause is before changing anything else.',
     dataSource: 'otel',
     dataSourceNote:
-      'Needs to know which tool calls failed, which Claude Code, Codex, Copilot CLI/Chat and Cursor logs don’t record. OpenCode’s log is the one exception; other agents need live OTel telemetry.',
+      'Needs to know which tool calls failed, which Claude Code, Codex, Copilot CLI/Chat, Cursor and Antigravity logs don’t record. OpenCode’s log is the one exception; other agents need live OTel telemetry.',
   },
   runaway_steps: {
     bullets: [
@@ -101,7 +101,7 @@ export const SIGNAL_FORMULAS: Record<
     prompt: 'Many of your tool calls are failing. Before the next command, confirm the path or command exists (list the directory, or check which binary is installed), and say which package manager and runtime this project uses.',
     dataSource: 'otel',
     dataSourceNote:
-      'Same gap as Repeated Error: needs to know which tool calls failed, which Claude Code, Codex, Copilot CLI/Chat and Cursor logs don’t record. OpenCode’s log is the one exception.',
+      'Same gap as Repeated Error: needs to know which tool calls failed, which Claude Code, Codex, Copilot CLI/Chat, Cursor and Antigravity logs don’t record. OpenCode’s log is the one exception.',
   },
   context_flooding_risk: {
     bullets: [
@@ -140,7 +140,7 @@ export const SIGNAL_FORMULAS: Record<
     prompt: 'The last test or build you ran failed and you stopped there. Re-run it, read the failure and fix it. Do not report the task as done until that check passes.',
     dataSource: 'otel',
     dataSourceNote:
-      'Needs the tool’s output, which Claude Code, Codex, Copilot CLI/Chat and Cursor logs don’t record. OpenCode’s log is the one exception; other agents need live OTel telemetry.',
+      'Needs the tool’s output, which Claude Code, Codex, Copilot CLI/Chat, Cursor and Antigravity logs don’t record. OpenCode’s log is the one exception; other agents need live OTel telemetry.',
   },
   tool_call_cycle: {
     bullets: [

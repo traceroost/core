@@ -46,6 +46,16 @@ throwaway prompt — the capture is redacted, but read it before committing anyw
 3. `node tests/e2e/captures-to-fixtures.mjs <capture dir>` — it refuses to finish while a home path,
    e-mail address or token-shaped string survives redaction.
 
+**Antigravity CLI (`agy`)** has no CI capture and no committed real fixture yet (*Best effort*, built
+from agentsview's third-party evidence — README → Antigravity CLI lists what a first capture must
+confirm). `captures-to-fixtures.mjs` doesn't know its layout: copy one conversation's
+`~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`,
+`conversations/<id>.db` (after the agent exits, so the WAL is checkpointed), `history.jsonl` and
+`cache/last_conversations.json` into `src/test/fixtures/agents/antigravity/<version>/files/.gemini/antigravity-cli/`
+on the model of the `synthetic/` fixture, redact prompts and paths by hand, and record the database's
+schema fingerprint (`traceroost doctor` shows it as the version: `1.0.7–1.0.10` or `agy-schema:<hex>`)
+in the manifest. Run `agy --version` for the version itself — nothing on disk records it.
+
 Do not test the TraceRoost collector against your real agents: it rewrites `~/.claude`, `~/.codex`
 and VS Code settings to its port. Run it with `HOME` set to a temporary directory.
 
