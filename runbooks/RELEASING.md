@@ -246,6 +246,11 @@ When the TraceRoost brand is established and you want the marketplace URL to say
   `publish-vsce`, `publish-npm`, `publish-homebrew`, `docker`, `desktop` and `publish-winget` job
   logs specifically — `package` succeeding only means the VSIX
   built, not that it published anywhere.
+- traceroost.com's download links read this repository's latest GitHub release and cache the
+  answer for up to an hour, so the site can keep offering the previous version's installers for a
+  while after the `desktop` job attaches the new ones. That is TraceRoost Cloud's cache to purge,
+  not something this release does — if the site still shows the old version an hour after the run
+  went green, that is where to look.
 
 ## Homebrew
 
