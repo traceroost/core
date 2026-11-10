@@ -81,9 +81,17 @@ module.exports = async function afterPack(context) {
     // Electron's licenses: copied into Resources on macOS (electron-builder.cjs); elsewhere the
     // builder's own copies beside the executable, checked below.
     ...(isMac ? ['LICENSE.electron.txt', 'LICENSES.chromium.html'] : []),
+    // The app icon (electron-builder.cjs mac.icon, an Icon Composer .icon): macOS 26 reads the
+    // asset catalog, older macOS the .icns. Without Assets.car macOS 26 restyles the icon itself.
+    ...(isMac ? ['Assets.car', 'icon.icns'] : []),
     'app.asar',
   ]) {
     if (!fs.existsSync(path.join(resources, rel))) problems.push(`missing from ${resourcesLabel}: ${rel}`)
+  }
+  if (isMac) {
+    const plist = fs.readFileSync(path.join(appPath, 'Contents', 'Info.plist'), 'utf-8')
+    if (!/<key>CFBundleIconName<\/key>\s*<string>Icon<\/string>/.test(plist)) problems.push('Info.plist has no CFBundleIconName "Icon" — macOS 26 would ignore Assets.car')
+    if (!/<key>CFBundleIconFile<\/key>\s*<string>icon\.icns<\/string>/.test(plist)) problems.push('Info.plist has no CFBundleIconFile icon.icns')
   }
   if (!isMac) {
     if (!fs.existsSync(binary)) problems.push(`the executable ${path.basename(binary)} is missing`)
