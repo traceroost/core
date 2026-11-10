@@ -42,6 +42,7 @@ import { decidePipeline } from './ownerGate'
 import { logLevel } from './logLevel'
 import { agentKeyLabel } from './adapters/registry'
 import { adapterHealth, persistAdapterHealth, restoreAdapterHealth } from './adapters/health'
+import { configureProjectAccess } from './projectAccess'
 
 let collector: OtlpCollector | undefined
 let store: SessionStore | undefined
@@ -154,6 +155,10 @@ function agentConfigFiles(): Record<'copilot' | 'claude' | 'codex', { label: str
 // ── Activate ─────────────────────────────────────────────────────────────────
 
 export async function activate(context: vscode.ExtensionContext) {
+  // VS Code already has access to the folders opened in it, so the extension keeps reading projects
+  // in macOS cloud storage (OneDrive, Dropbox…) — only the desktop app / standalone server skips
+  // them (src/projectAccess.ts).
+  configureProjectAccess({ host: 'extension' })
   outputChannel = vscode.window.createOutputChannel('TraceRoost')
   context.subscriptions.push(outputChannel)
   DashboardPanel.log = (msg) => outputChannel?.appendLine(msg)

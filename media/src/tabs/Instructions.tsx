@@ -46,7 +46,7 @@ interface AppliedRecord {
 // All keyed by workspace: the standalone dashboard shows every repo's suggestions at once, and the
 // same suggestion id (behavior:high_turns, …) can be applied in one repo and pending in another.
 
-interface WorkspaceFiles { files: InstructionFile[]; missing: boolean }
+interface WorkspaceFiles { files: InstructionFile[]; missing: boolean; cloudStorage?: boolean }
 export const instructionFilesByWorkspace = signal<Record<string, WorkspaceFiles>>({})
 /** The open folder's instruction files (extension) — what the Advisor's cost-saving list reads. */
 export const instructionFiles = computed<InstructionFile[]>(() =>
@@ -63,7 +63,7 @@ export function receiveInstructionMessage(msg: Record<string, unknown>): void {
     if (ws === null) return
     instructionFilesByWorkspace.value = {
       ...instructionFilesByWorkspace.value,
-      [ws]: { files: msg.files as InstructionFile[], missing: msg.missing === true },
+      [ws]: { files: msg.files as InstructionFile[], missing: msg.missing === true, cloudStorage: msg.cloudStorage === true },
     }
   } else if (msg.type === 'appliedSuggestions' && Array.isArray(msg.records)) {
     const records = msg.records as AppliedRecord[]
@@ -511,6 +511,9 @@ interface WorkspaceView {
   files: InstructionFile[]
   /** The host reports this folder no longer exists on disk. */
   missing: boolean
+  /** The host doesn't read this folder: it's in macOS cloud storage (standalone/desktop only,
+   *  src/projectAccess.ts) — suggestions can't be applied, and existing files aren't known. */
+  cloudStorage: boolean
   pending: SuggestionCard[]
   applied: AppliedRecord[]
 }
@@ -538,7 +541,7 @@ function workspaceView(workspace: string, sessions: SessionSummaryCard[]): Works
   const existingText = allFiles.map(f => f.content).join('\n')
   const pending = generateSuggestions(sessions, existingText)
     .filter(s => !appliedIds.has(s.id) && !dismissed?.has(s.id))
-  return { workspace, sessions, files, missing: entry?.missing === true, pending, applied }
+  return { workspace, sessions, files, missing: entry?.missing === true, cloudStorage: entry?.cloudStorage === true, pending, applied }
 }
 
 const viewTraces = (ids: Set<string>) => {
@@ -775,7 +778,7 @@ function toggleCollapsed(workspace: string): void {
 }
 
 function WorkspaceGroup({ view, canApply, highlight }: { view: WorkspaceView; canApply: boolean; highlight: boolean }) {
-  const { workspace, missing, pending, applied, sessions } = view
+  const { workspace, missing, cloudStorage, pending, applied, sessions } = view
   const info = repoInfo.value
   const collapsed = collapsedWorkspaces.value.has(workspace)
   const sort = repoSort.value
@@ -790,6 +793,7 @@ function WorkspaceGroup({ view, canApply, highlight }: { view: WorkspaceView; ca
   const note = !workspace
     ? 'These traces recorded no repo folder, so their suggestions are for reference only.'
     : missing ? 'This folder no longer exists on this machine, so suggestions can\'t be applied here.'
+    : cloudStorage ? 'This folder is in OneDrive, Dropbox, Google Drive or Box, which TraceRoost doesn\'t read (macOS would ask for access), so its instruction files aren\'t checked and suggestions can\'t be applied here. Turn on Settings → Projects in cloud storage to include it.'
     : null
   return (
     <section
@@ -827,10 +831,10 @@ function WorkspaceGroup({ view, canApply, highlight }: { view: WorkspaceView; ca
       </button>
       {!collapsed && (
         <div id={bodyId}>
-          {canApply && !missing && <FileStatusBar files={view.files} />}
+          {canApply && !missing && !cloudStorage && <FileStatusBar files={view.files} />}
           <div style="padding:10px 12px 2px">
             {note && <div style={noteStyle}>{note}</div>}
-            <WorkspaceSuggestions view={view} canApply={canApply && !!workspace && !missing} repoPill={false} />
+            <WorkspaceSuggestions view={view} canApply={canApply && !!workspace && !missing && !cloudStorage} repoPill={false} />
           </div>
         </div>
       )}

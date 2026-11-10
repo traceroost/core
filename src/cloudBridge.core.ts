@@ -12,6 +12,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import type { CloudBridge } from './cloudBridge'
 import { NOT_AVAILABLE_IN_CORE } from './edition'
+import { mayTouchProject } from './projectAccess'
 import { deriveRepoKey, repoHash } from './repoKey'
 import { toUuid } from './traceIdentity'
 
@@ -54,7 +55,7 @@ export const cloudBridge: CloudBridge = {
   describeRepo: async (workspace) => {
     const rk = await deriveRepoKey(workspace, 'unlinked-preview')
     if (rk.ok) return { root: rk.ctx.root, hash: repoHash(rk.ctx) }
-    if (rk.reason === 'not-a-repo') return null
+    if (rk.reason === 'not-a-repo' || !mayTouchProject(workspace)) return null
     // Not keyable (e.g. a shallow clone has no root commit) — still show the repo's name.
     try {
       const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], { cwd: workspace, timeout: 5000 })

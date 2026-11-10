@@ -3,6 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { Span } from '../types'
 import type { EditDetail } from './summarizerTypes'
+import { mayTouchProject } from '../projectAccess'
 
 export const CLAUDE_WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 export const FULL_WRITE_TOOLS   = new Set(['Write', 'create_file'])  // whole-file replacement
@@ -74,6 +75,9 @@ export function commonPathPrefix(paths: string[], platform: NodeJS.Platform = pr
 export function findProjectRoot(startDir: string, homeDir: string = os.homedir()): string {
   // path.isAbsolute, not startsWith('/'): on Windows a session directory is `C:\…`.
   if (!startDir || !path.isAbsolute(startDir)) { return startDir }
+  // A macOS cloud-storage folder (src/projectAccess.ts) isn't walked for markers: the common
+  // prefix of the session's files stands as its folder.
+  if (!mayTouchProject(startDir)) { return startDir }
   let dir = startDir
   for (;;) {
     if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json'))) {

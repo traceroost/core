@@ -29,6 +29,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { createOutcomeRepoCache, type RepoTips } from '../gitOutcome'
 import type { ReconciliationService, ReconcileInput } from './reconciliationService'
+import { mayTouchProject } from '../projectAccess'
 
 export interface WatchableSession {
   sessionId: string
@@ -189,7 +190,7 @@ export function startBackgroundReconciliation(deps: BackgroundWatcherDeps): Back
   function ensureWatched(root: string): void {
     // A pass that was mid-flight (awaiting a repo-root lookup) when dispose() ran must not open a
     // watcher nothing will ever close.
-    if (disposed || knownRoots.has(root)) return
+    if (disposed || knownRoots.has(root) || !mayTouchProject(root)) return
     knownRoots.add(root)
     const watchers: fs.FSWatcher[] = []
     try {

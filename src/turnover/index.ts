@@ -25,6 +25,7 @@ import type { Confidence } from '../attribution/types'
 import { buildCohorts, isWindowElapsed, measurableAt, type Cohort } from './cohorts'
 import { survivalAt, survivingAiLines, type SurvivalIndex, type FileBlameCache } from './survival'
 import { benchmarkFor, benchmarkVerdict } from './benchmarks'
+import { mayTouchProject } from '../projectAccess'
 
 /** Coarse stages a caller (a progress UI) can show while a turnover report is computed. */
 export type TurnoverStage = 'attributing' | 'blaming'
@@ -115,6 +116,7 @@ export interface ComputeTurnoverOptions extends Omit<AttributeOptions, 'onProgre
 const execFileAsync = promisify(execFile)
 
 async function gitOut(cwd: string, args: string[]): Promise<string | null> {
+  if (!mayTouchProject(cwd)) return null
   try {
     const { stdout } = await execFileAsync('git', args, { cwd, timeout: 15_000, maxBuffer: 64 * 1024 * 1024 })
     return stdout

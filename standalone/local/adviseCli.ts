@@ -61,7 +61,13 @@ async function runApply(workspace: string, idOrHash: string, afterApply?: AfterA
     return 1
   }
 
-  const target = defaultInstructionTarget(detectInstructionFiles(workspace), sessions.map(s => s.source))
+  const files = detectInstructionFiles(workspace)
+  if (files.length === 0) {
+    // Only a folder TraceRoost may not touch (src/projectAccess.ts) has no candidates at all.
+    console.log('This repo is in macOS cloud storage, which TraceRoost doesn\'t read unless readCloudStorageProjects is true in ~/.traceroost/config.json.')
+    return 1
+  }
+  const target = defaultInstructionTarget(files, sessions.map(s => s.source))
 
   console.log(`\nWill append to ${target.relativePath}:\n`)
   console.log('  ' + card.suggestedText.split('\n').join('\n  ') + '\n')

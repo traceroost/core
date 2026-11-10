@@ -5,6 +5,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
+import { mayTouchProject, ProjectAccessSkipped } from './projectAccess'
 
 export interface InstructionFileStatus {
   /** The agent this file is listed under (its primary reader). */
@@ -42,7 +43,11 @@ const INSTRUCTION_FILE_DEFS: Array<{
   { agent: 'cursor', agents: ['cursor'], label: 'Cursor', relative: CURSOR_RULE_FILE },
 ]
 
+/** Every instruction file TraceRoost knows for `workspaceRoot`, present or not. Empty — "not
+ *  available", nothing to show or apply — for a folder TraceRoost must not touch (a macOS
+ *  cloud-storage path in the desktop app / standalone server, src/projectAccess.ts). */
 export function detectInstructionFiles(workspaceRoot: string): InstructionFileStatus[] {
+  if (!mayTouchProject(workspaceRoot)) return []
   return INSTRUCTION_FILE_DEFS.map(def => {
     // Check primary path first, then alternates
     const candidates = [def.relative, ...(def.alternates ?? [])]
@@ -114,6 +119,7 @@ function endMarkerFor(label: string): string {
  *  — a new Cursor `.mdc` rule starting with the frontmatter that makes Cursor always apply it. The block is bracketed by a start marker and an explicit end marker, so removeSuggestion can take
  *  out exactly this block and never anything the user wrote after it. */
 export function appendSuggestion(filePath: string, text: string, label: string): void {
+  if (!mayTouchProject(filePath)) throw new ProjectAccessSkipped()
   const dir = path.dirname(filePath)
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
@@ -133,6 +139,7 @@ export function appendSuggestion(filePath: string, text: string, label: string):
  *   delete user text written below it.
  */
 export function removeSuggestion(filePath: string, label: string, appliedText?: string): boolean {
+  if (!mayTouchProject(filePath)) throw new ProjectAccessSkipped()
   if (!fs.existsSync(filePath)) return false
   let content: string
   try { content = fs.readFileSync(filePath, 'utf8') } catch { return false }

@@ -486,6 +486,62 @@ export function DashboardPortSetting() {
   )
 }
 
+interface CloudStorageProjectsInfo {
+  applicable: boolean
+  readCloudStorageProjects: boolean
+  skippedProviders: string[]
+}
+
+/** Settings → Projects in cloud storage (standalone on macOS only — the VS Code extension always
+ *  reads them). config.json's `readCloudStorageProjects`; see src/projectAccess.ts. */
+export function CloudStorageProjectsSetting() {
+  const [info, setInfo] = useState<CloudStorageProjectsInfo | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/cloud-storage-projects')
+      .then(r => r.json())
+      .then((d: CloudStorageProjectsInfo) => setInfo(d))
+      .catch(() => { /* older server or offline — the row just doesn't show */ })
+  }, [])
+
+  if (!info || !info.applicable) return null
+
+  function change(enabled: boolean) {
+    setBusy(true)
+    setError(null)
+    fetch('/action', { method: 'POST', body: JSON.stringify({ type: 'setReadCloudStorageProjects', enabled }),
+      headers: { 'Content-Type': 'application/json' } })
+      .then(r => r.json())
+      .then((res: { ok: boolean; enabled?: boolean; error?: string }) => {
+        if (!res.ok || typeof res.enabled !== 'boolean') setError(res.error ?? 'The setting could not be changed.')
+        else setInfo({ ...info!, readCloudStorageProjects: res.enabled })
+        setBusy(false)
+      })
+      .catch(e => { setError(String(e)); setBusy(false) })
+  }
+
+  const skipped = !info.readCloudStorageProjects && info.skippedProviders.length > 0
+  return (
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border)" data-setting="cloud-storage-projects">
+      <ToggleRow
+        label="Projects in cloud storage"
+        description="Run git in and read files from projects in OneDrive, Dropbox, Google Drive or Box (including a OneDrive-backed Documents or Desktop folder). Off: their traces still show, without git outcome, repo name or instruction-file checks — macOS would ask to let TraceRoost access files managed by the provider."
+        checked={info.readCloudStorageProjects}
+        onChange={v => { if (!busy) change(v) }}
+      />
+      {skipped && (
+        <div style="font-size:11px;color:var(--muted)">Skipped so far: {info.skippedProviders.join(', ')}</div>
+      )}
+      {error && <div role="alert" style="font-size:11px;color:var(--vscode-testing-iconFailed,#f44);margin-top:6px">{error}</div>}
+      <div style="font-size:var(--fs-xs);color:var(--muted);margin-top:4px">
+        Saved as <code style={codeStyle}>readCloudStorageProjects</code> in <code style={codeStyle}>~/.traceroost/config.json</code>.
+      </div>
+    </div>
+  )
+}
+
 export function McpToggle() {
   const w = window as unknown as Record<string, unknown>
   const [enabled, setEnabled] = useState(typeof w.__MCP_ENABLED__ === 'boolean' ? w.__MCP_ENABLED__ as boolean : true)
