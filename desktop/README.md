@@ -77,7 +77,8 @@ pnpm run smoke       # launch the packaged app for this architecture and check i
 by [electron-builder](https://www.electron.build) with [`electron-builder.cjs`](electron-builder.cjs),
 then [`scripts/checksums.mjs`](scripts/checksums.mjs). The version on the artifact is the
 collector's version from the repo root's `package.json`; `desktop/package.json`'s own version is
-not consulted.
+not consulted. Packaging the macOS app needs **Xcode 26** (its `actool`): the app icon is an Icon
+Composer document, `build/icon.icon`, which electron-builder compiles (CI packs on `macos-26`).
 
 What goes into the `.app`:
 
@@ -85,7 +86,7 @@ What goes into the `.app`:
 | --- | --- |
 | `app.asar` | `out/main.js` and `package.json` — the main process, and nothing else |
 | `collector/` | the staged tree: `standalone/server.js`, `media/…`, `package.json`, `node_modules/sql.js/`, and in the full edition `schema/rollup.v1.json` |
-| `icon.icns` | the app icon (Dock, Finder, About box; also the DMG's volume icon): the glyph on its teal tile, built by `iconutil` in [`scripts/make-icons.mjs`](scripts/make-icons.mjs) |
+| `Assets.car`, `icon.icns` | the app icon, compiled by electron-builder (Xcode 26's `actool`) from `build/icon.icon`, an Icon Composer document [`scripts/make-icon-composer.mjs`](scripts/make-icon-composer.mjs) writes from `media/favicon.svg`. macOS 26 reads `Assets.car` (`CFBundleIconName`) and draws our own look for each icon style: teal tile with a dark bird, or in Dark a dark tile with a teal bird, instead of restyling an `.icns`-only icon on its own. Older macOS, Finder's About box and the DMG's volume icon use `icon.icns`. `build/icon.icns` ([`scripts/make-icons.mjs`](scripts/make-icons.mjs), `iconutil`) stays the committed tile the `.icon` mirrors |
 | `tray/` | the menu bar template icons |
 | `LICENSE`, `THIRD_PARTY_NOTICES.md` | this project's license; every bundled package's license and text |
 | `NOTICE.md`, `LICENSE-BSL-1.1` | full edition only: which code is under which license, and the Business Source License of the TraceRoost Cloud code the collector carries |

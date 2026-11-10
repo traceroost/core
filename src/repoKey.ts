@@ -43,6 +43,7 @@ import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import { recordAction } from './actionLog'
+import { mayTouchProject } from './projectAccess'
 
 const execFileAsync = promisify(execFile)
 
@@ -92,6 +93,9 @@ export type RepoKeyResult =
  * papered over with a hash that matches nothing.
  */
 export async function deriveRepoKey(workspace: string, orgId: string): Promise<RepoKeyResult> {
+  // A macOS cloud-storage folder (src/projectAccess.ts) has no repo identity from git — reported
+  // like a folder that isn't a repo, never with a hash that matches nothing.
+  if (!mayTouchProject(workspace)) return { ok: false, reason: 'not-a-repo' }
   const lookup = await lookupRoot(workspace)
   if (!lookup.ok) return lookup
   const key = Buffer.from(
@@ -133,6 +137,7 @@ async function lookupRootUncached(workspace: string): Promise<RootLookup> {
 // leaves as-is. A path that doesn't exist (a deleted file) resolves its nearest existing ancestor.
 function realpathBestEffort(p: string): string {
   const abs = path.resolve(p)
+  if (!mayTouchProject(abs)) return abs
   const rest: string[] = []
   for (let dir = abs; ; dir = path.dirname(dir)) {
     try {

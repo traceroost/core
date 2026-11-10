@@ -18,6 +18,8 @@
  * session, not a compliance audit trail — nothing here is persisted across a restart.
  */
 
+import { assertMayTouchProject } from './projectAccess'
+
 const MAX_HISTORY = 200
 
 export interface ActionLogEntry {
@@ -92,8 +94,14 @@ export function getActionLogHistory(): ActionLogEntry[] {
 
 /** Wraps one shell-out with start/end recording. Call sites pass their own plain-English `gloss`
  *  (or null) and the raw command line they're about to run, plus the async work itself — this
- *  keeps the try/finally bookkeeping in one place rather than duplicated at every call site. */
+ *  keeps the try/finally bookkeeping in one place rather than duplicated at every call site.
+ *
+ *  Rejects with ProjectAccessSkipped, without running `fn` or recording anything, when `cwd` is a
+ *  project folder TraceRoost must not touch (a macOS cloud-storage path in the desktop app /
+ *  standalone server — src/projectAccess.ts). Every git call site routed through here already
+ *  treats a rejection as "not available", so a new one is covered without its own check. */
 export async function recordAction<T>(cwd: string, gloss: string | null, raw: string, fn: () => Promise<T>): Promise<T> {
+  assertMayTouchProject(cwd)
   const id = nextId++
   const entry: ActionLogEntry = { id, cwd, gloss, raw, startedAt: Date.now(), finishedAt: null, failed: false }
   running.set(id, entry)

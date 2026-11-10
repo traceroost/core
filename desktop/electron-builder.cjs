@@ -205,9 +205,13 @@ module.exports = {
       { from: 'node_modules/electron/dist/LICENSES.chromium.html', to: 'LICENSES.chromium.html' },
     ],
     category: 'public.app-category.developer-tools',
-    // The tile as a ready-made .icns (scripts/make-icons.mjs): the builder's own PNG conversion
-    // garbles the 16 and 32 px frames. Also becomes the DMG's volume icon.
-    icon: 'build/icon.icns',
+    // An Icon Composer icon (scripts/make-icon-composer.mjs) with its own light and dark looks:
+    // macOS 26 otherwise restyles an .icns-only app in Dark / Clear / Tinted icon style (it drew a
+    // black tile with a grey bird). The builder compiles it with Xcode 26's actool into Assets.car
+    // (CFBundleIconName) and the icon.icns older macOS and the DMG volume use, so building the
+    // macOS app needs Xcode 26 (CI: macos-26). build/icon.icns (scripts/make-icons.mjs) stays the
+    // committed tile the .icon mirrors.
+    icon: 'build/icon.icon',
     // Architectures come from the command line (`--arm64 --x64`, or none for the host's), so a
     // developer's quick local build and CI's two-architecture build share this one config. A DMG
     // per architecture rather than one universal app, which would double every download.

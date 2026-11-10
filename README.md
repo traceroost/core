@@ -372,7 +372,7 @@ The same local collector and dashboard as a normal desktop app with a menu bar /
 | Windows 10/11 (x64, arm64) | `TraceRoost-<version>-win-x64.exe` / `-win-arm64.exe` (installer) | installs for your user only, no administrator needed. The builds are not code-signed, so SmartScreen warns on first run: **More info → Run anyway** |
 | macOS 12+ (Apple Silicon, Intel) | `TraceRoost-<version>-mac-arm64.dmg` / `-mac-x64.dmg` | open the DMG and drag TraceRoost to Applications. The builds are signed and notarized |
 
-It uses the same `~/.traceroost` data and settings as `npx traceroost` and the background service, and uses a running background service instead of starting a second collector. Check a download with the release's `TraceRoost-desktop-<version>-SHA256SUMS`. Details, including uninstalling: [desktop/README.md](desktop/README.md).
+It uses the same `~/.traceroost` data and settings as `npx traceroost` and the background service, and uses a running background service instead of starting a second collector. On macOS it doesn't open projects kept in OneDrive, Dropbox, Google Drive or Box unless you turn that on — see [Projects in OneDrive, Dropbox, Google Drive or Box](#projects-in-onedrive-dropbox-google-drive-or-box-macos). Check a download with the release's `TraceRoost-desktop-<version>-SHA256SUMS`. Details, including uninstalling: [desktop/README.md](desktop/README.md).
 
 ### Docker (OTel only)
 
@@ -724,6 +724,25 @@ other dev servers. To move TraceRoost to another port:
 Agents aren't affected: they send to the OTLP port (4318) and use the MCP port (4316), which stay
 the same. Bookmarks to the old address stop working. In Docker the port is the `-p <port>:3000`
 mapping on `docker run`.
+
+### Projects in OneDrive, Dropbox, Google Drive or Box (macOS)
+
+TraceRoost never scans your disk, but it follows each agent session into its project folder to run
+`git` (did the change get committed or merged, which repo is it) and read a few files (CLAUDE.md,
+AGENTS.md, package.json). On macOS, a folder under `~/Library/CloudStorage/` — OneDrive, Dropbox,
+Google Drive, Box — makes macOS ask *"TraceRoost.app" wants to access files managed by "OneDrive -
+…"* the first time anything touches it. With OneDrive's Desktop & Documents backup on, `~/Desktop`
+and `~/Documents` live there too.
+
+So the desktop app, `npx traceroost` and the background service leave those folders alone by
+default. Traces from such projects still appear — they come from the agents' own logs — but
+without a git outcome, AI attribution and turnover, the repo name from git, or instruction-file
+checks; those read as not available, the same as for a folder that isn't a git repository. The
+server log says once per provider which one it skipped. To include them, turn on **Settings →
+Projects in cloud storage** (gear icon, macOS only), or add `"readCloudStorageProjects": true` to
+`~/.traceroost/config.json` and restart; macOS then asks once, and your answer sticks. iCloud Drive
+(`~/Library/Mobile Documents`) never asks and is always read. The VS Code extension isn't
+affected: VS Code already has access to the folders you open in it.
 
 ### Docker (OTel only)
 

@@ -8,6 +8,7 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { recordAction } from '../actionLog'
+import { mayTouchProject } from '../projectAccess'
 import { scanCommits, isShallow, repoRootOf } from './commitScan'
 import { joinCommitToSessions, DEFAULT_LOOKBACK_HOURS } from './sessionJoin'
 import { countLinesIntroducedByCommit } from './blame'
@@ -61,6 +62,8 @@ async function localGitEmail(repoRoot: string): Promise<string | null> {
 }
 
 export async function attributeRepository(workspace: string, opts: AttributeOptions = {}): Promise<AttributionResult> {
+  // A macOS cloud-storage folder (src/projectAccess.ts): not available, like a non-repo.
+  if (!mayTouchProject(workspace)) return emptyResult('', 'not-a-repo')
   const repoRoot = await repoRootOf(workspace)
   if (!repoRoot) return emptyResult('', 'not-a-repo')
   if (await isShallow(repoRoot)) return emptyResult(repoRoot, 'shallow-clone')

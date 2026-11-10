@@ -4,6 +4,8 @@ import * as os from 'os'
 import * as path from 'path'
 import { handleInstructionMessage, knownWorkspace, loadInstructionState, saveInstructionState, type InstructionHost, type InstructionState } from './instructionActions'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
+import { createCloudStoragePredicate } from '../src/cloudStoragePaths'
+import { configureProjectAccess, resetProjectAccessForTests } from '../src/projectAccess'
 
 suite('standalone instruction actions', () => {
   let dir: string
@@ -247,5 +249,28 @@ suite('standalone instruction actions', () => {
     assert.strictEqual(names.length, 2, names.join(','))
     assert.ok(names.some(n => n.startsWith(`${path.basename(stateFile)}.corrupt-`)), names.join(','))
     if (process.platform !== 'win32') assert.strictEqual(fs.statSync(stateFile).mode & 0o777, 0o600)
+  })
+
+  // Uses the temp dir as a macOS home, so it needs POSIX paths — skipped on Windows (darwin-only guard).
+  ;(process.platform === 'win32' ? test.skip : test)('a project in macOS cloud storage is listed as cloudStorage and never applied to, without being stat\'d', () => {
+    // The temp dir stands in for the home directory; `repo` lives under its Library/CloudStorage.
+    const cloudWs = path.join(dir, 'Library', 'CloudStorage', 'OneDrive-Acme', 'repo')
+    const lstatCalls: string[] = []
+    const predicate = createCloudStoragePredicate({
+      platform: 'darwin', home: dir,
+      fs: { lstatSync: p => { lstatCalls.push(p); return { isSymbolicLink: () => false } }, readlinkSync: () => { throw new Error('not a link') } },
+    })
+    configureProjectAccess({ host: 'standalone', predicate, home: dir, log: () => {} })
+    try {
+      const list = handleInstructionMessage({ type: 'getInstructionFiles', workspace: cloudWs }, host([cloudWs]))
+      assert.deepStrictEqual(list.messages, [{ type: 'instructionFiles', workspace: cloudWs, files: [], cloudStorage: true }])
+      const r = handleInstructionMessage(apply({ workspace: cloudWs }), host([cloudWs]))
+      assert.strictEqual(r.status, 409)
+      assert.match(r.error ?? '', /cloud storage/)
+      assert.ok(!fs.existsSync(cloudWs), 'nothing created there')
+      assert.deepStrictEqual(lstatCalls, [])
+    } finally {
+      resetProjectAccessForTests()
+    }
   })
 })

@@ -17,6 +17,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { recordAction, onRunningActionsChanged } from './actionLog'
+import { mayTouchProject } from './projectAccess'
 
 const execFileAsync = promisify(execFile)
 
@@ -119,6 +120,7 @@ async function runGitDetailed(cwd: string, args: string[]): Promise<{ stdout: st
  *  resolve a session's repo root once to decide which `.git` directory to watch — independent of
  *  classifySessionOutcome's per-file work. */
 async function findRepoRoot(workspace: string): Promise<string | null> {
+  if (!mayTouchProject(workspace)) return null
   const out = await runGit(workspace, ['rev-parse', '--show-toplevel'])
   return out?.trim() || null
 }
@@ -321,9 +323,12 @@ export async function resolveOutcomeCacheKey(workspace: string, filesChanged: st
   // `cache` memoizes only which repo and which trunk branch (as classifySessionOutcome's does) —
   // the file and trunk-tip shas below are always read fresh (or, with `opts`, once per pass), so
   // the key still moves on a commit.
+  // A macOS cloud-storage folder (src/projectAccess.ts) is "nothing to classify", like a non-repo.
+  if (!mayTouchProject(workspace)) return null
   const root = cache ? await cache.root(workspace) : await findRepoRoot(workspace)
   if (!root) return null
   const relPaths = filesChanged
+    .filter(absPath => mayTouchProject(absPath))
     .map(absPath => relativeToRoot(root, absPath))
     .filter((p): p is string => p !== null)
     .sort()
@@ -367,6 +372,8 @@ export async function resolveOutcomeCacheKey(workspace: string, filesChanged: st
 // leaves as-is. A path that doesn't exist (a deleted file) resolves its nearest existing ancestor.
 function realpathBestEffort(p: string): string {
   const abs = path.resolve(p)
+  // Never realpath into a folder TraceRoost must not touch (src/projectAccess.ts).
+  if (!mayTouchProject(abs)) return abs
   const rest: string[] = []
   for (let dir = abs; ; dir = path.dirname(dir)) {
     try {
@@ -400,8 +407,10 @@ function relativeToRoot(root: string, absPath: string): string | null {
 
 // Content of `relPath` right now: working tree if present on disk, else HEAD, else null.
 function currentContentOnDisk(root: string, relPath: string): string | null {
+  const abs = path.join(root, relPath)
+  if (!mayTouchProject(abs)) return null
   try {
-    return fs.readFileSync(path.join(root, relPath), 'utf-8')
+    return fs.readFileSync(abs, 'utf-8')
   } catch {
     return null
   }
@@ -531,6 +540,11 @@ async function resolveFileRepoGroups(
  * computed-but-inconclusive result.
  */
 export async function classifySessionOutcome(workspace: string, filesChanged: string[], cache?: OutcomeRepoCache): Promise<GitOutcome | null> {
+  // A project in macOS cloud storage, in the desktop app / standalone server, is "not applicable"
+  // (src/projectAccess.ts) — never stat'd, never git'd, never 'abandoned'. Its files are dropped
+  // here too, so a multi-repo session never discovers a repo root inside one.
+  if (!mayTouchProject(workspace)) return null
+  filesChanged = filesChanged.filter(absPath => mayTouchProject(absPath))
   if (filesChanged.length === 0) return null
 
   const groups = await resolveFileRepoGroups(workspace, filesChanged, cache)

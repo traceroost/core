@@ -111,8 +111,9 @@ jobs:
     # Apple Silicon runner. The x64 app is cross-built on it (electron-builder downloads the x64
     # Electron; the app has no native modules), so both artifacts come out of one job. Only the
     # arm64 app is launched for the smoke test — running the x64 one here would go through Rosetta,
-    # which is not the same as validating it on an Intel Mac.
-    runs-on: macos-15
+    # which is not the same as validating it on an Intel Mac. macos-26 for Xcode 26: the app icon is
+    # an Icon Composer .icon that electron-builder compiles with its actool (electron-builder.cjs).
+    runs-on: macos-26
     timeout-minutes: 45
     # Release tags only; an empty name is no environment (see the header).
     environment: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) && 'desktop-release' || '' }}

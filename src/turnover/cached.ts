@@ -15,6 +15,7 @@ import type { AttributionCache } from '../attribution'
 import type { AttributionSession } from '../attribution/types'
 import type { FileBlameCache } from './survival'
 import { recordAction } from '../actionLog'
+import { mayTouchProject } from '../projectAccess'
 
 const execFileAsync = promisify(execFile)
 
@@ -57,6 +58,11 @@ export function turnoverCacheKey(head: string, nowMs: number, sessions: Attribut
  *  measured result whose measurement commit hasn't changed (see `ComputeTurnoverOptions.previous`)
  *  and every commit attribution in `attributionCache`, and persists. */
 export async function computeTurnoverCached(workspace: string, deps: CachedTurnoverDeps): Promise<TurnoverReport> {
+  // A macOS cloud-storage folder (src/projectAccess.ts): not available, and the stored report is
+  // left as it was rather than overwritten with an empty one.
+  if (!mayTouchProject(workspace) || !mayTouchProject(deps.repoRoot)) {
+    return { repoRoot: '', headSha: null, results: [], coverage: { attributedLines: 0, totalMergedLines: 0 }, unavailable: 'not-a-repo' }
+  }
   const currentHead = await headSha(deps.repoRoot)
   const key = currentHead ? turnoverCacheKey(currentHead, deps.now ?? Date.now(), deps.sessions) : null
   const cached = deps.turnoverRepo.load()

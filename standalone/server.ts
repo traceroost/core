@@ -55,6 +55,7 @@ import { TraceHorizon, evictionFloorMs } from '../src/traceHorizon'
 import { HistoryReadiness } from '../src/historyReadiness'
 import { isSameOrInsideWorkspace } from '../src/workspacePath'
 import { resolveGithubUrl } from '../src/repoRemote'
+import { configureProjectAccess, setReadCloudStorageProjects, projectAccessStatus } from '../src/projectAccess'
 import {
   isAllowedHostHeader, isAllowedOrigin, isAllowedOtlpContentType, isAuthorized, isJsonContentType, isLoopbackHost,
   isSameOriginRequest,
@@ -96,6 +97,11 @@ if (!process.env.TRACEROOST_RELEASE_BUILD) loadDotenv({ quiet: true })
 // set, matching this server's behavior before the config file existed. ensureAuthToken generates
 // and persists a bearer token the first time this runs with none set yet.
 const fileConfig = ensureInstallId(ensureAuthToken(readServiceConfig(undefined, m => console.warn(m))))
+// This process is the desktop app's collector, the background service, or an `npx traceroost`
+// run: on macOS it leaves projects in cloud storage (OneDrive, Dropbox, Google Drive, Box) alone
+// unless config.json says otherwise — see src/projectAccess.ts. Set before anything reads a
+// session's folder.
+configureProjectAccess({ host: 'standalone', readCloudStorageProjects: fileConfig.readCloudStorageProjects === true, log: m => console.log(m) })
 /** Days of log-sourced history this server keeps (standalone/sessionRetention.ts); `sessionRetentionDays`
  *  in ~/.traceroost/config.json, default 90 like the editor's `traceRoost.sessionRetentionDays`. */
 const SESSION_RETENTION_DAYS = Number.isFinite(fileConfig.sessionRetentionDays) ? fileConfig.sessionRetentionDays : 90
@@ -1824,6 +1830,11 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
           await answerAgentSetup(answer, resolvedPorts.otlp ?? OTLP_PORT)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true }))
+        } else if (body.type === 'setReadCloudStorageProjects') {
+          const result = setCloudStorageProjects((body as { enabled?: unknown }).enabled)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(result))
+          return
         } else if (body.type === 'setDashboardPort') {
           const result = await setDashboardPort((body as { port?: unknown }).port)
           res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -1902,6 +1913,12 @@ function handleUiRequest(req: http.IncomingMessage, res: http.ServerResponse): v
   if (req.method === 'GET' && url === '/api/adapter-health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ ...health.export(), files: {} }))
+    return
+  }
+
+  if (req.method === 'GET' && url === '/api/cloud-storage-projects') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(projectAccessStatus()))
     return
   }
 
@@ -2179,6 +2196,26 @@ const uiServer = http.createServer(handleUiRequest)
 /** The listener serving the dashboard now. Starts as `uiServer`; a Settings → Dashboard port move
  *  (setDashboardPort below) replaces it with a new listener sharing handleUiRequest. */
 let activeUiServer = uiServer
+
+// ── Settings → Projects in cloud storage ──────────────────────────────────────
+//
+// config.json's readCloudStorageProjects (src/projectAccess.ts), changed from the dashboard. Takes
+// effect at once: the next outcome/repo/instruction check of a cloud-storage project reads it
+// (nothing "not available" was persisted for one), and the repo-name cache is dropped so the
+// Traces table re-asks.
+
+function setCloudStorageProjects(value: unknown): { ok: true; enabled: boolean } | { ok: false; error: string } {
+  if (typeof value !== 'boolean') return { ok: false, error: 'enabled must be true or false' }
+  try {
+    writeServiceConfig({ ...readServiceConfig(), readCloudStorageProjects: value })
+  } catch (e) {
+    return { ok: false, error: `Couldn't save the setting to ~/.traceroost/config.json: ${(e as Error).message}` }
+  }
+  setReadCloudStorageProjects(value)
+  repoInfoCache.clear()
+  console.log(`[TraceRoost] ${value ? 'Reading' : 'Skipping'} projects in macOS cloud storage (Settings → Projects in cloud storage).`)
+  return { ok: true, enabled: value }
+}
 
 // ── Settings → Dashboard port ─────────────────────────────────────────────────
 //

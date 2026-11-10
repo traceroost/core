@@ -22,6 +22,7 @@ import { LoopSignal } from './types'
 import { SessionSummaryCard } from './spanSummarizer'
 import { PATTERN_NAMES, LOOP_SIGNAL_ACTIONS } from './loopDetector'
 import { signalStep, withSteps, firstLine, plural } from './signalEvidence'
+import { mayTouchProject } from './projectAccess'
 
 // ── Detector: failed check submission ────────────────────────────────────────
 
@@ -356,7 +357,8 @@ function jsPackageResolves(
  * against at all — silence, not a claim of cleanliness.
  */
 export function detectHallucinatedImports(session: SessionSummaryCard, workspaceRoot: string): LoopSignal | null {
-  if (!workspaceRoot) { return null }
+  // A macOS cloud-storage folder (src/projectAccess.ts): its manifests aren't read, so no verdict.
+  if (!workspaceRoot || !mayTouchProject(workspaceRoot)) { return null }
 
   const jsDeps = readJsManifestDeps(workspaceRoot)
   const pyDeps = readPythonManifestDeps(workspaceRoot)
@@ -385,7 +387,7 @@ export function detectHallucinatedImports(session: SessionSummaryCard, workspace
     if (!entry.editDetails) { continue }
     for (const detail of entry.editDetails) {
       const code = detail.newString || detail.content || ''
-      if (!code || !detail.filePath) { continue }
+      if (!code || !detail.filePath || !mayTouchProject(detail.filePath)) { continue }
       const ext = path.extname(detail.filePath).toLowerCase()
 
       if (jsDeps && JS_TS_EXTENSIONS.has(ext)) {

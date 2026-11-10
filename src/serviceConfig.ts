@@ -40,6 +40,12 @@ export interface ServiceConfig {
   /** Whether TraceRoost may set up the coding agents' telemetry (src/agentSetupConsent.ts) —
    *  absent until the user answers. Shared by the VS Code extension and the standalone server. */
   agentSetup?: 'yes' | 'no'
+  /** macOS only: whether the standalone server / desktop app may run git in and read files from
+   *  projects under `~/Library/CloudStorage` (OneDrive, Dropbox, Google Drive, Box — including a
+   *  OneDrive-backed `~/Documents`/`~/Desktop`). Absent/false: skipped, because the first access
+   *  makes macOS ask "wants to access files managed by …" (src/projectAccess.ts). Settings →
+   *  Projects in cloud storage writes it. The VS Code extension ignores it. */
+  readCloudStorageProjects?: boolean
 }
 
 /** Default for `sessionRetentionDays` — matches the editor setting's default in package.json. */
@@ -211,7 +217,7 @@ export function readPackageManifest(fromDir: string): { name?: string; version?:
 
 // ── CLI flag parsing ─────────────────────────────────────────────────────────
 
-const FLAG_TO_KEY: Record<string, Exclude<keyof ServiceConfig, 'agentSetup'>> = {
+const FLAG_TO_KEY: Record<string, Exclude<keyof ServiceConfig, 'agentSetup' | 'readCloudStorageProjects'>> = {
   '--ui-port':   'uiPort',
   '--otlp-port': 'otlpPort',
   '--mcp-port':  'mcpPort',

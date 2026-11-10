@@ -24,6 +24,7 @@ import type { AppliedSuggestion } from '../src/database/instructionRepository'
 import type { SessionSummaryCard } from '../src/summarizers/summarizerTypes'
 import { isStrictlyInside } from './pathGuard'
 import { writeFileAtomic, quarantineCorruptFile } from '../src/fsAtomic'
+import { mayTouchProject } from '../src/projectAccess'
 
 /** Largest request body the instruction routes accept (413 above it). A suggestion is a few
  *  hundred bytes of text; this leaves room for a hand-edited one without buffering anything huge. */
@@ -98,6 +99,8 @@ const unknownWorkspace = (workspace: string): InstructionResult =>
   fail(400, `TraceRoost: ${workspace} is not a workspace in the recorded sessions.`)
 const missingFolder = (workspace: string): InstructionResult =>
   fail(409, `TraceRoost: ${workspace} no longer exists on this machine.`)
+const CLOUD_STORAGE_REFUSAL = 'TraceRoost: This project is in macOS cloud storage (OneDrive, Dropbox, Google Drive or Box), which TraceRoost doesn\'t read unless you turn on Settings → Projects in cloud storage (readCloudStorageProjects in ~/.traceroost/config.json).'
+const cloudStorageFolder = (): InstructionResult => fail(409, CLOUD_STORAGE_REFUSAL)
 
 /** Newest first, like InstructionRepository.getApplied. */
 function appliedFor(state: InstructionState, workspace: string): AppliedSuggestion[] {
@@ -119,6 +122,9 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
   if (type === 'getInstructionFiles') {
     if (!workspace) return fail(400, 'workspace is required')
     if (!knownWorkspace(workspace, host.sessions())) return unknownWorkspace(workspace)
+    // A macOS cloud-storage folder (src/projectAccess.ts): not even stat'd — nothing to list, and
+    // the page says why and hides Apply.
+    if (!mayTouchProject(workspace)) return ok([{ type: 'instructionFiles', workspace, files: [], cloudStorage: true }])
     // A repo that has since been moved or deleted: nothing to list, and the page hides Apply.
     if (!folderExists(workspace)) return ok([{ type: 'instructionFiles', workspace, files: [], missing: true }])
     return ok([{ type: 'instructionFiles', workspace, files: detectInstructionFiles(workspace) }])
@@ -140,6 +146,7 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
     const targetFile = m.targetFile
     const appliedText = str(m.appliedText)
     if (!appliedText) return fail(400, 'appliedText is required')
+    if (!mayTouchProject(workspace)) return cloudStorageFolder()
     // Don't recreate a deleted repo's folder just to hold one instruction file.
     if (!folderExists(workspace)) return missingFolder(workspace)
     // targetFile must be one of the instruction files detected for this workspace (CLAUDE.md,
@@ -198,6 +205,7 @@ export function handleInstructionMessage(msg: unknown, host: InstructionHost): I
     if (!isStrictlyInside(workspace, applied.appliedTo)) {
       return fail(400, `TraceRoost: Refusing to remove suggestion — ${applied.appliedTo} is outside the workspace.`)
     }
+    if (!mayTouchProject(workspace)) return cloudStorageFolder()
     // The block can't be taken out of a file that isn't there (an unmounted drive, a moved repo);
     // keep the record rather than forget text that may still be in it.
     if (!folderExists(workspace)) return missingFolder(workspace)

@@ -7,11 +7,13 @@
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { mayTouchProject } from './projectAccess'
 
 const execFileAsync = promisify(execFile)
 const GIT_TIMEOUT_MS = 5000
 
 async function git(cwd: string, args: string[]): Promise<string | null> {
+  if (!mayTouchProject(cwd)) return null
   try {
     const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS })
     return stdout
