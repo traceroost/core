@@ -22,7 +22,9 @@ import { getActionLogHistory } from '../actionLog'
 
 type FsFn = (...args: unknown[]) => unknown
 
-suite('projectAccess — guarded entry points never touch a cloud-storage project', () => {
+// The fixture stands a real temp dir in for a macOS home directory, so it needs POSIX paths: on
+// Windows the temp dir is `C:\\…`, which no macOS path can be (the guard is darwin-only anyway).
+(process.platform === 'win32' ? suite.skip : suite)('projectAccess — guarded entry points never touch a cloud-storage project', () => {
   let home: string
   let repo: string
   let docsRepo: string

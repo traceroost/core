@@ -251,7 +251,8 @@ suite('standalone instruction actions', () => {
     if (process.platform !== 'win32') assert.strictEqual(fs.statSync(stateFile).mode & 0o777, 0o600)
   })
 
-  test('a project in macOS cloud storage is listed as cloudStorage and never applied to, without being stat\'d', () => {
+  // Uses the temp dir as a macOS home, so it needs POSIX paths — skipped on Windows (darwin-only guard).
+  ;(process.platform === 'win32' ? test.skip : test)('a project in macOS cloud storage is listed as cloudStorage and never applied to, without being stat\'d', () => {
     // The temp dir stands in for the home directory; `repo` lives under its Library/CloudStorage.
     const cloudWs = path.join(dir, 'Library', 'CloudStorage', 'OneDrive-Acme', 'repo')
     const lstatCalls: string[] = []
