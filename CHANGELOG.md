@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The macOS app icon stays the teal tile in macOS 26's Dark icon style** — 1.0.2's Dark look was a near-black tile with a teal bird, too far from the rest of TraceRoost's colours. Dark now shows the same teal tile with the dark bird as the Default style
+
 ## [1.0.2] — 2026-11-10
 
 ### Fixed
