@@ -69,7 +69,7 @@ suite('org/oauthClient — device flow, cap errors, roster summary', () => {
     const tls = Object.assign(new Error('self-signed certificate in certificate chain'), { code: 'SELF_SIGNED_CERT_IN_CHAIN' })
     globalThis.fetch = (async () => { throw new TypeError('fetch failed', { cause: tls }) }) as typeof fetch
     await assert.rejects(exchangeCode({ code: 'c', verifier: 'v', redirectUri: 'http://127.0.0.1/cb' }), (err: Error) => {
-      assert.match(err.message, /^link failed: could not reach [^ ]+ — fetch failed: self-signed certificate in certificate chain \(SELF_SIGNED_CERT_IN_CHAIN\)\./)
+      assert.match(err.message, /^link failed: could not reach [^ ]+ \(fetch failed: self-signed certificate in certificate chain \(SELF_SIGNED_CERT_IN_CHAIN\)\)\./)
       assert.match(err.message, /inspect HTTPS/)
       assert.strictEqual(((err.cause as Error).cause as { code: string }).code, 'SELF_SIGNED_CERT_IN_CHAIN', 'the original error stays on cause')
       return true

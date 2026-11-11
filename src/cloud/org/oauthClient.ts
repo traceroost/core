@@ -169,7 +169,7 @@ function unreachable(what: string, url: string, err: unknown): Error {
   const hint = untrustedIssuer(err)
     ? ' This network appears to inspect HTTPS with a certificate this app does not trust (common on company laptops).'
     : ''
-  return new Error(`${what}: could not reach ${host} — ${reason}.${hint}`, { cause: err })
+  return new Error(`${what}: could not reach ${host} (${reason}).${hint}`, { cause: err })
 }
 
 function describeThrown(err: unknown): string {
