@@ -13,12 +13,12 @@ import {
   sessionSortKey, sessionSortDir,
   workspaceFilter, currentWorkspace, availableWorkspaces, hasAnyWorkspace, requestRepoHash, shortWorkspaceName,
   enableOtelIngestion, enableLogIngestion, otlpPort, otelReconfigureResult, type OtelReconfigureResult,
-  collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending,
+  collectorConflict, type CollectorConflict, logIngestProgress, agentSetupPending, agentRestartNeeded,
   getSessionsPagination, applySessionDelta, type SessionDelta, goToHelp, riskSignals,
   configOpen, alertsOpen, filtersOpen, filtersFocusField, exportOpen, importOpen, importDroppedFile,
 } from './state'
 import { useDialog } from './a11y'
-import type { TimelineEntry, AgentFilter, LanguageFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, LoopSignal, VersionCheckResponse, ActionLogEntry, LogIngestProgress } from './types'
+import type { TimelineEntry, AgentFilter, LanguageFilter, DailyStatRow, LifetimeStats, BurnRate, Projection, SessionSummaryCard, GitOutcome, LoopSignal, VersionCheckResponse, ActionLogEntry, LogIngestProgress, AgentRestartNeeded } from './types'
 import { Wordmark } from './Wordmark'
 import { isHostMessage, getAgentColorVar } from './utils'
 import { LANGUAGE_LABELS } from './language'
@@ -672,6 +672,7 @@ export function App() {
         otlpPort?: number
         collectorConflict?: CollectorConflict
         agentSetupPending?: boolean
+        agentRestart?: AgentRestartNeeded
         logIngest?: LogIngestProgress
         currentWorkspace?: string | null
         results?: OtelReconfigureResult
@@ -691,6 +692,7 @@ export function App() {
         if (msg.otlpPort !== undefined) otlpPort.value = msg.otlpPort
         if (msg.collectorConflict !== undefined) collectorConflict.value = msg.collectorConflict
         if (msg.agentSetupPending !== undefined) agentSetupPending.value = msg.agentSetupPending
+        if (msg.agentRestart !== undefined) agentRestartNeeded.value = msg.agentRestart
         if (msg.currentWorkspace !== undefined) currentWorkspace.value = msg.currentWorkspace
         if (msg.summary?.toolCalls) toolCalls.value = msg.summary.toolCalls
         if (msg.sessionSummary !== undefined) {
@@ -933,6 +935,7 @@ export function App() {
 
       <CollectorConflictBanner />
       <AgentSetupBanner />
+      <AgentRestartBanner />
       <OrgNoticeBanner />
       <LogIngestBanner />
       {showFilterBars && <TimeRangePicker />}
@@ -1032,6 +1035,71 @@ function CollectorConflictBanner() {
       <button
         aria-label="Dismiss"
         onClick={() => setDismissedKey(key)}
+        style="background:none;border:none;color:inherit;opacity:0.7;cursor:pointer;font-size:13px;line-height:1;padding:1px 2px;flex-shrink:0"
+      >✕</button>
+    </div>
+  )
+}
+
+// A command to copy, with a Copy button that confirms for a moment.
+function CopyableCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <>
+      <code>{command}</code>{' '}
+      <button
+        class="btn-secondary agent-restart-copy"
+        aria-label={`Copy ${command}`}
+        onClick={() => {
+          void navigator.clipboard.writeText(command).then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1200)
+          })
+        }}
+      >{copied ? 'Copied' : 'Copy'}</button>
+    </>
+  )
+}
+
+// After agent setup changes an agent's settings (the first setup, or the OTLP port moving), a
+// session of it that was already running keeps the old settings until it is restarted, so its
+// traces don't arrive. The host tracks which agents that applies to (src/agentRestart.ts) and
+// drops each one when it hears from it; this lists the rest with the quickest way to restart each.
+// Only the VS Code extension can do a restart itself (reloading the window, for Copilot); a
+// terminal agent has to be quit and started again by the user. Dismissing tells the host, so the
+// banner stays gone in every tab and after a reload, until a later setup changes settings again.
+function AgentRestartBanner() {
+  const needed = agentRestartNeeded.value
+  if (!needed || needed.agents.length === 0) return null
+  const inVsCode = window.__STANDALONE__ !== true
+  const dismiss = () => {
+    agentRestartNeeded.value = null
+    if (inVsCode) vscode?.postMessage({ type: 'dismissAgentRestart' })
+    else void fetch('/action', { method: 'POST', body: JSON.stringify({ type: 'dismissAgentRestart' }), headers: { 'Content-Type': 'application/json' } }).catch(() => { /* hidden here either way */ })
+  }
+  return (
+    <div class="agent-setup-banner agent-restart-banner" role="status">
+      <div style="flex:1">
+        <strong>Restart your agents to start tracing.</strong> TraceRoost updated their settings to send to port <code>{needed.port}</code>. Sessions that were already running keep the old settings until restarted.
+        <ul style="margin:2px 0 0;padding-left:16px">
+          {needed.agents.includes('claudeCode') && (
+            <li><strong>Claude Code</strong>: quit it in your terminal, then pick up where you left off with <CopyableCommand command="claude --continue" /></li>
+          )}
+          {needed.agents.includes('codex') && (
+            <li><strong>Codex</strong>: quit it in your terminal, then pick up where you left off with <CopyableCommand command="codex resume --last" /></li>
+          )}
+          {needed.agents.includes('copilot') && (
+            <li><strong>Copilot</strong>: {inVsCode
+              ? <>reload this window. <button class="btn-secondary agent-restart-copy" onClick={() => vscode?.postMessage({ type: 'reloadWindow' })}>Reload VS Code</button></>
+              : <>reload each VS Code window (Command Palette: <em>Developer: Reload Window</em>).</>}</li>
+          )}
+        </ul>
+        <div style="color:var(--muted);margin-top:2px">Each line clears on its own once that agent's traces arrive.</div>
+      </div>
+      <button
+        aria-label="Dismiss"
+        title="Dismiss"
+        onClick={dismiss}
         style="background:none;border:none;color:inherit;opacity:0.7;cursor:pointer;font-size:13px;line-height:1;padding:1px 2px;flex-shrink:0"
       >✕</button>
     </div>

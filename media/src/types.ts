@@ -345,6 +345,14 @@ export type CollectorConflict = {
   extensionId?: string
 } | null
 
+/** Agents whose settings agent setup changed and that still have to be restarted to pick them up
+ *  (the host's src/agentRestart.ts, which this mirrors); null when there are none. `port` is the
+ *  OTLP port they were pointed at. */
+export type AgentRestartNeeded = {
+  port: number
+  agents: Array<'claudeCode' | 'codex' | 'copilot'>
+} | null
+
 /** Progress of the host's one-time historical log pass at startup (standalone/server.ts's
  *  ingestHistoricalLogs, extension.ts's startBatchedLoad); null when no pass is running. */
 export type LogIngestProgress = { done: number; total: number } | null
@@ -357,6 +365,7 @@ declare global {
     __INITIAL_SESSION_REV__?: number
     __INITIAL_COLLECTOR_CONFLICT__?: CollectorConflict
     __INITIAL_AGENT_SETUP_PENDING__?: boolean
+    __INITIAL_AGENT_RESTART__?: AgentRestartNeeded
     __INITIAL_LOG_INGEST__?: LogIngestProgress
     __STANDALONE__?: boolean
     __VERSION__?: string

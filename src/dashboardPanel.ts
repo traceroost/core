@@ -20,6 +20,7 @@ import { getNonce, safeJsonForScript } from './webviewHtml'
 import { WebviewSessionSync } from './webviewSessionSync'
 import { getPlanUsageService } from './planUsage/planUsageService'
 import { adapterHealth, adapterHealthMessage } from './adapters/health'
+import type { AgentRestartTracker } from './agentRestart'
 
 /** The sql.js surface the turnover report needs for its caches. */
 export interface TurnoverDb {
@@ -77,6 +78,10 @@ export class DashboardPanel {
    *  window isn't actually receiving OTel, rather than a one-time toast that's easy to miss or
    *  dismiss and forget about. */
   public static collectorConflict: { owner: 'standalone' | 'foreign'; port: number; extensionId: string } | undefined
+  /** Set by extension.ts: the agents that still have to be restarted after agent setup changed
+   *  their settings (src/agentRestart.ts). Sent on every 'update' and pushed on its own when it
+   *  changes (pushAgentRestart); drives the webview's AgentRestartBanner. */
+  public static agentRestart: AgentRestartTracker | undefined
   /** The Remove Agent Setup command's flow (extension.ts) — confirms, removes, reports. Resolves
    *  with what it says it did, or undefined when the user backed out. */
   public static removeAgentSetup: (() => Promise<string | undefined>) | undefined
@@ -285,7 +290,12 @@ export class DashboardPanel {
           autoConfigureClaudeCode(port),
           autoConfigureCodex(port),
         ])
+        DashboardPanel.agentRestart?.noteSetup(port, { copilot, claudeCode, codex })
         this.panel.webview.postMessage({ type: 'reconfigureOtelResult', results: { copilot, claudeCode, codex } })
+      } else if (msg.type === 'dismissAgentRestart') {
+        DashboardPanel.agentRestart?.dismiss()
+      } else if (msg.type === 'reloadWindow') {
+        void vscode.commands.executeCommand('workbench.action.reloadWindow')
       } else if (msg.type === 'removeAgentSetup') {
         const summary = await DashboardPanel.removeAgentSetup?.()
         this.panel.webview.postMessage({ type: 'removeAgentSetupResult', summary: summary ?? null })
@@ -452,6 +462,13 @@ export class DashboardPanel {
     current.panel.webview.postMessage({ type: 'logIngest', logIngest: progress })
   }
 
+  /** Sends the agent-restart state on its own, without the session re-read a full update() does. */
+  static pushAgentRestart(): void {
+    DashboardPanel.currentPanel?.panel.webview.postMessage({
+      type: 'update', agentRestart: DashboardPanel.agentRestart?.state() ?? null,
+    })
+  }
+
   /** Coalesced refresh of the open panel, for writes that don't go through the span store's
    *  onUpdate — log-ingested sessions go straight to the database. */
   static refreshSoon(): void {
@@ -499,6 +516,7 @@ export class DashboardPanel {
       enableLogIngestion: cfg.get<boolean>('enableLogIngestion', true),
       otlpPort: cfg.get<number>('otlpPort', 4318),
       collectorConflict: DashboardPanel.collectorConflict ?? null,
+      agentRestart: DashboardPanel.agentRestart?.state() ?? null,
       // The one real folder Apply/getInstructionFiles below actually act on
       // (vscode.workspace.workspaceFolders[0], same source those handlers already use) — the
       // webview has no other way to know it, and it is not the same thing as the Repo toolbar's

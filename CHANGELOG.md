@@ -4,6 +4,10 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **A "Restart your agents" banner after agent setup changes their settings**: an agent reads its OTLP endpoint once, when it starts, so after the first setup, or after TraceRoost's OTLP port moves, sessions that were already running kept sending nowhere (or to the old port) and the only hint was a one-time notification or log line. The dashboard now lists each agent that still has to be restarted, with the quickest way to do it: `claude --continue` and `codex resume --last` to copy for the terminal agents, and for Copilot a **Reload VS Code** button in the extension (the background service and desktop app name the Reload Window command instead, since they can't reload an editor). Each line clears on its own once that agent's traces arrive, and the banner can be dismissed, which hides it in every tab until a later setup changes settings again. The extension's "the background service set up Copilot" notification also offers **Reload VS Code**. TraceRoost never stops or restarts a terminal agent itself: that would drop whatever it was doing
+
 ## [1.0.3] (2026-11-10)
 
 ### TraceRoost Cloud (full edition only)

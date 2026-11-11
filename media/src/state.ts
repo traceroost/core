@@ -6,7 +6,7 @@ import { scrollBehavior } from './a11y'
 import type {
   FullSummary, SessionSummaryCard, TimelineEntry, GitOutcome, FileOutcome, LoopSignal,
   AgentFilter, LanguageFilter, InitiatorFilter, DataSourceFilter, InsightFilter, WorkspaceFilter, OutcomeFilter, VsCodeApi,
-  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry, CollectorConflict, LogIngestProgress,
+  DailyStatRow, LifetimeStats, BurnRate, Projection, ActionLogEntry, CollectorConflict, LogIngestProgress, AgentRestartNeeded,
 } from './types'
 export type { CollectorConflict } from './types'
 
@@ -388,6 +388,12 @@ export const collectorConflict = signal<CollectorConflict>(window.__INITIAL_COLL
 // — only the background/npx service sets it, inlined as window.__INITIAL_AGENT_SETUP_PENDING__ and
 // updated over SSE; VS Code asks with a notification instead. Drives AgentSetupBanner in App.tsx.
 export const agentSetupPending = signal<boolean>(window.__INITIAL_AGENT_SETUP_PENDING__ === true)
+
+// Agents that still have to be restarted after agent setup changed their settings (the host's
+// src/agentRestart.ts). The background/npx service inlines it as window.__INITIAL_AGENT_RESTART__
+// and broadcasts changes over SSE; the VS Code extension sends it with its 'update' messages.
+// Drives AgentRestartBanner in App.tsx: each agent drops off once the host hears from it.
+export const agentRestartNeeded = signal<AgentRestartNeeded>(window.__INITIAL_AGENT_RESTART__ ?? null)
 
 // The host's startup log pass, inlined as window.__INITIAL_LOG_INGEST__ and then updated by
 // 'logIngest' messages as it runs (SSE on the background/npx service, postMessage in VS Code) — drives LogIngestBanner in App.tsx, so a large history shows

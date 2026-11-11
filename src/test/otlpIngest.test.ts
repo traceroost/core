@@ -65,6 +65,22 @@ suite('OtlpIngest', () => {
     assert.strictEqual(attrOf(handle, '_traceroost.collector_path'), '/v1/traces')
   })
 
+  test('tells the host which agent each record came from, and skips records no adapter claims', () => {
+    const seen: string[] = []
+    const ingest = new OtlpIngest(sink(), undefined, a => seen.push(a))
+    ingest.processLogs(codexPromptLog)
+    ingest.processTraces({
+      resourceSpans: [{
+        resource: { attributes: [attr('service.name', 'claude-code')] },
+        scopeSpans: [{ spans: [{ traceId: 't', spanId: 's', name: 'claude_code.interaction', startTimeUnixNano: '1', endTimeUnixNano: '2', attributes: [] }] }],
+      }, {
+        resource: { attributes: [attr('service.name', 'some-other-app')] },
+        scopeSpans: [{ spans: [{ traceId: 't2', spanId: 's2', name: 'GET /', startTimeUnixNano: '1', endTimeUnixNano: '2', attributes: [] }] }],
+      }],
+    })
+    assert.deepStrictEqual(seen, ['codex', 'claude'])
+  })
+
   test('the remap state is per instance — a fresh parser keeps the raw OTEL trace id', () => {
     const s = sink()
     new OtlpIngest(s).processTraces(codexSpanOnSameOtelTrace)

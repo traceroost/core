@@ -161,6 +161,20 @@
   border-left: 3px solid var(--vscode-editorInfo-foreground, var(--accent));
   background: color-mix(in srgb, var(--vscode-editorInfo-foreground, var(--accent)) 8%, transparent);
 }
+/* "Restart your agents" (AgentRestartBanner in App.tsx) reuses the banner above; its inline
+   Copy / Reload buttons sit in a line of text, so they are smaller than a banner action. */
+.agent-restart-banner code {
+  color: var(--fg);
+  background: var(--hover);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.agent-restart-banner .agent-restart-copy {
+  padding: 0 6px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  vertical-align: baseline;
+}
 .btn-primary, .btn-secondary {
   padding: 3px 10px;
   font-size: 11px;
