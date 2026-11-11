@@ -266,7 +266,7 @@ function buildPrompt(
     case 'context_compaction': {
       const usage = getPeakContextUsage(session, profiles)
       return `${evidenceBlock}
-Your conversation context is large — peak input is ${usage.peakTokens.toLocaleString()} tokens, crossing the ${evaluation.threshold.toLocaleString()}-token threshold configured for this agent.
+Your conversation context is large: peak input is ${usage.peakTokens.toLocaleString()} tokens, crossing the ${evaluation.threshold.toLocaleString()}-token threshold configured for this agent.
 
 Please do the following right now:
 1. Write a compact summary of: key decisions made, files changed, and what still needs to be done
@@ -280,7 +280,7 @@ This will reduce token cost and prevent context window exhaustion.`
       const count = repeat?.count ?? evaluation.metric
       const hardStop = evaluation.stage === 'hard_stop'
       return `${hardStop ? 'HARD STOP.\n\n' : ''}${evidenceBlock}
-You have repeated the identical tool call "${repeatedAction}" ${count} times in this session — this indicates a stuck loop.
+You have repeated the identical tool call "${repeatedAction}" ${count} times in this session. This indicates a stuck loop.
 
 Stop calling that tool with those arguments immediately and:
 1. Explain what you were trying to accomplish with this tool
@@ -506,7 +506,7 @@ export function Automation() {
       <div style="padding:12px 16px;margin:0 0 16px;border-radius:6px;border:1px solid var(--border);background:var(--vscode-editorWidget-background,var(--bg));font-size:12px;line-height:1.6">
         <div class="section-label" style="margin-bottom:6px">How Automation Works</div>
         <div style="color:var(--muted)">
-          Automations monitor in-progress traces only — completed traces are ignored.
+          Automations monitor in-progress traces only; completed traces are ignored.
           {standalone ? (
             <> When a threshold is crossed, TraceRoost shows a notification with a <strong style="color:var(--fg)">Copy Prompt</strong> button. Enable <strong style="color:var(--fg)">Write prompts file</strong> to automatically write the prompt to <code>traceroost-prompts-&#123;agent&#125;.md</code> in TraceRoost's data directory (<code>~/.traceroost</code> unless you set <code>DATA_DIR</code> / <code>--data-dir</code>) instead.</>
           ) : (
@@ -584,10 +584,10 @@ export function Automation() {
                 <span class="toggle-track"><span class="toggle-thumb" /></span>
                 <span class={'toggle-label' + (cfg.writePromptsFile ? ' on' : '')}>
                   <strong>Write prompts file</strong>
-                  {' — '}
+                  {': '}
                   {cfg.writePromptsFile
                     ? 'writes prompt to traceroost-prompts-{agent}.md automatically when triggered'
-                    : 'show a Copy Prompt notification — click to copy, then paste into your agent'}
+                    : 'show a Copy Prompt notification (click to copy, then paste into your agent)'}
                 </span>
               </label>
             )}

@@ -120,7 +120,7 @@ export async function autoConfigureCodex(port: number, mode: SetupMode = 'full')
     if (subTabled) {
       return {
         changed: false,
-        error: `${configPath} defines [otel.${subTabled.key}] as a table — left untouched; point it at ${endpoint} manually`,
+        error: `${configPath} defines [otel.${subTabled.key}] as a table, so it was left untouched; point it at ${endpoint} manually`,
       }
     }
 
@@ -309,15 +309,15 @@ export async function autoConfigureClaudeCode(port: number, mode: SetupMode = 'f
         parsed = JSON.parse(raw)
       } catch (e) {
         // Never rewrite a file we couldn't parse — the user's settings would be replaced wholesale.
-        return { changed: false, error: `${settingsPath} is not valid JSON (${(e as Error).message}) — left untouched` }
+        return { changed: false, error: `${settingsPath} is not valid JSON (${(e as Error).message}) and was left untouched` }
       }
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return { changed: false, error: `${settingsPath} is not a JSON object — left untouched` }
+        return { changed: false, error: `${settingsPath} is not a JSON object and was left untouched` }
       }
       settings = parsed as Record<string, unknown>
     }
     if (settings.env !== undefined && (!settings.env || typeof settings.env !== 'object' || Array.isArray(settings.env))) {
-      return { changed: false, error: `${settingsPath} has a non-object "env" — left untouched` }
+      return { changed: false, error: `${settingsPath} has a non-object "env" and was left untouched` }
     }
 
     const existingEnv = (settings.env as Record<string, string>) ?? {}
@@ -419,7 +419,7 @@ export async function autoConfigureCopilotStandalone(port: number, mode: SetupMo
         const parsed: unknown = parseJsonc(text, errors, { allowTrailingComma: true, disallowComments: false })
         if (errors.length > 0 || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           const why = errors.length > 0 ? printParseErrorCode(errors[0].error) : 'not an object'
-          results.push({ changed: false, error: `${settingsPath} could not be parsed (${why}) — left untouched` })
+          results.push({ changed: false, error: `${settingsPath} could not be parsed (${why}) and was left untouched` })
           continue
         }
         settings = parsed as Record<string, unknown>
@@ -499,10 +499,10 @@ export async function removeClaudeCodeSetup(opts: RemoveOptions = {}): Promise<R
     try {
       settings = JSON.parse(raw)
     } catch (e) {
-      return { file, changed: false, error: `${file} is not valid JSON (${(e as Error).message}) — left untouched` }
+      return { file, changed: false, error: `${file} is not valid JSON (${(e as Error).message}) and was left untouched` }
     }
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
-      return { file, changed: false, error: `${file} is not a JSON object — left untouched` }
+      return { file, changed: false, error: `${file} is not a JSON object and was left untouched` }
     }
     const env = (settings as Record<string, unknown>).env
     if (!env || typeof env !== 'object' || Array.isArray(env)) return { file, changed: false }
@@ -562,7 +562,7 @@ export async function removeCodexSetup(opts: RemoveOptions = {}): Promise<Remove
     if (otherExporter !== undefined) {
       // TraceRoost's endpoint with extras (headers, other options) vs. another local collector.
       return CODEX_TRACEROOST_ENDPOINT_RE.test(otherExporter)
-        ? { file, changed: false, customized: true, warning: `[otel] in ${file} has a custom exporter sending to TraceRoost that setup didn't write (${otherExporter.trim()}), such as one with headers; left unchanged — remove it by hand if you no longer want it` }
+        ? { file, changed: false, customized: true, warning: `[otel] in ${file} has a custom exporter sending to TraceRoost that setup didn't write (${otherExporter.trim()}), such as one with headers; left unchanged. Remove it by hand if you no longer want it` }
         : { file, changed: false, warning: `[otel] in ${file} has an exporter TraceRoost didn't write (${otherExporter.trim()}); left untouched` }
     }
 
@@ -623,7 +623,7 @@ export async function removeCopilotStandaloneSetup(opts: RemoveOptions = {}): Pr
       const parsed: unknown = parseJsonc(raw, errors, { allowTrailingComma: true, disallowComments: false })
       if (errors.length > 0 || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         const why = errors.length > 0 ? printParseErrorCode(errors[0].error) : 'not an object'
-        results.push({ file, changed: false, error: `${file} could not be parsed (${why}) — left untouched` })
+        results.push({ file, changed: false, error: `${file} could not be parsed (${why}) and was left untouched` })
         continue
       }
       const settings = parsed as Record<string, unknown>

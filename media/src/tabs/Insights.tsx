@@ -58,23 +58,23 @@ function summarizeTakeaways(insights: Insight[]): InsightTakeaways {
 // ── Why-this-matters tooltips (shown on ⓘ next to Recommendation label) ──────
 
 const HELP_WHY: Record<string, string> = {
-  'help-context-bloat':        'Every LLM turn receives the full conversation so far. Each extra token in context multiplies cost across every remaining turn — a 10K growth in one trace can mean 50K+ extra tokens billed.',
+  'help-context-bloat':        'Every LLM turn receives the full conversation so far. Each extra token in context multiplies cost across every remaining turn: a 10K growth in one trace can mean 50K+ extra tokens billed.',
   'help-large-context':        'Instruction files are sent on every LLM call in every trace. 10,000 extra tokens in CLAUDE.md = 10,000 extra tokens per call, forever, regardless of task size.',
   'help-files-repeated':       'Each re-read appends the full file to context again. Re-reading a 500-line file 4 times wastes ~2,000 tokens on every subsequent call in that trace.',
   'help-high-turns':           'Each additional LLM call costs tokens and time. Iterative discovery is ~10× more expensive than providing the same context upfront in the initial prompt.',
   'help-duplicate-searches':   'Repeated searches append identical results to context without progress. The growing context also makes the model more likely to repeat the search again.',
   'help-tool-failures':        'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
-  'help-large-results':        'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
+  'help-large-results':        'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace, not just the call that read it.',
   'help-tool-overhead':        'Every LLM call includes all tool JSON schemas. 70+ tools = 8,000–15,000 overhead tokens per call that cannot be reduced by shortening your prompt.',
   'help-cache-rate':           'Tokens reused from the cache cost roughly 10× less than tokens processed fresh. Going from 0% to 60% reused cuts trace cost by 80–90% with no change to model behavior.',
-  'help-tool-deadlock':        'The agent is burning tokens repeating identical calls with zero progress. This loop runs until the context limit is hit — entire trace cost with nothing accomplished.',
+  'help-tool-deadlock':        'The agent is burning tokens repeating identical calls with zero progress. This loop runs until the context limit is hit: entire trace cost with nothing accomplished.',
   'help-state-spiral':         'Conflicting constraints cause the agent to undo its own work. Each oscillation adds both the edit and the revert to context, accelerating cost with each cycle.',
-  'help-hallucination':        'Each failed fix attempt adds the error to context, which anchors the model further from the real solution — the longer it runs, the harder it self-corrects.',
+  'help-hallucination':        'Each failed fix attempt adds the error to context, which anchors the model further from the real solution. The longer it runs, the harder it self-corrects.',
   'help-runaway-steps':        'Scope creep compounds: each extra step the agent takes grows context for all future steps. 90-step traces can cost 10–20× a well-scoped 5-step equivalent.',
-  'help-context-accumulation': 'The context sent to the model is growing while its output shrinks — cost per call is compounding with diminishing returns. Continuing will likely hit the context limit with nothing saved.',
+  'help-context-accumulation': 'The context sent to the model is growing while its output shrinks: cost per call is compounding with diminishing returns. Continuing will likely hit the context limit with nothing saved.',
   'help-chronic-tool-unreliability': 'Each failure adds error text to context and forces a recovery turn. A cascade of 3 failures can waste 30,000+ tokens before a single useful edit is made.',
-  'help-context-flooding-risk': 'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace — not just the call that read it.',
-  'help-fabricated-dependency': 'An import of a package that isn\'t installed fails several steps later, at install or at runtime, with an error that looks unrelated — and the agent then spends turns chasing the wrong cause.',
+  'help-context-flooding-risk': 'Tool results are appended to context in full. A 50 KB file read adds ~12,500 tokens to every subsequent call in that trace, not just the call that read it.',
+  'help-fabricated-dependency': 'An import of a package that isn\'t installed fails several steps later, at install or at runtime, with an error that looks unrelated, and the agent then spends turns chasing the wrong cause.',
   'help-unverified-submission': 'A session that ends on a failing check looks finished. The failure surfaces later, in CI or in review, after the context that would have made it a one-line fix is gone.',
   'help-tool-call-cycle':      'Each repeat of the sequence appends the same results to context again. The agent is reacting to identical feedback without new information, so the cycle only ends when something external changes.',
   'help-file-reread':          'Each re-read appends the full file to context again. Three avoidable re-reads of a large file cost about one extra full LLM call.',
@@ -132,7 +132,7 @@ export function generateInsights(
           detail: 'The tokens sent to the model grew from ' + first.toLocaleString() + ' to ' + last.toLocaleString()
             + ' (+' + growth.toLocaleString() + ') across ' + plural(llmEntries.length, 'model call')
             + (reqSnippet ? ' for "' + reqSnippet + '"' : '') + '.',
-          action: 'The first call used ' + first.toLocaleString() + ' tokens — audit your instruction files '
+          action: 'The first call used ' + first.toLocaleString() + ' tokens. Audit your instruction files '
             + '(CLAUDE.md, .agent.md, system prompt). Remove verbose examples and anything the agent '
             + 'can discover via tools. Target <5,000 tokens for combined static instructions.',
           trigger: 'The tokens sent to the model per call grew from ' + first.toLocaleString() + ' to ' + last.toLocaleString()
@@ -210,7 +210,7 @@ export function generateInsights(
         title: '[Trace ' + globalNum + '] Starts with ' + (firstLlm.inputTokens ?? 0).toLocaleString() + ' tokens of context',
         detail: 'The very first model call already sent ' + (firstLlm.inputTokens ?? 0).toLocaleString()
           + ' tokens, before any tool results were added.',
-        action: 'Audit your instruction files — ' + (firstLlm.inputTokens ?? 0).toLocaleString()
+        action: 'Audit your instruction files: ' + (firstLlm.inputTokens ?? 0).toLocaleString()
           + ' tokens before the first tool call is the baseline overhead. Remove verbose examples '
           + 'and information the agent can discover via tools. Target <5,000 tokens for combined instructions.',
       })
@@ -247,7 +247,7 @@ export function generateInsights(
         title: '[Trace ' + globalNum + '] Duplicate searches',
         detail: plural(dupes.length, 'search', 'searches') + ' repeated: ' + examples.join(', ') + '.',
         action: 'These repeated searches suggest the agent was uncertain where to look. '
-          + 'Include directory names or specific file paths in your prompt — e.g. '
+          + 'Include directory names or specific file paths in your prompt, e.g. '
           + '"search in src/api/" instead of a broad pattern.',
       })
     }
@@ -283,7 +283,7 @@ export function generateInsights(
         severity: ('loop-' + sig.severity) as Insight['severity'],
         category: 'loop', sessionIdx: idx,
         helpId: loopHelpIds[sig.type],
-        title: '[Trace ' + globalNum + '] ' + sig.patternName + ' — ' + sig.evidence,
+        title: '[Trace ' + globalNum + '] ' + sig.patternName + ': ' + sig.evidence,
         detail: examplesText.trim(),
         action: sig.action ?? sig.evidence,
         agentPrompt: SIGNAL_FORMULAS[sig.type]?.prompt,
@@ -345,7 +345,7 @@ export function generateInsights(
         insights.push({
           severity: 'warning', category: 'efficiency',
           helpId: 'help-cache-rate',
-          title: 'Cache reuse declining — ' + (avgOlder * 100).toFixed(0) + '% → ' + (avgRecent * 100).toFixed(0) + '%',
+          title: 'Cache reuse declining: ' + (avgOlder * 100).toFixed(0) + '% → ' + (avgRecent * 100).toFixed(0) + '%',
           detail: 'The average share of context reused from the cache dropped ' + (drop * 100).toFixed(0)
             + ' points over your last ' + recentN + ' traces.',
           trigger: 'Your last ' + recentN + ' traces reused ' + (avgRecent * 100).toFixed(0) + '% of their context from the cache on average,'
@@ -604,10 +604,10 @@ export function Insights() {
               </li>
             )}
             {takeaways.hasContextBloat && (
-              <li style="margin-bottom:2px">Context bloat detected — the tokens sent to the model grow significantly across turns</li>
+              <li style="margin-bottom:2px">Context bloat detected: the tokens sent to the model grow significantly across turns</li>
             )}
             {takeaways.hasCacheIssue && (
-              <li style="margin-bottom:2px">Low cache reuse — context is being processed fresh instead of reused from the cache</li>
+              <li style="margin-bottom:2px">Low cache reuse: context is being processed fresh instead of reused from the cache</li>
             )}
             {takeaways.hasToolIssue && (
               <li style="margin-bottom:2px">Tool inefficiency detected</li>

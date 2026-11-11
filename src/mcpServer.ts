@@ -61,7 +61,7 @@ const TOOLS = [
   {
     name: 'get_recent_sessions',
     description:
-      'Returns recent TraceRoost session summaries — cost, turns, model, prompt excerpt, ' +
+      'Returns recent TraceRoost session summaries: cost, turns, model, prompt excerpt, ' +
       'top tools used, loop signals. Use this to orient yourself to what has been worked ' +
       'on recently before starting a new task.',
     inputSchema: {
@@ -120,7 +120,7 @@ const TOOLS = [
       'Returns pending suggestions for improving the agent instruction file (CLAUDE.md, AGENTS.md, etc.) ' +
       'for the specified workspace. Suggestions are derived from patterns in past sessions and include ' +
       'ready-to-paste text. Use this at the start of a session to check for improvements before beginning work. ' +
-      'workspace is REQUIRED — cross-workspace suggestions are not meaningful.',
+      'workspace is REQUIRED; cross-workspace suggestions are not meaningful.',
     inputSchema: {
       type: 'object' as const,
       required: ['workspace'],
@@ -137,7 +137,7 @@ const TOOLS = [
       'recently-active session(s), and returns any that are currently triggered with ready-to-use ' +
       'correction prompt text. Evaluated against TraceRoost\'s default thresholds, not any ' +
       'per-user customization made in the Settings panel (that lives only in the dashboard\'s ' +
-      'browser storage, not reachable from MCP). Read-only — safe to call repeatedly; a trigger ' +
+      'browser storage, not reachable from MCP). Read-only and safe to call repeatedly; a trigger ' +
       'is only returned once per session until its underlying condition changes, so calling this ' +
       'periodically during a long task and following whatever it returns is a reasonable ' +
       'self-check pattern. workspace is REQUIRED.',
@@ -153,7 +153,7 @@ const TOOLS = [
     name: 'get_plan_limits',
     description:
       'Returns how full the Claude Pro/Max and ChatGPT plan windows (5-hour and weekly) are right ' +
-      'now, when each resets, and recent limit hits — read from files Claude Code and Codex write ' +
+      'now, when each resets, and recent limit hits, read from files Claude Code and Codex write ' +
       'themselves. Call this before starting a large task to check there is headroom; if the ' +
       '5-hour window is nearly full, prefer a smaller scope or a cheaper model. Only Claude Code ' +
       'and Codex subscription use produces this data.',
@@ -413,7 +413,7 @@ function handleGetInstructionSuggestions(
 ) {
   const workspace = args.workspace?.trim()
   if (!workspace) {
-    return { error: 'workspace is required — instruction suggestions are repo-scoped.' }
+    return { error: 'workspace is required: instruction suggestions are repo-scoped.' }
   }
   const filtered = filterByWorkspace(sessions, workspace)
   if (filtered.length < 5) {
@@ -439,7 +439,7 @@ function handleCheckAutomationTriggers(
 ) {
   const workspace = args.workspace?.trim()
   if (!workspace) {
-    return { error: 'workspace is required — automation triggers are project-scoped.' }
+    return { error: 'workspace is required: automation triggers are project-scoped.' }
   }
   const timelineFor = (id: string): TimelineEntry[] => {
     if (getTimeline) return getTimeline(id) as TimelineEntry[]
@@ -594,13 +594,13 @@ export async function startMcpHttpServer(
   const requireToken = !isLoopbackHost(bindHost)
   const httpServer = http.createServer((req, res) => {
     if (!isAllowedHostHeader(req.headers.host, bindHost)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — invalid Host header'); return
+      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden: invalid Host header'); return
     }
     // No CORS headers at all: MCP clients aren't browsers, and a browser page must not be able to
     // read session prompts, paths and costs off this port. Browsers always send Origin on the
     // cross-origin POST such a page would need, so reject any Origin that isn't local.
     if (!isAllowedOrigin(req.headers.origin)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden — cross-origin request'); return
+      res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Forbidden: cross-origin request'); return
     }
     if (requireToken && !isAuthorized(req, authToken)) {
       res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('Unauthorized'); return

@@ -108,7 +108,7 @@ if (mode === 'restore') {
   fs.rmSync(backupPath)
   console.log('prepare-edition: restored the checked-in package.json, .vscodeignore and CHANGELOG.md')
 } else if (mode === 'full') {
-  console.log('prepare-edition: full edition — package.json unchanged')
+  console.log('prepare-edition: full edition, package.json unchanged')
 } else if (mode === 'core') {
   // Always derive from the checked-in manifest, even if a previous run left package.json rewritten.
   const source = fs.existsSync(backupPath) ? backupPath : pkgPath

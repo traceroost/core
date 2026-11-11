@@ -44,8 +44,8 @@ export function resolveMode(verdict: AttachVerdict): ShellMode {
           question:
             `A TraceRoost collector is already running on this data directory ` +
             `(${verdict.identity.service ? 'the background service' : `pid ${verdict.identity.pid}`}, ` +
-            `started ${verdict.identity.startedAt}), but it does not report its version — it predates ` +
-            `the field. Use it?`,
+            `started ${verdict.identity.startedAt}), but it does not report its version (it predates ` +
+            `the field). Use it?`,
         }
       : { mode: 'attach', identity: verdict.identity }
   }
@@ -67,9 +67,9 @@ export function describeMode(resolved: ShellMode): string {
     case 'attach': return resolved.identity.service
       ? 'Attached to the background service'
       : `Attached to the collector running as pid ${resolved.identity.pid}`
-    case 'confirm-attach': return 'A collector is running — confirm to use it'
+    case 'confirm-attach': return 'A collector is running; confirm to use it'
     case 'wait': return 'Waiting for a collector that is starting up…'
-    case 'blocked': return 'Not collecting — needs attention'
+    case 'blocked': return 'Not collecting: needs attention'
   }
 }
 

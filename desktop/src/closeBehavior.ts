@@ -49,8 +49,8 @@ export function closeQuestion(desktop: string | undefined): CloseQuestion {
     message: 'Quit TraceRoost and stop collecting?',
     detail:
       `${where} has no system tray for TraceRoost to keep running in, so closing the window can ` +
-      'either quit — which stops recording your coding-agent sessions until TraceRoost is opened ' +
-      'again — or leave TraceRoost running in a minimised window.\n\n' +
+      'either quit (which stops recording your coding-agent sessions until TraceRoost is opened ' +
+      'again) or leave TraceRoost running in a minimised window.\n\n' +
       'On GNOME, the "AppIndicator and KStatusNotifierItem Support" extension adds a tray, and ' +
       'TraceRoost will then close to it. To collect with no window at all, run the collector as a ' +
       'background service instead: `traceroost service install` (from npm or Homebrew).',

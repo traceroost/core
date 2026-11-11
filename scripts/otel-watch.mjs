@@ -103,7 +103,7 @@ export const AGENTS = [
       {
         id: "copilot-cli-changelog",
         kind: "page",
-        title: "changelog.md (telemetry lines only) — the CLI itself is closed source",
+        title: "changelog.md (telemetry lines only); the CLI itself is closed source",
         url: "https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md",
         match: TELEMETRY_WORDS,
       },
@@ -112,7 +112,7 @@ export const AGENTS = [
   {
     agent: "OpenCode",
     reads: ["src/logReader.ts"],
-    note: "TraceRoost reads OpenCode's SQLite database, not its (experimental, undocumented) OTel export — this watches the export so we know when it is worth ingesting.",
+    note: "TraceRoost reads OpenCode's SQLite database, not its (experimental, undocumented) OTel export. This watches the export so we know when it is worth ingesting.",
     sources: [
       {
         id: "opencode-observability",
@@ -179,7 +179,7 @@ export function renderReport({ agents, results, date, stateRef }) {
   let noteworthy = 0;
   let errors = 0;
 
-  out.push(`# OpenTelemetry upstream watch — ${date}`);
+  out.push(`# OpenTelemetry upstream watch: ${date}`);
   out.push("");
   for (const agent of agents) {
     out.push(`## ${agent.agent}`);
@@ -265,7 +265,7 @@ export function mailSubject({ changedAgents, errors, firstRun, baselines, date }
     return `[TraceRoost] OpenTelemetry watch started: baseline recorded for ${baselines} source(s)${unreadable ? `, ${unreadable}` : ""} (${date})`;
   }
   if (changedAgents.length) {
-    return `[TraceRoost] OpenTelemetry upstream changes: ${changedAgents.join(", ")}${unreadable ? ` — ${unreadable}` : ""} (${date})`;
+    return `[TraceRoost] OpenTelemetry upstream changes: ${changedAgents.join(", ")}${unreadable ? `; ${unreadable}` : ""} (${date})`;
   }
   if (errors) return `[TraceRoost] OpenTelemetry watch: ${unreadable} (${date})`;
   return null;

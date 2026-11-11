@@ -17,7 +17,7 @@ const edition = editionArg
 	? (editionArg.includes('=') ? editionArg.split('=')[1] : process.argv[process.argv.indexOf(editionArg) + 1])
 	: (process.env.TRACEROOST_EDITION || 'full');
 if (edition !== 'full' && edition !== 'core') {
-	console.error(`esbuild.js: unknown edition "${edition}" — expected full or core`);
+	console.error(`esbuild.js: unknown edition "${edition}"; expected full or core`);
 	process.exit(1);
 }
 const core = edition === 'core';
@@ -73,7 +73,7 @@ const coreEditionPlugin = {
 		});
 		build.onLoad({ filter: /[\\/]cloud[\\/]/ }, args => {
 			if (!CLOUD_DIRS.some(dir => args.path.startsWith(dir))) return undefined;
-			return { errors: [{ text: `core edition must not bundle cloud code: ${path.relative(__dirname, args.path)} — route it through a seam (src/cloudBridge.ts, media/src/orgPanel.ts, standalone/cliCloud.ts)` }] };
+			return { errors: [{ text: `core edition must not bundle cloud code: ${path.relative(__dirname, args.path)}; route it through a seam (src/cloudBridge.ts, media/src/orgPanel.ts, standalone/cliCloud.ts)` }] };
 		});
 	},
 };

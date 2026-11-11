@@ -379,7 +379,7 @@ export function normalizeUserRequest(raw: string, length: number, fallback: stri
   const isRedacted = !raw || raw === '<REDACTED>' || raw === '[REDACTED]'
   if (!isRedacted) { return extractUserRequest(raw) }
   if (length > 0) {
-    return redactionNote ? `[${length} chars — ${redactionNote}]` : `[~${length} chars]`
+    return redactionNote ? `[${length} chars, ${redactionNote}]` : `[~${length} chars]`
   }
   return fallback
 }

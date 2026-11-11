@@ -41,7 +41,7 @@ export async function migrateGlobalStateToSqlite(
   try {
     await writer.drain()
   } catch (err) {
-    log(`TraceRoost migration: write error — globalState NOT cleared: ${err}`)
+    log(`TraceRoost migration: write error, globalState NOT cleared: ${err}`)
     return
   }
 

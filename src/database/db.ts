@@ -100,7 +100,7 @@ export function openDatabaseWith(
     prepareLoadedDb(db, log)
   }
   if (loadError) {
-    log(`TraceRoost: could not load ${dbPath} (${loadError}) — running without saving so the existing file is left untouched.`)
+    log(`TraceRoost: could not load ${dbPath} (${loadError}); running without saving so the existing file is left untouched.`)
   }
   if (rebuiltTraceStore) log(`TraceRoost: ${TRACE_STORE_REBUILT_MESSAGE}`)
 

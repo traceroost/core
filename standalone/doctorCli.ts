@@ -77,7 +77,7 @@ export async function runDoctorCli(args: string[], io: DoctorIo = defaultIo()): 
     return 2
   }
   if (report !== undefined && !ADAPTERS.some(a => a.key === report)) {
-    io.error(`Unknown agent: ${report} — one of ${ADAPTERS.map(a => a.key).join(', ')}`)
+    io.error(`Unknown agent: ${report} (one of ${ADAPTERS.map(a => a.key).join(', ')})`)
     return 2
   }
   if (open && report === undefined) {
@@ -112,13 +112,13 @@ export async function runDoctorCli(args: string[], io: DoctorIo = defaultIo()): 
   const line = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i])).join('  ').trimEnd()
   io.log(line(head))
   for (const t of table) io.log(line(t))
-  if (!server) io.log('\n(OTLP counts come from a running TraceRoost server, and none answered — this is from local log files only.)')
+  if (!server) io.log('\n(OTLP counts come from a running TraceRoost server, and none answered, so this is from local log files only.)')
 
   // Every version with unrecognized records is listed; only lost data fails the check.
   for (const r of rows.filter(x => x.status === 'missing-data' || x.status === 'unrecognized')) {
     for (const v of r.versions.filter(x => x.unknown > 0)) {
       const names = Object.entries(v.unknownNames).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n} ×${c}`).join(', ')
-      io.log(`\n${r.label} ${v.version}: ${v.unknown} unrecognized of ${v.known + v.ignored + v.unknown} records — ${names}`)
+      io.log(`\n${r.label} ${v.version}: ${v.unknown} unrecognized of ${v.known + v.ignored + v.unknown} records: ${names}`)
       if (v.unreadFiles > 0) io.log(`  ${v.unreadFiles} session file${v.unreadFiles === 1 ? '' : 's'} gave no turns: missing from Traces.`)
       else if (v.impact === 'loss') io.log('  Records TraceRoost reads came without fields it needs: their numbers may be wrong.')
       else io.log('  Skipped; its sessions were still read.')

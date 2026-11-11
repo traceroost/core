@@ -186,7 +186,7 @@ export function CostBarChart({ sessions }: { sessions: SessionSummaryCard[] }) {
         onClick={handleClick} title="Click a bar to open that trace" />
       {excludedCount > 0 && (
         <div style="font-size:var(--fs-xs);color:var(--muted);text-align:right;margin-top:2px">
-          {excludedCount} trace{excludedCount === 1 ? '' : 's'} excluded — model unrecognized
+          {excludedCount} trace{excludedCount === 1 ? '' : 's'} excluded (model unrecognized)
         </div>
       )}
     </div>

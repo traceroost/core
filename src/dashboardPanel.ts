@@ -231,7 +231,7 @@ export class DashboardPanel {
           path.join(home, '.claude'), path.join(home, '.codex'), path.join(home, '.traceroost'),
         ]
         if (!path.isAbsolute(msg.filePath) || !roots.some(r => isPathInside(r, msg.filePath))) {
-          vscode.window.showWarningMessage(`TraceRoost: Not opening ${msg.filePath} — it is outside your workspace.`)
+          vscode.window.showWarningMessage(`TraceRoost: Not opening ${msg.filePath}: it is outside your workspace.`)
           return
         }
         const uri = vscode.Uri.file(msg.filePath)
@@ -314,7 +314,7 @@ export class DashboardPanel {
         // never `../../.bashrc` or an absolute path elsewhere.
         const absPath = instructionTargetPath(wsRoot, targetFile)
         if (!absPath || !isPathInside(wsRoot, absPath)) {
-          vscode.window.showErrorMessage(`TraceRoost: Refusing to apply suggestion — ${String(targetFile)} is not an instruction file of this workspace.`)
+          vscode.window.showErrorMessage(`TraceRoost: Refusing to apply suggestion: ${String(targetFile)} is not an instruction file of this workspace.`)
           return
         }
         try {
@@ -335,7 +335,7 @@ export class DashboardPanel {
           this.panel.webview.postMessage({ type: 'instructionApplied', id })
           this.emitInstructionTelemetry(workspace)
         } catch (err) {
-          vscode.window.showErrorMessage(`TraceRoost: Failed to apply suggestion — ${err}`)
+          vscode.window.showErrorMessage(`TraceRoost: Failed to apply suggestion: ${err}`)
         }
       } else if (msg.type === 'dismissInstructionSuggestion' && msg.id && msg.workspace && this.instructionRepo) {
         this.instructionRepo.recordDismissed(msg.id as string, msg.workspace as string)
@@ -919,7 +919,7 @@ async function handleAlertNotification(
   sidebarProvider?: SidebarPanel,
   rawDb?: TurnoverDb
 ): Promise<void> {
-  const text = `Alert: ${msg.label}${msg.detail ? ' — ' + msg.detail : ''}`
+  const text = `Alert: ${msg.label}${msg.detail ? '. ' + msg.detail : ''}`
   const clipboardPrompt = [
     "An alert was triggered in my AI coding session. Please explain what's happening and how I should respond.",
     '',
@@ -953,7 +953,7 @@ async function handleAlertNotification(
       }, 250)
     } else if (action === 'Copy Prompt') {
       vscode.env.clipboard.writeText(clipboardPrompt).then(() => {
-        vscode.window.showInformationMessage('TraceRoost: Alert prompt copied — paste into your AI chat.')
+        vscode.window.showInformationMessage('TraceRoost: Alert prompt copied. Paste it into your AI chat.')
       })
     }
   })
@@ -968,18 +968,18 @@ async function writeAutomationPrompt(agent: string, label: string, fullPrompt: s
   const filename = `traceroost-prompts-${agentSlug}.md`
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]
   if (!workspaceFolder) {
-    vscode.window.showWarningMessage('TraceRoost: No workspace folder open — cannot write prompts file.')
+    vscode.window.showWarningMessage('TraceRoost: No workspace folder open, so the prompts file cannot be written.')
     return undefined
   }
   const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filename)
   const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
-  const entry = `## ${timestamp} — ${label}\n\n${fullPrompt}\n\n---\n\n`
+  const entry = `## ${timestamp}: ${label}\n\n${fullPrompt}\n\n---\n\n`
   let existing = ''
   try {
     const data = await vscode.workspace.fs.readFile(fileUri)
     existing = Buffer.from(data).toString('utf8')
   } catch { /* file doesn't exist yet */ }
-  const content = existing ? existing + entry : `# TraceRoost Prompts — ${agentName}\n\n${entry}`
+  const content = existing ? existing + entry : `# TraceRoost Prompts: ${agentName}\n\n${entry}`
   await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf8'))
   return filename
 }
@@ -991,7 +991,7 @@ async function handleAutomation(msg: { label: string; writePromptsFile: boolean;
   if (msg.writePromptsFile) {
     const filename = await writeAutomationPrompt(msg.agent, msg.label, fullPrompt)
     if (filename) {
-      vscode.window.showInformationMessage(`Automation: ${msg.label} — prompt written to ${filename}`, 'Dismiss')
+      vscode.window.showInformationMessage(`Automation: ${msg.label}. Prompt written to ${filename}`, 'Dismiss')
     }
     return
   }
@@ -1004,7 +1004,7 @@ async function handleAutomation(msg: { label: string; writePromptsFile: boolean;
   )
   if (action === 'Copy Prompt') {
     await vscode.env.clipboard.writeText(fullPrompt)
-    vscode.window.showInformationMessage(`TraceRoost: Prompt copied — paste into your ${agentLabel} session.`)
+    vscode.window.showInformationMessage(`TraceRoost: Prompt copied. Paste it into your ${agentLabel} session.`)
   }
 }
 

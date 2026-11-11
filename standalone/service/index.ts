@@ -164,7 +164,7 @@ Commands:
   status            Check whether the service is running and reachable.
   logs [--follow]   Print (or tail) the service's log file.
 
-If TraceRoost isn't running, incoming OTel data has nowhere to go and is lost —
+If TraceRoost isn't running, incoming OTel data has nowhere to go and is lost:
 agents don't queue or retry failed exports. Running as a background service
 avoids gaps in your trace history from forgetting to start it, closing the
 terminal, or a reboot.`)
@@ -256,7 +256,7 @@ function runningHomebrewInstall(): HomebrewInstall | undefined {
 function ensureLatestHomebrewInstall(install: HomebrewInstall): GlobalInstallOutcome | null {
   const previousVersion = readHomebrewVersion(install)
   const ref = brewFormulaRef(install)
-  console.log(`[TraceRoost] Installed with Homebrew — fetching the latest ${install.formula}:`)
+  console.log(`[TraceRoost] Installed with Homebrew; fetching the latest ${install.formula}:`)
   console.log(`  brew upgrade ${ref}`)
   try {
     execFileSync(brewExecutable(install.prefix), ['upgrade', ref], { stdio: 'inherit' })
@@ -265,7 +265,7 @@ function ensureLatestHomebrewInstall(install: HomebrewInstall): GlobalInstallOut
     console.error(
       `[TraceRoost] Couldn't upgrade with Homebrew: ${describeBrewFailure(e)}. ` +
       (fallback
-        ? `Keeping the version already installed (v${fallback}) — run \`traceroost service update\` later to retry.`
+        ? `Keeping the version already installed (v${fallback}). Run \`traceroost service update\` later to retry.`
         : 'Nothing is installed to fall back on.'),
     )
     return fallback ? { version: fallback, previousVersion, downloaded: false } : null
@@ -288,12 +288,12 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
   if (shouldBlockRepeatedBootstrap(process.env)) {
     console.error(
       '[TraceRoost] Still detected as running via npx after installing globally and re-invoking ' +
-      '`traceroost` — that shouldn\'t happen and looks like a bug rather than a real npx run. ' +
+      '`traceroost`. That shouldn\'t happen and looks like a bug rather than a real npx run. ' +
       'Try running `npm install -g traceroost@latest` yourself, then `traceroost service install` directly.'
     )
     return 1
   }
-  console.log('[TraceRoost] Running via npx — installing traceroost globally first, ' +
+  console.log('[TraceRoost] Running via npx; installing traceroost globally first, ' +
     'so the background service has a stable command to launch on every start.')
   const outcome = ensureLatestGlobalInstall()
   if (!outcome) {
@@ -309,7 +309,7 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
     console.error(
       `[TraceRoost] Global install present, but couldn't find its cli.js at the expected path ` +
       `(${globalCliPath ?? '<npm root -g unavailable>'}). ` +
-      'Run `traceroost service install` yourself to continue — the global install should now be on your PATH.'
+      'Run `traceroost service install` yourself to continue. The global install should now be on your PATH.'
     )
     return 1
   }
@@ -329,7 +329,7 @@ function bootstrapGlobalInstall(remainingArgs: string[]): number {
  *  run that copy's `service install` (which upgrades it with brew) instead of installing a second
  *  copy with npm — npm's global bin link would collide with Homebrew's `bin/traceroost`. */
 function handOffToHomebrew(install: HomebrewInstall, remainingArgs: string[]): number {
-  console.log('[TraceRoost] TraceRoost is installed with Homebrew — using that copy (it upgrades with brew, not npm).')
+  console.log('[TraceRoost] TraceRoost is installed with Homebrew; using that copy (it upgrades with brew, not npm).')
   const brewNode = path.join(install.prefix, 'opt', 'node', 'bin', 'node')
   const node = fs.existsSync(brewNode) ? brewNode : process.execPath
   try {
@@ -350,7 +350,7 @@ function readFileOrNull(filePath: string): Buffer | null {
 function printLogs(program: ServiceProgram, platformService: PlatformService, follow: boolean): void {
   const logPath = platformService.logsPath(program)
   if (!fs.existsSync(logPath)) {
-    console.log(`[TraceRoost] No log file yet at ${logPath} — the service may not have started.`)
+    console.log(`[TraceRoost] No log file yet at ${logPath}; the service may not have started.`)
     return
   }
   if (!follow) {
@@ -373,7 +373,7 @@ async function askAgentSetupInTerminal(): Promise<AgentSetupAnswer | undefined> 
   try {
     const answer = parseAgentSetupInput(await rl.question(`\n${AGENT_SETUP_QUESTION}\n${AGENT_SETUP_EXPLANATION}\n${AGENT_SETUP_TERMINAL_PROMPT}`))
     if (answer === 'no') console.log(`[TraceRoost] ${AGENT_SETUP_DECLINED}`)
-    else if (answer === undefined) console.log("[TraceRoost] Not now — the service's dashboard will ask again.")
+    else if (answer === undefined) console.log("[TraceRoost] Not now. The service's dashboard will ask again.")
     return answer
   } catch {
     return undefined  // Ctrl-D: unanswered
@@ -406,7 +406,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
   switch (subcommand) {
     case 'install': {
       const version = readRunningVersion()
-      console.log(`[TraceRoost] Service install${version ? ` — v${version}` : ''}`)
+      console.log(`[TraceRoost] Service install${version ? ` (v${version})` : ''}`)
       // Start from what's already in config.json — ports, data dir, bind host, retention, access
       // token, install id — so a reinstall or upgrade changes only what its flags name. With no
       // config.json yet, readServiceConfig returns the defaults.
@@ -418,7 +418,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
       const program = resolveInstallProgram(config)
 
       if (safeIsInstalled(platformService)) {
-        console.log('[TraceRoost] An existing background service was found — replacing it (your settings are kept; flags given here override them).')
+        console.log('[TraceRoost] An existing background service was found; replacing it (your settings are kept; flags given here override them).')
       }
       const kept = describeKeptSettings(config, rest)
       if (kept.length > 0) { console.log(`[TraceRoost] Kept from ~/.traceroost/config.json: ${kept.join(', ')}.`) }
@@ -441,7 +441,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
           else { fs.writeFileSync(serviceConfigPath(), previousConfigRaw) }
         } catch { /* best effort */ }
         console.error(`[TraceRoost] Couldn't register the background service with ${serviceManagerName()}: ${describeServiceManagerFailure(e, serviceManagerName())}`)
-        console.error('[TraceRoost] Rolled back — nothing is left half-installed. Fix the cause above, then re-run `traceroost service install`.')
+        console.error('[TraceRoost] Rolled back: nothing is left half-installed. Fix the cause above, then re-run `traceroost service install`.')
         return 1
       }
 
@@ -476,7 +476,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
       platformService.restart()
       return 0
     case 'update': {
-      console.log(`[TraceRoost] Service update${readRunningVersion() ? ` — currently v${readRunningVersion()}` : ''}`)
+      console.log(`[TraceRoost] Service update${readRunningVersion() ? ` (currently v${readRunningVersion()})` : ''}`)
       const brew = runningHomebrewInstall()
       const outcome = brew ? ensureLatestHomebrewInstall(brew) : ensureLatestGlobalInstall()
       if (!outcome || !outcome.downloaded) {
@@ -492,7 +492,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
       if (!safeIsInstalled(platformService)) {
         // Nothing to restart — `systemctl restart`/`launchctl bootstrap` on a missing unit would
         // throw after a successful update and turn it into a stack trace and exit 1.
-        console.log('[TraceRoost] No background service is installed — run `traceroost service install` to set one up on this version.')
+        console.log('[TraceRoost] No background service is installed. Run `traceroost service install` to set one up on this version.')
         return 0
       }
       console.log('[TraceRoost] Restarting the background service on the new version...')
@@ -515,7 +515,7 @@ export async function runServiceCli(args: string[]): Promise<number> {
         resolved.ui !== config.uiPort || resolved.otlp !== config.otlpPort || resolved.mcp !== config.mcpPort
       )
       console.log(running
-        ? `[TraceRoost] Running${version ? ` (v${version})` : ''} — dashboard reachable at ${dashboardUrl({ ...config, uiPort: effectiveUiPort })}`
+        ? `[TraceRoost] Running${version ? ` (v${version})` : ''}; dashboard reachable at ${dashboardUrl({ ...config, uiPort: effectiveUiPort })}`
         : installed
           ? '[TraceRoost] Installed but not reachable. Run `traceroost service logs` to check for errors, or `traceroost service start`.'
           : '[TraceRoost] No background service is installed. Run `traceroost service install` to set one up.')

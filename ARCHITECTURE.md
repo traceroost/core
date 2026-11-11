@@ -1,10 +1,10 @@
 # TraceRoost Architecture
 
-TraceRoost is a VS Code extension (and the same code as a standalone server — `npx traceroost`, Docker, or a background service; see §13) that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database and Cursor CLI's transcript files), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
+TraceRoost is a VS Code extension (and the same code as a standalone server: `npx traceroost`, Docker, or a background service; see §13) that receives OpenTelemetry (OTLP) telemetry from AI coding agents (GitHub Copilot, Claude Code, Codex), reads local agent log files and databases (including OpenCode's SQLite database and Cursor CLI's transcript files), persists everything to a local SQLite database, summarises it into per-run cards, and visualises it in a sidebar and a full dashboard.
 
-> **Naming:** the UI calls one prompt-to-response run a **Trace** (the Traces tab, the Waterfall sub-tab). The codebase predates that and still says `session` throughout — `SessionSummaryCard`, `sessions` table, `session_id`, `listSessions`, the `get_recent_sessions` MCP tool, etc. Read "session" as "trace" everywhere below; the two are the same thing.
+> **Naming:** the UI calls one prompt-to-response run a **Trace** (the Traces tab, the Waterfall sub-tab). The codebase predates that and still says `session` throughout: `SessionSummaryCard`, `sessions` table, `session_id`, `listSessions`, the `get_recent_sessions` MCP tool, etc. Read "session" as "trace" everywhere below; the two are the same thing.
 >
-> **Turn:** A turn is a single, complete unit of back-and-forth communication with a large language model: one input message and its corresponding response. In TraceRoost that is one LLM call — the Turns column (`turns` / `totalLlmCalls`) counts them — so a trace can contain many turns. The agents' own formats use "turn" for the whole prompt-to-response cycle (Codex's `turn_id`, `turn_context`, Cursor's `turn_ended`); where this document names those ids, or the trace-identity table's Turn column, it means that cycle, i.e. a trace.
+> **Turn:** A turn is a single, complete unit of back-and-forth communication with a large language model: one input message and its corresponding response. In TraceRoost that is one LLM call (the Turns column, `turns` / `totalLlmCalls`, counts them), so a trace can contain many turns. The agents' own formats use "turn" for the whole prompt-to-response cycle (Codex's `turn_id`, `turn_context`, Cursor's `turn_ended`); where this document names those ids, or the trace-identity table's Turn column, it means that cycle, i.e. a trace.
 
 ---
 
@@ -24,7 +24,7 @@ TraceRoost is a VS Code extension (and the same code as a standalone server — 
 12. [Auto-Configuration](#12-auto-configuration)
 13. [Background Service Mode](#13-background-service-mode)
 14. [Build Pipeline](#14-build-pipeline)
-15. [TraceRoost Cloud — org link](#15-traceroost-cloud--org-link)
+15. [TraceRoost Cloud: org link](#15-traceroost-cloud-org-link)
 
 ---
 
@@ -208,32 +208,32 @@ A parallel, network-free ingestion path that reads session files written to disk
 | --- | --- | --- | --- |
 | Claude Code | JSONL (append log) | `~/.claude/projects/<project>/<uuid>.jsonl` | `CLAUDE_CONFIG_DIR` (comma-separated config dirs) |
 | Codex | JSONL (append log) | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (scanned recursively) | `CODEX_HOME` (comma-separated home dirs) |
-| Copilot CLI | JSONL (event log) | `~/.copilot/session-state/<uuid>/events.jsonl` | — (written automatically) |
+| Copilot CLI | JSONL (event log) | `~/.copilot/session-state/<uuid>/events.jsonl` | None (written automatically) |
 | Copilot Chat (VS Code-family, newer) | JSONL (delta log) | `workspaceStorage/<hash>/chatSessions/<uuid>.jsonl` | — |
 | Copilot Chat (VS Code-family, older) | JSON (snapshot) | `workspaceStorage/<hash>/chatSessions/<uuid>.json` | — |
 | OpenCode | SQLite database (WAL mode) | `~/.local/share/opencode/opencode.db` (Linux/Mac) | `OPENCODE_DATA_DIR` (comma-separated data dirs) |
-| Antigravity CLI (`agy`, best effort) | JSONL step transcript + SQLite database (WAL mode, protobuf blobs) per conversation, `history.jsonl` | `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`, `~/.gemini/antigravity-cli/conversations/<id>.db` | `ANTIGRAVITY_CLI_DIR` (comma-separated roots; agentsview's name — agy has none of its own on record) |
-| Cursor CLI (`cursor-agent`) | JSONL (append log, one file per session) | `~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl` | `XDG_CONFIG_HOME` — checked live 2026-09-19 against a real install and does **not** relocate transcripts (only `cursor-agent`'s own config); probed defensively anyway in case a future version honors it |
+| Antigravity CLI (`agy`, best effort) | JSONL step transcript + SQLite database (WAL mode, protobuf blobs) per conversation, `history.jsonl` | `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`, `~/.gemini/antigravity-cli/conversations/<id>.db` | `ANTIGRAVITY_CLI_DIR` (comma-separated roots; agentsview's name; agy has none of its own on record) |
+| Cursor CLI (`cursor-agent`) | JSONL (append log, one file per session) | `~/.cursor/projects/<sanitized-workspace>/agent-transcripts/<uuid>/<uuid>.jsonl` | `XDG_CONFIG_HOME`: checked live 2026-09-19 against a real install and does **not** relocate transcripts (only `cursor-agent`'s own config); probed defensively anyway in case a future version honors it |
 
-`workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. TraceRoost scans all known VS Code-family IDEs automatically — VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro — via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`, Codex `%LOCALAPPDATA%\Codex\sessions` and `%APPDATA%\Codex\sessions`, Copilot CLI `%APPDATA%\copilot\session-state`, OpenCode `%APPDATA%\opencode`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude, and OpenCode honors `XDG_DATA_HOME`.
+`workspaceStorage` is at `~/Library/Application Support/<IDE>/User/workspaceStorage` (macOS), `%APPDATA%\<IDE>\User\workspaceStorage` (Windows), or `$XDG_CONFIG_HOME/<IDE>/User/workspaceStorage` (Linux), where `<IDE>` is any VS Code-family IDE. TraceRoost scans all known VS Code-family IDEs automatically (VS Code, VS Code Insiders, Cursor, Windsurf, VSCodium, Trae, and Kiro) via `VSCODE_FAMILY_IDE_NAMES` in `src/vscodeFamilyIdes.ts`. Standalone auto-config writes Copilot settings into every installed IDE's `settings.json`. Windows: Claude Code also checks `%APPDATA%\Claude\projects`, Codex `%LOCALAPPDATA%\Codex\sessions` and `%APPDATA%\Codex\sessions`, Copilot CLI `%APPDATA%\copilot\session-state`, OpenCode `%APPDATA%\opencode`. Linux/Mac: `XDG_CONFIG_HOME` is also checked for Claude, and OpenCode honors `XDG_DATA_HOME`.
 
-### Copilot Chat — delta log format (`.jsonl`)
+### Copilot Chat: delta log format (`.jsonl`)
 
 VS Code writes one JSONL per session where each line is an operation on the session state object:
 
 | `kind` | Meaning |
 | --- | --- |
 | `0` | Initial session snapshot (`creationDate`, `sessionId`, `inputState.selectedModel`) |
-| `1` | Set — `k` is key path, `v` is new value (e.g. `["requests", N, "completionTokens"]`) |
-| `2` | Push — `k` is key path, `v` is array of items to append |
+| `1` | Set: `k` is key path, `v` is new value (e.g. `["requests", N, "completionTokens"]`) |
+| `2` | Push: `k` is key path, `v` is array of items to append |
 
 New turn: `kind=2` with `k=["requests"]` (exactly one element). Response sub-arrays (`k=["requests", N, "response"]`) are ignored. `completionTokens` arrives via kind=1 (streaming final) and optionally embedded in the kind=2 request push object (Format B); kind=1 always wins.
 
-### Copilot Chat — snapshot format (`.json`)
+### Copilot Chat: snapshot format (`.json`)
 
 Older VS Code Copilot Chat versions wrote the full session state as a single JSON object. The `requests` array contains all turns with `message.text`, `timestamp`, `modelId`, and tool call data. No token counts are stored. Only collected when no `.jsonl` sibling exists for the same session UUID.
 
-### OpenCode — SQLite database
+### OpenCode: SQLite database
 
 OpenCode stores all session data in a local SQLite database (`opencode.db`) using WAL (Write-Ahead Log) mode. TraceRoost reads the database directly using `sql.js` (WASM SQLite), merging the WAL file at read time so in-progress sessions are visible immediately.
 
@@ -241,34 +241,34 @@ OpenCode stores all session data in a local SQLite database (`opencode.db`) usin
 
 **Three-query parse:** `_parseOpenCodeDb()` executes three queries in one pass:
 
-1. **Session query** — `session` table: `id, title, directory, model, time_created, tokens_input, tokens_output, tokens_cache_read, tokens_cache_write`. Filters: `parent_id` null/empty (skip sub-sessions), total tokens > 0. Model is stored as JSON (`{"id":"...", "providerID":"..."}`); the `id` field is extracted.
-2. **Message query** — `message` table joined on `session_id`: role, `parentID`, per-message timing (`time.created`, `time.completed` from the `data` JSON) and token counts (input, output, reasoning, cache read/write).
-3. **Part query** — `part` table joined with `message`: `type` (text / tool / step-start / step-finish / reasoning), `text`, `tool_name`, `callID`, `tool_input_json`, `tool_output`, `tool_status`, and timestamps. Results are grouped per session into `partsBySess` for card building.
+1. **Session query**: `session` table: `id, title, directory, model, time_created, tokens_input, tokens_output, tokens_cache_read, tokens_cache_write`. Filters: `parent_id` null/empty (skip sub-sessions), total tokens > 0. Model is stored as JSON (`{"id":"...", "providerID":"..."}`); the `id` field is extracted.
+2. **Message query**: `message` table joined on `session_id`: role, `parentID`, per-message timing (`time.created`, `time.completed` from the `data` JSON) and token counts (input, output, reasoning, cache read/write).
+3. **Part query**: `part` table joined with `message`: `type` (text / tool / step-start / step-finish / reasoning), `text`, `tool_name`, `callID`, `tool_input_json`, `tool_output`, `tool_status`, and timestamps. Results are grouped per session into `partsBySess` for card building.
 
 **Turns:** each user message opens a trace; an assistant message belongs to the user message its `parentID` names (else the latest one before it), and so do its parts. The trace's `userRequest` is its user message's text (the session title when it has none), its tokens are its assistant messages' (a database that records only session totals puts them on the session's last turn), and its key is derived from the session id plus the user message's id.
 
 **Timeline:** `llmEvents` (one per assistant message, from the message query) and `toolEvents` (one per tool part, from the part query) are merged and sorted by timestamp into `TimelineEntry[]`.
 
-### Cursor CLI — transcript log
+### Cursor CLI: transcript log
 
-`cursor-agent`'s standalone terminal agent (a separate product from Cursor the IDE's built-in composer/chat agent — see §4's Copilot Chat vs. `vscodeFamilyIdes.ts` distinction for the analogous IDE-vs-CLI split). One JSONL file per session, one line per turn: `{"role":"user"|"assistant", "message":{"content":[...]}}` content blocks (`text`, `tool_use`), plus a `{"type":"turn_ended","status":...}` marker line.
+`cursor-agent`'s standalone terminal agent (a separate product from Cursor the IDE's built-in composer/chat agent; see §4's Copilot Chat vs. `vscodeFamilyIdes.ts` distinction for the analogous IDE-vs-CLI split). One JSONL file per session, one line per turn: `{"role":"user"|"assistant", "message":{"content":[...]}}` content blocks (`text`, `tool_use`), plus a `{"type":"turn_ended","status":...}` marker line.
 
 Confirmed by direct inspection against a real install (`cursor-agent 2026.09.18-9a7762b`, 2026-09-19), not assumed:
 
 - **No token/usage, model name, or workspace path exist anywhere in this format.** These are left as an honest gap (0 tokens, `model: 'cursor-agent'` placeholder that matches no pricing entry, `workspace: ''`) rather than guessed.
-- **`turn_ended` does not persist per-turn.** Resuming a session (`cursor-agent --resume <id>`) removes the *previous* turn's `turn_ended` line and appends exactly one new one at the new end of file — confirmed with a real two-turn resumed session. A file with N real turns has only ever one `turn_ended` line on disk at read time. `_parseCursorFile` therefore counts real turns from `role: 'user'` lines (which do persist across a resume), not from `turn_ended` occurrences; `errors` reflects only the *most recently completed* turn's status, not a running total.
+- **`turn_ended` does not persist per-turn.** Resuming a session (`cursor-agent --resume <id>`) removes the *previous* turn's `turn_ended` line and appends exactly one new one at the new end of file, confirmed with a real two-turn resumed session. A file with N real turns has only ever one `turn_ended` line on disk at read time. `_parseCursorFile` therefore counts real turns from `role: 'user'` lines (which do persist across a resume), not from `turn_ended` occurrences; `errors` reflects only the *most recently completed* turn's status, not a running total.
 - **No per-turn timestamps.** Session start/end bounds fall back to the transcript file's own `birthtimeMs`/`mtimeMs`.
 
-### Antigravity CLI — transcript + conversation database (best effort)
+### Antigravity CLI: transcript + conversation database (best effort)
 
-Google's terminal agent `agy`. **No real capture has been checked**: the format below is third-party evidence (agentsview's parser, whose field numbers come from descriptors embedded in agy 1.1.x binaries), and the fixture (`src/test/fixtures/agents/antigravity/synthetic/`) is synthetic. Only `~/.gemini/antigravity-cli/` is read — never the app/IDE trees (`~/.gemini/antigravity`, `antigravity-ide`) or `antigravity-backup`; encrypted `*.pb`, `implicit/` and `*.trajectory.json` are ignored.
+Google's terminal agent `agy`. **No real capture has been checked**: the format below is third-party evidence (agentsview's parser, whose field numbers come from descriptors embedded in agy 1.1.x binaries), and the fixture (`src/test/fixtures/agents/antigravity/synthetic/`) is synthetic. Only `~/.gemini/antigravity-cli/` is read, never the app/IDE trees (`~/.gemini/antigravity`, `antigravity-ide`) or `antigravity-backup`; encrypted `*.pb`, `implicit/` and `*.trajectory.json` are ignored.
 
-- **Unit:** one conversation — its brain transcript, else its `.db` (`collectFileMeta` lists one entry; `parseFile` and `_scanAntigravity` read it). Change detection uses the newest mtime over the transcript, the `.db` and a WAL with frames (`-shm` ignored), stored against the unit file's size. `history.jsonl` / `cache/last_conversations.json` are shared, cached per root and re-read only when they change.
+- **Unit:** one conversation: its brain transcript, else its `.db` (`collectFileMeta` lists one entry; `parseFile` and `_scanAntigravity` read it). Change detection uses the newest mtime over the transcript, the `.db` and a WAL with frames (`-shm` ignored), stored against the unit file's size. `history.jsonl` / `cache/last_conversations.json` are shared, cached per root and re-read only when they change.
 - **Turns:** one per transcript `USER_INPUT` step, plus any `.db` step of type 14 the transcript hasn't caught up with; earlier steps join the first turn. Key `derivedTraceKey('antigravity', <id>, 'step:<opener idx>')`. Prompt: the `history.jsonl` row matched by exact ms, then second, then text (a database-only opener takes the next unclaimed row), else the transcript `content` with agy's `<USER_REQUEST>`/`<ADDITIONAL_METADATA>`[/`<USER_SETTINGS_CHANGE>`] envelope stripped (`stripAntigravityEnvelope`). Workspace: `last_conversations.json`, else the conversation's history rows, else an unambiguous same-text unattributed row within ±60 s.
-- **Tokens/model:** `gen_metadata.data` protobuf (`src/adapters/antigravity/proto.ts`, a small varint/length-delimited walker with agentsview's plausibility caps) — uncached input, output (thinking included), cache read; cache write is never recorded. Each non-zero generation goes to the turn holding its highest step index and becomes one `llm` entry. Model: `model_display_name`, else `response_model` with only `-exp-b` stripped, replaced by the covering `executor_metadata` effort-qualified name (`…-high`) when the bases agree. Pricing drops a Gemini effort suffix / `-exp-b` (`normalizeCostKey`).
+- **Tokens/model:** `gen_metadata.data` protobuf (`src/adapters/antigravity/proto.ts`, a small varint/length-delimited walker with agentsview's plausibility caps): uncached input, output (thinking included), cache read; cache write is never recorded. Each non-zero generation goes to the turn holding its highest step index and becomes one `llm` entry. Model: `model_display_name`, else `response_model` with only `-exp-b` stripped, replaced by the covering `executor_metadata` effort-qualified name (`…-high`) when the bases agree. Pricing drops a Gemini effort suffix / `-exp-b` (`normalizeCostKey`).
 - **No database** (or no usage yet): no token counts, model `agy` (matches no rate, so cost is unknown, never $0), `SOURCE_RANK_PARTIAL`, LLM calls counted from planner steps.
-- **Tools:** each planner step's `tool_calls[]` — name and args, files from `view_file`/`write_to_file`/`replace_file_content`/`multi_replace_file_content`/`grep_search` argument keys. No result, error, call id or duration exists.
-- **Adapter health:** transcript lines classified by `type` (`adapters/antigravity/known.ts`); the `.db` schema fingerprint (sha256 over `sqlite_master.sql` + `user_version`) is the version — `1.0.7–1.0.10` for the one known fingerprint, else `agy-schema:<12 hex>`.
+- **Tools:** each planner step's `tool_calls[]`: name and args, files from `view_file`/`write_to_file`/`replace_file_content`/`multi_replace_file_content`/`grep_search` argument keys. No result, error, call id or duration exists.
+- **Adapter health:** transcript lines classified by `type` (`adapters/antigravity/known.ts`); the `.db` schema fingerprint (sha256 over `sqlite_master.sql` + `user_version`) is the version: `1.0.7–1.0.10` for the one known fingerprint, else `agy-schema:<12 hex>`.
 
 ### Scan mechanics
 
@@ -290,7 +290,7 @@ flowchart TD
     INC -- cards --> WRI
 ```
 
-**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed — the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `logFileState.ts`'s `restoreLogFileState`/`writeLogFileState`) and restored before the first scan of a process — an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`. The file carries a version (`LOG_FILE_STATE_VERSION`): a parser fix that must correct already-stored sessions bumps it, and restoring an older file forgets the affected files so they're re-parsed and their rows rewritten once — version 2 re-reads Codex rollouts (within retention) stored with reasoning tokens counted twice (`logFileState.codexReparse.test.ts`); version 4 re-reads every file within retention once, one trace per turn (see Trace identity below; 3 was an interim development format); version 5 records each file's trace keys so a key a file stops producing is retired from the store.
+**Incremental reads:** `_readNewLines` / `_readJsonFile` track `{ bytesRead, mtimeMs }` per file in a `Map<string, FileState>`. On each poll only files whose mtime or size has changed are re-parsed; the whole file is re-read each time (not byte-offset) to produce a complete card. `fileState` is persisted to a sidecar file under the extension's global storage (`LogReader.exportFileState`/`importFileState`, `logFileState.ts`'s `restoreLogFileState`/`writeLogFileState`) and restored before the first scan of a process, so an extension restart only re-parses files whose mtime/size actually changed since the last write, not every historical file from scratch. See `logReader.fileState.test.ts`. The file carries a version (`LOG_FILE_STATE_VERSION`): a parser fix that must correct already-stored sessions bumps it, and restoring an older file forgets the affected files so they're re-parsed and their rows rewritten once: version 2 re-reads Codex rollouts (within retention) stored with reasoning tokens counted twice (`logFileState.codexReparse.test.ts`); version 4 re-reads every file within retention once, one trace per turn (see Trace identity below; 3 was an interim development format); version 5 records each file's trace keys so a key a file stops producing is retired from the store.
 
 **Two-phase startup loading:** the fast group (all non-.json files) runs first and surfaces recent sessions immediately. The slow group (legacy .json snapshots) starts after the fast group finishes, with a 50 ms gap between each 2-file batch to keep the extension host responsive (each ~60 ms parsing window).
 
@@ -298,9 +298,9 @@ flowchart TD
 
 | Field | OTLP | Claude / Codex logs | Copilot CLI log | Copilot Chat JSONL | Copilot Chat JSON | OpenCode SQLite | Cursor CLI log | Antigravity transcript + DB |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Session ID, workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | session ID only — no workspace field exists | ✓ (workspace from `history.jsonl`) |
-| Model | ✓ | ✓ | ✓ | ✓ (initial model only) | ✓ (first request) | ✓ | ✗ not stored — `cursor-agent` placeholder | ✓ with the DB, else `agy` placeholder |
-| Timestamps, duration | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | file `birthtimeMs`/`mtimeMs` only — no per-turn timestamps | ✓ per step |
+| Session ID, workspace | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | session ID only; no workspace field exists | ✓ (workspace from `history.jsonl`) |
+| Model | ✓ | ✓ | ✓ | ✓ (initial model only) | ✓ (first request) | ✓ | ✗ not stored; `cursor-agent` placeholder | ✓ with the DB, else `agy` placeholder |
+| Timestamps, duration | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | file `birthtimeMs`/`mtimeMs` only; no per-turn timestamps | ✓ per step |
 | Input tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk | ✓ with the DB (uncached + cache read) |
 | Output tokens | ✓ | ✓ | ✓ | ✓ (`completionTokens` per turn) | ✗ not stored | ✓ | ✗ not stored anywhere on disk | ✓ with the DB (thinking included) |
 | Cache read / write tokens | ✓ | ✓ | ✓ (from `session.shutdown`) | ✗ not stored | ✗ not stored | ✓ | ✗ not stored anywhere on disk | read ✓ with the DB; write ✗ |
@@ -309,14 +309,14 @@ flowchart TD
 | Tool call inputs / outputs | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ | ✓ (input only; no output/result recorded) | ✓ (input only) |
 | File paths from tools | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | ✓ |
 | TTFT, per-tool timing | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ — per-tool error data needed for `error_recurrence`/`chronic_tool_failures` doesn't exist | ✗ — no per-tool error data |
+| Streaming speed, loop signals | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ (per-tool error data needed for `error_recurrence`/`chronic_tool_failures` doesn't exist) | ✗ (no per-tool error data) |
 | Full turn timeline | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) | ✓ (LLM + tool entries) |
 
 Sessions produced by `LogReader` carry `dataSource: 'log'` on `SessionSummaryCard`; OTLP sessions carry `dataSource: 'otel'`. The UI shows an OTEL/Log source badge on each session row.
 
-### Trace identity — one trace, one key
+### Trace identity: one trace, one key
 
-One prompt-to-response cycle of an agent (what the agents' own formats call a turn) is one trace, on every source, and it has one key everywhere — the local `sessionId`, the database row, the wire `session_id`, the delivery ledger, deep links and every per-session cache (`src/traceIdentity.ts`):
+One prompt-to-response cycle of an agent (what the agents' own formats call a turn) is one trace, on every source, and it has one key everywhere: the local `sessionId`, the database row, the wire `session_id`, the delivery ledger, deep links and every per-session cache (`src/traceIdentity.ts`):
 
 ```
 traceKey = toUuid(`${agent}:turn:${turnId}`)
@@ -326,26 +326,26 @@ traceKey = toUuid(`${agent}:turn:${turnId}`)
 
 | Source | Turn | Key |
 | --- | --- | --- |
-| Claude Code transcript | opens at the first prompt line with a new `promptId`; interrupt markers, compaction carry-overs and slash-command lines sharing that promptId stay in it; a message typed mid-turn arrives inside a tool result and opens nothing (`src/claudeTurns.ts`) | `promptId` — exact. A transcript from before promptIds: derived (file id + the prompt line's `uuid`) |
-| Claude Code OTEL | one `claude_code.interaction` | no turn id on the wire — joined to its transcript turn (`src/claudeTurnJoin.ts`): `session.id` names the file, the interaction start picks the prompt line within ±2 s (OTEL leads by 1–67 ms; a line more than 250 ms *before* is a neighbouring turn and never taken), `user_prompt_length` (equal or +1) breaks a tie. Not joinable after a short hold (5 s, `TRACEROOST_CLAUDE_JOIN_HOLD_MS`) → derived `claude:interaction:<session.id>:<start ms>`, never merged by guesswork |
-| Codex rollout + OTEL | opens at a `user_message` (walked back over its bookkeeping lines); a `user_message` with the running turn's id opens nothing | `turn_id` (task_started / turn_context; OTEL `turn.id` / `turn_id`) — exact. No turn id: derived (rollout id + prompt timestamp) |
-| Copilot Chat (`.jsonl` / `.json`) | one request | `requestId` — exact for the log. Copilot OTEL keeps its own exact key (the invoke_agent span id): log ↔ OTEL id equality is unverified, so no cross-source merge |
-| Copilot CLI, OpenCode, Cursor CLI, Antigravity CLI | one prompt (`user.message` / user message / `role: user` line / `USER_INPUT` step) | derived: conversation id + the opening record's own id, or its exact timestamp (Cursor: its position — the format has neither; Antigravity: its step index) |
+| Claude Code transcript | opens at the first prompt line with a new `promptId`; interrupt markers, compaction carry-overs and slash-command lines sharing that promptId stay in it; a message typed mid-turn arrives inside a tool result and opens nothing (`src/claudeTurns.ts`) | `promptId`, exact. A transcript from before promptIds: derived (file id + the prompt line's `uuid`) |
+| Claude Code OTEL | one `claude_code.interaction` | no turn id on the wire; joined to its transcript turn (`src/claudeTurnJoin.ts`): `session.id` names the file, the interaction start picks the prompt line within ±2 s (OTEL leads by 1–67 ms; a line more than 250 ms *before* is a neighbouring turn and never taken), `user_prompt_length` (equal or +1) breaks a tie. Not joinable after a short hold (5 s, `TRACEROOST_CLAUDE_JOIN_HOLD_MS`) → derived `claude:interaction:<session.id>:<start ms>`, never merged by guesswork |
+| Codex rollout + OTEL | opens at a `user_message` (walked back over its bookkeeping lines); a `user_message` with the running turn's id opens nothing | `turn_id` (task_started / turn_context; OTEL `turn.id` / `turn_id`), exact. No turn id: derived (rollout id + prompt timestamp) |
+| Copilot Chat (`.jsonl` / `.json`) | one request | `requestId`, exact for the log. Copilot OTEL keeps its own exact key (the invoke_agent span id): log ↔ OTEL id equality is unverified, so no cross-source merge |
+| Copilot CLI, OpenCode, Cursor CLI, Antigravity CLI | one prompt (`user.message` / user message / `role: user` line / `USER_INPUT` step) | derived: conversation id + the opening record's own id, or its exact timestamp (Cursor: its position, since the format has neither; Antigravity: its step index) |
 
-Derived keys carry `derived: true`. Subagent transcripts (`<session>/subagents/agent-*.jsonl`) never get a key: their usage, tool calls and files fold into the parent turn (the turn whose promptId they carry, else the last one started before them), which records `subagentCount` — matching OTEL, which counts subagent calls under the parent interaction. So the `agent` initiator no longer comes from Claude subagents. The conversation marker groups a conversation's turns by `conversationId` (the transcript / rollout / chat id).
+Derived keys carry `derived: true`. Subagent transcripts (`<session>/subagents/agent-*.jsonl`) never get a key: their usage, tool calls and files fold into the parent turn (the turn whose promptId they carry, else the last one started before them), which records `subagentCount`, matching OTEL, which counts subagent calls under the parent interaction. So the `agent` initiator no longer comes from Claude subagents. The conversation marker groups a conversation's turns by `conversationId` (the transcript / rollout / chat id).
 
-**Source precedence.** A turn's log and OTEL cards are the same key, so "counting it once" is an upsert, not an overlap guess. Each card carries a `sourceRank` — OTEL with usage (3) > full transcript (2) > partial transcript or OTEL without usage (1). A lower rank never replaces a higher one; within a rank the newer card wins. The extension's `DatabaseWriter`, the standalone server's merge (`mergeCardsByKey` in `claudeConversation.ts`), the live/stored merge (`mergeSessions`) and the cloud forward path (`contentChangeForward.ts`, via `trace_revision.source_rank`) all apply it, so a transcript re-scan after the OTEL card landed never downgrades the row — locally or in the cloud.
+**Source precedence.** A turn's log and OTEL cards are the same key, so "counting it once" is an upsert, not an overlap guess. Each card carries a `sourceRank`: OTEL with usage (3) > full transcript (2) > partial transcript or OTEL without usage (1). A lower rank never replaces a higher one; within a rank the newer card wins. The extension's `DatabaseWriter`, the standalone server's merge (`mergeCardsByKey` in `claudeConversation.ts`), the live/stored merge (`mergeSessions`) and the cloud forward path (`contentChangeForward.ts`, via `trace_revision.source_rank`) all apply it, so a transcript re-scan after the OTEL card landed never downgrades the row, locally or in the cloud.
 
 **Changed turns only.** A growing transcript is re-parsed whole, but `parseFile`/`scan` return only the turns whose card changed since the last pass (`LogReader._onlyChanged`).
 
-**Upgrading a store.** A trace store older than `TRACE_STORE_VERSION` (SQLite `PRAGMA user_version`, `src/database/traceStore.ts` — the extension's `traceroost.db` and the standalone server's `outcomes-cache.db`) is not migrated: its trace tables (sessions with their timelines, git-outcome caches, trace revisions, commit attribution, plan-limit hits) are dropped and refilled by reading the agent logs again from scratch (`LOG_FILE_STATE_VERSION` 4, and 5 with `TRACE_STORE_VERSION` 2), and queued or delivered trace records go with them, while settings, instruction suggestions, blame/turnover caches, plan-limit readings and rollups, the cloud link and the host id are kept. The trace-key manifest (the list of trace keys a host still holds, which lets the cloud retire rows deleted locally — `src/cloud/forward/traceManifest.ts` — see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)`, `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` (`src/traceIdentity.ts`) over the standalone server's cards.
+**Upgrading a store.** A trace store older than `TRACE_STORE_VERSION` (SQLite `PRAGMA user_version`, `src/database/traceStore.ts`: the extension's `traceroost.db` and the standalone server's `outcomes-cache.db`) is not migrated: its trace tables (sessions with their timelines, git-outcome caches, trace revisions, commit attribution, plan-limit hits) are dropped and refilled by reading the agent logs again from scratch (`LOG_FILE_STATE_VERSION` 4, and 5 with `TRACE_STORE_VERSION` 2), and queued or delivered trace records go with them, while settings, instruction suggestions, blame/turnover caches, plan-limit readings and rollups, the cloud link and the host id are kept. The trace-key manifest (the list of trace keys a host still holds, which lets the cloud retire rows deleted locally; `src/cloud/forward/traceManifest.ts`, see CLOUD_ARCHITECTURE.md) is built from `DatabaseReader.listTraceKeys(from, to)`, `countTraces` and `localHorizonMs()` in the extension, and from `traceKeysInWindow`/`countTracesInWindow`/`localHorizonOf` (`src/traceIdentity.ts`) over the standalone server's cards.
 
 ### Per-session language and change size
 
-Every card gets `language` / `languageSecondary` and `filesChangedCount` / `linesAdded` / `linesRemoved` at the moment it is built — `_buildCard` in `logReader.ts` for log sessions, the end of `summarizeSpans()` for OTEL — so the database, the standalone server's in-memory store, export and cloud forwarding all read the same values without their own pass.
+Every card gets `language` / `languageSecondary` and `filesChangedCount` / `linesAdded` / `linesRemoved` at the moment it is built (`_buildCard` in `logReader.ts` for log sessions, the end of `summarizeSpans()` for OTEL), so the database, the standalone server's in-memory store, export and cloud forwarding all read the same values without their own pass.
 
-- **Language** (`src/language.ts`, byte-identical copy at `media/src/language.ts`, parity-tested in `src/test/language.test.ts`): a fixed allowlist — `typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none` — derived from the extensions of the session's distinct `filesRead` + `filesChanged` paths. Each distinct file counts once; non-code files (docs, JSON/YAML/TOML, lockfiles, config, dotfiles, images, text, CSV) and unknown extensions are excluded; a small explicit `OTHER_CODE_EXTENSIONS` set counts as `other`; Vue/Svelte components (`COMPONENT_EXTENSIONS`) count as `typescript` when the session touched any TypeScript file, else `javascript` (paths only, so `lang="ts"` is never read). Primary is the most common, secondary the runner-up (never `none`, may be `other`); ties break by count, then changed-over-read, then allowlist order.
-- **Change size** (`src/editStats.ts`): `filesChangedCount` is the distinct `filesChanged` count (every file, code or not); lines come from the timeline's `editDetails` — old→new strings are line-diffed (common prefix/suffix trimmed, LCS on the middle), `apply_patch` hunks (parsed once in `summarizers/helpers.ts`'s `parseApplyPatchEditDetails`, for Copilot and Codex) count their `-`/`+` lines, a content-only write counts every line as added. Agent-authored edits, not git stats (`src/attribution/` is the git side). Undefined lines mean the source records no edit contents (OpenCode, Cursor, Codex/Copilot logs).
+- **Language** (`src/language.ts`, byte-identical copy at `media/src/language.ts`, parity-tested in `src/test/language.test.ts`): a fixed allowlist (`typescript` `javascript` `python` `go` `rust` `java` `csharp` `cpp` `ruby` `php` `swift` `kotlin` `dart` `shell` `sql` `html` `css` `other` `none`), derived from the extensions of the session's distinct `filesRead` + `filesChanged` paths. Each distinct file counts once; non-code files (docs, JSON/YAML/TOML, lockfiles, config, dotfiles, images, text, CSV) and unknown extensions are excluded; a small explicit `OTHER_CODE_EXTENSIONS` set counts as `other`; Vue/Svelte components (`COMPONENT_EXTENSIONS`) count as `typescript` when the session touched any TypeScript file, else `javascript` (paths only, so `lang="ts"` is never read). Primary is the most common, secondary the runner-up (never `none`, may be `other`); ties break by count, then changed-over-read, then allowlist order.
+- **Change size** (`src/editStats.ts`): `filesChangedCount` is the distinct `filesChanged` count (every file, code or not); lines come from the timeline's `editDetails`: old→new strings are line-diffed (common prefix/suffix trimmed, LCS on the middle), `apply_patch` hunks (parsed once in `summarizers/helpers.ts`'s `parseApplyPatchEditDetails`, for Copilot and Codex) count their `-`/`+` lines, a content-only write counts every line as added. Agent-authored edits, not git stats (`src/attribution/` is the git side). Undefined lines mean the source records no edit contents (OpenCode, Cursor, Codex/Copilot logs).
 - Both are stored in `sessions` (`language`, `language_secondary`, `files_changed_count`, `lines_added`, `lines_removed`). Language and change-size cells read from Codex and Copilot Chat logs, which record no file paths, are `none` / unknown.
 
 ### Bypasses SessionStore / SpanSummarizer
@@ -391,7 +391,7 @@ graph LR
     PL --> SP
 ```
 
-**Key non-obvious behaviour:** Codex session IDs (`codex:{conversationId}:{turnId}`) are assigned on arrival. Once set, the mapping is immutable even if spans arrive out of order or are retried. After summarization the card takes its canonical key, `traceKey('codex', turnId)` — the key its rollout turn gets (see §4, Trace identity).
+**Key non-obvious behaviour:** Codex session IDs (`codex:{conversationId}:{turnId}`) are assigned on arrival. Once set, the mapping is immutable even if spans arrive out of order or are retried. After summarization the card takes its canonical key, `traceKey('codex', turnId)`, the key its rollout turn gets (see §4, Trace identity).
 
 ---
 
@@ -578,9 +578,9 @@ erDiagram
 
 Large string fields (`responseText`, `thinking`, `toolInput`, `fullResult`, `oldString`, `newString`) above 512 bytes are stored as files at `globalStorageUri/blobs/<spanId>-<field>.txt` rather than inline in the DB. The `has_blob` flag indicates when to read from disk instead.
 
-The diagram shows the trace tables only. The same database also holds `trace_sends` (the delivery record behind `queryTraceSendStats`), `trace_revision` / `trace_revision_counter` (live reconciliation, §File Map), `git_outcome` / `git_outcome_key`, `file_blame`, `commit_attribution` and `cohort_turnover` (the §15 caches), `claude_join` (the Claude OTEL↔transcript join) and the `limit_*` tables (`src/planUsage/`) — 18 tables in `SCHEMA_SQL`.
+The diagram shows the trace tables only. The same database also holds `trace_sends` (the delivery record behind `queryTraceSendStats`), `trace_revision` / `trace_revision_counter` (live reconciliation, §File Map), `git_outcome` / `git_outcome_key`, `file_blame`, `commit_attribution` and `cohort_turnover` (the §15 caches), `claude_join` (the Claude OTEL↔transcript join) and the `limit_*` tables (`src/planUsage/`): 18 tables in `SCHEMA_SQL`.
 
-`one_shot_stats` (added for the one-shot/retry-rate metric) and `instruction_applied`/`instruction_dismissed` (added for the Advisor tab's instruction-suggestion tracking) are not tied to `sessions` by a foreign key in the diagram above — the former is a column on `sessions`, the latter two are keyed by `workspace` (a free-text column, not `sessions.workspace` as an FK) since suggestions are workspace-scoped, not session-scoped.
+`one_shot_stats` (added for the one-shot/retry-rate metric) and `instruction_applied`/`instruction_dismissed` (added for the Advisor tab's instruction-suggestion tracking) are not tied to `sessions` by a foreign key in the diagram above: the former is a column on `sessions`, the latter two are keyed by `workspace` (a free-text column, not `sessions.workspace` as an FK) since suggestions are workspace-scoped, not session-scoped.
 
 ### Component responsibilities
 
@@ -800,13 +800,13 @@ classDiagram
     BurnRate "1" -- "0..1" Projection : paired with
 ```
 
-**Lazy timeline loading:** `SessionSummaryCard.timeline` is always `[]` when read from SQLite. The webview requests individual timelines on demand via `loadSessionDetail`. Blob fields (`responseText`, `thinking`, `toolInput`, `fullResult`, edit `oldString`/`newString`) are written to `blobs/` but `loadSessionTimeline` does not read them back, and no webview message asks for them — `SessionRepository.loadBlob` has no caller today, so only a card still in the live span window shows that text.
+**Lazy timeline loading:** `SessionSummaryCard.timeline` is always `[]` when read from SQLite. The webview requests individual timelines on demand via `loadSessionDetail`. Blob fields (`responseText`, `thinking`, `toolInput`, `fullResult`, edit `oldString`/`newString`) are written to `blobs/` but `loadSessionTimeline` does not read them back, and no webview message asks for them; `SessionRepository.loadBlob` has no caller today, so only a card still in the live span window shows that text.
 
 ---
 
 ## 10. Frontend Architecture
 
-The dashboard is a Preact application bundled into `media/dashboard.js`. It uses `@preact/signals` for reactive state — no Redux, no Context, no prop drilling.
+The dashboard is a Preact application bundled into `media/dashboard.js`. It uses `@preact/signals` for reactive state: no Redux, no Context, no prop drilling.
 
 ### Signal graph
 
@@ -874,18 +874,18 @@ graph TD
 
 **Key computed signal semantics:**
 
-- `agentFilteredSessions` — all in-memory sessions filtered by agent pill, language, data source, and the Repo box (`workspaceFilter`, a name or hash matched through `repoInfo`). No limit applied. This is the root filter — all downstream computeds derive from it, so the workspace filter automatically scopes every tab.
-- `availableWorkspaces` — sorted list of unique workspace paths from all loaded sessions. Drives the workspace dropdown options.
-- `availableLanguages` / `availableAgents` — the Language dropdown's options and the Agent pills: only languages (primary or secondary) and agents (`source`) that at least one loaded session has, in allowlist / `AGENT_FILTER_ORDER` order, read from every loaded session rather than the filtered set; a selected value stays listed even with no data. `showAgentFilter` hides the pill row when only one agent has data and nothing is selected.
-- `displaySessions` — `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Traces table.
-- `rangedSessions` — for bounded presets (7d/30d/…): merges `rangedSearchResults` (DB) with in-memory sessions that fall in the window. For "All": returns `agentFilteredSessions` directly.
-- `filteredSessions` — `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter — it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (ESTIMATED COST, TOKEN USAGE PER TRACE, CONTEXT GROWTH) source from `rangedSessions` directly.
+- `agentFilteredSessions`: all in-memory sessions filtered by agent pill, language, data source, and the Repo box (`workspaceFilter`, a name or hash matched through `repoInfo`). No limit applied. This is the root filter: all downstream computeds derive from it, so the workspace filter automatically scopes every tab.
+- `availableWorkspaces`: sorted list of unique workspace paths from all loaded sessions. Drives the workspace dropdown options.
+- `availableLanguages` / `availableAgents`: the Language dropdown's options and the Agent pills: only languages (primary or secondary) and agents (`source`) that at least one loaded session has, in allowlist / `AGENT_FILTER_ORDER` order, read from every loaded session rather than the filtered set; a selected value stays listed even with no data. `showAgentFilter` hides the pill row when only one agent has data and nothing is selected.
+- `displaySessions`: `agentFilteredSessions` sliced to `sessionLimit` (most recent N). Used for the Traces table.
+- `rangedSessions`: for bounded presets (7d/30d/…): merges `rangedSearchResults` (DB) with in-memory sessions that fall in the window. For "All": returns `agentFilteredSessions` directly.
+- `filteredSessions`: `rangedSessions` with the text filter (or an Insights/Instructions evidence set, `evidenceSessionIds`), the initiator and outcome filters, and sort applied (`preOutcomeFilteredSessions` is the same cut before the outcome filter; it feeds the outcome filter's own counts). Used by the Traces table, Insights, and Efficiency charts within Analytics. Analytics charts that must stay time-ordered (ESTIMATED COST, TOKEN USAGE PER TRACE, CONTEXT GROWTH) source from `rangedSessions` directly.
 
 **Workspace field flow:** `workspace` is stored in the `sessions` SQLite table (always present, `NOT NULL`). `project_path` is an optional secondary path some OTEL exporters populate. Both are mapped by `DatabaseReader.listSessions` into `SessionSummaryCard`. For OTEL-sourced sessions, `workspace` is stamped onto the card by `DatabaseWriter.enqueue` (the summarizers produce `workspace: ''` as a placeholder). For log-sourced sessions, `_buildCard` receives and records the workspace at parse time.
 
 ### Tab component overview
 
-Three tabs in the sticky tab bar (Traces — routing id `sessions` — Analytics, Advisor). Export and Import are actions, not views, so they're slide-in drawers (`tabs/Export.tsx`, `tabs/Import.tsx`): Export opens from the Traces filter row and exports what the filters select; Import opens from the Settings panel, from a file dropped anywhere on the dashboard (`useFileDrop` in `App.tsx`), or from the host's `switchTab` 'import' (`TraceRoost: Import Traces…`). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx` — the rate tables behind it), a "Make a suggestion" link (`media/src/suggest.ts` — TraceRoost Cloud's public `/suggest` page with `?from=core&context=<version · tab>`, opened in the browser; in both editions), and Help. Alerts and Automation are not tabs — the bell opens its own slide-in Alerts panel (`media/src/AlertsPanel.tsx`) with three tabs: **Active** (what's firing now, with a way to the trace behind each and to its threshold), **Configure** (`Alerts.tsx`) and **Automation** (`Automation.tsx`). The gear opens the separate Settings panel (`ConfigPanel` in `App.tsx`: ingestion toggles, agent setup/removal, page size, theme and dashboard port in standalone, Import traces). Only the topmost of two open drawers handles keys (`media/src/dialogStack.ts`). The filter bar keeps Time and Agent visible; Prompt, Language, Repo, Outcome, Source and From sit behind a **Filters (n)** button (`filtersOpen`), each active one shown as a removable chip. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
+Three tabs in the sticky tab bar: Traces (routing id `sessions`), Analytics, Advisor. Export and Import are actions, not views, so they're slide-in drawers (`tabs/Export.tsx`, `tabs/Import.tsx`): Export opens from the Traces filter row and exports what the filters select; Import opens from the Settings panel, from a file dropped anywhere on the dashboard (`useFileDrop` in `App.tsx`), or from the host's `switchTab` 'import' (`TraceRoost: Import Traces…`). The right of the header carries icon buttons: the Org button (full edition only; `media/src/orgPanel.ts`), an update button (standalone only, from `standalone/versionCheck.ts`), the bell, the action log (`src/actionLog.ts`'s record of every command TraceRoost ran), the gear, a `$` icon (`Pricing.tsx`, the rate tables behind it), a "Make a suggestion" link (`media/src/suggest.ts`: TraceRoost Cloud's public `/suggest` page with `?from=core&context=<version · tab>`, opened in the browser; in both editions), and Help. Alerts and Automation are not tabs: the bell opens its own slide-in Alerts panel (`media/src/AlertsPanel.tsx`) with three tabs: **Active** (what's firing now, with a way to the trace behind each and to its threshold), **Configure** (`Alerts.tsx`) and **Automation** (`Automation.tsx`). The gear opens the separate Settings panel (`ConfigPanel` in `App.tsx`: ingestion toggles, agent setup/removal, page size, theme and dashboard port in standalone, Import traces). Only the topmost of two open drawers handles keys (`media/src/dialogStack.ts`). The filter bar keeps Time and Agent visible; Prompt, Language, Repo, Outcome, Source and From sit behind a **Filters (n)** button (`filtersOpen`), each active one shown as a removable chip. Secondary views are sub-panels within the expanded session row, the Analytics layout, or the Advisor's Instructions sub-view.
 
 ```mermaid
 graph LR
@@ -972,8 +972,8 @@ sequenceDiagram
 
 Cost is computed in two places:
 
-1. **Extension host** (`src/pricing.ts`) — at write time; `cost_usd` is stored in the `sessions` row and used for all aggregate queries (`SUM(cost_usd)`, `queryDailyStats`, `queryBurnRate`).
-2. **Browser** (`media/src/pricing.ts`) — at display time; per-turn and per-trace cost shown in the expanded trace (waterfall rows, Flow tooltip, Overview tiles), the Analytics charts and the Advisor (`media/src/sessionMetrics.ts`'s `calcSessionCost` / `calcEntryCost`). The two rate tables are kept in sync manually. In the full edition a linked install overlays the org's own rates from TraceRoost Cloud on both tables (`src/cloud/org/pricingSync.ts`; every failure falls back to the local table), and the header's `$` icon (`Pricing.tsx`) shows which is in effect.
+1. **Extension host** (`src/pricing.ts`): at write time; `cost_usd` is stored in the `sessions` row and used for all aggregate queries (`SUM(cost_usd)`, `queryDailyStats`, `queryBurnRate`).
+2. **Browser** (`media/src/pricing.ts`): at display time; per-turn and per-trace cost shown in the expanded trace (waterfall rows, Flow tooltip, Overview tiles), the Analytics charts and the Advisor (`media/src/sessionMetrics.ts`'s `calcSessionCost` / `calcEntryCost`). The two rate tables are kept in sync manually. In the full edition a linked install overlays the org's own rates from TraceRoost Cloud on both tables (`src/cloud/org/pricingSync.ts`; every failure falls back to the local table), and the header's `$` icon (`Pricing.tsx`) shows which is in effect.
 
 ```mermaid
 flowchart TD
@@ -1006,15 +1006,15 @@ The models and rates themselves live only in `src/pricing.ts` (its `PRICING_LAST
 
 ## 12. Auto-Configuration
 
-When the extension activates it configures each agent — but only with the user's consent, and only
+When the extension activates it configures each agent, but only with the user's consent, and only
 if it owns the job. TraceRoost asks once, in plain words, what it will change and what that turns on
 (`src/agentSetupConsent.ts`, wording in `src/agentSetupText.ts`; **Set up agents** / **Not now** /
-**Don't set up** — "Not now" records nothing and the question returns next start). The answer is shared
+**Don't set up**; "Not now" records nothing and the question returns next start). The answer is shared
 by every TraceRoost on the machine as `agentSetup` in `~/.traceroost/config.json`; `TraceRoost: Set Up
 Agents…`, the Settings button and `traceroost agents setup` count as a yes. With a standalone
 TraceRoost (background service, `traceroost`, the desktop app's collector) holding the data directory
 or the OTLP port, the extension leaves agent settings alone and hands the job to the service
-(`src/serviceOwnership.ts` — "the background service always wins"). The first yes writes the full set
+(`src/serviceOwnership.ts`: "the background service always wins"). The first yes writes the full set
 (`SetupMode` `'full'`); every later start runs `'maintain'`, which only moves TraceRoost's own
 `http://localhost:<port>` endpoint to the current port when it is still there and adds nothing the
 user deleted. A file whose endpoint already names a different collector is left untouched entirely,
@@ -1044,7 +1044,7 @@ flowchart TD
 
 The standalone server runs the same three at startup (`standalone/autoConfigLog.ts` prints every
 warning), and a terminal asks the consent question itself: Enter is **Not now**, `y` is yes, `never`
-is **Don't set up** (`standalone/agentsCli.ts`). Docker never touches agent settings — it could only
+is **Don't set up** (`standalone/agentsCli.ts`). Docker never touches agent settings; it could only
 reach the container's own files.
 
 ---
@@ -1052,7 +1052,7 @@ reach the container's own files.
 ## 13. Background Service Mode
 
 Standalone-mode only (`traceroost service <cmd>`, dispatched from `standalone/cli.ts` before the
-normal server bootstrap). Lets the server outlive a closed terminal, sleep, or reboot — otherwise
+normal server bootstrap). Lets the server outlive a closed terminal, sleep, or reboot. Otherwise
 incoming OTEL data has nowhere to go while nothing is listening, and agents don't queue or retry
 failed exports, so the gap is permanent. Not applicable to the VS Code extension, which is already
 kept running by the IDE itself.
@@ -1085,7 +1085,7 @@ flowchart TD
     NPMLATEST --> RESTART["platformService.restart&#40;&#41;<br/>(re-execs whatever now sits at the same install path)"]
 ```
 
-A global install pins a version — and so does `npx` in practice: a bare `npx traceroost`
+A global install pins a version, and so does `npx` in practice: a bare `npx traceroost`
 re-runs whatever npx cached without revalidating against the registry, so only `npx …@latest`
 reliably resolves the newest release (the user-facing docs say `@latest` everywhere for this
 reason). Either way a service definition points at a fixed on-disk path that only changes when
@@ -1112,7 +1112,7 @@ rather than the Cellar keg, which `brew upgrade` deletes. The formula has no `se
 `standalone/server.ts` reads `~/.traceroost/config.json` at startup, so an ad-hoc `npx`/`node
 standalone/server.js` run and a service install share one config story instead of diverging.
 `config.json` decides the ports: the `OTLP_PORT`/`UI_PORT`/`MCP_PORT` env vars win for a manual
-run but not for the background service (`configuredPorts` in `src/serviceConfig.ts` — a service
+run but not for the background service (`configuredPorts` in `src/serviceConfig.ts`: a service
 definition written by an older version can't override a port changed later); `BIND_HOST` and
 `DATA_DIR` env vars still win when set. The file also carries `sessionRetentionDays` (default 90,
 `standalone/sessionRetention.ts`), the `agentSetup` answer (§12), the `install_id` and the auth
@@ -1124,13 +1124,13 @@ kept.
 
 **One server per data dir.** Before it reads or writes anything in its data dir, the server takes
 an exclusive lock, `<dataDir>/server.lock` (`standalone/dataDirLock.ts`): created with O_EXCL,
-holding pid, hostname, start time and — once bound — its ports. Two servers on one dir would each
+holding pid, hostname, start time and, once bound, its ports. Two servers on one dir would each
 load `spans.json` and then overwrite each other's saves, so a second one is refused with a message
 naming the running instance (pid, dashboard URL, how to stop it, or `DATA_DIR` + other ports for a
 deliberate second instance). Run as the background service, a refused server waits and retries
 every 10 s instead of exiting, so launchd's KeepAlive doesn't respawn it in a loop and it takes
 over when the ad-hoc run stops. The lock is released on exit; a crashed holder's lock is taken
-over on the next start — on the same host when its pid is gone (or is our own pid, as in a
+over on the next start: on the same host when its pid is gone (or is our own pid, as in a
 restarted container), from another host (a shared filesystem, a re-created container) once the
 30 s heartbeat that bumps its mtime is 90 s old. A holder whose lock was taken over exits without
 saving. The VS Code extension takes no part: its spans live in its own SQLite store under VS
@@ -1139,7 +1139,7 @@ delivery ledger, credential, always under `~/.traceroost`) are guarded per write
 `src/cloud/forward/fileLock.ts`.
 
 `uninstall` removes the service definition only (on Windows that includes the generated
-`<dataDir>/service/run.cmd` wrapper, and a task that's already gone isn't an error) — it never
+`<dataDir>/service/run.cmd` wrapper, and a task that's already gone isn't an error); it never
 touches `~/.traceroost`'s data or config, matching the same separation the extension's Clear-All-Data command already keeps between
 "stop this from running" and "delete my data."
 
@@ -1150,18 +1150,18 @@ touches `~/.traceroost`'s data or config, matching the same separation the exten
 Five independent esbuild targets produce five output bundles.
 
 **Editions.** `node esbuild.js --edition=full|core` (default `full`) picks which of two products
-the five bundles are. `core` resolves the three Cloud seams — `src/cloudBridge.ts` →
+the five bundles are. `core` resolves the three Cloud seams (`src/cloudBridge.ts` →
 `src/cloudBridge.core.ts`, `media/src/orgPanel.ts` → `media/src/orgPanel.core.tsx`,
-`standalone/cliCloud.ts` → `standalone/cliCloud.core.ts` — to inert stubs, defines
+`standalone/cliCloud.ts` → `standalone/cliCloud.core.ts`) to inert stubs, defines
 `process.env.TRACEROOST_EDITION` (both editions, all bundles) so literal edition checks fold away,
 turns on syntax-level minification for the two standalone bundles (so those dead branches are
 really dropped), and fails the build if any module under `src/cloud/`, `media/src/cloud/` or
 `standalone/cloud/` would be loaded. `scripts/check-edition.mjs` re-checks the output; see
 CONTRIBUTING.md → Editions and runbooks/RELEASING.md → Editions. A release ships one edition
-everywhere — VSIX, npm, Docker and the desktop app, whose collector is built in the release's
+everywhere: VSIX, npm, Docker and the desktop app, whose collector is built in the release's
 edition (`TRACEROOST_DESKTOP_EDITION`, below). `TRACEROOST_EXTERNAL_SOURCEMAPS=1` makes a production
 build also write external `.map` files (no `sourceMappingURL` comment, so the bundles are
-unchanged) — only the desktop app's full-edition staging uses it, for its notices.
+unchanged); only the desktop app's full-edition staging uses it, for its notices.
 
 ```mermaid
 graph LR
@@ -1204,13 +1204,13 @@ itself; the server is reached only through `import('./server.js')`, which `esbui
 external so the npm package ships one copy of the server (`standalone/server.js`) rather than a
 second one inlined into the CLI.
 
-**The desktop app** (`desktop/`, its own npm project — deliberately outside the pnpm workspace) is a
+**The desktop app** (`desktop/`, its own npm project, deliberately outside the pnpm workspace) is a
 sixth, separate build: `desktop/esbuild.mjs` bundles `desktop/src/main.ts` to `desktop/out/main.js`
-(`electron` external; checked as core in both editions — the shell carries no Cloud code);
-`desktop/scripts/stage-resources.mjs` builds the collector at the repo root in the desktop edition —
-`TRACEROOST_DESKTOP_EDITION` (`desktop/scripts/edition.cjs`), `core` by default and the release's
-edition in a release (`release.yml` → `desktop-release.yml` → `desktop-{macos,linux,windows}.yml`);
-`full` is built `--production` for a packaged app, so it is pinned to production TraceRoost Cloud —
+(`electron` external; checked as core in both editions, since the shell carries no Cloud code);
+`desktop/scripts/stage-resources.mjs` builds the collector at the repo root in the desktop edition
+(`TRACEROOST_DESKTOP_EDITION`, `desktop/scripts/edition.cjs`: `core` by default and the release's
+edition in a release, via `release.yml` → `desktop-release.yml` → `desktop-{macos,linux,windows}.yml`;
+`full` is built `--production` for a packaged app, so it is pinned to production TraceRoost Cloud),
 checks it with `check-edition.mjs <edition>`, and copies what the app ships into
 `desktop/resources/collector/` (the full edition adds `NOTICE.md` and `LICENSE-BSL-1.1` beside
 `LICENSE`);
@@ -1220,7 +1220,7 @@ DMG, a `.deb`/AppImage or an NSIS per-user installer (`pnpm run pack`, `pack:lin
 (`CSC_NAME` / `CSC_LINK`) and notarizes when an Apple credential set is present; Windows signs with a
 certificate (`WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`) or, when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`
 and `AZURE_CLIENT_SECRET` are set, Azure Artifact Signing with the account, profile and publisher
-named in `electron-builder.cjs` (they are not secrets — every signature carries them). An unsigned
+named in `electron-builder.cjs` (they are not secrets; every signature carries them). An unsigned
 build is still attached to the release under its plain name. See `desktop/README.md`.
 
 ### Type-check vs bundle
@@ -1236,17 +1236,17 @@ graph LR
 
 `pnpm run check-types` runs a third pass, `tsc --noEmit -p standalone/tsconfig.json`, which
 covers all of `standalone/**` (server, CLI, `local/`, `service/`, `db/`, `cloud/`) together with
-the `src/**` it imports, so a type error anywhere in the standalone code fails `compile` and CI —
+the `src/**` it imports, so a type error anywhere in the standalone code fails `compile` and CI,
 and a fourth, `tsc --noEmit -p tsconfig.test.desktop.json`, for `desktop/`.
 Separately, `tsconfig.test.standalone.json` compiles the unit-tested standalone files and their
 tests for `pnpm run test:unit` (`compile-tests:standalone`).
 
 ---
 
-## 15. TraceRoost Cloud — org link
+## 15. TraceRoost Cloud: org link
 
 Everything in `src/cloud/` (`org/` for the link, `forward/` for the upload) is the **client half of
-TraceRoost Cloud** — an optional layer that lets an org admin see cross-developer aggregates. The rest of the codebase reaches it only through
+TraceRoost Cloud**, an optional layer that lets an org admin see cross-developer aggregates. The rest of the codebase reaches it only through
 `src/cloudBridge.ts` (implemented by `src/cloud/bridge.ts`), `media/src/orgPanel.ts` and
 `standalone/cliCloud.ts`, so the core edition (§14) can be built without any of it. The wire
 contract, every endpoint a linked machine calls, the end-to-end send and the trace manifest are in
@@ -1254,11 +1254,11 @@ CLOUD_ARCHITECTURE.md; this section is the module map, the surfaces and the free
 built against two rules:
 
 1. **Privacy is a property, not a promise.** An unlinked install makes *no* request to any
-   TraceRoost service — no version ping, no "do you have an org" check. `getOrgStatus()` and
+   TraceRoost service: no version ping, no "do you have an org" check. `getOrgStatus()` and
    `loadCredentials()` touch local disk only. The wire format has no free-text field, so
    there is nothing for source code to travel in.
 2. **The free/paid line is single-player vs. multiplayer.** Everything about *my machine, my
-   commits, my repositories* is free and ungimped. Cloud is *everyone's* — aggregation a local
+   commits, my repositories* is free and ungimped. Cloud is *everyone's*: aggregation a local
    install genuinely cannot do. Nothing local is gated behind Cloud (whose own Free plan is
    described under "The free/paid boundary" below).
 
@@ -1266,48 +1266,48 @@ built against two rules:
 
 | Module | Responsibility |
 |---|---|
-| `src/cloud/bridge.ts` | The full edition's `CloudBridge` — the only module outside `src/cloud/` reaches cloud code through it (`src/cloudBridge.ts` is the interface; `cloudBridge.core.ts` the inert stub) |
+| `src/cloud/bridge.ts` | The full edition's `CloudBridge`, the only module outside `src/cloud/` reaches cloud code through it (`src/cloudBridge.ts` is the interface; `cloudBridge.core.ts` the inert stub) |
 | `src/cloud/org/config.ts` | The one list of every URL the client can contact; `OrgCredentials` shape; `resolveOrgEnvironment()` (`TRACEROOST_ORG_URL` / `TRACEROOST_ORG_ENV`, else the picker's saved choice) |
 | `src/cloud/org/environmentSelection.ts` | The *unlinked* Org panel's persisted environment pick; a linked machine uses the endpoint baked into its credential instead |
-| `src/cloud/org/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto — pure, no I/O |
+| `src/cloud/org/pkce.ts` | OAuth 2.0 PKCE (RFC 7636) + CSRF-state crypto; pure, no I/O |
 | `src/cloud/org/callbackServer.ts` | One-shot `127.0.0.1:0` loopback listener for the redirect; cannot outlive the attempt |
 | `src/cloud/org/credentials.ts` | `~/.traceroost/team.json`, mode 0600, keychain-ready via `CredentialStore` |
 | `src/cloud/org/oauthClient.ts` | Token exchange / refresh / revoke, device flow, roster self-lookup |
 | `src/cloud/org/tokenRefresh.ts` | The one way a linked machine rotates its tokens: refresh-then-save under the credential file's lock, re-read after acquiring, so two hosts sharing `team.json` never present an already-rotated token; counts unanswered presentations (`MAX_UNANSWERED_PRESENTATIONS`) and treats a network failure as no answer |
 | `src/cloud/org/browser.ts` | Opens a URL in the default browser with no shell in between (one argv entry; Windows goes through the URL handler, not `cmd /c start`) |
 | `src/cloud/org/link.ts` | `linkInteractive` (PKCE), `linkViaDevice` (RFC 8628), `leave` (local-first) |
-| `src/cloud/org/status.ts` | `getOrgStatus()` — local-only status for the panel, dot and CLI, including the daily-ceiling notice |
+| `src/cloud/org/status.ts` | `getOrgStatus()`: local-only status for the panel, dot and CLI, including the daily-ceiling notice |
 | `src/cloud/org/linkWatcher.ts` | Notices a link or leave made outside this process (`traceroost org link`, another window or server sharing `~/.traceroost`) and starts/stops the scheduler and queues history accordingly |
-| `src/cloud/org/reconcileUnsent.ts` | "Queue everything this install hasn't delivered yet" — right after a link, the panel's **Check for unsent traces** button and `linkWatcher`; a bounded `RECONCILE_CONCURRENCY` (6) worker pool over `maybeEnqueueSession`, which checks the delivery ledger before building anything |
+| `src/cloud/org/reconcileUnsent.ts` | "Queue everything this install hasn't delivered yet": right after a link, the panel's **Check for unsent traces** button and `linkWatcher`; a bounded `RECONCILE_CONCURRENCY` (6) worker pool over `maybeEnqueueSession`, which checks the delivery ledger before building anything |
 | `src/cloud/org/pricingSync.ts` | Fetches the linked org's own rate table and overlays it on `lookupRates()` (§11); every failure leaves the local table in effect |
-| `src/cloud/org/clusterResolve.ts` | `traceroost cluster --repo <hash> --id <id>`: resolves a Repeat-work cluster's opaque session ids back to local sessions — only the machine that produced them can |
+| `src/cloud/org/clusterResolve.ts` | `traceroost cluster --repo <hash> --id <id>`: resolves a Repeat-work cluster's opaque session ids back to local sessions; only the machine that produced them can |
 | `src/cloud/org/resolveRepoHash.ts` | Hash → local clone for the hand-off; not an oracle, no network |
-| `src/cloud/org/privacy.ts` | `SENT` / `NEVER_SENT` — the payload promise, pinned by a test, mirrored on the consent screen |
+| `src/cloud/org/privacy.ts` | `SENT` / `NEVER_SENT`: the payload promise, pinned by a test, mirrored on the consent screen |
 | `src/cloud/org/panelController.ts` | Transport-agnostic handler for `org*` webview messages (link, status, leave, environment, payload preview, reconcile); `reconcileLocalSessions` delegates to `reconcileUnsent.ts` |
 | `src/cloud/forward/schema.ts` | The wire format as hand-written types + enum maps; **never imports `SessionSummaryCard`** |
 | `src/repoKey.ts` | HKDF/HMAC repository-key derivation from the local clone's root commit |
-| `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder — explicit field-by-field, no spread, hashing done here |
-| `src/cloud/forward/buildCommitRecords.ts` | Wire mapper for commit records (schema'd, but nothing builds and sends them yet — see CLOUD_ARCHITECTURE.md) |
+| `src/cloud/forward/buildSessionRollup.ts` | `SessionRollup` builder: explicit field-by-field, no spread, hashing done here |
+| `src/cloud/forward/buildCommitRecords.ts` | Wire mapper for commit records (schema'd, but nothing builds and sends them yet; see CLOUD_ARCHITECTURE.md) |
 | `src/cloud/forward/jsonSchemaValidate.ts` / `validate.ts` | Client-side validation against the committed schema (no `ajv` dependency) |
-| `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders — prose fields structurally unreachable |
+| `src/cloud/forward/buildInstructionTelemetry.ts` | `InstructionFileState` / `FileFootprint` / `SuggestionEvent` builders; prose fields structurally unreachable |
 | `src/cloud/org/instructionTelemetry.ts` | Bridge: local Advisor state → instruction rollup → queue (linked only) |
 | `src/cloud/org/suggestionLedgerStore.ts` | CLI's local applied/dismissed/reverted record (`~/.traceroost/instruction-ledger.json`) |
-| `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text — the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
+| `src/cloud/org/payloadPreview.ts` | Card → `RollupPayload` / `--explain-payload` text: the bridge that reads a `SessionSummaryCard`; `createPayloadBuildCache` memoizes repo-key/branch/outcome git work per reconcile run |
 | `src/cloud/org/enqueueSession.ts` | Session close → forwarding queue; hard no-op unless linked; `maybeEnqueueSession` is ledger-gated |
-| `src/cloud/org/contentChangeForward.ts` | Re-forwards a session whenever its built rollup *content* changed (`src/reconcile/payloadHash.ts`) — the live-update path (`src/sessionForwarder.ts`, the standalone log scan), not the restart rediscovery, which keeps the cheap ledger short-circuit |
-| `src/cloud/org/hostIdentity.ts` | This host's `host_id` — a random UUID kept in its own trace store (`cloud-host-id`), created on first linked use; the extension and the standalone server each have one |
-| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl` — disk-backed, idempotent, capped (`DEFAULT_MAX_ITEMS` 5000, oldest-first eviction), 0600; eviction past the cap is logged, not silent |
-| `src/cloud/forward/deliveryLedger.ts` | `~/.traceroost/delivered.json` — which queue items were confirmed delivered, so a restart's log rediscovery doesn't re-send a machine's history; `dropped.json` records rollups the cloud refused for good (400 schema-rejected, 413 too large) so the trace manifest leaves their keys out instead of waiting on them forever |
-| `src/cloud/forward/fileLock.ts` | Cross-process advisory lock around the read-modify-write of the shared per-machine files (queue, ledgers, credential) — the extension, the server and a CLI run can all hold them at once |
-| `src/cloud/forward/forwardState.ts` | Small persisted record of how forwarding is going (last send, pause until, the persistent notice — re-link, update required, daily ceiling) — read by `org status`, the dot and `getOrgStatus()`; kept apart from the queue so the two never contend |
-| `src/cloud/forward/currentQueueStats.ts` | `getQueueStats()` — queue depth and stuck items (`STUCK_ATTEMPTS_THRESHOLD`) for the panel, the dot and `org status`; local files only |
-| `src/cloud/forward/sender.ts` | `drainQueue()` — batching, backoff+jitter, the full failure table in its header: 401 (refresh once; `invalid_grant` clears credential and queue; too many unanswered presentations clears the credential but keeps the queue), 403 `install revoked` (clears credential and queue; any other 403 is transient), 426 `client_upgrade_required` (pause, keep queue), 409 `session_owned_elsewhere` (re-key and re-queue), 429 (`Retry-After`; with `X-TraceRoost-Ceiling: daily`, pause until `Retry-After` but never past midnight UTC, one notice per UTC day) |
+| `src/cloud/org/contentChangeForward.ts` | Re-forwards a session whenever its built rollup *content* changed (`src/reconcile/payloadHash.ts`): the live-update path (`src/sessionForwarder.ts`, the standalone log scan), not the restart rediscovery, which keeps the cheap ledger short-circuit |
+| `src/cloud/org/hostIdentity.ts` | This host's `host_id`: a random UUID kept in its own trace store (`cloud-host-id`), created on first linked use; the extension and the standalone server each have one |
+| `src/cloud/forward/queue.ts` | `~/.traceroost/forward-queue.jsonl`: disk-backed, idempotent, capped (`DEFAULT_MAX_ITEMS` 5000, oldest-first eviction), 0600; eviction past the cap is logged, not silent |
+| `src/cloud/forward/deliveryLedger.ts` | `~/.traceroost/delivered.json`: which queue items were confirmed delivered, so a restart's log rediscovery doesn't re-send a machine's history; `dropped.json` records rollups the cloud refused for good (400 schema-rejected, 413 too large) so the trace manifest leaves their keys out instead of waiting on them forever |
+| `src/cloud/forward/fileLock.ts` | Cross-process advisory lock around the read-modify-write of the shared per-machine files (queue, ledgers, credential): the extension, the server and a CLI run can all hold them at once |
+| `src/cloud/forward/forwardState.ts` | Small persisted record of how forwarding is going (last send, pause until, the persistent notice: re-link, update required, daily ceiling); read by `org status`, the dot and `getOrgStatus()`; kept apart from the queue so the two never contend |
+| `src/cloud/forward/currentQueueStats.ts` | `getQueueStats()`: queue depth and stuck items (`STUCK_ATTEMPTS_THRESHOLD`) for the panel, the dot and `org status`; local files only |
+| `src/cloud/forward/sender.ts` | `drainQueue()`: batching, backoff+jitter, the full failure table in its header: 401 (refresh once; `invalid_grant` clears credential and queue; too many unanswered presentations clears the credential but keeps the queue), 403 `install revoked` (clears credential and queue; any other 403 is transient), 426 `client_upgrade_required` (pause, keep queue), 409 `session_owned_elsewhere` (re-key and re-queue), 429 (`Retry-After`; with `X-TraceRoost-Ceiling: daily`, pause until `Retry-After` but never past midnight UTC, one notice per UTC day) |
 | `src/cloud/forward/sessionRekey.ts` | Per-owner wire ids: a trace another member or org already holds is recorded in `~/.traceroost/rekeyed.json` and re-queued under an owner-salted id; every wire-id consumer (payload build, ledger, manifest, cluster resolution, `find`) follows the re-key |
-| `src/cloud/forward/preview.ts` | `stableStringify` — shared by `--explain-payload` and the panel's **Show the exact payload**, so the two never disagree |
+| `src/cloud/forward/preview.ts` | `stableStringify`, shared by `--explain-payload` and the panel's **Show the exact payload**, so the two never disagree |
 | `src/cloud/forward/wireAttribution.ts` | Attribution enum passthrough with a safe `unknown` default, shared by the commit and turnover builders |
-| `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue` — **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
-| `src/cloud/forward/traceManifest.ts` | The trace-key manifest — per-day chunks of the keys this host holds, tagged with its `host_id`, sent after a drain by the store's single writer (each host for its own rows); full sweep on startup/(re-)link, changed days otherwise |
-| `schema/rollup.v1.json` | JSON Schema form of the wire format — committed, shipped, and served by the service |
+| `src/cloud/forward/scheduler.ts` | Timer that runs `drainQueue`, **only when linked**, started/stopped on link/leave; keeps draining immediately while a backlog remains and nothing is stopping it, instead of one batch per 5-minute tick |
+| `src/cloud/forward/traceManifest.ts` | The trace-key manifest: per-day chunks of the keys this host holds, tagged with its `host_id`, sent after a drain by the store's single writer (each host for its own rows); full sweep on startup/(re-)link, changed days otherwise |
+| `schema/rollup.v1.json` | JSON Schema form of the wire format: committed, shipped, and served by the service |
 
 **The split that makes instruction suggestions genuinely a Cloud feature:** the cloud finds the pattern (some file is read in
 62% of sessions by four of six developers), the machine writes the text (which file, and the
@@ -1315,10 +1315,10 @@ sentence). The local hot-file rule (`src/suggestionRules.ts`) already fires at 2
 person's sessions (high priority at 40%); pooling
 raises it to "four of you do, and none of your instruction files mention it," which no local
 install can reach. The local Advisor is free and unchanged. `suggestedText` / `evidence` /
-`title` never leave the machine — only `suggestion_id` (hashed), the enums, and the numeric
+`title` never leave the machine; only `suggestion_id` (hashed), the enums, and the numeric
 baseline. Apply loop: `traceroost advise --apply <id>` regenerates with real paths, appends,
 captures a baseline; `vscode://agentlens.agentlens-dashboard/advise?id=…` is the editor deep
-link — routed through VS Code's own URI scheme, not a custom-registered `agentlens://` one; see
+link, routed through VS Code's own URI scheme, not a custom-registered `agentlens://` one; see
 `src/extension.ts`'s "Deep links" comment.
 
 `traceroost --explain-payload [--last|--all|--session <id>|--since <date>]` and `--dry-run`
@@ -1330,44 +1330,44 @@ service validates against the identical document. `src/cloud/forward/` is a clos
 is a number, an enum, a hash or a timestamp, and a CI test walks `schema/rollup.v1.json` to fail
 the build if any string is left unconstrained.
 `install_id` lives in `~/.traceroost/config.json` (`src/serviceConfig.ts` `ensureInstallId`) and
-is **not** in the payload — the service derives identity from the bearer token.
+is **not** in the payload; the service derives identity from the bearer token.
 
 ### Surfaces
 
-- **Org panel** (`media/src/cloud/panels/OrgPanel.tsx`) — a slide-in beside Settings, opened from a
+- **Org panel** (`media/src/cloud/panels/OrgPanel.tsx`): a slide-in beside Settings, opened from a
   header icon carrying a state dot (grey not linked / green synced, blinking while a drain is in
   flight / amber queued or paused; the tooltip names the state). Its header reads "TraceRoost Cloud ·
   <org>" and its first row opens the Cloud team view, or the Cloud site when unlinked. The unlinked state is what almost every install shows forever; it states plainly
   that nothing is sent and offers `Show the exact payload` *before* linking.
-- **CLI** — `traceroost org <link [--device|--browser]|status|verify|leave>` (`standalone/cloud/org-cli.ts`).
+- **CLI**: `traceroost org <link [--device|--browser]|status|verify|leave>` (`standalone/cloud/org-cli.ts`).
   `link` picks the device flow (RFC 8628: a URL and a code to approve from any device) wherever
-  `service install` wouldn't open a browser — SSH, no display, non-TTY, `--no-open` /
+  `service install` wouldn't open a browser (SSH, no display, non-TTY, `--no-open` /
   `TRACEROOST_NO_OPEN` (`chooseLinkFlow`, the same test as `shouldAutoOpen`); `--device` /
   `--browser` force either.
-- **Command palette** — `TraceRoost: Link This Machine to an Org (Cloud)`, `TraceRoost: Org Link Status (Cloud)`,
+- **Command palette**: `TraceRoost: Link This Machine to an Org (Cloud)`, `TraceRoost: Org Link Status (Cloud)`,
   `TraceRoost: Unlink (Cloud)`.
-- **Standalone server** — `GET/POST /api/org` (full edition only), dispatched through the same `panelController`.
+- **Standalone server**: `GET/POST /api/org` (full edition only), dispatched through the same `panelController`.
 
 ### The free/paid boundary
 
-**Free is my machine. Paid is everyone's** — structural, not administrative. A local install
+**Free is my machine. Paid is everyone's**: structural, not administrative. A local install
 cannot see other machines, so there is no flag to patch out and no fork that recovers Cloud features. The
 full statement, and the things the free tier will never do (no feature removed to force an
 upgrade, no quotas, no free self-hostable team server), lives with the pricing-page copy. (Cloud
-itself has a Free plan — three developers, every Cloud feature; that is a Cloud plan, not a limit
+itself has a Free plan: three developers, every Cloud feature; that is a Cloud plan, not a limit
 on the free local tier.)
 
 **The hand-off:** the service holds counts, not code, so "show me an example" is answered on the
 machine that has the repo. `traceroost cohort --repo <hash|name> --merged <YYYY-MM> [--window]`
 and `vscode://agentlens.agentlens-dashboard/cohort?repo=<hash>&merged=…&window=…`.
 `src/cloud/org/resolveRepoHash.ts` re-derives
-repo hashes for local clones only — it is not an oracle, and a deep link for an unknown repo
+repo hashes for local clones only; it is not an oracle, and a deep link for an unknown repo
 makes no request.
 
 ### The free outcome metric
 
 `src/attribution/` and `src/turnover/` are **free forever, local, single-developer**. They have
-no transport — the engines have no network path at all — and nothing they produce is gated. They
+no transport (the engines have no network path at all), and nothing they produce is gated. They
 sit outside `src/cloud/` (they were moved out of it) so that nothing free depends on the cloud
 directories, and they are MIT-licensed like the rest of the tool.
 
@@ -1375,29 +1375,29 @@ directories, and they are MIT-licensed like the rest of the tool.
 |---|---|
 | `src/attribution/commitScan.ts` | `git log --numstat` for a repo/window; detects an agent trailer, then discards the message |
 | `src/attribution/sessionJoin.ts` | Candidate-session lookup (workspace in repo, span ends ≤ commit within a 72h lookback) |
-| `src/attribution/fromSessions.ts` / `types.ts` | `toAttributionSessions()` — the narrow view of a card the join needs (no prompt or response text); `Confidence`, `ScannedCommit`, `CommitAttribution` |
+| `src/attribution/fromSessions.ts` / `types.ts` | `toAttributionSessions()`: the narrow view of a card the join needs (no prompt or response text); `Confidence`, `ScannedCommit`, `CommitAttribution` |
 | `src/attribution/blame.ts` | Per-commit line attribution via `git blame --line-porcelain`, fan-out capped |
 | `src/attribution/index.ts` | `attributeRepository()` → `CommitAttribution[]` + honest coverage (unknown lines excluded from the denominator) |
-| `src/database/attributionRepository.ts` | SQLite cache — a commit's attribution never changes once computed |
-| `src/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed` — a cohort is measured only once its window fully elapses |
+| `src/database/attributionRepository.ts` | SQLite cache; a commit's attribution never changes once computed |
+| `src/turnover/cohorts.ts` | Monthly cohorts; `measurableAt` / `isWindowElapsed`; a cohort is measured only once its window fully elapses |
 | `src/turnover/survival.ts` | One `git blame HEAD` per file, bucketed by originating commit; proportional surviving-AI-lines estimate |
-| `src/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData` — a bare percentage is never returned without a line/commit count and date range |
-| `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day 20–24%, healthy <22%) — one place to change them |
+| `src/turnover/index.ts` | `computeTurnover()` → `TurnoverResult \| InsufficientData`; a bare percentage is never returned without a line/commit count and date range |
+| `src/turnover/benchmarks.ts` | Published bands (30-day 12–18%, healthy <15%; 90-day 20–24%, healthy <22%); one place to change them |
 | `src/turnover/cached.ts` | `computeTurnover` behind a "recompute only when HEAD, the date or the local sessions moved" rule wired to SQLite |
 | `src/database/turnoverRepository.ts` | One row per repo; recompute skipped when `HEAD` is unmoved |
 
 There was previously a dedicated free **Outcomes** dashboard tab (`media/src/cloud/tabs/Outcomes.tsx`)
 surfacing this engine's output directly, billed as the free tier's activation event. It was retired
 in commit `0ee7842` in favor of folding outcome signal (merged/committed/abandoned, per-file) inline
-into the Traces tab's Files sub-tab — see §10's tab overview, "git outcome banner + per-file
+into the Traces tab's Files sub-tab; see §10's tab overview, "git outcome banner + per-file
 badges." Its report-assembly file, `src/cloud/turnover/localReport.ts` (as the path was then), had no other caller and was
 removed with it. The attribution/turnover engine itself is unaffected by that retirement and is
-still free, local, and single-developer with no network path — reachable today via
+still free, local, and single-developer with no network path, reachable today via
 `traceroost cohort` (§15's "the hand-off", `standalone/local/cohortCli.ts`), not via a dashboard tab.
 
 Confidence is the honest part: **certain** (trailer, or a session lists the file and the commit
 lands in that session's own span), **probable** (session lists the file, commit within the
-lookback window), **unknown** (no record — most commits on a real repo). Commit messages and
+lookback window), **unknown** (no record; most commits on a real repo). Commit messages and
 blame output stay in memory: neither is ever written to the database or a log.
 
 ### Leaving

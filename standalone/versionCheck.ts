@@ -110,7 +110,7 @@ export function npxCachedCopyNotice(result: VersionCheckResult | null): string |
       ? `[TraceRoost] Launched via npx, which served a cached copy: this is v${result.currentVersion}, but v${result.latestVersion} is out. Re-run as \`npx traceroost@latest\` (or clear npx's cache with \`rm -rf ~/.npm/_npx\`).`
       : null
   }
-  return '[TraceRoost] Launched via npx — if this isn\'t the version you expect, npx served a cached copy. Re-run as `npx traceroost@latest` (or clear it with `rm -rf ~/.npm/_npx`).'
+  return '[TraceRoost] Launched via npx. If this isn\'t the version you expect, npx served a cached copy. Re-run as `npx traceroost@latest` (or clear it with `rm -rf ~/.npm/_npx`).'
 }
 
 /** Where the desktop app's new builds are published (README's Desktop app section links here too). */

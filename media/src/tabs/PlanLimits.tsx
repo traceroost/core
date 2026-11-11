@@ -288,7 +288,7 @@ function LimitLineChart({ view, snapshot, now }: { view: Chart1View; snapshot: P
           ))}
           {risesTip.length > 0 && (
             <div style="margin-top:3px;color:var(--muted)">
-              Rise of {nearestRise!.s.approximate ? '≈ ' : ''}{fmtPct(risesTip.reduce((a, r) => a + r.pct, 0))} from {risesTip.length} trace{risesTip.length === 1 ? '' : 's'} — click to open
+              Rise of {nearestRise!.s.approximate ? '≈ ' : ''}{fmtPct(risesTip.reduce((a, r) => a + r.pct, 0))} from {risesTip.length} trace{risesTip.length === 1 ? '' : 's'}. Click to open
             </div>
           )}
         </div>
@@ -394,7 +394,7 @@ function WeeklyPeaksChart({ rollups }: { rollups: WindowRollup[] }) {
             <strong>{hovered.coverage === 'partial' ? '≥ ' : ''}{fmtPct(hovered.peakPct)}</strong> <span style="color:var(--muted)">{PROVIDER_LABEL[hovered.provider]} peak</span>
           </div>
           {hovered.hit && <div style={`color:${CRITICAL}`}>Limit hit this week</div>}
-          {hovered.coverage === 'partial' && <div style="color:var(--muted)">Readings didn't cover the whole week — a lower bound</div>}
+          {hovered.coverage === 'partial' && <div style="color:var(--muted)">Readings didn't cover the whole week, so this is a lower bound</div>}
           {appliedIn(weekOf(hovered.windowEnd)).map(a => <div key={a.id} style="color:var(--muted)">Applied: {a.title}</div>)}
         </div>
       )}
@@ -485,7 +485,7 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
           <p style="font-size:11px;color:var(--muted);margin:0 0 6px">
             {view === 'weekly'
               ? 'How full the weekly window was over the last two weeks.'
-              : 'The 5-hour window over the last week — how fast each one filled and when it blocked you (shaded).'}
+              : 'The 5-hour window over the last week: how fast each one filled and when it blocked you (shaded).'}
             {view === 'five_hour' && snapshot.meters.some(m => m.provider === 'claude') && fiveHourLines(snapshot).every(s => s.provider !== 'claude')
               ? " Claude's 5-hour readings are too sparse to draw; its limit hits still show." : ''}
           </p>
@@ -498,7 +498,7 @@ export function PlanLimitsSection({ snapshot }: { snapshot: PlanUsageSnapshot })
         <>
           <div style="font-size:12px;margin:14px 0 4px"><strong>Did my fixes work?</strong></div>
           <p style="font-size:11px;color:var(--muted);margin:0 0 6px">
-            Peak weekly usage per week. Markers show when an instruction-file suggestion was applied — a lower peak after one is the saving.
+            Peak weekly usage per week. Markers show when an instruction-file suggestion was applied; a lower peak after one is the saving.
           </p>
           <WeeklyPeaksChart rollups={rollups} />
         </>

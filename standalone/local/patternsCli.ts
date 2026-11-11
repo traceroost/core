@@ -99,7 +99,7 @@ export async function runPatternsCli(args: string[], loaded?: SessionSummaryCard
   const signals = groupedSignals(sessions)
   console.log('\nBehavioral patterns detected:')
   if (signals.length === 0) {
-    console.log('  None — no loop or malfunction signals across these traces.')
+    console.log('  None: no loop or malfunction signals across these traces.')
   } else {
     for (const g of signals) {
       console.log(`\n  ${PATTERN_NAMES[g.type]} (${g.type})`)

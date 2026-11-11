@@ -64,7 +64,7 @@ export class HistoryReadiness {
     try {
       outcome = await this.opts.run()
     } catch (e) {
-      this.opts.log?.(`[TraceRoost] Reading local trace logs failed (${e instanceof Error ? e.message : String(e)}) — retrying in ${Math.round(this.retryDelayMs / 1000)} s.`)
+      this.opts.log?.(`[TraceRoost] Reading local trace logs failed (${e instanceof Error ? e.message : String(e)}); retrying in ${Math.round(this.retryDelayMs / 1000)} s.`)
       this.schedule(this.retryDelayMs)
       this.retryDelayMs = Math.min(this.opts.retryMaxMs ?? 10 * 60_000, this.retryDelayMs * 2)
       return

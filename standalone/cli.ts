@@ -27,7 +27,7 @@ import { parseServerFlags, topLevelAction, usageText } from './cliArgs'
 const NODE_MAJOR = Number(process.versions.node.split('.')[0])
 if (NODE_MAJOR < 22) {
   console.error(
-    `TraceRoost needs Node.js 22 or newer — this is Node ${process.version}. ` +
+    `TraceRoost needs Node.js 22 or newer; this is Node ${process.version}. ` +
       'Install a current LTS from https://nodejs.org (or use Homebrew: brew install traceroost/tap/traceroost).',
   )
   process.exit(1)

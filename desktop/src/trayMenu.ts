@@ -65,17 +65,17 @@ export function describeCollectorState(state: CollectorState): { label: string; 
       return { label: 'Starting collection…', accessibilityLabel: 'Collection is starting.' }
     case 'running':
       return {
-        label: `Collecting — dashboard on port ${state.uiPort}`,
+        label: `Collecting (dashboard on port ${state.uiPort})`,
         accessibilityLabel: `Collecting. The dashboard is on port ${state.uiPort}.`,
       }
     case 'restarting':
       return {
-        label: `Collection stopped — retrying in ${Math.round(state.nextAttemptInMs / 1000)}s`,
+        label: `Collection stopped, retrying in ${Math.round(state.nextAttemptInMs / 1000)}s`,
         accessibilityLabel: `Collection stopped after an error and will retry in ${Math.round(state.nextAttemptInMs / 1000)} seconds. Attempt ${state.attempt}.`,
       }
     case 'failed':
       return {
-        label: 'Collection failed — not collecting',
+        label: 'Collection failed, not collecting',
         accessibilityLabel: `Collection failed and will not retry. Nothing is being recorded. ${state.lastError}`,
       }
   }
@@ -119,15 +119,15 @@ export function buildMenuModel(input: {
     : attached
       ? {
           label: shell.identity.service
-            ? `Collecting — attached to the background service (port ${shell.identity.uiPort})`
-            : `Collecting — attached to pid ${shell.identity.pid} (port ${shell.identity.uiPort})`,
+            ? `Collecting, attached to the background service (port ${shell.identity.uiPort})`
+            : `Collecting, attached to pid ${shell.identity.pid} (port ${shell.identity.uiPort})`,
           accessibilityLabel: `Collecting. Attached to a collector this app does not manage, on port ${shell.identity.uiPort}.`,
         }
       : shell.mode === 'confirm-attach'
         ? { label: 'A collector is already running', accessibilityLabel: shell.question }
         : shell.mode === 'wait'
           ? { label: 'Waiting for a collector that is starting…', accessibilityLabel: shell.detail }
-          : { label: 'Not collecting — needs attention', accessibilityLabel: shell.detail }
+          : { label: 'Not collecting: needs attention', accessibilityLabel: shell.detail }
 
   // The dashboard is only reachable once something is actually serving it.
   const dashboardReachable =
@@ -192,5 +192,5 @@ export function buildMenuModel(input: {
     { id: 'quit', label: owned ? 'Quit TraceRoost' : 'Quit TraceRoost (leaves the collector running)', enabled: true },
   )
 
-  return { tooltip: `TraceRoost — ${status.label}`, items }
+  return { tooltip: `TraceRoost: ${status.label}`, items }
 }

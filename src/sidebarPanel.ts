@@ -394,7 +394,7 @@ export class SidebarPanel implements vscode.WebviewViewProvider {
 
   <div class="sb-body">
 
-    <div id="sb-plan-meters" class="sb-plan-meters" style="display:none" title="Plan limits — open Analytics"></div>
+    <div id="sb-plan-meters" class="sb-plan-meters" style="display:none" title="Plan limits: open Analytics"></div>
     <div class="sb-live-header" title="Updates live as the current agent trace progresses">Live &middot; Current Trace Activity</div>
 
     <!-- Status row -->

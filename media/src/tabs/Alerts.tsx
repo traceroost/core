@@ -260,7 +260,7 @@ function evaluateAlert(
         sessionId: worst.session.sessionId,
         detail: 'Peak context ' + worst.usage.peakTokens.toLocaleString() + ' tokens vs '
           + worst.profile.label + ' threshold ' + worst.threshold.toLocaleString()
-          + ' — "' + sessionDisplayName(worst.session) + '"',
+          + ' in "' + sessionDisplayName(worst.session) + '"',
       }
     }
     case 'high_turns': {
@@ -275,7 +275,7 @@ function evaluateAlert(
         sessionId: worst.session.sessionId,
         detail: over.length + ' trace(s) reached threshold. Worst: ' + worst.session.totalLlmCalls
           + ' turns vs ' + worst.profile.label + ' alert ' + worst.profile.turnAlert
-          + ' — "' + sessionDisplayName(worst.session) + '"',
+          + ' in "' + sessionDisplayName(worst.session) + '"',
       }
     }
     case 'error_spike': {
@@ -289,7 +289,7 @@ function evaluateAlert(
         sessionId: worst.session.sessionId,
         detail: 'Worst: ' + worst.health.errorCount + ' error(s) vs '
           + worst.profile.label + ' threshold ' + worst.profile.consecutiveErrorAlert
-          + ' — "' + sessionDisplayName(worst.session) + '"',
+          + ' in "' + sessionDisplayName(worst.session) + '"',
       }
     }
     case 'long_session': {
@@ -322,7 +322,7 @@ function evaluateAlert(
         sessionId: worst.session.sessionId,
         detail: '0% cache hit rate on ' + worst.session.inputTokens.toLocaleString()
           + ' input tokens vs ' + worst.profile.label + ' gate ' + worst.threshold.toLocaleString()
-          + ' — "' + sessionDisplayName(worst.session) + '"',
+          + ' in "' + sessionDisplayName(worst.session) + '"',
       }
     }
     case 'tool_loop': {
@@ -337,7 +337,7 @@ function evaluateAlert(
         key: (worst.session.traceId || worst.session.sessionId) + ':' + worst.repeat.key,
         sessionId: worst.session.sessionId,
         detail: '"' + worst.repeat.display + '" repeated ' + worst.repeat.count + ' times without intervening file changes vs '
-          + worst.profile.label + ' alert ' + worst.profile.identicalRepeatAlert + ' — "' + sessionDisplayName(worst.session) + '"',
+          + worst.profile.label + ' alert ' + worst.profile.identicalRepeatAlert + ' in "' + sessionDisplayName(worst.session) + '"',
       }
     }
     case 'daily_cost': {

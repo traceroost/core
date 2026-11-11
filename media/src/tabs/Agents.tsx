@@ -116,7 +116,7 @@ export function Agents() {
         return ms >= (range.since ?? 0) && ms <= (range.until ?? Date.now())
       })
   if (!allSessions.length) {
-    return <div id="agents-content"><div class="empty-state">No traces recorded yet — run Copilot, Claude, Codex, OpenCode, Cursor or Antigravity to record one</div></div>
+    return <div id="agents-content"><div class="empty-state">No traces recorded yet. Run Copilot, Claude, Codex, OpenCode, Cursor or Antigravity to record one</div></div>
   }
 
   const copStats = computeStats(allSessions.filter(s => s.source === 'copilot'))

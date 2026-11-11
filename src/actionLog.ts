@@ -48,7 +48,7 @@ let notifyScheduled: ReturnType<typeof setTimeout> | null = null
 let trailingNotifyNeeded = false
 
 function formatRunningLine(e: ActionLogEntry): string {
-  return `${e.cwd}: ${e.gloss ? `${e.gloss} — ${e.raw}` : e.raw}`
+  return `${e.cwd}: ${e.gloss ? `${e.gloss}: ${e.raw}` : e.raw}`
 }
 
 function emitSnapshot(): void {

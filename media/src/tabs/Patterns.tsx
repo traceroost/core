@@ -94,7 +94,7 @@ function EfficiencyMap({ sessions }: { sessions: SessionSummaryCard[] }) {
   return (
     <div>
       <div style="margin-bottom:8px;padding:8px 10px;font-size:11px;color:var(--muted);line-height:1.6;background:var(--card-bg);border:1px solid var(--border);border-radius:4px">
-        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more turns (model calls). <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth — start there. <strong style="color:var(--vscode-charts-green, #81c784)">Green</strong> = model reused cached context between calls (efficient). <strong style="color:var(--vscode-errorForeground, #f44747)">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
+        Each dot is one trace. <strong style="color:var(--fg)">Right</strong> = more expensive. <strong style="color:var(--fg)">Up</strong> = more turns (model calls). <strong style="color:var(--fg)">Top-right</strong> dots cost the most and required the most back-and-forth, so start there. <strong style="color:var(--vscode-charts-green, #81c784)">Green</strong> = model reused cached context between calls (efficient). <strong style="color:var(--vscode-errorForeground, #f44747)">Red</strong> = model reprocessed everything from scratch on every call (wasteful).
       </div>
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
         <span style="font-size:var(--fs-xs);color:var(--muted)">{points.length} trace{points.length !== 1 ? "s" : ""}{filter.trim() ? ' matching filter' : ''}</span>
@@ -252,12 +252,12 @@ function HotFiles({ sessions }: { sessions: SessionSummaryCard[] }) {
   if (rows.length === 0) return <div class="empty-state">No file access data yet.</div>
 
   const tip = mode === 'read'
-    ? <><strong style="color:var(--fg)">Read-heavy files</strong> are loaded into the agent&apos;s context window every trace — the context window is the block of text sent to the model on each call, and every token in it costs money. Files read frequently mean the agent is spending tokens re-loading content it already needed last time. Documenting their purpose in your instructions file lets the agent orient itself without reading the whole file. Large files are especially costly — splitting them into smaller focused modules reduces how much fills the context window per trace.</>
+    ? <><strong style="color:var(--fg)">Read-heavy files</strong> are loaded into the agent&apos;s context window every trace. The context window is the block of text sent to the model on each call, and every token in it costs money. Files read frequently mean the agent is spending tokens re-loading content it already needed last time. Documenting their purpose in your instructions file lets the agent orient itself without reading the whole file. Large files are especially costly: splitting them into smaller focused modules reduces how much fills the context window per trace.</>
     : mode === 'changed'
-    ? <><strong style="color:var(--fg)">Frequently changed files</strong> are your highest-churn surface area — the agent reads them into its context window, edits them, then often re-reads them to verify. Add guidance in your instructions file: what conventions to follow, what tests to run after edits, and what parts should not be modified without a specific reason. Clear constraints reduce back-and-forth and prevent the agent from undoing its own prior work.</>
+    ? <><strong style="color:var(--fg)">Frequently changed files</strong> are your highest-churn surface area: the agent reads them into its context window, edits them, then often re-reads them to verify. Add guidance in your instructions file: what conventions to follow, what tests to run after edits, and what parts should not be modified without a specific reason. Clear constraints reduce back-and-forth and prevent the agent from undoing its own prior work.</>
     : mode === 'written'
-    ? <><strong style="color:var(--fg)">Written files</strong> are those the agent replaced wholesale — using the Write or create_file tool rather than an incremental edit. High trace counts here mean the agent repeatedly regenerated the same file from scratch. If a file appears in Written across many traces, consider whether its structure is stable enough to edit incrementally, or whether its repeated re-creation signals unclear or conflicting instructions.</>
-    : <><strong style="color:var(--fg)">Hot files</strong> are loaded into the agent&apos;s context window most often across traces — every read costs tokens. Files with high Read counts are candidates for documentation in your instructions file so the agent doesn't need to re-read them raw. Files with high Changed counts are high-churn; add constraints and testing requirements. Large files that appear here are strong candidates for splitting into smaller focused modules to keep context window usage lean.</>
+    ? <><strong style="color:var(--fg)">Written files</strong> are those the agent replaced wholesale, using the Write or create_file tool rather than an incremental edit. High trace counts here mean the agent repeatedly regenerated the same file from scratch. If a file appears in Written across many traces, consider whether its structure is stable enough to edit incrementally, or whether its repeated re-creation signals unclear or conflicting instructions.</>
+    : <><strong style="color:var(--fg)">Hot files</strong> are loaded into the agent&apos;s context window most often across traces, and every read costs tokens. Files with high Read counts are candidates for documentation in your instructions file so the agent doesn't need to re-read them raw. Files with high Changed counts are high-churn; add constraints and testing requirements. Large files that appear here are strong candidates for splitting into smaller focused modules to keep context window usage lean.</>
 
   return (
     <div>
@@ -450,7 +450,7 @@ export function Patterns() {
   const sessions = filteredSessions.value
 
   if (sessions.length === 0) {
-    return <div class="empty-state">No traces recorded yet — patterns will appear once you have trace history.</div>
+    return <div class="empty-state">No traces recorded yet. Patterns will appear once you have trace history.</div>
   }
 
   const divider = <div style="border-top:1px solid var(--border);margin:16px 0 8px" />

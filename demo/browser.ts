@@ -120,7 +120,7 @@ async function connectOrLaunch(chromium: import('playwright').BrowserType): Prom
       }
       return { browser, page: await ctx.newPage(), attached: true }
     } catch {
-      log(`No browser found on CDP port ${CDP_PORT} — launching a new one (left open on that port for next time).`)
+      log(`No browser found on CDP port ${CDP_PORT}; launching a new one (left open on that port for next time).`)
     }
   }
 
@@ -187,10 +187,10 @@ async function main() {
     log('Tour mode: navigating tabs as data arrives…')
     const speed = parseFloat(SPEED) || 1
     await runTour(page, { speed, log })
-    log('Tour complete — leaving browser open for exploration')
+    log('Tour complete. Leaving browser open for exploration')
   } else {
-    log('No --tour flag. Dashboard is live — explore tabs manually.')
-    log(keepOpenOnExit ? 'Press Ctrl+C to exit — the browser stays open for the next --cdp run.' : 'Press Ctrl+C to close the browser and exit.')
+    log('No --tour flag. Dashboard is live; explore tabs manually.')
+    log(keepOpenOnExit ? 'Press Ctrl+C to exit. The browser stays open for the next --cdp run.' : 'Press Ctrl+C to close the browser and exit.')
   }
 
   await replayDone

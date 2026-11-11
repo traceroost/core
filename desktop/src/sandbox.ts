@@ -46,7 +46,7 @@ export function sandboxRefusal(opts: {
         'This system does not allow the TraceRoost AppImage to use the security sandbox that ' +
         'isolates its dashboard window, and TraceRoost will not run without it.\n\n' +
         'This is usually Ubuntu 23.10 or later, which only lets applications with an AppArmor ' +
-        'profile use the kernel feature the sandbox needs — and an AppImage cannot install one.\n\n' +
+        'profile use the kernel feature the sandbox needs, and an AppImage cannot install one.\n\n' +
         'Install the TraceRoost .deb instead: it installs that profile, and uses the same data, so ' +
         'nothing recorded so far is lost.\n\n' +
         'Lifting the restriction for the whole system (the kernel.apparmor_restrict_unprivileged_userns ' +

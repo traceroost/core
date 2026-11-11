@@ -349,7 +349,7 @@ const RATES_BY_COST_KEY: Map<string, ModelRates> = (() => {
     if (existing && JSON.stringify(existing) !== JSON.stringify(rates)) {
       throw new Error(
         `pricing: RATES key "${modelId}" collapses to cost key "${key}", which another key ` +
-        `already maps to with different rates — rename one so they don't collide under normalizeCostKey`,
+        `already maps to with different rates; rename one so they don't collide under normalizeCostKey`,
       )
     }
     map.set(key, rates)

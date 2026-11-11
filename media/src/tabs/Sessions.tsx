@@ -49,8 +49,8 @@ type Section = 'overview' | 'waterfall' | 'files' | 'flow' | 'tools'
 // heading), then what it means, then (where available) the specific per-session reason.
 export const OUTCOME_META: Partial<Record<FileOutcome, { icon: string; letter: string; color: string; label: string; description: string }>> = {
   merged:    { icon: '✓', letter: 'M', color: 'var(--tr-merged)', label: 'Merged',    description: "Changed files are committed and match the tip of this repo's trunk branch (main/master), per git history." },
-  committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed', description: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch) — or no trunk branch could be resolved locally." },
-  abandoned: { icon: '◑', letter: 'U', color: 'var(--vscode-editorWarning-foreground, #f6a623)', label: 'Uncommitted', description: "Changed files haven't been committed yet — not necessarily abandoned, may still be in progress." },
+  committed: { icon: '●', letter: 'C', color: 'var(--accent)',    label: 'Committed', description: "Changed files are committed, but haven't reached the trunk branch yet (e.g. still on a feature branch), or no trunk branch could be resolved locally." },
+  abandoned: { icon: '◑', letter: 'U', color: 'var(--vscode-editorWarning-foreground, #f6a623)', label: 'Uncommitted', description: "Changed files haven't been committed yet (not necessarily abandoned, may still be in progress)." },
 }
 
 // Small one-letter badge for the session's overall git outcome — same visual language as the
@@ -266,12 +266,12 @@ function sessionLanguageText(sess: SessionSummaryCard): string {
 }
 
 function sessionLanguageTitle(sess: SessionSummaryCard): string {
-  if (!sess.language) return 'Language not recorded — this trace was stored before language tracking'
+  if (!sess.language) return 'Language not recorded: this trace was stored before language tracking'
   if (sess.language === 'none') return 'No code: files were touched, but none of a recognised kind'
   if (sess.language === 'no_files') return 'No files: no file was read or changed (Codex and Copilot Chat logs record none)'
   if (isNonCodeCategory(sess.language)) {
     const kinds = sess.languageSecondary ? `${languageLabel(sess.language)} and ${languageLabel(sess.languageSecondary)}` : languageLabel(sess.language)
-    return `No code — only ${kinds} files were read or changed`
+    return `No code: only ${kinds} files were read or changed`
   }
   return sess.languageSecondary
     ? `Primary: ${languageLabel(sess.language)} · Secondary: ${languageLabel(sess.languageSecondary)}`
@@ -301,7 +301,7 @@ function SessionChanges({ sess }: { sess: SessionSummaryCard }) {
 }
 
 function sessionChangesTitle(sess: SessionSummaryCard): string {
-  if (sess.filesChangedCount === undefined) return 'Not recorded — this trace was stored before change-size tracking'
+  if (sess.filesChangedCount === undefined) return 'Not recorded: this trace was stored before change-size tracking'
   if (sess.filesChangedCount === 0 && !sess.linesAdded && !sess.linesRemoved) return 'No files changed'
   const files = `${sess.filesChangedCount.toLocaleString('en-US')} file${sess.filesChangedCount === 1 ? '' : 's'} changed`
   return sess.linesAdded !== undefined && sess.linesRemoved !== undefined
@@ -538,8 +538,8 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               if (isCopilot && sess.outputTokens === 0 && sess.turns > 0) {
                 return (
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorWarning-foreground,#cca700);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
-                    <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only trace — no token data</span>
-                    {' — '}
+                    <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only trace: no token data</span>
+                    {'. '}
                     VS Code Copilot Chat did not record token counts in this era. Token counts and cost estimates are unavailable and cannot be recovered.
                   </div>
                 )
@@ -548,7 +548,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                 return (
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
                     <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">OpenCode SQLite trace</span>
-                    {' — '}
+                    {'. '}
                     Token counts, tools, and files sourced from OpenCode&apos;s local database. OTel traces and TTFT are not available for OpenCode.
                   </div>
                 )
@@ -561,7 +561,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                 return (
                   <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorInfo-foreground,#4fc3f7);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
                     <span style="color:var(--vscode-editorInfo-foreground,#4fc3f7);font-weight:600">Cursor CLI trace</span>
-                    {' — '}
+                    {'. '}
                     Token counts, cost, and model name aren&apos;t recorded anywhere on disk by cursor-agent, so they show as unpriced/unknown here rather than a guess. Session start/end times fall back to the transcript file&apos;s own timestamps. There is no OTel path for Cursor CLI to enable instead.
                   </div>
                 )
@@ -573,7 +573,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
               return (
                 <div style="margin-bottom:10px;padding:7px 10px;border-radius:4px;border-left:3px solid var(--vscode-editorWarning-foreground,#cca700);background:var(--hover);font-size:11px;color:var(--muted);line-height:1.5">
                   <span style="color:var(--vscode-editorWarning-foreground,#cca700);font-weight:600">Log-only trace</span>
-                  {' — '}
+                  {': '}
                   {parts.join(', ')} not available from local logs.{' '}
                   <button type="button" class="link-btn" onClick={() => goToHelp('help-config')}>
                     Enable OTel ingestion
@@ -721,7 +721,7 @@ function SessionDetail({ sess }: { sess: SessionSummaryCard }) {
                     const avg = avgEditsPerFile(sess.oneShotStats)
                     return (
                       <div
-                        data-tip="Counts edit passes per file — a file edited once is 'one-shot', edited again is a retry. This is a proxy for correction effort, not a signal that the code actually worked."
+                        data-tip="Counts edit passes per file: a file edited once is 'one-shot', edited again is a retry. This is a proxy for correction effort, not a signal that the code actually worked."
                         style="display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:2px;font-size:11px;color:var(--muted);cursor:help"
                       >
                         <span>
@@ -851,7 +851,7 @@ function WaterfallEvidenceBar({ evidence, focused, cursor, stepNumber, onFocus, 
           <div class="wf-ev-banner" style={'--ev-color:' + focused.color}>
             <div class="wf-ev-banner-text">
               <b>{focused.name}</b>
-              {focused.ins.trigger && <> — {focused.ins.trigger}</>}
+              {focused.ins.trigger && <>: {focused.ins.trigger}</>}
               {rangeFrom !== undefined && rangeTo !== undefined && focused.range && (
                 <> Steps {rangeFrom}–{rangeTo} are {focused.ins.range?.note} (shaded).</>
               )}
@@ -999,10 +999,10 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
               type="button"
               class="conv-marker"
               aria-pressed={isIsolatedToThisGroup}
-              aria-label={`Part ${conversation.index} of ${conversation.total} of the same conversation — show just this conversation`}
+              aria-label={`Part ${conversation.index} of ${conversation.total} of the same conversation. Show just this conversation`}
               title={isIsolatedToThisGroup
-                ? `Part ${conversation.index} of ${conversation.total} — showing just this conversation. Click again to clear.`
-                : `Part ${conversation.index} of ${conversation.total} of the same conversation — split into separate rows by a long gap. Click to show just this conversation.`}
+                ? `Part ${conversation.index} of ${conversation.total}, showing just this conversation. Click again to clear.`
+                : `Part ${conversation.index} of ${conversation.total} of the same conversation, split into separate rows by a long gap. Click to show just this conversation.`}
               onClick={(e: MouseEvent) => {
                 e.stopPropagation()
                 if (isIsolatedToThisGroup) {
@@ -1130,8 +1130,8 @@ function SessionRow({ sess, showWorkspace, showOutcome, showLimit, conversation 
             ? <span style="color:var(--fg)">{fmtUsd(cost.totalUsd)}</span>
             : (() => {
                 const why = cost.modelUnknown
-                  ? `Couldn't be priced — ${sess.model ? `no rates for ${sess.model} in the pricing table` : 'the model wasn\'t recorded'}`
-                  : 'No cost — this trace recorded no billable tokens'
+                  ? `Couldn't be priced: ${sess.model ? `no rates for ${sess.model} in the pricing table` : 'the model wasn\'t recorded'}`
+                  : 'No cost: this trace recorded no billable tokens'
                 return <span style="color:var(--muted)" title={why} aria-label={why} tabIndex={0}>—</span>
               })()
           }
@@ -1226,14 +1226,14 @@ export function Sessions() {
             <th style="width:5px;padding:0" tabIndex={0} aria-label="Conversation marker" title={`<b>Conversation marker</b>\nA colored bar marks traces that are really one conversation split into multiple rows by a long gap between them.`} data-tip-html />
             <th style="width:16px;padding:3px 2px 3px 4px" />
             <th scope="col" aria-sort={sortKey === 'start_time' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
-              <button class="sort-button" onClick={() => onSortClick('start_time')} title={`<b>Agent / Start / Source / From</b>\nSorted by start time only — Agent/Source/From aren't part of the sort`} data-tip-html>
+              <button class="sort-button" onClick={() => onSortClick('start_time')} title={`<b>Agent / Start / Source / From</b>\nSorted by start time only; Agent/Source/From aren't part of the sort`} data-tip-html>
                 Agent / <strong style="font-weight:800">Start</strong> / Source / From{sortArrow('start_time')}
               </button>
             </th>
             <th scope="col" aria-sort={sortKey === 'model' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={'text-align:left;' + thSort}>
               <button class="sort-button" onClick={() => onSortClick('model')}>Model{sortArrow('model')}</button>
             </th>
-            {sortHeader('language', 'Lang', 'left', '<b>Language</b>\nMost common code language among the files the agent read or changed (README/config/lockfiles excluded), abbreviated (TS, Py, C++…) — hover a cell for the full name. "+1" means a second language was touched too — hover it for both. "—" means a trace stored before language tracking.')}
+            {sortHeader('language', 'Lang', 'left', '<b>Language</b>\nMost common code language among the files the agent read or changed (README/config/lockfiles excluded), abbreviated (TS, Py, C++…); hover a cell for the full name. "+1" means a second language was touched too; hover it for both. "—" means a trace stored before language tracking.')}
             {sortHeader('lines', 'Changes', 'left', '<b>Changes</b>\nFiles the agent edited or wrote, and lines its own edit/write tool calls added (+) and removed (−). Agent-authored edits, not git commit stats. Lines show "+? −?" (unknown, not zero) when the agent\'s logs don\'t record edit contents.')}
             {sortHeader('prompt', 'Prompt (ID)')}
             {showWorkspace && (
@@ -1247,7 +1247,7 @@ export function Sessions() {
               </th>
             )}
             <th scope="col" aria-sort={sortKey === 'signals' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} style={thSort + ';text-align:left;color:var(--fg);padding-left:0'}>
-              <button class="sort-button" onClick={() => onSortClick('signals')} title={`<b>Signals</b>\nBehavioral signals detected during the trace — context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives — review before acting on them.`} data-tip-html>Signals{sortArrow('signals')}</button>
+              <button class="sort-button" onClick={() => onSortClick('signals')} title={`<b>Signals</b>\nBehavioral signals detected during the trace: context flooding, retry loops, runaway cost, and similar patterns Advisor also flags. Based on general heuristics and may include false positives. Review before acting on them.`} data-tip-html>Signals{sortArrow('signals')}</button>
             </th>
             {sortHeader('turns', 'Turns')}
             {sortHeader('duration_ms', 'Duration')}

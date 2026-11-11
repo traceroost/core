@@ -91,14 +91,14 @@ export async function tourSectionRail(
   const nav = page.locator(`${rail.contentSel} nav[aria-label="${rail.railLabel}"]`).first()
   const visible = await nav.isVisible().catch(() => false)
   if (!visible) {
-    log(`  ! ${rail.railLabel}: jump rail not visible — every section below the fold SKIPPED`)
+    log(`  ! ${rail.railLabel}: jump rail not visible; every section below the fold SKIPPED`)
     return
   }
 
   const buttons = nav.getByRole('button')
   const count = await buttons.count().catch(() => 0)
   if (count === 0) {
-    log(`  ! ${rail.railLabel}: rail has no buttons — sections SKIPPED`)
+    log(`  ! ${rail.railLabel}: rail has no buttons; sections SKIPPED`)
     return
   }
 
@@ -108,7 +108,7 @@ export async function tourSectionRail(
     const ms = rail.pauseMs[label] ?? rail.defaultMs
     const clicked = await btn.click({ timeout: 5000 }).then(() => true).catch(() => false)
     if (!clicked) {
-      log(`  ! ${rail.railLabel}: "${label}" would not click — section SKIPPED`)
+      log(`  ! ${rail.railLabel}: "${label}" would not click; section SKIPPED`)
       continue
     }
     log(`  → ${label} (${ms / 1000}s)`)
@@ -125,7 +125,7 @@ export async function tourSessionDetail(page: Page, speed: number, log: Logger):
   try {
     await rows.first().waitFor({ state: 'visible', timeout: 15000 })
   } catch {
-    log('  (no sessions rendered yet — skipping session detail walkthrough)')
+    log('  (no sessions rendered yet, skipping session detail walkthrough)')
     return
   }
 
@@ -157,7 +157,7 @@ export async function tourSessionDetail(page: Page, speed: number, log: Logger):
     const tab = detail.getByRole('tab', { name })
     const visible = await tab.first().isVisible().catch(() => false)
     if (!visible) {
-      log(`  ! session detail: ${label} not found — section SKIPPED (check its role/name)`)
+      log(`  ! session detail: ${label} not found; section SKIPPED (check its role/name)`)
       continue
     }
     await tab.first().click()
@@ -178,7 +178,7 @@ export async function tourAlertsPanel(page: Page, speed: number, log: Logger): P
   const visible = await bell.isVisible().catch(() => false)
   if (!visible) return
 
-  log('  → Alerts panel (Active, Configure, Automation — 3s)')
+  log('  → Alerts panel (Active, Configure, Automation: 3s)')
   await bell.click()
   const panel = page.getByRole('dialog', { name: 'Alerts' })
   await page.waitForTimeout(1000 / speed)
@@ -204,11 +204,11 @@ export async function tourExportDrawer(page: Page, speed: number, log: Logger): 
   const btn = page.getByRole('button', { name: /^Export…$/ })
   const visible = await btn.first().isVisible().catch(() => false)
   if (!visible) {
-    log('  ! Export… button not visible — export drawer SKIPPED')
+    log('  ! Export… button not visible; export drawer SKIPPED')
     return
   }
 
-  log('  → Export drawer (scope, Redacted / Full — 3s)')
+  log('  → Export drawer (scope, Redacted / Full: 3s)')
   await btn.first().click()
   const drawer = page.getByRole('dialog', { name: 'Export traces' })
   const opened = await drawer
@@ -219,7 +219,7 @@ export async function tourExportDrawer(page: Page, speed: number, log: Logger): 
   // this stop first went wrong, and it looked like a clean run in the log. Say so instead.
   if (!opened) {
     const expanded = await btn.first().getAttribute('aria-expanded').catch(() => null)
-    log(`  ! Export drawer never became visible (button aria-expanded=${expanded}) — stop is DEAD AIR`)
+    log(`  ! Export drawer never became visible (button aria-expanded=${expanded}) ; stop is DEAD AIR`)
   }
   await page.waitForTimeout(3000 / speed)
   await page.keyboard.press('Escape')

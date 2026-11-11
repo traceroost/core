@@ -79,7 +79,7 @@ function claimSingleInstance(): boolean {
   if (!app.requestSingleInstanceLock()) {
     // Said on stderr: the desktop log is not open yet, and a launch that ends here otherwise leaves
     // no trace of why.
-    if (!isQuitRequest(process.argv)) console.error('[desktop] another TraceRoost is running (or its single-instance lock in userData could not be taken) — handing over to it')
+    if (!isQuitRequest(process.argv)) console.error('[desktop] another TraceRoost is running (or its single-instance lock in userData could not be taken); handing over to it')
     app.exit(0)
     return false
   }
@@ -215,7 +215,7 @@ function refreshTray(): void {
 
 function setMode(next: ShellMode): void {
   shellMode = next
-  log.write(`[desktop] mode: ${next.mode} — ${describeMode(next)}`)
+  log.write(`[desktop] mode: ${next.mode} (${describeMode(next)})`)
   refreshTray()
   if (!trayHost.available) actWithoutTray(next)
 }
@@ -291,7 +291,7 @@ async function settleOwnership(): Promise<void> {
     // it, and attach once it holds the dir. See systemdUnit.ts for the table.
     const unit = await readUnitState()
     const decision = decideWhenDirIsFree(unit, { launchedAtLogin, sinceStartMs: Date.now() - startedAt })
-    if (unit) log.write(`[desktop] systemd user unit: load=${unit.load} file=${unit.unitFile} active=${unit.active} — ${decision.action}: ${decision.reason}`)
+    if (unit) log.write(`[desktop] systemd user unit: load=${unit.load} file=${unit.unitFile} active=${unit.active}; ${decision.action}: ${decision.reason}`)
     if (decision.action === 'wait') {
       setMode({ mode: 'wait', detail: decision.reason, retryInMs: 2_000 })
       setTimeout(() => { void settleOwnership() }, 2_000)
@@ -391,7 +391,7 @@ function openWindowFor(uiPort: number): void {
   // a second. Without the window this never fires — the collector then still flushes when this
   // process goes and its owner channel closes, if Windows has not ended it first.
   win.on('session-end', () => {
-    log.write('[desktop] Windows is ending the session — asking the collector to flush now')
+    log.write('[desktop] Windows is ending the session; asking the collector to flush now')
     collector?.requestStopNow()
   })
   if (process.platform === 'darwin') void app.dock?.show()
@@ -406,7 +406,7 @@ function followDashboardPort(uiPort: number): void {
   if (!win || windowOrigin === undefined) return
   const target = dashboardTarget({ uiPort, bindHost: config.bindHost, authToken: config.authToken })
   if (target.origin === windowOrigin) return
-  log.write(`[desktop] the dashboard is on port ${uiPort} now — reloading the window there`)
+  log.write(`[desktop] the dashboard is on port ${uiPort} now; reloading the window there`)
   windowOrigin = target.origin
   void win.loadURL(target.initialUrl)
 }
@@ -447,11 +447,11 @@ async function handleCloseRequested(): Promise<void> {
     // Close-to-menu-bar: collection and the tray stay up.
     win?.hide()
     if (process.platform === 'darwin') app.dock?.hide()
-    log.write('[desktop] window closed — collection continues in the menu bar')
+    log.write('[desktop] window closed; collection continues in the menu bar')
     return
   }
   if (action === 'quit') {
-    log.write('[desktop] window closed with no tray to keep running in, and nothing of ours collecting — quitting')
+    log.write('[desktop] window closed with no tray to keep running in, and nothing of ours collecting; quitting')
     app.quit()
     return
   }
@@ -473,10 +473,10 @@ async function handleCloseRequested(): Promise<void> {
     if (answer.checkboxChecked) prefs.update({ closeWithoutTray: choice })
   }
   if (choice === 'quit') {
-    log.write('[desktop] window closed with no tray — quitting, which stops collection')
+    log.write('[desktop] window closed with no tray; quitting, which stops collection')
     app.quit()
   } else {
-    log.write('[desktop] window closed with no tray — minimised, collection continues')
+    log.write('[desktop] window closed with no tray; minimised, collection continues')
     win?.minimize()
   }
 }
@@ -490,7 +490,7 @@ function currentUiPort(): number | undefined {
 function openDashboard(): void {
   const port = currentUiPort()
   if (port === undefined) {
-    log.write('[desktop] Open Dashboard with nothing serving it — ignored')
+    log.write('[desktop] Open Dashboard with nothing serving it; ignored')
     return
   }
   openWindowFor(port)
@@ -507,7 +507,7 @@ function detectGit(): void {
   execFile('git', ['--version'], { timeout: 5_000 }, err => {
     gitAvailable = !err
     if (!gitAvailable) {
-      log.write('[desktop] git was not found on PATH — traces are still recorded, but commit outcomes are unavailable until Git is installed')
+      log.write('[desktop] git was not found on PATH. Traces are still recorded, but commit outcomes are unavailable until Git is installed')
     }
     refreshTray()
   })
@@ -576,12 +576,12 @@ app.whenReady().then(async () => {
 
   if (isLinux) {
     trayHost = await detectTrayHost(process.env)
-    log.write(`[desktop] tray: ${trayHost.available ? `available (via ${trayHost.via})` : `unavailable — ${trayHost.reason}`}; desktop ${process.env.XDG_CURRENT_DESKTOP ?? 'unknown'}, session ${process.env.XDG_SESSION_TYPE ?? 'unknown'}`)
+    log.write(`[desktop] tray: ${trayHost.available ? `available (via ${trayHost.via})` : `unavailable: ${trayHost.reason}`}; desktop ${process.env.XDG_CURRENT_DESKTOP ?? 'unknown'}, session ${process.env.XDG_SESSION_TYPE ?? 'unknown'}`)
     const startup = decideStartupWindow({ platform: process.platform, launchedAtLogin, trayAvailable: trayHost.available })
     showWindowWhenReady = startup !== 'none'
     startMinimized = startup === 'minimized'
     const repaired = linuxAutostart?.repair()
-    if (repaired) log.write(`[desktop] launch at login pointed at ${repaired.repairedFrom ?? 'an unknown program'} — repointed at this copy`)
+    if (repaired) log.write(`[desktop] launch at login pointed at ${repaired.repairedFrom ?? 'an unknown program'}; repointed at this copy`)
     repairAppImageLauncher()
   }
 
@@ -596,7 +596,7 @@ app.whenReady().then(async () => {
   // data-dir lock's heartbeat can also have lapsed past the remote-stale window if the dir is on
   // network storage). Re-running the handshake is the cheap, correct answer in every case.
   powerMonitor.on('resume', () => {
-    log.write('[desktop] woke from sleep — re-checking the collector')
+    log.write('[desktop] woke from sleep; re-checking the collector')
     if (collectorState().status === 'running' || shellMode.mode === 'attach') {
       void settleOwnership()
     }
@@ -691,7 +691,7 @@ function showAbout(): void {
     `Data directory ${dataDir}`,
     `Mode ${shellMode.mode === 'attach' ? 'attached to a collector this app does not manage' : shellMode.mode === 'own' ? 'running its own collector' : shellMode.mode}`,
     `Collector ${state.status}`,
-    `Git ${gitAvailable ? 'available' : 'not found — commit outcomes unavailable'}`,
+    `Git ${gitAvailable ? 'available' : 'not found, so commit outcomes are unavailable'}`,
     ...(isLinux ? [`Tray ${trayHost.available ? 'available' : `not available (${trayHost.reason})`}`] : []),
   ]
   dialog.showMessageBox({ type: 'info', message: 'TraceRoost', detail: lines.join('\n'), buttons: ['OK'] }).catch(() => { /* dismissed */ })
@@ -787,7 +787,7 @@ async function offerMoveToApplications(): Promise<boolean> {
   })
   if (response !== 0) {
     if (checkboxChecked) prefs.update({ moveToApplications: 'declined' })
-    log.write(`[desktop] running from ${bundlePath} — the user chose not to move it to Applications${checkboxChecked ? ' and not to be asked again' : ''}`)
+    log.write(`[desktop] running from ${bundlePath}; the user chose not to move it to Applications${checkboxChecked ? ' and not to be asked again' : ''}`)
     return false
   }
   try {
@@ -810,7 +810,7 @@ async function moveToApplications(): Promise<boolean> {
       return true
     },
   })
-  if (move()) { log.write(`[desktop] moved ${bundlePath} to Applications — relaunching from there`); return true }
+  if (move()) { log.write(`[desktop] moved ${bundlePath} to Applications; relaunching from there`); return true }
   if (!blockedByRunningCopy) return false
 
   const name = path.basename(bundlePath)
@@ -830,14 +830,14 @@ async function moveToApplications(): Promise<boolean> {
     const deadline = Date.now() + 30_000
     while (running.some(isPidAlive) && Date.now() < deadline) await new Promise(r => setTimeout(r, 250))
     if (running.some(isPidAlive)) {
-      log.write(`[desktop] the running copy (pid ${running.join(', ')}) did not quit within 30s — not moving`)
+      log.write(`[desktop] the running copy (pid ${running.join(', ')}) did not quit within 30s; not moving`)
       dialog.showErrorBox('TraceRoost is still running', 'Quit TraceRoost from its menu bar icon, then open this copy again.')
       return false
     }
     log.write(`[desktop] quit the running copy (pid ${running.join(', ')}) to replace it`)
   }
   blockedByRunningCopy = false
-  if (move()) { log.write(`[desktop] moved ${bundlePath} to Applications — relaunching from there`); return true }
+  if (move()) { log.write(`[desktop] moved ${bundlePath} to Applications; relaunching from there`); return true }
   return false
 }
 
@@ -860,7 +860,7 @@ function runningCopies(bundles: string[]): Promise<number[]> {
 // Apple Event, which Electron already routes through app.quit().)
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
-    log.write(`[desktop] received ${signal} — quitting`)
+    log.write(`[desktop] received ${signal}; quitting`)
     app.quit()
   })
 }
@@ -876,14 +876,14 @@ app.on('before-quit', event => {
   if (!collector?.isOwning()) {
     quitting = true
     log.write(shellMode.mode === 'attach'
-      ? '[desktop] quitting — the attached collector keeps running'
+      ? '[desktop] quitting; the attached collector keeps running'
       : '[desktop] quitting')
     log.close()
     return
   }
   event.preventDefault()
   quitting = true
-  log.write('[desktop] quitting — stopping and flushing the collector first')
+  log.write('[desktop] quitting: stopping and flushing the collector first')
   collector.stop()
     .catch(err => log.write(`[desktop] the collector did not stop cleanly: ${String(err)}`))
     .finally(() => { log.close(); app.quit() })

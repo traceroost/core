@@ -31,17 +31,17 @@ export async function runClusterCli(args: string[]): Promise<number> {
   }
 
   if (!loadCredentials()) {
-    console.log('Not linked to an org — nothing to resolve. Run `traceroost org link` first.')
+    console.log('Not linked to an org, so there is nothing to resolve. Run `traceroost org link` first.')
     return 1
   }
 
   const resolution = await fetchClusterResolution(repo, id)
   if (!resolution) {
-    console.log("Couldn't reach the cloud service to resolve this cluster — check your connection and try again.")
+    console.log("Couldn't reach the cloud service to resolve this cluster. Check your connection and try again.")
     return 1
   }
   if (resolution.sessionIds.length === 0) {
-    console.log('No sessions found for this cluster — it may have aged out or already dissolved.')
+    console.log('No sessions found for this cluster; it may have aged out or already dissolved.')
     return 1
   }
 
@@ -52,7 +52,7 @@ export async function runClusterCli(args: string[]): Promise<number> {
   )
 
   if (matched.length === 0) {
-    console.log(`None of this cluster's ${resolution.sessionIds.length} session(s) are on this machine — try a machine that worked on this repo.`)
+    console.log(`None of this cluster's ${resolution.sessionIds.length} session(s) are on this machine. Try a machine that worked on this repo.`)
     return 1
   }
 

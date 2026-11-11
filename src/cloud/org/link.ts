@@ -62,7 +62,7 @@ export async function refreshOrgNameIfStale(log?: (m: string) => void): Promise<
   const creds = (await freshCredentials()) ?? stale
   const self = await fetchRosterSelf(creds.accessToken, creds.endpoint)
   if (!self?.orgName) {
-    log?.('[TraceRoost] Could not refresh org name (roster fetch failed or returned none) — will retry')
+    log?.('[TraceRoost] Could not refresh org name (roster fetch failed or returned none); will retry')
     return false
   }
   roleCheckedThisProcess = true
@@ -138,7 +138,7 @@ export interface InteractiveLinkOptions {
 
 export async function linkInteractive(opts: InteractiveLinkOptions = {}): Promise<LinkResult> {
   if (loadCredentials()) {
-    throw new Error('this machine is already linked — run `traceroost org leave` first to re-link')
+    throw new Error('this machine is already linked; run `traceroost org leave` first to re-link')
   }
   const pkce = createPkcePair()
   const server = await startCallbackServer({
@@ -158,7 +158,7 @@ export async function linkInteractive(opts: InteractiveLinkOptions = {}): Promis
     const cb = await server.waitForCallback()
     if (!statesMatch(pkce.state, cb.state)) {
       server.finish(false)
-      throw new Error('state mismatch on the OAuth callback — link aborted (possible CSRF)')
+      throw new Error('state mismatch on the OAuth callback; link aborted (possible CSRF)')
     }
     // The browser tab's response is still open at this point (see callbackServer.ts) — finish()
     // only once the exchange below has actually created the install row, so an org_url
@@ -197,7 +197,7 @@ export interface DeviceLinkOptions {
 
 export async function linkViaDevice(opts: DeviceLinkOptions): Promise<LinkResult> {
   if (loadCredentials()) {
-    throw new Error('this machine is already linked — run `traceroost org leave` first to re-link')
+    throw new Error('this machine is already linked; run `traceroost org leave` first to re-link')
   }
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)))
   const start = await startDeviceFlow(hostnameLabel())
@@ -215,7 +215,7 @@ export async function linkViaDevice(opts: DeviceLinkOptions): Promise<LinkResult
     const result = await pollDeviceFlow(start.deviceCode)
     if (result.status === 'authorized') return await persistFromTokens(result.tokens)
     if (result.status === 'denied') throw new Error(result.message ?? 'the link request was denied in the browser')
-    if (result.status === 'expired') throw new Error(blocked ? `the device code expired before the org had a free machine slot — ${blocked}` : 'the device code expired before it was approved')
+    if (result.status === 'expired') throw new Error(blocked ? `the device code expired before the org had a free machine slot: ${blocked}` : 'the device code expired before it was approved')
     if (result.status === 'slow_down') intervalMs += 5_000
     if (result.status === 'blocked') {
       if (result.message !== blocked) opts.onBlocked?.(result.message)

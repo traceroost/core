@@ -84,12 +84,12 @@ function RatesTable({ modelKeys }: { modelKeys: string[] }) {
       </table>
       {anyTiered && (
         <div style="font-size:var(--fs-xs);color:var(--muted);margin:-4px 0 12px">
-          † Tiered — a single call whose prompt (input plus cache reads and writes) is over the model's long-context threshold (100K, 200K or 272K) is billed at a higher rate for all of its tokens, output included. Not broken out in this table; see <code>PRICING_SOURCES.md</code> for the full tier.
+          † Tiered: a single call whose prompt (input plus cache reads and writes) is over the model's long-context threshold (100K, 200K or 272K) is billed at a higher rate for all of its tokens, output included. Not broken out in this table; see <code>PRICING_SOURCES.md</code> for the full tier.
         </div>
       )}
       {anyPromo && (
         <div style="font-size:var(--fs-xs);color:var(--muted);margin:-4px 0 12px">
-          ‡ Promotional pricing — hover the marker for the vendor's own note on the rate and its stated window. Not guaranteed permanent; see <code>PRICING_SOURCES.md</code> for details.
+          ‡ Promotional pricing: hover the marker for the vendor's own note on the rate and its stated window. Not guaranteed permanent; see <code>PRICING_SOURCES.md</code> for details.
         </div>
       )}
     </>
@@ -107,7 +107,7 @@ export function Pricing() {
   return (
     <div id="pricing-content" style="padding:16px;max-width:960px">
       <div style="font-size:11px;background:var(--hover);border:1px solid var(--border);border-left:3px solid var(--warning,#ffb74d);border-radius:4px;padding:8px 10px;margin-bottom:20px;line-height:1.6;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-        <span><strong style="color:var(--fg)">Estimates only</strong> — this is the exact rate table TraceRoost uses to estimate cost, nothing hidden or approximated for display. Actual billing may differ; see each vendor's own invoice.</span>
+        <span><strong style="color:var(--fg)">Estimates only</strong>: this is the exact rate table TraceRoost uses to estimate cost, nothing hidden or approximated for display. Actual billing may differ; see each vendor's own invoice.</span>
         <span style="white-space:nowrap">Rates last updated: {PRICING_LAST_UPDATED}</span>
       </div>
 
@@ -115,7 +115,7 @@ export function Pricing() {
         <div style="font-size:11px;color:var(--muted);margin:-12px 0 20px">
           {overrideCount} model{overrideCount === 1 ? '' : 's'} below {overrideCount === 1 ? 'is' : 'are'} priced from{' '}
           <strong style="color:var(--fg)">{displayOrgName(st)}</strong>'s own rate table at{' '}
-          <code>{hostLabel(st.endpoint)}</code>, ahead of the local table — see the Source column.
+          <code>{hostLabel(st.endpoint)}</code>, ahead of the local table. See the Source column.
         </div>
       )}
 
@@ -138,7 +138,7 @@ export function Pricing() {
           <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px">
             <h3 style="font-size:13px;margin:0;color:var(--fg)">Uncategorized</h3>
             <span style="font-size:var(--fs-xs);color:var(--muted)">
-              Added to <code>RATES</code> but not yet assigned to a section above — nothing is hidden, this just needs sorting into a vendor group.
+              Added to <code>RATES</code> but not yet assigned to a section above. Nothing is hidden; this just needs sorting into a vendor group.
             </span>
           </div>
           <RatesTable modelKeys={unassignedKeys} />

@@ -88,7 +88,7 @@ const UPLOAD   = !DRY_RUN && !hasFlag('no-upload')
 const GITHUB_IMAGE_LIMIT_BYTES = 5 * 1024 * 1024
 const MAX_BYTES = (parseFloat(flag('max-mb', '4.9')) || 4.9) * 1024 * 1024
 if (MAX_BYTES > GITHUB_IMAGE_LIMIT_BYTES) {
-  err(`--max-mb is over GitHub's 5 MB image limit — the README GIF won't display on github.com`)
+  err(`--max-mb is over GitHub's 5 MB image limit, so the README GIF won't display on github.com`)
 }
 
 // Distinct from the default 4315/4318 on purpose — a real `pnpm run local` instance can
@@ -138,7 +138,7 @@ function staticStackOutput(key: string): string {
   const r = spawnSync('pulumi', ['stack', 'output', key, '--stack', STATIC_STACK], { encoding: 'utf8' })
   const value = r.stdout?.trim()
   if (r.status !== 0 || !value) {
-    throw new Error(`could not read "${key}" from Pulumi stack ${STATIC_STACK} — has \`pulumi up --stack prod\` been run in traceroost/static/infra?\n${r.stderr ?? ''}`)
+    throw new Error(`could not read "${key}" from Pulumi stack ${STATIC_STACK}. Has \`pulumi up --stack prod\` been run in traceroost/static/infra?\n${r.stderr ?? ''}`)
   }
   return value
 }
@@ -168,7 +168,7 @@ function encodeGif(videoPath: string, scratchRoot: string, decimate: string): st
   const lossy = spawnSync('npx', ['--yes', 'gifsicle@7', '-O3', '--lossy=20', '-o', lossyPath, gifPath],
     { stdio: 'ignore', shell: process.platform === 'win32' })
   if (lossy.status === 0 && fs.existsSync(lossyPath) && fs.statSync(lossyPath).size < fs.statSync(gifPath).size) return lossyPath
-  log('gifsicle unavailable — keeping the ffmpeg GIF uncompressed')
+  log('gifsicle unavailable; keeping the ffmpeg GIF uncompressed')
   return gifPath
 }
 
@@ -188,7 +188,7 @@ function upload(file: string, bucket: string, baseUrl: string): string {
   ], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
   if (put.status !== 0) {
     if (!put.stderr.includes('PreconditionFailed')) throw new Error(`aws s3api put-object failed:\n${put.stderr}`)
-    log(`${key} is already published — identical content.`)
+    log(`${key} is already published with identical content.`)
   }
   return `${baseUrl}/${key}`
 }
@@ -196,11 +196,11 @@ function upload(file: string, bucket: string, baseUrl: string): string {
 function pointReadmeAt(url: string): void {
   const readme = fs.readFileSync(README, 'utf8')
   if (!README_GIF_URL.test(readme)) {
-    err(`README.md has no static.traceroost.com demo GIF link to update — add ${url} by hand.`)
+    err(`README.md has no static.traceroost.com demo GIF link to update; add ${url} by hand.`)
     return
   }
   fs.writeFileSync(README, readme.replace(README_GIF_URL, url))
-  log(`Pointed README.md at ${url} — commit it to publish the new GIF.`)
+  log(`Pointed README.md at ${url}. Commit it to publish the new GIF.`)
 }
 
 function checkServer(port: number): Promise<boolean> {
@@ -247,7 +247,7 @@ async function main() {
   }
 
   if (!DRY_RUN && !haveFfmpeg()) {
-    err('ffmpeg is not on PATH — required to convert the recorded video to a GIF.')
+    err('ffmpeg is not on PATH. It is required to convert the recorded video to a GIF.')
     err('  macOS:   brew install ffmpeg')
     err('  Debian/Ubuntu: sudo apt install ffmpeg')
     err('Or pass --dry-run to run the tour without recording (for tuning pause lengths).')
@@ -261,7 +261,7 @@ async function main() {
   if (UPLOAD) {
     for (const cmd of ['aws', 'pulumi']) {
       if (!haveCommand(cmd)) {
-        err(`${cmd} is not on PATH — required to upload the GIF. Pass --no-upload to only write it locally.`)
+        err(`${cmd} is not on PATH. It is required to upload the GIF. Pass --no-upload to only write it locally.`)
         process.exit(1)
       }
     }
@@ -303,9 +303,9 @@ async function main() {
       cwd: path.join(__dirname, '..'),
       stdio: 'inherit',
     })
-    if (build.status !== 0) throw new Error('esbuild failed — see output above')
+    if (build.status !== 0) throw new Error('esbuild failed; see output above')
 
-    log(`Starting standalone server on port ${UI_PORT} (OTLP ${OTLP_PORT}) — scratch HOME, auto-configure disabled…`)
+    log(`Starting standalone server on port ${UI_PORT} (OTLP ${OTLP_PORT}): scratch HOME, auto-configure disabled…`)
     serverProc = spawn(process.execPath, [path.join(__dirname, '..', 'standalone', 'server.js')], {
       cwd: path.join(__dirname, '..'),
       env: {
@@ -383,7 +383,7 @@ async function main() {
     const replayDone = new Promise<void>((resolve, reject) => {
       replayProc!.on('error', reject)
       replayProc!.on('exit', code => (code === 0 || code === null) ? resolve() : reject(new Error(`replay exited with code ${code}`)))
-    }).catch(e => log(`(replay reported: ${e.message} — continuing; the tour already captured what landed)`))
+    }).catch(e => log(`(replay reported: ${e.message}; continuing, since the tour already captured what landed)`))
 
     await runTour(page, { speed: SPEED, log })
 
@@ -407,11 +407,11 @@ async function main() {
     await replayDone
 
     if (DRY_RUN) {
-      log('Dry run complete — no video recorded, no GIF written.')
+      log('Dry run complete: no video recorded, no GIF written.')
       return
     }
     if (!videoPath || !fs.existsSync(videoPath)) {
-      throw new Error('recording finished but no video file was found — Playwright recordVideo may have changed shape')
+      throw new Error('recording finished but no video file was found; Playwright recordVideo may have changed shape')
     }
 
     let scratchGif: string | undefined
@@ -420,10 +420,10 @@ async function main() {
       const gif = encodeGif(videoPath, scratchRoot, decimate)
       const mb = (fs.statSync(gif).size / 1024 / 1024).toFixed(2)
       if (fs.statSync(gif).size <= MAX_BYTES) { scratchGif = gif; break }
-      log(`${mb} MB is over the ${MAX_BYTES / 1024 / 1024} MB budget${i < DECIMATE_LADDER.length - 1 ? ' — dropping more near-duplicate frames' : ''}.`)
+      log(`${mb} MB is over the ${MAX_BYTES / 1024 / 1024} MB budget${i < DECIMATE_LADDER.length - 1 ? '; dropping more near-duplicate frames' : ''}.`)
     }
     if (!scratchGif) {
-      throw new Error(`could not get the GIF under ${MAX_BYTES / 1024 / 1024} MB — try a higher --speed, a lower --fps, or a larger --max-mb`)
+      throw new Error(`could not get the GIF under ${MAX_BYTES / 1024 / 1024} MB; try a higher --speed, a lower --fps, or a larger --max-mb`)
     }
 
     fs.mkdirSync(path.dirname(OUT), { recursive: true })

@@ -87,7 +87,7 @@ export function startLinkWatcher(opts: LinkWatcherOptions): LinkWatcher {
         return
       }
       seenKey = key
-      opts.log?.('[TraceRoost] This machine was linked outside this process — queuing traces not yet sent')
+      opts.log?.('[TraceRoost] This machine was linked outside this process; queuing traces not yet sent')
       await queueUnsentSessions(opts.allLocalSessions(), opts.log)
       drainForwardQueueSoon()
     } catch (err) {

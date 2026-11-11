@@ -43,7 +43,7 @@ function selectSessions(all: SessionSummaryCard[], opts: ExplainOptions): Sessio
 /** One line naming the per-session fields that are easiest to misread as content. */
 export const SESSION_FIELD_NOTE =
   'language / language_secondary are fixed ids from a 14-value list (derived locally from file extensions); ' +
-  'files_changed / lines_added / lines_removed are counts only — no paths, no file content, and not git stats; ' +
+  'files_changed / lines_added / lines_removed are counts only: no paths, no file content, and not git stats; ' +
   'host_id is a random id generated once for this host\'s own store, never derived from the machine.'
 
 /**
@@ -61,7 +61,7 @@ export async function explainSessionBlocks(cards: SessionSummaryCard[]): Promise
   for (const card of cards) {
     const built = await buildPayloadForCard(card, cache)
     const note = built.ungroupedReason
-      ? `# ${card.sessionId}: no repository grouping — ${built.ungroupedReason} (sent without repo_hash / branch_hash, never as a fake hash)\n`
+      ? `# ${card.sessionId}: no repository grouping (${built.ungroupedReason}; sent without repo_hash / branch_hash, never as a fake hash)\n`
       : ''
     blocks.push(note + stableStringify(built.payload))
   }
@@ -81,7 +81,7 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
   if (opts.all) {
     const queued = new ForwardQueue().list()
     if (queued.length > 0) {
-      console.log(`# --explain-payload --all — ${queued.length} trace(s) currently queued for the next send.`)
+      console.log(`# --explain-payload --all: ${queued.length} trace(s) currently queued for the next send.`)
       console.log('# Sent:       ' + SENT.join('; '))
       console.log('# Never sent: ' + NEVER_SENT.join('; '))
       console.log('')
@@ -107,8 +107,8 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
   }
 
   console.log(opts.dryRun
-    ? '# --dry-run — this is what a forward would send for this session. Nothing is queued.'
-    : '# --explain-payload — the exact bytes a forward sends. Run a packet capture and compare.')
+    ? '# --dry-run: this is what a forward would send for this session. Nothing is queued.'
+    : '# --explain-payload: the exact bytes a forward sends. Run a packet capture and compare.')
   if (!creds) console.log('# This machine is NOT linked. Nothing is being sent. Hashes below use a placeholder org salt.')
   console.log('#')
   console.log('# Sent:       ' + SENT.join('; '))
@@ -128,10 +128,10 @@ export async function runExplainPayload(opts: ExplainOptions): Promise<number> {
     countTraces: (fromMs, toMs) => countTracesInWindow(all, fromMs, toMs),
   }, hostId)
   if (chunk) {
-    console.log('# Trace manifest (POST /api/ingest/manifest) — the newest day\'s chunk as it would be sent now.')
+    console.log('# Trace manifest (POST /api/ingest/manifest): the newest day\'s chunk as it would be sent now.')
     console.log('# One chunk per UTC day of the settled window: the trace keys this machine still holds (the same')
     console.log('# session_id values above), so the cloud can retire traces it holds from this server that no')
-    console.log('# longer exist here. Only window bounds and opaque UUIDs — nothing else. host_id is a random id')
+    console.log('# longer exist here. Only window bounds and opaque UUIDs, nothing else. host_id is a random id')
     console.log('# generated once for this server\'s data dir (the editor extension has its own), so a manifest')
     console.log('# never retires a trace only the other one saw.')
     console.log(creds ? '# Sent by the forwarding timer.' : '# Not sent: this machine is not linked.')

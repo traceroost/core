@@ -99,7 +99,7 @@ export function readServiceConfig(baseHome?: string, log?: (msg: string) => void
     // every agent and bookmarked dashboard URL configured for a non-loopback (Docker/LAN) bind still
     // carries — the moment ensureAuthToken mints a new one. Keep the evidence aside and start from defaults.
     const aside = quarantineCorruptFile(configPath)
-    log?.(`[TraceRoost] ${configPath} could not be parsed${aside ? ` — moved it to ${aside}` : ''}; using default settings (a new access token will be generated).`)
+    log?.(`[TraceRoost] ${configPath} could not be parsed${aside ? ` (moved it to ${aside})` : ''}; using default settings (a new access token will be generated).`)
     return defaults
   }
 }
@@ -366,7 +366,7 @@ export function npmInvocation(args: string[], platform: NodeJS.Platform = proces
 export function describeNpmFailure(err: unknown): string {
   const e = (err ?? {}) as { code?: string; status?: number; message?: string }
   if (e.code === 'ENOENT') { return 'npm was not found on your PATH' }
-  if (typeof e.status === 'number') { return `npm exited with code ${e.status} — see its output above` }
+  if (typeof e.status === 'number') { return `npm exited with code ${e.status}; see its output above` }
   if (e.code) { return `npm could not be run (${e.code})` }
   return e.message ? e.message.split('\n')[0] : 'unknown error'
 }
@@ -392,7 +392,7 @@ export function describeServiceManagerFailure(err: unknown, tool = 'the service 
 export function couldNotDownloadMessage(reason: string, fallbackVersion: string | undefined, packageName = 'traceroost'): string {
   const head = `[TraceRoost] Couldn't download the latest ${packageName} from npm: ${reason}.`
   const tail = fallbackVersion
-    ? `Keeping the version already installed (v${fallbackVersion}) — run \`traceroost service update\` later to retry.`
+    ? `Keeping the version already installed (v${fallbackVersion}). Run \`traceroost service update\` later to retry.`
     : 'Nothing is installed to fall back on.'
   return `${head}\n[TraceRoost] ${tail}`
 }

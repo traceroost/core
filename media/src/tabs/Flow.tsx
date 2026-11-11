@@ -705,7 +705,7 @@ export function Flow() {
   const selectedIdx = focusedIdx >= 0 ? focusedIdx : manualIdx
 
   if (sessions.length === 0) {
-    return <div id="flow-content"><div class="empty-state">No agent traces recorded — start a Copilot, Claude, Codex, OpenCode, or Cursor run</div></div>
+    return <div id="flow-content"><div class="empty-state">No agent traces recorded. Start a Copilot, Claude, Codex, OpenCode, or Cursor run</div></div>
   }
 
   const allSessions = sessions.map(sess => {
@@ -773,7 +773,7 @@ export function Flow() {
               })}
               {filteredForSearch.length > 30 && (
                 <div style="padding:4px 8px;font-size:var(--fs-xs);color:var(--vscode-descriptionForeground,#888)">
-                  {filteredForSearch.length - 30} more — refine search
+                  {filteredForSearch.length - 30} more; refine search
                 </div>
               )}
             </div>
