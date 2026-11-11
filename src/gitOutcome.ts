@@ -451,8 +451,14 @@ async function classifyFile(root: string, relPath: string, trunkRef: string | nu
   return trunkContent === after ? 'merged' : 'committed'
 }
 
-// Worst-first: one abandoned file drags the whole session down even if everything else merged.
-const OUTCOME_PRIORITY: FileOutcome[] = ['abandoned', 'ambiguous', 'committed', 'merged']
+// Worst-first among the files git can actually speak for: one abandoned file drags the whole
+// session down even if everything else merged. 'ambiguous' comes last, so it is the overall
+// verdict only when no file has a real one. A file with no verdict is almost always one the
+// session created and then removed (a scratch script, a renamed or later-deleted file), which
+// says nothing about where the rest of the work ended up; ranked above committed/merged, a single
+// such file turned an otherwise merged session into "no outcome" (about 60% of ambiguous
+// sessions in real data had merged or committed files alongside the missing one).
+const OUTCOME_PRIORITY: FileOutcome[] = ['abandoned', 'committed', 'merged', 'ambiguous']
 
 function trunkDisplayName(trunkRef: string | null): string {
   if (!trunkRef) return 'the trunk branch'
@@ -466,7 +472,9 @@ function summarize(overall: FileOutcome, files: Record<string, FileOutcome>, tru
   switch (overall) {
     case 'abandoned':  return `${count}/${total} file(s) changed but not yet committed to git`
     case 'committed':  return `${count}/${total} file(s) committed, but not yet merged into ${trunk}`
-    case 'merged':     return `${total} file(s) committed and merged into ${trunk}`
+    case 'merged':     return count === total
+      ? `${total} file(s) committed and merged into ${trunk}`
+      : `${count}/${total} file(s) committed and merged into ${trunk}; the rest are no longer in the repo`
     default:           return `Could not determine git status for ${count}/${total} file(s)`
   }
 }
