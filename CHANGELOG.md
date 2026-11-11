@@ -4,6 +4,12 @@ All notable changes to TraceRoost (formerly AgentLens) are documented here.
 
 ## [Unreleased]
 
+### TraceRoost Cloud (full edition only)
+
+- **Open Team View opens the Team view**: the Org panel's button used to open the org's home page, which lands on Traces (or on the invite step for a one-person org). It now opens the Team tab directly
+
+---
+
 ## [1.0.3] (2026-11-10)
 
 ### TraceRoost Cloud (full edition only)

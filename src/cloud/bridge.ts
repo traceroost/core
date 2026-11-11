@@ -36,11 +36,12 @@ export const cloudBridge: CloudBridge = {
   link: (opts) => linkInteractive(opts),
   leave: () => leave(),
   orgViewUrl: () => {
-    // Deep-links straight into the org's own dashboard, not the bare marketing root — `[org]`'s
-    // route in `cloud` accepts either a slug or a raw org id (see currentOrg() there), so this
-    // works even though only the id, never a slug, is ever stored locally.
+    // Deep-links straight to the org's Team tab, not the bare marketing root or the org root
+    // (which lands on Traces, or on an onboarding step): the button says "Open Team View". The
+    // `[org]` segment accepts either a slug or a raw org id, so this works even though only the
+    // id, never a slug, is ever stored locally.
     const creds = loadCredentials()
-    return creds ? `${creds.endpoint}/${creds.orgId}` : orgEndpoint()
+    return creds ? `${creds.endpoint}/${creds.orgId}/team` : orgEndpoint()
   },
 
   setHostStore,
